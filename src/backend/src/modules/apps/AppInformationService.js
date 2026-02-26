@@ -31,16 +31,13 @@ const { AppRedisCacheSpace } = require('./AppRedisCacheSpace.js');
 * including caching, statistical data, and tags for applications within the Puter ecosystem.
 * It provides methods for refreshing application data, managing app statistics,
 * and handling tags associated with apps. This service is crucial for maintaining
-* up-to-date information about applications, facilitating features like app listings,
-* recent apps, and tag-based app discovery.
+* up-to-date information about applications, facilitating features like app listings
+* and tag-based app discovery.
 */
 class AppInformationService extends BaseService {
     static LOG_DEBUG = true;
 
     _construct () {
-        this.collections = {};
-        this.collections.recent = [];
-
         this.tags = {};
 
         // MySQL date format mapping for different groupings
@@ -78,7 +75,6 @@ class AppInformationService extends BaseService {
         (async () => {
             try {
                 await this._refresh_app_stats();
-                await this._refresh_recent_cache();
             } catch (e) {
                 console.error('Some app cache portion failed to populate:', e);
             }
@@ -89,13 +85,6 @@ class AppInformationService extends BaseService {
                     console.error('App stats cache failed to update:', e);
                 }
             }, 15.314 * 60 * 1000);
-            setInterval(async () => {
-                try {
-                    await this._refresh_recent_cache();
-                } catch (e) {
-                    console.error('App stats cache failed to update:', e);
-                }
-            }, 4.271 * 60 * 1000);
         })();
     }
 
@@ -678,57 +667,12 @@ class AppInformationService extends BaseService {
     }
 
     /**
-    * Updates the cache with recently updated apps.
-    *
-    * @description This method refreshes the cache containing the most recently updated applications.
-    *              It fetches all app UIDs, retrieves the corresponding app data, filters for approved apps,
-    *              sorts them by timestamp in descending order, and updates the 'recent' collection with
-    *              the UIDs of the top 50 most recent apps.
-    *
-    * @returns {Promise<void>} Resolves when the cache has been updated.
-    */
-    async _refresh_recent_cache () {
-        const app_keys = [];
-        let cursor = '0';
-        do {
-            // Use SCAN to avoid KEYS, which is often disabled on managed/serverless Redis.
-            const [next_cursor, keys] = await redisClient.scan(
-                cursor,
-                'MATCH',
-                AppRedisCacheSpace.uidScanPattern(),
-                'COUNT',
-                1000,
-            );
-            cursor = next_cursor;
-            if ( keys && keys.length ) app_keys.push(...keys);
-        } while ( cursor !== '0' );
-
-        const apps = (await Promise.all(app_keys.map(async (key) => {
-            const cached_app = await redisClient.get(key);
-            if ( ! cached_app ) return null;
-            try {
-                return JSON.parse(cached_app);
-            } catch (e) {
-                return null;
-            }
-        }))).filter(Boolean);
-
-        const approved_apps = apps.filter(app => app.approved_for_listing);
-        approved_apps.sort((a, b) => {
-            return b.timestamp - a.timestamp;
-        });
-
-        this.collections.recent = approved_apps.map(app => app.uid).slice(0, 50);
-    }
-
-    /**
     * Deletes an application from the system.
     *
     * This method performs the following actions:
     * - Retrieves the app data from cache or database if not provided.
     * - Deletes the app record from the database.
     * - Removes the app from all relevant caches (by name, id, and uid).
-    * - Removes the app from the recent collection if present.
     * - Removes the app from any associated tags.
     *
     * @param {string} app_uid - The unique identifier of the app to be deleted.
@@ -776,12 +720,6 @@ class AppInformationService extends BaseService {
             .map(ext => AppRedisCacheSpace.associationAppsKey(ext));
         if ( associationKeys.length ) {
             await deleteRedisKeys(associationKeys);
-        }
-
-        // remove from recent
-        const index = this.collections.recent.indexOf(app_uid);
-        if ( index >= 0 ) {
-            this.collections.recent.splice(index, 1);
         }
 
         // remove from tags

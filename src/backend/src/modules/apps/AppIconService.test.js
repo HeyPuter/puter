@@ -16,6 +16,10 @@ describe('AppIconService', () => {
         it('extracts a puter subdomain from a static hosting URL', () => {
             const service = Object.create(AppIconService.prototype);
             const domain = 'site.puter.localhost:4100';
+            config.load_config({
+                static_hosting_domain: domain,
+                static_hosting_domain_alt: 'site.puter.localhost',
+            });
 
             const result = service.extractPuterSubdomainFromUrl(`https://dev-center-app-id.${domain}/icon.png`);
 
