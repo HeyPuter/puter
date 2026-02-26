@@ -1,35 +1,54 @@
 import type { ErrorService } from '@heyputer/backend/src/modules/core/ErrorService';
-import { DDBClient } from '../clients/dynamodb/DDBClient';
+import type { DriverService } from '@heyputer/backend/src/services/drivers/DriverService';
+import type { DynamoKVStore } from '@heyputer/backend/src/services/DynamoKVStore/DynamoKVStore';
+import type { DDBClient } from '../clients/dynamodb/DDBClient';
 import type { ServerHealthService } from '../modules/core/ServerHealthService/ServerHealthService';
-import { GroupService } from './auth/GroupService';
-import { SignupService} from './auth/SignupService';
-import { CleanEmailService } from './CleanEmailService';
-import { SqliteDatabaseAccessService } from './database/SqliteDatabaseAccessService';
-import { EventService } from './EventService';
-import { FeatureFlagService } from './FeatureFlagService';
-import { MeteringServiceWrapper } from './MeteringService/MeteringServiceWrapper.mjs';
+import type { WebServerService } from '../modules/web/WebServerService';
+import type { GroupService } from './auth/GroupService';
+import type { SignupService } from './auth/SignupService';
+import type { CleanEmailService } from './CleanEmailService';
+import type { SqliteDatabaseAccessService } from './database/SqliteDatabaseAccessService';
+import type { IDynamoKVStoreWrapper } from './DynamoKVStore/DynamoKVStoreWrapper';
+import type { Emailservice } from './EmailService';
+import type { EntityStoreService } from './EntityStoreService';
+import type { EventService } from './EventService';
+import type { FeatureFlagService } from './FeatureFlagService';
+import type { GetUserService } from './GetUserService';
+import type { MeteringService } from './MeteringService/MeteringService';
+import type { MeteringServiceWrapper } from './MeteringService/MeteringServiceWrapper.mjs';
 import type { SUService } from './SUService';
-import { UserService } from './UserService';
-import type{ DynamoKVStore } from '@heyputer/backend/src/services/DynamoKVStore/DynamoKVStore';
-import { DriverService } from '@heyputer/backend/src/services/drivers/DriverService';
+import type { UserService } from './UserService';
+
+export interface ServicesMap {
+    su: SUService;
+    user: UserService;
+    'get-user': GetUserService;
+    'web-server': WebServerService;
+    email: Emailservice;
+    'es:app': EntityStoreService;
+    meteringService: MeteringService & MeteringServiceWrapper;
+    'puter-kvstore': DynamoKVStore & IDynamoKVStoreWrapper;
+    database: SqliteDatabaseAccessService;
+    'server-health': ServerHealthService;
+    su: SUService;
+    dynamo: DDBClient;
+    user: UserService;
+    event: EventService;
+    signup: SignupService;
+    group: GroupService;
+    'feature-flag': FeatureFlagService;
+    'clean-email': CleanEmailService;
+    'error-service': ErrorService;
+    driver: DriverService;
+}
 
 export interface ServiceResources {
     services: {
-        get (name: 'meteringService'): MeteringServiceWrapper;
-        get (name: 'puter-kvstore'): DynamoKVStore;
-        get (name: 'database'): SqliteDatabaseAccessService;
-        get (name: 'server-health'): ServerHealthService;
-        get (name: 'su'): SUService;
-        get (name: 'dynamo'): DDBClient;
-        get (name: 'user'): UserService;
-        get (name: 'event'): EventService;
-        get (name: 'signup'): SignupService;
-        get (name: 'group'): GroupService;
-        get (name: 'feature-flag'): FeatureFlagService;
-        get (name: 'clean-email'): CleanEmailService;
-        get (name: 'error-service'): ErrorService;
-        get (name: 'driver'): DriverService;
-        get (name: string): unknown;
+        get<T extends `${keyof ServicesMap}` | (string & {})>(
+            name: T
+        ): T extends `${infer R extends keyof ServicesMap}`
+            ? ServicesMap[R]
+            : unknown;
     };
     config: Record<string, any> & { services?: Record<string, any>; server_id?: string };
     name?: string;
