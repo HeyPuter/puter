@@ -128,6 +128,18 @@ export interface ExtensionEventTypeMap {
         app_uid: string;
         action: 'updated' | 'deleted';
     };
+    'app.privateAccess.check': {
+        appUid: string;
+        userUid?: string | null;
+        requestHost?: string;
+        requestPath?: string;
+        result: {
+            allowed: boolean;
+            redirectUrl?: string;
+            reason?: string;
+            checkedBy?: string;
+        };
+    };
     'ai.prompt.validate': {
         actor: Actor;
         actor,
