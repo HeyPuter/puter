@@ -65,10 +65,8 @@ export const deleteRedisKeys = async (...inputs: (DeleteRedisKeysInput | DeleteR
 
     const uniqueKeys = [...new Set(keys)];
 
-    let deleted = 0;
-    for ( const key of uniqueKeys ) {
-        deleted += await redisClient.del(key);
-    }
+    const deleteResults = await Promise.allSettled(uniqueKeys.map(key => redisClient.del(key)));
+    const deleted = deleteResults.reduce((sum, promiseCount) => sum + (promiseCount.status === 'fulfilled' ? promiseCount.value : 0), 0);
 
     return deleted;
 };
