@@ -71,8 +71,6 @@ export class BroadcastService extends BaseService {
             ? outboundFlushMs
             : 5000;
 
-        this._register_commands(this.services.get('commands'));
-
         const svc_event = this.services.get('event');
         svc_event.on('outer.*', this.outBroadcastEventHandler.bind(this));
     }
