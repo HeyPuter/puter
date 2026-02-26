@@ -16,17 +16,19 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const BaseService = require('./BaseService');
-
-const express = require('express');
-const _path = require('path');
-
+import { static as static_ } from 'express';
+import { join } from 'path';
+import { catchAllRouter } from '../routers/_default.js';
+import { puterSiteMiddleware } from '../routers/hosting/puterSiteMiddleware.js';
+import BaseService from './BaseService.js';
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
 /**
 * Class representing the ServeGUIService, which extends the BaseService.
 * This service is responsible for setting up the GUI-related routes
 * and serving static files for the Puter application.
 */
-class ServeGUIService extends BaseService {
+export class ServeGUIService extends BaseService {
     /**
     * Handles the installation of GUI-related routes for the web server.
     * This method sets up the routing for Puter site domains and other cases,
@@ -39,14 +41,15 @@ class ServeGUIService extends BaseService {
         const { app } = this.services.get('web-server');
 
         // is this a puter.site domain?
-        require('../routers/hosting/puter-site')(app);
+        app.use(puterSiteMiddleware);
 
         // Router for all other cases
-        app.use(require('../routers/_default'));
+        app.use(catchAllRouter);
 
         // Static files
-        app.use(express.static(_path.join(__dirname, '../../public')));
+        const __filename = fileURLToPath(import.meta.url);
+        const __dirname = dirname(__filename);
+
+        app.use(static_(join(__dirname, '../../public')));
     }
 }
-
-module.exports = ServeGUIService;

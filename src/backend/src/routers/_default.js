@@ -496,4 +496,4 @@ router.all('*', async function (req, res, next) {
     }
 });
 
-module.exports = router;
+module.exports.catchAllRouter = router;

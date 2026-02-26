@@ -149,7 +149,7 @@ const install = async ({ context, services, app, useapi, modapi }) => {
     const { ConfigurableCountingService } = require('./services/ConfigurableCountingService');
     const { FSLockService } = require('./services/fs/FSLockService');
     const FilesystemAPIService = require('./services/FilesystemAPIService');
-    const ServeGUIService = require('./services/ServeGUIService');
+    const { ServeGUIService } = require('./services/ServeGUIService');
     const PuterAPIService = require('./services/PuterAPIService');
     const { RefreshAssociationsService } = require('./services/RefreshAssociationsService');
     // Service names beginning with '__' aren't called by other services;
