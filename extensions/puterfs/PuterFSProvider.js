@@ -417,19 +417,14 @@ export default class PuterFSProvider {
         return node;
     }
 
-    async read ({ context, node, version_id, range }) {
-        const svc_mountpoint = context.get('services').get('mountpoint');
-        const storage = svc_mountpoint.get_storage(this.constructor.name);
+    async read ({ node, version_id, range }) {
         const location = await node.get('s3:location') ?? {};
-        const stream = (await storage.create_read_stream(await node.get('uid'), {
-            // TODO: fs:decouple-s3
-            bucket: location.bucket,
-            bucket_region: location.bucket_region,
+        const stream = this.storageController.read({
+            uid: await node.get('uid'),
+            location,
+            range,
             version_id,
-            key: location.key,
-            memory_file: node.entry,
-            ...(range ? { range } : {}),
-        }));
+        });
         return stream;
     }
 
@@ -581,10 +576,7 @@ export default class PuterFSProvider {
                     },
                 });
 
-                // const storage = new PuterS3StorageStrategy({ services: svc });
-                const storage = context.get('storage');
-                const state_copy = storage.create_copy();
-                await state_copy.run({
+                await this.storageController.copy({
                     src_node: source,
                     dst_storage: {
                         key: uuid,
@@ -1079,10 +1071,7 @@ export default class PuterFSProvider {
 
         if ( await node.get('has-s3') ) {
             tasks.add('remove-from-s3', async () => {
-                // const storage = new PuterS3StorageStrategy({ services: svc });
-                const storage = Context.get('storage');
-                const state_delete = storage.create_delete();
-                await state_delete.run({
+                await this.storageController.delete({
                     node: node,
                 });
             });

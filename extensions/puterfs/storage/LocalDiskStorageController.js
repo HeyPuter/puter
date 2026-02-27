@@ -52,11 +52,45 @@ export default class LocalDiskStorageController {
         // @ts-ignore (it's wrong about this)
         await writePromise;
     }
-    copy () {
+    async copy ({ src_node, dst_storage, storage_api }) {
+        const { progress_tracker } = storage_api;
+
+        const src_path = this.#getPath(await src_node.get('uid'));
+        const dst_path = this.#getPath(dst_storage.key);
+
+        await fs.promises.copyFile(src_path, dst_path);
+
+        // for now we just copy the file, we don't care about the progress
+        progress_tracker.set_total(1);
+        progress_tracker.set(1);
     }
-    delete () {
+    async delete ({ node }) {
+        const path = this.#getPath(await node.get('uid'));
+        await fs.promises.unlink(path);
     }
-    read () {
+    async read ({ uid, range }) {
+        const path = this.#getPath(uid);
+
+        // Handle range requests for partial content
+        if ( range ) {
+            const rangeMatch = range.match(/bytes=(\d+)-(\d*)/);
+            if ( rangeMatch ) {
+                const start = parseInt(rangeMatch[1], 10);
+                const endStr = rangeMatch[2];
+
+                const streamOptions = { start };
+
+                // If end is specified, set it (fs.createReadStream end is inclusive)
+                if ( endStr ) {
+                    streamOptions.end = parseInt(endStr, 10);
+                }
+
+                return fs.createReadStream(path, streamOptions);
+            }
+        }
+
+        // Default: create stream for entire file
+        return fs.createReadStream(path);
     }
 
     #getPath (key) {
