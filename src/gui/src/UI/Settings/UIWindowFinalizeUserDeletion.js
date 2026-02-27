@@ -141,7 +141,7 @@ async function UIWindowFinalizeUserDeletion (options) {
 
                 // user must type 'confirm' or the translation of 'confirm' to delete their account
                 if ( confirm !== 'confirm' && confirm !== i18n('confirm').toLowerCase() ) {
-                    showError(i18n('type_confirm_to_delete_account'));
+                    showError(i18n('type_confirm_to_delete_account', [], false));
                     return;
                 }
             } else if ( oidc_only && !revalidated ) {
@@ -188,7 +188,7 @@ async function UIWindowFinalizeUserDeletion (options) {
             } else if ( !window.user.is_temp && !oidc_only ) {
                 const password = $(el_window).find('.confirm-user-deletion-password').val();
                 if ( password === '' ) {
-                    showError(i18n('all_fields_required'));
+                    showError(i18n('all_fields_required', [], false));
                     return;
                 }
             }
@@ -231,10 +231,10 @@ async function UIWindowFinalizeUserDeletion (options) {
                 return;
             }
             if ( res.status === 403 && data.code === 'session_required' ) {
-                showError(data.message || i18n('session_required') || 'This action requires a full session.');
+                showError(data.message || i18n('session_required', [], false) || 'This action requires a full session.');
                 return;
             }
-            showError(data.message || i18n('incorrect_password') || 'Request failed');
+            showError(data.message || 'Request failed');
         });
     });
 }
