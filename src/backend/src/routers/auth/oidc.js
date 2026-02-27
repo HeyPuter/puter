@@ -84,14 +84,27 @@ function buildOIDCErrorRedirectUrl (sourceFlow, errorCondition, message, stateDe
     return `${origin}/?${params.toString()}`;
 }
 
+/** Applies a query parameter to a URL */
+function appendQueryParam (url, key, value) {
+    if ( !url || key == null ) return url;
+    const sep = url.includes('?') ? '&' : '?';
+    const encoded = `${encodeURIComponent(key)}=${encodeURIComponent(value)}`;
+    return `${url}${sep}${encoded}`;
+}
+
 /** Returns { session_token, target } for the caller to set cookie and redirect. */
-const finishOidcSuccess_ = async (req, res, user, stateDecoded) => {
+const finishOidcSuccess_ = async (req, res, user, stateDecoded, extraQueryParams = null) => {
     const svc_auth = req.services.get('auth');
     const { token: session_token } = await svc_auth.create_session_token(user, { req });
     let target = stateDecoded.redirect_uri || config.origin || '/';
     const origin = config.origin || '';
     if ( target && origin && !target.startsWith(origin) ) {
         target = origin;
+    }
+    if ( extraQueryParams && typeof extraQueryParams === 'object' ) {
+        for ( const [k, v] of Object.entries(extraQueryParams) ) {
+            if ( v != null ) target = appendQueryParam(target, k, String(v));
+        }
     }
     return { session_token, target };
 };
@@ -186,7 +199,7 @@ router.get('/auth/oidc/:provider/start', async (req, res) => {
     return res.redirect(302, url);
 });
 
-// GET /auth/oidc/callback/login - login only: existing account or abort. Never creates a user.
+// GET /auth/oidc/callback/login - login: existing account or create one if none exists.
 router.get('/auth/oidc/callback/login', async (req, res) => {
     if ( subdomain(req) !== '' ) {
         return res.status(404).end();
@@ -203,9 +216,14 @@ router.get('/auth/oidc/callback/login', async (req, res) => {
         return res.redirect(302, buildOIDCErrorRedirectUrl('login', 'other', message));
     }
     const { provider, userinfo, stateDecoded } = result;
-    const user = await svc_oidc.findUserByProviderSub(provider, userinfo.sub);
+    let user = await svc_oidc.findUserByProviderSub(provider, userinfo.sub);
     if ( ! user ) {
-        return res.redirect(302, buildOIDCErrorRedirectUrl('login', 'account_not_found', 'No account found. Sign up first.', stateDecoded));
+        // No account found: create one instead (login flow switches to signup).
+        const outcome = await svc_oidc.createUserFromOIDC(provider, userinfo);
+        if ( outcome.failed ) {
+            return res.redirect(302, buildOIDCErrorRedirectUrl('login', 'other', outcome.userMessage, stateDecoded));
+        }
+        user = await get_user({ id: outcome.infoObject.user_id });
     }
     if ( user.suspended ) {
         return res.redirect(302, buildOIDCErrorRedirectUrl('login', 'other', 'This account is suspended.', stateDecoded));
@@ -219,7 +237,7 @@ router.get('/auth/oidc/callback/login', async (req, res) => {
     return res.redirect(302, target);
 });
 
-// GET /auth/oidc/callback/signup - signup only: create new account or abort. Never logs in to existing account.
+// GET /auth/oidc/callback/signup - signup: create new account or log in to existing if already registered.
 router.get('/auth/oidc/callback/signup', async (req, res) => {
     if ( subdomain(req) !== '' ) {
         return res.status(404).end();
@@ -238,7 +256,14 @@ router.get('/auth/oidc/callback/signup', async (req, res) => {
     const { provider, userinfo, stateDecoded } = result;
     const existingUser = await svc_oidc.findUserByProviderSub(provider, userinfo.sub);
     if ( existingUser ) {
-        return res.redirect(302, buildOIDCErrorRedirectUrl('signup', 'account_already_exists', 'Account already exists. Log in instead.', stateDecoded));
+        // Account already exists: log in instead and inform the user (signup flow switches to login).
+        const { session_token, target } = await finishOidcSuccess_(req, res, existingUser, stateDecoded, { oidc_switched: 'login' });
+        res.cookie(config.cookie_name, session_token, {
+            sameSite: 'none',
+            secure: true,
+            httpOnly: true,
+        });
+        return res.redirect(302, target);
     }
     const outcome = await svc_oidc.createUserFromOIDC(provider, userinfo);
     if ( outcome.failed ) {

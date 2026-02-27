@@ -510,6 +510,7 @@ const en = {
         'signup_confirm_password': 'Confirm Password',
         sign_in_with_google: 'Sign in with Google',
         sign_up_with_google: 'Sign up with Google',
+        oidc_switched_to_login_message: 'You have been logged in to an existing account.',
 
         // Login Window
         'login_email_username_required': 'Email or username is required',
