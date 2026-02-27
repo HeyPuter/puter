@@ -125,6 +125,7 @@ class AIInterfaceService extends BaseService {
                         prompt: { type: 'string' },
                         quality: { type: 'string' },
                         model: { type: 'string' },
+                        provider: { type: 'string', optional: true },
                         ratio: { type: 'json' },
                         width: { type: 'number', optional: true },
                         height: { type: 'number', optional: true },
