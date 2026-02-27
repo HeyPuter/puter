@@ -253,14 +253,184 @@ async function resolvePrivateIdentity ({ req, services, appUid }) {
     };
 }
 
+function escapeHtml (value) {
+    const raw = `${value ?? ''}`;
+    return raw
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll('\'', '&#39;');
+}
+
+function respondPrivateLoginBootstrap ({ res, app }) {
+    const appName =
+        typeof app?.name === 'string' && app.name.trim()
+            ? app.name.trim()
+            : 'this app';
+    const safeAppName = escapeHtml(appName);
+
+    const loginHtml = dedent(`
+        <!doctype html>
+        <html lang="en">
+        <head>
+            <meta charset="utf-8" />
+            <meta name="viewport" content="width=device-width, initial-scale=1" />
+            <title>Sign In Required</title>
+            <style>
+                :root { color-scheme: light; }
+                body {
+                    margin: 0;
+                    min-height: 100vh;
+                    display: grid;
+                    place-items: center;
+                    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+                    background: linear-gradient(145deg, #f5f7fb 0%, #eef2ff 100%);
+                    color: #1f2937;
+                }
+                .card {
+                    width: min(480px, calc(100vw - 32px));
+                    background: #ffffff;
+                    border: 1px solid #e5e7eb;
+                    border-radius: 12px;
+                    box-shadow: 0 16px 40px rgba(15, 23, 42, 0.08);
+                    padding: 24px;
+                }
+                h1 {
+                    margin: 0 0 12px;
+                    font-size: 22px;
+                    line-height: 1.2;
+                }
+                p {
+                    margin: 0 0 16px;
+                    line-height: 1.45;
+                }
+                #status {
+                    font-size: 14px;
+                    color: #4b5563;
+                    min-height: 20px;
+                }
+                .actions {
+                    display: flex;
+                    flex-wrap: wrap;
+                    gap: 12px;
+                    margin-top: 20px;
+                }
+                button {
+                    border: 0;
+                    border-radius: 10px;
+                    font-size: 15px;
+                    font-weight: 600;
+                    padding: 10px 16px;
+                    cursor: pointer;
+                }
+                #loginButton {
+                    background: #111827;
+                    color: #ffffff;
+                }
+                #retryButton {
+                    background: #e5e7eb;
+                    color: #111827;
+                }
+                #loginButton:disabled {
+                    opacity: 0.7;
+                    cursor: progress;
+                }
+            </style>
+        </head>
+        <body>
+            <main class="card">
+                <h1>Sign in required</h1>
+                <p>${safeAppName} requires Puter authentication before private files can load.</p>
+                <p id="status">Click “Sign In with Puter” to continue.</p>
+                <div class="actions">
+                    <button id="loginButton" type="button">Sign In with Puter</button>
+                    <button id="retryButton" type="button">Retry</button>
+                </div>
+            </main>
+            <script src="https://js.puter.com/v2/"></script>
+            <script>
+                (() => {
+                    const statusNode = document.getElementById('status');
+                    const loginButton = document.getElementById('loginButton');
+                    const retryButton = document.getElementById('retryButton');
+
+                    const setStatus = (message) => {
+                        statusNode.textContent = message;
+                    };
+
+                    const redirectWithToken = (token) => {
+                        if ( typeof token !== 'string' || !token ) {
+                            throw new Error('missing_auth_token');
+                        }
+                        const url = new URL(window.location.href);
+                        url.searchParams.set('puter.auth.token', token);
+                        window.location.replace(url.toString());
+                    };
+
+                    const authenticate = async () => {
+                        loginButton.disabled = true;
+                        setStatus('Authenticating with Puter...');
+                        try {
+                            if ( globalThis.puter?.authToken ) {
+                                redirectWithToken(globalThis.puter.authToken);
+                                return;
+                            }
+
+                            const result = await globalThis.puter.auth.signIn();
+                            const authToken =
+                                result?.token
+                                || globalThis.puter?.authToken
+                                || localStorage.getItem('puter.auth.token');
+                            redirectWithToken(authToken);
+                        } catch (error) {
+                            console.error('private app sign in failed', error);
+                            loginButton.disabled = false;
+                            setStatus('Sign in was not completed. Click to try again.');
+                        }
+                    };
+
+                    loginButton.addEventListener('click', () => {
+                        void authenticate();
+                    });
+
+                    retryButton.addEventListener('click', () => {
+                        window.location.reload();
+                    });
+                })();
+            </script>
+        </body>
+        </html>
+    `);
+
+    res.status(200);
+    res.set('Cache-Control', 'no-store');
+    res.set('Content-Type', 'text/html; charset=UTF-8');
+    return res.send(loginHtml);
+}
+
 async function evaluatePrivateAppAccess ({ req, res, services, app, requestPath }) {
-    const eventService = services.get('event');
     const identity = await resolvePrivateIdentity({
         req,
         services,
         appUid: app.uid,
     });
 
+    if ( ! identity.userUid ) {
+        logPrivateAccessEvent('private_access.auth_required', {
+            appUid: app.uid,
+            userUid: null,
+            requestHost: req.hostname,
+            requestPath,
+            source: identity.source,
+            hasPrivateCookie: identity.hasPrivateCookie,
+            hasInvalidPrivateCookie: identity.hasInvalidPrivateCookie,
+        });
+        respondPrivateLoginBootstrap({ res, app });
+        return false;
+    }
+
+    const eventService = services.get('event');
     const accessCheckEvent = {
         appUid: app.uid,
         userUid: identity.userUid ?? null,
