@@ -46,27 +46,31 @@ module.exports = {
         }
 
         const svc_edgeRateLimit = req.services.get('edge-rate-limit');
-        if ( ! svc_edgeRateLimit.check('change-username-start') ) {
+        if ( ! svc_edgeRateLimit.check('/user-protected/change-username') ) {
             return res.status(429).send('Too many requests.');
         }
 
         const db = Context.get('services').get('database').get(DB_WRITE, 'auth');
-        const rows = await db.read('SELECT COUNT(*) AS `count` FROM `user_update_audit` ' +
+        const rows = await db.read(
+            'SELECT COUNT(*) AS `count` FROM `user_update_audit` ' +
             `WHERE \`user_id\`=? AND \`reason\`=? AND ${
                 db.case({
                     mysql: '`created_at` > DATE_SUB(NOW(), INTERVAL 1 MONTH)',
                     sqlite: "`created_at` > datetime('now', '-1 month')",
                 })}`,
-        [user.id, 'change_username']);
+            [user.id, 'change_username'],
+        );
 
         if ( rows[0].count >= (config.max_username_changes ?? 2) ) {
             throw APIError.create('too_many_username_changes');
         }
 
-        await db.write('INSERT INTO `user_update_audit` ' +
+        await db.write(
+            'INSERT INTO `user_update_audit` ' +
             '(`user_id`, `user_id_keep`, `old_username`, `new_username`, `reason`) ' +
             'VALUES (?, ?, ?, ?, ?)',
-        [user.id, user.id, user.username, new_username, 'change_username']);
+            [user.id, user.id, user.username, new_username, 'change_username'],
+        );
 
         await change_username(user.id, new_username);
 
