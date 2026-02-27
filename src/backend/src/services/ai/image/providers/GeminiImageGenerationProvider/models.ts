@@ -21,6 +21,18 @@ import { IImageModel } from '../types';
 
 export const GEMINI_DEFAULT_RATIO = { w: 1024, h: 1024 };
 
+// Estimated image output token counts for pre-flight cost checks.
+// These are based on Google's published pricing equivalences.
+export const GEMINI_ESTIMATED_IMAGE_TOKENS: Record<string, number> = {
+    // Flash: all output images up to 1024x1024 consume 1290 tokens
+    'gemini-2.5-flash-image': 1290,
+    // 3 Pro 1K/2K: output images from 1024x1024 to 2048x2048 consume 1120 tokens
+    'gemini-3-pro-image-preview:1K': 1120,
+    'gemini-3-pro-image-preview:2K': 1120,
+    // 3 Pro 4K: output images up to 4096x4096 consume 2000 tokens
+    'gemini-3-pro-image-preview:4K': 2000,
+};
+
 export const GEMINI_IMAGE_GENERATION_MODELS: IImageModel[] = [
     {
         puterId: 'google:google/gemini-2.5-flash-image',
@@ -36,21 +48,13 @@ export const GEMINI_IMAGE_GENERATION_MODELS: IImageModel[] = [
         name: 'Gemini 2.5 Flash Image',
         version: '1.0',
         costs_currency: 'usd-cents',
-        index_cost_key: '1x1',
-        index_input_cost_key: 'prompt_tokens',
+        index_cost_key: 'output_image',
+        index_input_cost_key: 'input',
         allowedQualityLevels: [''],
         costs: {
-            input: 30, // $0.30 per 1M prompt tokens, however google counts them
-            '1x1': 3.9, // $0.039 per image, just used for extiamte input allowed usage
-            '2x3': 3.9, // $0.039 per image, just used for extiamte input allowed usage
-            '3x2': 3.9, // $0.039 per image, just used for extiamte input allowed usage
-            '3x4': 3.9, // $0.039 per image, just used for extiamte input allowed usage
-            '4x3': 3.9, // $0.039 per image, just used for extiamte input allowed usage
-            '4x5': 3.9, // $0.039 per image, just used for extiamte input allowed usage
-            '5x4': 3.9, // $0.039 per image, just used for extiamte input allowed usage
-            '9x16': 3.9, // $0.039 per image, just used for extiamte input allowed usage
-            '16x9': 3.9, // $0.039 per image, just used for extiamte input allowed usage
-            '21x9': 3.9, // $0.039 per image, just used for extiamte input allowed usage
+            input: 30, // $0.30 per 1M input tokens (text/image)
+            output: 15, // $0.15 per 1M output text tokens (same as 2.5 Flash text)
+            output_image: 3000, // $30.00 per 1M output image tokens
         },
         allowedRatios: [
             { w: 1, h: 1 },
@@ -71,7 +75,8 @@ export const GEMINI_IMAGE_GENERATION_MODELS: IImageModel[] = [
         name: 'Gemini 3 Pro Image',
         version: '1.0',
         costs_currency: 'usd-cents',
-        index_cost_key: '1K:1x1',
+        index_cost_key: 'output_image',
+        index_input_cost_key: 'input',
         aliases: [
             'gemini-3-pro-image-preview',
             'gemini-3-pro-image',
@@ -93,38 +98,9 @@ export const GEMINI_IMAGE_GENERATION_MODELS: IImageModel[] = [
             { w: 21, h: 9 },
         ],
         costs: {
-            input: 200, // $2.00 per 1M input tokens, however google counts them
-            output: 1200, // $12.00 per 1M output tokens, however google counts them
-            '1K:1x1': 13.4, // $0.134 per image
-            '1K:2x3': 13.4, // $0.134 per image
-            '1K:3x2': 13.4, // $0.134 per image
-            '1K:3x4': 13.4, // $0.134 per image
-            '1K:4x3': 13.4, // $0.134 per image
-            '1K:4x5': 13.4, // $0.134 per image
-            '1K:5x4': 13.4, // $0.134 per image
-            '1K:9x16': 13.4, // $0.134 per image
-            '1K:16x9': 13.4, // $0.134 per image
-            '1K:21x9': 13.4, // $0.134 per image
-            '2K:1x1': 13.4, // $0.134 per image
-            '2K:2x3': 13.4, // $0.134 per image
-            '2K:3x2': 13.4, // $0.134 per image
-            '2K:3x4': 13.4, // $0.134 per image
-            '2K:4x3': 13.4, // $0.134 per image
-            '2K:4x5': 13.4, // $0.134 per image
-            '2K:5x4': 13.4, // $0.134 per image
-            '2K:9x16': 13.4, // $0.134 per image
-            '2K:16x9': 13.4, // $0.134 per image
-            '2K:21x9': 13.4, // $0.134 per image
-            '4K:1x1': 24, // $0.24 per image
-            '4K:2x3': 24, // $0.24 per image
-            '4K:3x2': 24, // $0.24 per image
-            '4K:3x4': 24, // $0.24 per image
-            '4K:4x3': 24, // $0.24 per image
-            '4K:4x5': 24, // $0.24 per image
-            '4K:5x4': 24, // $0.24 per image
-            '4K:9x16': 24, // $0.24 per image
-            '4K:16x9': 24, // $0.24 per image
-            '4K:21x9': 24, // $0.24 per image
+            input: 200, // $2.00 per 1M input tokens (text/image)
+            output: 1200, // $12.00 per 1M output tokens (text and thinking)
+            output_image: 12000, // $120.00 per 1M output image tokens
         },
     },
     {

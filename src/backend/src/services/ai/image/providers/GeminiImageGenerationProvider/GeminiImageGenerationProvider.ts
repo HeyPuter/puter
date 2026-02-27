@@ -22,7 +22,7 @@ import APIError from '../../../../../api/APIError.js';
 import { ErrorService } from '../../../../../modules/core/ErrorService.js';
 import { Context } from '../../../../../util/context.js';
 import { MeteringService } from '../../../../MeteringService/MeteringService.js';
-import { GEMINI_DEFAULT_RATIO, GEMINI_IMAGE_GENERATION_MODELS } from './models.js';
+import { GEMINI_DEFAULT_RATIO, GEMINI_ESTIMATED_IMAGE_TOKENS, GEMINI_IMAGE_GENERATION_MODELS } from './models.js';
 import { IGenerateParams, IImageModel, IImageProvider } from '../types.js';
 
 const MIME_SIGNATURES: Record<string, string> = {
@@ -34,6 +34,8 @@ const MIME_SIGNATURES: Record<string, string> = {
 interface GeminiUsageMetadata {
     promptTokenCount: number;
     candidatesTokenCount: number;
+    candidatesTextTokenCount: number;
+    candidatesImageTokenCount: number;
     thoughtsTokenCount: number;
 }
 
@@ -91,18 +93,6 @@ export class GeminiImageGenerationProvider implements IImageProvider {
             }
         }
 
-        const priceKey = `${quality ? `${quality}:` : ''}${ratio.w}x${ratio.h}`;
-        const priceInCents = selectedModel.costs[priceKey];
-        if ( priceInCents === undefined ) {
-            const availableSizes = Object.keys(selectedModel.costs)
-                .filter(key => key !== 'input' && key !== 'output');
-            throw APIError.create('field_invalid', undefined, {
-                key: 'size/quality combination',
-                expected: `one of: ${ availableSizes.join(', ')}`,
-                got: priceKey,
-            });
-        }
-
         const actor = Context.get('actor');
         const user_private_uid = actor?.private_uid ?? 'UNKNOWN';
         if ( user_private_uid === 'UNKNOWN' ) {
@@ -113,12 +103,22 @@ export class GeminiImageGenerationProvider implements IImageProvider {
             });
         }
 
+        // --- Pre-flight cost estimation ---
         const inputImageCount = input_images?.length ?? 0;
-        const estimatedImageTokens = inputImageCount * 560; // this is only documented for 3 pro, assuming it's the same for other models (as they also have input images cost)
-
-        const estimatedPromptTokenCount = this.#estimatePromptTokenCount(prompt) + estimatedImageTokens;
+        const estimatedImageInputTokens = inputImageCount * 560; // https://ai.google.dev/gemini-api/docs/pricing#gemini-3-pro-image-preview
+        const estimatedPromptTokenCount = this.#estimatePromptTokenCount(prompt) + estimatedImageInputTokens;
         const estimatedInputCostInCents = this.#calculateTokenCostInCents(estimatedPromptTokenCount, selectedModel.costs.input);
-        const estimatedOutputCostInCents = priceInCents;
+
+        // Estimate output image tokens
+        const imageTokenKey = quality ? `${selectedModel.id}:${quality}` : selectedModel.id;
+        const estimatedOutputImageTokens = GEMINI_ESTIMATED_IMAGE_TOKENS[imageTokenKey] ?? GEMINI_ESTIMATED_IMAGE_TOKENS[selectedModel.id];
+        if ( estimatedOutputImageTokens === undefined ) {
+            throw new Error(`No estimated image token count configured for '${imageTokenKey}'.`);
+        }
+        const estimatedOutputImageCostInCents = this.#calculateTokenCostInCents(estimatedOutputImageTokens, selectedModel.costs.output_image);
+        const estimatedOutputTextCostInCents = this.#calculateTokenCostInCents(50, selectedModel.costs.output); // small text overhead estimate
+        const estimatedOutputCostInCents = estimatedOutputImageCostInCents + estimatedOutputTextCostInCents;
+
         const estimatedTotalCostInMicroCents = this.#toMicroCents(estimatedInputCostInCents + estimatedOutputCostInCents);
         const usageAllowed = await this.#meteringService.hasEnoughCredits(actor, estimatedTotalCostInMicroCents);
 
@@ -126,6 +126,7 @@ export class GeminiImageGenerationProvider implements IImageProvider {
             throw APIError.create('insufficient_funds');
         }
 
+        // --- API call ---
         const contents = this.#buildContents(prompt, input_images, input_image_mime_type);
         const aspectRatio = `${ratio.w}:${ratio.h}`;
 
@@ -143,15 +144,20 @@ export class GeminiImageGenerationProvider implements IImageProvider {
             },
         });
 
+        // --- Actual cost calculation from response usage ---
         const usage = this.#extractUsageMetadata(response);
         const inputTokenCount = usage.promptTokenCount || estimatedPromptTokenCount;
-        const outputTokenCount = usage.candidatesTokenCount + usage.thoughtsTokenCount;
+
+        const outputTextTokenCount = usage.candidatesTextTokenCount + usage.thoughtsTokenCount;
+        const outputImageTokenCount = usage.candidatesImageTokenCount || estimatedOutputImageTokens;
 
         const inputCostInCents = this.#calculateTokenCostInCents(inputTokenCount, selectedModel.costs.input);
-        const outputTextCostInCents = this.#calculateTokenCostInCents(outputTokenCount, selectedModel.costs.output);
-        const outputCostInCents = priceInCents + outputTextCostInCents;
+        const outputTextCostInCents = this.#calculateTokenCostInCents(outputTextTokenCount, selectedModel.costs.output);
+        const outputImageCostInCents = this.#calculateTokenCostInCents(outputImageTokenCount, selectedModel.costs.output_image);
+        const outputCostInCents = outputTextCostInCents + outputImageCostInCents;
 
-        const usagePrefix = `gemini:${selectedModel.id}:${priceKey}`;
+        const totalOutputTokenCount = outputTextTokenCount + outputImageTokenCount;
+        const usagePrefix = `gemini:${selectedModel.id}`;
         this.#meteringService.batchIncrementUsages(actor, [
             {
                 usageType: `${usagePrefix}:input`,
@@ -159,9 +165,14 @@ export class GeminiImageGenerationProvider implements IImageProvider {
                 costOverride: this.#toMicroCents(inputCostInCents),
             },
             {
-                usageType: `${usagePrefix}:output`,
-                usageAmount: Math.max(outputTokenCount, 1),
-                costOverride: this.#toMicroCents(outputCostInCents),
+                usageType: `${usagePrefix}:output:text`,
+                usageAmount: Math.max(outputTextTokenCount, 1),
+                costOverride: this.#toMicroCents(outputTextCostInCents),
+            },
+            {
+                usageType: `${usagePrefix}:output:image`,
+                usageAmount: Math.max(outputImageTokenCount, 1),
+                costOverride: this.#toMicroCents(outputImageCostInCents),
             },
         ]);
 
@@ -172,7 +183,9 @@ export class GeminiImageGenerationProvider implements IImageProvider {
             inputCostInCents,
             outputCostInCents,
             inputTokenCount,
-            outputTokenCount,
+            outputTokenCount: totalOutputTokenCount,
+            outputTextTokenCount,
+            outputImageTokenCount,
         });
 
         const url = this.#extractImageUrl(response);
@@ -210,6 +223,8 @@ export class GeminiImageGenerationProvider implements IImageProvider {
         outputCostInCents,
         inputTokenCount,
         outputTokenCount,
+        outputTextTokenCount,
+        outputImageTokenCount,
     }: {
         model: string;
         quality?: string;
@@ -218,6 +233,8 @@ export class GeminiImageGenerationProvider implements IImageProvider {
         outputCostInCents: number;
         inputTokenCount: number;
         outputTokenCount: number;
+        outputTextTokenCount: number;
+        outputImageTokenCount: number;
     }) {
         const clientDriverCall = Context.get('client_driver_call') as { response_metadata?: Record<string, unknown> } | undefined;
         const responseMetadata = clientDriverCall?.response_metadata;
@@ -237,6 +254,8 @@ export class GeminiImageGenerationProvider implements IImageProvider {
             ratio: `${ratio.w}x${ratio.h}`,
             input_tokens: inputTokenCount,
             output_tokens: outputTokenCount,
+            output_text_tokens: outputTextTokenCount,
+            output_image_tokens: outputImageTokenCount,
             input_microcents: this.#toMicroCents(inputCostInCents),
             output_microcents: this.#toMicroCents(outputCostInCents),
             total_microcents: this.#toMicroCents(totalCostInCents),
@@ -245,9 +264,26 @@ export class GeminiImageGenerationProvider implements IImageProvider {
 
     #extractUsageMetadata (response: GenerateContentResponse): GeminiUsageMetadata {
         const usage = (response as GenerateContentResponse & { usageMetadata?: Record<string, unknown> }).usageMetadata;
+
+        let candidatesTextTokenCount = 0;
+        let candidatesImageTokenCount = 0;
+
+        const details = usage?.candidatesTokensDetails;
+        if ( Array.isArray(details) ) {
+            for ( const entry of details ) {
+                if ( entry?.modality === 'TEXT' ) {
+                    candidatesTextTokenCount += this.#toSafeCount(entry.tokenCount);
+                } else if ( entry?.modality === 'IMAGE' ) {
+                    candidatesImageTokenCount += this.#toSafeCount(entry.tokenCount);
+                }
+            }
+        }
+
         return {
             promptTokenCount: this.#toSafeCount(usage?.promptTokenCount),
             candidatesTokenCount: this.#toSafeCount(usage?.candidatesTokenCount),
+            candidatesTextTokenCount,
+            candidatesImageTokenCount,
             thoughtsTokenCount: this.#toSafeCount(usage?.thoughtsTokenCount),
         };
     }
