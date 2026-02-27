@@ -135,8 +135,11 @@ async function UIWindowFinalizeUserDeletion (options) {
 
         $(el_window).find('.proceed-with-user-deletion').on('click', async function () {
             $(el_window).find('.error-message').hide();
+            // if user is temporary, check if they typed 'confirm'
             if ( window.user.is_temp ) {
                 const confirm = $(el_window).find('.confirm-temporary-user-deletion').val().toLowerCase();
+
+                // user must type 'confirm' or the translation of 'confirm' to delete their account
                 if ( confirm !== 'confirm' && confirm !== i18n('confirm').toLowerCase() ) {
                     showError(i18n('type_confirm_to_delete_account'));
                     return;
