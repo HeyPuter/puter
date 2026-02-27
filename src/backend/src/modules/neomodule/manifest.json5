@@ -1,0 +1,6 @@
+{
+    name: "Neo Module",
+    "manifest-version": 1,
+    description: "A module that will always follow \
+        the latest conventions for Puter backend modules."
+}
