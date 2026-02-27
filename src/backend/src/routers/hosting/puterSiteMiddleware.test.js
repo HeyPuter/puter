@@ -33,6 +33,7 @@ vi.mock('../../config.js', () => ({
         static_hosting_domain: 'site.puter.localhost',
         static_hosting_base_domain_redirect: 'https://developer.puter.com/static-hosting/',
         private_app_hosting_domain: 'puter.app',
+        enable_private_app_access_gate: true,
         origin: 'https://puter.com',
         cookie_name: 'puter.session.token',
         username_regex: /^[a-z0-9_]+$/,
@@ -40,6 +41,7 @@ vi.mock('../../config.js', () => ({
     static_hosting_domain: 'site.puter.localhost',
     static_hosting_base_domain_redirect: 'https://developer.puter.com/static-hosting/',
     private_app_hosting_domain: 'puter.app',
+    enable_private_app_access_gate: true,
     origin: 'https://puter.com',
     cookie_name: 'puter.session.token',
     username_regex: /^[a-z0-9_]+$/,
@@ -129,6 +131,7 @@ describe('PuterSiteMiddleware', () => {
 
         beforeEach(() => {
             vi.clearAllMocks();
+            config.enable_private_app_access_gate = true;
             Context.get = vi.fn().mockReturnValue(mockContextInstance);
             getUserMockImpl = async () => null;
             getAppMockImpl = async () => null;
@@ -251,6 +254,7 @@ describe('PuterSiteMiddleware', () => {
 
         beforeEach(() => {
             vi.clearAllMocks();
+            config.enable_private_app_access_gate = true;
             Context.get = vi.fn().mockReturnValue(mockContextInstance);
             getUserMockImpl = async () => null;
             getAppMockImpl = async () => null;
@@ -403,6 +407,101 @@ describe('PuterSiteMiddleware', () => {
             );
             expect(mockRes.redirect).toHaveBeenCalledWith('https://puter.com/app/app-center/?item=app-11111111-1111-1111-1111-111111111111');
             expect(mockRes.cookie).not.toHaveBeenCalled();
+            expect(mockNext).not.toHaveBeenCalled();
+        });
+
+        it('skips private app gate when feature flag is disabled', async () => {
+            config.enable_private_app_access_gate = false;
+
+            const eventEmit = vi.fn();
+            const rootDirectoryNode = {
+                fetchEntry: vi.fn().mockResolvedValue(undefined),
+                exists: vi.fn().mockResolvedValue(true),
+                get: vi.fn().mockImplementation(async (fieldName) => {
+                    if ( fieldName === 'type' ) return 'directory';
+                    if ( fieldName === 'path' ) return '/alice/Public';
+                    return null;
+                }),
+            };
+            const missingFileNode = {
+                fetchEntry: vi.fn().mockResolvedValue(undefined),
+                exists: vi.fn().mockResolvedValue(false),
+                get: vi.fn().mockResolvedValue(null),
+            };
+
+            let filesystemNodeCallCount = 0;
+            const mockServices = {
+                get: vi.fn().mockImplementation((serviceName) => {
+                    if ( serviceName === 'puter-site' ) {
+                        return {
+                            get_subdomain: vi.fn().mockResolvedValue({
+                                user_id: 101,
+                                associated_app_id: 202,
+                                root_dir_id: 303,
+                            }),
+                        };
+                    }
+                    if ( serviceName === 'filesystem' ) {
+                        return {
+                            node: vi.fn().mockImplementation(async () => {
+                                filesystemNodeCallCount += 1;
+                                return filesystemNodeCallCount === 1
+                                    ? rootDirectoryNode
+                                    : missingFileNode;
+                            }),
+                        };
+                    }
+                    if ( serviceName === 'acl' ) {
+                        return {
+                            check: vi.fn().mockResolvedValue(true),
+                        };
+                    }
+                    if ( serviceName === 'event' ) return { emit: eventEmit };
+                    return {};
+                }),
+            };
+            mockContextInstance.get.mockImplementation((key) => {
+                if ( key === 'services' ) return mockServices;
+                return null;
+            });
+            getUserMockImpl = async () => ({ id: 101, suspended: false });
+            getAppMockImpl = async () => ({
+                uid: 'app-11111111-1111-1111-1111-111111111111',
+                name: 'paid-app',
+                is_private: 1,
+                index_url: 'https://paid.puter.app/',
+            });
+
+            const mockReq = {
+                hostname: 'paid.site.puter.localhost',
+                subdomains: ['paid'],
+                is_custom_domain: false,
+                baseUrl: '',
+                path: '/asset.js',
+                originalUrl: '/asset.js',
+                query: {},
+                cookies: {},
+                headers: {},
+                on: vi.fn(),
+                ctx: mockContextInstance,
+            };
+            const mockRes = {
+                redirect: vi.fn(),
+                cookie: vi.fn(),
+                setHeader: vi.fn(),
+                set: vi.fn().mockReturnThis(),
+                status: vi.fn().mockReturnThis(),
+                send: vi.fn(),
+                write: vi.fn(),
+                end: vi.fn(),
+            };
+            const mockNext = vi.fn();
+
+            await capturedMiddleware(mockReq, mockRes, mockNext);
+
+            expect(mockRes.redirect).not.toHaveBeenCalled();
+            expect(eventEmit).not.toHaveBeenCalled();
+            expect(mockRes.status).toHaveBeenCalledWith(404);
             expect(mockNext).not.toHaveBeenCalled();
         });
     });
