@@ -99,6 +99,17 @@ function getPrivateDeniedRedirectUrl (app, denyRedirectUrl) {
     return '/';
 }
 
+function isPrivateAccessGateEnabled () {
+    return config.enable_private_app_access_gate !== false;
+}
+
+function logPrivateAccessEvent (eventName, fields = {}) {
+    console.info('private_access', {
+        eventName,
+        ...fields,
+    });
+}
+
 function getTokenFromAuthorizationHeader (req) {
     const authorizationHeader = req.headers?.authorization;
     if ( typeof authorizationHeader !== 'string' ) return null;
@@ -172,6 +183,8 @@ async function resolvePrivateIdentity ({ req, services, appUid }) {
     const authService = services.get('auth');
     const privateCookieName = authService.getPrivateAssetCookieName();
     const privateCookieToken = req.cookies?.[privateCookieName];
+    const hasPrivateCookie = typeof privateCookieToken === 'string' && !!privateCookieToken;
+    let hasInvalidPrivateCookie = false;
 
     if ( typeof privateCookieToken === 'string' && privateCookieToken ) {
         try {
@@ -183,8 +196,11 @@ async function resolvePrivateIdentity ({ req, services, appUid }) {
                 userUid: claims.userUid,
                 sessionUuid: claims.sessionUuid,
                 hasValidPrivateCookie: true,
+                hasPrivateCookie,
+                hasInvalidPrivateCookie,
             };
         } catch {
+            hasInvalidPrivateCookie = true;
             // fallback to next token source
         }
     }
@@ -199,6 +215,8 @@ async function resolvePrivateIdentity ({ req, services, appUid }) {
                     source: 'session-cookie',
                     ...identity,
                     hasValidPrivateCookie: false,
+                    hasPrivateCookie,
+                    hasInvalidPrivateCookie,
                 };
             }
         } catch {
@@ -216,6 +234,8 @@ async function resolvePrivateIdentity ({ req, services, appUid }) {
                     source: 'bootstrap-token',
                     ...identity,
                     hasValidPrivateCookie: false,
+                    hasPrivateCookie,
+                    hasInvalidPrivateCookie,
                 };
             }
         } catch {
@@ -228,6 +248,8 @@ async function resolvePrivateIdentity ({ req, services, appUid }) {
         userUid: undefined,
         sessionUuid: undefined,
         hasValidPrivateCookie: false,
+        hasPrivateCookie,
+        hasInvalidPrivateCookie,
     };
 }
 
@@ -252,6 +274,14 @@ async function evaluatePrivateAppAccess ({ req, res, services, app, requestPath 
     try {
         await eventService.emit('app.privateAccess.check', accessCheckEvent);
     } catch (e) {
+        logPrivateAccessEvent('private_access.entitlement_check_error', {
+            appUid: app.uid,
+            userUid: identity.userUid ?? null,
+            requestHost: req.hostname,
+            requestPath,
+            source: identity.source,
+            error: e?.message || String(e),
+        });
         console.error('private app access check failed', e);
     }
 
@@ -260,10 +290,22 @@ async function evaluatePrivateAppAccess ({ req, res, services, app, requestPath 
             app,
             accessCheckEvent.result.redirectUrl,
         );
+        logPrivateAccessEvent('private_access.denied', {
+            appUid: app.uid,
+            userUid: identity.userUid ?? null,
+            requestHost: req.hostname,
+            requestPath,
+            source: identity.source,
+            reason: accessCheckEvent.result.reason ?? null,
+            redirectUrl,
+            hasPrivateCookie: identity.hasPrivateCookie,
+            hasInvalidPrivateCookie: identity.hasInvalidPrivateCookie,
+        });
         res.redirect(redirectUrl);
         return false;
     }
 
+    const shouldRefreshPrivateCookie = identity.userUid && !identity.hasValidPrivateCookie;
     if ( identity.userUid && !identity.hasValidPrivateCookie ) {
         const authService = services.get('auth');
         const privateToken = authService.createPrivateAssetToken({
@@ -278,6 +320,16 @@ async function evaluatePrivateAppAccess ({ req, res, services, app, requestPath 
         );
     }
 
+    logPrivateAccessEvent('private_access.allowed', {
+        appUid: app.uid,
+        userUid: identity.userUid ?? null,
+        requestHost: req.hostname,
+        requestPath,
+        source: identity.source,
+        cookieRefreshed: !!shouldRefreshPrivateCookie,
+        hasPrivateCookie: identity.hasPrivateCookie,
+        hasInvalidPrivateCookie: identity.hasInvalidPrivateCookie,
+    });
     return true;
 }
 
@@ -346,10 +398,21 @@ async function runInternal (req, res, next) {
         ? await get_app({ id: site.associated_app_id })
         : null;
     const privateAppEnabled = isPrivateApp(associatedApp);
+    const privateAccessGateEnabled = isPrivateAccessGateEnabled();
 
-    if ( privateAppEnabled && !hostMatchesPrivateDomain(req.hostname) ) {
+    if (
+        privateAccessGateEnabled
+        && privateAppEnabled
+        && !hostMatchesPrivateDomain(req.hostname)
+    ) {
         const privateHostRedirect = buildPrivateHostRedirectUrl(req, associatedApp);
         if ( privateHostRedirect ) {
+            logPrivateAccessEvent('private_access.host_redirect', {
+                appUid: associatedApp?.uid ?? null,
+                requestHost: req.hostname,
+                requestPath: req.path,
+                redirectUrl: privateHostRedirect,
+            });
             return res.redirect(privateHostRedirect);
         }
         return res.status(403).send('Private app host mismatch');
@@ -407,7 +470,7 @@ async function runInternal (req, res, next) {
 
     req.__puterSiteRootPath = subdomainRootPath;
 
-    if ( privateAppEnabled ) {
+    if ( privateAccessGateEnabled && privateAppEnabled ) {
         const accessAllowed = await evaluatePrivateAppAccess({
             req,
             res,

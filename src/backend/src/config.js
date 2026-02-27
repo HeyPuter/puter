@@ -73,6 +73,7 @@ config.monitor = {
 config.max_subdomains_per_user = 2000;
 config.storage_capacity = 1 * 1024 * 1024 * 1024;
 config.static_hosting_base_domain_redirect = 'https://developer.puter.com/static-hosting/';
+config.enable_private_app_access_gate = true;
 
 // Storage limiting is set to false by default
 // Storage available on the mountpoint/drive puter is running is the storage available
