@@ -17,12 +17,18 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const { Context } = require('../../util/context');
+const { safeHasOwnProperty } = require('../../util/safety');
 const { asyncSafeSetInterval } = require('@heyputer/putility').libs.promise;
 const { quot } = require('@heyputer/putility').libs.string;
 
 const MINUTE = 60 * 1000;
 const HOUR = 60 * MINUTE;
 const BaseService = require('../BaseService');
+
+const DEFAULT_SCOPE = {
+    limit: 500,
+    window: 15 * MINUTE,
+};
 
 /* INCREMENTAL CHANGES
     The first scopes are of the form 'name-of-endpoint', but later it was
@@ -143,9 +149,12 @@ class EdgeRateLimitService extends BaseService {
 
     check (scope, noIncrease = false) {
         if ( ! Object.prototype.hasOwnProperty.call(this.scopes, scope) ) {
-            throw new Error(`unrecognized rate-limit scope: ${quot(scope)}`);
+            this.log.warn('unconfigured rate-limit scope', { scope });
         }
-        const { window, limit } = this.scopes[scope];
+        const scopeSpec = safeHasOwnProperty(this.scopes, scope)
+            ? this.scopes[scope]
+            : DEFAULT_SCOPE;
+        const { window, limit } = scopeSpec;
 
         const requester = Context.get('requester');
         const rl_identifier = requester.rl_identifier;
