@@ -171,8 +171,8 @@ const computed_defaults = {
     static_hosting_domain: config => `site.${ config.domain }${ maybe_port(config)}`,
     // Hostname-only fallback helps host matching code paths that compare against req.hostname.
     static_hosting_domain_alt: (config) => `site.${ config.domain }`,
-    private_app_hosting_domain: config => `apps.${ config.domain }${maybe_port(config)}`,
-    private_app_hosting_domain_alt: config => `apps.${ config.domain }`, // Hostname-only fallback helps host matching code paths that compare against req.hostname.
+    private_app_hosting_domain: config => `app.${ config.domain }${maybe_port(config)}`,
+    private_app_hosting_domain_alt: config => `app.${ config.domain }`, // Hostname-only fallback helps host matching code paths that compare against req.hostname.
 
 };
 

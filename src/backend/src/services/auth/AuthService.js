@@ -308,7 +308,6 @@ class AuthService extends BaseService {
         if (
             privateHostingDomain &&
             privateHostingDomain !== 'localhost' &&
-            !privateHostingDomain.endsWith('.localhost') &&
             !privateHostingDomain.includes(':')
         ) {
             cookieOptions.domain = `.${privateHostingDomain}`;

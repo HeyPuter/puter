@@ -27,7 +27,7 @@ const createAuthService = (): AuthServiceForPrivateTokenTests => {
         jwt_secret: 'private-asset-test-secret',
         private_app_asset_token_ttl_seconds: 3600,
         private_app_asset_cookie_name: 'puter.private.asset.token',
-        private_app_hosting_domain: 'puter.app',
+        private_app_hosting_domain: 'app.puter.localhost',
     };
     authService.modules = {
         jwt: {
@@ -105,6 +105,6 @@ describe('AuthService private asset token helpers', () => {
         expect(options.httpOnly).toBe(true);
         expect(options.path).toBe('/');
         expect(options.maxAge).toBe(3_600_000);
-        expect(options.domain).toBe('.puter.app');
+        expect(options.domain).toBe('.app.puter.localhost');
     });
 });
