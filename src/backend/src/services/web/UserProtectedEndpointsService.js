@@ -109,9 +109,10 @@ class UserProtectedEndpointsService extends BaseService {
             next();
         });
 
-        // Do not allow temporary users
+        // Do not allow temporary users (except for delete-own-user, which allows them)
         router.use(async (req, res, next) => {
             if ( req.method === 'OPTIONS' ) return next();
+            if ( req.path === '/delete-own-user' ) return next();
 
             if ( req.user.password === null && req.user.email === null ) {
                 return APIError.create('temporary_account').write(res);
@@ -122,12 +123,17 @@ class UserProtectedEndpointsService extends BaseService {
         /**
         * Middleware to validate identity: either password (bcrypt) or a valid OIDC revalidation cookie.
         * OIDC-only accounts (user.password === null) must use revalidation; password accounts may use either.
+        * Temporary users (no password, no email) are allowed only for delete-own-user.
         */
         router.use(async (req, res, next) => {
             if ( req.method === 'OPTIONS' ) return next();
 
             const user = await get_user({ id: req.user.id, force: true });
             const revalidationCookie = req.cookies && req.cookies[REVALIDATION_COOKIE_NAME];
+
+            if ( user.password === null && user.email === null ) {
+                return next();
+            }
 
             if ( req.body.password ) {
                 if ( user.password === null ) {
@@ -168,6 +174,8 @@ class UserProtectedEndpointsService extends BaseService {
         Endpoint(require('../../routers/user-protected/change-username.js')).attach(router);
 
         Endpoint(require('../../routers/user-protected/disable-2fa.js')).attach(router);
+
+        Endpoint(require('../../routers/user-protected/delete-own-user.js')).attach(router);
     }
 }
 
