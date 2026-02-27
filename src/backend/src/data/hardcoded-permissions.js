@@ -106,6 +106,8 @@ const hardcoded_user_group_permissions = {
             'local-terminal:access': {},
         },
         'b7220104-7905-4985-b996-649fdcdb3c8f': {
+            'driver': {},
+            'service': {},
             'service:hello-world:ii:hello-world': policy_perm('temp.es'),
             'service:puter-kvstore:ii:puter-kvstore': policy_perm('temp.kv'),
             'driver:puter-kvstore': policy_perm('temp.kv'),
@@ -119,6 +121,8 @@ const hardcoded_user_group_permissions = {
             'service:es\\Csubdomain:ii:crud-q': policy_perm('user.es'),
         },
         '78b1b1dd-c959-44d2-b02c-8735671f9997': {
+            'driver': {},
+            'service': {},
             'service:hello-world:ii:hello-world': policy_perm('user.es'),
             'service:puter-kvstore:ii:puter-kvstore': policy_perm('user.kv'),
             'driver:puter-kvstore': policy_perm('user.kv'),
