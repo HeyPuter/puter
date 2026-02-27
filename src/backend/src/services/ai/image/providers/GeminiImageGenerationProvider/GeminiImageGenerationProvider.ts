@@ -25,9 +25,10 @@ import { MeteringService } from '../../../../MeteringService/MeteringService.js'
 import { GEMINI_DEFAULT_RATIO, GEMINI_IMAGE_GENERATION_MODELS } from './models.js';
 import { IGenerateParams, IImageModel, IImageProvider } from '../types.js';
 
-type GeminiGenerateParams = IGenerateParams & {
-    input_image?: string;
-    input_image_mime_type?: string;
+const MIME_SIGNATURES: Record<string, string> = {
+    '/9j/': 'image/jpeg',
+    'iVBOR': 'image/png',
+    'UklGR': 'image/webp',
 };
 
 interface GeminiUsageMetadata {
@@ -59,9 +60,8 @@ export class GeminiImageGenerationProvider implements IImageProvider {
     }
 
     async generate (params: IGenerateParams): Promise<string> {
-        const { prompt, test_mode } = params;
-        let { model, ratio, quality } = params;
-        const { input_image, input_image_mime_type } = params as GeminiGenerateParams;
+        const { prompt, test_mode, input_image, input_image_mime_type, model, quality } = params;
+        let { ratio, input_images } = params;
 
         const selectedModel = this.models().find(m => m.id === model) || this.models().find(m => m.id === this.getDefaultModel())!;
 
@@ -76,16 +76,19 @@ export class GeminiImageGenerationProvider implements IImageProvider {
         const allowedRatios = selectedModel.allowedRatios ?? [GEMINI_DEFAULT_RATIO];
         ratio = ratio && this.#isValidRatio(ratio, allowedRatios) ? ratio : allowedRatios[0];
 
-        if ( input_image && !input_image_mime_type ) {
-            throw new Error('`input_image_mime_type` is required when `input_image` is provided');
+        // Backwards compat: merge singular input_image into input_images
+        if ( input_image && (!input_images || input_images.length === 0) ) {
+            input_images = [input_image];
         }
 
-        if ( input_image_mime_type && !input_image ) {
-            throw new Error('`input_image` is required when `input_image_mime_type` is provided');
-        }
-
-        if ( input_image_mime_type && !this.#isValidImageMimeType(input_image_mime_type) ) {
-            throw new Error('`input_image_mime_type` must be a valid image MIME type (image/png, image/jpeg, image/webp)');
+        // Validate input images have detectable MIME types
+        if ( input_images?.length ) {
+            for ( const img of input_images ) {
+                const mime = this.#detectMimeType(img) ?? input_image_mime_type;
+                if ( ! mime ) {
+                    throw new Error('Could not detect MIME type for an input image. Provide a known image format (JPEG, PNG, WebP) or set `input_image_mime_type`.');
+                }
+            }
         }
 
         const priceKey = `${quality ? `${quality}:` : ''}${ratio.w}x${ratio.h}`;
@@ -110,7 +113,10 @@ export class GeminiImageGenerationProvider implements IImageProvider {
             });
         }
 
-        const estimatedPromptTokenCount = this.#estimatePromptTokenCount(prompt);
+        const inputImageCount = input_images?.length ?? 0;
+        const estimatedImageTokens = inputImageCount * 560; // this is only documented for 3 pro, assuming it's the same for other models (as they also have input images cost)
+
+        const estimatedPromptTokenCount = this.#estimatePromptTokenCount(prompt) + estimatedImageTokens;
         const estimatedInputCostInCents = this.#calculateTokenCostInCents(estimatedPromptTokenCount, selectedModel.costs.input);
         const estimatedOutputCostInCents = priceInCents;
         const estimatedTotalCostInMicroCents = this.#toMicroCents(estimatedInputCostInCents + estimatedOutputCostInCents);
@@ -120,10 +126,21 @@ export class GeminiImageGenerationProvider implements IImageProvider {
             throw APIError.create('insufficient_funds');
         }
 
-        const contents = this.#buildContents(prompt, ratio, input_image, input_image_mime_type);
+        const contents = this.#buildContents(prompt, input_images, input_image_mime_type);
+        const aspectRatio = `${ratio.w}:${ratio.h}`;
+
+        const imageConfig: Record<string, string> = { aspectRatio };
+        if ( quality && selectedModel.allowedQualityLevels?.includes(quality) ) {
+            imageConfig.imageSize = quality;
+        }
+
         const response = await this.#client.models.generateContent({
             model: selectedModel.id,
             contents,
+            config: {
+                responseModalities: ['TEXT', 'IMAGE'],
+                imageConfig,
+            },
         });
 
         const usage = this.#extractUsageMetadata(response);
@@ -167,20 +184,22 @@ export class GeminiImageGenerationProvider implements IImageProvider {
         return url;
     }
 
-    #buildContents (prompt: string, ratio: { w: number; h: number }, input_image?: string, input_image_mime_type?: string) {
-        if ( input_image && input_image_mime_type ) {
-            return [
-                { text: `Generate a picture of dimensions ${parseInt(`${ratio.w}`)}x${parseInt(`${ratio.h}`)} with the prompt: ${prompt}` },
-                {
+    #buildContents (prompt: string, input_images?: string[], input_image_mime_type?: string) {
+        const parts: Record<string, unknown>[] = [{ text: prompt }];
+
+        if ( input_images?.length ) {
+            for ( const img of input_images ) {
+                const mimeType = this.#detectMimeType(img) ?? input_image_mime_type ?? 'image/png';
+                parts.push({
                     inlineData: {
-                        mimeType: input_image_mime_type,
-                        data: input_image,
+                        mimeType,
+                        data: img,
                     },
-                },
-            ];
+                });
+            }
         }
 
-        return `Generate a picture of dimensions ${parseInt(`${ratio.w}`)}x${parseInt(`${ratio.h}`)} with the prompt: ${prompt}`;
+        return parts;
     }
 
     #setResponseCostMetadata ({
@@ -266,7 +285,17 @@ export class GeminiImageGenerationProvider implements IImageProvider {
 
         for ( const part of parts ) {
             if ( part?.inlineData?.data ) {
-                return `data:image/png;base64,${ part.inlineData.data}`;
+                const mimeType = part.inlineData.mimeType ?? 'image/png';
+                return `data:${mimeType};base64,${ part.inlineData.data}`;
+            }
+        }
+        return undefined;
+    }
+
+    #detectMimeType (data: string): string | undefined {
+        for ( const [signature, mimeType] of Object.entries(MIME_SIGNATURES) ) {
+            if ( data.startsWith(signature) ) {
+                return mimeType;
             }
         }
         return undefined;
@@ -274,11 +303,5 @@ export class GeminiImageGenerationProvider implements IImageProvider {
 
     #isValidRatio (ratio: { w: number; h: number }, allowedRatios: { w: number; h: number }[]) {
         return allowedRatios.some(r => r.w === ratio.w && r.h === ratio.h);
-    }
-
-    #isValidImageMimeType (mimeType?: string) {
-        if ( ! mimeType ) return false;
-        const supportedTypes = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp'];
-        return supportedTypes.includes(mimeType.toLowerCase());
     }
 }

@@ -135,6 +135,7 @@ class AIInterfaceService extends BaseService {
                         n: { type: 'number', optional: true },
                         input_image: { type: 'string', optional: true },
                         input_image_mime_type: { type: 'string', optional: true },
+                        input_images: { type: 'json', optional: true },
                         image_url: { type: 'string', optional: true },
                         image_base64: { type: 'string', optional: true },
                         mask_image_url: { type: 'string', optional: true },
