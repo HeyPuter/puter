@@ -127,4 +127,96 @@ export const GEMINI_IMAGE_GENERATION_MODELS: IImageModel[] = [
             '4K:21x9': 24, // $0.24 per image
         },
     },
+    {
+        puterId: 'google:google/gemini-3.1-flash-image-preview',
+        id: 'gemini-3.1-flash-image-preview',
+        name: 'Gemini 3.1 Flash Image',
+        version: '1.0',
+        costs_currency: 'usd-cents',
+        index_cost_key: '1K:1x1',
+        aliases: [
+            'gemini-3.1-flash-image-preview',
+            'gemini-3.1-flash-image',
+            'google/gemini-3.1-flash-image-preview',
+            'google/gemini-3.1-flash-image',
+            'google:google/gemini-3.1-flash-image-preview',
+        ],
+        allowedQualityLevels: ['0.5K', '1K', '2K', '4K'],
+        allowedRatios: [
+            { w: 1, h: 1 },
+            { w: 1, h: 4 },
+            { w: 1, h: 8 },
+            { w: 2, h: 3 },
+            { w: 3, h: 2 },
+            { w: 3, h: 4 },
+            { w: 4, h: 1 },
+            { w: 4, h: 3 },
+            { w: 4, h: 5 },
+            { w: 5, h: 4 },
+            { w: 8, h: 1 },
+            { w: 9, h: 16 },
+            { w: 16, h: 9 },
+            { w: 21, h: 9 },
+        ],
+        costs: {
+            input: 25, // $0.25 per 1M input tokens, however google counts them
+            output: 150, // $1.50 per 1M output tokens, however google counts them
+            '0.5K:1x1': 4.5, // $0.045 per image
+            '0.5K:1x4': 4.5, // $0.045 per image
+            '0.5K:1x8': 4.5, // $0.045 per image
+            '0.5K:2x3': 4.5, // $0.045 per image
+            '0.5K:3x2': 4.5, // $0.045 per image
+            '0.5K:3x4': 4.5, // $0.045 per image
+            '0.5K:4x1': 4.5, // $0.045 per image
+            '0.5K:4x3': 4.5, // $0.045 per image
+            '0.5K:4x5': 4.5, // $0.045 per image
+            '0.5K:5x4': 4.5, // $0.045 per image
+            '0.5K:8x1': 4.5, // $0.045 per image
+            '0.5K:9x16': 4.5, // $0.045 per image
+            '0.5K:16x9': 4.5, // $0.045 per image
+            '0.5K:21x9': 4.5, // $0.045 per image
+            '1K:1x1': 6.7, // $0.067 per image
+            '1K:1x4': 6.7, // $0.067 per image
+            '1K:1x8': 6.7, // $0.067 per image
+            '1K:2x3': 6.7, // $0.067 per image
+            '1K:3x2': 6.7, // $0.067 per image
+            '1K:3x4': 6.7, // $0.067 per image
+            '1K:4x1': 6.7, // $0.067 per image
+            '1K:4x3': 6.7, // $0.067 per image
+            '1K:4x5': 6.7, // $0.067 per image
+            '1K:5x4': 6.7, // $0.067 per image
+            '1K:8x1': 6.7, // $0.067 per image
+            '1K:9x16': 6.7, // $0.067 per image
+            '1K:16x9': 6.7, // $0.067 per image
+            '1K:21x9': 6.7, // $0.067 per image
+            '2K:1x1': 10.1, // $0.101 per image
+            '2K:1x4': 10.1, // $0.101 per image
+            '2K:1x8': 10.1, // $0.101 per image
+            '2K:2x3': 10.1, // $0.101 per image
+            '2K:3x2': 10.1, // $0.101 per image
+            '2K:3x4': 10.1, // $0.101 per image
+            '2K:4x1': 10.1, // $0.101 per image
+            '2K:4x3': 10.1, // $0.101 per image
+            '2K:4x5': 10.1, // $0.101 per image
+            '2K:5x4': 10.1, // $0.101 per image
+            '2K:8x1': 10.1, // $0.101 per image
+            '2K:9x16': 10.1, // $0.101 per image
+            '2K:16x9': 10.1, // $0.101 per image
+            '2K:21x9': 10.1, // $0.101 per image
+            '4K:1x1': 15.1, // $0.151 per image
+            '4K:1x4': 15.1, // $0.151 per image
+            '4K:1x8': 15.1, // $0.151 per image
+            '4K:2x3': 15.1, // $0.151 per image
+            '4K:3x2': 15.1, // $0.151 per image
+            '4K:3x4': 15.1, // $0.151 per image
+            '4K:4x1': 15.1, // $0.151 per image
+            '4K:4x3': 15.1, // $0.151 per image
+            '4K:4x5': 15.1, // $0.151 per image
+            '4K:5x4': 15.1, // $0.151 per image
+            '4K:8x1': 15.1, // $0.151 per image
+            '4K:9x16': 15.1, // $0.151 per image
+            '4K:16x9': 15.1, // $0.151 per image
+            '4K:21x9': 15.1, // $0.151 per image
+        },
+    },
 ];
