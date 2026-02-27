@@ -18,6 +18,7 @@
  */
 
 import UIContextMenu from './UIContextMenu.js';
+import UIAlert from './UIAlert.js';
 import path from '../lib/path.js';
 import launch_app from '../helpers/launch_app.js';
 
@@ -224,6 +225,84 @@ function UITaskbarItem (options) {
                     window.empty_trash();
                 },
             });
+        }
+
+        //------------------------------------------
+        // Auto-delete Settings (taskbar version)
+        //------------------------------------------
+        if (options.app === 'trash') {
+            menu_items.push('-'); // divider
+
+            // IMPORTANT: async logic must run in an IIFE
+            (async () => {
+                try {
+                    let stored = await puter.kv.get("auto_delete_days");
+
+                    if (stored === undefined || stored === null) {
+                        console.log("[taskbar-trash] initializing auto_delete_days = 0");
+                        await puter.kv.set("auto_delete_days", "0");
+                        stored = "0";
+                    }
+
+                    window.auto_delete_days_pref = parseFloat(stored) || 0;
+
+                    // Insert the submenu AFTER KV is loaded
+                    menu_items.push({
+                        html: "Auto-delete Settings",
+                        items: [
+                            {
+                                html: "None (disabled)",
+                                checked: window.auto_delete_days_pref === 0,
+                                onClick: async function () {
+                                    await puter.kv.set("auto_delete_days", "0");
+                                    window.auto_delete_days_pref = 0;
+                                    await UIAlert({ message: "Auto-delete disabled", buttons: [{ label: "OK", value: "ok", type: "primary" }] });
+                                }
+                            },
+                            {
+                                html: "After 24 hours",
+                                checked: window.auto_delete_days_pref === 1,
+                                onClick: async function () {
+                                    await puter.kv.set("auto_delete_days", "1");
+                                    window.auto_delete_days_pref = 1;
+                                    await UIAlert({ message: "Auto-delete interval set to 24 hours", buttons: [{ label: "OK", value: "ok", type: "primary" }] });
+                                }
+                            },
+                            {
+                                html: "After 7 days",
+                                checked: window.auto_delete_days_pref === 7,
+                                onClick: async function () {
+                                    await puter.kv.set("auto_delete_days", "7");
+                                    window.auto_delete_days_pref = 7;
+                                    await UIAlert({ message: "Auto-delete interval set to 7 days", buttons: [{ label: "OK", value: "ok", type: "primary" }] });
+                                }
+                            },
+                            {
+                                html: "After 30 days",
+                                checked: window.auto_delete_days_pref === 30,
+                                onClick: async function () {
+                                    await puter.kv.set("auto_delete_days", "30");
+                                    window.auto_delete_days_pref = 30;
+                                    await UIAlert({ message: "Auto-delete interval set to 30 days", buttons: [{ label: "OK", value: "ok", type: "primary" }] });
+                                }
+                            }
+                        ]
+                    });
+
+                    // Finally show FULL updated menu
+                    UIContextMenu({
+                        parent_element: el_taskbar_item,
+                        items: menu_items,
+                        parent_id: $(el_taskbar_item).attr('data-id')
+                    });
+
+                } catch (err) {
+                    console.error("[taskbar-trash] failed to load auto_delete_days:", err);
+                }
+            })();
+
+            // Important: STOP HERE so the outer code does not call UIContextMenu again
+            return;
         }
         //------------------------------------------
         // Remove from Taskbar

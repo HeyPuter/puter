@@ -257,6 +257,9 @@ const install = async ({ context, services, app, useapi, modapi }) => {
     const { EdgeRateLimitService } = require('./services/abuse-prevention/EdgeRateLimitService');
     services.registerService('edge-rate-limit', EdgeRateLimitService);
 
+    const { TrashAutoDeleteService } = require('./services/TrashAutoDeleteService');
+    services.registerService('trash-auto-delete', TrashAutoDeleteService);
+    
     const { CleanEmailService } = require('./services/CleanEmailService');
     services.registerService('clean-email', CleanEmailService);
 
