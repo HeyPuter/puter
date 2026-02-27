@@ -142,7 +142,7 @@ const generate_file_context_menu = async function (options) {
     const fsentry = options.fsentry || {};
     const is_trash = options.is_trash ?? false;
     const is_trashed = options.is_trashed ?? false;
-    const is_worker = options.is_worker ?? false;
+    const is_worker = options.fsentry.workers?.length > 0;
     const onOpen = options.onOpen;
 
     const is_shared_with_me = (fsentry.path !== `/${window.user.username}` && !fsentry.path.startsWith(`/${window.user.username}/`));
@@ -534,12 +534,14 @@ const generate_file_context_menu = async function (options) {
 
                 if ( is_shared_with_me ) base_dir = window.desktop_path;
 
-                window.create_shortcut(path.basename($(el_item).attr('data-path')),
-                                fsentry.is_dir,
-                                base_dir,
-                                null, // appendTo - will be determined by create_shortcut
-                                fsentry.shortcut_to === '' ? fsentry.uid : fsentry.shortcut_to,
-                                fsentry.shortcut_to_path === '' ? fsentry.path : fsentry.shortcut_to_path);
+                window.create_shortcut(
+                    path.basename($(el_item).attr('data-path')),
+                    fsentry.is_dir,
+                    base_dir,
+                    null, // appendTo - will be determined by create_shortcut
+                    fsentry.shortcut_to === '' ? fsentry.uid : fsentry.shortcut_to,
+                    fsentry.shortcut_to_path === '' ? fsentry.path : fsentry.shortcut_to_path,
+                );
             },
         });
     }
@@ -626,13 +628,15 @@ const generate_file_context_menu = async function (options) {
             let top = $(el_item).position().top + $(el_item).height();
             top = top > (window.innerHeight - (window_height + window.taskbar_height + window.toolbar_height)) ? (window.innerHeight - (window_height + window.taskbar_height + window.toolbar_height)) : top;
 
-            UIWindowItemProperties($(el_item).attr('data-name'),
-                            $(el_item).attr('data-path'),
-                            $(el_item).attr('data-uid'),
-                            left,
-                            top,
-                            window_width,
-                            window_height);
+            UIWindowItemProperties(
+                $(el_item).attr('data-name'),
+                $(el_item).attr('data-path'),
+                $(el_item).attr('data-uid'),
+                left,
+                top,
+                window_width,
+                window_height,
+            );
         },
     });
 
