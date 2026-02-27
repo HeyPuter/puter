@@ -32,7 +32,7 @@ vi.mock('../../config.js', () => ({
     default: {
         static_hosting_domain: 'site.puter.localhost',
         static_hosting_base_domain_redirect: 'https://developer.puter.com/static-hosting/',
-        private_app_hosting_domain: 'puter.app',
+        private_app_hosting_domain: 'puter.dev',
         enable_private_app_access_gate: true,
         origin: 'https://puter.com',
         cookie_name: 'puter.session.token',
@@ -40,7 +40,7 @@ vi.mock('../../config.js', () => ({
     },
     static_hosting_domain: 'site.puter.localhost',
     static_hosting_base_domain_redirect: 'https://developer.puter.com/static-hosting/',
-    private_app_hosting_domain: 'puter.app',
+    private_app_hosting_domain: 'puter.dev',
     enable_private_app_access_gate: true,
     origin: 'https://puter.com',
     cookie_name: 'puter.session.token',
@@ -261,7 +261,7 @@ describe('PuterSiteMiddleware', () => {
             capturedMiddleware = puterSiteMiddleware;
         });
 
-        it('redirects private app assets to puter.app host', async () => {
+        it('redirects private app assets to puter.dev host', async () => {
             const mockServices = {
                 get: vi.fn().mockImplementation((serviceName) => {
                     if ( serviceName === 'puter-site' ) {
@@ -285,7 +285,7 @@ describe('PuterSiteMiddleware', () => {
                 uid: 'app-11111111-1111-1111-1111-111111111111',
                 name: 'paid-app',
                 is_private: 1,
-                index_url: 'https://paid.puter.app/',
+                index_url: 'https://paid.puter.dev/',
             });
 
             const mockReq = {
@@ -310,7 +310,7 @@ describe('PuterSiteMiddleware', () => {
 
             await capturedMiddleware(mockReq, mockRes, mockNext);
 
-            expect(mockRes.redirect).toHaveBeenCalledWith('https://paid.puter.app/asset.js?foo=1');
+            expect(mockRes.redirect).toHaveBeenCalledWith('https://paid.puter.dev/asset.js?foo=1');
             expect(mockNext).not.toHaveBeenCalled();
         });
 
@@ -372,11 +372,11 @@ describe('PuterSiteMiddleware', () => {
                 uid: 'app-11111111-1111-1111-1111-111111111111',
                 name: 'paid-app',
                 is_private: 1,
-                index_url: 'https://paid.puter.app/',
+                index_url: 'https://paid.puter.dev/',
             });
 
             const mockReq = {
-                hostname: 'paid.puter.app',
+                hostname: 'paid.puter.dev',
                 subdomains: [],
                 is_custom_domain: true,
                 baseUrl: '',
@@ -469,7 +469,7 @@ describe('PuterSiteMiddleware', () => {
                 uid: 'app-11111111-1111-1111-1111-111111111111',
                 name: 'paid-app',
                 is_private: 1,
-                index_url: 'https://paid.puter.app/',
+                index_url: 'https://paid.puter.dev/',
             });
 
             const mockReq = {

@@ -61,7 +61,7 @@ function isPrivateApp (app) {
 }
 
 function hostMatchesPrivateDomain (hostname) {
-    const privateHostingDomain = `${privateAppHostingDomain ?? 'puter.app'}`
+    const privateHostingDomain = `${privateAppHostingDomain ?? 'puter.dev'}`
         .trim()
         .toLowerCase()
         .replace(/^\./, '');
