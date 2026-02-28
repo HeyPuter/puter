@@ -394,18 +394,26 @@ window.initgui = async function (options) {
     await launch_services(options);
 
     // If no token in storage but we have a session cookie (e.g. after OIDC redirect), fetch GUI token
-    if ( !localStorage.getItem('auth_token') && window.auth_token == null ) {
-        try {
-            const r = await fetch(`${window.gui_origin}/get-gui-token`, { credentials: 'include' });
-            if ( r.ok ) {
-                const { token } = await r.json();
-                window.auth_token = token;
-                localStorage.setItem('auth_token', token);
-                if ( typeof puter !== 'undefined' ) puter.setAuthToken(token, window.api_origin);
+    try {
+        const r = await fetch(`${window.gui_origin}/get-gui-token`, { credentials: 'include' });
+        if ( r.ok ) {
+            const { token } = await r.json();
+            window.auth_token = token;
+            localStorage.setItem('auth_token', token);
+            if ( typeof puter !== 'undefined' ) puter.setAuthToken(token, window.api_origin);
+            const tokenChanged = token !== window.auth_token;
+            if ( tokenChanged ) {
+                // This will update the list of logged in users and set the current one
+                try {
+                    const whoami = await puter.os.user({ query: 'icon_size=64' });
+                    if ( whoami ) await window.update_auth_data(token, whoami);
+                } catch (e) {
+                    console.error('get-gui-token follow-up whoami/update_auth_data', e);
+                }
             }
-        } catch (e) {
-            // ignore
         }
+    } catch (e) {
+        console.error('get-gui-token', e);
     }
 
     //--------------------------------------------------------------------------------------
