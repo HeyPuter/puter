@@ -30,6 +30,21 @@ const { hideBin } = require('yargs/helpers');
 
 const relative_require = require;
 
+const normalizeHostDomain = (domain) => {
+    if ( typeof domain !== 'string' ) return null;
+    const normalizedDomain = domain.trim().toLowerCase().replace(/^\./, '');
+    if ( ! normalizedDomain ) return null;
+    return normalizedDomain.split(':')[0];
+};
+
+const hostMatchesDomain = (hostname, domain) => {
+    const normalizedHost = normalizeHostDomain(hostname);
+    const normalizedDomain = normalizeHostDomain(domain);
+    if ( !normalizedHost || !normalizedDomain ) return false;
+    return normalizedHost === normalizedDomain ||
+        normalizedHost.endsWith(`.${normalizedDomain}`);
+};
+
 /**
 * This class, WebServerService, is responsible for starting and managing the Puter web server.
 * It initializes the Express app, sets up middlewares, routes, and handles authentication and web sockets.
@@ -475,7 +490,8 @@ class WebServerService extends BaseService {
             // not setting the header at all. (that's my theory)
             if ( req.hostname === undefined ) {
                 res.status(400).send(
-                                'Please verify your browser is up-to-date.');
+                    'Please verify your browser is up-to-date.',
+                );
                 return;
             }
 
@@ -485,18 +501,26 @@ class WebServerService extends BaseService {
         // Validate host header against allowed domains to prevent host header injection
         // https://www.owasp.org/index.php/Host_Header_Injection
         app.use((req, res, next) => {
-            const allowedDomains = [
-                config.domain.toLowerCase(),
-                config.static_hosting_domain.toLowerCase(),
-                `at.${ config.static_hosting_domain.toLowerCase()}`,
-            ];
+            const allowedDomains = new Set();
+            const pushAllowedDomain = (domain) => {
+                const normalizedDomain = normalizeHostDomain(domain);
+                if ( normalizedDomain ) {
+                    allowedDomains.add(normalizedDomain);
+                }
+            };
 
-            if ( config.static_hosting_domain_alt ) {
-                allowedDomains.push(config.static_hosting_domain_alt.toLowerCase());
+            const staticHostingDomain = normalizeHostDomain(config.static_hosting_domain);
+            pushAllowedDomain(config.domain);
+            pushAllowedDomain(staticHostingDomain);
+            pushAllowedDomain(config.static_hosting_domain_alt);
+            pushAllowedDomain(config.private_app_hosting_domain);
+            pushAllowedDomain(config.private_app_hosting_domain_alt);
+            if ( staticHostingDomain ) {
+                pushAllowedDomain(`at.${staticHostingDomain}`);
             }
 
             if ( config.allow_nipio_domains ) {
-                allowedDomains.push('nip.io');
+                pushAllowedDomain('nip.io');
             }
 
             // Retrieve the Host header and ensure it's in a valid format
@@ -522,7 +546,7 @@ class WebServerService extends BaseService {
                 next();
                 return;
             }
-            if ( allowedDomains.some(allowedDomain => hostName === allowedDomain || hostName.endsWith(`.${ allowedDomain}`)) ) {
+            if ( [...allowedDomains].some(allowedDomain => hostMatchesDomain(hostName, allowedDomain)) ) {
                 next(); // Proceed if the host is valid
                 return;
             } else {
@@ -653,8 +677,10 @@ class WebServerService extends BaseService {
             const origin = req.headers.origin;
 
             const is_site =
-                req.hostname.endsWith(config.static_hosting_domain) ||
-                (config.static_hosting_domain_alt && req.hostname.endsWith(config.static_hosting_domain_alt));
+                hostMatchesDomain(req.hostname, config.static_hosting_domain) ||
+                hostMatchesDomain(req.hostname, config.static_hosting_domain_alt) ||
+                hostMatchesDomain(req.hostname, config.private_app_hosting_domain) ||
+                hostMatchesDomain(req.hostname, config.private_app_hosting_domain_alt);
             req.hostname === 'docs.puter.com'
             ;
             const is_popup = !!req.query.embedded_in_popup;

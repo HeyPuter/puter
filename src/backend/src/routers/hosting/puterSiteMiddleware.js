@@ -73,6 +73,29 @@ function hostMatchesPrivateDomain (hostname) {
     return host === privateHostingDomain || host.endsWith(`.${privateHostingDomain}`);
 }
 
+function getSubdomainFromHostedRequest (req) {
+    const host = `${req.hostname ?? ''}`.trim().toLowerCase();
+    if ( ! host ) return '';
+
+    const privateHostingDomain = `${privateAppHostingDomain ?? 'puter.dev'}`
+        .trim()
+        .toLowerCase()
+        .replace(/^\./, '');
+
+    if ( privateHostingDomain ) {
+        const privateDomainSuffix = `.${privateHostingDomain}`;
+        if ( host === privateHostingDomain ) {
+            return '';
+        }
+        if ( host.endsWith(privateDomainSuffix) ) {
+            const privateSubdomain = host.slice(0, host.length - privateDomainSuffix.length);
+            return privateSubdomain.split('.')[0] || '';
+        }
+    }
+
+    return host.split('.')[0] || '';
+}
+
 function buildPrivateHostRedirectUrl (req, app) {
     if ( !app?.index_url || typeof app.index_url !== 'string' ) {
         return null;
@@ -504,10 +527,11 @@ async function evaluatePrivateAppAccess ({ req, res, services, app, requestPath 
 }
 
 async function runInternal (req, res, next) {
+    const isPrivateHostedRequest = hostMatchesPrivateDomain(req.hostname);
     const subdomain =
-        req.is_custom_domain ? req.hostname :
+        req.is_custom_domain && !isPrivateHostedRequest ? req.hostname :
             req.subdomains[0] === 'devtest' ? 'devtest' :
-                req.hostname.split('.')[0];
+                getSubdomainFromHostedRequest(req);
 
     let path = (req.baseUrl + req.path) || 'index.html';
 
@@ -545,7 +569,7 @@ async function runInternal (req, res, next) {
         await (async () => {
             const puterSiteService = services.get('puter-site');
             const site = await puterSiteService.get_subdomain(subdomain, {
-                is_custom_domain: req.is_custom_domain,
+                is_custom_domain: req.is_custom_domain && !isPrivateHostedRequest,
             });
             return site;
         })();
@@ -1083,6 +1107,7 @@ export async function puterSiteMiddleware (req, res, next) {
     const isSubdomain =
         req.hostname.endsWith(staticHostingDomain)
         || (staticHostingDomainAlt && req.hostname.endsWith(staticHostingDomainAlt))
+        || hostMatchesPrivateDomain(req.hostname)
         || req.subdomains[0] === 'devtest'
             ;
 

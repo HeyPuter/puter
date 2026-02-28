@@ -378,7 +378,7 @@ describe('PuterSiteMiddleware', () => {
             const mockReq = {
                 hostname: 'paid.puter.dev',
                 subdomains: [],
-                is_custom_domain: true,
+                is_custom_domain: false,
                 baseUrl: '',
                 path: '/index.html',
                 originalUrl: '/index.html',
@@ -478,7 +478,7 @@ describe('PuterSiteMiddleware', () => {
             const mockReq = {
                 hostname: 'paid.puter.dev',
                 subdomains: [],
-                is_custom_domain: true,
+                is_custom_domain: false,
                 baseUrl: '',
                 path: '/index.html',
                 originalUrl: '/index.html',
