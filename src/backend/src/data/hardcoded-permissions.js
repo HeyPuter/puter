@@ -88,11 +88,52 @@ const implicit_user_app_permissions = [
     },
 ];
 
-const policy_perm = selector => ({
+const driverPolicies = {
+    temp: {
+        kv: {
+            'rate-limit': {
+                max: 1000,
+                period: 30000,
+            },
+        },
+        es: {
+            'rate-limit': {
+                max: 1000,
+                period: 30000,
+            },
+        },
+    },
+    user: {
+        kv: {
+            'rate-limit': {
+                max: 3000,
+                period: 30000,
+            },
+        },
+        es: {
+            'rate-limit': {
+                max: 3000,
+                period: 30000,
+            },
+        },
+    },
+};
+
+const clonePolicy = policy =>
+    JSON.parse(JSON.stringify(policy));
+
+const getPolicyBySelector = selector => {
+    const [scope, policyName] = selector.split('.');
+    const policy = driverPolicies[scope]?.[policyName];
+    if ( ! policy ) {
+        throw new Error(`unknown driver policy selector: ${selector}`);
+    }
+    return policy;
+};
+
+const policyPerm = selector => ({
     policy: {
-        $: 'json-address',
-        path: '/admin/.policy/drivers.json',
-        selector,
+        ...clonePolicy(getPolicyBySelector(selector)),
     },
 });
 
@@ -108,29 +149,29 @@ const hardcoded_user_group_permissions = {
         'b7220104-7905-4985-b996-649fdcdb3c8f': {
             'driver': {},
             'service': {},
-            'service:hello-world:ii:hello-world': policy_perm('temp.es'),
-            'service:puter-kvstore:ii:puter-kvstore': policy_perm('temp.kv'),
-            'driver:puter-kvstore': policy_perm('temp.kv'),
-            'service:puter-notifications:ii:crud-q': policy_perm('temp.es'),
-            'service:puter-apps:ii:crud-q': policy_perm('temp.es'),
-            'service:puter-subdomains:ii:crud-q': policy_perm('temp.es'),
-            'service:apps:ii:crud-q': policy_perm('temp.es'),
-            'service:es\\Cnotification:ii:crud-q': policy_perm('user.es'),
-            'service:es\\Capp:ii:crud-q': policy_perm('user.es'),
-            'service:app:ii:crud-q': policy_perm('user.es'),
-            'service:es\\Csubdomain:ii:crud-q': policy_perm('user.es'),
+            'service:hello-world:ii:hello-world': policyPerm('temp.es'),
+            'service:puter-kvstore:ii:puter-kvstore': policyPerm('temp.kv'),
+            'driver:puter-kvstore': policyPerm('temp.kv'),
+            'service:puter-notifications:ii:crud-q': policyPerm('temp.es'),
+            'service:puter-apps:ii:crud-q': policyPerm('temp.es'),
+            'service:puter-subdomains:ii:crud-q': policyPerm('temp.es'),
+            'service:apps:ii:crud-q': policyPerm('temp.es'),
+            'service:es\\Cnotification:ii:crud-q': policyPerm('user.es'),
+            'service:es\\Capp:ii:crud-q': policyPerm('user.es'),
+            'service:app:ii:crud-q': policyPerm('user.es'),
+            'service:es\\Csubdomain:ii:crud-q': policyPerm('user.es'),
         },
         '78b1b1dd-c959-44d2-b02c-8735671f9997': {
             'driver': {},
             'service': {},
-            'service:hello-world:ii:hello-world': policy_perm('user.es'),
-            'service:puter-kvstore:ii:puter-kvstore': policy_perm('user.kv'),
-            'driver:puter-kvstore': policy_perm('user.kv'),
-            'service:es\\Cnotification:ii:crud-q': policy_perm('user.es'),
-            'service:es\\Capp:ii:crud-q': policy_perm('user.es'),
-            'service:app:ii:crud-q': policy_perm('user.es'),
-            'service:es\\Csubdomain:ii:crud-q': policy_perm('user.es'),
-            'service:apps:ii:crud-q': policy_perm('user.es'),
+            'service:hello-world:ii:hello-world': policyPerm('user.es'),
+            'service:puter-kvstore:ii:puter-kvstore': policyPerm('user.kv'),
+            'driver:puter-kvstore': policyPerm('user.kv'),
+            'service:es\\Cnotification:ii:crud-q': policyPerm('user.es'),
+            'service:es\\Capp:ii:crud-q': policyPerm('user.es'),
+            'service:app:ii:crud-q': policyPerm('user.es'),
+            'service:es\\Csubdomain:ii:crud-q': policyPerm('user.es'),
+            'service:apps:ii:crud-q': policyPerm('user.es'),
         },
     },
 };

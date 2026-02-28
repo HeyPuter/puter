@@ -32,40 +32,7 @@ const crypto = require('crypto');
 
 const USERNAME = 'admin';
 
-const DEFAULT_FILES = {
-    '.policy': {
-        'drivers.json': JSON.stringify({
-            'temp': {
-                'kv': {
-                    'rate-limit': {
-                        'max': 1000,
-                        'period': 30000,
-                    },
-                },
-                'es': {
-                    'rate-limit': {
-                        'max': 1000,
-                        'period': 30000,
-                    },
-                },
-            },
-            'user': {
-                'kv': {
-                    'rate-limit': {
-                        'max': 3000,
-                        'period': 30000,
-                    },
-                },
-                'es': {
-                    'rate-limit': {
-                        'max': 3000,
-                        'period': 30000,
-                    },
-                },
-            },
-        }, undefined, '    '),
-    },
-};
+const DEFAULT_FILES = {};
 
 class DefaultUserService extends BaseService {
     async _init () {
