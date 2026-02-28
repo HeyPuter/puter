@@ -346,11 +346,18 @@ export class GeminiImageGenerationProvider implements IImageProvider {
     }
 
     #parseDataUri (data: string): { mimeType: string; base64: string } | undefined {
-        const match = data.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/s);
-        if ( match ) {
-            return { mimeType: match[1], base64: match[2] };
-        }
-        return undefined;
+        if ( ! data.startsWith('data:image/') ) return undefined;
+
+        const commaIdx = data.indexOf(',');
+        if ( commaIdx === -1 ) return undefined;
+
+        const header = data.substring(5, commaIdx); // after "data:" up to ","
+        if ( ! header.endsWith(';base64') ) return undefined;
+
+        const mimeType = header.substring(0, header.length - 7); // strip ";base64"
+        if ( mimeType.length === 0 ) return undefined;
+
+        return { mimeType, base64: data.substring(commaIdx + 1) };
     }
 
     #isValidRatio (ratio: { w: number; h: number }, allowedRatios: { w: number; h: number }[]) {
