@@ -202,11 +202,13 @@ export class GeminiImageGenerationProvider implements IImageProvider {
 
         if ( input_images?.length ) {
             for ( const img of input_images ) {
-                const mimeType = this.#detectMimeType(img) ?? input_image_mime_type ?? 'image/png';
+                const parsed = this.#parseDataUri(img);
+                const mimeType = parsed?.mimeType ?? this.#detectMimeType(img) ?? input_image_mime_type ?? 'image/png';
+                const rawBase64 = parsed?.base64 ?? img;
                 parts.push({
                     inlineData: {
                         mimeType,
-                        data: img,
+                        data: rawBase64,
                     },
                 });
             }
@@ -329,10 +331,24 @@ export class GeminiImageGenerationProvider implements IImageProvider {
     }
 
     #detectMimeType (data: string): string | undefined {
+        // Handle data URIs like "data:image/jpeg;base64,..."
+        const parsed = this.#parseDataUri(data);
+        if ( parsed ) {
+            return parsed.mimeType;
+        }
+
         for ( const [signature, mimeType] of Object.entries(MIME_SIGNATURES) ) {
             if ( data.startsWith(signature) ) {
                 return mimeType;
             }
+        }
+        return undefined;
+    }
+
+    #parseDataUri (data: string): { mimeType: string; base64: string } | undefined {
+        const match = data.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/s);
+        if ( match ) {
+            return { mimeType: match[1], base64: match[2] };
         }
         return undefined;
     }
