@@ -267,23 +267,24 @@ export class GeminiImageGenerationProvider implements IImageProvider {
     #extractUsageMetadata (response: GenerateContentResponse): GeminiUsageMetadata {
         const usage = (response as GenerateContentResponse & { usageMetadata?: Record<string, unknown> }).usageMetadata;
 
-        let candidatesTextTokenCount = 0;
         let candidatesImageTokenCount = 0;
 
         const details = usage?.candidatesTokensDetails;
         if ( Array.isArray(details) ) {
             for ( const entry of details ) {
-                if ( entry?.modality === 'TEXT' ) {
-                    candidatesTextTokenCount += this.#toSafeCount(entry.tokenCount);
-                } else if ( entry?.modality === 'IMAGE' ) {
+                if ( entry?.modality === 'IMAGE' ) {
                     candidatesImageTokenCount += this.#toSafeCount(entry.tokenCount);
                 }
             }
         }
 
+        // api only returns modality image, so calculate text tokens as candidates (output) - image tokens
+        const candidatesTokenCount = this.#toSafeCount(usage?.candidatesTokenCount);
+        const candidatesTextTokenCount = Math.max(0, candidatesTokenCount - candidatesImageTokenCount);
+
         return {
             promptTokenCount: this.#toSafeCount(usage?.promptTokenCount),
-            candidatesTokenCount: this.#toSafeCount(usage?.candidatesTokenCount),
+            candidatesTokenCount,
             candidatesTextTokenCount,
             candidatesImageTokenCount,
             thoughtsTokenCount: this.#toSafeCount(usage?.thoughtsTokenCount),
