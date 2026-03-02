@@ -21,6 +21,9 @@ export interface IGenerateParams {
     provider?: string,
     test_mode?: boolean
     quality?: string,
+    input_image?: string,
+    input_image_mime_type?: string,
+    input_images?: string[],
 };
 export interface IImageProvider {
 
