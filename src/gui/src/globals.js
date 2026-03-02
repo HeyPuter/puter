@@ -180,6 +180,11 @@ $(window).on( 'resize', function () {
 
     window.desktop_height = new_desktop_height;
     window.desktop_width = new_desktop_width;
+
+    // Update all maximized windows to fit the new viewport
+    $('.window-app[data-is_maximized="1"]').each(function () {
+        window.update_maximized_window_for_taskbar(this);
+    });
 });
 
 // for now `active_element` is basically the last element that was clicked,
