@@ -3483,7 +3483,11 @@ label {
     display: none;
 }
 
-.start-app:hover, .launch-app-selected .start-app {
+.start-app:hover {
+    background-color: rgba(100, 100, 100, 0.2);
+}
+
+.launch-app-selected .start-app {
     background-color: #ffffff;
 }
 
@@ -3898,8 +3902,6 @@ fieldset[name=number-code] {
 .launch-search-clear:hover {
     opacity: 1;
 }
-
-.launch-app-selected {}
 
 
 .website-badge-popover-title {
