@@ -41,7 +41,17 @@ async function UIWindowRequestPermission (options) {
  * Creates the permission dialog
  */
 async function create_permission_window (options, permission_description, resolve) {
-    const requestingEntity = options.app_name ?? options.origin;
+    const user_apps = await puter.apps.list();
+    const app_data = user_apps.find(a => a.name === options.app_name);
+    const app_icon = app_data.icon;
+
+    const requestingEntity = {
+        name: options.app_name || '',
+        origin: options.origin || '',
+        title: app_data.title,
+        icon: app_icon.image,
+    };
+
     const h = create_window_content(requestingEntity, permission_description);
 
     return await UIWindow({
@@ -89,10 +99,10 @@ function create_window_content (requestingEntity, permission_description) {
     h += '<div>';
     h += '<div style="padding: 20px; width: 100%; box-sizing: border-box;">';
     // title
-    h += `<h1 class="perm-title">${html_encode(requestingEntity)}</h1>`;
+    h += `<h1 class="perm-title"><img src="${html_encode(requestingEntity.icon)}"/> ${html_encode(requestingEntity.title)}</h1>`;
 
     // description (already HTML encoded)
-    h += `<p class="perm-description">${html_encode(requestingEntity)} is requesting permission to ${permission_description}</p>`;
+    h += `<p class="perm-description">${html_encode(requestingEntity.title)} is requesting permission to ${permission_description}</p>`;
 
     // Allow/Don't Allow
     h += `<button type="button" class="app-auth-allow button button-primary button-block" style="margin-top: 10px;">${i18n('allow')}</button>`;
@@ -255,12 +265,12 @@ async function get_standard_folder_description (resource_id, action) {
     const whoami = await puter.auth.whoami();
     const directories = whoami.directories || {};
 
-    // Standard folder names we recognize - maps to i18n keys
+    // Standard folder names we recognize - maps to i18n keys per action
     const folder_i18n_keys = {
-        'Desktop': 'perm_folder_desktop',
-        'Documents': 'perm_folder_documents',
-        'Pictures': 'perm_folder_pictures',
-        'Videos': 'perm_folder_videos',
+        'Desktop': { read: 'perm_folder_read_desktop', write: 'perm_folder_write_desktop' },
+        'Documents': { read: 'perm_folder_read_documents', write: 'perm_folder_write_documents' },
+        'Pictures': { read: 'perm_folder_read_pictures', write: 'perm_folder_write_pictures' },
+        'Videos': { read: 'perm_folder_read_videos', write: 'perm_folder_write_videos' },
     };
 
     // Check if resource_id matches any of the user's standard directories
@@ -274,14 +284,13 @@ async function get_standard_folder_description (resource_id, action) {
         if ( path_parts.length !== 2 ) continue;
 
         const folder_name = path_parts[1];
-        const folder_i18n_key = folder_i18n_keys[folder_name];
+        const folder_actions = folder_i18n_keys[folder_name];
+        if ( ! folder_actions ) continue;
+
+        const folder_i18n_key = folder_actions[action];
         if ( ! folder_i18n_key ) continue;
 
-        const folder_desc = i18n(folder_i18n_key);
-        return i18n('perm_folder_access', {
-            access: `<strong>${html_encode(action)}</strong>`,
-            folder: folder_desc,
-        }, false);
+        return i18n(folder_i18n_key);
     }
 
     return null;
