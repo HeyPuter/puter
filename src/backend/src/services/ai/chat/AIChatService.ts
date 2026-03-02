@@ -20,8 +20,8 @@
 import { createId as cuid2 } from '@paralleldrive/cuid2';
 import { PassThrough } from 'stream';
 import { APIError } from '../../../api/APIError.js';
-import { redisClient } from '../../../clients/redis/redisSingleton.js';
 import { setRedisCacheValue } from '../../../clients/redis/cacheUpdate.js';
+import { redisClient } from '../../../clients/redis/redisSingleton.js';
 import { ErrorService } from '../../../modules/core/ErrorService.js';
 import { Context } from '../../../util/context.js';
 import BaseService from '../../BaseService.js';
@@ -34,6 +34,7 @@ import { AsModeration } from '../moderation/AsModeration.js';
 import { normalize_tools_object } from '../utils/FunctionCalling.js';
 import { extract_text, normalize_messages, normalize_single_message } from '../utils/Messages.js';
 import Streaming from '../utils/Streaming.js';
+import { fallbackModelsKey } from './AIChatRedisCacheSpace.js';
 import { ClaudeProvider } from './providers/ClaudeProvider/ClaudeProvider.js';
 import { DeepSeekProvider } from './providers/DeepSeekProvider/DeepSeekProvider.js';
 import { FakeChatProvider } from './providers/FakeChatProvider.js';
@@ -47,7 +48,6 @@ import { OpenRouterProvider } from './providers/OpenRouterProvider/OpenRouterPro
 import { TogetherAIProvider } from './providers/TogetherAiProvider/TogetherAIProvider.js';
 import { IChatModel, IChatProvider, ICompleteArguments } from './providers/types.js';
 import { XAIProvider } from './providers/XAIProvider/XAIProvider.js';
-import { fallbackModelsKey } from './AIChatRedisCacheSpace.js';
 
 // Maximum number of fallback attempts when a model fails, including the first attempt
 const MAX_FALLBACKS = 3 + 1; // includes first attempt
@@ -343,7 +343,22 @@ export class AIChatService extends BaseService {
             parameters,
         } as Record<string, unknown>;
 
-        const user = actor.type.user;
+        // If we reach here with a suspended user, block and log; this shouldn't happen
+        const user = actor.type.user ?? (actor as any).type?.authorizer?.type?.user ?? Context.get('user');
+        if ( ! user ) {
+            this.errors.report('this should not happen: no user in AIChatService', {
+                trace: true,
+            });
+            throw APIError.create('permission_denied');
+        }
+        const get_user = (this.services.get('get-user') as { get_user: (o: { id: number; force?: boolean }) => Promise<{ suspended?: boolean } | null> }).get_user;
+        const nocache_user = await get_user({ id: user.id, force: true });
+        if ( nocache_user?.suspended ) {
+            this.errors.report('this should not happen: reached AIChatService with suspended user', {
+                trace: true,
+            });
+            throw APIError.create('account_suspended');
+        }
         if ( user.requires_email_confirmation && !user.email_confirmed ) {
             throw APIError.create('email_must_be_confirmed', null, {
                 action: 'use this service',
