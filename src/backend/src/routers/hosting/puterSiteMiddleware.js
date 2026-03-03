@@ -28,6 +28,7 @@ import selectors from '../../filesystem/node/selectors.js';
 import { get_app, get_user } from '../../helpers.js';
 import api_error_handler from '../../modules/web/lib/api_error_handler.js';
 import { Actor, SiteActorType, UserActorType } from '../../services/auth/Actor.js';
+import { DB_READ } from '../../services/database/consts.js';
 import { PermissionUtil } from '../../services/auth/permissionUtils.mjs';
 import { Context } from '../../util/context.js';
 import { stream_to_buffer as streamToBuffer } from '../../util/streamutil.js';
@@ -107,6 +108,69 @@ function buildPrivateHostRedirectUrl (req, app) {
     } catch {
         return null;
     }
+}
+
+function normalizeHostFromHeader (hostValue) {
+    if ( typeof hostValue !== 'string' ) return null;
+    const normalizedHost = hostValue.trim().toLowerCase();
+    if ( ! normalizedHost ) return null;
+    try {
+        return new URL(`http://${normalizedHost}`).host;
+    } catch {
+        return normalizedHost;
+    }
+}
+
+function buildPrivateAppIndexUrlCandidates (req) {
+    const protocol = `${config.protocol ?? 'https'}`.trim().replace(/:$/, '') || 'https';
+    const hostCandidates = new Set();
+
+    const hostnameCandidate = normalizeHostFromHeader(req.hostname);
+    if ( hostnameCandidate ) {
+        hostCandidates.add(hostnameCandidate);
+    }
+
+    const headerHostCandidate = normalizeHostFromHeader(req.headers?.host);
+    if ( headerHostCandidate ) {
+        hostCandidates.add(headerHostCandidate);
+    }
+
+    const candidates = [];
+    for ( const host of hostCandidates ) {
+        const base = `${protocol}://${host}`;
+        candidates.push(base);
+        candidates.push(`${base}/`);
+        candidates.push(`${base}/index.html`);
+    }
+
+    return [...new Set(candidates)];
+}
+
+async function resolvePrivateAppForHostedSite ({ req, site, services, associatedApp }) {
+    if ( associatedApp ) return associatedApp;
+    if ( ! site?.user_id ) return null;
+
+    const indexUrlCandidates = buildPrivateAppIndexUrlCandidates(req);
+    if ( indexUrlCandidates.length === 0 ) return null;
+
+    const databaseService = services.get('database');
+    const dbService = databaseService.get(DB_READ, 'apps');
+    const placeholders = indexUrlCandidates.map(() => '?').join(', ');
+
+    const apps = await dbService.read(
+        `SELECT * FROM apps WHERE owner_user_id = ? AND is_private = 1 AND index_url IN (${placeholders}) LIMIT 2`,
+        [site.user_id, ...indexUrlCandidates],
+    );
+
+    if ( apps.length > 1 ) {
+        logPrivateAccessEvent('private_access.host_match_ambiguous', {
+            requestHost: req.hostname,
+            siteOwnerUserId: site.user_id,
+            matchCount: apps.length,
+        });
+    }
+
+    return apps[0] || null;
 }
 
 function getPrivateDeniedRedirectUrl (app, denyRedirectUrl) {
@@ -591,7 +655,13 @@ async function runInternal (req, res, next) {
     const associatedApp = site.associated_app_id
         ? await get_app({ id: site.associated_app_id })
         : null;
-    const privateAppEnabled = isPrivateApp(associatedApp);
+    const privateApp = await resolvePrivateAppForHostedSite({
+        req,
+        site,
+        services,
+        associatedApp,
+    });
+    const privateAppEnabled = isPrivateApp(privateApp);
     const privateAccessGateEnabled = isPrivateAccessGateEnabled();
 
     if (
@@ -599,10 +669,10 @@ async function runInternal (req, res, next) {
         && privateAppEnabled
         && !hostMatchesPrivateDomain(req.hostname)
     ) {
-        const privateHostRedirect = buildPrivateHostRedirectUrl(req, associatedApp);
+        const privateHostRedirect = buildPrivateHostRedirectUrl(req, privateApp);
         if ( privateHostRedirect ) {
             logPrivateAccessEvent('private_access.host_redirect', {
-                appUid: associatedApp?.uid ?? null,
+                appUid: privateApp?.uid ?? null,
                 requestHost: req.hostname,
                 requestPath: req.path,
                 redirectUrl: privateHostRedirect,
@@ -669,7 +739,7 @@ async function runInternal (req, res, next) {
             req,
             res,
             services,
-            app: associatedApp,
+            app: privateApp,
             requestPath: req.path,
         });
         if ( ! accessAllowed ) return;

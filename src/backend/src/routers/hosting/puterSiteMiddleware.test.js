@@ -319,6 +319,15 @@ describe('PuterSiteMiddleware', () => {
                 event.result.allowed = false;
                 event.result.redirectUrl = 'https://puter.com/app/app-center/?item=app-11111111-1111-1111-1111-111111111111';
             });
+            const dbRead = vi.fn().mockResolvedValue([
+                {
+                    uid: 'app-11111111-1111-1111-1111-111111111111',
+                    name: 'paid-app',
+                    is_private: 1,
+                    index_url: 'https://paid.puter.dev/',
+                    owner_user_id: 101,
+                },
+            ]);
             const authService = {
                 getPrivateAssetCookieName: vi.fn().mockReturnValue('puter.private.asset.token'),
                 verifyPrivateAssetToken: vi.fn().mockImplementation(() => {
@@ -336,7 +345,7 @@ describe('PuterSiteMiddleware', () => {
                         return {
                             get_subdomain: vi.fn().mockResolvedValue({
                                 user_id: 101,
-                                associated_app_id: 202,
+                                associated_app_id: null,
                                 root_dir_id: 303,
                             }),
                         };
@@ -356,6 +365,13 @@ describe('PuterSiteMiddleware', () => {
                     if ( serviceName === 'acl' ) {
                         return {
                             check: vi.fn().mockResolvedValue(true),
+                        };
+                    }
+                    if ( serviceName === 'database' ) {
+                        return {
+                            get: vi.fn().mockReturnValue({
+                                read: dbRead,
+                            }),
                         };
                     }
                     if ( serviceName === 'event' ) return { emit: eventEmit };
@@ -400,6 +416,15 @@ describe('PuterSiteMiddleware', () => {
             await capturedMiddleware(mockReq, mockRes, mockNext);
 
             expect(eventEmit).not.toHaveBeenCalled();
+            expect(dbRead).toHaveBeenCalledWith(
+                expect.stringContaining('index_url IN'),
+                [
+                    101,
+                    'https://paid.puter.dev',
+                    'https://paid.puter.dev/',
+                    'https://paid.puter.dev/index.html',
+                ],
+            );
             expect(mockRes.status).toHaveBeenCalledWith(200);
             expect(mockRes.send).toHaveBeenCalledWith(expect.stringContaining('https://js.puter.com/v2/'));
             expect(mockRes.send).toHaveBeenCalledWith(expect.stringContaining('puter.auth.signIn()'));
