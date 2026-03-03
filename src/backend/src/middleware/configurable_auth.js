@@ -19,7 +19,6 @@
 const APIError = require('../api/APIError');
 const config = require('../config');
 const { LegacyTokenError } = require('../services/auth/AuthService');
-const { AccessTokenActorType } = require('../services/auth/Actor');
 const { Context } = require('../util/context');
 const jwt = require('jsonwebtoken');
 
@@ -164,17 +163,10 @@ const configurable_auth = options => async (req, res, next) => {
         }
         context.set('user', actor.type.user);
     }
-    if ( actor.type instanceof AccessTokenActorType ) {
-        // AccessTokenActorType has no .user; the effective user is the authorizer's user
-        const authorizerUser = actor.type.authorizer?.type?.user;
-        if ( authorizerUser?.suspended ) {
-            throw APIError.create('forbidden');
-        }
-    }
 
     // === Populate Request ===
     req.actor = actor;
-    req.user = actor.type.user ?? (actor.type instanceof AccessTokenActorType ? actor.type.authorizer?.type?.user : undefined);
+    req.user = actor.type.user;
     req.token = token;
 
     next();
