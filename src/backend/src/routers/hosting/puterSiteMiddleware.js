@@ -98,12 +98,32 @@ function getSubdomainFromHostedRequest (req) {
 }
 
 function buildPrivateHostRedirectUrl (req, app) {
-    if ( !app?.index_url || typeof app.index_url !== 'string' ) {
+    if ( ! app ) {
         return null;
     }
 
     try {
-        const redirectUrl = new URL(req.originalUrl || '/', app.index_url);
+        const privateHostingDomain = `${privateAppHostingDomain ?? 'puter.dev'}`
+            .trim()
+            .toLowerCase()
+            .replace(/^\./, '');
+        if ( ! privateHostingDomain ) {
+            return null;
+        }
+
+        const subdomain = req.subdomains?.[0] || getSubdomainFromHostedRequest(req);
+        if ( ! subdomain ) {
+            return null;
+        }
+
+        const protocol = `${config.protocol ?? 'https'}`
+            .trim()
+            .replace(/:$/, '') || 'https';
+        const requestUrl = `${req.originalUrl || '/'}`.startsWith('/')
+            ? req.originalUrl || '/'
+            : `/${req.originalUrl}`;
+        const privateHostOrigin = `${protocol}://${subdomain}.${privateHostingDomain}`;
+        const redirectUrl = new URL(requestUrl, privateHostOrigin);
         return redirectUrl.toString();
     } catch {
         return null;

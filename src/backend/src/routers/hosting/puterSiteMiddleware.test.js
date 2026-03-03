@@ -261,7 +261,7 @@ describe('PuterSiteMiddleware', () => {
             capturedMiddleware = puterSiteMiddleware;
         });
 
-        it('redirects private app assets to puter.dev host', async () => {
+        it('redirects private app assets to puter.dev host even before index_url migration', async () => {
             const mockServices = {
                 get: vi.fn().mockImplementation((serviceName) => {
                     if ( serviceName === 'puter-site' ) {
@@ -285,7 +285,7 @@ describe('PuterSiteMiddleware', () => {
                 uid: 'app-11111111-1111-1111-1111-111111111111',
                 name: 'paid-app',
                 is_private: 1,
-                index_url: 'https://paid.puter.dev/',
+                index_url: 'https://paid.site.puter.localhost/',
             });
 
             const mockReq = {
