@@ -141,6 +141,13 @@ function normalizeHostFromHeader (hostValue) {
     }
 }
 
+function normalizeConfiguredHost (hostValue) {
+    if ( typeof hostValue !== 'string' ) return null;
+    const normalizedHost = hostValue.trim().toLowerCase().replace(/^\./, '');
+    if ( ! normalizedHost ) return null;
+    return normalizedHost;
+}
+
 function buildPrivateAppIndexUrlCandidates (req) {
     const protocol = `${config.protocol ?? 'https'}`.trim().replace(/:$/, '') || 'https';
     const hostCandidates = new Set();
@@ -153,6 +160,23 @@ function buildPrivateAppIndexUrlCandidates (req) {
     const headerHostCandidate = normalizeHostFromHeader(req.headers?.host);
     if ( headerHostCandidate ) {
         hostCandidates.add(headerHostCandidate);
+    }
+
+    const hostedSubdomain = getSubdomainFromHostedRequest(req);
+    if ( hostedSubdomain ) {
+        const staticHostingDomainCandidate = normalizeConfiguredHost(staticHostingDomain);
+        const staticHostingDomainAltCandidate = normalizeConfiguredHost(staticHostingDomainAlt);
+        const privateHostingDomainCandidate = normalizeConfiguredHost(privateAppHostingDomain);
+
+        if ( staticHostingDomainCandidate ) {
+            hostCandidates.add(`${hostedSubdomain}.${staticHostingDomainCandidate}`);
+        }
+        if ( staticHostingDomainAltCandidate ) {
+            hostCandidates.add(`${hostedSubdomain}.${staticHostingDomainAltCandidate}`);
+        }
+        if ( privateHostingDomainCandidate ) {
+            hostCandidates.add(`${hostedSubdomain}.${privateHostingDomainCandidate}`);
+        }
     }
 
     const candidates = [];

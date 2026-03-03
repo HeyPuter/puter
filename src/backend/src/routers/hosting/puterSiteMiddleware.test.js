@@ -418,12 +418,15 @@ describe('PuterSiteMiddleware', () => {
             expect(eventEmit).not.toHaveBeenCalled();
             expect(dbRead).toHaveBeenCalledWith(
                 expect.stringContaining('index_url IN'),
-                [
+                expect.arrayContaining([
                     101,
                     'https://paid.puter.dev',
                     'https://paid.puter.dev/',
                     'https://paid.puter.dev/index.html',
-                ],
+                    'https://paid.site.puter.localhost',
+                    'https://paid.site.puter.localhost/',
+                    'https://paid.site.puter.localhost/index.html',
+                ]),
             );
             expect(mockRes.status).toHaveBeenCalledWith(200);
             expect(mockRes.send).toHaveBeenCalledWith(expect.stringContaining('https://js.puter.com/v2/'));
