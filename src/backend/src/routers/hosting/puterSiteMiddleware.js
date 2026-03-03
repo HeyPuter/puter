@@ -28,6 +28,7 @@ import selectors from '../../filesystem/node/selectors.js';
 import { get_app, get_user } from '../../helpers.js';
 import api_error_handler from '../../modules/web/lib/api_error_handler.js';
 import { Actor, SiteActorType, UserActorType } from '../../services/auth/Actor.js';
+import { DB_READ } from '../../services/database/consts.js';
 import { PermissionUtil } from '../../services/auth/permissionUtils.mjs';
 import { Context } from '../../util/context.js';
 import { stream_to_buffer as streamToBuffer } from '../../util/streamutil.js';
@@ -97,16 +98,123 @@ function getSubdomainFromHostedRequest (req) {
 }
 
 function buildPrivateHostRedirectUrl (req, app) {
-    if ( !app?.index_url || typeof app.index_url !== 'string' ) {
+    if ( ! app ) {
         return null;
     }
 
     try {
-        const redirectUrl = new URL(req.originalUrl || '/', app.index_url);
+        const privateHostingDomain = `${privateAppHostingDomain ?? 'puter.dev'}`
+            .trim()
+            .toLowerCase()
+            .replace(/^\./, '');
+        if ( ! privateHostingDomain ) {
+            return null;
+        }
+
+        const subdomain = req.subdomains?.[0] || getSubdomainFromHostedRequest(req);
+        if ( ! subdomain ) {
+            return null;
+        }
+
+        const protocol = `${config.protocol ?? 'https'}`
+            .trim()
+            .replace(/:$/, '') || 'https';
+        const requestUrl = `${req.originalUrl || '/'}`.startsWith('/')
+            ? req.originalUrl || '/'
+            : `/${req.originalUrl}`;
+        const privateHostOrigin = `${protocol}://${subdomain}.${privateHostingDomain}`;
+        const redirectUrl = new URL(requestUrl, privateHostOrigin);
         return redirectUrl.toString();
     } catch {
         return null;
     }
+}
+
+function normalizeHostFromHeader (hostValue) {
+    if ( typeof hostValue !== 'string' ) return null;
+    const normalizedHost = hostValue.trim().toLowerCase();
+    if ( ! normalizedHost ) return null;
+    try {
+        return new URL(`http://${normalizedHost}`).host;
+    } catch {
+        return normalizedHost;
+    }
+}
+
+function normalizeConfiguredHost (hostValue) {
+    if ( typeof hostValue !== 'string' ) return null;
+    const normalizedHost = hostValue.trim().toLowerCase().replace(/^\./, '');
+    if ( ! normalizedHost ) return null;
+    return normalizedHost;
+}
+
+function buildPrivateAppIndexUrlCandidates (req) {
+    const protocol = `${config.protocol ?? 'https'}`.trim().replace(/:$/, '') || 'https';
+    const hostCandidates = new Set();
+
+    const hostnameCandidate = normalizeHostFromHeader(req.hostname);
+    if ( hostnameCandidate ) {
+        hostCandidates.add(hostnameCandidate);
+    }
+
+    const headerHostCandidate = normalizeHostFromHeader(req.headers?.host);
+    if ( headerHostCandidate ) {
+        hostCandidates.add(headerHostCandidate);
+    }
+
+    const hostedSubdomain = getSubdomainFromHostedRequest(req);
+    if ( hostedSubdomain ) {
+        const staticHostingDomainCandidate = normalizeConfiguredHost(staticHostingDomain);
+        const staticHostingDomainAltCandidate = normalizeConfiguredHost(staticHostingDomainAlt);
+        const privateHostingDomainCandidate = normalizeConfiguredHost(privateAppHostingDomain);
+
+        if ( staticHostingDomainCandidate ) {
+            hostCandidates.add(`${hostedSubdomain}.${staticHostingDomainCandidate}`);
+        }
+        if ( staticHostingDomainAltCandidate ) {
+            hostCandidates.add(`${hostedSubdomain}.${staticHostingDomainAltCandidate}`);
+        }
+        if ( privateHostingDomainCandidate ) {
+            hostCandidates.add(`${hostedSubdomain}.${privateHostingDomainCandidate}`);
+        }
+    }
+
+    const candidates = [];
+    for ( const host of hostCandidates ) {
+        const base = `${protocol}://${host}`;
+        candidates.push(base);
+        candidates.push(`${base}/`);
+        candidates.push(`${base}/index.html`);
+    }
+
+    return [...new Set(candidates)];
+}
+
+async function resolvePrivateAppForHostedSite ({ req, site, services, associatedApp }) {
+    if ( associatedApp ) return associatedApp;
+    if ( ! site?.user_id ) return null;
+
+    const indexUrlCandidates = buildPrivateAppIndexUrlCandidates(req);
+    if ( indexUrlCandidates.length === 0 ) return null;
+
+    const databaseService = services.get('database');
+    const dbService = databaseService.get(DB_READ, 'apps');
+    const placeholders = indexUrlCandidates.map(() => '?').join(', ');
+
+    const apps = await dbService.read(
+        `SELECT * FROM apps WHERE owner_user_id = ? AND is_private = 1 AND index_url IN (${placeholders}) LIMIT 2`,
+        [site.user_id, ...indexUrlCandidates],
+    );
+
+    if ( apps.length > 1 ) {
+        logPrivateAccessEvent('private_access.host_match_ambiguous', {
+            requestHost: req.hostname,
+            siteOwnerUserId: site.user_id,
+            matchCount: apps.length,
+        });
+    }
+
+    return apps[0] || null;
 }
 
 function getPrivateDeniedRedirectUrl (app, denyRedirectUrl) {
@@ -159,9 +267,15 @@ function getBootstrapPrivateToken (req) {
     const authorizationToken = getTokenFromAuthorizationHeader(req);
     if ( authorizationToken ) return authorizationToken;
 
-    const queryToken = req.query?.['puter.auth.token'];
-    if ( typeof queryToken === 'string' && queryToken.trim() ) {
-        return queryToken.trim();
+    const queryTokenCandidates = [
+        req.query?.['puter.auth.token'],
+        req.query?.puter?.auth?.token,
+        req.query?.auth_token,
+    ];
+    for ( const queryTokenCandidate of queryTokenCandidates ) {
+        if ( typeof queryTokenCandidate === 'string' && queryTokenCandidate.trim() ) {
+            return queryTokenCandidate.trim();
+        }
     }
 
     const headerToken = req.headers?.['x-puter-auth-token'];
@@ -249,6 +363,7 @@ async function resolvePrivateIdentity ({ req, services, appUid }) {
 
     const bootstrapToken = getBootstrapPrivateToken(req);
     if ( typeof bootstrapToken === 'string' && bootstrapToken ) {
+        let strictAuthError;
         try {
             const actor = await authService.authenticate_from_token(bootstrapToken);
             const identity = actorToPrivateIdentity(actor);
@@ -261,8 +376,37 @@ async function resolvePrivateIdentity ({ req, services, appUid }) {
                     hasInvalidPrivateCookie,
                 };
             }
-        } catch {
-            // no valid identity from bootstrap token
+        } catch (e) {
+            strictAuthError = e;
+        }
+
+        if ( typeof authService.resolvePrivateBootstrapIdentityFromToken === 'function' ) {
+            try {
+                const identity = await authService.resolvePrivateBootstrapIdentityFromToken(bootstrapToken);
+                if ( identity ) {
+                    logPrivateAccessEvent('private_access.bootstrap_fallback_allowed', {
+                        appUid,
+                        userUid: identity.userUid ?? null,
+                        requestHost: req.hostname,
+                        source: 'bootstrap-token',
+                    });
+                    return {
+                        source: 'bootstrap-token',
+                        ...identity,
+                        hasValidPrivateCookie: false,
+                        hasPrivateCookie,
+                        hasInvalidPrivateCookie,
+                    };
+                }
+            } catch (e) {
+                logPrivateAccessEvent('private_access.bootstrap_fallback_rejected', {
+                    appUid,
+                    requestHost: req.hostname,
+                    source: 'bootstrap-token',
+                    reason: e?.code || e?.message || 'unknown',
+                    strictReason: strictAuthError?.code || strictAuthError?.message || null,
+                });
+            }
         }
     }
 
@@ -377,34 +521,57 @@ function respondPrivateLoginBootstrap ({ res, app }) {
                     const statusNode = document.getElementById('status');
                     const loginButton = document.getElementById('loginButton');
                     const retryButton = document.getElementById('retryButton');
+                    const attemptedTokenStorageKey = 'puter.privateAppBootstrap.lastAttemptedToken';
 
                     const setStatus = (message) => {
                         statusNode.textContent = message;
+                    };
+
+                    const getStoredAuthToken = () => {
+                        return globalThis.puter?.authToken
+                            || localStorage.getItem('auth_token')
+                            || localStorage.getItem('puter.auth.token');
                     };
 
                     const redirectWithToken = (token) => {
                         if ( typeof token !== 'string' || !token ) {
                             throw new Error('missing_auth_token');
                         }
+                        sessionStorage.setItem(attemptedTokenStorageKey, token);
                         const url = new URL(window.location.href);
                         url.searchParams.set('puter.auth.token', token);
                         window.location.replace(url.toString());
+                    };
+
+                    const tryStoredTokenBootstrap = () => {
+                        const currentUrl = new URL(window.location.href);
+                        const currentUrlToken = currentUrl.searchParams.get('puter.auth.token');
+                        const storedToken = getStoredAuthToken();
+                        if ( typeof storedToken !== 'string' || !storedToken ) return false;
+
+                        // Avoid looping on the exact same token if backend already rejected it.
+                        if ( currentUrlToken && currentUrlToken === storedToken ) return false;
+
+                        const lastAttemptedToken = sessionStorage.getItem(attemptedTokenStorageKey);
+                        if ( lastAttemptedToken && lastAttemptedToken === storedToken ) return false;
+
+                        setStatus('Using saved Puter session...');
+                        redirectWithToken(storedToken);
+                        return true;
                     };
 
                     const authenticate = async () => {
                         loginButton.disabled = true;
                         setStatus('Authenticating with Puter...');
                         try {
-                            if ( globalThis.puter?.authToken ) {
-                                redirectWithToken(globalThis.puter.authToken);
+                            if ( tryStoredTokenBootstrap() ) {
                                 return;
                             }
 
                             const result = await globalThis.puter.auth.signIn();
                             const authToken =
                                 result?.token
-                                || globalThis.puter?.authToken
-                                || localStorage.getItem('puter.auth.token');
+                                || getStoredAuthToken();
                             redirectWithToken(authToken);
                         } catch (error) {
                             console.error('private app sign in failed', error);
@@ -420,6 +587,10 @@ function respondPrivateLoginBootstrap ({ res, app }) {
                     retryButton.addEventListener('click', () => {
                         window.location.reload();
                     });
+
+                    if ( tryStoredTokenBootstrap() ) {
+                        return;
+                    }
                 })();
             </script>
         </body>
@@ -591,7 +762,13 @@ async function runInternal (req, res, next) {
     const associatedApp = site.associated_app_id
         ? await get_app({ id: site.associated_app_id })
         : null;
-    const privateAppEnabled = isPrivateApp(associatedApp);
+    const privateApp = await resolvePrivateAppForHostedSite({
+        req,
+        site,
+        services,
+        associatedApp,
+    });
+    const privateAppEnabled = isPrivateApp(privateApp);
     const privateAccessGateEnabled = isPrivateAccessGateEnabled();
 
     if (
@@ -599,10 +776,10 @@ async function runInternal (req, res, next) {
         && privateAppEnabled
         && !hostMatchesPrivateDomain(req.hostname)
     ) {
-        const privateHostRedirect = buildPrivateHostRedirectUrl(req, associatedApp);
+        const privateHostRedirect = buildPrivateHostRedirectUrl(req, privateApp);
         if ( privateHostRedirect ) {
             logPrivateAccessEvent('private_access.host_redirect', {
-                appUid: associatedApp?.uid ?? null,
+                appUid: privateApp?.uid ?? null,
                 requestHost: req.hostname,
                 requestPath: req.path,
                 redirectUrl: privateHostRedirect,
@@ -614,6 +791,7 @@ async function runInternal (req, res, next) {
 
     if (
         site.associated_app_id &&
+        !privateAppEnabled &&
         !req.query['puter.app_instance_id'] &&
         ( path === '' || path.endsWith('/') )
     ) {
@@ -669,7 +847,7 @@ async function runInternal (req, res, next) {
             req,
             res,
             services,
-            app: associatedApp,
+            app: privateApp,
             requestPath: req.path,
         });
         if ( ! accessAllowed ) return;

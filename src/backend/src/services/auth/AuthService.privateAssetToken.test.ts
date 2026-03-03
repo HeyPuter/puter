@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import * as jwt from 'jsonwebtoken';
 import { AuthService } from './AuthService.js';
 
@@ -39,6 +39,8 @@ const createAuthService = (): AuthServiceForPrivateTokenTests => {
         encrypt: (value) => value,
         decrypt: (value) => value,
     };
+    // @ts-expect-error test-only lightweight stub
+    authService.get_session_ = vi.fn().mockResolvedValue(undefined);
     return authService;
 };
 
@@ -106,5 +108,54 @@ describe('AuthService private asset token helpers', () => {
         expect(options.path).toBe('/');
         expect(options.maxAge).toBe(3_600_000);
         expect(options.domain).toBe('.app.puter.localhost');
+    });
+
+    it('resolves bootstrap identity from app-under-user token without app lookup', async () => {
+        const authService = createAuthService();
+        const userUid = '4b0cecf8-dd6a-4eb5-bcc4-c76cc7e8d7f0';
+        const sessionUuid = 'f9000804-2fd3-4da5-819b-afc5296f90f7';
+        const token = jwt.sign({
+            type: 'app-under-user',
+            version: '0.0.0',
+            user_uid: userUid,
+            app_uid: 'app-7e2d3016-8d36-456a-9dc7-b75b0f4f7683',
+            session: sessionUuid,
+        }, authService.global_config.jwt_secret, { expiresIn: 60 });
+
+        // @ts-expect-error test-only lightweight stub
+        authService.get_session_ = vi.fn().mockResolvedValue({
+            uuid: sessionUuid,
+            user_uid: userUid,
+        });
+
+        const identity = await authService.resolvePrivateBootstrapIdentityFromToken(token);
+
+        expect(identity).toEqual({
+            userUid,
+            sessionUuid,
+        });
+        // @ts-expect-error test-only lightweight stub
+        expect(authService.get_session_).toHaveBeenCalledWith(sessionUuid);
+    });
+
+    it('rejects bootstrap identity when session owner does not match token user', async () => {
+        const authService = createAuthService();
+        const token = jwt.sign({
+            type: 'app-under-user',
+            version: '0.0.0',
+            user_uid: '4b0cecf8-dd6a-4eb5-bcc4-c76cc7e8d7f0',
+            app_uid: 'app-7e2d3016-8d36-456a-9dc7-b75b0f4f7683',
+            session: 'f9000804-2fd3-4da5-819b-afc5296f90f7',
+        }, authService.global_config.jwt_secret, { expiresIn: 60 });
+
+        // @ts-expect-error test-only lightweight stub
+        authService.get_session_ = vi.fn().mockResolvedValue({
+            uuid: 'f9000804-2fd3-4da5-819b-afc5296f90f7',
+            user_uid: '9885b80e-1a14-4c8d-9e3f-4fa5915b1136',
+        });
+
+        await expect(authService.resolvePrivateBootstrapIdentityFromToken(token))
+            .rejects
+            .toThrow();
     });
 });
