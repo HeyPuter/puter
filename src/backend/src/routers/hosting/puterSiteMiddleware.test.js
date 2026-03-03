@@ -634,6 +634,112 @@ describe('PuterSiteMiddleware', () => {
             expect(mockNext).not.toHaveBeenCalled();
         });
 
+        it('uses bootstrap fallback identity when strict bootstrap auth fails', async () => {
+            const eventEmit = vi.fn().mockImplementation(async (_eventName, event) => {
+                event.result.allowed = false;
+                event.result.redirectUrl = 'https://apps.puter.com/app/paid-app';
+            });
+            const authService = {
+                getPrivateAssetCookieName: vi.fn().mockReturnValue('puter.private.asset.token'),
+                verifyPrivateAssetToken: vi.fn().mockImplementation(() => {
+                    throw new Error('invalid');
+                }),
+                authenticate_from_token: vi.fn().mockImplementation(() => {
+                    throw new Error('token_auth_failed');
+                }),
+                resolvePrivateBootstrapIdentityFromToken: vi.fn().mockResolvedValue({
+                    userUid: 'user-111',
+                    sessionUuid: 'session-111',
+                }),
+                createPrivateAssetToken: vi.fn().mockReturnValue('private-token'),
+                getPrivateAssetCookieOptions: vi.fn().mockReturnValue({}),
+            };
+            const mockServices = {
+                get: vi.fn().mockImplementation((serviceName) => {
+                    if ( serviceName === 'puter-site' ) {
+                        return {
+                            get_subdomain: vi.fn().mockResolvedValue({
+                                user_id: 101,
+                                associated_app_id: 202,
+                                root_dir_id: 303,
+                            }),
+                        };
+                    }
+                    if ( serviceName === 'filesystem' ) {
+                        return {
+                            node: vi.fn().mockResolvedValue({
+                                exists: vi.fn().mockResolvedValue(true),
+                                get: vi.fn().mockImplementation(async (fieldName) => {
+                                    if ( fieldName === 'type' ) return 'directory';
+                                    if ( fieldName === 'path' ) return '/alice/Public';
+                                    return null;
+                                }),
+                            }),
+                        };
+                    }
+                    if ( serviceName === 'acl' ) {
+                        return {
+                            check: vi.fn().mockResolvedValue(true),
+                        };
+                    }
+                    if ( serviceName === 'event' ) return { emit: eventEmit };
+                    if ( serviceName === 'auth' ) return authService;
+                    return {};
+                }),
+            };
+            mockContextInstance.get.mockImplementation((key) => {
+                if ( key === 'services' ) return mockServices;
+                return null;
+            });
+            getUserMockImpl = async () => ({ id: 101, suspended: false });
+            getAppMockImpl = async () => ({
+                uid: 'app-11111111-1111-1111-1111-111111111111',
+                name: 'paid-app',
+                is_private: 1,
+                index_url: 'https://paid.puter.dev/',
+            });
+
+            const mockReq = {
+                hostname: 'paid.puter.dev',
+                subdomains: [],
+                is_custom_domain: false,
+                baseUrl: '',
+                path: '/index.html',
+                originalUrl: '/index.html?puter.auth.token=bootstrap-token',
+                cookies: {},
+                headers: {},
+                query: {
+                    'puter.auth.token': 'bootstrap-token',
+                },
+                ctx: mockContextInstance,
+            };
+            const mockRes = {
+                redirect: vi.fn(),
+                cookie: vi.fn(),
+                setHeader: vi.fn(),
+                status: vi.fn().mockReturnThis(),
+                send: vi.fn(),
+            };
+            const mockNext = vi.fn();
+
+            await capturedMiddleware(mockReq, mockRes, mockNext);
+
+            expect(authService.authenticate_from_token).toHaveBeenCalledWith('bootstrap-token');
+            expect(authService.resolvePrivateBootstrapIdentityFromToken)
+                .toHaveBeenCalledWith('bootstrap-token');
+            expect(eventEmit).toHaveBeenCalledWith(
+                'app.privateAccess.check',
+                expect.objectContaining({
+                    appUid: 'app-11111111-1111-1111-1111-111111111111',
+                    userUid: 'user-111',
+                }),
+            );
+            expect(mockRes.redirect).toHaveBeenCalledWith('https://apps.puter.com/app/paid-app');
+            expect(mockRes.send).not.toHaveBeenCalled();
+            expect(mockRes.cookie).not.toHaveBeenCalled();
+            expect(mockNext).not.toHaveBeenCalled();
+        });
+
         it('skips private app gate when feature flag is disabled', async () => {
             config.enable_private_app_access_gate = false;
 

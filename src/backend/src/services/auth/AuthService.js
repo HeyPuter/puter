@@ -400,6 +400,75 @@ class AuthService extends BaseService {
         };
     }
 
+    resolvePrivateBootstrapSessionUuid (decoded) {
+        if ( !decoded || typeof decoded !== 'object' ) {
+            return null;
+        }
+
+        if ( decoded.type === 'session' || decoded.type === 'gui' ) {
+            if ( typeof decoded.uuid !== 'string' || !decoded.uuid ) {
+                return null;
+            }
+            return decoded.uuid;
+        }
+
+        if ( decoded.type === 'app-under-user' ) {
+            if ( typeof decoded.session !== 'string' || !decoded.session ) {
+                return null;
+            }
+            try {
+                return this.uuid_fpe.decrypt(decoded.session);
+            } catch (e) {
+                return null;
+            }
+        }
+
+        return null;
+    }
+
+    async resolvePrivateBootstrapIdentityFromToken (token) {
+        let decoded;
+        try {
+            decoded = this.modules.jwt.verify(token, this.global_config.jwt_secret);
+        } catch (e) {
+            throw APIError.create('token_auth_failed');
+        }
+
+        const userUid = typeof decoded?.user_uid === 'string'
+            ? decoded.user_uid
+            : null;
+        if ( ! userUid ) {
+            throw APIError.create('token_auth_failed');
+        }
+
+        const allowedTypes = new Set(['session', 'gui', 'app-under-user']);
+        if ( ! allowedTypes.has(decoded.type) ) {
+            throw APIError.create('token_auth_failed');
+        }
+
+        const sessionUuid = this.resolvePrivateBootstrapSessionUuid(decoded);
+        if ( ! sessionUuid ) {
+            throw APIError.create('token_auth_failed');
+        }
+
+        const session = await this.get_session_(sessionUuid);
+        if ( ! session ) {
+            throw APIError.create('token_auth_failed');
+        }
+
+        const sessionUserUid = typeof session.user_uid === 'string'
+            ? session.user_uid
+            : null;
+        if ( !sessionUserUid || sessionUserUid !== userUid ) {
+            throw APIError.create('token_auth_failed');
+        }
+
+        return {
+            userUid,
+            sessionUuid: session.uuid || sessionUuid,
+        };
+    }
+
     /**
      * Internal method for creating a session.
      *

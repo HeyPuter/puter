@@ -357,6 +357,7 @@ async function resolvePrivateIdentity ({ req, services, appUid }) {
 
     const bootstrapToken = getBootstrapPrivateToken(req);
     if ( typeof bootstrapToken === 'string' && bootstrapToken ) {
+        let strictAuthError;
         try {
             const actor = await authService.authenticate_from_token(bootstrapToken);
             const identity = actorToPrivateIdentity(actor);
@@ -369,8 +370,37 @@ async function resolvePrivateIdentity ({ req, services, appUid }) {
                     hasInvalidPrivateCookie,
                 };
             }
-        } catch {
-            // no valid identity from bootstrap token
+        } catch (e) {
+            strictAuthError = e;
+        }
+
+        if ( typeof authService.resolvePrivateBootstrapIdentityFromToken === 'function' ) {
+            try {
+                const identity = await authService.resolvePrivateBootstrapIdentityFromToken(bootstrapToken);
+                if ( identity ) {
+                    logPrivateAccessEvent('private_access.bootstrap_fallback_allowed', {
+                        appUid,
+                        userUid: identity.userUid ?? null,
+                        requestHost: req.hostname,
+                        source: 'bootstrap-token',
+                    });
+                    return {
+                        source: 'bootstrap-token',
+                        ...identity,
+                        hasValidPrivateCookie: false,
+                        hasPrivateCookie,
+                        hasInvalidPrivateCookie,
+                    };
+                }
+            } catch (e) {
+                logPrivateAccessEvent('private_access.bootstrap_fallback_rejected', {
+                    appUid,
+                    requestHost: req.hostname,
+                    source: 'bootstrap-token',
+                    reason: e?.code || e?.message || 'unknown',
+                    strictReason: strictAuthError?.code || strictAuthError?.message || null,
+                });
+            }
         }
     }
 
