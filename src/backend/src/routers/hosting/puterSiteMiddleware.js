@@ -267,9 +267,15 @@ function getBootstrapPrivateToken (req) {
     const authorizationToken = getTokenFromAuthorizationHeader(req);
     if ( authorizationToken ) return authorizationToken;
 
-    const queryToken = req.query?.['puter.auth.token'];
-    if ( typeof queryToken === 'string' && queryToken.trim() ) {
-        return queryToken.trim();
+    const queryTokenCandidates = [
+        req.query?.['puter.auth.token'],
+        req.query?.puter?.auth?.token,
+        req.query?.auth_token,
+    ];
+    for ( const queryTokenCandidate of queryTokenCandidates ) {
+        if ( typeof queryTokenCandidate === 'string' && queryTokenCandidate.trim() ) {
+            return queryTokenCandidate.trim();
+        }
     }
 
     const headerToken = req.headers?.['x-puter-auth-token'];
@@ -515,34 +521,57 @@ function respondPrivateLoginBootstrap ({ res, app }) {
                     const statusNode = document.getElementById('status');
                     const loginButton = document.getElementById('loginButton');
                     const retryButton = document.getElementById('retryButton');
+                    const attemptedTokenStorageKey = 'puter.privateAppBootstrap.lastAttemptedToken';
 
                     const setStatus = (message) => {
                         statusNode.textContent = message;
+                    };
+
+                    const getStoredAuthToken = () => {
+                        return globalThis.puter?.authToken
+                            || localStorage.getItem('auth_token')
+                            || localStorage.getItem('puter.auth.token');
                     };
 
                     const redirectWithToken = (token) => {
                         if ( typeof token !== 'string' || !token ) {
                             throw new Error('missing_auth_token');
                         }
+                        sessionStorage.setItem(attemptedTokenStorageKey, token);
                         const url = new URL(window.location.href);
                         url.searchParams.set('puter.auth.token', token);
                         window.location.replace(url.toString());
+                    };
+
+                    const tryStoredTokenBootstrap = () => {
+                        const currentUrl = new URL(window.location.href);
+                        const currentUrlToken = currentUrl.searchParams.get('puter.auth.token');
+                        const storedToken = getStoredAuthToken();
+                        if ( typeof storedToken !== 'string' || !storedToken ) return false;
+
+                        // Avoid looping on the exact same token if backend already rejected it.
+                        if ( currentUrlToken && currentUrlToken === storedToken ) return false;
+
+                        const lastAttemptedToken = sessionStorage.getItem(attemptedTokenStorageKey);
+                        if ( lastAttemptedToken && lastAttemptedToken === storedToken ) return false;
+
+                        setStatus('Using saved Puter session...');
+                        redirectWithToken(storedToken);
+                        return true;
                     };
 
                     const authenticate = async () => {
                         loginButton.disabled = true;
                         setStatus('Authenticating with Puter...');
                         try {
-                            if ( globalThis.puter?.authToken ) {
-                                redirectWithToken(globalThis.puter.authToken);
+                            if ( tryStoredTokenBootstrap() ) {
                                 return;
                             }
 
                             const result = await globalThis.puter.auth.signIn();
                             const authToken =
                                 result?.token
-                                || globalThis.puter?.authToken
-                                || localStorage.getItem('puter.auth.token');
+                                || getStoredAuthToken();
                             redirectWithToken(authToken);
                         } catch (error) {
                             console.error('private app sign in failed', error);
@@ -558,6 +587,10 @@ function respondPrivateLoginBootstrap ({ res, app }) {
                     retryButton.addEventListener('click', () => {
                         window.location.reload();
                     });
+
+                    if ( tryStoredTokenBootstrap() ) {
+                        return;
+                    }
                 })();
             </script>
         </body>
