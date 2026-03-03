@@ -728,6 +728,7 @@ async function runInternal (req, res, next) {
 
     if (
         site.associated_app_id &&
+        !privateAppEnabled &&
         !req.query['puter.app_instance_id'] &&
         ( path === '' || path.endsWith('/') )
     ) {
