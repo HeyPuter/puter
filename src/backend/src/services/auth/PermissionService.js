@@ -285,6 +285,7 @@ class PermissionService extends BaseService {
             const [next_cursor, keys] = await redisClient.scan(cursor, 'MATCH', pattern, 'COUNT', 100);
             cursor = next_cursor;
             if ( keys?.length ) toDelete.push(...keys);
+            else break;
         } while ( cursor !== '0' );
         if ( toDelete.length ) await deleteRedisKeys(toDelete);
     }
