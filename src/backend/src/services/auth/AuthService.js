@@ -527,7 +527,7 @@ class AuthService extends BaseService {
         return null;
     }
 
-    async resolvePrivateBootstrapIdentityFromToken (token) {
+    async resolvePrivateBootstrapIdentityFromToken (token, { expectedAppUid } = {}) {
         let decoded;
         try {
             decoded = this.tokenService.verify('auth', token);
@@ -544,6 +544,12 @@ class AuthService extends BaseService {
 
         const allowedTypes = new Set(['session', 'gui', 'app-under-user']);
         if ( ! allowedTypes.has(decoded.type) ) {
+            throw APIError.create('token_auth_failed');
+        }
+        const bootstrapAppUid = typeof decoded?.app_uid === 'string'
+            ? decoded.app_uid
+            : null;
+        if ( expectedAppUid && bootstrapAppUid && bootstrapAppUid !== expectedAppUid ) {
             throw APIError.create('token_auth_failed');
         }
 
@@ -980,10 +986,109 @@ class AuthService extends BaseService {
         return await this._app_uid_from_origin(origin);
     }
 
+    normalizeHostedDomainCandidate (domainValue) {
+        if ( typeof domainValue !== 'string' ) return null;
+
+        const normalizedDomainValue = domainValue.trim().toLowerCase().replace(/^\./, '');
+        if ( ! normalizedDomainValue ) return null;
+
+        try {
+            const parsedDomain = new URL(`http://${normalizedDomainValue}`);
+            return {
+                host: parsedDomain.host.toLowerCase(),
+                hostname: parsedDomain.hostname.toLowerCase(),
+            };
+        } catch {
+            const [hostname] = normalizedDomainValue.split(':');
+            if ( ! hostname ) return null;
+            return {
+                host: normalizedDomainValue,
+                hostname,
+            };
+        }
+    }
+
+    getHostedAppDomainCandidatesForMatch () {
+        const hostedDomainCandidates = [];
+        const seenHostnames = new Set();
+
+        for ( const domainCandidate of [
+            this.global_config.static_hosting_domain,
+            this.global_config.static_hosting_domain_alt,
+            this.global_config.private_app_hosting_domain,
+            this.global_config.private_app_hosting_domain_alt,
+        ] ) {
+            const normalizedDomainCandidate = this.normalizeHostedDomainCandidate(domainCandidate);
+            if ( ! normalizedDomainCandidate ) continue;
+            if ( seenHostnames.has(normalizedDomainCandidate.hostname) ) continue;
+            seenHostnames.add(normalizedDomainCandidate.hostname);
+            hostedDomainCandidates.push(normalizedDomainCandidate);
+        }
+
+        return hostedDomainCandidates;
+    }
+
+    getCanonicalHostedAppDomain () {
+        for ( const domainCandidate of [
+            this.global_config.static_hosting_domain,
+            this.global_config.static_hosting_domain_alt,
+            this.global_config.private_app_hosting_domain,
+            this.global_config.private_app_hosting_domain_alt,
+        ] ) {
+            const normalizedDomainCandidate = this.normalizeHostedDomainCandidate(domainCandidate);
+            if ( normalizedDomainCandidate?.host ) {
+                return normalizedDomainCandidate.host;
+            }
+        }
+        return null;
+    }
+
+    extractHostedAppSubdomainFromHostname (hostname) {
+        if ( typeof hostname !== 'string' ) return null;
+        const normalizedHostname = hostname.trim().toLowerCase();
+        if ( ! normalizedHostname ) return null;
+
+        const hostedDomainCandidates = this.getHostedAppDomainCandidatesForMatch()
+            .sort((domainCandidateA, domainCandidateB) =>
+                domainCandidateB.hostname.length - domainCandidateA.hostname.length);
+
+        for ( const hostedDomainCandidate of hostedDomainCandidates ) {
+            if ( normalizedHostname === hostedDomainCandidate.hostname ) {
+                return null;
+            }
+            const hostedDomainSuffix = `.${hostedDomainCandidate.hostname}`;
+            if ( normalizedHostname.endsWith(hostedDomainSuffix) ) {
+                const subdomain = normalizedHostname.slice(
+                    0,
+                    normalizedHostname.length - hostedDomainSuffix.length,
+                );
+                return subdomain || null;
+            }
+        }
+
+        return null;
+    }
+
+    canonicalizeHostedAppOriginForUid (origin) {
+        try {
+            const parsedOrigin = new URL(origin);
+            const hostedSubdomain = this.extractHostedAppSubdomainFromHostname(parsedOrigin.hostname);
+            if ( ! hostedSubdomain ) return origin;
+
+            const canonicalHostedDomain = this.getCanonicalHostedAppDomain();
+            if ( ! canonicalHostedDomain ) return origin;
+
+            return `${parsedOrigin.protocol}//${hostedSubdomain}.${canonicalHostedDomain}`;
+        } catch {
+            return origin;
+        }
+    }
+
     async _app_uid_from_origin (origin) {
-        const event = { origin };
-        const svc_event = this.services.get('event');
-        await svc_event.emit('app.from-origin', event);
+        const canonicalOrigin = this.canonicalizeHostedAppOriginForUid(origin);
+        const event = { origin: canonicalOrigin };
+        const eventService = this.services.get('event');
+        await eventService.emit('app.from-origin', event);
         // UUIDV5
         const uuid = uuidLib.v5(event.origin, APP_ORIGIN_UUID_NAMESPACE);
         return `app-${uuid}`;
