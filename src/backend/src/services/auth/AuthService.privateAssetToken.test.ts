@@ -66,7 +66,6 @@ const createAuthService = (): AuthServiceForPrivateTokenTests => {
             },
         }),
     };
-    // @ts-expect-error test-only lightweight stub
     authService.get_session_ = vi.fn().mockResolvedValue(undefined);
     return authService;
 };
@@ -272,6 +271,34 @@ describe('AuthService private asset token helpers', () => {
         }))
             .rejects
             .toThrow();
+    });
+
+    it('accepts bootstrap identity when expected app uid candidates include token app uid', async () => {
+        const authService = createAuthService();
+        const userUid = '4b0cecf8-dd6a-4eb5-bcc4-c76cc7e8d7f0';
+        const sessionUuid = 'f9000804-2fd3-4da5-819b-afc5296f90f7';
+        const appUid = 'app-7e2d3016-8d36-456a-9dc7-b75b0f4f7683';
+        const token = jwt.sign({
+            type: 'app-under-user',
+            version: '0.0.0',
+            user_uid: userUid,
+            app_uid: appUid,
+            session: sessionUuid,
+        }, authService.global_config.jwt_secret, { expiresIn: 60 });
+
+        authService.get_session_ = vi.fn().mockResolvedValue({
+            uuid: sessionUuid,
+            user_uid: userUid,
+        });
+
+        const identity = await authService.resolvePrivateBootstrapIdentityFromToken(token, {
+            expectedAppUids: ['app-aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', appUid],
+        });
+
+        expect(identity).toEqual({
+            userUid,
+            sessionUuid,
+        });
     });
 
     it('rejects bootstrap identity token when signature is tampered', async () => {
