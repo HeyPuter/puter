@@ -387,6 +387,7 @@ async function resolvePrivateIdentity ({ req, services, appUid }) {
     const authService = services.get('auth');
     const privateCookieName = authService.getPrivateAssetCookieName();
     const privateCookieToken = req.cookies?.[privateCookieName];
+    const privateAppSubdomain = getSubdomainFromHostedRequest(req) || undefined;
     const hasPrivateCookie = typeof privateCookieToken === 'string' && !!privateCookieToken;
     let hasInvalidPrivateCookie = false;
 
@@ -394,11 +395,13 @@ async function resolvePrivateIdentity ({ req, services, appUid }) {
         try {
             const claims = authService.verifyPrivateAssetToken(privateCookieToken, {
                 expectedAppUid: appUid,
+                expectedSubdomain: privateAppSubdomain,
             });
             return {
                 source: 'private-cookie',
                 userUid: claims.userUid,
                 sessionUuid: claims.sessionUuid,
+                subdomain: claims.subdomain ?? privateAppSubdomain,
                 hasValidPrivateCookie: true,
                 hasPrivateCookie,
                 hasInvalidPrivateCookie,
@@ -418,6 +421,7 @@ async function resolvePrivateIdentity ({ req, services, appUid }) {
                 return {
                     source: 'session-cookie',
                     ...identity,
+                    subdomain: privateAppSubdomain,
                     hasValidPrivateCookie: false,
                     hasPrivateCookie,
                     hasInvalidPrivateCookie,
@@ -460,6 +464,7 @@ async function resolvePrivateIdentity ({ req, services, appUid }) {
                     return {
                         source: 'bootstrap-token',
                         ...identity,
+                        subdomain: privateAppSubdomain,
                         hasValidPrivateCookie: false,
                         hasPrivateCookie,
                         hasInvalidPrivateCookie,
@@ -481,6 +486,7 @@ async function resolvePrivateIdentity ({ req, services, appUid }) {
         source: 'none',
         userUid: undefined,
         sessionUuid: undefined,
+        subdomain: privateAppSubdomain,
         hasValidPrivateCookie: false,
         hasPrivateCookie,
         hasInvalidPrivateCookie,
@@ -779,6 +785,7 @@ async function evaluatePrivateAppAccess ({ req, res, services, app, requestPath 
             appUid: app.uid,
             userUid: identity.userUid,
             sessionUuid: identity.sessionUuid,
+            subdomain: identity.subdomain,
         });
         res.cookie(
             authService.getPrivateAssetCookieName(),

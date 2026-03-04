@@ -16,6 +16,10 @@ type AuthServiceForPrivateTokenTests = AuthService & {
             verify: typeof jwt.verify;
         };
     };
+    tokenService: {
+        sign: typeof jwt.sign;
+        verify: typeof jwt.verify;
+    };
     uuid_fpe: {
         encrypt: (value: string) => string;
         decrypt: (value: string) => string;
@@ -37,6 +41,12 @@ const createAuthService = (): AuthServiceForPrivateTokenTests => {
             verify: jwt.verify.bind(jwt),
         },
     };
+    authService.tokenService = {
+        sign: (_scope, payload, options) =>
+            jwt.sign(payload as Parameters<typeof jwt.sign>[0], authService.global_config.jwt_secret, options),
+        verify: (_scope, token) =>
+            jwt.verify(token, authService.global_config.jwt_secret),
+    };
     authService.uuid_fpe = {
         encrypt: (value) => value,
         decrypt: (value) => value,
@@ -46,17 +56,33 @@ const createAuthService = (): AuthServiceForPrivateTokenTests => {
     return authService;
 };
 
+const tamperTokenSignature = (token: string): string => {
+    const parts = token.split('.');
+    if ( parts.length !== 3 ) return `${token}x`;
+    const signature = parts[2];
+    if ( signature.length === 0 ) {
+        parts[2] = 'x';
+        return parts.join('.');
+    }
+    const lastChar = signature[signature.length - 1];
+    const replacement = lastChar === 'a' ? 'b' : 'a';
+    parts[2] = `${signature.slice(0, -1)}${replacement}`;
+    return parts.join('.');
+};
+
 describe('AuthService private asset token helpers', () => {
     it('creates and verifies private asset tokens with expected claims', () => {
         const authService = createAuthService();
         const appUid = 'app-7e2d3016-8d36-456a-9dc7-b75b0f4f7683';
         const userUid = '4b0cecf8-dd6a-4eb5-bcc4-c76cc7e8d7f0';
         const sessionUuid = 'f9000804-2fd3-4da5-819b-afc5296f90f7';
+        const subdomain = 'beans';
 
         const token = authService.createPrivateAssetToken({
             appUid,
             userUid,
             sessionUuid,
+            subdomain,
             ttlSeconds: 120,
         });
 
@@ -64,11 +90,13 @@ describe('AuthService private asset token helpers', () => {
             expectedAppUid: appUid,
             expectedUserUid: userUid,
             expectedSessionUuid: sessionUuid,
+            expectedSubdomain: subdomain,
         });
 
         expect(claims.appUid).toBe(appUid);
         expect(claims.userUid).toBe(userUid);
         expect(claims.sessionUuid).toBe(sessionUuid);
+        expect(claims.subdomain).toBe(subdomain);
         expect(typeof claims.exp).toBe('number');
     });
 
@@ -77,6 +105,7 @@ describe('AuthService private asset token helpers', () => {
         const token = authService.createPrivateAssetToken({
             appUid: 'app-9f1c10e3-9a7f-43fb-8671-af4918e65407',
             userUid: '9885b80e-1a14-4c8d-9e3f-4fa5915b1136',
+            subdomain: 'beans',
         });
 
         expect(() => authService.verifyPrivateAssetToken(token, {
@@ -85,6 +114,10 @@ describe('AuthService private asset token helpers', () => {
 
         expect(() => authService.verifyPrivateAssetToken(token, {
             expectedUserUid: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+        })).toThrow();
+
+        expect(() => authService.verifyPrivateAssetToken(token, {
+            expectedSubdomain: 'other-app',
         })).toThrow();
     });
 
@@ -97,6 +130,17 @@ describe('AuthService private asset token helpers', () => {
         }, authService.global_config.jwt_secret, { expiresIn: 60 });
 
         expect(() => authService.verifyPrivateAssetToken(token)).toThrow();
+    });
+
+    it('rejects private asset tokens with tampered signatures', () => {
+        const authService = createAuthService();
+        const token = authService.createPrivateAssetToken({
+            appUid: 'app-9f1c10e3-9a7f-43fb-8671-af4918e65407',
+            userUid: '9885b80e-1a14-4c8d-9e3f-4fa5915b1136',
+        });
+        const tampered = tamperTokenSignature(token);
+
+        expect(() => authService.verifyPrivateAssetToken(tampered)).toThrow();
     });
 
     it('returns hardened cookie options with config-driven ttl and domain', () => {
@@ -148,7 +192,6 @@ describe('AuthService private asset token helpers', () => {
             session: sessionUuid,
         }, authService.global_config.jwt_secret, { expiresIn: 60 });
 
-        // @ts-expect-error test-only lightweight stub
         authService.get_session_ = vi.fn().mockResolvedValue({
             uuid: sessionUuid,
             user_uid: userUid,
@@ -160,7 +203,6 @@ describe('AuthService private asset token helpers', () => {
             userUid,
             sessionUuid,
         });
-        // @ts-expect-error test-only lightweight stub
         expect(authService.get_session_).toHaveBeenCalledWith(sessionUuid);
     });
 
@@ -174,13 +216,30 @@ describe('AuthService private asset token helpers', () => {
             session: 'f9000804-2fd3-4da5-819b-afc5296f90f7',
         }, authService.global_config.jwt_secret, { expiresIn: 60 });
 
-        // @ts-expect-error test-only lightweight stub
         authService.get_session_ = vi.fn().mockResolvedValue({
             uuid: 'f9000804-2fd3-4da5-819b-afc5296f90f7',
             user_uid: '9885b80e-1a14-4c8d-9e3f-4fa5915b1136',
         });
 
         await expect(authService.resolvePrivateBootstrapIdentityFromToken(token))
+            .rejects
+            .toThrow();
+    });
+
+    it('rejects bootstrap identity token when signature is tampered', async () => {
+        const authService = createAuthService();
+        const userUid = '4b0cecf8-dd6a-4eb5-bcc4-c76cc7e8d7f0';
+        const sessionUuid = 'f9000804-2fd3-4da5-819b-afc5296f90f7';
+        const token = jwt.sign({
+            type: 'app-under-user',
+            version: '0.0.0',
+            user_uid: userUid,
+            app_uid: 'app-7e2d3016-8d36-456a-9dc7-b75b0f4f7683',
+            session: sessionUuid,
+        }, authService.global_config.jwt_secret, { expiresIn: 60 });
+        const tampered = tamperTokenSignature(token);
+
+        await expect(authService.resolvePrivateBootstrapIdentityFromToken(tampered))
             .rejects
             .toThrow();
     });
