@@ -419,8 +419,6 @@ export class AppIconService extends BaseService {
     }
 
     shouldRedirectIconUrl ({ iconUrl, appUid, size }) {
-        if ( this.config.no_subdomain ) return false;
-
         if ( !iconUrl || this.isDataUrl(iconUrl) ) return false;
 
         const canRedirect =
