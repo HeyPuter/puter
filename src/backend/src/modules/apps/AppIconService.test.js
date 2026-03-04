@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import config from '../../config.js';
 import { AppIconService } from './AppIconService.js';
 
@@ -15,6 +15,9 @@ describe('AppIconService', () => {
     describe('URL helpers', () => {
         it('extracts a puter subdomain from a static hosting URL', () => {
             const service = Object.create(AppIconService.prototype);
+            // TODO: We might need a better way to do this. A service with no
+            //       initialization is difficult to test.
+            service.config = {};
             const domain = 'site.puter.localhost:4100';
             config.load_config({
                 static_hosting_domain: domain,
