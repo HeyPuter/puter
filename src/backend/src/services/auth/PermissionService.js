@@ -56,10 +56,7 @@ class PermissionService extends BaseService {
         this._permission_rewriters = [];
         this._permission_implicators = [];
         this._permission_exploders = [];
-
-        // Debounce constants and state
-        this._INVALIDATE_DEBOUNCE_MS = 200;
-        this._invalidate_app_under_user_debounce = {};
+        this._PERMISSION_SCAN_CACHE_TTL_SECONDS = 20;
     }
 
     /**
@@ -242,7 +239,7 @@ class PermissionService extends BaseService {
         });
 
         await setRedisCacheValue(cacheKey, JSON.stringify(reading), {
-            ttlSeconds: 20,
+            ttlSeconds: this._PERMISSION_SCAN_CACHE_TTL_SECONDS,
             eventData: reading,
         });
 
@@ -250,68 +247,22 @@ class PermissionService extends BaseService {
     }
 
     /**
-     * Removes permission-scan cache entries for an access token.
-     * Used when revoking an access token so stale scan results are not served.
-     * Only keys for this token are removed (see PermissionUtil.permission_scan_cache_pattern_for_access_token).
-     *
-     * @param {string} token_uid - The access token UUID.
-     */
-    invalidate_permission_scan_cache_for_access_token (token_uid) {
-        const kv = this.modules.memKVMap;
-        if ( ! kv?.keys ) return;
-        const pattern = PermissionUtil.permission_scan_cache_pattern_for_access_token(token_uid);
-        const keys = kv.keys(pattern);
-        if ( ! Array.isArray(keys) ) return;
-        for ( const key of keys ) {
-            kv.del(key);
-        }
-    }
-
-    /**
-     * Removes permission-scan cache entries for a single app-under-user actor.
-     * Used after grant_user_app_permission so the next check sees the new permission
-     * without waiting for cache TTL. Only keys for this (user, app) are removed.
+     * Removes a specific permission-scan cache entry for a single app-under-user actor.
+     * This targets only the exact key for (user_uuid, app_uid, permission).
      *
      * @param {string} user_uuid - The user's UUID.
      * @param {string} app_uid - The app UID.
+     * @param {string} permission - The permission string used in scan.
      * @returns {Promise<void>}
      */
-    async invalidate_permission_scan_cache_for_app_under_user (user_uuid, app_uid) {
-        const prefix = PermissionUtil.permission_scan_cache_prefix_for_app_under_user(user_uuid, app_uid);
-        const pattern = `${prefix}*`;
-        let cursor = '0';
-        const toDelete = [];
-        do {
-            const [next_cursor, keys] = await redisClient.scan(cursor, 'MATCH', pattern, 'COUNT', 100);
-            cursor = next_cursor;
-            if ( keys?.length ) toDelete.push(...keys);
-        } while ( cursor !== '0' );
-        if ( toDelete.length ) await deleteRedisKeys(toDelete);
-    }
-
-    /**
-     * Invalidates permission-scan cache for (user_uuid, app_uid).
-     * Runs immediately, or skips in a debounce period for this key.
-     *
-     * @param {string} user_uuid - The user's UUID.
-     * @param {string} app_uid - The app UID.
-     * @returns {Promise<void>}
-     */
-    async _schedule_invalidate_permission_scan_cache_for_app_under_user (user_uuid, app_uid) {
-        const key = `${user_uuid}:${app_uid}`;
-        if ( this._invalidate_app_under_user_debounce[key] ) return;
-        this._invalidate_app_under_user_debounce[key] = setTimeout(() => {
-            delete this._invalidate_app_under_user_debounce[key];
-        }, this._INVALIDATE_DEBOUNCE_MS);
-        try {
-            await this.invalidate_permission_scan_cache_for_app_under_user(user_uuid, app_uid);
-        } catch ( e ) {
-            this.log.error('failed to invalidate permission scan cache', {
-                actor_uid: user_uuid,
-                app_uid,
-                error: e,
-            });
-        }
+    async invalidate_permission_scan_cache_for_app_under_user (user_uuid, app_uid, permission) {
+        const actorUid = `app-under-user:${user_uuid}:${app_uid}`;
+        const cacheKey = PermissionScanRedisCacheSpace.key({
+            actorUid,
+            permissionOptions: [permission],
+            joinPermissionParts: PermissionUtil.join,
+        });
+        await deleteRedisKeys(cacheKey);
     }
 
     async validateUserPerms ({ actor, permissions }) {
@@ -518,7 +469,7 @@ class PermissionService extends BaseService {
         );
 
         // Invalidate permission-scan cache for this app-under-user so the next check sees the grant.
-        this._schedule_invalidate_permission_scan_cache_for_app_under_user(actor.type.user.uuid, app.uid);
+        this.invalidate_permission_scan_cache_for_app_under_user(actor.type.user.uuid, app_uid, permission);
     }
 
     /**
