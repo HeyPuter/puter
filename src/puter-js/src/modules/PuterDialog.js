@@ -1,4 +1,8 @@
 class PuterDialog extends (globalThis.HTMLElement || Object) { // It will fall back to only extending Object in environments without a DOM
+    // Similar to `#messageID` in Auth.js. We start at an arbitrary high number to avoid
+    // collisions.
+    static messageID = Math.floor(Number.MAX_SAFE_INTEGER / 2);
+
     /**
      * Detects if the current page is loaded using the file:// protocol.
      * @returns {boolean} True if using file:// protocol, false otherwise.
@@ -7,11 +11,14 @@ class PuterDialog extends (globalThis.HTMLElement || Object) { // It will fall b
         return window.location.protocol === 'file:';
     };
 
+    #messageID;
+
     constructor (resolve, reject) {
         super();
         this.reject = reject;
         this.resolve = resolve;
         this.popupLaunched = false; // Track if popup was successfully launched
+        this.#messageID = this.constructor.messageID++;
 
         /**
          * Detects if there's a recent user activation that would allow popup opening
@@ -48,9 +55,11 @@ class PuterDialog extends (globalThis.HTMLElement || Object) { // It will fall b
                 let title = 'Puter';
                 var left = (screen.width / 2) - (w / 2);
                 var top = (screen.height / 2) - (h / 2);
-                const popup = window.open(`${puter.defaultGUIOrigin }/?embedded_in_popup=true&request_auth=true${ window.crossOriginIsolated ? '&cross_origin_isolated=true' : ''}`,
-                                title,
-                                `toolbar=no, location=no, directories=no, status=no, menubar=no, scrollbars=no, resizable=no, copyhistory=no, width=${ w }, height=${ h }, top=${ top }, left=${ left}`);
+                const popup = window.open(
+                    `${puter.defaultGUIOrigin }/?embedded_in_popup=true&request_auth=true${ window.crossOriginIsolated ? '&cross_origin_isolated=true' : ''}`,
+                    title,
+                    `toolbar=no, location=no, directories=no, status=no, menubar=no, scrollbars=no, resizable=no, copyhistory=no, width=${ w }, height=${ h }, top=${ top }, left=${ left}`,
+                );
                 return popup;
             } catch (e) {
                 console.error('Failed to open popup:', e);
@@ -438,9 +447,11 @@ class PuterDialog extends (globalThis.HTMLElement || Object) { // It will fall b
             let title = 'Puter';
             var left = (screen.width / 2) - (w / 2);
             var top = (screen.height / 2) - (h / 2);
-            window.open(`${puter.defaultGUIOrigin }/?embedded_in_popup=true&request_auth=true${ window.crossOriginIsolated ? '&cross_origin_isolated=true' : ''}`,
-                            title,
-                            `toolbar=no, location=no, directories=no, status=no, menubar=no, scrollbars=no, resizable=no, copyhistory=no, width=${ w }, height=${ h }, top=${ top }, left=${ left}`);
+            window.open(
+                `${puter.defaultGUIOrigin }/?embedded_in_popup=true&request_auth=true&msg_id=${this.#messageID}${ window.crossOriginIsolated ? '&cross_origin_isolated=true' : ''}`,
+                title,
+                `toolbar=no, location=no, directories=no, status=no, menubar=no, scrollbars=no, resizable=no, copyhistory=no, width=${ w }, height=${ h }, top=${ top }, left=${ left}`,
+            );
         });
 
         // Add the event listener to the window object
@@ -458,9 +469,11 @@ class PuterDialog extends (globalThis.HTMLElement || Object) { // It will fall b
             let title = 'Puter';
             var left = (screen.width / 2) - (w / 2);
             var top = (screen.height / 2) - (h / 2);
-            window.open(`${puter.defaultGUIOrigin }/?embedded_in_popup=true&request_auth=true${ window.crossOriginIsolated ? '&cross_origin_isolated=true' : ''}`,
-                            title,
-                            `toolbar=no, location=no, directories=no, status=no, menubar=no, scrollbars=no, resizable=no, copyhistory=no, width=${ w }, height=${ h }, top=${ top }, left=${ left}`);
+            window.open(
+                `${puter.defaultGUIOrigin }/?embedded_in_popup=true&request_auth=true&msg_id=${this.#messageID}${ window.crossOriginIsolated ? '&cross_origin_isolated=true' : ''}`,
+                title,
+                `toolbar=no, location=no, directories=no, status=no, menubar=no, scrollbars=no, resizable=no, copyhistory=no, width=${ w }, height=${ h }, top=${ top }, left=${ left}`,
+            );
         }
         else {
             this.shadowRoot.querySelector('dialog').showModal();
