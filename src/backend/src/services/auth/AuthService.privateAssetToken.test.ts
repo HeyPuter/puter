@@ -77,12 +77,14 @@ describe('AuthService private asset token helpers', () => {
         const userUid = '4b0cecf8-dd6a-4eb5-bcc4-c76cc7e8d7f0';
         const sessionUuid = 'f9000804-2fd3-4da5-819b-afc5296f90f7';
         const subdomain = 'beans';
+        const privateHost = 'beans.puter.dev';
 
         const token = authService.createPrivateAssetToken({
             appUid,
             userUid,
             sessionUuid,
             subdomain,
+            privateHost,
             ttlSeconds: 120,
         });
 
@@ -91,12 +93,14 @@ describe('AuthService private asset token helpers', () => {
             expectedUserUid: userUid,
             expectedSessionUuid: sessionUuid,
             expectedSubdomain: subdomain,
+            expectedPrivateHost: privateHost,
         });
 
         expect(claims.appUid).toBe(appUid);
         expect(claims.userUid).toBe(userUid);
         expect(claims.sessionUuid).toBe(sessionUuid);
         expect(claims.subdomain).toBe(subdomain);
+        expect(claims.privateHost).toBe(privateHost);
         expect(typeof claims.exp).toBe('number');
     });
 
@@ -106,6 +110,7 @@ describe('AuthService private asset token helpers', () => {
             appUid: 'app-9f1c10e3-9a7f-43fb-8671-af4918e65407',
             userUid: '9885b80e-1a14-4c8d-9e3f-4fa5915b1136',
             subdomain: 'beans',
+            privateHost: 'beans.puter.dev',
         });
 
         expect(() => authService.verifyPrivateAssetToken(token, {
@@ -118,6 +123,10 @@ describe('AuthService private asset token helpers', () => {
 
         expect(() => authService.verifyPrivateAssetToken(token, {
             expectedSubdomain: 'other-app',
+        })).toThrow();
+
+        expect(() => authService.verifyPrivateAssetToken(token, {
+            expectedPrivateHost: 'other.puter.dev',
         })).toThrow();
     });
 
