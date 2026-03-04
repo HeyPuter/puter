@@ -78,7 +78,6 @@ function getPrivateHostingDomainsForMatch () {
     for ( const candidate of [
         privateAppHostingDomain,
         privateAppHostingDomainAlt,
-        'puter.app',
     ] ) {
         const normalizedCandidate = normalizeConfiguredHostname(candidate);
         if ( normalizedCandidate ) {
@@ -450,9 +449,16 @@ async function resolvePrivateIdentity ({ req, services, appUid }) {
             const actor = await authService.authenticate_from_token(bootstrapToken);
             const identity = actorToPrivateIdentity(actor);
             if ( identity ) {
+                if ( typeof authService.resolvePrivateBootstrapIdentityFromToken === 'function' ) {
+                    await authService.resolvePrivateBootstrapIdentityFromToken(bootstrapToken, {
+                        expectedAppUid: appUid,
+                    });
+                }
                 return {
                     source: 'bootstrap-token',
                     ...identity,
+                    subdomain: privateAppSubdomain,
+                    privateHost: requestedPrivateHost,
                     hasValidPrivateCookie: false,
                     hasPrivateCookie,
                     hasInvalidPrivateCookie,
@@ -464,7 +470,9 @@ async function resolvePrivateIdentity ({ req, services, appUid }) {
 
         if ( typeof authService.resolvePrivateBootstrapIdentityFromToken === 'function' ) {
             try {
-                const identity = await authService.resolvePrivateBootstrapIdentityFromToken(bootstrapToken);
+                const identity = await authService.resolvePrivateBootstrapIdentityFromToken(bootstrapToken, {
+                    expectedAppUid: appUid,
+                });
                 if ( identity ) {
                     logPrivateAccessEvent('private_access.bootstrap_fallback_allowed', {
                         appUid,

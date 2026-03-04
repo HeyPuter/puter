@@ -7,6 +7,8 @@ type AuthServiceForPrivateTokenTests = AuthService & {
         jwt_secret: string;
         private_app_asset_token_ttl_seconds: number;
         private_app_asset_cookie_name: string;
+        static_hosting_domain: string;
+        static_hosting_domain_alt?: string;
         private_app_hosting_domain: string;
         private_app_hosting_domain_alt?: string;
     };
@@ -24,6 +26,11 @@ type AuthServiceForPrivateTokenTests = AuthService & {
         encrypt: (value: string) => string;
         decrypt: (value: string) => string;
     };
+    services: {
+        get: (name: string) => {
+            emit?: (eventName: string, event: unknown) => Promise<void>;
+        };
+    };
 };
 
 const createAuthService = (): AuthServiceForPrivateTokenTests => {
@@ -32,6 +39,8 @@ const createAuthService = (): AuthServiceForPrivateTokenTests => {
         jwt_secret: 'private-asset-test-secret',
         private_app_asset_token_ttl_seconds: 3600,
         private_app_asset_cookie_name: 'puter.private.asset.token',
+        static_hosting_domain: 'puter.site',
+        static_hosting_domain_alt: 'puter.host',
         private_app_hosting_domain: 'app.puter.localhost',
         private_app_hosting_domain_alt: 'puter.dev',
     };
@@ -50,6 +59,12 @@ const createAuthService = (): AuthServiceForPrivateTokenTests => {
     authService.uuid_fpe = {
         encrypt: (value) => value,
         decrypt: (value) => value,
+    };
+    authService.services = {
+        get: (_name) => ({
+            emit: async () => {
+            },
+        }),
     };
     // @ts-expect-error test-only lightweight stub
     authService.get_session_ = vi.fn().mockResolvedValue(undefined);
@@ -235,6 +250,30 @@ describe('AuthService private asset token helpers', () => {
             .toThrow();
     });
 
+    it('rejects bootstrap identity when expected app uid does not match token app uid', async () => {
+        const authService = createAuthService();
+        const userUid = '4b0cecf8-dd6a-4eb5-bcc4-c76cc7e8d7f0';
+        const sessionUuid = 'f9000804-2fd3-4da5-819b-afc5296f90f7';
+        const token = jwt.sign({
+            type: 'app-under-user',
+            version: '0.0.0',
+            user_uid: userUid,
+            app_uid: 'app-7e2d3016-8d36-456a-9dc7-b75b0f4f7683',
+            session: sessionUuid,
+        }, authService.global_config.jwt_secret, { expiresIn: 60 });
+
+        authService.get_session_ = vi.fn().mockResolvedValue({
+            uuid: sessionUuid,
+            user_uid: userUid,
+        });
+
+        await expect(authService.resolvePrivateBootstrapIdentityFromToken(token, {
+            expectedAppUid: 'app-aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+        }))
+            .rejects
+            .toThrow();
+    });
+
     it('rejects bootstrap identity token when signature is tampered', async () => {
         const authService = createAuthService();
         const userUid = '4b0cecf8-dd6a-4eb5-bcc4-c76cc7e8d7f0';
@@ -251,5 +290,35 @@ describe('AuthService private asset token helpers', () => {
         await expect(authService.resolvePrivateBootstrapIdentityFromToken(tampered))
             .rejects
             .toThrow();
+    });
+
+    it('derives same app uid for hosted app domain aliases', async () => {
+        const authService = createAuthService();
+        authService.global_config.static_hosting_domain = 'puter.site';
+        authService.global_config.static_hosting_domain_alt = 'puter.host';
+        authService.global_config.private_app_hosting_domain = 'puter.app';
+        authService.global_config.private_app_hosting_domain_alt = 'puter.dev';
+
+        const uidSite = await authService.app_uid_from_origin('https://beans.puter.site');
+        const uidStaticAlt = await authService.app_uid_from_origin('https://beans.puter.host');
+        const uidPrivatePrimary = await authService.app_uid_from_origin('https://beans.puter.app');
+        const uidPrivateAlt = await authService.app_uid_from_origin('https://beans.puter.dev');
+
+        expect(uidSite).toBe(uidStaticAlt);
+        expect(uidSite).toBe(uidPrivatePrimary);
+        expect(uidSite).toBe(uidPrivateAlt);
+    });
+
+    it('keeps distinct app uid per subdomain under hosted alias canonicalization', async () => {
+        const authService = createAuthService();
+        authService.global_config.static_hosting_domain = 'puter.site';
+        authService.global_config.static_hosting_domain_alt = 'puter.host';
+        authService.global_config.private_app_hosting_domain = 'puter.app';
+        authService.global_config.private_app_hosting_domain_alt = 'puter.dev';
+
+        const uidBeans = await authService.app_uid_from_origin('https://beans.puter.dev');
+        const uidCats = await authService.app_uid_from_origin('https://cats.puter.site');
+
+        expect(uidBeans).not.toBe(uidCats);
     });
 });
