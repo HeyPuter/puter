@@ -43,7 +43,7 @@ async function UIWindowChangeEmail (options) {
     h += `<input id="confirm-new-email-${internal_id}" type="text" name="new-email" class="new-email" autocomplete="off" />`;
     h += '</div>';
     // password / OIDC revalidate
-    h += '<div class="change-email-auth-row" style="overflow: hidden; margin-top: 10px; margin-bottom: 30px;">';
+    h += '<div class="change-email-auth-row" style="display: none; overflow: hidden; margin-top: 10px; margin-bottom: 30px;">';
     h += '<div class="change-email-password-wrap">';
     h += `<label>${i18n('account_password')}</label>`;
     h += `${place_password_entry.html}`;
