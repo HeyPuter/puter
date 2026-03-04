@@ -635,6 +635,7 @@ describe('PuterSiteMiddleware', () => {
             });
             const authService = {
                 getPrivateAssetCookieName: vi.fn().mockReturnValue('puter.private.asset.token'),
+                app_uid_from_origin: vi.fn().mockResolvedValue('app-origin-111'),
                 verifyPrivateAssetToken: vi.fn().mockImplementation(() => {
                     throw new Error('invalid');
                 }),
@@ -825,7 +826,7 @@ describe('PuterSiteMiddleware', () => {
             expect(authService.authenticate_from_token).toHaveBeenCalledWith('bootstrap-token');
             expect(authService.resolvePrivateBootstrapIdentityFromToken)
                 .toHaveBeenCalledWith('bootstrap-token', {
-                    expectedAppUid: 'app-11111111-1111-1111-1111-111111111111',
+                    expectedAppUids: ['app-11111111-1111-1111-1111-111111111111'],
                 });
             expect(eventEmit).toHaveBeenCalledWith(
                 'app.privateAccess.check',
@@ -861,6 +862,7 @@ describe('PuterSiteMiddleware', () => {
             let filesystemNodeCallCount = 0;
             const authService = {
                 getPrivateAssetCookieName: vi.fn().mockReturnValue('puter.private.asset.token'),
+                app_uid_from_origin: vi.fn().mockResolvedValue('app-origin-111'),
                 verifyPrivateAssetToken: vi.fn().mockImplementation(() => {
                     throw new Error('invalid');
                 }),
@@ -951,7 +953,7 @@ describe('PuterSiteMiddleware', () => {
                 requestHostname: 'paid.puter.dev',
             });
             expect(authService.createPrivateAssetToken).toHaveBeenCalledWith({
-                appUid: 'app-11111111-1111-1111-1111-111111111111',
+                appUid: 'app-origin-111',
                 userUid: 'user-allow-111',
                 sessionUuid: 'session-allow-111',
                 subdomain: 'paid',
@@ -1078,7 +1080,7 @@ describe('PuterSiteMiddleware', () => {
 
             expect(authService.authenticate_from_token).toHaveBeenCalledWith('bootstrap-token');
             expect(authService.resolvePrivateBootstrapIdentityFromToken).toHaveBeenCalledWith('bootstrap-token', {
-                expectedAppUid: 'app-11111111-1111-1111-1111-111111111111',
+                expectedAppUids: ['app-11111111-1111-1111-1111-111111111111'],
             });
             expect(authService.createPrivateAssetToken).toHaveBeenCalledWith({
                 appUid: 'app-11111111-1111-1111-1111-111111111111',
@@ -1195,7 +1197,7 @@ describe('PuterSiteMiddleware', () => {
             expect(authService.authenticate_from_token).toHaveBeenCalledWith('bootstrap-token');
             expect(authService.resolvePrivateBootstrapIdentityFromToken)
                 .toHaveBeenCalledWith('bootstrap-token', {
-                    expectedAppUid: 'app-11111111-1111-1111-1111-111111111111',
+                    expectedAppUids: ['app-11111111-1111-1111-1111-111111111111'],
                 });
             expect(mockRes.redirect).toHaveBeenCalledWith('https://apps.puter.com/app/paid-app');
             expect(mockRes.send).not.toHaveBeenCalled();

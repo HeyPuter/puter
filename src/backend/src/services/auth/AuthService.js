@@ -527,7 +527,7 @@ class AuthService extends BaseService {
         return null;
     }
 
-    async resolvePrivateBootstrapIdentityFromToken (token, { expectedAppUid } = {}) {
+    async resolvePrivateBootstrapIdentityFromToken (token, { expectedAppUid, expectedAppUids } = {}) {
         let decoded;
         try {
             decoded = this.tokenService.verify('auth', token);
@@ -549,7 +549,22 @@ class AuthService extends BaseService {
         const bootstrapAppUid = typeof decoded?.app_uid === 'string'
             ? decoded.app_uid
             : null;
-        if ( expectedAppUid && bootstrapAppUid && bootstrapAppUid !== expectedAppUid ) {
+        const expectedAppUidCandidates = new Set();
+        if ( typeof expectedAppUid === 'string' && expectedAppUid ) {
+            expectedAppUidCandidates.add(expectedAppUid);
+        }
+        if ( Array.isArray(expectedAppUids) ) {
+            for ( const appUidCandidate of expectedAppUids ) {
+                if ( typeof appUidCandidate === 'string' && appUidCandidate ) {
+                    expectedAppUidCandidates.add(appUidCandidate);
+                }
+            }
+        }
+        if (
+            bootstrapAppUid
+            && expectedAppUidCandidates.size > 0
+            && !expectedAppUidCandidates.has(bootstrapAppUid)
+        ) {
             throw APIError.create('token_auth_failed');
         }
 
