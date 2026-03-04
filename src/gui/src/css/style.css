@@ -4446,7 +4446,7 @@ fieldset[name=number-code] {
 .settings-sidebar {
     width: 200px;
     background-color: #f9f9f9;
-    border-right: 1px solid #3d3d3d;
+    border-right: 1px solid #e0e0e0;
     padding: 20px;
     position: fixed;
     margin-top: 1px;
@@ -4508,7 +4508,7 @@ fieldset[name=number-code] {
 .settings-content h1 {
     font-size: 24px;
     margin-bottom: 20px;
-    border-bottom: 1px solid #3d3d3d;
+    border-bottom: 1px solid #e0e0e0;
     padding-bottom: 10px;
     padding-left: 5px;
     font-weight: 500;
