@@ -34,6 +34,7 @@ import UIWindowFontPicker from './UI/UIWindowFontPicker.js';
 import UIWindowRequestPermission from './UI/UIWindowRequestPermission.js';
 import UIWindowSaveAccount from './UI/UIWindowSaveAccount.js';
 import UIWindowSignup from './UI/UIWindowSignup.js';
+import UINotification from './UI/UINotification.js';
 
 import { PROCESS_IPC_ATTACHED } from './definitions.js';
 import TeePromise from './util/TeePromise.js';
@@ -250,6 +251,38 @@ const ipc_listener = async (event, handled) => {
             original_msg_id: msg_id,
             msg: 'promptResponded',
             response: prompt_resp,
+        }, '*');
+    }
+    //--------------------------------------------------------
+    // showNotification
+    //--------------------------------------------------------
+    else if ( event.data.msg === 'showNotification' ) {
+        const options = event.data.options ?? {};
+        const notification_uid = options.uid ?? `app-${app_uuid}-${msg_id}`;
+        let icon = window.icons['bell.svg'];
+        let round_icon = false;
+
+        if ( typeof options.icon === 'string' && options.icon.length > 0 ) {
+            icon = window.icons[options.icon] ?? options.icon;
+        }
+
+        if ( options.round_icon ) {
+            round_icon = true;
+        }
+
+        UINotification({
+            title: options.title ?? app_name ?? 'Notification',
+            text: options.text ?? '',
+            icon,
+            round_icon,
+            uid: notification_uid,
+            value: options.value,
+        });
+
+        target_iframe.contentWindow.postMessage({
+            original_msg_id: msg_id,
+            msg: 'notificationShown',
+            uid: notification_uid,
         }, '*');
     }
     //--------------------------------------------------------
@@ -1488,12 +1521,14 @@ const ipc_listener = async (event, handled) => {
             target_path, el_filedialog_window,
             file_to_upload, overwrite,
         }) => {
-            const res = await puter.fs.write(target_path,
-                            file_to_upload,
-                            {
-                                dedupeName: false,
-                                overwrite: overwrite,
-                            });
+            const res = await puter.fs.write(
+                target_path,
+                file_to_upload,
+                {
+                    dedupeName: false,
+                    overwrite: overwrite,
+                },
+            );
 
             await tell_caller_and_update_views({ res, el_filedialog_window, target_path });
         };

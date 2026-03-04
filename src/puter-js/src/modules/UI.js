@@ -499,6 +499,9 @@ class UI extends EventListener {
                     // execute callback
                     this.#callbackFunctions[e.data.original_msg_id](e.data.response);
                 }
+                else if ( e.data.msg === 'notificationShown' ) {
+                    this.#callbackFunctions[e.data.original_msg_id](e.data.uid);
+                }
                 else if ( e.data.msg === 'languageReceived' ) {
                     // execute callback
                     this.#callbackFunctions[e.data.original_msg_id](e.data.language);
@@ -719,6 +722,16 @@ class UI extends EventListener {
     prompt (message, placeholder, options, callback) {
         return new Promise((resolve) => {
             this.#postMessageWithCallback('PROMPT', resolve, { message, placeholder, options });
+        });
+    };
+
+    notify (options) {
+        return new Promise((resolve) => {
+            const normalized = { ...(options ?? {}) };
+            if ( normalized.roundIcon !== undefined && normalized.round_icon === undefined ) {
+                normalized.round_icon = normalized.roundIcon;
+            }
+            this.#postMessageWithCallback('showNotification', resolve, { options: normalized });
         });
     };
 

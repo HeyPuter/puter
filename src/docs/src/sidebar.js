@@ -679,6 +679,14 @@ let sidebar = [
                 path: '/UI/alert',
             },
             {
+                title: '<code>notify()</code>',
+                page_title: '<code>puter.ui.notify()</code>',
+                title_tag: 'puter.ui.notify()',
+                icon: '/assets/img/function.svg',
+                source: '/UI/notify.md',
+                path: '/UI/notify',
+            },
+            {
                 title: '<code>contextMenu()</code>',
                 page_title: '<code>puter.ui.contextMenu()</code>',
                 title_tag: 'puter.ui.contextMenu()',

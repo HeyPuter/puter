@@ -12,6 +12,7 @@ The UI API provides a comprehensive set of tools for creating rich user interfac
 
 ### Dialogs and Alerts
 - **[`puter.ui.alert()`](/UI/alert/)** - Show alert dialogs
+- **[`puter.ui.notify()`](/UI/notify/)** - Show desktop notifications
 - **[`puter.ui.prompt()`](/UI/prompt/)** - Show input prompts
 
 ### Window Management
