@@ -401,7 +401,7 @@ async function resolvePrivateIdentity ({ req, services, appUid }) {
                 source: 'private-cookie',
                 userUid: claims.userUid,
                 sessionUuid: claims.sessionUuid,
-                subdomain: claims.subdomain ?? privateAppSubdomain,
+                subdomain: claims.subdomain || privateAppSubdomain,
                 hasValidPrivateCookie: true,
                 hasPrivateCookie,
                 hasInvalidPrivateCookie,
