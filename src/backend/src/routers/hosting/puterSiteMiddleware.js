@@ -783,7 +783,9 @@ async function evaluatePrivateAppAccess ({ req, res, services, app, requestPath 
         res.cookie(
             authService.getPrivateAssetCookieName(),
             privateToken,
-            authService.getPrivateAssetCookieOptions(),
+            authService.getPrivateAssetCookieOptions({
+                requestHostname: req.hostname,
+            }),
         );
     }
 

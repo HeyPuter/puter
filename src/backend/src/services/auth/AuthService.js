@@ -287,7 +287,66 @@ class AuthService extends BaseService {
         return DEFAULT_PRIVATE_APP_ASSET_COOKIE_NAME;
     }
 
-    getPrivateAssetCookieOptions ({ ttlSeconds } = {}) {
+    normalizeHostnameForCookieDomain (hostnameValue) {
+        if ( typeof hostnameValue !== 'string' ) return null;
+        const trimmedHostname = hostnameValue.trim().toLowerCase().replace(/^\./, '');
+        if ( ! trimmedHostname ) return null;
+        try {
+            return new URL(`http://${trimmedHostname}`).hostname.toLowerCase();
+        } catch {
+            return trimmedHostname.split(':')[0] || null;
+        }
+    }
+
+    isCookieDomainHostEligible (hostnameValue) {
+        if ( typeof hostnameValue !== 'string' || !hostnameValue ) return false;
+        if ( hostnameValue === 'localhost' ) return false;
+        if ( hostnameValue.includes(':') ) return false;
+        if ( ! hostnameValue.includes('.') ) return false;
+        if ( /^\d{1,3}(?:\.\d{1,3}){3}$/.test(hostnameValue) ) return false;
+        return true;
+    }
+
+    getConfiguredPrivateCookieDomains () {
+        const configuredDomains = [];
+        for ( const configuredDomainCandidate of [
+            this.global_config.private_app_hosting_domain,
+            this.global_config.private_app_hosting_domain_alt,
+        ] ) {
+            const normalizedDomain = this.normalizeHostnameForCookieDomain(configuredDomainCandidate);
+            if ( normalizedDomain ) {
+                configuredDomains.push(normalizedDomain);
+            }
+        }
+        return [...new Set(configuredDomains)];
+    }
+
+    resolvePrivateAssetCookieDomain ({ requestHostname } = {}) {
+        const configuredDomains = this.getConfiguredPrivateCookieDomains();
+        const normalizedRequestHost = this.normalizeHostnameForCookieDomain(requestHostname);
+
+        if ( normalizedRequestHost ) {
+            const matchedConfiguredDomain = configuredDomains
+                .sort((domainA, domainB) => domainB.length - domainA.length)
+                .find(configuredDomain =>
+                    normalizedRequestHost === configuredDomain ||
+                    normalizedRequestHost.endsWith(`.${configuredDomain}`));
+            if ( this.isCookieDomainHostEligible(matchedConfiguredDomain) ) {
+                return `.${matchedConfiguredDomain}`;
+            }
+            return undefined;
+        }
+
+        const normalizedConfiguredPrimaryDomain = this.normalizeHostnameForCookieDomain(
+            this.global_config.private_app_hosting_domain,
+        );
+        if ( this.isCookieDomainHostEligible(normalizedConfiguredPrimaryDomain) ) {
+            return `.${normalizedConfiguredPrimaryDomain}`;
+        }
+        return undefined;
+    }
+
+    getPrivateAssetCookieOptions ({ ttlSeconds, requestHostname } = {}) {
         const effectiveTtlSeconds = this.resolvePositiveInteger(
             ttlSeconds,
             this.getPrivateAssetTokenTtlSeconds(),
@@ -301,16 +360,9 @@ class AuthService extends BaseService {
             maxAge: effectiveTtlSeconds * 1000,
         };
 
-        const privateHostingDomain = `${this.global_config.private_app_hosting_domain ?? ''}`
-            .trim()
-            .toLowerCase()
-            .replace(/^\./, '');
-        if (
-            privateHostingDomain &&
-            privateHostingDomain !== 'localhost' &&
-            !privateHostingDomain.includes(':')
-        ) {
-            cookieOptions.domain = `.${privateHostingDomain}`;
+        const cookieDomain = this.resolvePrivateAssetCookieDomain({ requestHostname });
+        if ( cookieDomain ) {
+            cookieOptions.domain = cookieDomain;
         }
 
         return cookieOptions;
