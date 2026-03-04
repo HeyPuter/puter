@@ -691,11 +691,10 @@ function respondPrivateLoginBootstrap ({ res, app }) {
                     const tryStoredTokenBootstrap = () => {
                         const currentUrl = new URL(window.location.href);
                         const currentUrlToken = currentUrl.searchParams.get('puter.auth.token');
+                        if ( typeof currentUrlToken === 'string' && currentUrlToken ) return false;
+
                         const storedToken = getStoredAuthToken();
                         if ( typeof storedToken !== 'string' || !storedToken ) return false;
-
-                        // Avoid looping on the exact same token if backend already rejected it.
-                        if ( currentUrlToken && currentUrlToken === storedToken ) return false;
 
                         const lastAttemptedToken = sessionStorage.getItem(attemptedTokenStorageKey);
                         if ( lastAttemptedToken && lastAttemptedToken === storedToken ) return false;
