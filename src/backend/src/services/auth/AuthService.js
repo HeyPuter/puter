@@ -17,13 +17,14 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const { Actor, UserActorType, AppUnderUserActorType, AccessTokenActorType, SiteActorType } = require('./Actor');
-const BaseService = require('../BaseService');
+const { BaseService } = require('../BaseService');
 const { get_user, get_app } = require('../../helpers');
 const { Context } = require('../../util/context');
 const APIError = require('../../api/APIError');
 const { DB_WRITE } = require('../database/consts');
 const { UUIDFPE } = require('../../util/uuidfpe');
-
+const uuidLib = require('uuid');
+const crypto = require('crypto');
 // This constant defines the namespace used for generating app UUIDs from their origins
 const APP_ORIGIN_UUID_NAMESPACE = '33de3768-8ee0-43e9-9e73-db192b97a5d8';
 const DEFAULT_PRIVATE_APP_ASSET_TOKEN_TTL_SECONDS = 60 * 60;
@@ -37,12 +38,6 @@ const LegacyTokenError = class extends Error {
 * This class is responsible for handling authentication and authorization tasks for the application.
 */
 class AuthService extends BaseService {
-    static MODULES = {
-        jwt: require('jsonwebtoken'),
-        crypto: require('crypto'),
-        uuidv5: require('uuid').v5,
-        uuidv4: require('uuid').v4,
-    };
 
     async _init () {
         this.db = await this.services.get('database').get(DB_WRITE, 'auth');
@@ -66,16 +61,12 @@ class AuthService extends BaseService {
         // We do this to avoid exposing the internal UUID for sessions.
         const uuid_fpe_key = this.config.uuid_fpe_key
             ? UUIDFPE.uuidToBuffer(this.config.uuid_fpe_key)
-            : this.modules.crypto.randomBytes(16);
+            : crypto.randomBytes(16);
         this.uuid_fpe = new UUIDFPE(uuid_fpe_key);
 
         this.sessions = {};
 
-        const svc_token = await this.services.get('token');
-        this.modules.jwt = {
-            sign: (payload, _, options) => svc_token.sign('auth', payload, options),
-            verify: (token, _) => svc_token.verify('auth', token),
-        };
+        this.tokenService = await this.services.get('token');
     }
 
     /**
@@ -86,9 +77,9 @@ class AuthService extends BaseService {
     * @returns {Promise<Actor>} The authenticated user or app actor.
     */
     async authenticate_from_token (token) {
-        const decoded = this.modules.jwt.verify(
+        const decoded = this.tokenService.verify(
+            'auth',
             token,
-            this.global_config.jwt_secret,
         );
 
         if ( ! Object.prototype.hasOwnProperty.call(decoded, 'type') ) {
@@ -236,7 +227,8 @@ class AuthService extends BaseService {
             user_uid: actor_type.user.uuid,
         });
 
-        const token = this.modules.jwt.sign(
+        const token = this.tokenService.sign(
+            'auth',
             {
                 type: 'app-under-user',
                 version: '0.0.0',
@@ -244,20 +236,19 @@ class AuthService extends BaseService {
                 app_uid,
                 ...(actor_type.session ? { session: this.uuid_fpe.encrypt(actor_type.session) } : {}),
             },
-            this.global_config.jwt_secret,
         );
 
         return token;
     }
 
     get_site_app_token ({ site_uid }) {
-        const token = this.modules.jwt.sign(
+        const token = this.tokenService.sign(
+            'auth',
             {
                 type: 'actor-site',
                 version: '0.0.0',
                 site_uid,
             },
-            this.global_config.jwt_secret,
             { expiresIn: '1h' },
         );
 
@@ -368,7 +359,13 @@ class AuthService extends BaseService {
         return cookieOptions;
     }
 
-    createPrivateAssetToken ({ appUid, userUid, sessionUuid, ttlSeconds } = {}) {
+    normalizePrivateAssetSubdomain (subdomain) {
+        if ( typeof subdomain !== 'string' ) return undefined;
+        const normalizedSubdomain = subdomain.trim().toLowerCase();
+        return normalizedSubdomain || undefined;
+    }
+
+    createPrivateAssetToken ({ appUid, userUid, sessionUuid, subdomain, ttlSeconds } = {}) {
         if ( typeof appUid !== 'string' || !appUid.trim() ) {
             throw new Error('appUid is required to create private asset token.');
         }
@@ -377,6 +374,10 @@ class AuthService extends BaseService {
         }
         if ( sessionUuid !== undefined && (typeof sessionUuid !== 'string' || !sessionUuid.trim()) ) {
             throw new Error('sessionUuid must be a non-empty string when provided.');
+        }
+        const normalizedSubdomain = this.normalizePrivateAssetSubdomain(subdomain);
+        if ( subdomain !== undefined && !normalizedSubdomain ) {
+            throw new Error('subdomain must be a non-empty string when provided.');
         }
 
         const effectiveTtlSeconds = this.resolvePositiveInteger(
@@ -390,20 +391,21 @@ class AuthService extends BaseService {
             app_uid: appUid.trim(),
             user_uid: userUid.trim(),
             ...(sessionUuid ? { session: this.uuid_fpe.encrypt(sessionUuid) } : {}),
+            ...(normalizedSubdomain ? { subdomain: normalizedSubdomain } : {}),
         };
 
-        return this.modules.jwt.sign(payload, this.global_config.jwt_secret, {
+        return this.tokenService.sign('auth', payload, {
             expiresIn: effectiveTtlSeconds,
         });
     }
 
     verifyPrivateAssetToken (
         token,
-        { expectedAppUid, expectedUserUid, expectedSessionUuid } = {},
+        { expectedAppUid, expectedUserUid, expectedSessionUuid, expectedSubdomain } = {},
     ) {
         let decoded;
         try {
-            decoded = this.modules.jwt.verify(token, this.global_config.jwt_secret);
+            decoded = this.tokenService.verify('auth', token);
         } catch (e) {
             throw APIError.create('token_auth_failed');
         }
@@ -431,6 +433,14 @@ class AuthService extends BaseService {
             }
         }
 
+        let subdomain;
+        if ( decoded.subdomain !== undefined ) {
+            if ( typeof decoded.subdomain !== 'string' || !decoded.subdomain.trim() ) {
+                throw APIError.create('token_auth_failed');
+            }
+            subdomain = decoded.subdomain.trim().toLowerCase();
+        }
+
         if ( expectedAppUid && decoded.app_uid !== expectedAppUid ) {
             throw APIError.create('token_auth_failed');
         }
@@ -442,11 +452,21 @@ class AuthService extends BaseService {
                 throw APIError.create('token_auth_failed');
             }
         }
+        const normalizedExpectedSubdomain = this.normalizePrivateAssetSubdomain(expectedSubdomain);
+        if ( expectedSubdomain !== undefined && !normalizedExpectedSubdomain ) {
+            throw APIError.create('token_auth_failed');
+        }
+        if ( normalizedExpectedSubdomain ) {
+            if ( !subdomain || subdomain !== normalizedExpectedSubdomain ) {
+                throw APIError.create('token_auth_failed');
+            }
+        }
 
         return {
             appUid: decoded.app_uid,
             userUid: decoded.user_uid,
             sessionUuid,
+            subdomain,
             exp: decoded.exp,
             iat: decoded.iat,
         };
@@ -481,7 +501,7 @@ class AuthService extends BaseService {
     async resolvePrivateBootstrapIdentityFromToken (token) {
         let decoded;
         try {
-            decoded = this.modules.jwt.verify(token, this.global_config.jwt_secret);
+            decoded = this.tokenService.verify('auth', token);
         } catch (e) {
             throw APIError.create('token_auth_failed');
         }
@@ -590,13 +610,13 @@ class AuthService extends BaseService {
     async create_session_token (user, meta) {
         const session = await this.create_session_(user, meta);
 
-        const token = this.modules.jwt.sign({
+        const token = this.tokenService.sign('auth', {
             type: 'session',
             version: '0.0.0',
             uuid: session.uuid,
             // meta: session.meta,
             user_uid: user.uuid,
-        }, this.global_config.jwt_secret);
+        });
 
         return { session, token };
     }
@@ -612,12 +632,12 @@ class AuthService extends BaseService {
      * @returns {string} JWT GUI token.
      */
     create_gui_token (user, session) {
-        return this.modules.jwt.sign({
+        return this.tokenService.sign('auth', {
             type: 'gui',
             version: '0.0.0',
             uuid: session.uuid,
             user_uid: user.uuid,
-        }, this.global_config.jwt_secret);
+        });
     }
 
     /**
@@ -631,12 +651,12 @@ class AuthService extends BaseService {
      * @returns {string} JWT session token.
      */
     create_session_token_for_session (user, session_uuid) {
-        return this.modules.jwt.sign({
+        return this.tokenService.sign('auth', {
             type: 'session',
             version: '0.0.0',
             uuid: session_uuid,
             user_uid: user.uuid,
-        }, this.global_config.jwt_secret);
+        });
     }
 
     /**
@@ -648,9 +668,9 @@ class AuthService extends BaseService {
     * @returns {object} Object containing the user and token if the token is valid, otherwise an empty object.
     */
     async check_session (cur_token, meta) {
-        const decoded = this.modules.jwt.verify(cur_token, this.global_config.jwt_secret);
+        const decoded = this.tokenService.verify('auth', cur_token);
 
-        console.log('\x1B[36;1mDECODED SESSION', decoded);
+        console.debug('\x1B[36;1mDECODED SESSION', decoded);
 
         if ( decoded.type && decoded.type !== 'session' && decoded.type !== 'gui' ) {
             return {};
@@ -708,7 +728,7 @@ class AuthService extends BaseService {
     * @returns {Promise<void>}
     */
     async remove_session_by_token (token) {
-        const decoded = this.modules.jwt.verify(token, this.global_config.jwt_secret);
+        const decoded = this.tokenService.verify('auth', token);
 
         if ( decoded.type !== 'session' && decoded.type !== 'gui' ) {
             return;
@@ -751,14 +771,14 @@ class AuthService extends BaseService {
             throw APIError.create('forbidden');
         }
 
-        const uuid = this.modules.uuidv4();
+        const uuid = uuidLib.v4();
 
-        const jwt = this.modules.jwt.sign({
+        const jwt = this.tokenService.sign('auth', {
             type: 'access-token',
             version: '0.0.0',
             token_uid: uuid,
             ...jwt_obj,
-        }, this.global_config.jwt_secret, options);
+        }, options);
 
         for ( const permmission_spec of permissions ) {
             let [permission, extra] = permmission_spec;
@@ -798,7 +818,7 @@ class AuthService extends BaseService {
         const isJwt = typeof tokenOrUuid === 'string' &&
             /^[\w-]*\.[\w-]*\.[\w-]*$/.test(tokenOrUuid.trim());
         if ( isJwt ) {
-            const decoded = this.modules.jwt.verify(tokenOrUuid, this.global_config.jwt_secret);
+            const decoded = this.tokenService.verify('auth', tokenOrUuid);
             if ( decoded.type !== 'access-token' || !decoded.token_uid ) {
                 throw APIError.create('token_auth_failed');
             }
@@ -936,7 +956,7 @@ class AuthService extends BaseService {
         const svc_event = this.services.get('event');
         await svc_event.emit('app.from-origin', event);
         // UUIDV5
-        const uuid = this.modules.uuidv5(event.origin, APP_ORIGIN_UUID_NAMESPACE);
+        const uuid = uuidLib.v5(event.origin, APP_ORIGIN_UUID_NAMESPACE);
         return `app-${uuid}`;
     }
 

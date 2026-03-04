@@ -948,6 +948,12 @@ describe('PuterSiteMiddleware', () => {
             expect(authService.getPrivateAssetCookieOptions).toHaveBeenCalledWith({
                 requestHostname: 'paid.puter.dev',
             });
+            expect(authService.createPrivateAssetToken).toHaveBeenCalledWith({
+                appUid: 'app-11111111-1111-1111-1111-111111111111',
+                userUid: 'user-allow-111',
+                sessionUuid: 'session-allow-111',
+                subdomain: 'paid',
+            });
             expect(mockRes.cookie).toHaveBeenCalledWith(
                 'puter.private.asset.token',
                 'private-token',
