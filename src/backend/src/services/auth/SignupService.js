@@ -2,6 +2,7 @@
 import bcrypt from 'bcrypt';
 import { v4 as uuidv4 } from 'uuid';
 import { generate_random_username, send_email_verification_code, send_email_verification_token, username_exists } from '../../helpers.js';
+import { Context } from '../../util/context.js';
 import { OutcomeObject } from '../../util/outcomeutil.js';
 import { validate_nonEmpty_string } from '../../util/validutil.js';
 import BaseService from '../BaseService.js';
@@ -19,7 +20,9 @@ export class SignupService extends BaseService {
      * Creates a new user.
      * @async
      * @param {object} params - The parameters for creating a new user.
-     * @param {object} [params.req] - The request object (if applicable).
+     * @param {object} [params.req] - The request object. If not specified,
+     *   the request will be obtained from the context. If specified as null, request
+     *   information will not be included for this signup.
      * @param {boolean} [params.temporary] - Whether the user is a temporary user.
      * @param {boolean} [params.oidc_only] - Whether the user created with OIDC
      * @param {boolean} [params.send_confirmation_code] - Whether to send a confirmation code instead of a token by email
@@ -40,6 +43,10 @@ export class SignupService extends BaseService {
         password = null,
     }) {
         const outcome = new OutcomeObject(new CreatedUserOutcome());
+
+        if ( !req && req !== null ) {
+            req = Context.get('req');
+        }
 
         let raw_email = email;
 
