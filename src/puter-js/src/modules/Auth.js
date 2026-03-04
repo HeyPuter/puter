@@ -54,9 +54,11 @@ class Auth {
             var top = (screen.height / 2) - (h / 2);
 
             // Store reference to the popup window
-            const popup = window.open(`${puter.defaultGUIOrigin}/action/sign-in?embedded_in_popup=true&msg_id=${msg_id}${window.crossOriginIsolated ? '&cross_origin_isolated=true' : ''}${options.attempt_temp_user_creation ? '&attempt_temp_user_creation=true' : ''}`,
-                            title,
-                            `toolbar=no, location=no, directories=no, status=no, menubar=no, scrollbars=no, resizable=no, copyhistory=no, width=${w}, height=${h}, top=${top}, left=${left}`);
+            const popup = window.open(
+                `${puter.defaultGUIOrigin}/action/sign-in?embedded_in_popup=true&msg_id=${msg_id}${window.crossOriginIsolated ? '&cross_origin_isolated=true' : ''}${options.attempt_temp_user_creation ? '&attempt_temp_user_creation=true' : ''}`,
+                title,
+                `toolbar=no, location=no, directories=no, status=no, menubar=no, scrollbars=no, resizable=no, copyhistory=no, width=${w}, height=${h}, top=${top}, left=${left}`,
+            );
 
             // Set up interval to check if popup was closed
             const checkClosed = setInterval(() => {
