@@ -24,7 +24,7 @@ import { HLWrite } from '../../filesystem/hl_operations/hl_write.js';
 import { LLMkdir } from '../../filesystem/ll_operations/ll_mkdir.js';
 import { LLRead } from '../../filesystem/ll_operations/ll_read.js';
 import { NodePathSelector } from '../../filesystem/node/selectors.js';
-import { get_app, get_user } from '../../helpers.js';
+import { get_app } from '../../helpers.js';
 import BaseService from '../../services/BaseService.js';
 import { DB_READ, DB_WRITE } from '../../services/database/consts.js';
 import { Endpoint } from '../../util/expressutil.js';
@@ -365,7 +365,8 @@ export class AppIconService extends BaseService {
         );
         if ( existing[0] ) return existing[0];
 
-        const systemUser = await get_user({ username: 'system' });
+        const svcSu = this.services.get('su');
+        const systemUser = await svcSu.get_system_user();
         if ( ! systemUser?.id ) return null;
 
         const rootDirId = await dirAppIcons.get('mysql-id');
@@ -418,6 +419,8 @@ export class AppIconService extends BaseService {
     }
 
     shouldRedirectIconUrl ({ iconUrl, appUid, size }) {
+        if ( this.config.no_subdomain ) return false;
+
         if ( !iconUrl || this.isDataUrl(iconUrl) ) return false;
 
         const canRedirect =
