@@ -23,8 +23,8 @@ import { contentType as _contentType } from 'mime-types';
 import { resolve as _resolve, extname } from 'path';
 import { v4 } from 'uuid';
 import APIError from './api/APIError.js';
-import { redisClient } from './clients/redis/redisSingleton.js';
 import { setRedisCacheValue } from './clients/redis/cacheUpdate.js';
+import { redisClient } from './clients/redis/redisSingleton.js';
 import config from './config.js';
 import { APP_ICONS_SUBDOMAIN } from './consts/app-icons.js';
 import { NodeUIDSelector } from './filesystem/node/selectors.js';
@@ -145,7 +145,7 @@ const isBase64AppIcon = (app) => {
     return isRawBase64ImageString(trimmed);
 };
 
-const buildAppIconUrl = (app_uid, size = DEFAULT_APP_ICON_SIZE) => {
+const buildAppIconSubdomainUrl = (app_uid, size = DEFAULT_APP_ICON_SIZE) => {
     if ( ! app_uid ) return null;
     const normalized_uid = normalizeAppUid(app_uid);
     const iconSize = Number.isFinite(Number(size)) ? Number(size) : DEFAULT_APP_ICON_SIZE;
@@ -174,16 +174,6 @@ const buildAppIconEndpointUrl = (app_uid, size = DEFAULT_APP_ICON_SIZE) => {
     const apiBaseUrl = String(config.api_base_url || '').replace(/\/+$/, '');
     if ( ! apiBaseUrl ) return null;
     return `${apiBaseUrl}/app-icon/${normalized_uid}/${iconSize}`;
-};
-
-const withAppIconUrl = (app) => {
-    if ( ! app ) return app;
-    const iconIsBase64 = isBase64AppIcon(app);
-    const icon_url = iconIsBase64
-        ? buildAppIconEndpointUrl(app.uid ?? app.uuid)
-        : buildAppIconUrl(app.uid ?? app.uuid);
-    if ( ! icon_url ) return { ...app };
-    return { ...app, icon: icon_url, icon_is_base64: iconIsBase64 };
 };
 
 export async function is_empty (dir_uuid) {
@@ -521,6 +511,15 @@ export async function get_app (options) {
     return app;
 }
 
+const get_app_icon_url = (app, size) => {
+    const iconIsBase64 = isBase64AppIcon(app);
+    const svc_appIcon = servicesContainer.services.get('app-icon');
+    console.log('THIS SHOULD BE TRUE', svc_appIcon.config.no_subdomain);
+    return (iconIsBase64 || svc_appIcon.config.no_subdomain)
+        ? buildAppIconEndpointUrl(app.uid ?? app.uuid, size)
+        : buildAppIconSubdomainUrl(app.uid ?? app.uuid, size);
+};
+
 /**
  * Get multiple apps by uid/name/id, aligned to the input order.
  *
@@ -533,7 +532,12 @@ export const get_apps = spanify('get_apps', async (specifiers, options = {}) => 
         specifiers = [specifiers];
     }
 
-    const decorateApp = (app) => (withAppIconUrl(app));
+    const decorateApp = (app) => {
+        if ( ! app ) return app;
+        const icon_url = get_app_icon_url(app.uid ?? app.uuid);
+        if ( ! icon_url ) return { ...app };
+        return { ...app, icon: icon_url };
+    };
     const normalizeAppForCache = (app) => {
         if ( ! app ) return app;
         const normalized = { ...app };
@@ -2113,13 +2117,7 @@ export async function get_taskbar_items (user, {
         if ( no_icons ) {
             delete item.icon;
         } else {
-            const svc_appIcon = servicesContainer.services.get('app-icon');
-            const iconUrl = svc_appIcon.getSizedIconUrl({
-                appUid: item.uid,
-                size: iconSize,
-            });
-
-            item.icon = iconUrl;;
+            item.icon = get_app_icon_url(item, iconSize);
         }
 
         // add to final object
