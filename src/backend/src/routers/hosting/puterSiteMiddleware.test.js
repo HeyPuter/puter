@@ -953,6 +953,7 @@ describe('PuterSiteMiddleware', () => {
                 userUid: 'user-allow-111',
                 sessionUuid: 'session-allow-111',
                 subdomain: 'paid',
+                privateHost: 'paid.puter.dev',
             });
             expect(mockRes.cookie).toHaveBeenCalledWith(
                 'puter.private.asset.token',

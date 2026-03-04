@@ -365,7 +365,14 @@ class AuthService extends BaseService {
         return normalizedSubdomain || undefined;
     }
 
-    createPrivateAssetToken ({ appUid, userUid, sessionUuid, subdomain, ttlSeconds } = {}) {
+    normalizePrivateAssetHost (privateHost) {
+        if ( typeof privateHost !== 'string' ) return undefined;
+        const normalizedPrivateHost = privateHost.trim().toLowerCase().replace(/^\./, '');
+        if ( ! normalizedPrivateHost ) return undefined;
+        return normalizedPrivateHost;
+    }
+
+    createPrivateAssetToken ({ appUid, userUid, sessionUuid, subdomain, privateHost, ttlSeconds } = {}) {
         if ( typeof appUid !== 'string' || !appUid.trim() ) {
             throw new Error('appUid is required to create private asset token.');
         }
@@ -378,6 +385,10 @@ class AuthService extends BaseService {
         const normalizedSubdomain = this.normalizePrivateAssetSubdomain(subdomain);
         if ( subdomain !== undefined && !normalizedSubdomain ) {
             throw new Error('subdomain must be a non-empty string when provided.');
+        }
+        const normalizedPrivateHost = this.normalizePrivateAssetHost(privateHost);
+        if ( privateHost !== undefined && !normalizedPrivateHost ) {
+            throw new Error('privateHost must be a non-empty string when provided.');
         }
 
         const effectiveTtlSeconds = this.resolvePositiveInteger(
@@ -392,6 +403,7 @@ class AuthService extends BaseService {
             user_uid: userUid.trim(),
             ...(sessionUuid ? { session: this.uuid_fpe.encrypt(sessionUuid) } : {}),
             ...(normalizedSubdomain ? { subdomain: normalizedSubdomain } : {}),
+            ...(normalizedPrivateHost ? { private_host: normalizedPrivateHost } : {}),
         };
 
         return this.tokenService.sign('auth', payload, {
@@ -401,7 +413,7 @@ class AuthService extends BaseService {
 
     verifyPrivateAssetToken (
         token,
-        { expectedAppUid, expectedUserUid, expectedSessionUuid, expectedSubdomain } = {},
+        { expectedAppUid, expectedUserUid, expectedSessionUuid, expectedSubdomain, expectedPrivateHost } = {},
     ) {
         let decoded;
         try {
@@ -440,6 +452,13 @@ class AuthService extends BaseService {
             }
             subdomain = decoded.subdomain.trim().toLowerCase();
         }
+        let privateHost;
+        if ( decoded.private_host !== undefined ) {
+            if ( typeof decoded.private_host !== 'string' || !decoded.private_host.trim() ) {
+                throw APIError.create('token_auth_failed');
+            }
+            privateHost = decoded.private_host.trim().toLowerCase();
+        }
 
         if ( expectedAppUid && decoded.app_uid !== expectedAppUid ) {
             throw APIError.create('token_auth_failed');
@@ -461,12 +480,22 @@ class AuthService extends BaseService {
                 throw APIError.create('token_auth_failed');
             }
         }
+        const normalizedExpectedPrivateHost = this.normalizePrivateAssetHost(expectedPrivateHost);
+        if ( expectedPrivateHost !== undefined && !normalizedExpectedPrivateHost ) {
+            throw APIError.create('token_auth_failed');
+        }
+        if ( normalizedExpectedPrivateHost ) {
+            if ( !privateHost || privateHost !== normalizedExpectedPrivateHost ) {
+                throw APIError.create('token_auth_failed');
+            }
+        }
 
         return {
             appUid: decoded.app_uid,
             userUid: decoded.user_uid,
             sessionUuid,
             subdomain,
+            privateHost,
             exp: decoded.exp,
             iat: decoded.iat,
         };
