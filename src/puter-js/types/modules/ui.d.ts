@@ -79,11 +79,29 @@ export interface AppConnectionCloseEvent {
     statusCode?: number;
 }
 
+export interface LaunchAppResult {
+    launched: boolean;
+    requestedAppName?: string | null;
+    openedAppName?: string | null;
+    appInstanceID?: string | null;
+    appUid?: string | null;
+    redirectedToFallback?: boolean;
+    deniedPrivateAccess?: boolean;
+    privateAccess?: {
+        hasAccess: boolean;
+        fallbackAppName?: string;
+        fallbackArgs?: Record<string, unknown>;
+        reason?: string;
+    };
+}
+
 export type CancelAwarePromise<T> = Promise<T> & { undefinedOnCancel?: Promise<T | undefined> };
 
 export class AppConnection {
     readonly usesSDK: boolean;
-    readonly response?: Record<string, unknown>;
+    readonly response?: Record<string, unknown> & {
+        launchResult?: LaunchAppResult;
+    };
 
     on (eventName: 'message', handler: (message: unknown) => void): void;
     on (eventName: 'close', handler: (data: AppConnectionCloseEvent) => void): void;

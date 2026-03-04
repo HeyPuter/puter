@@ -62,7 +62,7 @@ function isPrivateApp (app) {
 }
 
 function hostMatchesPrivateDomain (hostname) {
-    const privateHostingDomain = `${privateAppHostingDomain ?? 'puter.dev'}`
+    const privateHostingDomain = `${privateAppHostingDomain ?? 'puter.app'}`
         .trim()
         .toLowerCase()
         .replace(/^\./, '');
@@ -78,7 +78,7 @@ function getSubdomainFromHostedRequest (req) {
     const host = `${req.hostname ?? ''}`.trim().toLowerCase();
     if ( ! host ) return '';
 
-    const privateHostingDomain = `${privateAppHostingDomain ?? 'puter.dev'}`
+    const privateHostingDomain = `${privateAppHostingDomain ?? 'puter.app'}`
         .trim()
         .toLowerCase()
         .replace(/^\./, '');
@@ -103,7 +103,7 @@ function buildPrivateHostRedirectUrl (req, app) {
     }
 
     try {
-        const privateHostingDomain = `${privateAppHostingDomain ?? 'puter.dev'}`
+        const privateHostingDomain = `${privateAppHostingDomain ?? 'puter.app'}`
             .trim()
             .toLowerCase()
             .replace(/^\./, '');
@@ -228,6 +228,42 @@ function getPrivateDeniedRedirectUrl (app, denyRedirectUrl) {
     }
 
     return '/';
+}
+
+function getMarketplaceAppUrl (app) {
+    const appName = typeof app?.name === 'string'
+        ? app.name.trim()
+        : '';
+    if ( ! appName ) return null;
+
+    const origin = `${originUrl ?? ''}`.trim().replace(/\/$/, '');
+    if ( ! origin ) return null;
+
+    return `${origin}/app/${encodeURIComponent(appName)}/`;
+}
+
+function appendLinkHeader (res, linkValue) {
+    if ( ! linkValue ) return;
+    const existingValue = typeof res.get === 'function'
+        ? res.get('Link')
+        : (
+            typeof res.getHeader === 'function'
+                ? res.getHeader('Link')
+                : undefined
+        );
+    const setHeader = typeof res.set === 'function'
+        ? (value) => res.set('Link', value)
+        : (
+            typeof res.setHeader === 'function'
+                ? (value) => res.setHeader('Link', value)
+                : null
+        );
+    if ( ! setHeader ) return;
+    if ( ! existingValue ) {
+        setHeader(linkValue);
+        return;
+    }
+    setHeader(`${existingValue}, ${linkValue}`);
 }
 
 function isPrivateAccessGateEnabled () {
@@ -435,7 +471,21 @@ function respondPrivateLoginBootstrap ({ res, app }) {
         typeof app?.name === 'string' && app.name.trim()
             ? app.name.trim()
             : 'this app';
+    const appTitle = typeof app?.title === 'string' && app.title.trim()
+        ? app.title.trim()
+        : appName;
+    const appDescription = typeof app?.description === 'string' && app.description.trim()
+        ? app.description.trim()
+        : `${appTitle} requires Puter authentication before private files can load.`;
+    const appIcon = typeof app?.icon === 'string' && app.icon.trim()
+        ? app.icon.trim()
+        : null;
+    const marketplaceAppUrl = getMarketplaceAppUrl(app);
     const safeAppName = escapeHtml(appName);
+    const safeAppTitle = escapeHtml(appTitle);
+    const safeAppDescription = escapeHtml(appDescription);
+    const safeMarketplaceAppUrl = escapeHtml(marketplaceAppUrl ?? '');
+    const safeAppIcon = escapeHtml(appIcon ?? '');
 
     const loginHtml = dedent(`
         <!doctype html>
@@ -443,7 +493,19 @@ function respondPrivateLoginBootstrap ({ res, app }) {
         <head>
             <meta charset="utf-8" />
             <meta name="viewport" content="width=device-width, initial-scale=1" />
-            <title>Sign In Required</title>
+            <title>Sign In Required | ${safeAppTitle}</title>
+            <meta name="description" content="${safeAppDescription}" />
+            <meta name="robots" content="noindex,nofollow" />
+            <meta property="og:type" content="website" />
+            <meta property="og:title" content="Sign In Required | ${safeAppTitle}" />
+            <meta property="og:description" content="${safeAppDescription}" />
+            ${safeMarketplaceAppUrl ? `<meta property="og:url" content="${safeMarketplaceAppUrl}" />` : ''}
+            ${safeAppIcon ? `<meta property="og:image" content="${safeAppIcon}" />` : ''}
+            <meta name="twitter:card" content="summary_large_image" />
+            <meta name="twitter:title" content="Sign In Required | ${safeAppTitle}" />
+            <meta name="twitter:description" content="${safeAppDescription}" />
+            ${safeAppIcon ? `<meta name="twitter:image" content="${safeAppIcon}" />` : ''}
+            ${safeMarketplaceAppUrl ? `<link rel="canonical" href="${safeMarketplaceAppUrl}" />` : ''}
             <style>
                 :root { color-scheme: light; }
                 body {
@@ -599,6 +661,11 @@ function respondPrivateLoginBootstrap ({ res, app }) {
 
     res.status(200);
     res.set('Cache-Control', 'no-store');
+    res.set('X-Robots-Tag', 'noindex, nofollow');
+    appendLinkHeader(
+        res,
+        marketplaceAppUrl ? `<${marketplaceAppUrl}>; rel="canonical"` : null,
+    );
     res.set('Content-Type', 'text/html; charset=UTF-8');
     return res.send(loginHtml);
 }
@@ -665,6 +732,11 @@ async function evaluatePrivateAppAccess ({ req, res, services, app, requestPath 
             hasPrivateCookie: identity.hasPrivateCookie,
             hasInvalidPrivateCookie: identity.hasInvalidPrivateCookie,
         });
+        const marketplaceAppUrl = getMarketplaceAppUrl(app);
+        appendLinkHeader(
+            res,
+            marketplaceAppUrl ? `<${marketplaceAppUrl}>; rel="alternate"` : null,
+        );
         res.redirect(redirectUrl);
         return false;
     }
@@ -784,6 +856,13 @@ async function runInternal (req, res, next) {
                 requestPath: req.path,
                 redirectUrl: privateHostRedirect,
             });
+            const marketplaceAppUrl = getMarketplaceAppUrl(privateApp);
+            appendLinkHeader(
+                res,
+                marketplaceAppUrl
+                    ? `<${marketplaceAppUrl}>; rel="alternate"`
+                    : null,
+            );
             return res.redirect(privateHostRedirect);
         }
         return res.status(403).send('Private app host mismatch');

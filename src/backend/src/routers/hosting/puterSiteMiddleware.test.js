@@ -529,6 +529,8 @@ describe('PuterSiteMiddleware', () => {
             expect(mockRes.status).toHaveBeenCalledWith(200);
             expect(mockRes.send).toHaveBeenCalledWith(expect.stringContaining('https://js.puter.com/v2/'));
             expect(mockRes.send).toHaveBeenCalledWith(expect.stringContaining('puter.auth.signIn()'));
+            expect(mockRes.send).toHaveBeenCalledWith(expect.stringContaining('meta property="og:title"'));
+            expect(mockRes.send).toHaveBeenCalledWith(expect.stringContaining('/app/paid-app/'));
             expect(mockNext).not.toHaveBeenCalled();
         });
 

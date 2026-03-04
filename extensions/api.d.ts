@@ -140,6 +140,20 @@ export interface ExtensionEventTypeMap {
             checkedBy?: string;
         };
     };
+    'app.privateAccess.resolveLaunch': {
+        appUid: string;
+        appName?: string;
+        userUid?: string | null;
+        source?: string;
+        args?: Record<string, unknown>;
+        result: {
+            hasAccess: boolean;
+            fallbackAppName?: string;
+            fallbackArgs?: Record<string, unknown>;
+            reason?: string;
+            checkedBy?: string;
+        };
+    };
     'ai.prompt.validate': {
         actor: Actor;
         actor,
