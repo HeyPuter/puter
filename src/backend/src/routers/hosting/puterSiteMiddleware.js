@@ -41,6 +41,7 @@ const {
     origin: originUrl,
     cookie_name: cookieName,
     private_app_hosting_domain: privateAppHostingDomain,
+    private_app_hosting_domain_alt: privateAppHostingDomainAlt,
     static_hosting_base_domain_redirect: staticHostingBaseDomainRedirect,
     static_hosting_domain: staticHostingDomain,
     static_hosting_domain_alt: staticHostingDomainAlt,
@@ -61,29 +62,58 @@ function isPrivateApp (app) {
     return Number(app?.is_private ?? 0) > 0;
 }
 
-function hostMatchesPrivateDomain (hostname) {
-    const privateHostingDomain = `${privateAppHostingDomain ?? 'puter.dev'}`
-        .trim()
-        .toLowerCase()
-        .replace(/^\./, '');
-    if ( ! privateHostingDomain ) return false;
+function normalizeConfiguredHostname (hostValue) {
+    if ( typeof hostValue !== 'string' ) return null;
+    const normalizedHost = hostValue.trim().toLowerCase().replace(/^\./, '');
+    if ( ! normalizedHost ) return null;
+    try {
+        return new URL(`http://${normalizedHost}`).hostname.toLowerCase();
+    } catch {
+        return normalizedHost.split(':')[0] || null;
+    }
+}
 
-    const host = `${hostname ?? ''}`.trim().toLowerCase();
+function getPrivateHostingDomainsForMatch () {
+    const domains = new Set();
+    for ( const candidate of [
+        privateAppHostingDomain,
+        privateAppHostingDomainAlt,
+        'puter.app',
+    ] ) {
+        const normalizedCandidate = normalizeConfiguredHostname(candidate);
+        if ( normalizedCandidate ) {
+            domains.add(normalizedCandidate);
+        }
+    }
+    return [...domains];
+}
+
+function getPrivateHostingDomainForRedirect () {
+    const primaryDomainCandidate = normalizeConfiguredHost(privateAppHostingDomain);
+    if ( primaryDomainCandidate ) return primaryDomainCandidate;
+
+    const altDomainCandidate = normalizeConfiguredHost(privateAppHostingDomainAlt);
+    if ( altDomainCandidate ) return altDomainCandidate;
+
+    return 'puter.app';
+}
+
+function hostMatchesPrivateDomain (hostname) {
+    const host = normalizeConfiguredHostname(hostname);
     if ( ! host ) return false;
 
-    return host === privateHostingDomain || host.endsWith(`.${privateHostingDomain}`);
+    const privateHostingDomains = getPrivateHostingDomainsForMatch();
+    return privateHostingDomains.some(privateHostingDomain =>
+        host === privateHostingDomain || host.endsWith(`.${privateHostingDomain}`));
 }
 
 function getSubdomainFromHostedRequest (req) {
-    const host = `${req.hostname ?? ''}`.trim().toLowerCase();
+    const host = normalizeConfiguredHostname(req.hostname);
     if ( ! host ) return '';
 
-    const privateHostingDomain = `${privateAppHostingDomain ?? 'puter.dev'}`
-        .trim()
-        .toLowerCase()
-        .replace(/^\./, '');
-
-    if ( privateHostingDomain ) {
+    const privateHostingDomains = getPrivateHostingDomainsForMatch()
+        .sort((a, b) => b.length - a.length);
+    for ( const privateHostingDomain of privateHostingDomains ) {
         const privateDomainSuffix = `.${privateHostingDomain}`;
         if ( host === privateHostingDomain ) {
             return '';
@@ -103,10 +133,7 @@ function buildPrivateHostRedirectUrl (req, app) {
     }
 
     try {
-        const privateHostingDomain = `${privateAppHostingDomain ?? 'puter.dev'}`
-            .trim()
-            .toLowerCase()
-            .replace(/^\./, '');
+        const privateHostingDomain = getPrivateHostingDomainForRedirect();
         if ( ! privateHostingDomain ) {
             return null;
         }
@@ -167,6 +194,7 @@ function buildPrivateAppIndexUrlCandidates (req) {
         const staticHostingDomainCandidate = normalizeConfiguredHost(staticHostingDomain);
         const staticHostingDomainAltCandidate = normalizeConfiguredHost(staticHostingDomainAlt);
         const privateHostingDomainCandidate = normalizeConfiguredHost(privateAppHostingDomain);
+        const privateHostingDomainAltCandidate = normalizeConfiguredHost(privateAppHostingDomainAlt);
 
         if ( staticHostingDomainCandidate ) {
             hostCandidates.add(`${hostedSubdomain}.${staticHostingDomainCandidate}`);
@@ -176,6 +204,9 @@ function buildPrivateAppIndexUrlCandidates (req) {
         }
         if ( privateHostingDomainCandidate ) {
             hostCandidates.add(`${hostedSubdomain}.${privateHostingDomainCandidate}`);
+        }
+        if ( privateHostingDomainAltCandidate ) {
+            hostCandidates.add(`${hostedSubdomain}.${privateHostingDomainAltCandidate}`);
         }
     }
 
@@ -228,6 +259,42 @@ function getPrivateDeniedRedirectUrl (app, denyRedirectUrl) {
     }
 
     return '/';
+}
+
+function getMarketplaceAppUrl (app) {
+    const appName = typeof app?.name === 'string'
+        ? app.name.trim()
+        : '';
+    if ( ! appName ) return null;
+
+    const origin = `${originUrl ?? ''}`.trim().replace(/\/$/, '');
+    if ( ! origin ) return null;
+
+    return `${origin}/app/${encodeURIComponent(appName)}/`;
+}
+
+function appendLinkHeader (res, linkValue) {
+    if ( ! linkValue ) return;
+    const existingValue = typeof res.get === 'function'
+        ? res.get('Link')
+        : (
+            typeof res.getHeader === 'function'
+                ? res.getHeader('Link')
+                : undefined
+        );
+    const setHeader = typeof res.set === 'function'
+        ? (value) => res.set('Link', value)
+        : (
+            typeof res.setHeader === 'function'
+                ? (value) => res.setHeader('Link', value)
+                : null
+        );
+    if ( ! setHeader ) return;
+    if ( ! existingValue ) {
+        setHeader(linkValue);
+        return;
+    }
+    setHeader(`${existingValue}, ${linkValue}`);
 }
 
 function isPrivateAccessGateEnabled () {
@@ -435,7 +502,21 @@ function respondPrivateLoginBootstrap ({ res, app }) {
         typeof app?.name === 'string' && app.name.trim()
             ? app.name.trim()
             : 'this app';
+    const appTitle = typeof app?.title === 'string' && app.title.trim()
+        ? app.title.trim()
+        : appName;
+    const appDescription = typeof app?.description === 'string' && app.description.trim()
+        ? app.description.trim()
+        : `${appTitle} requires Puter authentication before private files can load.`;
+    const appIcon = typeof app?.icon === 'string' && app.icon.trim()
+        ? app.icon.trim()
+        : null;
+    const marketplaceAppUrl = getMarketplaceAppUrl(app);
     const safeAppName = escapeHtml(appName);
+    const safeAppTitle = escapeHtml(appTitle);
+    const safeAppDescription = escapeHtml(appDescription);
+    const safeMarketplaceAppUrl = escapeHtml(marketplaceAppUrl ?? '');
+    const safeAppIcon = escapeHtml(appIcon ?? '');
 
     const loginHtml = dedent(`
         <!doctype html>
@@ -443,7 +524,19 @@ function respondPrivateLoginBootstrap ({ res, app }) {
         <head>
             <meta charset="utf-8" />
             <meta name="viewport" content="width=device-width, initial-scale=1" />
-            <title>Sign In Required</title>
+            <title>Sign In Required | ${safeAppTitle}</title>
+            <meta name="description" content="${safeAppDescription}" />
+            <meta name="robots" content="noindex,nofollow" />
+            <meta property="og:type" content="website" />
+            <meta property="og:title" content="Sign In Required | ${safeAppTitle}" />
+            <meta property="og:description" content="${safeAppDescription}" />
+            ${safeMarketplaceAppUrl ? `<meta property="og:url" content="${safeMarketplaceAppUrl}" />` : ''}
+            ${safeAppIcon ? `<meta property="og:image" content="${safeAppIcon}" />` : ''}
+            <meta name="twitter:card" content="summary_large_image" />
+            <meta name="twitter:title" content="Sign In Required | ${safeAppTitle}" />
+            <meta name="twitter:description" content="${safeAppDescription}" />
+            ${safeAppIcon ? `<meta name="twitter:image" content="${safeAppIcon}" />` : ''}
+            ${safeMarketplaceAppUrl ? `<link rel="canonical" href="${safeMarketplaceAppUrl}" />` : ''}
             <style>
                 :root { color-scheme: light; }
                 body {
@@ -599,6 +692,11 @@ function respondPrivateLoginBootstrap ({ res, app }) {
 
     res.status(200);
     res.set('Cache-Control', 'no-store');
+    res.set('X-Robots-Tag', 'noindex, nofollow');
+    appendLinkHeader(
+        res,
+        marketplaceAppUrl ? `<${marketplaceAppUrl}>; rel="canonical"` : null,
+    );
     res.set('Content-Type', 'text/html; charset=UTF-8');
     return res.send(loginHtml);
 }
@@ -665,6 +763,11 @@ async function evaluatePrivateAppAccess ({ req, res, services, app, requestPath 
             hasPrivateCookie: identity.hasPrivateCookie,
             hasInvalidPrivateCookie: identity.hasInvalidPrivateCookie,
         });
+        const marketplaceAppUrl = getMarketplaceAppUrl(app);
+        appendLinkHeader(
+            res,
+            marketplaceAppUrl ? `<${marketplaceAppUrl}>; rel="alternate"` : null,
+        );
         res.redirect(redirectUrl);
         return false;
     }
@@ -680,7 +783,9 @@ async function evaluatePrivateAppAccess ({ req, res, services, app, requestPath 
         res.cookie(
             authService.getPrivateAssetCookieName(),
             privateToken,
-            authService.getPrivateAssetCookieOptions(),
+            authService.getPrivateAssetCookieOptions({
+                requestHostname: req.hostname,
+            }),
         );
     }
 
@@ -784,6 +889,13 @@ async function runInternal (req, res, next) {
                 requestPath: req.path,
                 redirectUrl: privateHostRedirect,
             });
+            const marketplaceAppUrl = getMarketplaceAppUrl(privateApp);
+            appendLinkHeader(
+                res,
+                marketplaceAppUrl
+                    ? `<${marketplaceAppUrl}>; rel="alternate"`
+                    : null,
+            );
             return res.redirect(privateHostRedirect);
         }
         return res.status(403).send('Private app host mismatch');

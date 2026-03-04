@@ -33,6 +33,7 @@ vi.mock('../../config.js', () => ({
         static_hosting_domain: 'site.puter.localhost',
         static_hosting_base_domain_redirect: 'https://developer.puter.com/static-hosting/',
         private_app_hosting_domain: 'puter.dev',
+        private_app_hosting_domain_alt: 'puter.dev',
         enable_private_app_access_gate: true,
         origin: 'https://puter.com',
         cookie_name: 'puter.session.token',
@@ -41,6 +42,7 @@ vi.mock('../../config.js', () => ({
     static_hosting_domain: 'site.puter.localhost',
     static_hosting_base_domain_redirect: 'https://developer.puter.com/static-hosting/',
     private_app_hosting_domain: 'puter.dev',
+    private_app_hosting_domain_alt: 'puter.dev',
     enable_private_app_access_gate: true,
     origin: 'https://puter.com',
     cookie_name: 'puter.session.token',
@@ -132,6 +134,8 @@ describe('PuterSiteMiddleware', () => {
         beforeEach(() => {
             vi.clearAllMocks();
             config.enable_private_app_access_gate = true;
+            config.private_app_hosting_domain = 'puter.dev';
+            config.private_app_hosting_domain_alt = 'puter.dev';
             Context.get = vi.fn().mockReturnValue(mockContextInstance);
             getUserMockImpl = async () => null;
             getAppMockImpl = async () => null;
@@ -311,6 +315,96 @@ describe('PuterSiteMiddleware', () => {
             await capturedMiddleware(mockReq, mockRes, mockNext);
 
             expect(mockRes.redirect).toHaveBeenCalledWith('https://paid.puter.dev/asset.js?foo=1');
+            expect(mockNext).not.toHaveBeenCalled();
+        });
+
+        it('accepts private app host matching the configured alt private domain', async () => {
+            config.private_app_hosting_domain = 'app.puter.localhost:4100';
+            config.private_app_hosting_domain_alt = 'puter.dev';
+
+            const authService = {
+                getPrivateAssetCookieName: vi.fn().mockReturnValue('puter.private.asset.token'),
+                verifyPrivateAssetToken: vi.fn().mockImplementation(() => {
+                    throw new Error('invalid');
+                }),
+                authenticate_from_token: vi.fn().mockImplementation(() => {
+                    throw new Error('invalid');
+                }),
+                createPrivateAssetToken: vi.fn().mockReturnValue('private-token'),
+                getPrivateAssetCookieOptions: vi.fn().mockReturnValue({}),
+            };
+            const mockServices = {
+                get: vi.fn().mockImplementation((serviceName) => {
+                    if ( serviceName === 'puter-site' ) {
+                        return {
+                            get_subdomain: vi.fn().mockResolvedValue({
+                                user_id: 101,
+                                associated_app_id: 202,
+                                root_dir_id: 303,
+                            }),
+                        };
+                    }
+                    if ( serviceName === 'filesystem' ) {
+                        return {
+                            node: vi.fn().mockResolvedValue({
+                                exists: vi.fn().mockResolvedValue(true),
+                                get: vi.fn().mockImplementation(async (fieldName) => {
+                                    if ( fieldName === 'type' ) return 'directory';
+                                    if ( fieldName === 'path' ) return '/alice/Public';
+                                    return null;
+                                }),
+                            }),
+                        };
+                    }
+                    if ( serviceName === 'acl' ) {
+                        return {
+                            check: vi.fn().mockResolvedValue(true),
+                        };
+                    }
+                    if ( serviceName === 'auth' ) return authService;
+                    return {};
+                }),
+            };
+            mockContextInstance.get.mockImplementation((key) => {
+                if ( key === 'services' ) return mockServices;
+                return null;
+            });
+            getUserMockImpl = async () => ({ id: 101, suspended: false });
+            getAppMockImpl = async () => ({
+                uid: 'app-11111111-1111-1111-1111-111111111111',
+                name: 'paid-app',
+                is_private: 1,
+                index_url: 'https://paid.puter.dev/',
+            });
+
+            const mockReq = {
+                hostname: 'paid.puter.dev',
+                subdomains: ['paid'],
+                is_custom_domain: false,
+                baseUrl: '',
+                path: '/index.html',
+                originalUrl: '/index.html',
+                query: {},
+                cookies: {},
+                headers: {},
+                ctx: mockContextInstance,
+            };
+            const mockRes = {
+                redirect: vi.fn(),
+                set: vi.fn().mockReturnThis(),
+                setHeader: vi.fn(),
+                status: vi.fn().mockReturnThis(),
+                send: vi.fn(),
+            };
+            const mockNext = vi.fn();
+
+            await capturedMiddleware(mockReq, mockRes, mockNext);
+
+            expect(mockRes.redirect).not.toHaveBeenCalledWith(
+                expect.stringContaining('app.puter.localhost:4100'),
+            );
+            expect(mockRes.status).toHaveBeenCalledWith(200);
+            expect(mockRes.send).toHaveBeenCalledWith(expect.stringContaining('Sign in required'));
             expect(mockNext).not.toHaveBeenCalled();
         });
 
@@ -529,6 +623,8 @@ describe('PuterSiteMiddleware', () => {
             expect(mockRes.status).toHaveBeenCalledWith(200);
             expect(mockRes.send).toHaveBeenCalledWith(expect.stringContaining('https://js.puter.com/v2/'));
             expect(mockRes.send).toHaveBeenCalledWith(expect.stringContaining('puter.auth.signIn()'));
+            expect(mockRes.send).toHaveBeenCalledWith(expect.stringContaining('meta property="og:title"'));
+            expect(mockRes.send).toHaveBeenCalledWith(expect.stringContaining('/app/paid-app/'));
             expect(mockNext).not.toHaveBeenCalled();
         });
 
@@ -739,6 +835,124 @@ describe('PuterSiteMiddleware', () => {
             expect(mockRes.redirect).toHaveBeenCalledWith('https://apps.puter.com/app/paid-app');
             expect(mockRes.send).not.toHaveBeenCalled();
             expect(mockRes.cookie).not.toHaveBeenCalled();
+            expect(mockNext).not.toHaveBeenCalled();
+        });
+
+        it('passes request hostname to private asset cookie options on allow', async () => {
+            const eventEmit = vi.fn().mockImplementation(async (_eventName, event) => {
+                event.result.allowed = true;
+            });
+            const rootDirectoryNode = {
+                fetchEntry: vi.fn().mockResolvedValue(undefined),
+                exists: vi.fn().mockResolvedValue(true),
+                get: vi.fn().mockImplementation(async (fieldName) => {
+                    if ( fieldName === 'type' ) return 'directory';
+                    if ( fieldName === 'path' ) return '/alice/Public';
+                    return null;
+                }),
+            };
+            const missingFileNode = {
+                fetchEntry: vi.fn().mockResolvedValue(undefined),
+                exists: vi.fn().mockResolvedValue(false),
+                get: vi.fn().mockResolvedValue(null),
+            };
+            let filesystemNodeCallCount = 0;
+            const authService = {
+                getPrivateAssetCookieName: vi.fn().mockReturnValue('puter.private.asset.token'),
+                verifyPrivateAssetToken: vi.fn().mockImplementation(() => {
+                    throw new Error('invalid');
+                }),
+                authenticate_from_token: vi.fn().mockResolvedValue({
+                    type: {},
+                    get_related_actor: vi.fn().mockReturnValue({
+                        type: {
+                            user: { uuid: 'user-allow-111' },
+                            session: 'session-allow-111',
+                        },
+                    }),
+                }),
+                createPrivateAssetToken: vi.fn().mockReturnValue('private-token'),
+                getPrivateAssetCookieOptions: vi.fn().mockReturnValue({ sameSite: 'none' }),
+            };
+            const mockServices = {
+                get: vi.fn().mockImplementation((serviceName) => {
+                    if ( serviceName === 'puter-site' ) {
+                        return {
+                            get_subdomain: vi.fn().mockResolvedValue({
+                                user_id: 101,
+                                associated_app_id: 202,
+                                root_dir_id: 303,
+                            }),
+                        };
+                    }
+                    if ( serviceName === 'filesystem' ) {
+                        return {
+                            node: vi.fn().mockImplementation(async () => {
+                                filesystemNodeCallCount += 1;
+                                return filesystemNodeCallCount === 1
+                                    ? rootDirectoryNode
+                                    : missingFileNode;
+                            }),
+                        };
+                    }
+                    if ( serviceName === 'acl' ) {
+                        return {
+                            check: vi.fn().mockResolvedValue(true),
+                        };
+                    }
+                    if ( serviceName === 'event' ) return { emit: eventEmit };
+                    if ( serviceName === 'auth' ) return authService;
+                    return {};
+                }),
+            };
+            mockContextInstance.get.mockImplementation((key) => {
+                if ( key === 'services' ) return mockServices;
+                return null;
+            });
+            getUserMockImpl = async () => ({ id: 101, suspended: false });
+            getAppMockImpl = async () => ({
+                uid: 'app-11111111-1111-1111-1111-111111111111',
+                name: 'paid-app',
+                is_private: 1,
+                index_url: 'https://paid.puter.dev/',
+            });
+
+            const mockReq = {
+                hostname: 'paid.puter.dev',
+                subdomains: [],
+                is_custom_domain: false,
+                baseUrl: '',
+                path: '/asset.js',
+                originalUrl: '/asset.js',
+                cookies: {
+                    'puter.session.token': 'session-token',
+                },
+                headers: {},
+                query: {},
+                ctx: mockContextInstance,
+            };
+            const mockRes = {
+                redirect: vi.fn(),
+                cookie: vi.fn(),
+                setHeader: vi.fn(),
+                set: vi.fn().mockReturnThis(),
+                status: vi.fn().mockReturnThis(),
+                send: vi.fn(),
+                write: vi.fn(),
+                end: vi.fn(),
+            };
+            const mockNext = vi.fn();
+
+            await capturedMiddleware(mockReq, mockRes, mockNext);
+
+            expect(authService.getPrivateAssetCookieOptions).toHaveBeenCalledWith({
+                requestHostname: 'paid.puter.dev',
+            });
+            expect(mockRes.cookie).toHaveBeenCalledWith(
+                'puter.private.asset.token',
+                'private-token',
+                { sameSite: 'none' },
+            );
             expect(mockNext).not.toHaveBeenCalled();
         });
 

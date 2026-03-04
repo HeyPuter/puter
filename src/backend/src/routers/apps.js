@@ -24,108 +24,142 @@ const config = require('../config');
 const { get_apps } = require('../helpers');
 const { DB_READ } = require('../services/database/consts.js');
 const subdomain = require('../middleware/subdomain.js');
+let privateLaunchAccessModulePromise;
+const getPrivateLaunchAccessModule = async () => {
+    if ( ! privateLaunchAccessModulePromise ) {
+        privateLaunchAccessModulePromise = import('../modules/apps/privateLaunchAccess.js');
+    }
+    return privateLaunchAccessModulePromise;
+};
 
 // -----------------------------------------------------------------------//
 // GET /apps
 // -----------------------------------------------------------------------//
-router.get('/apps',
-                subdomain('api'),
-                auth,
-                express.json({ limit: '50mb' }),
-                async (req, res) => {
-                    // /!\ open brace on end of previous line
+router.get(
+    '/apps',
+    subdomain('api'),
+    auth,
+    express.json({ limit: '50mb' }),
+    async (req, res) => {
+        // /!\ open brace on end of previous line
 
-                    // check if user is verified
-                    if ( (config.strict_email_verification_required || req.user.requires_email_confirmation) && !req.user.email_confirmed )
-                    {
-                        return res.status(400).send({ code: 'account_is_not_verified', message: 'Account is not verified' });
-                    }
+        // check if user is verified
+        if ( (config.strict_email_verification_required || req.user.requires_email_confirmation) && !req.user.email_confirmed )
+        {
+            return res.status(400).send({ code: 'account_is_not_verified', message: 'Account is not verified' });
+        }
 
-                    const db = req.services.get('database').get(DB_READ, 'apps');
+        const db = req.services.get('database').get(DB_READ, 'apps');
 
-                    let apps_res = await db.read('SELECT * FROM apps WHERE owner_user_id = ? ORDER BY timestamp DESC',
-                                    [req.user.id]);
+        let apps_res = await db.read(
+            'SELECT * FROM apps WHERE owner_user_id = ? ORDER BY timestamp DESC',
+            [req.user.id],
+        );
 
-                    const svc_appInformation = req.services.get('app-information');
+        const svc_appInformation = req.services.get('app-information');
 
-                    let apps = [];
+        let apps = [];
 
-                    if ( apps_res.length > 0 ) {
-                        for ( let i = 0; i < apps_res.length; i++ ) {
-                            // filetype associations
-                            let ftassocs = await db.read('SELECT * FROM app_filetype_association WHERE app_id = ?',
-                                            [apps_res[i].id]);
+        if ( apps_res.length > 0 ) {
+            for ( let i = 0; i < apps_res.length; i++ ) {
+                // filetype associations
+                let ftassocs = await db.read(
+                    'SELECT * FROM app_filetype_association WHERE app_id = ?',
+                    [apps_res[i].id],
+                );
 
-                            let filetype_associations = [];
-                            if ( ftassocs.length > 0 ) {
-                                ftassocs.forEach(ftassoc => {
-                                    filetype_associations.push(ftassoc.type);
-                                });
-                            }
+                let filetype_associations = [];
+                if ( ftassocs.length > 0 ) {
+                    ftassocs.forEach(ftassoc => {
+                        filetype_associations.push(ftassoc.type);
+                    });
+                }
 
-                            const stats = await svc_appInformation.get_stats(apps_res[i].uid);
+                const stats = await svc_appInformation.get_stats(apps_res[i].uid);
 
-                            apps.push({
-                                uid: apps_res[i].uid,
-                                name: apps_res[i].name,
-                                description: apps_res[i].description,
-                                title: apps_res[i].title,
-                                icon: apps_res[i].icon,
-                                index_url: apps_res[i].index_url,
-                                godmode: apps_res[i].godmode,
-                                background: apps_res[i].background,
-                                maximize_on_start: apps_res[i].maximize_on_start,
-                                filetype_associations: filetype_associations,
-                                ...stats,
-                                approved_for_incentive_program: apps_res[i].approved_for_incentive_program,
-                                created_at: apps_res[i].timestamp,
-                            });
-                        }
-                    }
-
-                    return res.send(apps);
+                apps.push({
+                    uid: apps_res[i].uid,
+                    name: apps_res[i].name,
+                    description: apps_res[i].description,
+                    title: apps_res[i].title,
+                    icon: apps_res[i].icon,
+                    index_url: apps_res[i].index_url,
+                    godmode: apps_res[i].godmode,
+                    background: apps_res[i].background,
+                    maximize_on_start: apps_res[i].maximize_on_start,
+                    filetype_associations: filetype_associations,
+                    ...stats,
+                    approved_for_incentive_program: apps_res[i].approved_for_incentive_program,
+                    created_at: apps_res[i].timestamp,
                 });
+            }
+        }
+
+        return res.send(apps);
+    },
+);
 
 // -----------------------------------------------------------------------//
 // GET /apps/:name(s)
 // -----------------------------------------------------------------------//
-router.get('/apps/:name',
-                subdomain('api'),
-                auth,
-                express.json({ limit: '50mb' }),
-                async (req, res, next) => {
-                    // /!\ open brace on end of previous line
+router.get(
+    '/apps/:name',
+    subdomain('api'),
+    auth,
+    express.json({ limit: '50mb' }),
+    async (req, res, next) => {
+        // /!\ open brace on end of previous line
 
-                    // check subdomain
-                    if ( require('../helpers').subdomain(req) !== 'api' )
-                    {
-                        next();
-                    }
+        // check subdomain
+        if ( require('../helpers').subdomain(req) !== 'api' )
+        {
+            next();
+        }
 
-                    // check if user is verified
-                    if ( (config.strict_email_verification_required || req.user.requires_email_confirmation) && !req.user.email_confirmed )
-                    {
-                        return res.status(400).send({ code: 'account_is_not_verified', message: 'Account is not verified' });
-                    }
+        // check if user is verified
+        if ( (config.strict_email_verification_required || req.user.requires_email_confirmation) && !req.user.email_confirmed )
+        {
+            return res.status(400).send({ code: 'account_is_not_verified', message: 'Account is not verified' });
+        }
 
-                    let app_names = req.params.name.split('|');
-                    const apps = await get_apps(app_names.map(name => ({ name })));
+        const {
+            getActorUserUid,
+            resolvePrivateLaunchAccess,
+        } = await getPrivateLaunchAccessModule();
+        let app_names = req.params.name.split('|');
+        const apps = await get_apps(app_names.map(name => ({ name })));
+        const actorUserUid = getActorUserUid(req.actor) || req.user?.uuid || null;
+        const privateAccessDecisions = await Promise.all(apps.map(app => {
+            if ( ! app ) return Promise.resolve(null);
+            return resolvePrivateLaunchAccess({
+                app,
+                services: req.services,
+                userUid: actorUserUid,
+                source: 'appsRoute',
+                args: req.query ?? {},
+            });
+        }));
 
-                    const final_obj = apps.map((app) => {
-                        if ( ! app ) return null;
-                        return {
-                            uuid: app.uid,
-                            name: app.name,
-                            title: app.title,
-                            icon: app.icon,
-                            godmode: app.godmode,
-                            background: app.background,
-                            maximize_on_start: app.maximize_on_start,
-                            index_url: app.index_url,
-                        };
-                    }).filter(Boolean);
+        const final_obj = apps.map((app, index) => {
+            if ( ! app ) return null;
+            return {
+                uuid: app.uid,
+                name: app.name,
+                title: app.title,
+                icon: app.icon,
+                godmode: app.godmode,
+                background: app.background,
+                maximize_on_start: app.maximize_on_start,
+                index_url: app.index_url,
+                privateAccess: privateAccessDecisions[index] ?? {
+                    hasAccess: true,
+                    checkedBy: 'core/apps-route-default',
+                },
+            };
+        }).filter(Boolean);
 
-                    return res.send(final_obj);
-                });
+        return res.send(final_obj);
+    },
+);
 
 module.exports = router;

@@ -8,6 +8,7 @@ type AuthServiceForPrivateTokenTests = AuthService & {
         private_app_asset_token_ttl_seconds: number;
         private_app_asset_cookie_name: string;
         private_app_hosting_domain: string;
+        private_app_hosting_domain_alt?: string;
     };
     modules: {
         jwt: {
@@ -28,6 +29,7 @@ const createAuthService = (): AuthServiceForPrivateTokenTests => {
         private_app_asset_token_ttl_seconds: 3600,
         private_app_asset_cookie_name: 'puter.private.asset.token',
         private_app_hosting_domain: 'app.puter.localhost',
+        private_app_hosting_domain_alt: 'puter.dev',
     };
     authService.modules = {
         jwt: {
@@ -108,6 +110,30 @@ describe('AuthService private asset token helpers', () => {
         expect(options.path).toBe('/');
         expect(options.maxAge).toBe(3_600_000);
         expect(options.domain).toBe('.app.puter.localhost');
+    });
+
+    it('uses the matched request host private domain when provided', () => {
+        const authService = createAuthService();
+        authService.global_config.private_app_hosting_domain = 'app.puter.localhost';
+        authService.global_config.private_app_hosting_domain_alt = 'puter.dev';
+
+        const options = authService.getPrivateAssetCookieOptions({
+            requestHostname: 'beans.puter.dev',
+        });
+
+        expect(options.domain).toBe('.puter.dev');
+    });
+
+    it('omits domain when request host does not match configured private domains', () => {
+        const authService = createAuthService();
+        authService.global_config.private_app_hosting_domain = 'puter.app';
+        authService.global_config.private_app_hosting_domain_alt = 'puter.app';
+
+        const options = authService.getPrivateAssetCookieOptions({
+            requestHostname: 'beans.puter.dev',
+        });
+
+        expect(options.domain).toBeUndefined();
     });
 
     it('resolves bootstrap identity from app-under-user token without app lookup', async () => {

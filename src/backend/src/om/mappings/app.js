@@ -96,6 +96,10 @@ module.exports = {
             type: 'json',
             sql: { ignore: true },
         },
+        privateAccess: {
+            type: 'json',
+            sql: { ignore: true },
+        },
         created_from_origin: {
             type: 'string',
             sql: { ignore: true },
