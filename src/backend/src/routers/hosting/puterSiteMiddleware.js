@@ -41,6 +41,7 @@ const {
     origin: originUrl,
     cookie_name: cookieName,
     private_app_hosting_domain: privateAppHostingDomain,
+    private_app_hosting_domain_alt: privateAppHostingDomainAlt,
     static_hosting_base_domain_redirect: staticHostingBaseDomainRedirect,
     static_hosting_domain: staticHostingDomain,
     static_hosting_domain_alt: staticHostingDomainAlt,
@@ -61,29 +62,58 @@ function isPrivateApp (app) {
     return Number(app?.is_private ?? 0) > 0;
 }
 
-function hostMatchesPrivateDomain (hostname) {
-    const privateHostingDomain = `${privateAppHostingDomain ?? 'puter.app'}`
-        .trim()
-        .toLowerCase()
-        .replace(/^\./, '');
-    if ( ! privateHostingDomain ) return false;
+function normalizeConfiguredHostname (hostValue) {
+    if ( typeof hostValue !== 'string' ) return null;
+    const normalizedHost = hostValue.trim().toLowerCase().replace(/^\./, '');
+    if ( ! normalizedHost ) return null;
+    try {
+        return new URL(`http://${normalizedHost}`).hostname.toLowerCase();
+    } catch {
+        return normalizedHost.split(':')[0] || null;
+    }
+}
 
-    const host = `${hostname ?? ''}`.trim().toLowerCase();
+function getPrivateHostingDomainsForMatch () {
+    const domains = new Set();
+    for ( const candidate of [
+        privateAppHostingDomain,
+        privateAppHostingDomainAlt,
+        'puter.app',
+    ] ) {
+        const normalizedCandidate = normalizeConfiguredHostname(candidate);
+        if ( normalizedCandidate ) {
+            domains.add(normalizedCandidate);
+        }
+    }
+    return [...domains];
+}
+
+function getPrivateHostingDomainForRedirect () {
+    const primaryDomainCandidate = normalizeConfiguredHost(privateAppHostingDomain);
+    if ( primaryDomainCandidate ) return primaryDomainCandidate;
+
+    const altDomainCandidate = normalizeConfiguredHost(privateAppHostingDomainAlt);
+    if ( altDomainCandidate ) return altDomainCandidate;
+
+    return 'puter.app';
+}
+
+function hostMatchesPrivateDomain (hostname) {
+    const host = normalizeConfiguredHostname(hostname);
     if ( ! host ) return false;
 
-    return host === privateHostingDomain || host.endsWith(`.${privateHostingDomain}`);
+    const privateHostingDomains = getPrivateHostingDomainsForMatch();
+    return privateHostingDomains.some(privateHostingDomain =>
+        host === privateHostingDomain || host.endsWith(`.${privateHostingDomain}`));
 }
 
 function getSubdomainFromHostedRequest (req) {
-    const host = `${req.hostname ?? ''}`.trim().toLowerCase();
+    const host = normalizeConfiguredHostname(req.hostname);
     if ( ! host ) return '';
 
-    const privateHostingDomain = `${privateAppHostingDomain ?? 'puter.app'}`
-        .trim()
-        .toLowerCase()
-        .replace(/^\./, '');
-
-    if ( privateHostingDomain ) {
+    const privateHostingDomains = getPrivateHostingDomainsForMatch()
+        .sort((a, b) => b.length - a.length);
+    for ( const privateHostingDomain of privateHostingDomains ) {
         const privateDomainSuffix = `.${privateHostingDomain}`;
         if ( host === privateHostingDomain ) {
             return '';
@@ -103,10 +133,7 @@ function buildPrivateHostRedirectUrl (req, app) {
     }
 
     try {
-        const privateHostingDomain = `${privateAppHostingDomain ?? 'puter.app'}`
-            .trim()
-            .toLowerCase()
-            .replace(/^\./, '');
+        const privateHostingDomain = getPrivateHostingDomainForRedirect();
         if ( ! privateHostingDomain ) {
             return null;
         }
@@ -167,6 +194,7 @@ function buildPrivateAppIndexUrlCandidates (req) {
         const staticHostingDomainCandidate = normalizeConfiguredHost(staticHostingDomain);
         const staticHostingDomainAltCandidate = normalizeConfiguredHost(staticHostingDomainAlt);
         const privateHostingDomainCandidate = normalizeConfiguredHost(privateAppHostingDomain);
+        const privateHostingDomainAltCandidate = normalizeConfiguredHost(privateAppHostingDomainAlt);
 
         if ( staticHostingDomainCandidate ) {
             hostCandidates.add(`${hostedSubdomain}.${staticHostingDomainCandidate}`);
@@ -176,6 +204,9 @@ function buildPrivateAppIndexUrlCandidates (req) {
         }
         if ( privateHostingDomainCandidate ) {
             hostCandidates.add(`${hostedSubdomain}.${privateHostingDomainCandidate}`);
+        }
+        if ( privateHostingDomainAltCandidate ) {
+            hostCandidates.add(`${hostedSubdomain}.${privateHostingDomainAltCandidate}`);
         }
     }
 
