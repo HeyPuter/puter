@@ -314,6 +314,10 @@ function logPrivateAccessEvent (eventName, fields = {}) {
     });
 }
 
+function getPrivateAccessRejectionReason (error) {
+    return error?.code || error?.message || 'unknown';
+}
+
 function getTokenFromAuthorizationHeader (req) {
     const authorizationHeader = req.headers?.authorization;
     if ( typeof authorizationHeader !== 'string' ) return null;
@@ -357,6 +361,29 @@ function getBootstrapPrivateToken (req) {
     }
 
     return getBootstrapTokenFromReferrer(req);
+}
+
+function getBootstrapPrivateTokenSource (req) {
+    if ( getTokenFromAuthorizationHeader(req) ) {
+        return 'authorization';
+    }
+    if (
+        (typeof req.query?.['puter.auth.token'] === 'string' && req.query['puter.auth.token'].trim())
+        || (typeof req.query?.puter?.auth?.token === 'string' && req.query.puter.auth.token.trim())
+        || (typeof req.query?.auth_token === 'string' && req.query.auth_token.trim())
+    ) {
+        return 'query';
+    }
+    if (
+        typeof req.headers?.['x-puter-auth-token'] === 'string'
+        && req.headers['x-puter-auth-token'].trim()
+    ) {
+        return 'x-puter-auth-token';
+    }
+    if ( getBootstrapTokenFromReferrer(req) ) {
+        return 'referrer';
+    }
+    return 'none';
 }
 
 function actorToPrivateIdentity (actor) {
@@ -436,8 +463,16 @@ async function resolvePrivateIdentity ({ req, services, appUid }) {
                 hasPrivateCookie,
                 hasInvalidPrivateCookie,
             };
-        } catch {
+        } catch (e) {
             hasInvalidPrivateCookie = true;
+            logPrivateAccessEvent('private_access.identity_private_cookie_rejected', {
+                appUid,
+                requestHost: req.hostname,
+                reason: getPrivateAccessRejectionReason(e),
+                expectedAppUid: tokenAppUid ?? null,
+                expectedSubdomain: privateAppSubdomain ?? null,
+                expectedPrivateHost: requestedPrivateHost ?? null,
+            });
             // fallback to next token source
         }
     }
@@ -459,12 +494,18 @@ async function resolvePrivateIdentity ({ req, services, appUid }) {
                     hasInvalidPrivateCookie,
                 };
             }
-        } catch {
+        } catch (e) {
+            logPrivateAccessEvent('private_access.identity_session_cookie_rejected', {
+                appUid,
+                requestHost: req.hostname,
+                reason: getPrivateAccessRejectionReason(e),
+            });
             // fallback to next token source
         }
     }
 
     const bootstrapToken = getBootstrapPrivateToken(req);
+    const bootstrapTokenSource = getBootstrapPrivateTokenSource(req);
     if ( typeof bootstrapToken === 'string' && bootstrapToken ) {
         let strictAuthError;
         try {
@@ -487,8 +528,19 @@ async function resolvePrivateIdentity ({ req, services, appUid }) {
                     hasInvalidPrivateCookie,
                 };
             }
+            logPrivateAccessEvent('private_access.bootstrap_strict_missing_identity', {
+                appUid,
+                requestHost: req.hostname,
+                source: bootstrapTokenSource,
+            });
         } catch (e) {
             strictAuthError = e;
+            logPrivateAccessEvent('private_access.bootstrap_strict_rejected', {
+                appUid,
+                requestHost: req.hostname,
+                source: bootstrapTokenSource,
+                reason: getPrivateAccessRejectionReason(e),
+            });
         }
 
         if ( typeof authService.resolvePrivateBootstrapIdentityFromToken === 'function' ) {
@@ -514,15 +566,28 @@ async function resolvePrivateIdentity ({ req, services, appUid }) {
                         hasInvalidPrivateCookie,
                     };
                 }
+                logPrivateAccessEvent('private_access.bootstrap_fallback_missing_identity', {
+                    appUid,
+                    requestHost: req.hostname,
+                    source: bootstrapTokenSource,
+                    strictReason: strictAuthError?.code || strictAuthError?.message || null,
+                });
             } catch (e) {
                 logPrivateAccessEvent('private_access.bootstrap_fallback_rejected', {
                     appUid,
                     requestHost: req.hostname,
-                    source: 'bootstrap-token',
+                    source: bootstrapTokenSource,
                     reason: e?.code || e?.message || 'unknown',
                     strictReason: strictAuthError?.code || strictAuthError?.message || null,
                 });
             }
+        } else if ( strictAuthError ) {
+            logPrivateAccessEvent('private_access.bootstrap_rejected_no_fallback', {
+                appUid,
+                requestHost: req.hostname,
+                source: bootstrapTokenSource,
+                reason: getPrivateAccessRejectionReason(strictAuthError),
+            });
         }
     }
 
@@ -951,6 +1016,11 @@ async function runInternal (req, res, next) {
             );
             return res.redirect(privateHostRedirect);
         }
+        logPrivateAccessEvent('private_access.host_mismatch_denied', {
+            appUid: privateApp?.uid ?? null,
+            requestHost: req.hostname,
+            requestPath: req.path,
+        });
         return res.status(403).send('Private app host mismatch');
     }
 
