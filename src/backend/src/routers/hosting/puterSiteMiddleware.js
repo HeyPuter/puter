@@ -318,6 +318,28 @@ function getPrivateAccessRejectionReason (error) {
     return error?.code || error?.message || 'unknown';
 }
 
+function stripBootstrapAuthTokenFromOriginalUrl (originalUrl) {
+    if ( typeof originalUrl !== 'string' || !originalUrl ) return null;
+
+    try {
+        const placeholderOrigin = 'https://placeholder.puter.local';
+        const parsedUrl = new URL(originalUrl, placeholderOrigin);
+        const hadToken =
+            parsedUrl.searchParams.has('puter.auth.token')
+            || parsedUrl.searchParams.has('auth_token');
+        if ( ! hadToken ) return null;
+
+        parsedUrl.searchParams.delete('puter.auth.token');
+        parsedUrl.searchParams.delete('auth_token');
+
+        const search = parsedUrl.searchParams.toString();
+        const cleanPath = parsedUrl.pathname || '/';
+        return search ? `${cleanPath}?${search}` : cleanPath;
+    } catch {
+        return null;
+    }
+}
+
 function getTokenFromAuthorizationHeader (req) {
     const authorizationHeader = req.headers?.authorization;
     if ( typeof authorizationHeader !== 'string' ) return null;
@@ -905,6 +927,20 @@ async function evaluatePrivateAppAccess ({ req, res, services, app, requestPath 
                 requestHostname: req.hostname,
             }),
         );
+
+        const sanitizedUrl = stripBootstrapAuthTokenFromOriginalUrl(req.originalUrl);
+        if ( sanitizedUrl ) {
+            logPrivateAccessEvent('private_access.allowed_cookie_redirect', {
+                appUid: app.uid,
+                userUid: identity.userUid ?? null,
+                requestHost: req.hostname,
+                requestPath,
+                source: identity.source,
+                redirectUrl: sanitizedUrl,
+            });
+            res.redirect(sanitizedUrl);
+            return false;
+        }
     }
 
     logPrivateAccessEvent('private_access.allowed', {

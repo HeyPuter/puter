@@ -1056,11 +1056,12 @@ describe('PuterSiteMiddleware', () => {
                 is_custom_domain: false,
                 baseUrl: '',
                 path: '/asset.js',
-                originalUrl: '/asset.js?puter.auth.token=bootstrap-token',
+                originalUrl: '/asset.js?puter.auth.token=bootstrap-token&foo=bar',
                 cookies: {},
                 headers: {},
                 query: {
                     'puter.auth.token': 'bootstrap-token',
+                    foo: 'bar',
                 },
                 ctx: mockContextInstance,
             };
@@ -1097,6 +1098,7 @@ describe('PuterSiteMiddleware', () => {
                 'private-token',
                 { sameSite: 'none' },
             );
+            expect(mockRes.redirect).toHaveBeenCalledWith('/asset.js?foo=bar');
             expect(mockNext).not.toHaveBeenCalled();
         });
 
