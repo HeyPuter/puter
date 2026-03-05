@@ -514,7 +514,6 @@ export async function get_app (options) {
 const get_app_icon_url = (app, size) => {
     const iconIsBase64 = isBase64AppIcon(app);
     const svc_appIcon = servicesContainer.services.get('app-icon');
-    console.log('THIS SHOULD BE TRUE', svc_appIcon.config.no_subdomain);
     return (iconIsBase64 || svc_appIcon.config.no_subdomain)
         ? buildAppIconEndpointUrl(app.uid ?? app.uuid, size)
         : buildAppIconSubdomainUrl(app.uid ?? app.uuid, size);
