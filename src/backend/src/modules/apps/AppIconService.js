@@ -25,11 +25,11 @@ import { LLMkdir } from '../../filesystem/ll_operations/ll_mkdir.js';
 import { LLRead } from '../../filesystem/ll_operations/ll_read.js';
 import { NodePathSelector } from '../../filesystem/node/selectors.js';
 import { get_app, get_user } from '../../helpers.js';
-import { AppRedisCacheSpace } from './AppRedisCacheSpace.js';
 import BaseService from '../../services/BaseService.js';
 import { DB_READ, DB_WRITE } from '../../services/database/consts.js';
 import { Endpoint } from '../../util/expressutil.js';
 import { buffer_to_stream, stream_to_buffer } from '../../util/streamutil.js';
+import { AppRedisCacheSpace } from './AppRedisCacheSpace.js';
 import DEFAULT_APP_ICON from './default-app-icon.js';
 
 const require = createRequire(import.meta.url);
@@ -91,7 +91,7 @@ export class AppIconService extends BaseService {
             } = await this.#getIconStream({
                 appUid,
                 size: resolvedSize,
-                allowRedirect: true,
+                allowRedirect: !this.config.no_subdomain,
             });
 
             if ( redirectUrl ) {
