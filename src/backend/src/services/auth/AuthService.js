@@ -532,19 +532,19 @@ class AuthService extends BaseService {
         try {
             decoded = this.tokenService.verify('auth', token);
         } catch (e) {
-            throw APIError.create('token_auth_failed');
+            throw new Error('Token decode error');
         }
 
         const userUid = typeof decoded?.user_uid === 'string'
             ? decoded.user_uid
             : null;
         if ( ! userUid ) {
-            throw APIError.create('token_auth_failed');
+            throw new Error('Token missing uuid');
         }
 
         const allowedTypes = new Set(['session', 'gui', 'app-under-user']);
         if ( ! allowedTypes.has(decoded.type) ) {
-            throw APIError.create('token_auth_failed');
+            throw new Error(`Token wrong type: ${ decoded.type}`);
         }
         const bootstrapAppUid = typeof decoded?.app_uid === 'string'
             ? decoded.app_uid
@@ -565,24 +565,24 @@ class AuthService extends BaseService {
             && expectedAppUidCandidates.size > 0
             && !expectedAppUidCandidates.has(bootstrapAppUid)
         ) {
-            throw APIError.create('token_auth_failed');
+            throw new Error(`Token app uuid: ${ bootstrapAppUid } doesn't match expected appUuid candidates: ${ JSON.stringify(expectedAppUidCandidates)}`);
         }
 
         const sessionUuid = this.resolvePrivateBootstrapSessionUuid(decoded);
         if ( ! sessionUuid ) {
-            throw APIError.create('token_auth_failed');
+            throw new Error('Token missing sessionUuid');
         }
 
         const session = await this.get_session_(sessionUuid);
         if ( ! session ) {
-            throw APIError.create('token_auth_failed');
+            throw new Error('Token missing session');
         }
 
         const sessionUserUid = typeof session.user_uid === 'string'
             ? session.user_uid
             : null;
         if ( !sessionUserUid || sessionUserUid !== userUid ) {
-            throw APIError.create('token_auth_failed');
+            throw new Error('Token mismatch userId');
         }
 
         return {
