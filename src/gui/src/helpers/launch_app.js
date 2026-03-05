@@ -497,7 +497,7 @@ const launch_app = async (options) => {
         }
 
         // credentialless
-        let credentialless = true;
+        let credentialless = false;
         if ( app_info.metadata?.credentialless !== undefined && typeof app_info.metadata.credentialless === 'boolean' )
         {
             credentialless = app_info.metadata.credentialless;
