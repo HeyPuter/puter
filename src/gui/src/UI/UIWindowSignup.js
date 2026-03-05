@@ -17,10 +17,10 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import UIWindow from './UIWindow.js';
-import UIWindowLogin from './UIWindowLogin.js';
-import UIWindowEmailConfirmationRequired from './UIWindowEmailConfirmationRequired.js';
 import check_password_strength from '../helpers/check_password_strength.js';
+import UIWindow from './UIWindow.js';
+import UIWindowEmailConfirmationRequired from './UIWindowEmailConfirmationRequired.js';
+import UIWindowLogin from './UIWindowLogin.js';
 
 function UIWindowSignup (options) {
     options = options ?? {};
@@ -96,6 +96,10 @@ function UIWindowSignup (options) {
         // Create Account
         h += `<button class="signup-btn button button-primary button-block button-normal">${i18n('create_free_account')}</button>`;
         h += '</form>';
+        h += '<div class="oidc-providers-wrapper" style="display:none; padding: 10px 0;">';
+        h += `<div style="text-align:center; margin: 10px 0; font-size:13px;">${ i18n('or') }</div>`;
+        h += `<button type="button" class="oidc-google-btn button button-block button-normal" style="display:flex; align-items:center; justify-content:center; gap:8px;">${i18n('sign_up_with_google')}</button>`;
+        h += '</div>';
         h += '</div>';
         // login link
         // create account link
@@ -126,6 +130,9 @@ function UIWindowSignup (options) {
             dominant: true,
             center: true,
             onAppend: function (el_window) {
+                if ( options.authError ) {
+                    $(el_window).find('.signup-error-msg').html(options.authError).fadeIn();
+                }
                 $(el_window).find('.username').get(0).focus({ preventScroll: true });
 
                 // Initialize Turnstile widget with callback to capture token
@@ -155,6 +162,28 @@ function UIWindowSignup (options) {
                 };
 
                 initTurnstile();
+
+                (async () => {
+                    try {
+                        const res = await fetch(`${window.api_origin}/auth/oidc/providers`);
+                        if ( ! res.ok ) return;
+                        const data = await res.json();
+                        if ( data.providers && data.providers.includes('google') ) {
+                            $(el_window).find('.oidc-providers-wrapper').show();
+                            $(el_window).find('.oidc-google-btn').on('click', function () {
+                                let url = `${window.gui_origin}/auth/oidc/google/start?flow=signup`;
+                                if ( window.embedded_in_popup && window.url_query_params?.get('msg_id') ) {
+                                    url += `&embedded_in_popup=true&msg_id=${encodeURIComponent(window.url_query_params.get('msg_id'))}`;
+                                    if ( window.openerOrigin ) {
+                                        url += `&opener_origin=${encodeURIComponent(window.openerOrigin)}`;
+                                    }
+                                }
+                                window.location.href = url;
+                            });
+                        }
+                    } catch (_) {
+                    }
+                })();
             },
             window_class: 'window-signup',
             window_css: {
@@ -303,7 +332,7 @@ function UIWindowSignup (options) {
                 contentType: 'application/json',
                 data: JSON.stringify(requestData),
                 success: async function (data) {
-                    window.update_auth_data(data.token, data.user);
+                    await window.update_auth_data(data.token, data.user);
 
                     //send out the login event
                     if ( options.reload_on_success ) {
@@ -385,8 +414,9 @@ function UIWindowSignup (options) {
             let isPasswordVisible = inputField.attr('type') === 'text';
             inputField.attr('type', isPasswordVisible ? 'password' : 'text');
             $(this).find('.toggle-show-password-icon').attr(
-                            'src',
-                            isPasswordVisible ? window.icons['eye-open.svg'] : window.icons['eye-closed.svg']);
+                'src',
+                isPasswordVisible ? window.icons['eye-open.svg'] : window.icons['eye-closed.svg'],
+            );
         });
 
         //remove login window

@@ -46,7 +46,7 @@ class MountpointService extends BaseService {
         this.#mounters[name] = mounter;
     }
 
-    async ['__on_boot.consolidation'] () {
+    async '__on_boot.consolidation' () {
         // Emit event for registering filesystem types
         const svc_event = this.services.get('event');
         const event = {};

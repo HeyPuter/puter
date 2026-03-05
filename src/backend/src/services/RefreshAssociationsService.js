@@ -36,7 +36,7 @@ class RefreshAssociationsService extends BaseService {
      * @async
      * @returns {Promise<void>} - A promise that resolves when the cache refresh process is complete.
      */
-    async ['__on_boot.consolidation'] () {
+    async '__on_boot.consolidation' () {
         const { refresh_associations_cache } = require('../helpers');
 
         /**

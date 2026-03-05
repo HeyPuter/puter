@@ -53,13 +53,13 @@ class TogetherVideoGenerationService extends BaseService {
     }
 
     static IMPLEMENTS = {
-        ['driver-capabilities']: {
+        'driver-capabilities': {
             supports_test_mode (iface, method_name) {
                 return iface === 'puter-video-generation' &&
                     method_name === 'generate';
             },
         },
-        ['puter-video-generation']: {
+        'puter-video-generation': {
             async generate (params) {
                 return await this.generateVideo(params);
             },

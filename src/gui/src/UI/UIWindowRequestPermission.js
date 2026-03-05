@@ -145,7 +145,7 @@ async function setup_window_events (el_window, options, resolve) {
 
 /**
  * Generates user-friendly description of permission string in HTML format.
- * 
+ *
  * @param {string} permission - The permission string to describe
  * @returns {string} The user-friendly description of the permission in HTML format
  */
@@ -231,7 +231,17 @@ async function get_permission_description (permission) {
         }
     }
 
-    return null
+    if ( parts[0] === 'app-root-dir' ) {
+        // Format: app-root-dir:resource_request_code:access
+        if ( parts[2] === 'read' ) {
+            return i18n('perm_app_root_dir_read');
+        }
+        if ( parts[2] === 'write' ) {
+            return i18n('perm_app_root_dir_write');
+        }
+    }
+
+    return null;
 }
 
 /**

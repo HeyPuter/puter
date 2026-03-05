@@ -45,12 +45,12 @@ class AWSTextractService extends BaseService {
     }
 
     static IMPLEMENTS = {
-        ['driver-capabilities']: {
+        'driver-capabilities': {
             supports_test_mode (iface, method_name) {
                 return iface === 'puter-ocr' && method_name === 'recognize';
             },
         },
-        ['puter-ocr']: {
+        'puter-ocr': {
             /**
             * Performs OCR recognition on a document using AWS Textract
             * @param {Object} params - Recognition parameters

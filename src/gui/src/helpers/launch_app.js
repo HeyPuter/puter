@@ -21,6 +21,43 @@ import path from '../lib/path.js';
 import { PROCESS_IPC_ATTACHED, PROCESS_RUNNING, PortalProcess, PseudoProcess } from '../definitions.js';
 import UIWindow from '../UI/UIWindow.js';
 
+const normalizePrivateAccessDecision = (privateAccess) => {
+    if ( !privateAccess || typeof privateAccess !== 'object' ) {
+        return null;
+    }
+
+    return {
+        hasAccess: !!privateAccess.hasAccess,
+        fallbackAppName: typeof privateAccess.fallbackAppName === 'string'
+            ? privateAccess.fallbackAppName.trim()
+            : '',
+        fallbackArgs: privateAccess.fallbackArgs &&
+            typeof privateAccess.fallbackArgs === 'object' &&
+            !Array.isArray(privateAccess.fallbackArgs)
+            ? privateAccess.fallbackArgs
+            : {},
+        reason: typeof privateAccess.reason === 'string'
+            ? privateAccess.reason
+            : undefined,
+    };
+};
+
+const getLaunchResult = (launchOutcome) => {
+    if ( !launchOutcome || typeof launchOutcome !== 'object' ) {
+        return null;
+    }
+    if ( launchOutcome.launchResult && typeof launchOutcome.launchResult === 'object' ) {
+        return launchOutcome.launchResult;
+    }
+    return null;
+};
+
+const endLaunchTransaction = (transaction) => {
+    if ( transaction ) {
+        transaction.end();
+    }
+};
+
 /**
  * Launches an app.
  *
@@ -39,6 +76,7 @@ const launch_app = async (options) => {
     const uuid = options.uuid ?? window.uuidv4();
     let icon, title, file_signature;
     const window_options = options.window_options ?? {};
+    const privateLaunchRedirectDepth = Number(options.privateLaunchRedirectDepth ?? 0);
 
     if ( options.parent_instance_id ) {
         window_options.parent_instance_id = options.parent_instance_id;
@@ -66,6 +104,70 @@ const launch_app = async (options) => {
 
     // If no `options.name` is provided, use the app name from the app_info
     options.name = options.name ?? app_info.name;
+    const requestedAppName = options.privateLaunchRequestedAppName ?? options.name ?? app_info.name ?? null;
+    const privateAccessDecision = normalizePrivateAccessDecision(app_info.privateAccess);
+
+    if ( privateAccessDecision && privateAccessDecision.hasAccess === false ) {
+        const fallbackAppName = privateAccessDecision.fallbackAppName;
+        const fallbackArgs = privateAccessDecision.fallbackArgs ?? {};
+
+        if ( fallbackAppName && privateLaunchRedirectDepth < 1 && fallbackAppName !== options.name ) {
+            const fallbackLaunchOutcome = await launch_app({
+                ...options,
+                name: fallbackAppName,
+                args: fallbackArgs,
+                app_obj: undefined,
+                privateLaunchRequestedAppName: requestedAppName,
+                privateLaunchRedirectDepth: privateLaunchRedirectDepth + 1,
+            });
+
+            const fallbackLaunchResult = getLaunchResult(fallbackLaunchOutcome) ?? {
+                launched: true,
+                requestedAppName,
+                openedAppName: fallbackAppName,
+                redirectedToFallback: true,
+                deniedPrivateAccess: true,
+                privateAccess: privateAccessDecision,
+            };
+            const redirectedLaunchResult = {
+                ...fallbackLaunchResult,
+                requestedAppName,
+                redirectedToFallback: true,
+                deniedPrivateAccess: true,
+                privateAccess: privateAccessDecision,
+            };
+
+            if ( fallbackLaunchOutcome && typeof fallbackLaunchOutcome === 'object' ) {
+                fallbackLaunchOutcome.launchResult = redirectedLaunchResult;
+            }
+
+            endLaunchTransaction(transaction);
+            return fallbackLaunchOutcome ?? { launchResult: redirectedLaunchResult };
+        }
+
+        const deniedAppTitle = app_info.title ?? app_info.name ?? options.name ?? 'this app';
+        const safeDeniedAppTitle = window.html_encode
+            ? window.html_encode(deniedAppTitle)
+            : deniedAppTitle;
+        if ( typeof window.UIAlert === 'function' ) {
+            await window.UIAlert(`You don't have access to ${safeDeniedAppTitle}.`);
+        } else {
+            window.alert(`You don't have access to ${deniedAppTitle}.`);
+        }
+
+        const deniedLaunchResult = {
+            launched: false,
+            requestedAppName,
+            openedAppName: null,
+            appInstanceID: null,
+            appUid: null,
+            redirectedToFallback: false,
+            deniedPrivateAccess: true,
+            privateAccess: privateAccessDecision,
+        };
+        endLaunchTransaction(transaction);
+        return { launchResult: deniedLaunchResult };
+    }
 
     //-----------------------------------
     // icon
@@ -395,7 +497,7 @@ const launch_app = async (options) => {
         }
 
         // credentialless
-        let credentialless = true;
+        let credentialless = false;
         if ( app_info.metadata?.credentialless !== undefined && typeof app_info.metadata.credentialless === 'boolean' )
         {
             credentialless = app_info.metadata.credentialless;
@@ -527,11 +629,21 @@ const launch_app = async (options) => {
         svc_process.unregister(process.uuid);
     });
 
+    process.launchResult = {
+        launched: true,
+        requestedAppName,
+        openedAppName: (options.name === 'trash') ? 'explorer' : options.name,
+        appInstanceID: process.uuid ?? uuid,
+        appUid: (options.name === 'explorer' || options.name === 'trash')
+            ? null
+            : (app_info.uuid ?? app_info.uid ?? null),
+        redirectedToFallback: privateLaunchRedirectDepth > 0,
+        deniedPrivateAccess: false,
+        privateAccess: privateAccessDecision ?? undefined,
+    };
+
     // end the transaction
-    if ( transaction )
-    {
-        transaction.end();
-    }
+    endLaunchTransaction(transaction);
 
     return process;
 };

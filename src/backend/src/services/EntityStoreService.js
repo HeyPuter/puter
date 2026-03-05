@@ -61,7 +61,7 @@ class EntityStoreService extends BaseService {
     }
 
     static IMPLEMENTS = {
-        ['crud-q']: {
+        'crud-q': {
             async create ({ object, options }) {
                 if ( object.hasOwnProperty(this.om.primary_identifier) ) {
                     throw APIError.create('field_not_allowed_for_create', null, {
@@ -103,7 +103,7 @@ class EntityStoreService extends BaseService {
                     es_params: options?.params ?? {},
                 }).arun(async () => {
                     const entities = await this.select(options);
-                    const promises = [];    
+                    const promises = [];
                     for ( const entity of entities ) {
                         promises.push(entity.get_client_safe());
                     }

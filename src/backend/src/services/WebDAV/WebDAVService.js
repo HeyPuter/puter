@@ -157,7 +157,7 @@ class WebDAVService extends BaseService {
                 const base64Credentials = authHeader.split(' ')[1];
                 const credentials = Buffer.from(base64Credentials,
                                 'base64').toString( 'ascii');
-                let [ username, ...password ] = credentials.split(':');
+                let [username, ...password] = credentials.split(':');
                 password = password.join(':');
 
                 // Call user's authentication function
@@ -209,7 +209,7 @@ class WebDAVService extends BaseService {
 
         methodHandler(req, res, filePath, fileNode, headerLockToken);
     }
-    ['__on_install.routes'] ( _, { app } ) {
+    '__on_install.routes' ( _, { app } ) {
         COOKIE_NAME = this.global_config.cookie_name;
 
         const r_webdav = (() => {
@@ -238,7 +238,7 @@ class WebDAVService extends BaseService {
                 'UNLOCK',
                 'OPTIONS',
             ],
-            mw: [ configurable_auth({ optional: true }) ],
+            mw: [configurable_auth({ optional: true })],
             /**
              *
              * @param {import("express").Request} req

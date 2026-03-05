@@ -52,7 +52,7 @@ class ExpectationService extends BaseService {
      * ExpectationService registers its commands at the consolidation phase because
      * the '_init' method of CommandService may not have been called yet.
      */
-    ['__on_boot.consolidation'] () {
+    '__on_boot.consolidation' () {
         const commands = this.services.get('commands');
         commands.registerCommands('expectations', [
             {

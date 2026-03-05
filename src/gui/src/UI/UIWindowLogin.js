@@ -17,17 +17,17 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import UIWindow from './UIWindow.js';
-import UIWindowSignup from './UIWindowSignup.js';
-import UIWindowRecoverPassword from './UIWindowRecoverPassword.js';
 import TeePromise from '../util/TeePromise.js';
-import UIComponentWindow from './UIComponentWindow.js';
-import Flexer from './Components/Flexer.js';
-import CodeEntryView from './Components/CodeEntryView.js';
-import JustHTML from './Components/JustHTML.js';
-import StepView from './Components/StepView.js';
 import Button from './Components/Button.js';
+import CodeEntryView from './Components/CodeEntryView.js';
+import Flexer from './Components/Flexer.js';
+import JustHTML from './Components/JustHTML.js';
 import RecoveryCodeEntryView from './Components/RecoveryCodeEntryView.js';
+import StepView from './Components/StepView.js';
+import UIComponentWindow from './UIComponentWindow.js';
+import UIWindow from './UIWindow.js';
+import UIWindowRecoverPassword from './UIWindowRecoverPassword.js';
+import UIWindowSignup from './UIWindowSignup.js';
 
 async function UIWindowLogin (options) {
     options = options ?? {};
@@ -83,6 +83,13 @@ async function UIWindowLogin (options) {
         // password recovery
         h += `<p style="text-align:center; margin-bottom: 0;"><span class="forgot-password-link">${i18n('forgot_pass_c2a')}</span></p>`;
         h += '</form>';
+        h += '<div class="oidc-providers-wrapper" style="display:none; padding: 0 0 10px 0;">';
+        h += `<div style="text-align:center; margin: 10px 0; font-size:13px; color:var(--color-text-muted);">${ i18n('or') }</div>`;
+        h += `<button type="button" class="oidc-google-btn button button-block button-normal" style="display:flex; align-items:center; justify-content:center; gap:8px;">
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-google" viewBox="0 0 16 16">
+  <path d="M15.545 6.558a9.4 9.4 0 0 1 .139 1.626c0 2.434-.87 4.492-2.384 5.885h.002C11.978 15.292 10.158 16 8 16A8 8 0 1 1 8 0a7.7 7.7 0 0 1 5.352 2.082l-2.284 2.284A4.35 4.35 0 0 0 8 3.166c-2.087 0-3.86 1.408-4.492 3.304a4.8 4.8 0 0 0 0 3.063h.003c.635 1.893 2.405 3.301 4.492 3.301 1.078 0 2.004-.276 2.722-.764h-.003a3.7 3.7 0 0 0 1.599-2.431H8v-3.08z"/>
+</svg>${i18n('sign_in_with_google')}</button>`;
+        h += '</div>';
         h += '</div>';
         // create account link
 
@@ -120,6 +127,9 @@ async function UIWindowLogin (options) {
                 resolve(false);
             },
             onAppend: function (this_window) {
+                if ( options.authError ) {
+                    $(this_window).find('.login-error-msg').html(options.authError).fadeIn();
+                }
                 $(this_window).find('.email_or_username').get(0).focus({ preventScroll: true });
             },
             window_class: 'window-login',
@@ -147,6 +157,28 @@ async function UIWindowLogin (options) {
                 },
             });
         });
+
+        (async () => {
+            try {
+                const res = await fetch(`${window.api_origin}/auth/oidc/providers`);
+                if ( ! res.ok ) return;
+                const data = await res.json();
+                if ( data.providers && data.providers.includes('google') ) {
+                    $(el_window).find('.oidc-providers-wrapper').show();
+                    $(el_window).find('.oidc-google-btn').on('click', function () {
+                        let url = `${window.gui_origin}/auth/oidc/google/start?flow=login`;
+                        if ( window.embedded_in_popup && window.url_query_params?.get('msg_id') ) {
+                            url += `&embedded_in_popup=true&msg_id=${encodeURIComponent(window.url_query_params.get('msg_id'))}`;
+                            if ( window.openerOrigin ) {
+                                url += `&opener_origin=${encodeURIComponent(window.openerOrigin)}`;
+                            }
+                        }
+                        window.location.href = url;
+                    });
+                }
+            } catch (_) {
+            }
+        })();
 
         $(el_window).find('.login-btn').on('click', function (e) {
             // Prevent default button behavior (important for async requests)
@@ -224,7 +256,7 @@ async function UIWindowLogin (options) {
                                 }),
                                 new CodeEntryView({
                                     _ref: me => code_entry = me,
-                                    async ['property.value'] (value, { component }) {
+                                    async 'property.value' (value, { component }) {
                                         let error_i18n_key = 'something_went_wrong';
                                         if ( ! value ) return;
                                         try {
@@ -274,7 +306,7 @@ async function UIWindowLogin (options) {
                                     },
                                 }),
                             ],
-                            ['event.focus'] () {
+                            'event.focus' () {
                                 code_entry.focus();
                             },
                         });
@@ -292,7 +324,7 @@ async function UIWindowLogin (options) {
                                 }),
                                 new RecoveryCodeEntryView({
                                     _ref: me => recovery_entry = me,
-                                    async ['property.value'] (value, { component }) {
+                                    async 'property.value' (value, { component }) {
                                         let error_i18n_key = 'something_went_wrong';
                                         if ( ! value ) return;
                                         try {
@@ -366,7 +398,7 @@ async function UIWindowLogin (options) {
 
                     await p;
 
-                    window.update_auth_data(data.token, data.user);
+                    await window.update_auth_data(data.token, data.user);
 
                     if ( options.reload_on_success ) {
                         window.onbeforeunload = null;

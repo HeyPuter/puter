@@ -1,33 +1,26 @@
 import type APIError from '@heyputer/backend/src/api/APIError.js';
-import type { WebServerService } from '@heyputer/backend/src/modules/web/WebServerService.js';
 import type query from '@heyputer/backend/src/om/query/query';
 import type { Actor } from '@heyputer/backend/src/services/auth/Actor.js';
+import type { ServicesMap } from '@heyputer/backend/src/services/BaseService.d.ts';
 import type { BaseDatabaseAccessService } from '@heyputer/backend/src/services/database/BaseDatabaseAccessService.d.ts';
-import type { EmailService } from '@heyputer/backend/src/services/EmailService.js';
-import type { EntityStoreService } from '@heyputer/backend/src/services/EntityStoreService.js';
-import type { GetUserService } from '@heyputer/backend/src/services/GetUserService.js';
-import type { MeteringService } from '@heyputer/backend/src/services/MeteringService/MeteringService.ts';
-import type { MeteringServiceWrapper } from '@heyputer/backend/src/services/MeteringService/MeteringServiceWrapper.mjs';
 import type { DynamoKVStore } from '@heyputer/backend/src/services/repositories/DynamoKVStore/DynamoKVStore.ts';
-import type { SUService } from '@heyputer/backend/src/services/SUService.js';
 import type { IUser } from '@heyputer/backend/src/services/User.js';
-import type { UserService } from '@heyputer/backend/src/services/UserService.d.ts';
 import type { Context } from '@heyputer/backend/src/util/context.js';
 import type kvjs from '@heyputer/kv.js';
 import type { RequestHandler } from 'express';
 import type { Cluster } from 'ioredis';
 import type FSNodeContext from '../src/backend/src/filesystem/FSNodeContext.js';
 import type helpers from '../src/backend/src/helpers.js';
-import type * as ExtensionControllerExports from './ExtensionController/src/ExtensionController.ts';
 import type { ICompleteArguments } from '../src/backend/src/services/ai/chat/providers/types.ts';
+import type * as ExtensionControllerExports from './ExtensionController/src/ExtensionController.ts';
 
 declare global {
     namespace Express {
         interface Request {
             services: {
-                get: <T extends keyof ServiceNameMap | (string & {})>(
+                get: <T extends keyof ServicesMap | (string & {})>(
                     string: T,
-                ) => T extends keyof ServiceNameMap ? ServiceNameMap[T] : unknown;
+                ) => T extends keyof ServicesMap ? ServicesMap[T] : unknown;
             };
             actor?: Actor;
             rawBody: Buffer;
@@ -94,20 +87,6 @@ interface FilesystemModule {
     selectors: unknown;
 }
 
-// TODO DS: define this globally in core to use it there too
-interface ServiceNameMap {
-    meteringService: Pick<MeteringServiceWrapper, 'meteringService'> &
-        MeteringService; // TODO DS: squash into a single class without wrapper
-    'puter-kvstore': DynamoKVStore;
-    su: SUService;
-    database: BaseDatabaseAccessService;
-    user: UserService;
-    'get-user': GetUserService;
-    'web-server': WebServerService;
-    'email': EmailService;
-    'es:app': EntityStoreService;
-}
-
 export interface ExtensionEventTypeMap {
     'metering:registerAvailablePolicies': {
         availablePolicies: unknown[]
@@ -149,6 +128,32 @@ export interface ExtensionEventTypeMap {
         app_uid: string;
         action: 'updated' | 'deleted';
     };
+    'app.privateAccess.check': {
+        appUid: string;
+        userUid?: string | null;
+        requestHost?: string;
+        requestPath?: string;
+        result: {
+            allowed: boolean;
+            redirectUrl?: string;
+            reason?: string;
+            checkedBy?: string;
+        };
+    };
+    'app.privateAccess.resolveLaunch': {
+        appUid: string;
+        appName?: string;
+        userUid?: string | null;
+        source?: string;
+        args?: Record<string, unknown>;
+        result: {
+            hasAccess: boolean;
+            fallbackAppName?: string;
+            fallbackArgs?: Record<string, unknown>;
+            reason?: string;
+            checkedBy?: string;
+        };
+    };
     'ai.prompt.validate': {
         actor: Actor;
         actor,
@@ -157,6 +162,7 @@ export interface ExtensionEventTypeMap {
         intended_service: string,
         parameters: ICompleteArguments
     }
+    'outer.cacheUpdate': { cacheKey: string | string[], ttlSeconds?: number, data?: unknown }
 }
 
 interface Extension extends RouterMethods {
@@ -169,9 +175,9 @@ interface Extension extends RouterMethods {
 
     on<E extends keyof ExtensionEventTypeMap>(
         name: E,
-        listener: (event: ExtensionEventTypeMap[E]) => void | Promise<void>
+        listener: (event: ExtensionEventTypeMap[E], metadata?: { from_outside?: boolean }) => void | Promise<void>
     ): void;
-    on(name: string, listener: (event: unknown) => void | Promise<void>): void
+    on<T>(name: string, listener: (event: T, metadata?: { from_outside?: boolean }) => void | Promise<void>): void
 
     import(module: 'data'): {
         db: BaseDatabaseAccessService;
@@ -182,10 +188,10 @@ interface Extension extends RouterMethods {
     import(module: 'fs'): FilesystemModule;
     import(module: 'query'): typeof query;
     import(module: 'extensionController'): typeof ExtensionControllerExports;
-    import<T extends `service:${keyof ServiceNameMap}` | (string & {})>(
+    import<T extends `service:${keyof ServicesMap}` | (string & {})>(
         module: T
-    ): T extends `service:${infer R extends keyof ServiceNameMap}`
-        ? ServiceNameMap[R]
+    ): T extends `service:${infer R extends keyof ServicesMap}`
+        ? ServicesMap[R]
         : unknown;
 }
 

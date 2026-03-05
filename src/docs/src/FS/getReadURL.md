@@ -21,7 +21,7 @@ The path to the file to read.
 
 #### `expiresIn` (Number) (Optional)
 
-The number of seconds until the URL expires. If not provided, the URL will expire in 24 hours.
+The number of milliseconds until the URL expires. If not provided, the URL will expire in 24 hours.
 
 ## Return value
 

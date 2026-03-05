@@ -18,8 +18,11 @@
  */
 
 import { redisClient } from '../../clients/redis/redisSingleton.js';
+import { deleteRedisKeys } from '../../clients/redis/deleteRedisKeys.js';
+import { setRedisCacheValue } from '../../clients/redis/cacheUpdate.js';
 import { get_apps } from '../../helpers.js';
 import BaseService from '../../services/BaseService.js';
+import { RecommendedAppsRedisCacheSpace } from './RecommendedAppsRedisCacheSpace.js';
 
 export default class RecommendedAppsService extends BaseService {
     static APP_NAMES = [
@@ -69,7 +72,7 @@ export default class RecommendedAppsService extends BaseService {
         this.app_names = new Set(RecommendedAppsService.APP_NAMES);
     }
 
-    ['__on_boot.consolidation'] () {
+    '__on_boot.consolidation' () {
         const svc_appIcon = this.services.get('app-icon');
         const svc_event = this.services.get('event');
         svc_event.on('apps.invalidate', async (_, { app }) => {
@@ -82,23 +85,22 @@ export default class RecommendedAppsService extends BaseService {
                 if ( ! this.app_names.has(name) ) return;
             }
 
-            const deletions = [redisClient.del('global:recommended-apps')];
+            const keys = [RecommendedAppsRedisCacheSpace.key()];
             for ( const size of sizes ) {
-                const key = `global:recommended-apps:icon-size:${size}`;
-                deletions.push(redisClient.del(key));
+                const key = RecommendedAppsRedisCacheSpace.key({ iconSize: size });
+                keys.push(key);
             }
-            await Promise.all(deletions);
+            await deleteRedisKeys(keys);
         });
     }
 
-    async get_recommended_apps ({ icon_size }) {
-        const recommended_cache_key = `global:recommended-apps${
-            icon_size ? `:icon-size:${icon_size}` : ''}`;
+    async get_recommended_apps ({ icon_size: iconSize }) {
+        const recommendedCacheKey = RecommendedAppsRedisCacheSpace.key({ iconSize });
 
-        const cached_recommended = await redisClient.get(recommended_cache_key);
-        if ( cached_recommended ) {
+        const cachedRecommended = await redisClient.get(recommendedCacheKey);
+        if ( cachedRecommended ) {
             try {
-                return JSON.parse(cached_recommended);
+                return JSON.parse(cachedRecommended);
             } catch (e) {
                 // no op cache is in an invalid state
             }
@@ -121,14 +123,16 @@ export default class RecommendedAppsService extends BaseService {
         const svc_appIcon = this.services.get('app-icon');
 
         // Iconify apps
-        if ( icon_size ) {
+        if ( iconSize ) {
             recommended = await svc_appIcon.iconifyApps({
                 apps: recommended,
-                size: icon_size,
+                size: iconSize,
             });
         }
 
-        await redisClient.set(recommended_cache_key, JSON.stringify(recommended));
+        await setRedisCacheValue(recommendedCacheKey, JSON.stringify(recommended), {
+            eventData: recommended,
+        });
 
         return recommended;
     }

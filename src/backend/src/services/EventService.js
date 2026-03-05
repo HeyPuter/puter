@@ -59,7 +59,7 @@ class EventService extends BaseService {
         this.global_listeners_ = [];
     }
 
-    async ['__on_boot.ready'] () {
+    async '__on_boot.ready' () {
         this.emit('ready', {}, {});
     }
 

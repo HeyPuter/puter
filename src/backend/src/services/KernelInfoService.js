@@ -46,7 +46,7 @@ class KernelInfoService extends BaseService {
     * @param {Express} param1.app Express application instance
     * @private
     */
-    ['__on_install.routes'] (_, { app }) {
+    '__on_install.routes' (_, { app }) {
         const router = (() => {
             const require = this.require;
             const express = require('express');

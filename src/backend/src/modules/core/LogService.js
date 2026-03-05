@@ -398,7 +398,7 @@ class LogService extends BaseService {
     /**
      * Registers logging commands with the command service.
      */
-    ['__on_boot.consolidation'] () {
+    '__on_boot.consolidation' () {
         const commands = this.services.get('commands');
         commands.registerCommands('logs', [
             {

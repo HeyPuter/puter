@@ -16,11 +16,11 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { redisClient } = require('../clients/redis/redisSingleton');
 const { UserActorType } = require('./auth/Actor');
 const { PermissionImplicator } = require('./auth/permissionUtils.mjs');
 const BaseService = require('./BaseService');
 const { DB_READ } = require('./database/consts');
+const { UserRedisCacheSpace } = require('./UserRedisCacheSpace.js');
 
 /**
  * Get user by one of a variety of identifying properties.
@@ -96,14 +96,9 @@ class GetUserService extends BaseService {
         if ( cached && !options.force ) {
             for ( const prop of this.id_properties ) {
                 if ( Object.prototype.hasOwnProperty.call(options, prop) ) {
-                    const cached_user = await redisClient.get(`users:${prop}:${options[prop]}`);
-                    if ( cached_user ) {
-                        try {
-                            user = JSON.parse(cached_user);
-                        } catch (e) {
-                            console.warn(e);
-                            // no-op cache in invalid state
-                        }
+                    const cachedUser = await UserRedisCacheSpace.getByProperty(prop, options[prop]);
+                    if ( cachedUser ) {
+                        user = cachedUser;
                     }
                 }
             }
@@ -117,16 +112,9 @@ class GetUserService extends BaseService {
         await svc_whoami.get_details({ user }, user);
 
         try {
-            const cached_user = JSON.stringify(user);
-            const cache_sets = [];
-            for ( const prop of this.id_properties ) {
-                if ( user[prop] ) {
-                    cache_sets.push(redisClient.set(`users:${prop}:${user[prop]}`, cached_user));
-                }
-            }
-            if ( cache_sets.length ) {
-                await Promise.all(cache_sets);
-            }
+            UserRedisCacheSpace.setUser(user, {
+                props: Array.from(this.id_properties),
+            });
         } catch ( e ) {
             console.error(e);
         }

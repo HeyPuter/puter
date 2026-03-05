@@ -234,7 +234,6 @@ async function UIWindowPublishWebsite (target_dir_uid, target_dir_name, target_d
                 });
 
                 window.update_sites_cache();
-
             } else if ( publishingType === 'custom' ) {
                 // Handle custom domain publishing with Entri
                 let customDomain = $(el_window).find('.publish-website-custom-domain').val();
@@ -279,7 +278,6 @@ async function UIWindowPublishWebsite (target_dir_uid, target_dir_name, target_d
                 });
 
                 window.update_sites_cache();
-
                 $(el_window).close();
             }
 

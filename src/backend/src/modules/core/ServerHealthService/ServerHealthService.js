@@ -16,8 +16,10 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { redisClient } = require('../../clients/redis/redisSingleton');
-const BaseService = require('../../services/BaseService');
+const { redisClient } = require('../../../clients/redis/redisSingleton');
+const { setRedisCacheValue } = require('../../../clients/redis/cacheUpdate.js');
+const { ServerHealthRedisCacheKeys } = require('./ServerHealthRedisCacheKeys.js');
+const BaseService = require('../../../services/BaseService');
 const { promise } = require('@heyputer/putility').libs;
 const SECOND = 1000;
 
@@ -161,9 +163,11 @@ class ServerHealthService extends BaseService {
                         return;
                     }
 
-                    svc_alarm.create('health-check-failure',
-                                    `Health check ${name} failed`,
-                                    { error: err });
+                    svc_alarm.create(
+                        'health-check-failure',
+                        `Health check ${name} failed`,
+                        { error: err },
+                    );
                     check_failures.push({ name });
 
                     this.log.error(`Error for healthcheck fail on ${name}: ${ err.stack}`);
@@ -182,9 +186,11 @@ class ServerHealthService extends BaseService {
             this.failures_ = check_failures;
         }, 10 * SECOND, null, {
             onBehindSchedule: (drift) => {
-                svc_alarm.create('health-checks-behind-schedule',
-                                'Health checks are behind schedule',
-                                { drift });
+                svc_alarm.create(
+                    'health-checks-behind-schedule',
+                    'Health checks are behind schedule',
+                    { drift },
+                );
             },
         });
     }
@@ -221,10 +227,10 @@ class ServerHealthService extends BaseService {
     * - `failed` {Array<string>}: An array of names of failed health checks, if any.
     */
     async get_status () {
-        const cache_key = 'server-health:status';
+        const cacheKey = ServerHealthRedisCacheKeys.status;
 
         // Check cache first
-        const cached = await redisClient.get(cache_key);
+        const cached = await redisClient.get(cacheKey);
         if ( cached ) {
             try {
                 return JSON.parse(cached);
@@ -241,7 +247,10 @@ class ServerHealthService extends BaseService {
         };
 
         // Cache with 5 second TTL
-        await redisClient.set(cache_key, JSON.stringify(status), 'EX', 5);
+        await setRedisCacheValue(cacheKey, JSON.stringify(status), {
+            ttlSeconds: 5,
+            eventData: status,
+        });
 
         return status;
     }

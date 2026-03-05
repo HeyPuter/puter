@@ -24,11 +24,12 @@ const crypto = require('crypto');
 const config = require('../../config');
 const { Context } = require('../../util/context');
 const { v4: uuidv4 } = require('uuid');
+const { invalidate_cached_user_by_id } = require('../../helpers');
 
 module.exports = {
     route: '/change-email',
     methods: ['POST'],
-    handler: async (req, res, next) => {
+    handler: async (req, res) => {
         const user = req.user;
         const new_email = req.body.new_email;
 
@@ -57,8 +58,10 @@ module.exports = {
 
         // check if email is already in use
         const db = req.services.get('database').get(DB_WRITE, 'auth');
-        const rows = await db.read('SELECT COUNT(*) AS `count` FROM `user` WHERE (`email` = ? OR `clean_email` = ?) AND `email_confirmed` = 1',
-                        [new_email, clean_email]);
+        const rows = await db.read(
+            'SELECT COUNT(*) AS `count` FROM `user` WHERE (`email` = ? OR `clean_email` = ?) AND `email_confirmed` = 1',
+            [new_email, clean_email],
+        );
 
         // TODO: DRY: signup.js, save_account.js
         if ( rows[0].count > 0 ) {
@@ -69,8 +72,11 @@ module.exports = {
         // and send a new confirmation email for their account instead.
         if ( ! user.email_confirmed ) {
             const email_confirm_token = uuidv4();
-            await db.write('UPDATE `user` SET `email` = ?, `email_confirm_token` = ? WHERE `id` = ?',
-                            [new_email, email_confirm_token, user.id]);
+            await db.write(
+                'UPDATE `user` SET `email` = ?, `email_confirm_token` = ? WHERE `id` = ?',
+                [new_email, email_confirm_token, user.id],
+            );
+            invalidate_cached_user_by_id(user.id);
 
             const svc_email = Context.get('services').get('email');
             const link = `${config.origin}/confirm-email-by-token?user_uuid=${user.uuid}&token=${email_confirm_token}`;
@@ -100,18 +106,23 @@ module.exports = {
         });
 
         // update user
-        await db.write('UPDATE `user` SET `unconfirmed_change_email` = ?, `change_email_confirm_token` = ? WHERE `id` = ?',
-                        [new_email, token, user.id]);
+        await db.write(
+            'UPDATE `user` SET `unconfirmed_change_email` = ?, `change_email_confirm_token` = ? WHERE `id` = ?',
+            [new_email, token, user.id],
+        );
+        invalidate_cached_user_by_id(user.id);
 
         // Update email change audit table
-        await db.write('INSERT INTO `user_update_audit` ' +
+        await db.write(
+            'INSERT INTO `user_update_audit` ' +
             '(`user_id`, `user_id_keep`, `old_email`, `new_email`, `reason`) ' +
             'VALUES (?, ?, ?, ?, ?)',
-        [
-            req.user.id, req.user.id,
-            old_email, new_email,
-            'change_username',
-        ]);
+            [
+                req.user.id, req.user.id,
+                old_email, new_email,
+                'change_username',
+            ],
+        );
 
         res.send({ success: true });
     },

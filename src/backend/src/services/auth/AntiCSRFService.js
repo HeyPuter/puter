@@ -43,7 +43,7 @@ class AntiCSRFService extends BaseService {
      *
      * @returns {void}
      */
-    ['__on_install.routes'] () {
+    '__on_install.routes' () {
         const { app } = this.services.get('web-server');
 
         app.use(eggspress('/get-anticsrf-token', {

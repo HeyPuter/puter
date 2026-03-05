@@ -404,7 +404,7 @@ async function UIWindow (options) {
                 style="${!options.has_head ? ' height: 100%;' : ''}">`;
     // iframe, for apps
     if ( options.iframe_url || options.iframe_srcdoc ) {
-        let allow_str = 'screen-wake-lock; picture-in-picture; document-picture-in-picture; camera; encrypted-media; gamepad; display-capture; geolocation; gyroscope; microphone; midi; clipboard-read; clipboard-write; fullscreen; web-share; file-system-handle; local-storage; downloads;';
+        let allow_str = 'screen-wake-lock; picture-in-picture; document-picture-in-picture; camera; encrypted-media; gamepad; display-capture; geolocation; gyroscope; microphone; midi; clipboard-read; clipboard-write; fullscreen; web-share; file-system-handle; local-storage; downloads; autoplay;';
         if ( window.co_isolation_enabled )
         {
             allow_str += ' cross-origin-isolated;';
@@ -1248,12 +1248,14 @@ async function UIWindow (options) {
                         // if alt key is down, create shortcut items
                         if ( event.altKey ) {
                             items_to_share.forEach((item_to_move) => {
-                                window.create_shortcut(path.basename($(item_to_move).attr('data-path')),
-                                                $(item_to_move).attr('data-is_dir') === '1',
-                                                $(this).attr('data-path'),
-                                                null,
-                                                $(item_to_move).attr('data-shortcut_to') === '' ? $(item_to_move).attr('data-uid') : $(item_to_move).attr('data-shortcut_to'),
-                                                $(item_to_move).attr('data-shortcut_to_path') === '' ? $(item_to_move).attr('data-path') : $(item_to_move).attr('data-shortcut_to_path'));
+                                window.create_shortcut(
+                                    path.basename($(item_to_move).attr('data-path')),
+                                    $(item_to_move).attr('data-is_dir') === '1',
+                                    $(this).attr('data-path'),
+                                    null,
+                                    $(item_to_move).attr('data-shortcut_to') === '' ? $(item_to_move).attr('data-uid') : $(item_to_move).attr('data-shortcut_to'),
+                                    $(item_to_move).attr('data-shortcut_to_path') === '' ? $(item_to_move).attr('data-path') : $(item_to_move).attr('data-shortcut_to_path'),
+                                );
                             });
                         }
                         // move items
@@ -1708,12 +1710,14 @@ async function UIWindow (options) {
             // if alt key is down, create shortcut items
             else if ( e.altKey ) {
                 items_to_move.forEach((item_to_move) => {
-                    window.create_shortcut(path.basename($(item_to_move).attr('data-path')),
-                                    $(item_to_move).attr('data-is_dir') === '1',
-                                    $(window.mouseover_window).attr('data-path'),
-                                    null,
-                                    $(item_to_move).attr('data-shortcut_to') === '' ? $(item_to_move).attr('data-uid') : $(item_to_move).attr('data-shortcut_to'),
-                                    $(item_to_move).attr('data-shortcut_to_path') === '' ? $(item_to_move).attr('data-path') : $(item_to_move).attr('data-shortcut_to_path'));
+                    window.create_shortcut(
+                        path.basename($(item_to_move).attr('data-path')),
+                        $(item_to_move).attr('data-is_dir') === '1',
+                        $(window.mouseover_window).attr('data-path'),
+                        null,
+                        $(item_to_move).attr('data-shortcut_to') === '' ? $(item_to_move).attr('data-uid') : $(item_to_move).attr('data-shortcut_to'),
+                        $(item_to_move).attr('data-shortcut_to_path') === '' ? $(item_to_move).attr('data-path') : $(item_to_move).attr('data-shortcut_to_path'),
+                    );
                 });
             }
             // otherwise, move items
@@ -2704,13 +2708,15 @@ async function UIWindow (options) {
                             let top = window.mouseY;
                             top = top > (window.innerHeight - (window_height + window.taskbar_height + window.toolbar_height)) ? (window.innerHeight - (window_height + window.taskbar_height + window.toolbar_height)) : top;
 
-                            UIWindowItemProperties(options.title,
-                                            $(el_window).attr('data-path'),
-                                            $(el_window).attr('data-uid'),
-                                            left,
-                                            top,
-                                            window_width,
-                                            window_height);
+                            UIWindowItemProperties(
+                                options.title,
+                                $(el_window).attr('data-path'),
+                                $(el_window).attr('data-uid'),
+                                left,
+                                top,
+                                window_width,
+                                window_height,
+                            );
                         },
                     });
                 }
@@ -3271,12 +3277,14 @@ window.navbar_path_droppable = (el_window) => {
             // if alt key is down, create shortcut items
             if ( event.altKey ) {
                 items_to_move.forEach((item_to_move) => {
-                    window.create_shortcut(path.basename($(item_to_move).attr('data-path')),
-                                    $(item_to_move).attr('data-is_dir') === '1',
-                                    $(this).attr('data-path'),
-                                    null,
-                                    $(item_to_move).attr('data-shortcut_to') === '' ? $(item_to_move).attr('data-uid') : $(item_to_move).attr('data-shortcut_to'),
-                                    $(item_to_move).attr('data-shortcut_to_path') === '' ? $(item_to_move).attr('data-path') : $(item_to_move).attr('data-shortcut_to_path'));
+                    window.create_shortcut(
+                        path.basename($(item_to_move).attr('data-path')),
+                        $(item_to_move).attr('data-is_dir') === '1',
+                        $(this).attr('data-path'),
+                        null,
+                        $(item_to_move).attr('data-shortcut_to') === '' ? $(item_to_move).attr('data-uid') : $(item_to_move).attr('data-shortcut_to'),
+                        $(item_to_move).attr('data-shortcut_to_path') === '' ? $(item_to_move).attr('data-path') : $(item_to_move).attr('data-shortcut_to_path'),
+                    );
                 });
             }
             // move items
@@ -3575,12 +3583,14 @@ window.sidebar_item_droppable = (el_window) => {
             // if alt key is down, create shortcut items
             if ( event.altKey ) {
                 items_to_move.forEach((item_to_move) => {
-                    window.create_shortcut(path.basename($(item_to_move).attr('data-path')),
-                                    $(item_to_move).attr('data-is_dir') === '1',
-                                    $(this).attr('data-path'),
-                                    null,
-                                    $(item_to_move).attr('data-shortcut_to') === '' ? $(item_to_move).attr('data-uid') : $(item_to_move).attr('data-shortcut_to'),
-                                    $(item_to_move).attr('data-shortcut_to_path') === '' ? $(item_to_move).attr('data-path') : $(item_to_move).attr('data-shortcut_to_path'));
+                    window.create_shortcut(
+                        path.basename($(item_to_move).attr('data-path')),
+                        $(item_to_move).attr('data-is_dir') === '1',
+                        $(this).attr('data-path'),
+                        null,
+                        $(item_to_move).attr('data-shortcut_to') === '' ? $(item_to_move).attr('data-uid') : $(item_to_move).attr('data-shortcut_to'),
+                        $(item_to_move).attr('data-shortcut_to_path') === '' ? $(item_to_move).attr('data-path') : $(item_to_move).attr('data-shortcut_to_path'),
+                    );
                 });
             }
             // move items

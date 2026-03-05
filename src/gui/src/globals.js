@@ -22,6 +22,8 @@ window.clipboard = [];
 window.actions_history = [];
 window.window_nav_history = {};
 window.window_nav_history_current_position = {};
+window.dashboard_nav_history = [];
+window.dashboard_nav_history_current_position = 0;
 window.progress_tracker = [];
 window.upload_item_global_id = 0;
 window.app_instance_ids = new Set();
@@ -178,6 +180,11 @@ $(window).on( 'resize', function () {
 
     window.desktop_height = new_desktop_height;
     window.desktop_width = new_desktop_width;
+
+    // Update all maximized windows to fit the new viewport
+    $('.window[data-is_maximized="1"]').each(function () {
+        window.update_maximized_window_for_taskbar(this);
+    });
 });
 
 // for now `active_element` is basically the last element that was clicked,

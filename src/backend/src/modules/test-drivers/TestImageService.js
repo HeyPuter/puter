@@ -31,7 +31,7 @@ const PUBLIC_DOMAIN_IMAGES = [
 ];
 
 class TestImageService extends BaseService {
-    async ['__on_driver.register.interfaces'] () {
+    async '__on_driver.register.interfaces' () {
         const svc_registry = this.services.get('registry');
         const col_interfaces = svc_registry.get('interfaces');
 
@@ -68,12 +68,12 @@ class TestImageService extends BaseService {
     }
 
     static IMPLEMENTS = {
-        ['version']: {
+        'version': {
             get_version () {
                 return 'v1.0.0';
             },
         },
-        ['test-image']: {
+        'test-image': {
             async echo_image ({
                 source,
             }) {

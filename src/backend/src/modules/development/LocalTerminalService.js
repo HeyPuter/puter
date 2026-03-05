@@ -35,7 +35,7 @@ class LocalTerminalService extends BaseService {
     }
     get_profiles () {
         return {
-            ['api-test']: {
+            'api-test': {
                 cwd: path_.join(__dirname,
                                 '../../../../../',
                                 'tools/api-tester'),
@@ -48,7 +48,7 @@ class LocalTerminalService extends BaseService {
             },
         };
     };
-    ['__on_install.routes'] (_, { app }) {
+    '__on_install.routes' (_, { app }) {
         const r_group = (() => {
             const require = this.require;
             const express = require('express');

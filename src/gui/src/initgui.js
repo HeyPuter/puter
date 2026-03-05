@@ -17,11 +17,14 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import UIDashboard from './UI/Dashboard/UIDashboard.js';
 import UIAlert from './UI/UIAlert.js';
 import UIComponentWindow from './UI/UIComponentWindow.js';
 import UIDesktop from './UI/UIDesktop.js';
 import UIWindow from './UI/UIWindow.js';
+import UIWindowAuthMe from './UI/UIWindowAuthMe.js';
 import UIWindowChangeUsername from './UI/UIWindowChangeUsername.js';
+import UIWindowCopyToken from './UI/UIWindowCopyToken.js';
 import UIWindowEmailConfirmationRequired from './UI/UIWindowEmailConfirmationRequired.js';
 import UIWindowLogin from './UI/UIWindowLogin.js';
 import UIWindowLoginInProgress from './UI/UIWindowLoginInProgress.js';
@@ -30,8 +33,6 @@ import UIWindowRequestPermission from './UI/UIWindowRequestPermission.js';
 import UIWindowSaveAccount from './UI/UIWindowSaveAccount.js';
 import UIWindowSessionList from './UI/UIWindowSessionList.js';
 import UIWindowSignup from './UI/UIWindowSignup.js';
-import UIWindowCopyToken from './UI/UIWindowCopyToken.js';
-import UIWindowAuthMe from './UI/UIWindowAuthMe.js';
 import { PROCESS_RUNNING } from './definitions.js';
 import item_icon from './helpers/item_icon.js';
 import update_last_touch_coordinates from './helpers/update_last_touch_coordinates.js';
@@ -49,7 +50,6 @@ import { ProcessService } from './services/ProcessService.js';
 import { SettingsService } from './services/SettingsService.js';
 import { ThemeService } from './services/ThemeService.js';
 import { privacy_aware_path } from './util/desktop.js';
-import UIDashboard from './UI/Dashboard/UIDashboard.js';
 
 const launch_services = async function (options) {
     // === Services Data Structures ===
@@ -156,7 +156,30 @@ if ( jQuery ) {
 // are we in dashboard mode?
 if ( window.location.pathname === '/dashboard' || window.location.pathname === '/dashboard/' ) {
     window.is_dashboard_mode = true;
+    window.dashboard_initial_route = parseDashboardRoute();
 }
+
+/**
+ * Parses the dashboard URL hash into a route object.
+ * Hash format: #files/username/Documents or #usage or #account etc.
+ * @returns {{ tab: string, path: string|null }} Route object with tab name and optional file path
+ */
+function parseDashboardRoute () {
+    const hash = decodeURIComponent(window.location.hash.slice(1)); // Remove '#' and decode URL encoding
+    if ( ! hash ) return { tab: 'home', path: null };
+
+    const parts = hash.split('/').filter(Boolean); // ['files', 'username', 'Documents']
+    const tab = parts[0]; // 'files', 'usage', 'account', 'security'
+
+    if ( tab === 'files' && parts.length > 1 ) {
+        const filePath = `/${parts.slice(1).join('/')}`; // /username/Documents
+        return { tab: 'files', path: filePath };
+    }
+    return { tab: tab || 'home', path: null };
+}
+
+// Make parseDashboardRoute available globally for hashchange handler
+window.parseDashboardRoute = parseDashboardRoute;
 
 /**
  * Shows a Turnstile challenge modal for first-time temp user creation
@@ -370,6 +393,29 @@ window.initgui = async function (options) {
     // Launch services before any UI is rendered
     await launch_services(options);
 
+    // If no token in storage but we have a session cookie (e.g. after OIDC redirect), fetch GUI token
+    try {
+        const r = await fetch(`${window.gui_origin}/get-gui-token`, { credentials: 'include' });
+        if ( r.ok ) {
+            const { token } = await r.json();
+            window.auth_token = token;
+            localStorage.setItem('auth_token', token);
+            if ( typeof puter !== 'undefined' ) puter.setAuthToken(token, window.api_origin);
+            const tokenChanged = token !== window.auth_token;
+            if ( tokenChanged ) {
+                // This will update the list of logged in users and set the current one
+                try {
+                    const whoami = await puter.os.user({ query: 'icon_size=64' });
+                    if ( whoami ) await window.update_auth_data(token, whoami);
+                } catch (e) {
+                    console.error('get-gui-token follow-up whoami/update_auth_data', e);
+                }
+            }
+        }
+    } catch (e) {
+        console.error('get-gui-token', e);
+    }
+
     //--------------------------------------------------------------------------------------
     // Is attempt_temp_user_creation?
     // i.e. https://puter.com/?attempt_temp_user_creation=true
@@ -386,11 +432,14 @@ window.initgui = async function (options) {
         window.embedded_in_popup = true;
         $('body').addClass('embedded-in-popup');
 
-        // determine the origin of the opener
-        window.openerOrigin = document.referrer;
-
-        // if no referrer, request it from the opener via messaging
-        if ( ! document.referrer ) {
+        // determine the origin of the opener (preserved across OIDC redirect via URL param, else referrer or messaging)
+        const openerOriginFromUrl = window.url_query_params.get('opener_origin');
+        if ( openerOriginFromUrl ) {
+            window.openerOrigin = openerOriginFromUrl;
+        } else {
+            window.openerOrigin = document.referrer;
+        }
+        if ( ! window.openerOrigin ) {
             try {
                 window.openerOrigin = await requestOpenerOrigin();
             } catch (e) {
@@ -417,6 +466,16 @@ window.initgui = async function (options) {
             }
         }
         else if ( action === 'sign-in' && window.is_auth() && !(window.attempt_temp_user_creation && window.first_visit_ever) ) {
+            // Ensure current user is in logged_in_users (e.g. after OIDC redirect we have token but no user in list)
+            try {
+                const whoami_popup = await puter.os.user({ query: 'icon_size=64' });
+                await window.update_auth_data(whoami_popup.token || window.auth_token, whoami_popup);
+            } catch (e) {
+                // session/auth errors will be handled further ahead;
+                // let's log the error for now in case a change in state occurred.
+                console.error('error in \'sign-in\' flow', e);
+            }
+            // Always show session list so user sees their account(s); after OIDC they will see the one they signed into
             picked_a_user_for_sdk_login = await UIWindowSessionList({
                 reload_on_success: false,
                 draggable_body: false,
@@ -427,7 +486,6 @@ window.initgui = async function (options) {
             if ( picked_a_user_for_sdk_login ) {
                 await window.getUserAppToken(window.openerOrigin);
             }
-
         }
     }
 
@@ -442,6 +500,22 @@ window.initgui = async function (options) {
     }
 
     //--------------------------------------------------------------------------------------
+    // Inform the user if they chose "signup" but were logged into an existing account
+    //--------------------------------------------------------------------------------------
+    if ( window.url_query_params.get('oidc_switched') === 'login' && window.is_auth() ) {
+        await UIAlert({
+            message: i18n('oidc_switched_to_login_message'),
+        });
+        const params = new URLSearchParams(window.location.search);
+        params.delete('oidc_switched');
+        const cleanSearch = params.toString();
+        const cleanUrl = cleanSearch
+            ? `${window.location.pathname}?${cleanSearch}`
+            : window.location.pathname || '/';
+        window.history.replaceState(null, document.title, cleanUrl);
+    }
+
+    //--------------------------------------------------------------------------------------
     // Get user referral code from URL query params
     // i.e. https://puter.com/?r=123456
     //--------------------------------------------------------------------------------------
@@ -453,6 +527,14 @@ window.initgui = async function (options) {
         if ( window.first_visit_ever ) {
             window.show_referral_notice = true;
         }
+    }
+
+    //--------------------------------------------------------------------------------------
+    // Desktop background (early)
+    // Set before action=login/signup so OIDC error redirects show the background behind the form.
+    // -------------------------------------------------------------------------------------
+    if ( !window.is_fullpage_mode && !window.embedded_in_popup ) {
+        window.refresh_desktop_background();
     }
 
     //--------------------------------------------------------------------------------------
@@ -497,13 +579,23 @@ window.initgui = async function (options) {
     // Action: Login
     //--------------------------------------------------------------------------------------
     else if ( action === 'login' ) {
-        await UIWindowLogin();
+        const authError = window.url_query_params.get('message') || null;
+        const opts = window.url_query_params.has('auth_error') ? { authError } : {};
+        if ( ! window.is_auth() ) {
+            opts.window_options = { has_head: false };
+        }
+        await UIWindowLogin(Object.keys(opts).length ? opts : undefined);
     }
     //--------------------------------------------------------------------------------------
     // Action: Signup
     //--------------------------------------------------------------------------------------
     else if ( action === 'signup' ) {
-        await UIWindowSignup();
+        const authError = window.url_query_params.get('message') || null;
+        const opts = window.url_query_params.has('auth_error') ? { authError } : {};
+        if ( ! window.is_auth() ) {
+            opts.window_options = { has_head: false };
+        }
+        await UIWindowSignup(Object.keys(opts).length ? opts : undefined);
     }
     // -------------------------------------------------------------------------------------
     // If in embedded in a popup, it is important to check whether the opener app has a relationship with the user
@@ -564,7 +656,7 @@ window.initgui = async function (options) {
             // show login progress window
             UIWindowLoginInProgress({ user_info: whoami });
             // update auth data
-            window.update_auth_data(query_param_auth_token, whoami, api_origin);
+            await window.update_auth_data(query_param_auth_token, whoami, api_origin);
         }
         // remove auth_token from URL
         window.history.pushState(null, document.title, '/');
@@ -625,7 +717,7 @@ window.initgui = async function (options) {
                 }
                 while ( !is_verified );
             }
-            window.update_auth_data(whoami.token || window.auth_token, whoami);
+            await window.update_auth_data(whoami.token || window.auth_token, whoami);
 
             // -------------------------------------------------------------------------------------
             // Action: AuthMe — redirect to a third-party URL with the user's auth token
@@ -829,12 +921,14 @@ window.initgui = async function (options) {
                                     }
                                     // upload
                                     try {
-                                        const res = await puter.fs.write(target_path,
-                                                        file_to_upload,
-                                                        {
-                                                            dedupeName: false,
-                                                            overwrite: overwrite,
-                                                        });
+                                        const res = await puter.fs.write(
+                                            target_path,
+                                            file_to_upload,
+                                            {
+                                                dedupeName: false,
+                                                overwrite: overwrite,
+                                            },
+                                        );
 
                                         let file_signature = await puter.fs.sign(app_uid, { uid: res.uid, action: 'write' });
                                         file_signature = file_signature.items;
@@ -1007,7 +1101,7 @@ window.initgui = async function (options) {
             });
         }
         if ( !reload_on_success && window.is_auth() ) {
-            document.dispatchEvent(new Event('login', { bubbles: true }));
+            window.__login_completed = true;
         }
     }
 
@@ -1088,7 +1182,7 @@ window.initgui = async function (options) {
                         resolve();
                     });
 
-                    window.update_auth_data(data.token, data.user);
+                    await window.update_auth_data(data.token, data.user);
 
                     // if this is a popup, hide the spinner, make sure it was visible for at least 2 seconds
                     if(window.embedded_in_popup) await new Promise(async resolve => {
@@ -1172,7 +1266,6 @@ window.initgui = async function (options) {
                     }
                 },
                 complete: function () {
-
                 },
             });
         };
@@ -1416,12 +1509,14 @@ window.initgui = async function (options) {
                                 }
                                 // upload
                                 try {
-                                    const res = await puter.fs.write(target_path,
-                                                    file_to_upload,
-                                                    {
-                                                        dedupeName: false,
-                                                        overwrite: overwrite,
-                                                    });
+                                    const res = await puter.fs.write(
+                                        target_path,
+                                        file_to_upload,
+                                        {
+                                            dedupeName: false,
+                                            overwrite: overwrite,
+                                        },
+                                    );
 
                                     let file_signature = await puter.fs.sign(app_uid, { uid: res.uid, action: 'write' });
                                     file_signature = file_signature.items;
@@ -1505,6 +1600,11 @@ window.initgui = async function (options) {
         }
 
     });
+
+    if ( window.__login_completed ) {
+        document.dispatchEvent(new Event('login', { bubbles: true }));
+        window.__login_completed = false;
+    }
 
     $('.popover, .context-menu').on('remove', function () {
         $('.window-active .window-app-iframe').css('pointer-events', 'all');

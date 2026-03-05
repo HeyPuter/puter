@@ -91,9 +91,10 @@ router.post('/send-pass-recovery-email', express.json(), body_parser_error_handl
 
         if ( user.username === 'system' && config.allow_system_login !== true ) {
             return res.status(400).send(
-                            req.body.username
-                                ? 'Username not found.'
-                                : 'Email not found.');
+                req.body.username
+                    ? 'Username not found.'
+                    : 'Email not found.',
+            );
         }
 
         // check if user is suspended
@@ -108,10 +109,11 @@ router.post('/send-pass-recovery-email', express.json(), body_parser_error_handl
 
         // set pass_recovery_token
         const { v4: uuidv4 } = require('uuid');
-        const nodemailer = require('nodemailer');
         const token = uuidv4();
-        await db.write('UPDATE user SET pass_recovery_token=? WHERE `id` = ?',
-                        [token, user.id]);
+        await db.write(
+            'UPDATE user SET pass_recovery_token=? WHERE `id` = ?',
+            [token, user.id],
+        );
         invalidate_cached_user(user);
 
         // create jwt

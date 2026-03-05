@@ -17,15 +17,18 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const { Actor, UserActorType, AppUnderUserActorType, AccessTokenActorType, SiteActorType } = require('./Actor');
-const BaseService = require('../BaseService');
+const { BaseService } = require('../BaseService');
 const { get_user, get_app } = require('../../helpers');
 const { Context } = require('../../util/context');
 const APIError = require('../../api/APIError');
 const { DB_WRITE } = require('../database/consts');
 const { UUIDFPE } = require('../../util/uuidfpe');
-
+const uuidLib = require('uuid');
+const crypto = require('crypto');
 // This constant defines the namespace used for generating app UUIDs from their origins
 const APP_ORIGIN_UUID_NAMESPACE = '33de3768-8ee0-43e9-9e73-db192b97a5d8';
+const DEFAULT_PRIVATE_APP_ASSET_TOKEN_TTL_SECONDS = 60 * 60;
+const DEFAULT_PRIVATE_APP_ASSET_COOKIE_NAME = 'puter.private.asset.token';
 
 const LegacyTokenError = class extends Error {
 };
@@ -35,12 +38,6 @@ const LegacyTokenError = class extends Error {
 * This class is responsible for handling authentication and authorization tasks for the application.
 */
 class AuthService extends BaseService {
-    static MODULES = {
-        jwt: require('jsonwebtoken'),
-        crypto: require('crypto'),
-        uuidv5: require('uuid').v5,
-        uuidv4: require('uuid').v4,
-    };
 
     async _init () {
         this.db = await this.services.get('database').get(DB_WRITE, 'auth');
@@ -64,16 +61,12 @@ class AuthService extends BaseService {
         // We do this to avoid exposing the internal UUID for sessions.
         const uuid_fpe_key = this.config.uuid_fpe_key
             ? UUIDFPE.uuidToBuffer(this.config.uuid_fpe_key)
-            : this.modules.crypto.randomBytes(16);
+            : crypto.randomBytes(16);
         this.uuid_fpe = new UUIDFPE(uuid_fpe_key);
 
         this.sessions = {};
 
-        const svc_token = await this.services.get('token');
-        this.modules.jwt = {
-            sign: (payload, _, options) => svc_token.sign('auth', payload, options),
-            verify: (token, _) => svc_token.verify('auth', token),
-        };
+        this.tokenService = await this.services.get('token');
     }
 
     /**
@@ -84,10 +77,12 @@ class AuthService extends BaseService {
     * @returns {Promise<Actor>} The authenticated user or app actor.
     */
     async authenticate_from_token (token) {
-        const decoded = this.modules.jwt.verify(token,
-                        this.global_config.jwt_secret);
+        const decoded = this.tokenService.verify(
+            'auth',
+            token,
+        );
 
-        if ( ! decoded.hasOwnProperty('type') ) {
+        if ( ! Object.prototype.hasOwnProperty.call(decoded, 'type') ) {
             throw new LegacyTokenError();
         }
 
@@ -107,6 +102,32 @@ class AuthService extends BaseService {
             const actor_type = new UserActorType({
                 user,
                 session: session.uuid,
+                hasHttpOnlyCookie: true,
+            });
+
+            return new Actor({
+                user_uid: decoded.user_uid,
+                type: actor_type,
+            });
+        }
+
+        if ( decoded.type === 'gui' ) {
+            const session = await this.get_session_(decoded.uuid);
+
+            if ( ! session ) {
+                throw APIError.create('token_auth_failed');
+            }
+
+            const user = await get_user({ uuid: decoded.user_uid });
+
+            if ( ! user ) {
+                throw APIError.create('user_not_found');
+            }
+
+            const actor_type = new UserActorType({
+                user,
+                session: session.uuid,
+                hasHttpOnlyCookie: false,
             });
 
             return new Actor({
@@ -206,28 +227,368 @@ class AuthService extends BaseService {
             user_uid: actor_type.user.uuid,
         });
 
-        const token = this.modules.jwt.sign({
-            type: 'app-under-user',
-            version: '0.0.0',
-            user_uid: actor_type.user.uuid,
-            app_uid,
-            ...(actor_type.session ? { session: this.uuid_fpe.encrypt(actor_type.session) } : {}),
-        },
-        this.global_config.jwt_secret);
+        const token = this.tokenService.sign(
+            'auth',
+            {
+                type: 'app-under-user',
+                version: '0.0.0',
+                user_uid: actor_type.user.uuid,
+                app_uid,
+                ...(actor_type.session ? { session: this.uuid_fpe.encrypt(actor_type.session) } : {}),
+            },
+        );
 
         return token;
     }
 
     get_site_app_token ({ site_uid }) {
-        const token = this.modules.jwt.sign({
-            type: 'actor-site',
-            version: '0.0.0',
-            site_uid,
-        },
-        this.global_config.jwt_secret,
-        { expiresIn: '1h' });
+        const token = this.tokenService.sign(
+            'auth',
+            {
+                type: 'actor-site',
+                version: '0.0.0',
+                site_uid,
+            },
+            { expiresIn: '1h' },
+        );
 
         return token;
+    }
+
+    resolvePositiveInteger (value, fallback) {
+        const parsed = Number(value);
+        if ( !Number.isFinite(parsed) || parsed <= 0 ) {
+            return fallback;
+        }
+        return Math.floor(parsed);
+    }
+
+    getPrivateAssetTokenTtlSeconds () {
+        return this.resolvePositiveInteger(
+            this.global_config.private_app_asset_token_ttl_seconds,
+            DEFAULT_PRIVATE_APP_ASSET_TOKEN_TTL_SECONDS,
+        );
+    }
+
+    getPrivateAssetCookieName () {
+        const configuredCookieName = this.global_config.private_app_asset_cookie_name;
+        if ( typeof configuredCookieName === 'string' && configuredCookieName.trim() ) {
+            return configuredCookieName.trim();
+        }
+        return DEFAULT_PRIVATE_APP_ASSET_COOKIE_NAME;
+    }
+
+    normalizeHostnameForCookieDomain (hostnameValue) {
+        if ( typeof hostnameValue !== 'string' ) return null;
+        const trimmedHostname = hostnameValue.trim().toLowerCase().replace(/^\./, '');
+        if ( ! trimmedHostname ) return null;
+        try {
+            return new URL(`http://${trimmedHostname}`).hostname.toLowerCase();
+        } catch {
+            return trimmedHostname.split(':')[0] || null;
+        }
+    }
+
+    isCookieDomainHostEligible (hostnameValue) {
+        if ( typeof hostnameValue !== 'string' || !hostnameValue ) return false;
+        if ( hostnameValue === 'localhost' ) return false;
+        if ( hostnameValue.includes(':') ) return false;
+        if ( ! hostnameValue.includes('.') ) return false;
+        if ( /^\d{1,3}(?:\.\d{1,3}){3}$/.test(hostnameValue) ) return false;
+        return true;
+    }
+
+    getConfiguredPrivateCookieDomains () {
+        const configuredDomains = [];
+        for ( const configuredDomainCandidate of [
+            this.global_config.private_app_hosting_domain,
+            this.global_config.private_app_hosting_domain_alt,
+        ] ) {
+            const normalizedDomain = this.normalizeHostnameForCookieDomain(configuredDomainCandidate);
+            if ( normalizedDomain ) {
+                configuredDomains.push(normalizedDomain);
+            }
+        }
+        return [...new Set(configuredDomains)];
+    }
+
+    resolvePrivateAssetCookieDomain ({ requestHostname } = {}) {
+        const configuredDomains = this.getConfiguredPrivateCookieDomains();
+        const normalizedRequestHost = this.normalizeHostnameForCookieDomain(requestHostname);
+
+        if ( normalizedRequestHost ) {
+            const matchedConfiguredDomain = configuredDomains
+                .sort((domainA, domainB) => domainB.length - domainA.length)
+                .find(configuredDomain =>
+                    normalizedRequestHost === configuredDomain ||
+                    normalizedRequestHost.endsWith(`.${configuredDomain}`));
+            if ( this.isCookieDomainHostEligible(matchedConfiguredDomain) ) {
+                return `.${matchedConfiguredDomain}`;
+            }
+            return undefined;
+        }
+
+        const normalizedConfiguredPrimaryDomain = this.normalizeHostnameForCookieDomain(
+            this.global_config.private_app_hosting_domain,
+        );
+        if ( this.isCookieDomainHostEligible(normalizedConfiguredPrimaryDomain) ) {
+            return `.${normalizedConfiguredPrimaryDomain}`;
+        }
+        return undefined;
+    }
+
+    getPrivateAssetCookieOptions ({ ttlSeconds, requestHostname } = {}) {
+        const effectiveTtlSeconds = this.resolvePositiveInteger(
+            ttlSeconds,
+            this.getPrivateAssetTokenTtlSeconds(),
+        );
+
+        const cookieOptions = {
+            sameSite: 'none',
+            secure: true,
+            httpOnly: true,
+            path: '/',
+            maxAge: effectiveTtlSeconds * 1000,
+        };
+
+        const cookieDomain = this.resolvePrivateAssetCookieDomain({ requestHostname });
+        if ( cookieDomain ) {
+            cookieOptions.domain = cookieDomain;
+        }
+
+        return cookieOptions;
+    }
+
+    normalizePrivateAssetSubdomain (subdomain) {
+        if ( typeof subdomain !== 'string' ) return undefined;
+        const normalizedSubdomain = subdomain.trim().toLowerCase();
+        return normalizedSubdomain || undefined;
+    }
+
+    normalizePrivateAssetHost (privateHost) {
+        if ( typeof privateHost !== 'string' ) return undefined;
+        const normalizedPrivateHost = privateHost.trim().toLowerCase().replace(/^\./, '');
+        if ( ! normalizedPrivateHost ) return undefined;
+        return normalizedPrivateHost;
+    }
+
+    createPrivateAssetToken ({ appUid, userUid, sessionUuid, subdomain, privateHost, ttlSeconds } = {}) {
+        if ( typeof appUid !== 'string' || !appUid.trim() ) {
+            throw new Error('appUid is required to create private asset token.');
+        }
+        if ( typeof userUid !== 'string' || !userUid.trim() ) {
+            throw new Error('userUid is required to create private asset token.');
+        }
+        if ( sessionUuid !== undefined && (typeof sessionUuid !== 'string' || !sessionUuid.trim()) ) {
+            throw new Error('sessionUuid must be a non-empty string when provided.');
+        }
+        const normalizedSubdomain = this.normalizePrivateAssetSubdomain(subdomain);
+        if ( subdomain !== undefined && !normalizedSubdomain ) {
+            throw new Error('subdomain must be a non-empty string when provided.');
+        }
+        const normalizedPrivateHost = this.normalizePrivateAssetHost(privateHost);
+        if ( privateHost !== undefined && !normalizedPrivateHost ) {
+            throw new Error('privateHost must be a non-empty string when provided.');
+        }
+
+        const effectiveTtlSeconds = this.resolvePositiveInteger(
+            ttlSeconds,
+            this.getPrivateAssetTokenTtlSeconds(),
+        );
+
+        const payload = {
+            type: 'app-private-asset',
+            version: '0.0.0',
+            app_uid: appUid.trim(),
+            user_uid: userUid.trim(),
+            ...(sessionUuid ? { session: this.uuid_fpe.encrypt(sessionUuid) } : {}),
+            ...(normalizedSubdomain ? { subdomain: normalizedSubdomain } : {}),
+            ...(normalizedPrivateHost ? { private_host: normalizedPrivateHost } : {}),
+        };
+
+        return this.tokenService.sign('auth', payload, {
+            expiresIn: effectiveTtlSeconds,
+        });
+    }
+
+    verifyPrivateAssetToken (
+        token,
+        { expectedAppUid, expectedUserUid, expectedSessionUuid, expectedSubdomain, expectedPrivateHost } = {},
+    ) {
+        let decoded;
+        try {
+            decoded = this.tokenService.verify('auth', token);
+        } catch (e) {
+            throw APIError.create('token_auth_failed');
+        }
+
+        if (
+            !decoded ||
+            decoded.type !== 'app-private-asset' ||
+            typeof decoded.app_uid !== 'string' ||
+            !decoded.app_uid ||
+            typeof decoded.user_uid !== 'string' ||
+            !decoded.user_uid
+        ) {
+            throw APIError.create('token_auth_failed');
+        }
+
+        let sessionUuid;
+        if ( decoded.session !== undefined ) {
+            if ( typeof decoded.session !== 'string' || !decoded.session ) {
+                throw APIError.create('token_auth_failed');
+            }
+            try {
+                sessionUuid = this.uuid_fpe.decrypt(decoded.session);
+            } catch (e) {
+                throw APIError.create('token_auth_failed');
+            }
+        }
+
+        let subdomain;
+        if ( decoded.subdomain !== undefined ) {
+            if ( typeof decoded.subdomain !== 'string' || !decoded.subdomain.trim() ) {
+                throw APIError.create('token_auth_failed');
+            }
+            subdomain = decoded.subdomain.trim().toLowerCase();
+        }
+        let privateHost;
+        if ( decoded.private_host !== undefined ) {
+            if ( typeof decoded.private_host !== 'string' || !decoded.private_host.trim() ) {
+                throw APIError.create('token_auth_failed');
+            }
+            privateHost = decoded.private_host.trim().toLowerCase();
+        }
+
+        if ( expectedAppUid && decoded.app_uid !== expectedAppUid ) {
+            throw APIError.create('token_auth_failed');
+        }
+        if ( expectedUserUid && decoded.user_uid !== expectedUserUid ) {
+            throw APIError.create('token_auth_failed');
+        }
+        if ( expectedSessionUuid ) {
+            if ( !sessionUuid || sessionUuid !== expectedSessionUuid ) {
+                throw APIError.create('token_auth_failed');
+            }
+        }
+        const normalizedExpectedSubdomain = this.normalizePrivateAssetSubdomain(expectedSubdomain);
+        if ( expectedSubdomain !== undefined && !normalizedExpectedSubdomain ) {
+            throw APIError.create('token_auth_failed');
+        }
+        if ( normalizedExpectedSubdomain ) {
+            if ( !subdomain || subdomain !== normalizedExpectedSubdomain ) {
+                throw APIError.create('token_auth_failed');
+            }
+        }
+        const normalizedExpectedPrivateHost = this.normalizePrivateAssetHost(expectedPrivateHost);
+        if ( expectedPrivateHost !== undefined && !normalizedExpectedPrivateHost ) {
+            throw APIError.create('token_auth_failed');
+        }
+        if ( normalizedExpectedPrivateHost ) {
+            if ( !privateHost || privateHost !== normalizedExpectedPrivateHost ) {
+                throw APIError.create('token_auth_failed');
+            }
+        }
+
+        return {
+            appUid: decoded.app_uid,
+            userUid: decoded.user_uid,
+            sessionUuid,
+            subdomain,
+            privateHost,
+            exp: decoded.exp,
+            iat: decoded.iat,
+        };
+    }
+
+    resolvePrivateBootstrapSessionUuid (decoded) {
+        if ( !decoded || typeof decoded !== 'object' ) {
+            return null;
+        }
+
+        if ( decoded.type === 'session' || decoded.type === 'gui' ) {
+            if ( typeof decoded.uuid !== 'string' || !decoded.uuid ) {
+                return null;
+            }
+            return decoded.uuid;
+        }
+
+        if ( decoded.type === 'app-under-user' ) {
+            if ( typeof decoded.session !== 'string' || !decoded.session ) {
+                return null;
+            }
+            try {
+                return this.uuid_fpe.decrypt(decoded.session);
+            } catch (e) {
+                return null;
+            }
+        }
+
+        return null;
+    }
+
+    async resolvePrivateBootstrapIdentityFromToken (token, { expectedAppUid, expectedAppUids } = {}) {
+        let decoded;
+        try {
+            decoded = this.tokenService.verify('auth', token);
+        } catch (e) {
+            throw new Error('Token decode error');
+        }
+
+        const userUid = typeof decoded?.user_uid === 'string'
+            ? decoded.user_uid
+            : null;
+        if ( ! userUid ) {
+            throw new Error('Token missing uuid');
+        }
+
+        const allowedTypes = new Set(['session', 'gui', 'app-under-user']);
+        if ( ! allowedTypes.has(decoded.type) ) {
+            throw new Error(`Token wrong type: ${ decoded.type}`);
+        }
+        const bootstrapAppUid = typeof decoded?.app_uid === 'string'
+            ? decoded.app_uid
+            : null;
+        const expectedAppUidCandidates = new Set();
+        if ( typeof expectedAppUid === 'string' && expectedAppUid ) {
+            expectedAppUidCandidates.add(expectedAppUid);
+        }
+        if ( Array.isArray(expectedAppUids) ) {
+            for ( const appUidCandidate of expectedAppUids ) {
+                if ( typeof appUidCandidate === 'string' && appUidCandidate ) {
+                    expectedAppUidCandidates.add(appUidCandidate);
+                }
+            }
+        }
+        if (
+            bootstrapAppUid
+            && expectedAppUidCandidates.size > 0
+            && !expectedAppUidCandidates.has(bootstrapAppUid)
+        ) {
+            throw new Error(`Token app uuid: ${ bootstrapAppUid } doesn't match expected appUuid candidates: ${ JSON.stringify(expectedAppUidCandidates)}`);
+        }
+
+        const sessionUuid = this.resolvePrivateBootstrapSessionUuid(decoded);
+        if ( ! sessionUuid ) {
+            throw new Error('Token missing sessionUuid');
+        }
+
+        const session = await this.get_session_(sessionUuid);
+        if ( ! session ) {
+            throw new Error('Token missing session');
+        }
+
+        const sessionUserUid = typeof session.user_uid === 'string'
+            ? session.user_uid
+            : null;
+        if ( !sessionUserUid || sessionUserUid !== userUid ) {
+            throw new Error('Token mismatch userId');
+        }
+
+        return {
+            userUid,
+            sessionUuid: session.uuid || sessionUuid,
+        };
     }
 
     /**
@@ -299,15 +660,53 @@ class AuthService extends BaseService {
     async create_session_token (user, meta) {
         const session = await this.create_session_(user, meta);
 
-        const token = this.modules.jwt.sign({
+        const token = this.tokenService.sign('auth', {
             type: 'session',
             version: '0.0.0',
             uuid: session.uuid,
             // meta: session.meta,
             user_uid: user.uuid,
-        }, this.global_config.jwt_secret);
+        });
 
         return { session, token };
+    }
+
+    /**
+     * Creates a GUI token bound to the same session as the given session object.
+     * GUI tokens create a UserActorType with hasHttpOnlyCookie false, so they cannot
+     * access user-protected HTTP endpoints (e.g. change password). The GUI receives
+     * only this token, not the full session token.
+     *
+     * @param {*} user - User object (must have .uuid).
+     * @param {{ uuid: string }} session - Session object (must have .uuid).
+     * @returns {string} JWT GUI token.
+     */
+    create_gui_token (user, session) {
+        return this.tokenService.sign('auth', {
+            type: 'gui',
+            version: '0.0.0',
+            uuid: session.uuid,
+            user_uid: user.uuid,
+        });
+    }
+
+    /**
+     * Creates a session token (hasHttpOnlyCookie) for an existing session.
+     * Used when the client authenticated with a GUI token (e.g. QR login via
+     * ?auth_token=) so we can set the HTTP-only cookie and allow user-protected
+     * endpoints (change password, email, username, etc.) to work.
+     *
+     * @param {*} user - User object (must have .uuid).
+     * @param {string} session_uuid - Existing session UUID.
+     * @returns {string} JWT session token.
+     */
+    create_session_token_for_session (user, session_uuid) {
+        return this.tokenService.sign('auth', {
+            type: 'session',
+            version: '0.0.0',
+            uuid: session_uuid,
+            user_uid: user.uuid,
+        });
     }
 
     /**
@@ -319,11 +718,11 @@ class AuthService extends BaseService {
     * @returns {object} Object containing the user and token if the token is valid, otherwise an empty object.
     */
     async check_session (cur_token, meta) {
-        const decoded = this.modules.jwt.verify(cur_token, this.global_config.jwt_secret);
+        const decoded = this.tokenService.verify('auth', cur_token);
 
-        console.log('\x1B[36;1mDECODED SESSION', decoded);
+        console.debug('\x1B[36;1mDECODED SESSION', decoded);
 
-        if ( decoded.type && decoded.type !== 'session' ) {
+        if ( decoded.type && decoded.type !== 'session' && decoded.type !== 'gui' ) {
             return {};
         }
 
@@ -343,19 +742,24 @@ class AuthService extends BaseService {
                 return {};
             }
 
-            // Return the session
-            return { user, token: cur_token };
+            // Return GUI token to client (if they sent session token, exchange for GUI token)
+            const gui_token = decoded.type === 'gui'
+                ? cur_token
+                : this.create_gui_token(user, session);
+            return { user, token: gui_token };
         }
 
         this.log.info('UPGRADING SESSION');
 
         // Upgrade legacy token
         // TODO: phase this out
-        const { session, token } = await this.create_session_token(user, meta);
+        const { session, token: session_token } = await this.create_session_token(user, meta);
+        const gui_token = this.create_gui_token(user, session);
 
         const actor_type = new UserActorType({
             user,
             session,
+            hasHttpOnlyCookie: true,
         });
 
         const actor = new Actor({
@@ -363,7 +767,8 @@ class AuthService extends BaseService {
             type: actor_type,
         });
 
-        return { actor, user, token };
+        // token = GUI token for client (response body); session_token = for HTTP-only cookie
+        return { actor, user, token: gui_token, session_token };
     }
 
     /**
@@ -373,9 +778,9 @@ class AuthService extends BaseService {
     * @returns {Promise<void>}
     */
     async remove_session_by_token (token) {
-        const decoded = this.modules.jwt.verify(token, this.global_config.jwt_secret);
+        const decoded = this.tokenService.verify('auth', token);
 
-        if ( decoded.type !== 'session' ) {
+        if ( decoded.type !== 'session' && decoded.type !== 'gui' ) {
             return;
         }
 
@@ -416,14 +821,14 @@ class AuthService extends BaseService {
             throw APIError.create('forbidden');
         }
 
-        const uuid = this.modules.uuidv4();
+        const uuid = uuidLib.v4();
 
-        const jwt = this.modules.jwt.sign({
+        const jwt = this.tokenService.sign('auth', {
             type: 'access-token',
             version: '0.0.0',
             token_uid: uuid,
             ...jwt_obj,
-        }, this.global_config.jwt_secret, options);
+        }, options);
 
         for ( const permmission_spec of permissions ) {
             let [permission, extra] = permmission_spec;
@@ -438,10 +843,12 @@ class AuthService extends BaseService {
                 extra: JSON.stringify(extra ?? {}),
             };
             const cols = Object.keys(insert_object).join(', ');
-            const vals = Object.values(insert_object).map(v => '?').join(', ');
-            await this.db.write('INSERT INTO `access_token_permissions` ' +
+            const vals = Object.values(insert_object).map(() => '?').join(', ');
+            await this.db.write(
+                'INSERT INTO `access_token_permissions` ' +
                 `(${cols}) VALUES (${vals})`,
-            Object.values(insert_object));
+                Object.values(insert_object),
+            );
         }
 
         console.log('token uuid?', uuid);
@@ -461,7 +868,7 @@ class AuthService extends BaseService {
         const isJwt = typeof tokenOrUuid === 'string' &&
             /^[\w-]*\.[\w-]*\.[\w-]*$/.test(tokenOrUuid.trim());
         if ( isJwt ) {
-            const decoded = this.modules.jwt.verify(tokenOrUuid, this.global_config.jwt_secret);
+            const decoded = this.tokenService.verify('auth', tokenOrUuid);
             if ( decoded.type !== 'access-token' || !decoded.token_uid ) {
                 throw APIError.create('token_auth_failed');
             }
@@ -469,14 +876,11 @@ class AuthService extends BaseService {
         } else {
             token_uid = tokenOrUuid;
         }
-        /* eslint-disable */
+
         await this.db.write(
             'DELETE FROM `access_token_permissions` WHERE `token_uid` = ?',
             [token_uid],
         );
-        /* eslint-enable */
-        const svc_permission = this.services.get('permission');
-        svc_permission.invalidate_permission_scan_cache_for_access_token(token_uid);
     }
 
     /**
@@ -500,8 +904,10 @@ class AuthService extends BaseService {
 
         // We won't take the cached sessions here because it's
         // possible the user has sessions on other servers
-        const db_sessions = await this.db.read('SELECT uuid, meta FROM `sessions` WHERE `user_id` = ?',
-                        [actor.type.user.id]);
+        const db_sessions = await this.db.read(
+            'SELECT uuid, meta FROM `sessions` WHERE `user_id` = ?',
+            [actor.type.user.id],
+        );
 
         for ( const session of db_sessions ) {
             if ( seen.has(session.uuid) ) {
@@ -553,8 +959,10 @@ class AuthService extends BaseService {
         const app_uid = await this._app_uid_from_origin(origin);
 
         // Determine if the app exists
-        const apps = await this.db.read('SELECT * FROM `apps` WHERE `uid` = ? LIMIT 1',
-                        [app_uid]);
+        const apps = await this.db.read(
+            'SELECT * FROM `apps` WHERE `uid` = ? LIMIT 1',
+            [app_uid],
+        );
 
         if ( apps[0] ) {
             return this.get_user_app_token(app_uid);
@@ -569,10 +977,12 @@ class AuthService extends BaseService {
         const owner_user_id = null;
 
         // Create the app
-        await this.db.write('INSERT INTO `apps` ' +
+        await this.db.write(
+            'INSERT INTO `apps` ' +
             '(`uid`, `name`, `title`, `description`, `index_url`, `owner_user_id`) ' +
             'VALUES (?, ?, ?, ?, ?, ?)',
-        [app_uid, name, title, description, index_url, owner_user_id]);
+            [app_uid, name, title, description, index_url, owner_user_id],
+        );
 
         return this.get_user_app_token(app_uid);
     }
@@ -591,12 +1001,111 @@ class AuthService extends BaseService {
         return await this._app_uid_from_origin(origin);
     }
 
+    normalizeHostedDomainCandidate (domainValue) {
+        if ( typeof domainValue !== 'string' ) return null;
+
+        const normalizedDomainValue = domainValue.trim().toLowerCase().replace(/^\./, '');
+        if ( ! normalizedDomainValue ) return null;
+
+        try {
+            const parsedDomain = new URL(`http://${normalizedDomainValue}`);
+            return {
+                host: parsedDomain.host.toLowerCase(),
+                hostname: parsedDomain.hostname.toLowerCase(),
+            };
+        } catch {
+            const [hostname] = normalizedDomainValue.split(':');
+            if ( ! hostname ) return null;
+            return {
+                host: normalizedDomainValue,
+                hostname,
+            };
+        }
+    }
+
+    getHostedAppDomainCandidatesForMatch () {
+        const hostedDomainCandidates = [];
+        const seenHostnames = new Set();
+
+        for ( const domainCandidate of [
+            this.global_config.static_hosting_domain,
+            this.global_config.static_hosting_domain_alt,
+            this.global_config.private_app_hosting_domain,
+            this.global_config.private_app_hosting_domain_alt,
+        ] ) {
+            const normalizedDomainCandidate = this.normalizeHostedDomainCandidate(domainCandidate);
+            if ( ! normalizedDomainCandidate ) continue;
+            if ( seenHostnames.has(normalizedDomainCandidate.hostname) ) continue;
+            seenHostnames.add(normalizedDomainCandidate.hostname);
+            hostedDomainCandidates.push(normalizedDomainCandidate);
+        }
+
+        return hostedDomainCandidates;
+    }
+
+    getCanonicalHostedAppDomain () {
+        for ( const domainCandidate of [
+            this.global_config.static_hosting_domain,
+            this.global_config.static_hosting_domain_alt,
+            this.global_config.private_app_hosting_domain,
+            this.global_config.private_app_hosting_domain_alt,
+        ] ) {
+            const normalizedDomainCandidate = this.normalizeHostedDomainCandidate(domainCandidate);
+            if ( normalizedDomainCandidate?.host ) {
+                return normalizedDomainCandidate.host;
+            }
+        }
+        return null;
+    }
+
+    extractHostedAppSubdomainFromHostname (hostname) {
+        if ( typeof hostname !== 'string' ) return null;
+        const normalizedHostname = hostname.trim().toLowerCase();
+        if ( ! normalizedHostname ) return null;
+
+        const hostedDomainCandidates = this.getHostedAppDomainCandidatesForMatch()
+            .sort((domainCandidateA, domainCandidateB) =>
+                domainCandidateB.hostname.length - domainCandidateA.hostname.length);
+
+        for ( const hostedDomainCandidate of hostedDomainCandidates ) {
+            if ( normalizedHostname === hostedDomainCandidate.hostname ) {
+                return null;
+            }
+            const hostedDomainSuffix = `.${hostedDomainCandidate.hostname}`;
+            if ( normalizedHostname.endsWith(hostedDomainSuffix) ) {
+                const subdomain = normalizedHostname.slice(
+                    0,
+                    normalizedHostname.length - hostedDomainSuffix.length,
+                );
+                return subdomain || null;
+            }
+        }
+
+        return null;
+    }
+
+    canonicalizeHostedAppOriginForUid (origin) {
+        try {
+            const parsedOrigin = new URL(origin);
+            const hostedSubdomain = this.extractHostedAppSubdomainFromHostname(parsedOrigin.hostname);
+            if ( ! hostedSubdomain ) return origin;
+
+            const canonicalHostedDomain = this.getCanonicalHostedAppDomain();
+            if ( ! canonicalHostedDomain ) return origin;
+
+            return `${parsedOrigin.protocol}//${hostedSubdomain}.${canonicalHostedDomain}`;
+        } catch {
+            return origin;
+        }
+    }
+
     async _app_uid_from_origin (origin) {
-        const event = { origin };
-        const svc_event = this.services.get('event');
-        await svc_event.emit('app.from-origin', event);
+        const canonicalOrigin = this.canonicalizeHostedAppOriginForUid(origin);
+        const event = { origin: canonicalOrigin };
+        const eventService = this.services.get('event');
+        await eventService.emit('app.from-origin', event);
         // UUIDV5
-        const uuid = this.modules.uuidv5(event.origin, APP_ORIGIN_UUID_NAMESPACE);
+        const uuid = uuidLib.v5(event.origin, APP_ORIGIN_UUID_NAMESPACE);
         return `app-${uuid}`;
     }
 
@@ -609,6 +1118,68 @@ class AuthService extends BaseService {
             console.error('Invalid URL:', error.message);
             return null;
         }
+    }
+
+    /**
+     * Registers GET /get-gui-token. Must be called from the GUI origin (no api. subdomain)
+     * so the HTTP-only session cookie is sent. Returns the GUI token for use in Authorization headers.
+     */
+    '__on_install.routes' () {
+        const { app } = this.services.get('web-server');
+        const config = require('../../config');
+        const configurable_auth = require('../../middleware/configurable_auth');
+        const { Endpoint } = require('../../util/expressutil');
+        const svc_auth = this;
+
+        Endpoint({
+            route: '/get-gui-token',
+            methods: ['GET'],
+            mw: [configurable_auth()],
+            handler: async (req, res) => {
+                if ( ! req.user ) {
+                    return res.status(401).json({});
+                }
+
+                const actor = Context.get('actor');
+                if ( ! (actor.type instanceof UserActorType) ) {
+                    return res.status(403).json({});
+                }
+                if ( ! actor.type.session ) {
+                    return res.status(400).json({ error: 'No session bound to this actor' });
+                }
+
+                const gui_token = svc_auth.create_gui_token(actor.type.user, { uuid: actor.type.session });
+                return res.json({ token: gui_token });
+            },
+        }).attach(app);
+
+        // Sync HTTP-only session cookie to the user implied by the request's auth token.
+        // Used when switching users in the UI: client sends Authorization with the new user's
+        // GUI token; we set the session cookie so cookie-based (e.g. user-protected) requests match.
+        Endpoint({
+            route: '/session/sync-cookie',
+            methods: ['GET'],
+            mw: [configurable_auth()],
+            handler: async (req, res) => {
+                if ( ! req.user ) {
+                    return res.status(401).end();
+                }
+                const actor = Context.get('actor');
+                if ( !(actor.type instanceof UserActorType) || !actor.type.session ) {
+                    return res.status(400).end();
+                }
+                const session_token = svc_auth.create_session_token_for_session(
+                    actor.type.user,
+                    actor.type.session,
+                );
+                res.cookie(config.cookie_name, session_token, {
+                    sameSite: 'none',
+                    secure: true,
+                    httpOnly: true,
+                });
+                return res.status(204).end();
+            },
+        }).attach(app);
     }
 }
 

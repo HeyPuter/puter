@@ -74,16 +74,44 @@ export interface DirectoryPickerOptions {
     multiple?: boolean;
 }
 
+export interface NotificationOptions {
+    title?: string;
+    text?: string;
+    icon?: string;
+    round_icon?: boolean;
+    roundIcon?: boolean;
+    uid?: string;
+    value?: unknown;
+}
+
 export interface AppConnectionCloseEvent {
     appInstanceID: string;
     statusCode?: number;
+}
+
+export interface LaunchAppResult {
+    launched: boolean;
+    requestedAppName?: string | null;
+    openedAppName?: string | null;
+    appInstanceID?: string | null;
+    appUid?: string | null;
+    redirectedToFallback?: boolean;
+    deniedPrivateAccess?: boolean;
+    privateAccess?: {
+        hasAccess: boolean;
+        fallbackAppName?: string;
+        fallbackArgs?: Record<string, unknown>;
+        reason?: string;
+    };
 }
 
 export type CancelAwarePromise<T> = Promise<T> & { undefinedOnCancel?: Promise<T | undefined> };
 
 export class AppConnection {
     readonly usesSDK: boolean;
-    readonly response?: Record<string, unknown>;
+    readonly response?: Record<string, unknown> & {
+        launchResult?: LaunchAppResult;
+    };
 
     on (eventName: 'message', handler: (message: unknown) => void): void;
     on (eventName: 'close', handler: (data: AppConnectionCloseEvent) => void): void;
@@ -95,6 +123,7 @@ export class AppConnection {
 export class UI {
     alert (message?: string, buttons?: AlertButton[]): Promise<string>;
     prompt (message?: string, placeholder?: string): Promise<string | null>;
+    notify (options?: NotificationOptions): Promise<string>;
     authenticateWithPuter (): Promise<void>;
     contextMenu (options: ContextMenuOptions): void;
     createWindow (options?: WindowOptions): void;

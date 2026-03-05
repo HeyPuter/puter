@@ -29,7 +29,7 @@ module.exports = eggspress('/query/app', {
     auth: true,
     verified: true,
     fs: true,
-    mw: [ express.json({ extended: true }) ],
+    mw: [express.json({ extended: true })],
     allowedMethods: ['POST'],
 }, async (req, res, _next) => {
     const results = [];
@@ -45,7 +45,7 @@ module.exports = eggspress('/query/app', {
         if ( app_list[i].startsWith(P) ) {
             let [col_name, amount] = app_list[i].slice(P.length).split(':');
             if ( amount === undefined ) amount = 20;
-            let uids = svc_appInformation.collections[col_name];
+            let uids = svc_appInformation.collections?.[col_name] ?? [];
             uids = uids.slice(0, Math.min(uids.length, amount));
             app_list.splice(i, 1, ...uids);
         }
@@ -81,8 +81,10 @@ module.exports = eggspress('/query/app', {
 
         // TODO: cache
         const associations = []; {
-            const res_associations = await db.read('SELECT * FROM app_filetype_association WHERE app_id = ?',
-                            [app.id]);
+            const res_associations = await db.read(
+                'SELECT * FROM app_filetype_association WHERE app_id = ?',
+                [app.id],
+            );
             for ( const row of res_associations ) {
                 associations.push(row.type);
             }

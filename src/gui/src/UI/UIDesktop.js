@@ -728,11 +728,35 @@ async function UIDesktop (options) {
         window.history.pushState(null, document.title, '/');
     }
 
+    //show_hidden_files
+    let show_hidden_files = false;
+    try {
+        show_hidden_files = JSON.parse(await puter.kv.get('user_preferences.show_hidden_files'));
+    } catch (e) {
+        console.error('Error loading show_hidden_files', e);
+    }
+
+    // language
+    let language = 'en';
+    try {
+        language = await puter.kv.get('user_preferences.language');
+    } catch (e) {
+        console.error('Error loading language', e);
+    }
+
+    // clock_visible
+    let clock_visible = 'auto';
+    try {
+        clock_visible = await puter.kv.get('user_preferences.clock_visible');
+    } catch (e) {
+        console.error('Error loading clock_visible', e);
+    }
+
     // update local user preferences
     const user_preferences = {
-        show_hidden_files: JSON.parse(await puter.kv.get('user_preferences.show_hidden_files')),
-        language: await puter.kv.get('user_preferences.language'),
-        clock_visible: await puter.kv.get('user_preferences.clock_visible'),
+        show_hidden_files: show_hidden_files,
+        language: language,
+        clock_visible: clock_visible,
     };
 
     // update default apps
@@ -1583,8 +1607,10 @@ async function UIDesktop (options) {
             const toolbar = $('.toolbar')[0];
             if ( toolbar ) {
                 const rect = toolbar.getBoundingClientRect();
-                const distanceFromToolbar = Math.min(Math.abs(mouseY - rect.bottom),
-                                Math.abs(mouseY - rect.top));
+                const distanceFromToolbar = Math.min(
+                    Math.abs(mouseY - rect.bottom),
+                    Math.abs(mouseY - rect.top),
+                );
 
                 // If mouse is far from toolbar, hide quicker
                 if ( distanceFromToolbar > TOOLBAR_SAFE_ZONE * 2 ) {
@@ -2171,7 +2197,7 @@ $(document).on('click', '.user-options-menu-btn', async function (e) {
                         return;
                     }
                     // update auth data
-                    window.update_auth_data(l_user.auth_token, l_user);
+                    await window.update_auth_data(l_user.auth_token, l_user);
                     // refresh
                     location.reload();
                 },
@@ -2231,6 +2257,16 @@ $(document).on('click', '.user-options-menu-btn', async function (e) {
                 id: 'settings',
                 onClick: async function () {
                     UIWindowSettings();
+                },
+            },
+            //--------------------------------------------------
+            // Keyboard Shortcuts
+            //--------------------------------------------------
+            {
+                html: i18n('keyboard_shortcuts'),
+                id: 'keyboard_shortcuts',
+                onClick: async function () {
+                    UIWindowSettings({ tab: 'keyboard-shortcuts' });
                 },
             },
             //--------------------------------------------------

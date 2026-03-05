@@ -45,7 +45,7 @@ class EntriService extends BaseService {
         parseDomain = (await import('parse-domain')).parseDomain;
     }
 
-    ['__on_install.routes'] (_, { app }) {
+    '__on_install.routes' (_, { app }) {
         Endpoint({
             route: '/entri/webhook',
             methods: ['POST', 'GET'],
@@ -94,7 +94,7 @@ class EntriService extends BaseService {
     }
 
     static IMPLEMENTS = {
-        ['entri']: {
+        'entri': {
             async getConfig ({ domain, userHostedSite }) {
                 const es_subdomain = this.services.get('es:subdomain');
                 const svc_su = this.services.get('su');
@@ -231,7 +231,7 @@ class EntriService extends BaseService {
             },
         },
     };
-    async ['__on_driver.register.interfaces'] () {
+    async '__on_driver.register.interfaces' () {
         const svc_registry = this.services.get('registry');
         const col_interfaces = svc_registry.get('interfaces');
 

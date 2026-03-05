@@ -20,6 +20,7 @@
 import { createId as cuid2 } from '@paralleldrive/cuid2';
 import { PassThrough } from 'stream';
 import { APIError } from '../../../api/APIError.js';
+import { setRedisCacheValue } from '../../../clients/redis/cacheUpdate.js';
 import { redisClient } from '../../../clients/redis/redisSingleton.js';
 import { ErrorService } from '../../../modules/core/ErrorService.js';
 import { Context } from '../../../util/context.js';
@@ -33,6 +34,7 @@ import { AsModeration } from '../moderation/AsModeration.js';
 import { normalize_tools_object } from '../utils/FunctionCalling.js';
 import { extract_text, normalize_messages, normalize_single_message } from '../utils/Messages.js';
 import Streaming from '../utils/Streaming.js';
+import { fallbackModelsKey } from './AIChatRedisCacheSpace.js';
 import { ClaudeProvider } from './providers/ClaudeProvider/ClaudeProvider.js';
 import { DeepSeekProvider } from './providers/DeepSeekProvider/DeepSeekProvider.js';
 import { FakeChatProvider } from './providers/FakeChatProvider.js';
@@ -65,7 +67,7 @@ export class AIChatService extends BaseService {
     }
 
     get errorService (): ErrorService {
-        return this.services.get('error-service');
+        return this.services.get('error-service') as ErrorService;
     }
 
     get eventService (): EventService {
@@ -73,7 +75,7 @@ export class AIChatService extends BaseService {
     }
 
     get driverService (): DriverService {
-        return this.services.get('driver');
+        return this.services.get('driver') as DriverService;
     }
 
     getProvider (name: string): IChatProvider | undefined {
@@ -85,13 +87,13 @@ export class AIChatService extends BaseService {
 
     /** Driver interfaces */
     static IMPLEMENTS = {
-        ['driver-capabilities']: {
+        'driver-capabilities': {
             supports_test_mode (iface: string, method_name: string) {
                 return iface === 'puter-chat-completion' &&
                     method_name === 'complete';
             },
         },
-        ['puter-chat-completion']: {
+        'puter-chat-completion': {
 
             async models () {
                 return await (this as unknown as AIChatService).models();
@@ -203,9 +205,11 @@ export class AIChatService extends BaseService {
             const provider = this.#providers[providerName];
 
             // alias all driver requests to go here to support legacy routing
-            this.driverService.register_service_alias(AIChatService.SERVICE_NAME,
-                            providerName,
-                            { iface: 'puter-chat-completion' });
+            this.driverService.register_service_alias(
+                AIChatService.SERVICE_NAME,
+                providerName,
+                { iface: 'puter-chat-completion' },
+            );
 
             // build model id map
             for ( const model of await provider.models() ) {
@@ -339,7 +343,22 @@ export class AIChatService extends BaseService {
             parameters,
         } as Record<string, unknown>;
 
-        const user = actor.type.user;
+        // If we reach here with a suspended user, block and log; this shouldn't happen
+        const user = actor.type.user ?? (actor as any).type?.authorizer?.type?.user ?? Context.get('user');
+        if ( ! user ) {
+            this.errors.report('this should not happen: no user in AIChatService', {
+                trace: true,
+            });
+            throw APIError.create('permission_denied');
+        }
+        const svc_getUser = this.services.get('get-user');
+        const nocache_user = await svc_getUser.get_user({ id: user.id, force: true });
+        if ( nocache_user?.suspended ) {
+            this.errors.report('this should not happen: reached AIChatService with suspended user', {
+                trace: true,
+            });
+            throw APIError.create('account_suspended');
+        }
         if ( user.requires_email_confirmation && !user.email_confirmed ) {
             throw APIError.create('email_must_be_confirmed', null, {
                 action: 'use this service',
@@ -429,9 +448,11 @@ export class AIChatService extends BaseService {
             maxAllowedOutput / outputTokenCost;
 
         if ( maxAllowedOutputTokens ) {
-            parameters.max_tokens = Math.floor(Math.min(parameters.max_tokens ?? Number.POSITIVE_INFINITY,
-                            maxAllowedOutputTokens,
-                            maxTokens - approximateTokenCount));
+            parameters.max_tokens = Math.floor(Math.min(
+                parameters.max_tokens ?? Number.POSITIVE_INFINITY,
+                maxAllowedOutputTokens,
+                maxTokens - approximateTokenCount,
+            ));
             if ( parameters.max_tokens < 1 ) {
                 parameters.max_tokens = undefined;
             }
@@ -686,7 +707,7 @@ export class AIChatService extends BaseService {
 
         // First check KV for the sorted list
         let potentialFallbacks;
-        const cached_fallbacks = await redisClient.get(`aichat:fallbacks:${targetModel.id}`);
+        const cached_fallbacks = await redisClient.get(fallbackModelsKey(targetModel.id));
         if ( cached_fallbacks ) {
             try {
                 potentialFallbacks = JSON.parse(cached_fallbacks);
@@ -714,7 +735,11 @@ export class AIChatService extends BaseService {
                 return !!possibleModelNames.find(possibleName => model.id.toLowerCase() === possibleName);
             }).slice(0, MAX_FALLBACKS);
 
-            await redisClient.set(`aichat:fallbacks:${modelId}`, JSON.stringify(potentialMatches));
+            await setRedisCacheValue(
+                fallbackModelsKey(modelId),
+                JSON.stringify(potentialMatches),
+                { eventData: potentialMatches },
+            );
             potentialFallbacks = potentialMatches;
         }
 

@@ -28,7 +28,7 @@ export class MeteringService {
         this.#eventService = eventService;
         setInterval(() => {
             this.#checkRateOfChange();
-        }, 1000 * 60 * 5); // check every 5 minutes
+        }, 1000 * 60 * 15); // check every 15 minutes
     }
 
     utilRecordUsageObject<T extends Record<string, number>>(trackedUsageObject: T, actor: Actor, modelPrefix: string, costsOverrides?: Partial<Record<keyof T, number>>) {
@@ -688,8 +688,8 @@ export class MeteringService {
             return this.#kvStore.get({ key: `${METRICS_PREFIX}:lastGlobalUsageCheck` }) as Promise<{ total: number, timestamp: number } | null>;
         });
 
-        if ( !lastChange || (now - lastChange.timestamp) > 4 * 60 * 1000 ) {
-            // only checked if more than 4 minutes from last check
+        if ( !lastChange || (now - lastChange.timestamp) > 14 * 60 * 1000 ) {
+            // only checked if more than 14 minutes from last check
             const globalUsage = await this.getGlobalUsage();
             const currTotal = globalUsage.total;
 

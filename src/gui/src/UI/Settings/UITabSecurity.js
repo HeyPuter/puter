@@ -16,9 +16,8 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-import TeePromise from '../../util/TeePromise.js';
-import UIComponentWindow from '../UIComponentWindow.js';
 import UIWindow2FASetup from '../UIWindow2FASetup.js';
+import UIWindowDisable2FA from './UIWindowDisable2FA.js';
 
 export default {
     id: 'security',
@@ -82,89 +81,16 @@ export default {
         });
 
         $el_window.find('.disable-2fa').on('click', async function (e) {
-            let win, password_entry;
-            const password_confirm_promise = new TeePromise();
-            const try_password = async () => {
-                const value = password_entry.get('value');
-                const resp = await fetch(`${window.api_origin}/user-protected/disable-2fa`, {
-                    method: 'POST',
-                    headers: {
-                        Authorization: `Bearer ${puter.authToken}`,
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        password: value,
-                    }),
-                });
-                if ( resp.status !== 200 ) {
-                    /* eslint no-empty: ["error", { "allowEmptyCatch": true }] */
-                    let message; try {
-                        message = (await resp.json()).message;
-                    } catch (e) {
-                    }
-                    message = message || i18n('error_unknown_cause');
-                    password_entry.set('error', message);
-                    return;
-                }
-                password_confirm_promise.resolve(true);
-                $(win).close();
-            };
+            const { promise } = await UIWindowDisable2FA();
+            const tfa_was_disabled = await promise;
 
-            let h = '';
-            h += '<div style="display: flex; flex-direction: column; gap: 20pt; justify-content: center;">';
-            h += '<div>';
-            h += `<h3 style="text-align:center; font-weight: 500; font-size: 20px;">${i18n('disable_2fa_confirm')}</h3>`;
-            h += `<p style="text-align:center; padding: 0 20px;">${i18n('disable_2fa_instructions')}</p>`;
-            h += '</div>';
-            h += '<div style="display: flex; gap: 5pt;">';
-            h += '<input type="password" class="password-entry" />';
-            h += `<button class="button confirm-disable-2fa">${i18n('disable_2fa')}</button>`;
-            h += `<button class="button secondary cancel-disable-2fa">${i18n('cancel')}</button>`;
-            h += '</div>';
-            h += '</div>';
-
-            win = await UIComponentWindow({
-                html: h,
-                width: 500,
-                backdrop: true,
-                is_resizable: false,
-                body_css: {
-                    width: 'initial',
-                    'background-color': 'rgb(245 247 249)',
-                    'backdrop-filter': 'blur(3px)',
-                    padding: '20px',
-                },
-            });
-
-            // Set up event listeners
-            const $win = $(win);
-            const $password_entry = $win.find('.password-entry');
-
-            $password_entry.on('keypress', (e) => {
-                if ( e.which === 13 ) { // Enter key
-                    try_password();
-                }
-            });
-
-            $win.find('.confirm-disable-2fa').on('click', () => {
-                try_password();
-            });
-
-            $win.find('.cancel-disable-2fa').on('click', () => {
-                password_confirm_promise.resolve(false);
-                $win.close();
-            });
-
-            $password_entry.focus();
-
-            const ok = await password_confirm_promise;
-            if ( ! ok ) return;
-
-            $el_window.find('.enable-2fa').show();
-            $el_window.find('.disable-2fa').hide();
-            $el_window.find('.user-otp-state').text(i18n('two_factor_disabled'));
-            $el_window.find('.settings-card-security').removeClass('settings-card-success');
-            $el_window.find('.settings-card-security').addClass('settings-card-warning');
+            if ( tfa_was_disabled ) {
+                $el_window.find('.enable-2fa').show();
+                $el_window.find('.disable-2fa').hide();
+                $el_window.find('.user-otp-state').text(i18n('two_factor_disabled'));
+                $el_window.find('.settings-card-security').removeClass('settings-card-success');
+                $el_window.find('.settings-card-security').addClass('settings-card-warning');
+            }
         });
     },
 };

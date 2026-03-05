@@ -67,7 +67,7 @@ class DevWatcherService extends BaseService {
     // port is set to `auto` - you have no idea how confusing
     // this was to debug the first time, like Ahhhhhh!!
     // but hey at least we have this convenient event listener.
-    async ['__on_ready.webserver'] () {
+    async '__on_ready.webserver' () {
         const svc_process = this.services.get('process');
 
         let { root, commands, webpack } = this.args;

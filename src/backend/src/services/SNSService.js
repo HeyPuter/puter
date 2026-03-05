@@ -63,7 +63,7 @@ class SNSService extends BaseService {
         svc_web.allow_undefined_origin('/sns', '/sns/');
     }
 
-    async ['__on_install.routes'] (_, { app }) {
+    async '__on_install.routes' (_, { app }) {
         Endpoint({
             route: '/sns',
             methods: ['POST'],

@@ -86,7 +86,7 @@ class ShareService extends BaseService {
         });
     }
 
-    ['__on_install.routes'] (_, { app }) {
+    '__on_install.routes' (_, { app }) {
         this.install_sharelink_endpoints({ app });
         this.install_share_endpoint({ app });
     }

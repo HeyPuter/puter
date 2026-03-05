@@ -53,7 +53,7 @@ export class SUService extends BaseService {
      * @returns {Promise<void>} A promise that resolves when both the
      *                          system user and actor have been set.
      */
-    async ['__on_boot.consolidation'] () {
+    async '__on_boot.consolidation' () {
         const sys_user = await this.services.get('get-user').get_user({ username: 'system' });
         this.sys_user_.resolve(sys_user);
         const sys_actor = new Actor({

@@ -99,13 +99,13 @@ class OpenAISpeechToTextService extends BaseService {
     }
 
     static IMPLEMENTS = {
-        ['driver-capabilities']: {
+        'driver-capabilities': {
             supports_test_mode (iface, method_name) {
                 return iface === 'puter-speech2txt' &&
                     (method_name === 'transcribe' || method_name === 'translate');
             },
         },
-        ['puter-speech2txt']: {
+        'puter-speech2txt': {
             async list_models () {
                 return this.listModels();
             },

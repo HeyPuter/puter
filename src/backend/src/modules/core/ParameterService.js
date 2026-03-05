@@ -97,7 +97,7 @@ class ParameterService extends BaseService {
     * for parameter management.
     * @private
     */
-    ['__on_boot.consolidation'] () {
+    '__on_boot.consolidation' () {
         this._registerCommands(this.services.get('commands'));
     }
 

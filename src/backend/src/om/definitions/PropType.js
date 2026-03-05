@@ -44,7 +44,7 @@ class PropType extends AdvancedBase {
         }
 
         for ( const k in data ) {
-            if ( ! chains.hasOwnProperty(k) ) {
+            if ( ! Object.prototype.hasOwnProperty.call(chains, k) ) {
                 chains[k] = [];
             }
             chains[k].push(data[k]);
@@ -57,7 +57,7 @@ class PropType extends AdvancedBase {
 
     populate_subtype_ (chains) {
         for ( const k in this.chains ) {
-            if ( ! chains.hasOwnProperty(k) ) {
+            if ( ! Object.prototype.hasOwnProperty.call(chains, k) ) {
                 chains[k] = [];
             }
             chains[k].push(...this.chains[k]);
@@ -65,8 +65,9 @@ class PropType extends AdvancedBase {
     }
 
     async adapt (value, extra) {
-        const adapters = this.chains.adapt || [];
-        adapters.reverse();
+        const adapters = this.chains.adapt
+            ? [...this.chains.adapt].reverse()
+            : [];
 
         for ( const adapter of adapters ) {
             value = await adapter(value, extra);

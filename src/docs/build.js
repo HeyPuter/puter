@@ -474,7 +474,7 @@ function generateDocsHTML (filePath, rootDir, page, isIndex = false) {
 
     html += '<a href="/llms.txt" class="skip-insta-load" target="_blank">llms.txt</a>';
     html += '</div>';
-    html += '<p class="copyright-notice">&copy; 2025 Puter Technologies Inc.</p>';
+    html += '<p class="copyright-notice">&copy; 2026 Puter Technologies Inc.</p>';
     html += '</footer>';
 
     html += '</div>';

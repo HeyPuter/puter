@@ -125,6 +125,8 @@ export default {
             const closeParen = sourceCode.getLastToken(node, token => token.value === ')');
 
             if ( !openParen || !closeParen ) return;
+            // Defer multi-line call/new formatting to stylistic paren/argument rules.
+            if ( openParen.loc.start.line !== closeParen.loc.end.line ) return;
 
             const afterOpen = sourceCode.getTokenAfter(openParen);
             const beforeClose = sourceCode.getTokenBefore(closeParen);

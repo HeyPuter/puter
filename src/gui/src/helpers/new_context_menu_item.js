@@ -170,7 +170,7 @@ router.get('/', ({request}) => {
     return 'Hello World'; // returns a string
 });
 router.get('/api/hello', ({request}) => {
-    return {'msg': 'hello'}; // returns a JSON object    
+    return {'msg': 'hello'}; // returns a JSON object
 });
 router.get('/*page', ({request, params}) => {
     return new Response(\`Page \${params.page} not found\`, {status: 404});

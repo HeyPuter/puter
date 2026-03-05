@@ -61,8 +61,6 @@ export class ExecService extends Service {
             target: child_instance_id,
         }) : undefined;
 
-        this.log.info('launchApp connection', connection);
-
         const params = {};
         for ( const provider of this.param_providers ) {
             Object.assign(params, provider());
@@ -116,15 +114,12 @@ export class ExecService extends Service {
         // Check if file_paths are provided and caller has godmode permissions
         if ( file_paths && Array.isArray(file_paths) && file_paths.length > 0 && process ) {
             try {
-                console.log('file_paths', file_paths);
                 // Get caller app info to check godmode status
                 const caller_app_name = process.name;
                 const caller_app_info = await window.get_apps(caller_app_name);
 
                 // Check if caller is in godmode
                 if ( caller_app_info && caller_app_info.godmode === 1 ) {
-                    this.log.info(`⚠️ GODMODE app ${caller_app_name} launching ${app_name} with files:`, file_paths);
-
                     // Get target app info to create file signatures
                     const target_app_info = await puter.apps.get(app_name);
 
@@ -162,18 +157,27 @@ export class ExecService extends Service {
                         }
                     }
 
-                } else {
-                    console.log(`⚠️ App ${caller_app_name} attempted to launch ${app_name} with files but does not have godmode permissions`);
-                    // Continue with normal launch, ignoring file_paths
                 }
             } catch ( error ) {
-                console.log('Error checking godmode permissions:', error);
+                this.log.warn('Error checking godmode permissions', error);
                 // Continue with normal launch
             }
         }
 
         // The "body" of this method is in a separate file
-        const child_process = await launch_app(launch_options);
+        const child_launch_outcome = await launch_app(launch_options);
+        const launchResult = child_launch_outcome?.launchResult;
+        const child_process = child_launch_outcome?.references?.iframe
+            ? child_launch_outcome
+            : null;
+
+        if ( ! child_process ) {
+            return {
+                appInstanceID: launchResult?.appInstanceID ?? null,
+                usesSDK: false,
+                ...(launchResult ? { response: { launchResult } } : {}),
+            };
+        }
 
         const send_child_launched_msg = (...a) => {
             if ( ! process ) return;
@@ -223,6 +227,7 @@ export class ExecService extends Service {
             appInstanceID: connection ?
                 connection.forward.uuid : child_instance_id,
             usesSDK: true,
+            ...(launchResult ? { response: { launchResult } } : {}),
         };
     }
 

@@ -59,6 +59,12 @@ config.captcha = {
     difficulty: 'medium', // Default difficulty level
 };
 
+// OIDC/OAuth2 providers (e.g. Google). Keys in config only, not env vars.
+// Example: config.oidc.providers.google = { client_id, client_secret }
+config.oidc = {
+    providers: {},
+};
+
 config.monitor = {
     metricsInterval: 60000,
     windowSize: 30,
@@ -66,8 +72,8 @@ config.monitor = {
 
 config.max_subdomains_per_user = 2000;
 config.storage_capacity = 1 * 1024 * 1024 * 1024;
-config.static_hosting_domain = 'site.puter.localhost';
 config.static_hosting_base_domain_redirect = 'https://developer.puter.com/static-hosting/';
+config.enable_private_app_access_gate = true;
 
 // Storage limiting is set to false by default
 // Storage available on the mountpoint/drive puter is running is the storage available
@@ -163,6 +169,12 @@ const computed_defaults = {
         ? config.origin
         : `${config.protocol }://api.${ config.domain }${maybe_port(config)}`,
     social_card: config => `${config.origin}/assets/img/screenshot.png`,
+    static_hosting_domain: config => `site.${ config.domain }${ maybe_port(config)}`,
+    // Hostname-only fallback helps host matching code paths that compare against req.hostname.
+    static_hosting_domain_alt: (config) => `site.${ config.domain }`,
+    private_app_hosting_domain: config => `app.${ config.domain }${ maybe_port(config)}`,
+    private_app_hosting_domain_alt: () => `app.${ config.domain }`, // Hostname-only fallback helps host matching code paths that compare against req.hostname.
+
 };
 
 // We're going to export a config object that's decorated
@@ -204,7 +216,7 @@ const config_pointer = {};
         return undefined;
     };
     config_to_export = new Proxy(config_to_export, {
-        get: (target, prop, receiver) => {
+        get: (target, prop, _receiver) => {
             if ( prop in target ) {
                 return target[prop];
             } else {
@@ -244,12 +256,14 @@ const config_pointer = {};
     // These can be difficult to find and cause painful
     // confusing issues, so we log any time this happens
     config_to_export = new Proxy(config_to_export, {
-        set: (target, prop, value, receiver) => {
+        set: (target, prop, value, _receiver) => {
             const logger = Context.get('logger', { allow_fallback: true });
             // If no logger, just give up
             if ( logger ) {
-                logger.debug('\x1B[36;1mCONFIGURATION MUTATED AT RUNTIME\x1B[0m',
-                                { prop, value });
+                logger.debug(
+                    '\x1B[36;1mCONFIGURATION MUTATED AT RUNTIME\x1B[0m',
+                    { prop, value },
+                );
             }
             target[prop] = value;
             return true;

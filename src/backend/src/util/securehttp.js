@@ -192,6 +192,15 @@ async function secureAxiosRequest (axios, url, options = {}) {
     };
 
     try {
+        const parsedUrl = new URL(url);
+        if ( parsedUrl.protocol !== 'data:' && globalThis.global_config.services.secureCorsProxy.url ) {
+            url = globalThis.global_config.services.secureCorsProxy.url + url;
+            if ( ! secureOptions.headers ) {
+                secureOptions.headers = {};
+            }
+            secureOptions.headers['x-cors-proxy-auth-secret'] = globalThis.global_config.services.secureCorsProxy.secret;
+
+        }
         const response = await axios.get(url, secureOptions);
 
         // Check if the response is a redirect (maxRedirects: 0 means axios returns but doesn't follow)
@@ -204,7 +213,7 @@ async function secureAxiosRequest (axios, url, options = {}) {
         }
 
         // Log different information based on URL type
-        const parsedUrl = new URL(url);
+
         if ( parsedUrl.protocol === 'data:' ) {
             // Extract data format from data URL
             const dataFormat = url.split(',')[0].split(':')[1] || 'unknown format';

@@ -17,12 +17,18 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const { Context } = require('../../util/context');
+const { safeHasOwnProperty } = require('../../util/safety');
 const { asyncSafeSetInterval } = require('@heyputer/putility').libs.promise;
 const { quot } = require('@heyputer/putility').libs.string;
 
 const MINUTE = 60 * 1000;
 const HOUR = 60 * MINUTE;
 const BaseService = require('../BaseService');
+
+const DEFAULT_SCOPE = {
+    limit: 500,
+    window: 15 * MINUTE,
+};
 
 /* INCREMENTAL CHANGES
     The first scopes are of the form 'name-of-endpoint', but later it was
@@ -44,79 +50,87 @@ class EdgeRateLimitService extends BaseService {
     */
     _construct () {
         this.scopes = {
-            ['login']: {
+            'oidc-general': {
+                limit: 100,
+                window: 15 * MINUTE,
+            },
+            'login': {
                 limit: 10,
                 window: 15 * MINUTE,
             },
-            ['signup']: {
+            'signup': {
                 limit: 10,
                 window: 15 * MINUTE,
             },
-            ['contact-us']: {
+            'contact-us': {
                 limit: 10,
                 window: 15 * MINUTE,
             },
-            ['share']: {
+            'share': {
                 limit: 30,
                 window: 1 * MINUTE,
             },
-            ['send-confirm-email']: {
+            'send-confirm-email': {
                 limit: 10,
                 window: HOUR,
             },
-            ['confirm-email']: {
+            'confirm-email': {
                 limit: 10,
                 window: HOUR,
             },
-            ['send-pass-recovery-email']: {
+            'send-pass-recovery-email': {
                 limit: 10,
                 window: HOUR,
             },
-            ['verify-pass-recovery-token']: {
+            'verify-pass-recovery-token': {
                 limit: 10,
                 window: 15 * MINUTE,
             },
-            ['set-pass-using-token']: {
+            'set-pass-using-token': {
                 limit: 10,
                 window: HOUR,
             },
-            ['save-account']: {
+            'save-account': {
                 limit: 10,
                 window: HOUR,
             },
-            ['change-email-start']: {
+            'change-email-start': {
                 limit: 10,
                 window: HOUR,
             },
-            ['change-email-confirm']: {
+            'change-email-confirm': {
                 limit: 10,
                 window: HOUR,
             },
-            ['passwd']: {
+            'passwd': {
                 limit: 10,
                 window: HOUR,
             },
-            ['/user-protected/change-password']: {
+            '/user-protected/change-password': {
                 limit: 10,
                 window: HOUR,
             },
-            ['/user-protected/change-email']: {
+            '/user-protected/change-email': {
                 limit: 10,
                 window: HOUR,
             },
-            ['/user-protected/disable-2fa']: {
+            '/user-protected/change-username': {
                 limit: 10,
                 window: HOUR,
             },
-            ['login-otp']: {
+            '/user-protected/disable-2fa': {
+                limit: 10,
+                window: HOUR,
+            },
+            'login-otp': {
                 limit: 15,
                 window: 30 * MINUTE,
             },
-            ['login-recovery']: {
+            'login-recovery': {
                 limit: 10,
                 window: HOUR,
             },
-            ['enable-2fa']: {
+            'enable-2fa': {
                 limit: 10,
                 window: HOUR,
             },
@@ -135,9 +149,12 @@ class EdgeRateLimitService extends BaseService {
 
     check (scope, noIncrease = false) {
         if ( ! Object.prototype.hasOwnProperty.call(this.scopes, scope) ) {
-            throw new Error(`unrecognized rate-limit scope: ${quot(scope)}`);
+            this.log.warn('unconfigured rate-limit scope', { scope });
         }
-        const { window, limit } = this.scopes[scope];
+        const scopeSpec = safeHasOwnProperty(this.scopes, scope)
+            ? this.scopes[scope]
+            : DEFAULT_SCOPE;
+        const { window, limit } = scopeSpec;
 
         const requester = Context.get('requester');
         const rl_identifier = requester.rl_identifier;

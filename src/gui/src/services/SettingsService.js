@@ -24,6 +24,7 @@ import AccountTab from '../UI/Settings/UITabAccount.js';
 import SecurityTab from '../UI/Settings/UITabSecurity.js';
 import PersonalizationTab from '../UI/Settings/UITabPersonalization.js';
 import LanguageTag from '../UI/Settings/UITabLanguage.js';
+import KeyboardShortcutsTab from '../UI/Settings/UITabKeyboardShortcuts.js';
 import UIElement from '../UI/UIElement.js';
 const TSettingsTab = use('ui.traits.TSettingsTab');
 
@@ -36,6 +37,7 @@ export class SettingsService extends Service {
             SecurityTab,
             PersonalizationTab,
             LanguageTag,
+            KeyboardShortcutsTab,
             AboutTab,
         ].forEach(tab => {
             this.register_tab(tab);

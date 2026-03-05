@@ -20,7 +20,7 @@
 import dedent from 'dedent';
 import { LoremIpsum } from 'lorem-ipsum';
 import { AIChatStream } from '../../utils/Streaming';
-import { IChatProvider, ICompleteArguments } from './types';
+import { IChatProvider, ICompleteArguments, PuterMessage } from './types';
 
 export class FakeChatProvider implements IChatProvider {
     checkModeration (_text: string): ReturnType<IChatProvider['checkModeration']> {
@@ -85,7 +85,7 @@ export class FakeChatProvider implements IChatProvider {
                         type: 'text',
                         text: (await resp).message.content[0].text,
                     }) }\n`);
-                    chatStream.end();
+                    chatStream.end({});
                 },
                 stream: true,
                 finally_fn: async () => {
@@ -96,7 +96,7 @@ export class FakeChatProvider implements IChatProvider {
 
         return resp;
     }
-    async getFakeResponse (modelId: string, custom: unknown, messages: any[], maxTokens: number = 8192): ReturnType<IChatProvider['complete']> {
+    async getFakeResponse (modelId: string, custom: unknown, messages: PuterMessage[], maxTokens: number = 8192): ReturnType<IChatProvider['complete']> {
         let inputTokens = 0;
         let outputTokens = 0;
 

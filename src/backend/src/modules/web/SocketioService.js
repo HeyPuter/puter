@@ -31,7 +31,7 @@ class SocketioService extends BaseService {
      *
      * @evtparam server The server to attach socket.io to.
      */
-    ['__on_install.socketio'] (_, { server }) {
+    '__on_install.socketio' (_, { server }) {
         /**
          * @type {import('socket.io').Server}
          */

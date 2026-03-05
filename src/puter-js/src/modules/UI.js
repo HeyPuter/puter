@@ -499,6 +499,9 @@ class UI extends EventListener {
                     // execute callback
                     this.#callbackFunctions[e.data.original_msg_id](e.data.response);
                 }
+                else if ( e.data.msg === 'notificationShown' ) {
+                    this.#callbackFunctions[e.data.original_msg_id](e.data.uid);
+                }
                 else if ( e.data.msg === 'languageReceived' ) {
                     // execute callback
                     this.#callbackFunctions[e.data.original_msg_id](e.data.language);
@@ -722,6 +725,16 @@ class UI extends EventListener {
         });
     };
 
+    notify (options) {
+        return new Promise((resolve) => {
+            const normalized = { ...(options ?? {}) };
+            if ( normalized.roundIcon !== undefined && normalized.round_icon === undefined ) {
+                normalized.round_icon = normalized.roundIcon;
+            }
+            this.#postMessageWithCallback('showNotification', resolve, { options: normalized });
+        });
+    };
+
     showDirectoryPicker (options, callback) {
         return new Promise((resolve, reject) => {
             if ( ! globalThis.open ) {
@@ -742,9 +755,11 @@ class UI extends EventListener {
                 let title = 'Puter: Open Directory';
                 var left = (screen.width / 2) - (w / 2);
                 var top = (screen.height / 2) - (h / 2);
-                window.open(`${puter.defaultGUIOrigin}/action/show-directory-picker?embedded_in_popup=true&msg_id=${msg_id}&appInstanceID=${this.appInstanceID}&env=${this.env}&options=${JSON.stringify(options)}`,
-                                title,
-                                `toolbar=no, location=no, directories=no, status=no, menubar=no, scrollbars=no, resizable=no, copyhistory=no, width=${w}, height=${h}, top=${top}, left=${left}`);
+                window.open(
+                    `${puter.defaultGUIOrigin}/action/show-directory-picker?embedded_in_popup=true&msg_id=${msg_id}&appInstanceID=${this.appInstanceID}&env=${this.env}&options=${JSON.stringify(options)}`,
+                    title,
+                    `toolbar=no, location=no, directories=no, status=no, menubar=no, scrollbars=no, resizable=no, copyhistory=no, width=${w}, height=${h}, top=${top}, left=${left}`,
+                );
             }
 
             //register callback
@@ -774,9 +789,11 @@ class UI extends EventListener {
                 let title = 'Puter: Open File';
                 var left = (screen.width / 2) - (w / 2);
                 var top = (screen.height / 2) - (h / 2);
-                window.open(`${puter.defaultGUIOrigin}/action/show-open-file-picker?embedded_in_popup=true&msg_id=${msg_id}&appInstanceID=${this.appInstanceID}&env=${this.env}&options=${JSON.stringify(options ?? {})}`,
-                                title,
-                                `toolbar=no, location=no, directories=no, status=no, menubar=no, scrollbars=no, resizable=no, copyhistory=no, width=${w}, height=${h}, top=${top}, left=${left}`);
+                window.open(
+                    `${puter.defaultGUIOrigin}/action/show-open-file-picker?embedded_in_popup=true&msg_id=${msg_id}&appInstanceID=${this.appInstanceID}&env=${this.env}&options=${JSON.stringify(options ?? {})}`,
+                    title,
+                    `toolbar=no, location=no, directories=no, status=no, menubar=no, scrollbars=no, resizable=no, copyhistory=no, width=${w}, height=${h}, top=${top}, left=${left}`,
+                );
             }
             //register callback
             this.#callbackFunctions[msg_id] = (maybe_result) => {
@@ -864,9 +881,11 @@ class UI extends EventListener {
                 let title = 'Puter: Save File';
                 var left = (screen.width / 2) - (w / 2);
                 var top = (screen.height / 2) - (h / 2);
-                window.open(`${puter.defaultGUIOrigin}/action/show-save-file-picker?embedded_in_popup=true&msg_id=${msg_id}&appInstanceID=${this.appInstanceID}&env=${this.env}&blobUrl=${encodeURIComponent(objectUrl)}`,
-                                title,
-                                `toolbar=no, location=no, directories=no, status=no, menubar=no, scrollbars=no, resizable=no, copyhistory=no, width=${w}, height=${h}, top=${top}, left=${left}`);
+                window.open(
+                    `${puter.defaultGUIOrigin}/action/show-save-file-picker?embedded_in_popup=true&msg_id=${msg_id}&appInstanceID=${this.appInstanceID}&env=${this.env}&blobUrl=${encodeURIComponent(objectUrl)}`,
+                    title,
+                    `toolbar=no, location=no, directories=no, status=no, menubar=no, scrollbars=no, resizable=no, copyhistory=no, width=${w}, height=${h}, top=${top}, left=${left}`,
+                );
             }
             //register callback
             this.#callbackFunctions[msg_id] = (maybe_result) => {

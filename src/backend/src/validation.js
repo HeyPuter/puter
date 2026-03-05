@@ -18,19 +18,19 @@
  */
 
 // Shared validation helpers formerly provided by backend-core-0.
-const { is_valid_path } = require('./filesystem/validation');
+export { is_valid_path } from './filesystem/validation.js';
 
-const is_valid_uuid = (uuid) => {
+export const is_valid_uuid = (uuid) => {
     let s = `${ uuid }`;
     s = s.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-5][0-9a-f]{3}-[089ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
     return !!s;
 };
 
-const is_valid_uuid4 = (uuid) => {
+export const is_valid_uuid4 = (uuid) => {
     return is_valid_uuid(uuid);
 };
 
-const is_specifically_uuidv4 = (uuid) => {
+export const is_specifically_uuidv4 = (uuid) => {
     let s = `${ uuid }`;
 
     s = s.match(/^[0-9A-F]{8}-[0-9A-F]{4}-[4][0-9A-F]{3}-[89AB][0-9A-F]{3}-[0-9A-F]{12}$/i);
@@ -40,7 +40,7 @@ const is_specifically_uuidv4 = (uuid) => {
     return true;
 };
 
-const is_valid_url = (url) => {
+export const is_valid_url = (url) => {
     let s = `${ url }`;
 
     try {
@@ -49,12 +49,4 @@ const is_valid_url = (url) => {
     } catch (e) {
         return false;
     }
-};
-
-module.exports = {
-    is_valid_uuid,
-    is_valid_uuid4,
-    is_specifically_uuidv4,
-    is_valid_url,
-    is_valid_path,
 };

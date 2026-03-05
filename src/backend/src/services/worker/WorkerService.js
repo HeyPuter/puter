@@ -183,7 +183,7 @@ class WorkerService extends BaseService {
         });
     }
     static IMPLEMENTS = {
-        ['workers']: {
+        'workers': {
             /**
              *
              * @param {{filePath: string, workerName: string, authorization: string}} param0
@@ -333,7 +333,7 @@ class WorkerService extends BaseService {
             },
         },
     };
-    async ['__on_driver.register.interfaces'] () {
+    async '__on_driver.register.interfaces' () {
         const svc_registry = this.services.get('registry');
         const col_interfaces = svc_registry.get('interfaces');
 

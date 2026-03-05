@@ -130,7 +130,7 @@ class DriverService extends BaseService {
         });
     }
 
-    async ['__on_boot.consolidation'] () {
+    async '__on_boot.consolidation' () {
         const svc_registry = this.services.get('registry');
         const svc_event = this.services.get('event');
 
@@ -159,7 +159,7 @@ class DriverService extends BaseService {
     * This method is responsible for registering collections in the service registry.
     * It registers 'interfaces', 'drivers', and 'types' collections.
     */
-    async ['__on_registry.collections'] () {
+    async '__on_registry.collections' () {
         const svc_registry = this.services.get('registry');
         svc_registry.register_collection('interfaces');
         svc_registry.register_collection('drivers');
@@ -170,7 +170,7 @@ class DriverService extends BaseService {
     * It registers 'interfaces', 'drivers', and 'types' collections.
     * It also populates the 'interfaces' collection with default interfaces and registers the collections with the driver service registry.
     */
-    async ['__on_registry.entries'] () {
+    async '__on_registry.entries' () {
         const services = this.services;
         const svc_registry = services.get('registry');
         const col_interfaces = svc_registry.get('interfaces');
@@ -193,7 +193,7 @@ class DriverService extends BaseService {
     // This allows DriverService to be a driver called "driver".
     // The driver drivers allows checking metered usage for drivers,
     // and in the future may provide other driver-related functions.
-    async ['__on_driver.register.interfaces'] () {
+    async '__on_driver.register.interfaces' () {
         const svc_registry = this.services.get('registry');
         const col_interfaces = svc_registry.get('interfaces');
 
@@ -283,13 +283,13 @@ class DriverService extends BaseService {
         // parameter. To support outdated clients we use this hard-coded
         // table to map interfaces to default drivers.
         const iface_to_driver = {
-            ['puter-ocr']: 'aws-textract',
-            ['puter-tts']: 'aws-polly',
-            ['puter-speech2speech']: 'elevenlabs-voice-changer',
-            ['puter-speech2txt']: 'openai-speech2txt',
-            ['puter-chat-completion']: 'openai-completion',
-            ['puter-image-generation']: 'openai-image-generation',
-            ['puter-video-generation']: 'openai-video-generation',
+            'puter-ocr': 'aws-textract',
+            'puter-tts': 'aws-polly',
+            'puter-speech2speech': 'elevenlabs-voice-changer',
+            'puter-speech2txt': 'openai-speech2txt',
+            'puter-chat-completion': 'openai-completion',
+            'puter-image-generation': 'openai-image-generation',
+            'puter-video-generation': 'openai-video-generation',
             'puter-apps': 'es:app',
             'puter-subdomains': 'es:subdomain',
             'puter-notifications': 'es:notification',

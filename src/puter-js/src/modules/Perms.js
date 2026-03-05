@@ -21,11 +21,15 @@ export default class Perms {
                 ...(body ? { body: JSON.stringify(body) } : {}),
             });
             if ( resp.headers.get('content-type')?.includes('application/json') ) {
-                return await resp.json();
+                const jsonResult = await resp.json();
+                if ( resp.status !== 200 ) {
+                    jsonResult.error = true;
+                }
+                return jsonResult;
             }
-            return { message: await resp.text(), code: 'unknown_error' };
+            return { error: true, message: await resp.text(), code: 'unknown_error' };
         } catch (e) {
-            return { message: e.message, code: 'internal_error' };
+            return { error: true, message: e.message, code: 'internal_error' };
         }
     }
 
@@ -315,6 +319,76 @@ export default class Perms {
             permission: `subdomains-of-user:${whoami.uuid}:write`,
         });
         return granted;
+    }
+
+    /**
+     * Request read access to the root directory of one of the user's apps,
+     * identified by its resource request code (e.g. from app.resource_request_code).
+     * If the user grants permission, returns the filesystem item for that directory.
+     * If the user denies or an error occurs, returns undefined.
+     *
+     * @param {string} resourceRequestCode - The resource request code (e.g. `${app.uid}:root_dir`)
+     * @return {Promise<object|undefined>} The directory fs item (stat) or undefined
+     */
+    async requestReadAppRootDir (app_uid) {
+        return await this.#requestAppRootDir('read', app_uid);
+    }
+
+    /**
+     * Request write access to the root directory of one of the user's apps,
+     * identified by its resource request code (e.g. from app.resource_request_code).
+     * If the user grants permission, returns the filesystem item for that directory.
+     * If the user denies or an error occurs, returns undefined.
+     *
+     * @param {string} resourceRequestCode - The resource request code (e.g. `${app.uid}:root_dir`)
+     * @return {Promise<object|undefined>} The directory fs item (stat) or undefined
+     */
+    async requestWriteAppRootDir (app_uid) {
+        return await this.#requestAppRootDir('write', app_uid);
+    }
+
+    async #requestAppRootDir (access, app_uid) {
+        if ( typeof app_uid === 'object' && app_uid !== null ) {
+            app_uid = app_uid.uid;
+        }
+        if ( typeof app_uid !== 'string' ) {
+            throw new Error('parameter app_uid must be a strinkg');
+        }
+
+        let result;
+        const fetchIt = async () => result = await this.req_('/auth/request-app-root-dir', {
+            app_uid,
+            access: 'read',
+        });
+        await fetchIt();
+        if ( ! result.error ) return result;
+
+        // Request permission
+        app_uid = (typeof app_or_uuid === 'object') && app_uid !== null
+            ? app_uid.uid : app_uid;
+        const readAppRootDirPermission = `app-root-dir:${app_uid}:read`;
+        const granted = await this.puter.ui.requestPermission({
+            permission: readAppRootDirPermission,
+        });
+
+        if ( granted ) {
+            await fetchIt();
+
+            // If the server has cache invalidation issues, we still want this
+            // to work anyway. This is a hack, but also a reasonable safeguard.
+            let delay = 100;
+            const maxTotalWait = 5000;
+            let totalWaited = 0;
+            while ( result.error && totalWaited < maxTotalWait ) {
+                await new Promise(r => setTimeout(r, delay));
+                totalWaited += delay;
+                await fetchIt();
+                if ( ! result.error ) break;
+                delay = Math.min(delay * 2, Math.max(100, maxTotalWait - totalWaited));
+            }
+        }
+        if ( ! result.error ) return result;
+        return undefined;
     }
 
     /**

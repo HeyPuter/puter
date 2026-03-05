@@ -17,6 +17,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const APIError = require('../../api/APIError');
+const { AppRedisCacheSpace } = require('../../modules/apps/AppRedisCacheSpace.js');
+const { deleteRedisKeys } = require('../../clients/redis/deleteRedisKeys.js');
 const config = require('../../config');
 const { app_name_exists } = require('../../helpers');
 const { AppUnderUserActorType } = require('../../services/auth/Actor');
@@ -27,6 +29,13 @@ const { Eq, Like, Or, And } = require('../query/query');
 const { BaseES } = require('./BaseES');
 
 const uuidv4 = require('uuid').v4;
+let privateLaunchAccessModulePromise;
+const getPrivateLaunchAccessModule = async () => {
+    if ( ! privateLaunchAccessModulePromise ) {
+        privateLaunchAccessModulePromise = import('../../modules/apps/privateLaunchAccess.js');
+    }
+    return privateLaunchAccessModulePromise;
+};
 
 class AppES extends BaseES {
     static METHODS = {
@@ -147,22 +156,42 @@ class AppES extends BaseES {
             const subdomain_id = await this.maybe_insert_subdomain_(entity);
             const result = await this.upstream.upsert(entity, extra);
             const { insert_id } = result;
+            const oldAssociations = await this.db.read(
+                'SELECT type FROM app_filetype_association WHERE app_id = ?',
+                [insert_id],
+            );
+            const normalizedOldAssociations = oldAssociations
+                .map(row => String(row.type ?? '').trim().toLowerCase().replace(/^\./, ''))
+                .filter(Boolean);
 
             // Remove old file associations (if applicable)
             if ( extra.old_entity ) {
-                await this.db.write('DELETE FROM app_filetype_association WHERE app_id = ?',
-                                [insert_id]);
+                await this.db.write(
+                    'DELETE FROM app_filetype_association WHERE app_id = ?',
+                    [insert_id],
+                );
             }
 
             // Add file associations (if applicable)
             const filetype_associations = await entity.get('filetype_associations');
+            const normalizedNewAssociations = (filetype_associations ?? [])
+                .map(association => String(association).trim().toLowerCase().replace(/^\./, ''))
+                .filter(Boolean);
             if ( (a => a && a.length > 0)(filetype_associations) ) {
                 const stmt =
                     'INSERT INTO app_filetype_association ' +
                     `(app_id, type) VALUES ${
-                        filetype_associations.map(() => '(?, ?)').join(', ')}`;
-                const rows = filetype_associations.map(a => [insert_id, a.toLowerCase()]);
+                        normalizedNewAssociations.map(() => '(?, ?)').join(', ')}`;
+                const rows = normalizedNewAssociations.map(a => [insert_id, a]);
                 await this.db.write(stmt, rows.flat());
+            }
+            const affectedAssociationExtensions = new Set([
+                ...normalizedOldAssociations,
+                ...normalizedNewAssociations,
+            ]);
+            if ( affectedAssociationExtensions.size ) {
+                await deleteRedisKeys(Array.from(affectedAssociationExtensions)
+                    .map(ext => AppRedisCacheSpace.associationAppsKey(ext)));
             }
 
             const has_new_icon =
@@ -178,9 +207,11 @@ class AppES extends BaseES {
                     url: '',
                 };
                 await svc_event.emit('app.new-icon', event);
-                if ( event.url ) {
-                    this.db.write('UPDATE apps SET icon = ? WHERE id = ? LIMIT 1',
-                                    [event.url, insert_id]);
+                if ( typeof event.url === 'string' && event.url ) {
+                    this.db.write(
+                        'UPDATE apps SET icon = ? WHERE id = ? LIMIT 1',
+                        [event.url, insert_id],
+                    );
                     await entity.set('icon', event.url);
                 }
             }
@@ -202,12 +233,14 @@ class AppES extends BaseES {
 
             // Associate app with subdomain (if applicable)
             if ( subdomain_id ) {
-                await this.db.write('UPDATE subdomains SET associated_app_id = ? WHERE id = ?',
-                                [insert_id, subdomain_id]);
+                await this.db.write(
+                    'UPDATE subdomains SET associated_app_id = ? WHERE id = ?',
+                    [insert_id, subdomain_id],
+                );
             }
             if ( extra.old_entity ) {
                 const svc_event = this.context.get('services').get('event');
-                svc_event.emit('app.changed', {
+                await svc_event.emit('app.changed', {
                     app_uid: await full_entity.get('uid'),
                     action: 'updated',
                 });
@@ -269,10 +302,12 @@ class AppES extends BaseES {
                     data_url: icon,
                 };
                 await svc_event.emit('app.new-icon', event);
-                if ( ! event.url ) return;
+                if ( typeof event.url !== 'string' || !event.url ) return;
 
-                await this.db.write('UPDATE apps SET icon = ? WHERE uid = ? LIMIT 1',
-                                [event.url, app_uid]);
+                await this.db.write(
+                    'UPDATE apps SET icon = ? WHERE uid = ? LIMIT 1',
+                    [event.url, app_uid],
+                );
             }).catch(e => {
                 const svc_error = this.context.get('services').get('error-service');
                 svc_error.report('AppES:queue_icon_migration', { source: e });
@@ -286,30 +321,76 @@ class AppES extends BaseES {
          * @param {Object} entity - App entity to transform
          */
         async read_transform (entity) {
-            // Add file associations
-            const rows = await this.db.read('SELECT type FROM app_filetype_association WHERE app_id = ?',
-                            [entity.private_meta.mysql_id]);
-            entity.set('filetype_associations', rows.map(row => row.type));
+            const {
+                getActorUserUid,
+                resolvePrivateLaunchAccess,
+            } = await getPrivateLaunchAccessModule();
+            const services = this.context.get('services');
+            const actor = Context.get('actor');
+            const esParams = Context.get('es_params') ?? {};
+            const appUid = await entity.get('uid');
+            const appName = await entity.get('name');
+            const appIndexUrl = await entity.get('index_url');
+            const appCreatedAt = await entity.get('created_at');
+            const appIsPrivate = await entity.get('is_private');
 
-            const svc_appInformation = this.context.get('services').get('app-information');
-            const stats = await svc_appInformation.get_stats(await entity.get('uid'), { period: Context.get('es_params')?.stats_period, grouping: Context.get('es_params')?.stats_grouping, created_at: await entity.get('created_at') });
-            entity.set('stats', stats);
+            const appInformationService = services.get('app-information');
+            const authService = services.get('auth');
+            const statsPromise = appInformationService
+                ? appInformationService.get_stats(appUid, {
+                    period: esParams.stats_period,
+                    grouping: esParams.stats_grouping,
+                    created_at: appCreatedAt,
+                })
+                : Promise.resolve(undefined);
+            const fileAssociationsPromise = this.db.read(
+                'SELECT type FROM app_filetype_association WHERE app_id = ?',
+                [entity.private_meta.mysql_id],
+            );
+            const createdFromOriginPromise = (async () => {
+                if ( ! authService ) return null;
+                try {
+                    const origin = origin_from_url(appIndexUrl);
+                    const expectedUid = await authService.app_uid_from_origin(origin);
+                    return expectedUid === appUid ? origin : null;
+                } catch {
+                    // This happens when index_url is not a valid URL.
+                    return null;
+                }
+            })();
+            const privateAccessPromise = resolvePrivateLaunchAccess({
+                app: {
+                    uid: appUid,
+                    name: appName,
+                    is_private: appIsPrivate,
+                },
+                services,
+                userUid: getActorUserUid(actor),
+                source: 'driverRead',
+                args: esParams,
+            });
+
+            const [
+                fileAssociationRows,
+                stats,
+                createdFromOrigin,
+                privateAccess,
+            ] = await Promise.all([
+                fileAssociationsPromise,
+                statsPromise,
+                createdFromOriginPromise,
+                privateAccessPromise,
+            ]);
+            await entity.set(
+                'filetype_associations',
+                fileAssociationRows.map(row => row.type),
+            );
+            await entity.set('stats', stats);
+            await entity.set('created_from_origin', createdFromOrigin);
+            await entity.set('privateAccess', privateAccess);
 
             // Migrate b64 icons to the filesystem-backed icon flow without blocking reads.
             this.queueIconMigration(entity);
-
-            entity.set('created_from_origin', await (async () => {
-                const svc_auth = this.context.get('services').get('auth');
-                try {
-                    const origin = origin_from_url(await entity.get('index_url'));
-                    const expected_uid = await svc_auth.app_uid_from_origin(origin);
-                    return expected_uid === await entity.get('uid')
-                        ? origin : null ;
-                } catch (e) {
-                    // This happens when the index_url is not a valid URL
-                    return null;
-                }
-            })());
 
             // Check if the user is the owner
             const is_owner = await (async () => {
@@ -333,13 +414,13 @@ class AppES extends BaseES {
             }
 
             // Replace icon if an icon size is specified
-            const icon_size = Context.get('es_params')?.icon_size;
-            if ( icon_size ) {
+            const iconSize = Context.get('es_params')?.icon_size;
+            if ( iconSize ) {
                 const svc_appIcon = this.context.get('services').get('app-icon');
                 try {
                     const iconPath = svc_appIcon.getAppIconPath({
                         appUid: await entity.get('uid'),
-                        size: icon_size,
+                        size: iconSize,
                     });
                     if ( iconPath ) {
                         await entity.set('icon', iconPath);
@@ -366,22 +447,24 @@ class AppES extends BaseES {
                 ).fetchEntry();
                 const subdomain = await entity.get('subdomain');
                 const user = Context.get('user');
-                let subdomain_res = await this.db.write(`INSERT ${this.db.case({
-                    mysql: 'IGNORE',
-                    sqlite: 'OR IGNORE',
-                })} INTO subdomains
+                let subdomain_res = await this.db.write(
+                    `INSERT ${this.db.case({
+                        mysql: 'IGNORE',
+                        sqlite: 'OR IGNORE',
+                    })} INTO subdomains
                     (subdomain, user_id, root_dir_id,   uuid) VALUES
                     (        ?,       ?,           ?,      ?)`,
-                [
+                    [
                     //subdomain
-                    subdomain,
-                    //user_id
-                    user.id,
-                    //root_dir_id
-                    (await entity.get('source_directory')).mysql_id,
-                    //uuid, `sd` stands for subdomain
-                    `sd-${ uuidv4()}`,
-                ]);
+                        subdomain,
+                        //user_id
+                        user.id,
+                        //root_dir_id
+                        (await entity.get('source_directory')).mysql_id,
+                        //uuid, `sd` stands for subdomain
+                        `sd-${ uuidv4()}`,
+                    ],
+                );
                 subdomain_id = subdomain_res.insertId;
             }
 

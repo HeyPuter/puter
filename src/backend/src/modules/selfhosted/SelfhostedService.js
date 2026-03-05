@@ -45,7 +45,7 @@ class SelfhostedService extends BaseService {
                         }
                         await db.write('UPDATE apps SET godmode = 1 WHERE uid = ?', [app_uid]);
                         const svc_event = this.services.get('event');
-                        svc_event.emit('app.changed', {
+                        await svc_event.emit('app.changed', {
                             app_uid,
                             action: 'updated',
                         });
@@ -68,7 +68,7 @@ class SelfhostedService extends BaseService {
                         }
                         await db.write('UPDATE apps SET godmode = 0 WHERE uid = ?', [app_uid]);
                         const svc_event = this.services.get('event');
-                        svc_event.emit('app.changed', {
+                        await svc_event.emit('app.changed', {
                             app_uid,
                             action: 'updated',
                         });

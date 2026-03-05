@@ -1,7 +1,7 @@
 const BaseService = require('./BaseService');
 
 class RequestMeasureService extends BaseService {
-    async ['__on_install.middlewares.context-aware'] (_, { app }) {
+    async '__on_install.middlewares.context-aware' (_, { app }) {
         const svc_event = this.services.get('event');
         app.use(async (req, res, next) => {
             next();

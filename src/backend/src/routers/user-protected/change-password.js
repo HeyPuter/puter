@@ -75,7 +75,7 @@ const check_password_strength = (password) => {
 module.exports = {
     route: '/change-password',
     methods: ['POST'],
-    handler: async (req, res, next) => {
+    handler: async (req, res) => {
         // Validate new password
         const { new_pass } = req.body;
         const { overallPass: strong } = check_password_strength(new_pass);
@@ -87,8 +87,10 @@ module.exports = {
         // TODO: DI for endpoint definitions like this one
         const bcrypt = require('bcrypt');
         const db = req.services.get('database').get(DB_WRITE, 'auth');
-        await db.write('UPDATE user SET password=?, `pass_recovery_token` = NULL, `change_email_confirm_token` = NULL WHERE `id` = ?',
-                        [await bcrypt.hash(req.body.new_pass, 8), req.user.id]);
+        await db.write(
+            'UPDATE user SET password=?, `pass_recovery_token` = NULL, `change_email_confirm_token` = NULL WHERE `id` = ?',
+            [await bcrypt.hash(req.body.new_pass, 8), req.user.id],
+        );
         invalidate_cached_user(req.user);
 
         // Notify user about password change
