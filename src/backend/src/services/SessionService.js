@@ -20,10 +20,13 @@ const { redisClient } = require('../clients/redis/redisSingleton');
 const { UserRedisCacheSpace } = require('./UserRedisCacheSpace.js');
 const { get_user } = require('../helpers');
 const { asyncSafeSetInterval } = require('@heyputer/putility').libs.promise;
+const { v4: uuidv4 } = require('uuid');
 const SECOND = 1000;
 const MINUTE = 60 * SECOND;
 const BaseService = require('./BaseService');
 const { DB_WRITE } = require('./database/consts');
+const SESSION_CACHE_TTL_SECONDS = 5 * 60;
+const SESSION_CACHE_KEY_PREFIX = 'session-cache';
 
 /**
  * This service is responsible for updating session activity
@@ -41,13 +44,65 @@ const { DB_WRITE } = require('./database/consts');
 * - Provides methods to interact with sessions, including session creation, retrieval, and termination.
 */
 class SessionService extends BaseService {
-    static MODULES = {
-        // uuidv5: require('uuid').v5,
-        uuidv4: require('uuid').v4,
-    };
-
     _construct () {
         this.sessions = {};
+    }
+
+    getSessionCacheKey (uuid) {
+        return `${SESSION_CACHE_KEY_PREFIX}:${uuid}`;
+    }
+
+    async cacheSession (session) {
+        if ( ! session?.uuid ) return;
+        try {
+            await redisClient.set(
+                this.getSessionCacheKey(session.uuid),
+                JSON.stringify(session),
+                'EX',
+                SESSION_CACHE_TTL_SECONDS,
+            );
+        } catch (e) {
+            this.log.warn('failed to cache session in redis', {
+                uuid: session.uuid,
+                reason: e?.message || String(e),
+            });
+        }
+    }
+
+    async getCachedSession (uuid) {
+        let cachedSessionRaw;
+        try {
+            cachedSessionRaw = await redisClient.get(this.getSessionCacheKey(uuid));
+        } catch (e) {
+            this.log.warn('failed to read session from redis', {
+                uuid,
+                reason: e?.message || String(e),
+            });
+            return null;
+        }
+        if ( ! cachedSessionRaw ) return null;
+
+        try {
+            const parsedSession = JSON.parse(cachedSessionRaw);
+            if ( !parsedSession || parsedSession.uuid !== uuid ) {
+                throw new Error('cached session payload mismatch');
+            }
+            return parsedSession;
+        } catch {
+            await this.invalidateCachedSession(uuid);
+            return null;
+        }
+    }
+
+    async invalidateCachedSession (uuid) {
+        try {
+            await redisClient.del(this.getSessionCacheKey(uuid));
+        } catch (e) {
+            this.log.warn('failed to delete cached session from redis', {
+                uuid,
+                reason: e?.message || String(e),
+            });
+        }
     }
 
     /**
@@ -96,7 +151,7 @@ class SessionService extends BaseService {
         };
         meta.created = new Date().toISOString();
         meta.created_unix = unix_ts;
-        const uuid = this.modules.uuidv4();
+        const uuid = uuidv4();
         await this.db.write(
             'INSERT INTO `sessions` ' +
             '(`uuid`, `user_id`, `meta`, `last_activity`, `created_at`) ' +
@@ -112,6 +167,7 @@ class SessionService extends BaseService {
             meta,
         };
         this.sessions[uuid] = session;
+        await this.cacheSession(session);
 
         return session;
     }
@@ -124,9 +180,11 @@ class SessionService extends BaseService {
     * @returns {Object|undefined} The session object with internal values removed, or undefined if the session does not exist.
     */
     async get_session_ (uuid) {
-        let session = this.sessions[uuid];
+        let session = await this.getCachedSession(uuid);
         if ( session ) {
             session.last_touch = Date.now();
+            this.sessions[uuid] = session;
+            await this.cacheSession(session);
             return session;
         }
         ;[session] = await this.db.read(
@@ -144,9 +202,10 @@ class SessionService extends BaseService {
             */
             otherwise: () => JSON.parse(session.meta ?? '{}'),
         })();
-        const user = await get_user(session.user_id);
+        const user = await get_user({ id: session.user_id });
         session.user_uid = user?.uuid;
         this.sessions[uuid] = session;
+        await this.cacheSession(session);
         return session;
     }
     /**
@@ -159,6 +218,7 @@ class SessionService extends BaseService {
         if ( session ) {
             session.last_touch = Date.now();
             session.meta.last_activity = (new Date()).toISOString();
+            await this.cacheSession(session);
         }
         return this.remove_internal_values_(session);
     }
@@ -191,9 +251,10 @@ class SessionService extends BaseService {
     * @param {string} uuid - The UUID of the session to remove.
     * @returns {Promise} A promise that resolves to the result of the database write operation.
     */
-    remove_session (uuid) {
+    async remove_session (uuid) {
         delete this.sessions[uuid];
-        return this.db.write(
+        await this.invalidateCachedSession(uuid);
+        return await this.db.write(
             'DELETE FROM `sessions` WHERE `uuid` = ?',
             [uuid],
         );
