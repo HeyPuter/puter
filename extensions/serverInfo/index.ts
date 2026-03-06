@@ -1,11 +1,16 @@
+/* global config, extension */
 import fs from 'fs/promises';
 import os from 'os';
+import type {
+    ExtensionRequest,
+    ExtensionResponse,
+} from '../api.d.ts';
 const { Controller, Get, ExtensionController } = extension.import('extensionController');
 
 @Controller('/serverInfo', [...config.allowedUsernames])
 class ServerInfoController extends ExtensionController {
     @Get('', { subdomain: 'api' })
-    async getServerInfo (req, res) {
+    async getServerInfo (_req: ExtensionRequest, res: ExtensionResponse) {
         const osData = {
             platform: os.platform(),
             type: os.type(),

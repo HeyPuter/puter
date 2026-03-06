@@ -131,43 +131,48 @@ export class ExtensionController {
                 logger.log(`Registering route: [${route.method.toUpperCase()}] ${fullPath}`);
 
                 (extension[route.method] as RouterMethods[HttpMethod])(
-                                fullPath,
-                                route.options || {},
-                                async (req, res, next) => {
-                                    try {
-                                        if ( adminsForRoute || allowedAppIds ) {
-                                            if ( ! req.actor ) {
-                                                throw new HttpError(StatusCodes.UNAUTHORIZED, 'Unauthenticated');
-                                            }
-                                        }
-                                        if ( adminsForRoute ) {
-                                            if ( ! adminsForRoute.includes(req.actor!.type.user.username) ) {
-                                                throw new HttpError(StatusCodes.FORBIDDEN,
-                                                                'Only admins may request this resource.');
-                                            }
-                                        }
-                                        if ( allowedAppIds ) {
-                                            if ( ( req.actor!.type?.app?.uid && !allowedAppIds.includes(req.actor!.type.app.uid) ) ) {
-                                                throw new HttpError(StatusCodes.FORBIDDEN,
-                                                                'This app may not request this resource.');
-                                            }
-                                        }
-                                        await route.handler.bind(this)(req, res, next);
-                                    } catch ( error ) {
-                                        if ( error instanceof HttpError ) {
-                                            res.status(error.statusCode).send({ error: error.message });
-                                            logger.warn('httpError:', error);
-                                            return;
-                                        }
-                                        if ( error instanceof Error ) {
-                                            res.status(StatusCodes.INTERNAL_SERVER_ERROR).send({ error: error.message });
-                                            logger.error('Non-http error:', error);
-                                            return;
-                                        }
-                                        res.status(StatusCodes.INTERNAL_SERVER_ERROR).send({ error: 'An unknown error occurred' });
-                                        logger.error('An unknown error occurred:', error);
-                                    }
-                                });
+                    fullPath,
+                    route.options || {},
+                    async (req, res, next) => {
+                        try {
+                            if ( adminsForRoute || allowedAppIds ) {
+                                if ( ! req.actor ) {
+                                    throw new HttpError(StatusCodes.UNAUTHORIZED, 'Unauthenticated');
+                                }
+                            }
+                            if ( adminsForRoute ) {
+                                if ( ! adminsForRoute.includes(req.actor!.type.user.username) ) {
+                                    throw new HttpError(
+                                        StatusCodes.FORBIDDEN,
+                                        'Only admins may request this resource.',
+                                    );
+                                }
+                            }
+                            if ( allowedAppIds ) {
+                                if ( ( req.actor!.type?.app?.uid && !allowedAppIds.includes(req.actor!.type.app.uid) ) ) {
+                                    throw new HttpError(
+                                        StatusCodes.FORBIDDEN,
+                                        'This app may not request this resource.',
+                                    );
+                                }
+                            }
+                            await route.handler.bind(this)(req, res, next);
+                        } catch ( error ) {
+                            if ( error instanceof HttpError ) {
+                                res.status(error.statusCode).send({ error: error.message });
+                                logger.warn('httpError:', error);
+                                return;
+                            }
+                            if ( error instanceof Error ) {
+                                res.status(StatusCodes.INTERNAL_SERVER_ERROR).send({ error: error.message });
+                                logger.error('Non-http error:', error);
+                                return;
+                            }
+                            res.status(StatusCodes.INTERNAL_SERVER_ERROR).send({ error: 'An unknown error occurred' });
+                            logger.error('An unknown error occurred:', error);
+                        }
+                    },
+                );
             }
         }
     }

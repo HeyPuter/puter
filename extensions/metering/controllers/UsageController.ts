@@ -1,5 +1,10 @@
+/* global extension */
 import type { BaseDatabaseAccessService } from '@heyputer/backend/src/services/database/BaseDatabaseAccessService.js';
 import type { MeteringService } from '@heyputer/backend/src/services/MeteringService/MeteringService.js';
+import type {
+    ExtensionRequest,
+    ExtensionResponse,
+} from '../../api.d.ts';
 
 const { Controller, Get, ExtensionController } = extension.import('extensionController');
 
@@ -18,7 +23,7 @@ export class UsageController extends ExtensionController {
     }
 
     @Get('usage', { subdomain: 'api' })
-    async getUsage (req, res) {
+    async getUsage (req: ExtensionRequest, res: ExtensionResponse) {
         const actor = req.actor;
         if ( ! actor ) {
             throw Error('actor not found in context');
@@ -35,7 +40,7 @@ export class UsageController extends ExtensionController {
     }
 
     @Get('usage/:appIdOrName', { subdomain: 'api' })
-    async getUsageByApp (req, res) {
+    async getUsageByApp (req: ExtensionRequest, res: ExtensionResponse) {
         const actor = req.actor;
         if ( ! actor ) {
             throw Error('actor not found in context');
@@ -45,12 +50,18 @@ export class UsageController extends ExtensionController {
             res.status(400).json({ error: 'appId parameter is required' });
             return;
         }
+        if ( typeof appIdOrName !== 'string' ) {
+            res.status(400).json({ error: 'appId parameter must be a string' });
+            return;
+        }
 
         let appId = appIdOrName;
         if ( !appIdOrName.startsWith('app-') || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(appIdOrName.split('app-')[1]) ) {
             // Check if the part after 'app-' is a valid UUID (v4)
-            const appRows = await this.#sqlClient.read('SELECT `uid` FROM `apps` WHERE `name` = ? LIMIT 1',
-                            [appIdOrName]);
+            const appRows = await this.#sqlClient.read(
+                'SELECT `uid` FROM `apps` WHERE `name` = ? LIMIT 1',
+                [appIdOrName],
+            );
             if ( appRows.length > 0 ) {
                 appId = appRows[0].uid;
             } else {
@@ -62,15 +73,17 @@ export class UsageController extends ExtensionController {
         }
 
         const appUsage =
-            await this.#meteringService.getActorCurrentMonthAppUsageDetails(actor,
-                            appId);
+            await this.#meteringService.getActorCurrentMonthAppUsageDetails(
+                actor,
+                appId,
+            );
 
         res.status(200).json(appUsage);
         return;
     }
 
     @Get('globalUsage', { subdomain: 'api' }, extension.config.allowedGlobalUsageUsers || [])
-    async getGlobalUsage (req, res) {
+    async getGlobalUsage (req: ExtensionRequest, res: ExtensionResponse) {
         const actor = req.actor;
         if ( ! actor ) {
             throw Error('actor not found in context');
