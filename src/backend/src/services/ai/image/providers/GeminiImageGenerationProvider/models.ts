@@ -52,13 +52,14 @@ export const GEMINI_IMAGE_GENERATION_MODELS: IImageModel[] = [
         name: 'Gemini 2.5 Flash Image',
         version: '1.0',
         costs_currency: 'usd-cents',
-        index_cost_key: 'output_image',
+        index_cost_key: '1x1',
         index_input_cost_key: 'input',
         allowedQualityLevels: [''],
         costs: {
             input: 30, // $0.30 per 1M input tokens (text/image)
             output: 250, // $2.50 per 1M output tokens (text and thinking)
             output_image: 3000, // $30.00 per 1M output image tokens
+            '1x1': 3.9,
         },
         allowedRatios: [
             { w: 1, h: 1 },
@@ -79,7 +80,7 @@ export const GEMINI_IMAGE_GENERATION_MODELS: IImageModel[] = [
         name: 'Gemini 3 Pro Image',
         version: '1.0',
         costs_currency: 'usd-cents',
-        index_cost_key: 'output_image',
+        index_cost_key: '1K:1x1',
         index_input_cost_key: 'input',
         aliases: [
             'gemini-3-pro-image-preview',
@@ -105,6 +106,7 @@ export const GEMINI_IMAGE_GENERATION_MODELS: IImageModel[] = [
             input: 200, // $2.00 per 1M input tokens (text/image)
             output: 1200, // $12.00 per 1M output tokens (text and thinking)
             output_image: 12000, // $120.00 per 1M output image tokens
+            '1K:1x1': 13.4,
         },
     },
     {
@@ -113,7 +115,7 @@ export const GEMINI_IMAGE_GENERATION_MODELS: IImageModel[] = [
         name: 'Gemini 3.1 Flash Image',
         version: '1.0',
         costs_currency: 'usd-cents',
-        index_cost_key: 'output_image',
+        index_cost_key: '1K:1x1',
         index_input_cost_key: 'input',
         aliases: [
             'gemini-3.1-flash-image-preview',
@@ -143,6 +145,7 @@ export const GEMINI_IMAGE_GENERATION_MODELS: IImageModel[] = [
             input: 25, // $0.25 per 1M input tokens (text/image)
             output: 150, // $1.50 per 1M output tokens (text and thinking)
             output_image: 6000, // $60.00 per 1M output image tokens
+            '1K:1x1': 6.7,
         },
     },
 ];
