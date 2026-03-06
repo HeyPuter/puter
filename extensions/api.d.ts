@@ -1,3 +1,4 @@
+
 import type APIError from '@heyputer/backend/src/api/APIError.js';
 import type query from '@heyputer/backend/src/om/query/query';
 import type { Actor } from '@heyputer/backend/src/services/auth/Actor.js';
@@ -32,7 +33,7 @@ declare global {
 
 export type { Cluster } from 'ioredis';
 
-interface EndpointOptions {
+export interface EndpointOptions {
     allowedMethods?: string[];
     subdomain?: string;
     noauth?: boolean;
@@ -57,7 +58,16 @@ interface DriverInterface {
     methods: Record<string, MethodDefinition>;
 }
 
-type HttpMethod = 'get' | 'post' | 'put' | 'delete' | 'patch';
+export type HttpMethod = 'get' | 'post' | 'put' | 'delete' | 'patch';
+
+export type ExtensionRequestHandler = RequestHandler<
+    Record<string, string | undefined>,
+    unknown,
+    unknown
+>;
+export type ExtensionRequest = Parameters<ExtensionRequestHandler>[0];
+export type ExtensionResponse = Parameters<ExtensionRequestHandler>[1];
+export type ExtensionNextFunction = Parameters<ExtensionRequestHandler>[2];
 
 export type AddRouteFunction = (
     path: string,

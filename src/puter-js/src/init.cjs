@@ -1,7 +1,6 @@
 const { readFileSync } = require('node:fs');
 const vm = require('node:vm');
 const { resolve } = require('node:path');
-const { IncomingMessage } = require('node:http');
 const open = require('open');
 /**
  * Method for loading puter.js in Node.js environment with auth token
