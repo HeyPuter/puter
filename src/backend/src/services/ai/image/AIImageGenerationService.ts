@@ -68,13 +68,13 @@ export class AIImageGenerationService extends BaseService {
 
     /** Driver interfaces */
     static IMPLEMENTS = {
-        ['driver-capabilities']: {
+        'driver-capabilities': {
             supports_test_mode (iface: string, method_name: string) {
                 return iface === 'puter-image-generation' &&
                     method_name === 'generate';
             },
         },
-        ['puter-image-generation']: {
+        'puter-image-generation': {
 
             async generate (...parameters: Parameters<AIImageGenerationService['generate']>) {
                 return (this as unknown as AIImageGenerationService).generate(...parameters);
@@ -88,11 +88,18 @@ export class AIImageGenerationService extends BaseService {
             return undefined;
         }
 
-        if ( ! provider ) {
-            return models[0];
+        if ( provider ) {
+            const model = models.find(m => m.provider === provider);
+            return model ?? models[0];
         }
-        const model = models.find(m => m.provider === provider);
-        return model ?? models[0];
+
+        // If no provider is specified, prefer a model whose puterId exactly matches the requested modelId.
+        const exactPuterIdMatch = models.find(m => m.puterId === modelId);
+        if ( exactPuterIdMatch ) {
+            return exactPuterIdMatch;
+        }
+
+        return models[0];
     }
 
     private async registerProviders () {
@@ -152,9 +159,11 @@ export class AIImageGenerationService extends BaseService {
             const provider = this.#providers[providerName];
 
             // alias all driver requests to go here to support legacy routing
-            this.driverService.register_service_alias(AIImageGenerationService.SERVICE_NAME,
-                            providerName,
-                            { iface: 'puter-image-generation' });
+            this.driverService.register_service_alias(
+                AIImageGenerationService.SERVICE_NAME,
+                providerName,
+                { iface: 'puter-image-generation' },
+            );
 
             // build model id map
             for ( const model of await provider.models() ) {
