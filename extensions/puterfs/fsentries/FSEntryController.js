@@ -1,3 +1,4 @@
+import { TeePromise } from 'teepromise';
 import BaseOperation from './BaseOperation.js';
 import Delete from './Delete.js';
 import Insert from './Insert.js';
@@ -474,6 +475,7 @@ export default class FSEntryController {
 
     // #region queue logic
     async enqueue_ (op) {
+        const tp = new TeePromise();
         while (
             this.currentState.queue.length > this.max_queue ||
             this.deferredState.queue.length > this.max_queue
@@ -506,6 +508,8 @@ export default class FSEntryController {
         }
 
         this.checkShouldExec_();
+
+        await op.awaitDone();
     }
 
     checkShouldExec_ () {

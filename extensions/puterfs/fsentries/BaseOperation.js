@@ -1,13 +1,16 @@
+import { TeePromise } from 'teepromise';
+
 export default class BaseOperation {
     static STATUS_PENDING = {};
     static STATUS_RUNNING = {};
     static STATUS_DONE = {};
+
+    /** @type {PromiseLike<void> & { resolve: () => void }} */
+    #donePromise;
+
     constructor () {
         this.status_ = this.constructor.STATUS_PENDING;
-        this.donePromise = new Promise((resolve, reject) => {
-            this.doneResolve = resolve;
-            this.doneReject = reject;
-        });
+        this.#donePromise = new TeePromise();
     }
     get status () {
         return this.status_;
@@ -15,13 +18,14 @@ export default class BaseOperation {
     set status (status) {
         this.status_ = status;
         if ( status === this.constructor.STATUS_DONE ) {
-            this.doneResolve();
+            this.#donePromise.resolve();
         }
     }
-    awaitDone () {
-        return this.donePromise;
+    async awaitDone () {
+        await this.#donePromise;
     }
-    onComplete (fn) {
-        this.donePromise.then(fn);
+    async onComplete (fn) {
+        await this.#donePromise;
+        fn();
     }
 }
