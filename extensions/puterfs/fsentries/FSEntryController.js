@@ -1,3 +1,4 @@
+import { TeePromise } from 'teepromise';
 import BaseOperation from './BaseOperation.js';
 import Delete from './Delete.js';
 import Insert from './Insert.js';
@@ -128,8 +129,10 @@ export default class FSEntryController {
     async fast_get_direct_descendants (uuid) {
         return (uuid === PuterPath.NULL_UUID
             ? await db.read('SELECT uuid FROM fsentries WHERE parent_uid IS NULL')
-            : await db.read('SELECT uuid FROM fsentries WHERE parent_uid = ?',
-                            [uuid])).map(x => x.uuid);
+            : await db.read(
+                'SELECT uuid FROM fsentries WHERE parent_uid = ?',
+                [uuid],
+            )).map(x => x.uuid);
     }
 
     waitForEntry (node, callback) {
@@ -183,8 +186,10 @@ export default class FSEntryController {
             op.apply(answer);
         }
         if ( answer.is_diff ) {
-            const base_entry = await this.find(new NodeUIDSelector(uuid),
-                            fetch_entry_options);
+            const base_entry = await this.find(
+                new NodeUIDSelector(uuid),
+                fetch_entry_options,
+            );
             answer.entry = { ...base_entry, ...answer.entry };
         }
         return answer.entry;
@@ -198,10 +203,14 @@ export default class FSEntryController {
      */
     async get_descendants (uuid) {
         return uuid === PuterPath.NULL_UUID
-            ? await db.read('SELECT uuid FROM fsentries WHERE parent_uid IS NULL',
-                            [uuid])
-            : await db.read('SELECT uuid FROM fsentries WHERE parent_uid = ?',
-                            [uuid])
+            ? await db.read(
+                'SELECT uuid FROM fsentries WHERE parent_uid IS NULL',
+                [uuid],
+            )
+            : await db.read(
+                'SELECT uuid FROM fsentries WHERE parent_uid = ?',
+                [uuid],
+            )
         ;
     }
 
@@ -217,10 +226,14 @@ export default class FSEntryController {
             this.defaultProperties.join(', ')
         }${thumbnail ? ', thumbnail' : ''}`;
         return uuid === PuterPath.NULL_UUID
-            ? await db.read(`SELECT ${columns} FROM fsentries WHERE parent_uid IS NULL`,
-                            [uuid])
-            : await db.read(`SELECT ${columns} FROM fsentries WHERE parent_uid = ?`,
-                            [uuid])
+            ? await db.read(
+                `SELECT ${columns} FROM fsentries WHERE parent_uid IS NULL`,
+                [uuid],
+            )
+            : await db.read(
+                `SELECT ${columns} FROM fsentries WHERE parent_uid = ?`,
+                [uuid],
+            )
         ;
     }
 
@@ -276,9 +289,11 @@ export default class FSEntryController {
 
             if ( id === undefined ) return null;
             if ( typeof id !== 'number' ) {
-                throw new Error('unexpected type for id value',
-                                typeof id,
-                                id);
+                throw new Error(
+                    'unexpected type for id value',
+                    typeof id,
+                    id,
+                );
             }
             return this.find(new NodeInternalIDSelector('mysql', id));
         }
@@ -293,11 +308,13 @@ export default class FSEntryController {
     async findByUID (uuid, fetch_entry_options = {}) {
         const { thumbnail } = fetch_entry_options;
 
-        let fsentry = await db.tryHardRead(`SELECT ${
-            this.defaultProperties.join(', ')
-        }${thumbnail ? ', thumbnail' : ''
-        } FROM fsentries WHERE uuid = ? LIMIT 1`,
-        [uuid]);
+        let fsentry = await db.tryHardRead(
+            `SELECT ${
+                this.defaultProperties.join(', ')
+            }${thumbnail ? ', thumbnail' : ''
+            } FROM fsentries WHERE uuid = ? LIMIT 1`,
+            [uuid],
+        );
 
         return fsentry[0];
     }
@@ -311,11 +328,13 @@ export default class FSEntryController {
     async findByID (id, fetch_entry_options = {}) {
         const { thumbnail } = fetch_entry_options;
 
-        let fsentry = await db.tryHardRead(`SELECT ${
-            this.defaultProperties.join(', ')
-        }${thumbnail ? ', thumbnail' : ''
-        } FROM fsentries WHERE id = ? LIMIT 1`,
-        [id]);
+        let fsentry = await db.tryHardRead(
+            `SELECT ${
+                this.defaultProperties.join(', ')
+            }${thumbnail ? ', thumbnail' : ''
+            } FROM fsentries WHERE id = ? LIMIT 1`,
+            [id],
+        );
 
         return fsentry[0];
     }
@@ -346,9 +365,11 @@ export default class FSEntryController {
         const resultColsSql = this.defaultProperties.join(', ') +
             (thumbnail ? ', thumbnail' : '');
 
-        result = await db.read(`SELECT ${ resultColsSql
-        } FROM fsentries WHERE path=? LIMIT 1`,
-        [path]);
+        result = await db.read(
+            `SELECT ${ resultColsSql
+            } FROM fsentries WHERE path=? LIMIT 1`,
+            [path],
+        );
 
         // using knex instead
 
@@ -360,13 +381,17 @@ export default class FSEntryController {
                 const isLast = i == parts.length - 1;
                 const colsSql = isLast ? resultColsSql : 'uuid';
                 if ( parent_uid === null ) {
-                    result = await db.read(`SELECT ${ colsSql
-                    } FROM fsentries WHERE parent_uid IS NULL AND name=? LIMIT 1`,
-                    [part]);
+                    result = await db.read(
+                        `SELECT ${ colsSql
+                        } FROM fsentries WHERE parent_uid IS NULL AND name=? LIMIT 1`,
+                        [part],
+                    );
                 } else {
-                    result = await db.read(`SELECT ${ colsSql
-                    } FROM fsentries WHERE parent_uid=? AND name=? LIMIT 1`,
-                    [parent_uid, part]);
+                    result = await db.read(
+                        `SELECT ${ colsSql
+                        } FROM fsentries WHERE parent_uid=? AND name=? LIMIT 1`,
+                        [parent_uid, part],
+                    );
                 }
 
                 if ( ! result[0] ) return false;
@@ -377,12 +402,14 @@ export default class FSEntryController {
         if ( fetch_entry_options.tracer ) {
             const tracer = fetch_entry_options.tracer;
             const options = fetch_entry_options.trace_options;
-            await tracer.startActiveSpan('fs:sql:findByPath',
-                            ...(options ? [options] : []),
-                            async span => {
-                                await loop();
-                                span.end();
-                            });
+            await tracer.startActiveSpan(
+                'fs:sql:findByPath',
+                ...(options ? [options] : []),
+                async span => {
+                    await loop();
+                    span.end();
+                },
+            );
         } else {
             await loop();
         }
@@ -396,8 +423,10 @@ export default class FSEntryController {
      * @returns {Promise<number|undefined>} The ID of the child entry or undefined if not found
      */
     async findNameInRoot (name) {
-        let child_id = await db.read('SELECT `id` FROM `fsentries` WHERE `parent_uid` IS NULL AND name = ? LIMIT 1',
-                        [name]);
+        let child_id = await db.read(
+            'SELECT `id` FROM `fsentries` WHERE `parent_uid` IS NULL AND name = ? LIMIT 1',
+            [name],
+        );
         return child_id[0]?.id;
     }
 
@@ -408,8 +437,10 @@ export default class FSEntryController {
      * @returns {Promise<number|undefined>} The ID of the child entry or undefined if not found
      */
     async findNameInParent (parent_uid, name) {
-        let child_id = await db.read('SELECT `id` FROM `fsentries` WHERE `parent_uid` = ? AND name = ? LIMIT 1',
-                        [parent_uid, name]);
+        let child_id = await db.read(
+            'SELECT `id` FROM `fsentries` WHERE `parent_uid` = ? AND name = ? LIMIT 1',
+            [parent_uid, name],
+        );
         return child_id[0]?.id;
     }
 
@@ -420,8 +451,10 @@ export default class FSEntryController {
      * @returns {Promise<boolean>} True if the name exists under the parent, false otherwise
      */
     async nameExistsUnderParent (parent_uid, name) {
-        let check_dupe = await db.read('SELECT `id` FROM `fsentries` WHERE `parent_uid` = ? AND name = ? LIMIT 1',
-                        [parent_uid, name]);
+        let check_dupe = await db.read(
+            'SELECT `id` FROM `fsentries` WHERE `parent_uid` = ? AND name = ? LIMIT 1',
+            [parent_uid, name],
+        );
         return !!check_dupe[0];
     }
 
@@ -442,6 +475,7 @@ export default class FSEntryController {
 
     // #region queue logic
     async enqueue_ (op) {
+        const tp = new TeePromise();
         while (
             this.currentState.queue.length > this.max_queue ||
             this.deferredState.queue.length > this.max_queue
@@ -474,6 +508,8 @@ export default class FSEntryController {
         }
 
         this.checkShouldExec_();
+
+        await op.awaitDone();
     }
 
     checkShouldExec_ () {
