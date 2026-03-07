@@ -22,7 +22,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
             cached_tokens: 25,
             completion_tokens: 1500,
         },
-        max_tokens: 128000,
+        max_tokens: 1_050_000, // this is used for context length calculations so its misnamed from when OpenAI max_tokens and content_length were the same value
     },
     {
         puterId: 'openai:openai/gpt-5.3-codex',
