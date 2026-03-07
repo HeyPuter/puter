@@ -42,7 +42,6 @@ const get_html_element_from_options = async function (options) {
     const show_website_badge = !!options.has_website && !is_worker;
 
     let website_url = window.determine_website_url(options.path);
-
     // do a quick check to see if the target parent has any file type restrictions
     const appendto_allowed_file_types = $(options.appendTo).attr('data-allowed_file_types');
     if ( ! window.check_fsentry_against_allowed_file_types_string({ is_dir: options.is_dir, name: options.name, type: options.type }, appendto_allowed_file_types) )

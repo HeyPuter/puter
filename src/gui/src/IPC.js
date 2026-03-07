@@ -1500,6 +1500,7 @@ const ipc_listener = async (event, handled) => {
                 type: res.type,
                 is_dir: false,
                 is_shared: res.is_shared,
+                workers: res.workers.length > 0 ? res.workers : [],
                 suggested_apps: res.suggested_apps,
             });
             // sort each window
