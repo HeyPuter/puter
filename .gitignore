@@ -11,6 +11,7 @@ license-header.txt
 
 # Build Outputs
 dist/
+src/docs/dist/
 
 # VS Code IDE
 .vscode/**/*

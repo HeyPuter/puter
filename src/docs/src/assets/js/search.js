@@ -318,6 +318,8 @@ function performSearch (query) {
                  }
                  if (nearestHeading) {
                       textFragment = `#${nearestHeading.slug}`;
+                 } else if (item.subheading) {
+                      textFragment = `#${item.subheading}`;
                  }
                  highlightedChunk = highlightIndices(item.text, occ.indices, contextStart, contextEnd);
              }
