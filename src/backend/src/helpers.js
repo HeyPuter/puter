@@ -145,37 +145,6 @@ const isBase64AppIcon = (app) => {
     return isRawBase64ImageString(trimmed);
 };
 
-const buildAppIconSubdomainUrl = (app_uid, size = DEFAULT_APP_ICON_SIZE) => {
-    if ( ! app_uid ) return null;
-    const normalized_uid = normalizeAppUid(app_uid);
-    const iconSize = Number.isFinite(Number(size)) ? Number(size) : DEFAULT_APP_ICON_SIZE;
-    const static_hosting_domain = config.static_hosting_domain || config.static_hosting_domain_alt;
-    if ( ! static_hosting_domain ) return null;
-    const protocol = config.protocol || 'https';
-    return `${protocol}://${APP_ICONS_SUBDOMAIN}.${static_hosting_domain}/${normalized_uid}-${iconSize}.png`;
-};
-
-const buildAppIconEndpointUrl = (app_uid, size = DEFAULT_APP_ICON_SIZE) => {
-    if ( ! app_uid ) return null;
-    const normalized_uid = normalizeAppUid(app_uid);
-    const iconSize = Number.isFinite(Number(size)) ? Number(size) : DEFAULT_APP_ICON_SIZE;
-
-    try {
-        const svc_appIcon = servicesContainer.services?.get?.('app-icon');
-        const iconPath = svc_appIcon?.getAppIconPath?.({
-            appUid: normalized_uid,
-            size: iconSize,
-        });
-        if ( iconPath ) return iconPath;
-    } catch {
-        // Fall back to direct URL generation below.
-    }
-
-    const apiBaseUrl = String(config.api_base_url || '').replace(/\/+$/, '');
-    if ( ! apiBaseUrl ) return null;
-    return `${apiBaseUrl}/app-icon/${normalized_uid}/${iconSize}`;
-};
-
 export async function is_empty (dir_uuid) {
     /** @type BaseDatabaseAccessService */
     const db = servicesContainer.services.get('database').get(DB_READ, 'filesystem');
@@ -514,9 +483,39 @@ export async function get_app (options) {
 const get_app_icon_url = (app, size) => {
     const iconIsBase64 = isBase64AppIcon(app);
     const svc_appIcon = servicesContainer.services.get('app-icon');
-    return (iconIsBase64 || svc_appIcon.config.no_subdomain)
-        ? buildAppIconEndpointUrl(app.uid ?? app.uuid, size)
-        : buildAppIconSubdomainUrl(app.uid ?? app.uuid, size);
+    const app_uid = app.uid ?? app.uuid;
+
+    // For base64 icons, or if `no_subdomain` was set in config, use the
+    // `/app-icon` endpoint on Puter's backend as the URL for this icon.
+    if ( iconIsBase64 || svc_appIcon.config.no_subdomain ) {
+        if ( ! app_uid ) return null;
+        const normalized_uid = normalizeAppUid(app_uid);
+        const iconSize = Number.isFinite(Number(size)) ? Number(size) : DEFAULT_APP_ICON_SIZE;
+
+        try {
+            const iconPath = svc_appIcon?.getAppIconPath?.({
+                appUid: normalized_uid,
+                size: iconSize,
+            });
+            if ( iconPath ) return iconPath;
+        } catch {
+            // Fall back to direct URL generation below.
+        }
+
+        const apiBaseUrl = String(config.api_base_url || '').replace(/\/+$/, '');
+        if ( ! apiBaseUrl ) return null;
+        return `${apiBaseUrl}/app-icon/${normalized_uid}/${iconSize}`;
+    }
+
+    // Otherwise, the icon has a URL under `puter-app-icons.puter.site`
+    // (or the `puter-app-icons` subdomain of this Puter instance's static hosting domain)
+    if ( ! app_uid ) return null;
+    const normalized_uid = normalizeAppUid(app_uid);
+    const iconSize = Number.isFinite(Number(size)) ? Number(size) : DEFAULT_APP_ICON_SIZE;
+    const static_hosting_domain = config.static_hosting_domain || config.static_hosting_domain_alt;
+    if ( ! static_hosting_domain ) return null;
+    const protocol = config.protocol || 'https';
+    return `${protocol}://${APP_ICONS_SUBDOMAIN}.${static_hosting_domain}/${normalized_uid}-${iconSize}.png`;
 };
 
 /**
