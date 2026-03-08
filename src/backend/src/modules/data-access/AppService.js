@@ -725,6 +725,9 @@ export default class AppService extends BaseService {
 
         // Ensure puter.site subdomain is owned by user (if index_url uses it)
         await this.#ensure_puter_site_subdomain_is_owned(object.index_url, user);
+        await this.#ensureIndexUrlNotAlreadyInUse({
+            indexUrl: object.index_url,
+        });
 
         // Handle app name conflicts (AppES behavior)
         if ( await app_name_exists(object.name) ) {
@@ -991,6 +994,10 @@ export default class AppService extends BaseService {
         // Ensure puter.site subdomain is owned by user (if index_url changed)
         if ( object.index_url && object.index_url !== old_app.index_url ) {
             await this.#ensure_puter_site_subdomain_is_owned(object.index_url, user);
+            await this.#ensureIndexUrlNotAlreadyInUse({
+                indexUrl: object.index_url,
+                excludeAppId: old_app.id,
+            });
         }
 
         // Handle app name conflicts
@@ -1080,21 +1087,7 @@ export default class AppService extends BaseService {
 
     async #ensure_puter_site_subdomain_is_owned (index_url, user) {
         if ( ! user ) return;
-
-        let hostname;
-        try {
-            hostname = (new URL(index_url)).hostname.toLowerCase();
-        } catch {
-            return;
-        }
-
-        const hosting_domain = config.static_hosting_domain?.toLowerCase();
-        if ( ! hosting_domain ) return;
-
-        const suffix = `.${hosting_domain}`;
-        if ( ! hostname.endsWith(suffix) ) return;
-
-        const subdomain = hostname.slice(0, hostname.length - suffix.length);
+        const subdomain = this.#extractPuterHostedSubdomain(index_url);
         if ( ! subdomain ) return;
 
         const svc_puterSite = this.services.get('puter-site');
@@ -1102,6 +1095,112 @@ export default class AppService extends BaseService {
 
         if ( !site || site.user_id !== user.id ) {
             throw APIError.create('subdomain_not_owned', null, { subdomain });
+        }
+    }
+
+    #normalizeConfiguredHostedDomain (domainValue) {
+        if ( typeof domainValue !== 'string' ) return null;
+        const normalizedDomain = domainValue.trim().toLowerCase().replace(/^\./, '');
+        if ( ! normalizedDomain ) return null;
+        return normalizedDomain.split(':')[0] || null;
+    }
+
+    #getPuterHostedDomains () {
+        const domains = new Set();
+        for ( const configuredDomain of [
+            config.static_hosting_domain,
+            config.static_hosting_domain_alt,
+            config.private_app_hosting_domain,
+            config.private_app_hosting_domain_alt,
+        ] ) {
+            const normalizedConfiguredDomain = this.#normalizeConfiguredHostedDomain(configuredDomain);
+            if ( normalizedConfiguredDomain ) {
+                domains.add(normalizedConfiguredDomain);
+            }
+        }
+        return [...domains];
+    }
+
+    #extractPuterHostedSubdomain (indexUrl) {
+        if ( typeof indexUrl !== 'string' || !indexUrl ) return null;
+
+        let hostname;
+        try {
+            hostname = (new URL(indexUrl)).hostname.toLowerCase();
+        } catch {
+            return null;
+        }
+
+        const hostedDomains = this.#getPuterHostedDomains();
+        hostedDomains.sort((domainA, domainB) => domainB.length - domainA.length);
+
+        for ( const hostedDomain of hostedDomains ) {
+            const suffix = `.${hostedDomain}`;
+            if ( hostname.endsWith(suffix) ) {
+                const subdomain = hostname.slice(0, hostname.length - suffix.length);
+                return subdomain || null;
+            }
+        }
+
+        return null;
+    }
+
+    #buildEquivalentIndexUrlCandidates (indexUrl) {
+        if ( typeof indexUrl !== 'string' || !indexUrl.trim() ) {
+            return [];
+        }
+
+        try {
+            const parsedIndexUrl = new URL(indexUrl);
+            const origin = `${parsedIndexUrl.protocol}//${parsedIndexUrl.host.toLowerCase()}`;
+            const pathname = parsedIndexUrl.pathname || '/';
+
+            const candidates = new Set();
+            if ( pathname === '/' || pathname.toLowerCase() === '/index.html' ) {
+                candidates.add(origin);
+                candidates.add(`${origin}/`);
+                candidates.add(`${origin}/index.html`);
+            } else {
+                const normalizedPath = pathname.endsWith('/')
+                    ? pathname.slice(0, -1)
+                    : pathname;
+                candidates.add(`${origin}${normalizedPath}`);
+                candidates.add(`${origin}${normalizedPath}/`);
+            }
+
+            return [...candidates];
+        } catch {
+            return [indexUrl.trim()];
+        }
+    }
+
+    async #ensureIndexUrlNotAlreadyInUse ({ indexUrl, excludeAppId } = {}) {
+        const indexUrlCandidates = this.#buildEquivalentIndexUrlCandidates(indexUrl);
+        if ( indexUrlCandidates.length === 0 ) return;
+
+        const placeholders = indexUrlCandidates.map(() => '?').join(', ');
+        const parameters = [...indexUrlCandidates];
+        let query = `SELECT id, uid, index_url FROM apps WHERE index_url IN (${placeholders})`;
+
+        if ( Number.isInteger(excludeAppId) && excludeAppId > 0 ) {
+            query += ' AND id != ?';
+            parameters.push(excludeAppId);
+        }
+
+        query += ' ORDER BY timestamp ASC, id ASC LIMIT 1';
+
+        const rows = await this.db.read(query, parameters);
+        const conflictRow = rows.find(row => {
+            if ( typeof row?.index_url === 'string' ) {
+                return indexUrlCandidates.includes(row.index_url);
+            }
+            return true;
+        });
+        if ( conflictRow ) {
+            throw APIError.create('app_index_url_already_in_use', null, {
+                index_url: indexUrl,
+                app_uid: conflictRow.uid,
+            });
         }
     }
 

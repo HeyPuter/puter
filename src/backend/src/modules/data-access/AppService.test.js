@@ -37,6 +37,9 @@ vi.mock('../../config.js', () => ({
         app_name_regex: /^[a-z0-9-]+$/,
         app_title_max_length: 200,
         static_hosting_domain: 'puter.site',
+        static_hosting_domain_alt: 'puter.host',
+        private_app_hosting_domain: 'puter.app',
+        private_app_hosting_domain_alt: 'puter.dev',
         origin: 'https://puter.localhost',
         api_base_url: 'https://api.puter.localhost',
     },
@@ -720,12 +723,17 @@ describe('AppService', () => {
             setupContextForWrite(createMockUserActor(1));
 
             // Mock the read after insert
-            mockDb.read.mockResolvedValue([createMockAppRow({
-                uid: expect.stringContaining('app-'),
-                name: 'new-app',
-                title: 'New App',
-                index_url: 'https://example.com/new',
-            })]);
+            mockDb.read.mockImplementation(async (query) => {
+                if ( typeof query === 'string' && query.includes('SELECT id, uid, index_url FROM apps WHERE index_url IN') ) {
+                    return [];
+                }
+                return [createMockAppRow({
+                    uid: expect.stringContaining('app-'),
+                    name: 'new-app',
+                    title: 'New App',
+                    index_url: 'https://example.com/new',
+                })];
+            });
 
             const crudQ = AppService.IMPLEMENTS['crud-q'];
             await crudQ.create.call(appService, {
@@ -880,6 +888,30 @@ describe('AppService', () => {
                     name: 'existing-app',
                     title: 'Test',
                     index_url: 'https://example.com',
+                },
+            })).rejects.toThrow();
+        });
+
+        it('should throw when equivalent index_url is already in use on create', async () => {
+            setupContextForWrite(createMockUserActor(1));
+            mockDb.read.mockImplementation(async (query) => {
+                if ( typeof query === 'string' && query.includes('SELECT id, uid, index_url FROM apps WHERE index_url IN') ) {
+                    return [{
+                        id: 999,
+                        uid: 'app-existing-uid',
+                        index_url: 'https://example.com/',
+                    }];
+                }
+                return [createMockAppRow()];
+            });
+
+            const crudQ = AppService.IMPLEMENTS['crud-q'];
+
+            await expect(crudQ.create.call(appService, {
+                object: {
+                    name: 'new-app',
+                    title: 'New App',
+                    index_url: 'https://example.com/index.html',
                 },
             })).rejects.toThrow();
         });
@@ -1133,7 +1165,12 @@ describe('AppService', () => {
 
         it('should call validate_url for index_url', async () => {
             setupContextForWrite(createMockUserActor(1));
-            mockDb.read.mockResolvedValue([createMockAppRow()]);
+            mockDb.read.mockImplementation(async (query) => {
+                if ( typeof query === 'string' && query.includes('SELECT id, uid, index_url FROM apps WHERE index_url IN') ) {
+                    return [];
+                }
+                return [createMockAppRow()];
+            });
 
             const crudQ = AppService.IMPLEMENTS['crud-q'];
             await crudQ.create.call(appService, {
@@ -1589,6 +1626,46 @@ describe('AppService', () => {
                 expect.stringContaining('UPDATE apps SET'),
                 expect.arrayContaining(['https://mysite.puter.site']),
             );
+        });
+
+        it('should allow index_url change when private hosted subdomain is owned', async () => {
+            setupContextForWrite(createMockUserActor(1));
+            mockPuterSiteService.get_subdomain.mockResolvedValue({ user_id: 1 });
+
+            const crudQ = AppService.IMPLEMENTS['crud-q'];
+            await crudQ.update.call(appService, {
+                object: {
+                    uid: 'app-uid-123',
+                    index_url: 'https://mysite.puter.dev',
+                },
+            });
+
+            expect(mockDbWrite.write).toHaveBeenCalledWith(
+                expect.stringContaining('UPDATE apps SET'),
+                expect.arrayContaining(['https://mysite.puter.dev']),
+            );
+        });
+
+        it('should throw when equivalent index_url is already in use on update', async () => {
+            setupContextForWrite(createMockUserActor(1));
+            mockDb.read.mockImplementation(async (query) => {
+                if ( typeof query === 'string' && query.includes('SELECT id, uid, index_url FROM apps WHERE index_url IN') ) {
+                    return [{
+                        id: 777,
+                        uid: 'app-conflict-uid',
+                        index_url: 'https://updated.com/',
+                    }];
+                }
+                return [createMockAppRow()];
+            });
+
+            const crudQ = AppService.IMPLEMENTS['crud-q'];
+            await expect(crudQ.update.call(appService, {
+                object: {
+                    uid: 'app-uid-123',
+                    index_url: 'https://updated.com/index.html',
+                },
+            })).rejects.toThrow();
         });
 
         it('should throw forbidden when app actor does not own the entity (AppLimitedES behavior)', async () => {
