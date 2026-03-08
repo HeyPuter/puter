@@ -36,6 +36,8 @@ const APP_ORIGIN_LOCAL_CACHE_KEY_PREFIX = 'auth:appOriginCanonicalization:local'
 const DEFAULT_APP_ORIGIN_CANONICAL_CACHE_TTL_SECONDS = 300;
 const DEFAULT_PRIVATE_APP_ASSET_TOKEN_TTL_SECONDS = 60 * 60;
 const DEFAULT_PRIVATE_APP_ASSET_COOKIE_NAME = 'puter.private.asset.token';
+const DEFAULT_PUBLIC_HOSTED_ACTOR_TOKEN_TTL_SECONDS = 15 * 60;
+const DEFAULT_PUBLIC_HOSTED_ACTOR_COOKIE_NAME = 'puter.public.hosted.actor.token';
 
 const LegacyTokenError = class extends Error {
 };
@@ -292,6 +294,21 @@ class AuthService extends BaseService {
         return DEFAULT_PRIVATE_APP_ASSET_COOKIE_NAME;
     }
 
+    getPublicHostedActorTokenTtlSeconds () {
+        return this.resolvePositiveInteger(
+            this.global_config.public_hosted_actor_token_ttl_seconds,
+            DEFAULT_PUBLIC_HOSTED_ACTOR_TOKEN_TTL_SECONDS,
+        );
+    }
+
+    getPublicHostedActorCookieName () {
+        const configuredCookieName = this.global_config.public_hosted_actor_cookie_name;
+        if ( typeof configuredCookieName === 'string' && configuredCookieName.trim() ) {
+            return configuredCookieName.trim();
+        }
+        return DEFAULT_PUBLIC_HOSTED_ACTOR_COOKIE_NAME;
+    }
+
     normalizeHostnameForCookieDomain (hostnameValue) {
         if ( typeof hostnameValue !== 'string' ) return null;
         const trimmedHostname = hostnameValue.trim().toLowerCase().replace(/^\./, '');
@@ -315,6 +332,22 @@ class AuthService extends BaseService {
     getConfiguredPrivateCookieDomains () {
         const configuredDomains = [];
         for ( const configuredDomainCandidate of [
+            this.global_config.private_app_hosting_domain,
+            this.global_config.private_app_hosting_domain_alt,
+        ] ) {
+            const normalizedDomain = this.normalizeHostnameForCookieDomain(configuredDomainCandidate);
+            if ( normalizedDomain ) {
+                configuredDomains.push(normalizedDomain);
+            }
+        }
+        return [...new Set(configuredDomains)];
+    }
+
+    getConfiguredHostedCookieDomains () {
+        const configuredDomains = [];
+        for ( const configuredDomainCandidate of [
+            this.global_config.static_hosting_domain,
+            this.global_config.static_hosting_domain_alt,
             this.global_config.private_app_hosting_domain,
             this.global_config.private_app_hosting_domain_alt,
         ] ) {
@@ -373,6 +406,53 @@ class AuthService extends BaseService {
         return cookieOptions;
     }
 
+    resolvePublicHostedActorCookieDomain ({ requestHostname } = {}) {
+        const configuredDomains = this.getConfiguredHostedCookieDomains();
+        const normalizedRequestHost = this.normalizeHostnameForCookieDomain(requestHostname);
+
+        if ( normalizedRequestHost ) {
+            const matchedConfiguredDomain = configuredDomains
+                .sort((domainA, domainB) => domainB.length - domainA.length)
+                .find(configuredDomain =>
+                    normalizedRequestHost === configuredDomain ||
+                    normalizedRequestHost.endsWith(`.${configuredDomain}`));
+            if ( this.isCookieDomainHostEligible(matchedConfiguredDomain) ) {
+                return `.${matchedConfiguredDomain}`;
+            }
+            return undefined;
+        }
+
+        const [firstConfiguredDomain] = configuredDomains;
+        if ( this.isCookieDomainHostEligible(firstConfiguredDomain) ) {
+            return `.${firstConfiguredDomain}`;
+        }
+        return undefined;
+    }
+
+    getPublicHostedActorCookieOptions ({ ttlSeconds, requestHostname } = {}) {
+        const effectiveTtlSeconds = this.resolvePositiveInteger(
+            ttlSeconds,
+            this.getPublicHostedActorTokenTtlSeconds(),
+        );
+
+        const cookieOptions = {
+            sameSite: 'none',
+            secure: true,
+            httpOnly: true,
+            path: '/',
+            maxAge: effectiveTtlSeconds * 1000,
+        };
+
+        const cookieDomain = this.resolvePublicHostedActorCookieDomain({
+            requestHostname,
+        });
+        if ( cookieDomain ) {
+            cookieOptions.domain = cookieDomain;
+        }
+
+        return cookieOptions;
+    }
+
     normalizePrivateAssetSubdomain (subdomain) {
         if ( typeof subdomain !== 'string' ) return undefined;
         const normalizedSubdomain = subdomain.trim().toLowerCase();
@@ -418,6 +498,45 @@ class AuthService extends BaseService {
             ...(sessionUuid ? { session: this.uuid_fpe.encrypt(sessionUuid) } : {}),
             ...(normalizedSubdomain ? { subdomain: normalizedSubdomain } : {}),
             ...(normalizedPrivateHost ? { private_host: normalizedPrivateHost } : {}),
+        };
+
+        return this.tokenService.sign('auth', payload, {
+            expiresIn: effectiveTtlSeconds,
+        });
+    }
+
+    createPublicHostedActorToken ({ appUid, userUid, sessionUuid, subdomain, host, ttlSeconds } = {}) {
+        if ( typeof appUid !== 'string' || !appUid.trim() ) {
+            throw new Error('appUid is required to create public hosted actor token.');
+        }
+        if ( typeof userUid !== 'string' || !userUid.trim() ) {
+            throw new Error('userUid is required to create public hosted actor token.');
+        }
+        if ( sessionUuid !== undefined && (typeof sessionUuid !== 'string' || !sessionUuid.trim()) ) {
+            throw new Error('sessionUuid must be a non-empty string when provided.');
+        }
+        const normalizedSubdomain = this.normalizePrivateAssetSubdomain(subdomain);
+        if ( subdomain !== undefined && !normalizedSubdomain ) {
+            throw new Error('subdomain must be a non-empty string when provided.');
+        }
+        const normalizedHost = this.normalizePrivateAssetHost(host);
+        if ( host !== undefined && !normalizedHost ) {
+            throw new Error('host must be a non-empty string when provided.');
+        }
+
+        const effectiveTtlSeconds = this.resolvePositiveInteger(
+            ttlSeconds,
+            this.getPublicHostedActorTokenTtlSeconds(),
+        );
+
+        const payload = {
+            type: 'app-public-hosted-actor',
+            version: '0.0.0',
+            app_uid: appUid.trim(),
+            user_uid: userUid.trim(),
+            ...(sessionUuid ? { session: this.uuid_fpe.encrypt(sessionUuid) } : {}),
+            ...(normalizedSubdomain ? { subdomain: normalizedSubdomain } : {}),
+            ...(normalizedHost ? { host: normalizedHost } : {}),
         };
 
         return this.tokenService.sign('auth', payload, {
@@ -510,6 +629,99 @@ class AuthService extends BaseService {
             sessionUuid,
             subdomain,
             privateHost,
+            exp: decoded.exp,
+            iat: decoded.iat,
+        };
+    }
+
+    verifyPublicHostedActorToken (
+        token,
+        { expectedAppUid, expectedUserUid, expectedSessionUuid, expectedSubdomain, expectedHost } = {},
+    ) {
+        let decoded;
+        try {
+            decoded = this.tokenService.verify('auth', token);
+        } catch (e) {
+            throw APIError.create('token_auth_failed');
+        }
+
+        if (
+            !decoded ||
+            decoded.type !== 'app-public-hosted-actor' ||
+            typeof decoded.app_uid !== 'string' ||
+            !decoded.app_uid ||
+            typeof decoded.user_uid !== 'string' ||
+            !decoded.user_uid
+        ) {
+            throw APIError.create('token_auth_failed');
+        }
+
+        let sessionUuid;
+        if ( decoded.session !== undefined ) {
+            if ( typeof decoded.session !== 'string' || !decoded.session ) {
+                throw APIError.create('token_auth_failed');
+            }
+            try {
+                sessionUuid = this.uuid_fpe.decrypt(decoded.session);
+            } catch (e) {
+                throw APIError.create('token_auth_failed');
+            }
+        }
+
+        let subdomain;
+        if ( decoded.subdomain !== undefined ) {
+            if ( typeof decoded.subdomain !== 'string' || !decoded.subdomain.trim() ) {
+                throw APIError.create('token_auth_failed');
+            }
+            subdomain = decoded.subdomain.trim().toLowerCase();
+        }
+
+        let host;
+        if ( decoded.host !== undefined ) {
+            if ( typeof decoded.host !== 'string' || !decoded.host.trim() ) {
+                throw APIError.create('token_auth_failed');
+            }
+            host = decoded.host.trim().toLowerCase();
+        }
+
+        if ( expectedAppUid && decoded.app_uid !== expectedAppUid ) {
+            throw APIError.create('token_auth_failed');
+        }
+        if ( expectedUserUid && decoded.user_uid !== expectedUserUid ) {
+            throw APIError.create('token_auth_failed');
+        }
+        if ( expectedSessionUuid ) {
+            if ( !sessionUuid || sessionUuid !== expectedSessionUuid ) {
+                throw APIError.create('token_auth_failed');
+            }
+        }
+
+        const normalizedExpectedSubdomain = this.normalizePrivateAssetSubdomain(expectedSubdomain);
+        if ( expectedSubdomain !== undefined && !normalizedExpectedSubdomain ) {
+            throw APIError.create('token_auth_failed');
+        }
+        if ( normalizedExpectedSubdomain ) {
+            if ( !subdomain || subdomain !== normalizedExpectedSubdomain ) {
+                throw APIError.create('token_auth_failed');
+            }
+        }
+
+        const normalizedExpectedHost = this.normalizePrivateAssetHost(expectedHost);
+        if ( expectedHost !== undefined && !normalizedExpectedHost ) {
+            throw APIError.create('token_auth_failed');
+        }
+        if ( normalizedExpectedHost ) {
+            if ( !host || host !== normalizedExpectedHost ) {
+                throw APIError.create('token_auth_failed');
+            }
+        }
+
+        return {
+            appUid: decoded.app_uid,
+            userUid: decoded.user_uid,
+            sessionUuid,
+            subdomain,
+            host,
             exp: decoded.exp,
             iat: decoded.iat,
         };

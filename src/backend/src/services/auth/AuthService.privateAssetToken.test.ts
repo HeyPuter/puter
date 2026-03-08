@@ -8,6 +8,8 @@ type AuthServiceForPrivateTokenTests = AuthService & {
         private_app_asset_token_ttl_seconds: number;
         private_app_asset_cookie_name: string;
         app_origin_canonical_cache_ttl_seconds?: number;
+        public_hosted_actor_token_ttl_seconds?: number;
+        public_hosted_actor_cookie_name?: string;
         static_hosting_domain: string;
         static_hosting_domain_alt?: string;
         private_app_hosting_domain: string;
@@ -40,6 +42,8 @@ const createAuthService = (): AuthServiceForPrivateTokenTests => {
         private_app_asset_token_ttl_seconds: 3600,
         private_app_asset_cookie_name: 'puter.private.asset.token',
         app_origin_canonical_cache_ttl_seconds: 300,
+        public_hosted_actor_token_ttl_seconds: 900,
+        public_hosted_actor_cookie_name: 'puter.public.hosted.actor.token',
         static_hosting_domain: 'puter.site',
         static_hosting_domain_alt: 'puter.host',
         private_app_hosting_domain: 'app.puter.localhost',
@@ -181,6 +185,61 @@ describe('AuthService private asset token helpers', () => {
         expect(options.path).toBe('/');
         expect(options.maxAge).toBe(3_600_000);
         expect(options.domain).toBe('.app.puter.localhost');
+    });
+
+    it('creates and verifies public hosted actor tokens with expected claims', () => {
+        const authService = createAuthService();
+        const appUid = 'app-d18f4a26-1e9a-4e9d-89dd-d3476f9efab4';
+        const userUid = '1a8600ea-25a7-4ac6-95be-3a9f84e95f17';
+        const sessionUuid = 'f6bb30b0-f9d8-4bd6-94ea-0bfcf48e1ba8';
+        const subdomain = 'beans';
+        const host = 'beans.puter.dev';
+
+        const token = authService.createPublicHostedActorToken({
+            appUid,
+            userUid,
+            sessionUuid,
+            subdomain,
+            host,
+            ttlSeconds: 180,
+        });
+
+        const claims = authService.verifyPublicHostedActorToken(token, {
+            expectedAppUid: appUid,
+            expectedUserUid: userUid,
+            expectedSessionUuid: sessionUuid,
+            expectedSubdomain: subdomain,
+            expectedHost: host,
+        });
+
+        expect(claims.appUid).toBe(appUid);
+        expect(claims.userUid).toBe(userUid);
+        expect(claims.sessionUuid).toBe(sessionUuid);
+        expect(claims.subdomain).toBe(subdomain);
+        expect(claims.host).toBe(host);
+        expect(typeof claims.exp).toBe('number');
+    });
+
+    it('returns public hosted actor cookie options with matched hosted domain', () => {
+        const authService = createAuthService();
+        authService.global_config.static_hosting_domain = 'site.puter.localhost';
+        authService.global_config.static_hosting_domain_alt = 'site.puter.dev';
+        authService.global_config.private_app_hosting_domain = 'app.puter.localhost';
+        authService.global_config.private_app_hosting_domain_alt = 'puter.dev';
+        authService.global_config.public_hosted_actor_token_ttl_seconds = 1200;
+        authService.global_config.public_hosted_actor_cookie_name = 'puter.public.hosted.actor';
+
+        const options = authService.getPublicHostedActorCookieOptions({
+            requestHostname: 'beans.puter.dev',
+        });
+
+        expect(authService.getPublicHostedActorCookieName()).toBe('puter.public.hosted.actor');
+        expect(options.sameSite).toBe('none');
+        expect(options.secure).toBe(true);
+        expect(options.httpOnly).toBe(true);
+        expect(options.path).toBe('/');
+        expect(options.maxAge).toBe(1_200_000);
+        expect(options.domain).toBe('.puter.dev');
     });
 
     it('uses the matched request host private domain when provided', () => {
