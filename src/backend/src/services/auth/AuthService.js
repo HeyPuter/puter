@@ -21,12 +21,18 @@ const { BaseService } = require('../BaseService');
 const { get_user, get_app } = require('../../helpers');
 const { Context } = require('../../util/context');
 const APIError = require('../../api/APIError');
-const { DB_WRITE } = require('../database/consts');
+const { setRedisCacheValue } = require('../../clients/redis/cacheUpdate.js');
+const { redisClient } = require('../../clients/redis/redisSingleton.js');
+const { DB_READ, DB_WRITE } = require('../database/consts');
 const { UUIDFPE } = require('../../util/uuidfpe');
 const uuidLib = require('uuid');
 const crypto = require('crypto');
 // This constant defines the namespace used for generating app UUIDs from their origins
 const APP_ORIGIN_UUID_NAMESPACE = '33de3768-8ee0-43e9-9e73-db192b97a5d8';
+const APP_ORIGIN_CACHE_VERSION_KEY = 'auth:appOriginCanonicalization:version';
+const APP_ORIGIN_CACHE_KEY_PREFIX = 'auth:appOriginCanonicalization:origin';
+const DEFAULT_APP_ORIGIN_CANONICAL_CACHE_TTL_SECONDS = 300;
+const APP_ORIGIN_VERSION_MEMORY_TTL_MS = 5000;
 const DEFAULT_PRIVATE_APP_ASSET_TOKEN_TTL_SECONDS = 60 * 60;
 const DEFAULT_PRIVATE_APP_ASSET_COOKIE_NAME = 'puter.private.asset.token';
 
@@ -67,6 +73,17 @@ class AuthService extends BaseService {
         this.sessions = {};
 
         this.tokenService = await this.services.get('token');
+
+        this.appOriginCanonicalizationLocalCache = new Map();
+        this.appOriginCacheVersionMemo = {
+            value: null,
+            expiresAt: 0,
+        };
+
+        const eventService = await this.services.get('event');
+        eventService.on('app.changed', async () => {
+            await this.bumpAppOriginCacheVersion();
+        });
     }
 
     /**
@@ -956,7 +973,12 @@ class AuthService extends BaseService {
      */
     async get_user_app_token_from_origin (origin) {
         origin = this._origin_from_url(origin);
-        const app_uid = await this._app_uid_from_origin(origin);
+        if ( origin === null ) {
+            throw APIError.create('no_origin_for_app');
+        }
+
+        const canonicalAppUid = await this.resolveCanonicalAppUidFromOrigin(origin);
+        const app_uid = canonicalAppUid ?? await this._app_uid_from_origin(origin);
 
         // Determine if the app exists
         const apps = await this.db.read(
@@ -984,6 +1006,8 @@ class AuthService extends BaseService {
             [app_uid, name, title, description, index_url, owner_user_id],
         );
 
+        await this.bumpAppOriginCacheVersion();
+
         return this.get_user_app_token(app_uid);
     }
 
@@ -998,7 +1022,262 @@ class AuthService extends BaseService {
         if ( origin === null ) {
             throw APIError.create('no_origin_for_app');
         }
+        const canonicalAppUid = await this.resolveCanonicalAppUidFromOrigin(origin);
+        if ( canonicalAppUid ) {
+            return canonicalAppUid;
+        }
         return await this._app_uid_from_origin(origin);
+    }
+
+    getAppOriginCanonicalCacheTtlSeconds () {
+        return this.resolvePositiveInteger(
+            this.global_config.app_origin_canonical_cache_ttl_seconds,
+            DEFAULT_APP_ORIGIN_CANONICAL_CACHE_TTL_SECONDS,
+        );
+    }
+
+    buildAppOriginCanonicalCacheKey ({ origin, version }) {
+        const encodedOrigin = encodeURIComponent(origin);
+        return `${APP_ORIGIN_CACHE_KEY_PREFIX}:${version}:${encodedOrigin}`;
+    }
+
+    readLocalCanonicalAppUidFromCache (origin) {
+        const cachedResolution = this.appOriginCanonicalizationLocalCache.get(origin);
+        if ( ! cachedResolution ) return undefined;
+
+        if ( cachedResolution.expiresAt <= Date.now() ) {
+            this.appOriginCanonicalizationLocalCache.delete(origin);
+            return undefined;
+        }
+
+        return cachedResolution.appUid;
+    }
+
+    writeLocalCanonicalAppUidToCache (origin, appUid) {
+        const ttlSeconds = this.getAppOriginCanonicalCacheTtlSeconds();
+        this.appOriginCanonicalizationLocalCache.set(origin, {
+            appUid: appUid ?? null,
+            expiresAt: Date.now() + ttlSeconds * 1000,
+        });
+    }
+
+    async getAppOriginCacheVersion () {
+        const now = Date.now();
+        if (
+            this.appOriginCacheVersionMemo?.value
+            && this.appOriginCacheVersionMemo.expiresAt > now
+        ) {
+            return this.appOriginCacheVersionMemo.value;
+        }
+
+        let cacheVersion = '0';
+        try {
+            const redisCacheVersion = await redisClient.get(APP_ORIGIN_CACHE_VERSION_KEY);
+            if ( redisCacheVersion ) {
+                cacheVersion = `${redisCacheVersion}`;
+            }
+        } catch {
+            // Redis access is best-effort here; deterministic fallback remains safe.
+        }
+
+        this.appOriginCacheVersionMemo = {
+            value: cacheVersion,
+            expiresAt: now + APP_ORIGIN_VERSION_MEMORY_TTL_MS,
+        };
+        return cacheVersion;
+    }
+
+    async bumpAppOriginCacheVersion () {
+        try {
+            const nextVersion = await redisClient.incr(APP_ORIGIN_CACHE_VERSION_KEY);
+            this.appOriginCacheVersionMemo = {
+                value: `${nextVersion}`,
+                expiresAt: Date.now() + APP_ORIGIN_VERSION_MEMORY_TTL_MS,
+            };
+        } catch {
+            this.appOriginCacheVersionMemo = {
+                value: `${Date.now()}`,
+                expiresAt: Date.now() + APP_ORIGIN_VERSION_MEMORY_TTL_MS,
+            };
+        }
+        this.appOriginCanonicalizationLocalCache.clear();
+    }
+
+    async readCanonicalAppUidFromRedisCache (origin, version) {
+        const cacheKey = this.buildAppOriginCanonicalCacheKey({
+            origin,
+            version,
+        });
+
+        try {
+            const cachedPayload = await redisClient.get(cacheKey);
+            if ( typeof cachedPayload !== 'string' || cachedPayload === '' ) {
+                return undefined;
+            }
+
+            const parsedPayload = JSON.parse(cachedPayload);
+            if ( !parsedPayload || typeof parsedPayload !== 'object' ) {
+                return undefined;
+            }
+            if ( ! Object.prototype.hasOwnProperty.call(parsedPayload, 'appUid') ) {
+                return undefined;
+            }
+            return parsedPayload.appUid ?? null;
+        } catch {
+            return undefined;
+        }
+    }
+
+    async writeCanonicalAppUidToRedisCache (origin, version, appUid) {
+        const cacheKey = this.buildAppOriginCanonicalCacheKey({
+            origin,
+            version,
+        });
+
+        await setRedisCacheValue(
+            cacheKey,
+            JSON.stringify({ appUid: appUid ?? null }),
+            { ttlSeconds: this.getAppOriginCanonicalCacheTtlSeconds() },
+        );
+    }
+
+    async resolveCanonicalAppUidFromOrigin (origin) {
+        const normalizedOrigin = this._origin_from_url(origin);
+        if ( normalizedOrigin === null ) return null;
+
+        const canonicalOrigin = this.canonicalizeHostedAppOriginForUid(normalizedOrigin);
+        const localCachedAppUid = this.readLocalCanonicalAppUidFromCache(canonicalOrigin);
+        if ( localCachedAppUid !== undefined ) {
+            return localCachedAppUid;
+        }
+
+        const cacheVersion = await this.getAppOriginCacheVersion();
+        const redisCachedAppUid = await this.readCanonicalAppUidFromRedisCache(
+            canonicalOrigin,
+            cacheVersion,
+        );
+        if ( redisCachedAppUid !== undefined ) {
+            this.writeLocalCanonicalAppUidToCache(canonicalOrigin, redisCachedAppUid);
+            return redisCachedAppUid;
+        }
+
+        const canonicalAppUid = await this.lookupCanonicalAppUidFromOrigin(canonicalOrigin);
+        this.writeLocalCanonicalAppUidToCache(canonicalOrigin, canonicalAppUid);
+        try {
+            await this.writeCanonicalAppUidToRedisCache(canonicalOrigin, cacheVersion, canonicalAppUid);
+        } catch {
+            // Redis cache writes are best-effort.
+        }
+        return canonicalAppUid;
+    }
+
+    buildIndexUrlCandidatesFromOrigin (origin) {
+        try {
+            const parsedOrigin = new URL(origin);
+            const hostCandidates = new Set();
+            hostCandidates.add(parsedOrigin.host.toLowerCase());
+
+            const hostedSubdomain = this.extractHostedAppSubdomainFromHostname(parsedOrigin.hostname);
+            if ( hostedSubdomain ) {
+                const hostedDomainCandidates = this.getHostedAppDomainCandidatesForMatch();
+                for ( const hostedDomainCandidate of hostedDomainCandidates ) {
+                    if ( hostedDomainCandidate?.host ) {
+                        hostCandidates.add(`${hostedSubdomain}.${hostedDomainCandidate.host}`);
+                    }
+                }
+            }
+
+            const indexUrlCandidates = [];
+            for ( const hostCandidate of hostCandidates ) {
+                const baseUrl = `${parsedOrigin.protocol}//${hostCandidate}`;
+                indexUrlCandidates.push(baseUrl);
+                indexUrlCandidates.push(`${baseUrl}/`);
+                indexUrlCandidates.push(`${baseUrl}/index.html`);
+            }
+
+            return [...new Set(indexUrlCandidates)];
+        } catch {
+            return [];
+        }
+    }
+
+    async getHostedSubdomainOwnerUserId (subdomain) {
+        if ( typeof subdomain !== 'string' || !subdomain ) return null;
+        try {
+            const databaseService = this.services.get('database');
+            const dbReadSites = databaseService.get(DB_READ, 'sites');
+            const rows = await dbReadSites.read(
+                'SELECT user_id FROM subdomains WHERE subdomain = ? LIMIT 1',
+                [subdomain],
+            );
+            const ownerUserId = Number(rows?.[0]?.user_id);
+            if ( Number.isInteger(ownerUserId) && ownerUserId > 0 ) {
+                return ownerUserId;
+            }
+            return null;
+        } catch {
+            return null;
+        }
+    }
+
+    async queryOldestAppUidForIndexUrlCandidates ({
+        indexUrlCandidates,
+        ownerUserId,
+    }) {
+        if ( !Array.isArray(indexUrlCandidates) || indexUrlCandidates.length === 0 ) {
+            return null;
+        }
+
+        const placeholders = indexUrlCandidates.map(() => '?').join(', ');
+        const parameters = [];
+        let whereClause = `index_url IN (${placeholders})`;
+        parameters.push(...indexUrlCandidates);
+
+        if ( Number.isInteger(ownerUserId) && ownerUserId > 0 ) {
+            whereClause = `owner_user_id = ? AND ${whereClause}`;
+            parameters.unshift(ownerUserId);
+        }
+
+        try {
+            const dbReadApps = this.services.get('database').get(DB_READ, 'apps');
+            const rows = await dbReadApps.read(
+                `SELECT uid FROM apps WHERE ${whereClause} ORDER BY timestamp ASC, id ASC LIMIT 1`,
+                parameters,
+            );
+            const oldestAppUid = rows?.[0]?.uid;
+            if ( typeof oldestAppUid === 'string' && oldestAppUid ) {
+                return oldestAppUid;
+            }
+        } catch {
+            return null;
+        }
+
+        return null;
+    }
+
+    async lookupCanonicalAppUidFromOrigin (origin) {
+        const indexUrlCandidates = this.buildIndexUrlCandidatesFromOrigin(origin);
+        if ( indexUrlCandidates.length === 0 ) return null;
+
+        try {
+            const parsedOrigin = new URL(origin);
+            const hostedSubdomain = this.extractHostedAppSubdomainFromHostname(parsedOrigin.hostname);
+
+            if ( hostedSubdomain ) {
+                const hostedSubdomainOwnerUserId = await this.getHostedSubdomainOwnerUserId(hostedSubdomain);
+                if ( ! hostedSubdomainOwnerUserId ) {
+                    return null;
+                }
+                return await this.queryOldestAppUidForIndexUrlCandidates({
+                    ownerUserId: hostedSubdomainOwnerUserId,
+                    indexUrlCandidates,
+                });
+            }
+
+            return await this.queryOldestAppUidForIndexUrlCandidates({ indexUrlCandidates });
+        } catch {
+            return null;
+        }
     }
 
     normalizeHostedDomainCandidate (domainValue) {
