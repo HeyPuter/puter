@@ -50,9 +50,9 @@ The Puter Team
         html: `
 <p>Hi{{#if owner_username}} {{owner_username}}{{/if}},</p>
 <p>
-Thanks for submitting <a href="https://puter.com/app/{{app_name}}">{{app_title}}</a> for the Puter App Center. We reviewed your listing and have rejected it for the following reason:
+Thanks for submitting <a href="https://puter.com/app/{{app_name}}">{{app_title}}</a> for the Puter App Center. We reviewed your listing and have rejected it for the following reason(s):
 </p>
-<blockquote>{{reason}}</blockquote>
+<blockquote>{{{nl2br reason}}}</blockquote>
 <p>
 Please update your app listing and resubmit when ready. If you have questions, just reply to this email.
 </p>
@@ -218,6 +218,17 @@ class Emailservice extends BaseService {
     */
     _construct () {
         this.templates = TEMPLATES;
+
+        const handlebars = this.modules.handlebars;
+        handlebars.registerHelper('nl2br', (text) => {
+            if ( text == null ) return '';
+            const s = String(text)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;');
+            return new handlebars.SafeString(s.replace(/\n/g, '<br />'));
+        });
 
         this.template_fns = {};
         for ( const k in this.templates ) {
