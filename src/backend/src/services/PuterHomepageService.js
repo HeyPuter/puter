@@ -42,11 +42,13 @@ export class PuterHomepageService extends BaseService {
     async _init () {
         // Load manifest
         const config = this.global_config;
-        const manifest_raw = fs.readFileSync(PathBuilder
-            .add(config.assets.gui, { allow_traversal: true })
-            .add('puter-gui.json')
-            .build(),
-        'utf8');
+        const manifest_raw = fs.readFileSync(
+            PathBuilder
+                .add(config.assets.gui, { allow_traversal: true })
+                .add('puter-gui.json')
+                .build(),
+            'utf8',
+        );
         const manifest_data = JSON.parse(manifest_raw);
         this.manifest = manifest_data[config.assets.gui_profile];
     }
@@ -246,7 +248,8 @@ export class PuterHomepageService extends BaseService {
 
     <head>
         <title>${e(title)}</title>
-        
+        <link rel="preload" href="${this.configdle ?? '/dist/bundle.min.js'}" as="script" />
+
         <meta name="author" content="${e(company)}">
         <meta name="description" content="${e((description).replace(/\n/g, ' ').trim())}">
         <meta name="facebook-domain-verification" content="e29w3hjbnnnypf4kzk2cewcdaxym1y" />
@@ -327,8 +330,8 @@ export class PuterHomepageService extends BaseService {
 
         <!-- Files from JSON (may be empty) -->
         ${((!bundled && manifest?.css_paths)
-            ? manifest.css_paths.map(path => `<link rel="stylesheet" href="${path}">\n`)
-            : []).join('')
+                ? manifest.css_paths.map(path => `<link rel="stylesheet" href="${path}">\n`)
+                : []).join('')
         }
         <!-- END Files from JSON -->
 
@@ -352,7 +355,7 @@ export class PuterHomepageService extends BaseService {
         }
 
         <!-- Load the GUI script -->
-        <script src="/dist/bundle.min.js"></script>
+        <script src="${this.config.gui_bundle ?? '/dist/bundle.min.js'}"></script>
         <!-- Initialize GUI when document is loaded -->
         <script type="module">
         /**
