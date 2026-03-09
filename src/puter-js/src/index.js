@@ -191,6 +191,18 @@ const puterInit = (function () {
 
             // Holds the query parameters found in the current URL
             let URLParams = new URLSearchParams(globalThis.location?.search);
+            const normalizeAuthTokenCandidate = (tokenCandidate) => {
+                if ( typeof tokenCandidate !== 'string' ) return null;
+                const trimmedTokenCandidate = tokenCandidate.trim();
+                if (
+                    !trimmedTokenCandidate ||
+                    trimmedTokenCandidate === 'null' ||
+                    trimmedTokenCandidate === 'undefined'
+                ) {
+                    return null;
+                }
+                return trimmedTokenCandidate;
+            };
 
             // Figure out the environment in which the SDK is running
             if ( URLParams.has('puter.app_instance_id') ) {
@@ -325,17 +337,43 @@ const puterInit = (function () {
             // Loaded in an iframe in the Puter GUI (i.e. 'app')
             // When SDK is loaded in App mode the initiation process should start when the DOM is ready
             else if ( this.env === 'app' ) {
-                this.authToken = decodeURIComponent(URLParams.get('puter.auth.token'));
+                const bootstrapAuthToken = normalizeAuthTokenCandidate(
+                    URLParams.get('puter.auth.token') ?? URLParams.get('auth_token'),
+                );
+                this.authToken = bootstrapAuthToken;
                 // initialize submodules
                 this.initSubmodules();
-                // If the authToken is already set in localStorage, then we don't need to show the dialog
                 try {
-                    if ( localStorage.getItem('puter.auth.token') ) {
-                        this.setAuthToken(localStorage.getItem('puter.auth.token'));
+                    if ( bootstrapAuthToken ) {
+                        this.setAuthToken(bootstrapAuthToken);
+
+                        // Token-in-query is bootstrap-only; persist it then scrub from URL.
+                        if ( globalThis.history?.replaceState && globalThis.location?.href ) {
+                            const currentUrl = new URL(globalThis.location.href);
+                            const hadBootstrapToken =
+                                currentUrl.searchParams.has('puter.auth.token')
+                                || currentUrl.searchParams.has('auth_token');
+                            if ( hadBootstrapToken ) {
+                                currentUrl.searchParams.delete('puter.auth.token');
+                                currentUrl.searchParams.delete('auth_token');
+                                const currentUrlSearch = currentUrl.searchParams.toString();
+                                const sanitizedRelativeUrl = `${currentUrl.pathname}${currentUrlSearch ? `?${currentUrlSearch}` : ''}${currentUrl.hash || ''}`;
+                                globalThis.history.replaceState(globalThis.history.state, '', sanitizedRelativeUrl);
+                            }
+                        }
+                    } else {
+                        const storedAuthToken = normalizeAuthTokenCandidate(
+                            localStorage.getItem('puter.auth.token'),
+                        );
+                        // If the authToken is already set in localStorage, then we don't need to show the dialog
+                        if ( storedAuthToken ) {
+                            this.setAuthToken(storedAuthToken);
+                        }
                     }
                     // if appID is already set in localStorage, then we don't need to show the dialog
-                    if ( localStorage.getItem('puter.app.id') ) {
-                        this.setAppID(localStorage.getItem('puter.app.id'));
+                    const storedAppID = localStorage.getItem('puter.app.id');
+                    if ( storedAppID ) {
+                        this.setAppID(storedAppID);
                     }
                 } catch ( error ) {
                     // Handle the error here
