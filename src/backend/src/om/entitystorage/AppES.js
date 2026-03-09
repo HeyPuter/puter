@@ -247,7 +247,6 @@ class AppES extends BaseES {
                 const old_app = {
                     uid: await extra.old_entity.get('uid'),
                     index_url: await extra.old_entity.get('index_url'),
-                    owner_user_id: await extra.old_entity.get('owner_user_id'),
                 };
                 await svc_event.emit('app.changed', {
                     app_uid: await full_entity.get('uid'),
