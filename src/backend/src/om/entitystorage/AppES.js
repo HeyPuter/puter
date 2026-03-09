@@ -240,9 +240,20 @@ class AppES extends BaseES {
             }
             if ( extra.old_entity ) {
                 const svc_event = this.context.get('services').get('event');
+                const [app] = await this.db.read(
+                    'SELECT * FROM apps WHERE uid = ? LIMIT 1',
+                    [await full_entity.get('uid')],
+                );
+                const old_app = {
+                    uid: await extra.old_entity.get('uid'),
+                    index_url: await extra.old_entity.get('index_url'),
+                    owner_user_id: await extra.old_entity.get('owner_user_id'),
+                };
                 await svc_event.emit('app.changed', {
                     app_uid: await full_entity.get('uid'),
                     action: 'updated',
+                    app,
+                    old_app,
                 });
             }
 

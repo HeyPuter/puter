@@ -31,7 +31,6 @@ type AuthServiceForPrivateTokenTests = AuthService & {
         get: (name: string) => unknown;
     };
     appOriginCanonicalizationLocalCacheNamespace?: string;
-    appOriginCacheVersionMemo: { value: string | null; expiresAt: number };
 };
 
 const createAuthService = (): AuthServiceForPrivateTokenTests => {
@@ -69,8 +68,6 @@ const createAuthService = (): AuthServiceForPrivateTokenTests => {
         }),
     };
     authService.appOriginCanonicalizationLocalCacheNamespace = `test:${Math.random().toString(36).slice(2)}`;
-    authService.appOriginCacheVersionMemo = { value: null, expiresAt: 0 };
-    authService.getAppOriginCacheVersion = vi.fn().mockResolvedValue('0');
     authService.readCanonicalAppUidFromRedisCache = vi.fn().mockResolvedValue(undefined);
     authService.writeCanonicalAppUidToRedisCache = vi.fn().mockResolvedValue(undefined);
     authService.get_session_ = vi.fn().mockResolvedValue(undefined);
@@ -348,7 +345,6 @@ describe('AuthService private asset token helpers', () => {
                 };
             },
         };
-        authService.getAppOriginCacheVersion = vi.fn().mockResolvedValue('0');
         authService.readCanonicalAppUidFromRedisCache = vi.fn().mockResolvedValue(undefined);
         authService.writeCanonicalAppUidToRedisCache = vi.fn().mockResolvedValue(undefined);
 
@@ -384,7 +380,6 @@ describe('AuthService private asset token helpers', () => {
                 };
             },
         };
-        authService.getAppOriginCacheVersion = vi.fn().mockResolvedValue('0');
         authService.readCanonicalAppUidFromRedisCache = vi.fn().mockResolvedValue(undefined);
         authService.writeCanonicalAppUidToRedisCache = vi.fn().mockResolvedValue(undefined);
 
@@ -416,13 +411,34 @@ describe('AuthService private asset token helpers', () => {
                 };
             },
         };
-        authService.getAppOriginCacheVersion = vi.fn().mockResolvedValue('0');
         authService.readCanonicalAppUidFromRedisCache = vi.fn().mockResolvedValue(undefined);
         authService.writeCanonicalAppUidToRedisCache = vi.fn().mockResolvedValue(undefined);
 
         const appUid = await authService.app_uid_from_origin('https://example.com');
         expect(appUid).toBe('app-oldest-external');
         expect(readApps).toHaveBeenCalled();
+    });
+
+    it('collects canonical cache origins from app change payloads', () => {
+        const authService = createAuthService();
+        authService.global_config.static_hosting_domain = 'puter.site';
+        authService.global_config.static_hosting_domain_alt = 'puter.host';
+        authService.global_config.private_app_hosting_domain = 'puter.app';
+        authService.global_config.private_app_hosting_domain_alt = 'puter.dev';
+
+        const canonicalOrigins = authService.collectCanonicalCacheOriginsFromAppChangeEvent({
+            app: {
+                index_url: 'https://beans.puter.dev/index.html',
+            },
+            old_app: {
+                index_url: 'https://beans.puter.site/',
+            },
+            old_index_url: 'https://example.com',
+        });
+
+        expect(canonicalOrigins).toContain('https://beans.puter.site');
+        expect(canonicalOrigins).toContain('https://example.com');
+        expect(canonicalOrigins.filter(origin => origin === 'https://beans.puter.site')).toHaveLength(1);
     });
 
     it('derives same app uid for hosted app domain aliases', async () => {

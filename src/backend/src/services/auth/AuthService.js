@@ -23,6 +23,7 @@ const { Context } = require('../../util/context');
 const { kv } = require('../../util/kvSingleton');
 const APIError = require('../../api/APIError');
 const { setRedisCacheValue } = require('../../clients/redis/cacheUpdate.js');
+const { deleteRedisKeys } = require('../../clients/redis/deleteRedisKeys.js');
 const { redisClient } = require('../../clients/redis/redisSingleton.js');
 const { DB_READ, DB_WRITE } = require('../database/consts');
 const { UUIDFPE } = require('../../util/uuidfpe');
@@ -30,11 +31,9 @@ const uuidLib = require('uuid');
 const crypto = require('crypto');
 // This constant defines the namespace used for generating app UUIDs from their origins
 const APP_ORIGIN_UUID_NAMESPACE = '33de3768-8ee0-43e9-9e73-db192b97a5d8';
-const APP_ORIGIN_CACHE_VERSION_KEY = 'auth:appOriginCanonicalization:version';
 const APP_ORIGIN_CACHE_KEY_PREFIX = 'auth:appOriginCanonicalization:origin';
 const APP_ORIGIN_LOCAL_CACHE_KEY_PREFIX = 'auth:appOriginCanonicalization:local';
 const DEFAULT_APP_ORIGIN_CANONICAL_CACHE_TTL_SECONDS = 300;
-const APP_ORIGIN_VERSION_MEMORY_TTL_MS = 5000;
 const DEFAULT_PRIVATE_APP_ASSET_TOKEN_TTL_SECONDS = 60 * 60;
 const DEFAULT_PRIVATE_APP_ASSET_COOKIE_NAME = 'puter.private.asset.token';
 
@@ -77,14 +76,10 @@ class AuthService extends BaseService {
         this.tokenService = await this.services.get('token');
 
         this.appOriginCanonicalizationLocalCacheNamespace = this.createAppOriginLocalCacheNamespace();
-        this.appOriginCacheVersionMemo = {
-            value: null,
-            expiresAt: 0,
-        };
 
         const eventService = await this.services.get('event');
-        eventService.on('app.changed', async () => {
-            await this.bumpAppOriginCacheVersion();
+        eventService.on('app.changed', async (_meta, event = {}) => {
+            await this.invalidateCanonicalAppUidCacheFromAppChangeEvent(event);
         });
     }
 
@@ -1008,7 +1003,7 @@ class AuthService extends BaseService {
             [app_uid, name, title, description, index_url, owner_user_id],
         );
 
-        await this.bumpAppOriginCacheVersion();
+        await this.invalidateCanonicalAppUidCacheForOrigins([origin]);
 
         return this.get_user_app_token(app_uid);
     }
@@ -1038,9 +1033,9 @@ class AuthService extends BaseService {
         );
     }
 
-    buildAppOriginCanonicalCacheKey ({ origin, version }) {
+    buildAppOriginCanonicalCacheKey ({ origin }) {
         const encodedOrigin = encodeURIComponent(origin);
-        return `${APP_ORIGIN_CACHE_KEY_PREFIX}:${version}:${encodedOrigin}`;
+        return `${APP_ORIGIN_CACHE_KEY_PREFIX}:${encodedOrigin}`;
     }
 
     createAppOriginLocalCacheNamespace () {
@@ -1082,52 +1077,9 @@ class AuthService extends BaseService {
         }, { EX: ttlSeconds });
     }
 
-    async getAppOriginCacheVersion () {
-        const now = Date.now();
-        if (
-            this.appOriginCacheVersionMemo?.value
-            && this.appOriginCacheVersionMemo.expiresAt > now
-        ) {
-            return this.appOriginCacheVersionMemo.value;
-        }
-
-        let cacheVersion = '0';
-        try {
-            const redisCacheVersion = await redisClient.get(APP_ORIGIN_CACHE_VERSION_KEY);
-            if ( redisCacheVersion ) {
-                cacheVersion = `${redisCacheVersion}`;
-            }
-        } catch {
-            // Redis access is best-effort here; deterministic fallback remains safe.
-        }
-
-        this.appOriginCacheVersionMemo = {
-            value: cacheVersion,
-            expiresAt: now + APP_ORIGIN_VERSION_MEMORY_TTL_MS,
-        };
-        return cacheVersion;
-    }
-
-    async bumpAppOriginCacheVersion () {
-        try {
-            const nextVersion = await redisClient.incr(APP_ORIGIN_CACHE_VERSION_KEY);
-            this.appOriginCacheVersionMemo = {
-                value: `${nextVersion}`,
-                expiresAt: Date.now() + APP_ORIGIN_VERSION_MEMORY_TTL_MS,
-            };
-        } catch {
-            this.appOriginCacheVersionMemo = {
-                value: `${Date.now()}`,
-                expiresAt: Date.now() + APP_ORIGIN_VERSION_MEMORY_TTL_MS,
-            };
-        }
-        this.appOriginCanonicalizationLocalCacheNamespace = this.createAppOriginLocalCacheNamespace();
-    }
-
-    async readCanonicalAppUidFromRedisCache (origin, version) {
+    async readCanonicalAppUidFromRedisCache (origin) {
         const cacheKey = this.buildAppOriginCanonicalCacheKey({
             origin,
-            version,
         });
 
         try {
@@ -1149,10 +1101,9 @@ class AuthService extends BaseService {
         }
     }
 
-    async writeCanonicalAppUidToRedisCache (origin, version, appUid) {
+    async writeCanonicalAppUidToRedisCache (origin, appUid) {
         const cacheKey = this.buildAppOriginCanonicalCacheKey({
             origin,
-            version,
         });
 
         await setRedisCacheValue(
@@ -1172,11 +1123,7 @@ class AuthService extends BaseService {
             return localCachedAppUid;
         }
 
-        const cacheVersion = await this.getAppOriginCacheVersion();
-        const redisCachedAppUid = await this.readCanonicalAppUidFromRedisCache(
-            canonicalOrigin,
-            cacheVersion,
-        );
+        const redisCachedAppUid = await this.readCanonicalAppUidFromRedisCache(canonicalOrigin);
         if ( redisCachedAppUid !== undefined ) {
             this.writeLocalCanonicalAppUidToCache(canonicalOrigin, redisCachedAppUid);
             return redisCachedAppUid;
@@ -1185,11 +1132,78 @@ class AuthService extends BaseService {
         const canonicalAppUid = await this.lookupCanonicalAppUidFromOrigin(canonicalOrigin);
         this.writeLocalCanonicalAppUidToCache(canonicalOrigin, canonicalAppUid);
         try {
-            await this.writeCanonicalAppUidToRedisCache(canonicalOrigin, cacheVersion, canonicalAppUid);
+            await this.writeCanonicalAppUidToRedisCache(canonicalOrigin, canonicalAppUid);
         } catch {
             // Redis cache writes are best-effort.
         }
         return canonicalAppUid;
+    }
+
+    normalizeOriginForCanonicalAppUidCache (originCandidate) {
+        const normalizedOrigin = this._origin_from_url(originCandidate);
+        if ( normalizedOrigin === null ) return null;
+        return this.canonicalizeHostedAppOriginForUid(normalizedOrigin);
+    }
+
+    collectCanonicalCacheOriginsFromAppChangeEvent (event = {}) {
+        const originCandidates = [];
+        if ( event?.app?.index_url ) {
+            originCandidates.push(event.app.index_url);
+        }
+        if ( event?.old_app?.index_url ) {
+            originCandidates.push(event.old_app.index_url);
+        }
+        if ( event?.index_url ) {
+            originCandidates.push(event.index_url);
+        }
+        if ( event?.old_index_url ) {
+            originCandidates.push(event.old_index_url);
+        }
+
+        const canonicalOrigins = new Set();
+        for ( const originCandidate of originCandidates ) {
+            const normalizedCanonicalOrigin = this.normalizeOriginForCanonicalAppUidCache(originCandidate);
+            if ( normalizedCanonicalOrigin ) {
+                canonicalOrigins.add(normalizedCanonicalOrigin);
+            }
+        }
+
+        return [...canonicalOrigins];
+    }
+
+    async invalidateCanonicalAppUidCacheForOrigins (originCandidates = []) {
+        const canonicalOrigins = new Set();
+        for ( const originCandidate of originCandidates ) {
+            const normalizedCanonicalOrigin = this.normalizeOriginForCanonicalAppUidCache(originCandidate);
+            if ( normalizedCanonicalOrigin ) {
+                canonicalOrigins.add(normalizedCanonicalOrigin);
+            }
+        }
+
+        if ( canonicalOrigins.size === 0 ) return;
+
+        const localCacheKeys = [];
+        const redisCacheKeys = [];
+        for ( const canonicalOrigin of canonicalOrigins ) {
+            localCacheKeys.push(this.buildLocalCanonicalAppUidCacheKey(canonicalOrigin));
+            redisCacheKeys.push(this.buildAppOriginCanonicalCacheKey({ origin: canonicalOrigin }));
+        }
+
+        if ( localCacheKeys.length > 0 ) {
+            kv.del(...localCacheKeys);
+        }
+        if ( redisCacheKeys.length > 0 ) {
+            try {
+                await deleteRedisKeys(redisCacheKeys);
+            } catch {
+                // best-effort invalidation; cache TTL bounds stale reads.
+            }
+        }
+    }
+
+    async invalidateCanonicalAppUidCacheFromAppChangeEvent (event = {}) {
+        const canonicalOrigins = this.collectCanonicalCacheOriginsFromAppChangeEvent(event);
+        await this.invalidateCanonicalAppUidCacheForOrigins(canonicalOrigins);
     }
 
     buildIndexUrlCandidatesFromOrigin (origin) {
