@@ -303,6 +303,18 @@ function appendLinkHeader (res, linkValue) {
     setHeader(`${existingValue}, ${linkValue}`);
 }
 
+function setReferrerPolicyHeader (res, policyValue = 'no-referrer') {
+    const setHeader = typeof res.set === 'function'
+        ? () => res.set('Referrer-Policy', policyValue)
+        : (
+            typeof res.setHeader === 'function'
+                ? () => res.setHeader('Referrer-Policy', policyValue)
+                : null
+        );
+    if ( ! setHeader ) return;
+    setHeader();
+}
+
 function isPrivateAccessGateEnabled () {
     return config.enable_private_app_access_gate !== false;
 }
@@ -337,6 +349,31 @@ function stripBootstrapAuthTokenFromOriginalUrl (originalUrl) {
         return search ? `${cleanPath}?${search}` : cleanPath;
     } catch {
         return null;
+    }
+}
+
+function hasAppInstanceIdQueryParam (req) {
+    const queryParamCandidates = [
+        req.query?.['puter.app_instance_id'],
+        req.query?.puter?.app_instance_id,
+    ];
+    for ( const queryParamCandidate of queryParamCandidates ) {
+        if ( typeof queryParamCandidate === 'string' && queryParamCandidate.trim() ) {
+            return true;
+        }
+    }
+
+    if ( typeof req.originalUrl !== 'string' || !req.originalUrl ) {
+        return false;
+    }
+
+    try {
+        const placeholderOrigin = 'https://placeholder.puter.local';
+        const parsedUrl = new URL(req.originalUrl, placeholderOrigin);
+        const appInstanceId = parsedUrl.searchParams.get('puter.app_instance_id');
+        return typeof appInstanceId === 'string' && !!appInstanceId.trim();
+    } catch {
+        return false;
     }
 }
 
@@ -831,6 +868,7 @@ function respondPrivateLoginBootstrap ({ res, app }) {
     res.status(200);
     res.set('Cache-Control', 'no-store');
     res.set('X-Robots-Tag', 'noindex, nofollow');
+    setReferrerPolicyHeader(res);
     appendLinkHeader(
         res,
         marketplaceAppUrl ? `<${marketplaceAppUrl}>; rel="canonical"` : null,
@@ -929,7 +967,8 @@ async function evaluatePrivateAppAccess ({ req, res, services, app, requestPath 
         );
 
         const sanitizedUrl = stripBootstrapAuthTokenFromOriginalUrl(req.originalUrl);
-        if ( sanitizedUrl ) {
+        const shouldKeepBootstrapTokenInUrl = hasAppInstanceIdQueryParam(req);
+        if ( sanitizedUrl && !shouldKeepBootstrapTokenInUrl ) {
             logPrivateAccessEvent('private_access.allowed_cookie_redirect', {
                 appUid: app.uid,
                 userUid: identity.userUid ?? null,
@@ -940,6 +979,16 @@ async function evaluatePrivateAppAccess ({ req, res, services, app, requestPath 
             });
             res.redirect(sanitizedUrl);
             return false;
+        }
+        if ( sanitizedUrl && shouldKeepBootstrapTokenInUrl ) {
+            logPrivateAccessEvent('private_access.allowed_cookie_redirect_skipped_for_app_instance', {
+                appUid: app.uid,
+                userUid: identity.userUid ?? null,
+                requestHost: req.hostname,
+                requestPath,
+                source: identity.source,
+                redirectUrl: sanitizedUrl,
+            });
         }
     }
 
@@ -1029,6 +1078,10 @@ async function runInternal (req, res, next) {
     });
     const privateAppEnabled = isPrivateApp(privateApp);
     const privateAccessGateEnabled = isPrivateAccessGateEnabled();
+
+    if ( privateAppEnabled ) {
+        setReferrerPolicyHeader(res);
+    }
 
     if (
         privateAccessGateEnabled
