@@ -20,13 +20,20 @@ const { Actor, UserActorType, AppUnderUserActorType, AccessTokenActorType, SiteA
 const { BaseService } = require('../BaseService');
 const { get_user, get_app } = require('../../helpers');
 const { Context } = require('../../util/context');
+const { kv } = require('../../util/kvSingleton');
 const APIError = require('../../api/APIError');
-const { DB_WRITE } = require('../database/consts');
+const { setRedisCacheValue } = require('../../clients/redis/cacheUpdate.js');
+const { deleteRedisKeys } = require('../../clients/redis/deleteRedisKeys.js');
+const { redisClient } = require('../../clients/redis/redisSingleton.js');
+const { DB_READ, DB_WRITE } = require('../database/consts');
 const { UUIDFPE } = require('../../util/uuidfpe');
 const uuidLib = require('uuid');
 const crypto = require('crypto');
 // This constant defines the namespace used for generating app UUIDs from their origins
 const APP_ORIGIN_UUID_NAMESPACE = '33de3768-8ee0-43e9-9e73-db192b97a5d8';
+const APP_ORIGIN_CACHE_KEY_PREFIX = 'auth:appOriginCanonicalization:origin';
+const APP_ORIGIN_LOCAL_CACHE_KEY_PREFIX = 'auth:appOriginCanonicalization:local';
+const DEFAULT_APP_ORIGIN_CANONICAL_CACHE_TTL_SECONDS = 300;
 const DEFAULT_PRIVATE_APP_ASSET_TOKEN_TTL_SECONDS = 60 * 60;
 const DEFAULT_PRIVATE_APP_ASSET_COOKIE_NAME = 'puter.private.asset.token';
 
@@ -67,6 +74,13 @@ class AuthService extends BaseService {
         this.sessions = {};
 
         this.tokenService = await this.services.get('token');
+
+        this.appOriginCanonicalizationLocalCacheNamespace = this.createAppOriginLocalCacheNamespace();
+
+        const eventService = await this.services.get('event');
+        eventService.on('app.changed', async (_meta, event = {}) => {
+            await this.invalidateCanonicalAppUidCacheFromAppChangeEvent(event);
+        });
     }
 
     /**
@@ -956,7 +970,12 @@ class AuthService extends BaseService {
      */
     async get_user_app_token_from_origin (origin) {
         origin = this._origin_from_url(origin);
-        const app_uid = await this._app_uid_from_origin(origin);
+        if ( origin === null ) {
+            throw APIError.create('no_origin_for_app');
+        }
+
+        const canonicalAppUid = await this.resolveCanonicalAppUidFromOrigin(origin);
+        const app_uid = canonicalAppUid ?? await this._app_uid_from_origin(origin);
 
         // Determine if the app exists
         const apps = await this.db.read(
@@ -984,6 +1003,8 @@ class AuthService extends BaseService {
             [app_uid, name, title, description, index_url, owner_user_id],
         );
 
+        await this.invalidateCanonicalAppUidCacheForOrigins([origin]);
+
         return this.get_user_app_token(app_uid);
     }
 
@@ -998,7 +1019,300 @@ class AuthService extends BaseService {
         if ( origin === null ) {
             throw APIError.create('no_origin_for_app');
         }
+        const canonicalAppUid = await this.resolveCanonicalAppUidFromOrigin(origin);
+        if ( canonicalAppUid ) {
+            return canonicalAppUid;
+        }
         return await this._app_uid_from_origin(origin);
+    }
+
+    getAppOriginCanonicalCacheTtlSeconds () {
+        return this.resolvePositiveInteger(
+            this.global_config.app_origin_canonical_cache_ttl_seconds,
+            DEFAULT_APP_ORIGIN_CANONICAL_CACHE_TTL_SECONDS,
+        );
+    }
+
+    buildAppOriginCanonicalCacheKey ({ origin }) {
+        const encodedOrigin = encodeURIComponent(origin);
+        return `${APP_ORIGIN_CACHE_KEY_PREFIX}:${encodedOrigin}`;
+    }
+
+    createAppOriginLocalCacheNamespace () {
+        return `${APP_ORIGIN_LOCAL_CACHE_KEY_PREFIX}:${uuidLib.v4()}`;
+    }
+
+    getAppOriginLocalCacheNamespace () {
+        if (
+            typeof this.appOriginCanonicalizationLocalCacheNamespace !== 'string'
+            || !this.appOriginCanonicalizationLocalCacheNamespace
+        ) {
+            this.appOriginCanonicalizationLocalCacheNamespace = this.createAppOriginLocalCacheNamespace();
+        }
+        return this.appOriginCanonicalizationLocalCacheNamespace;
+    }
+
+    buildLocalCanonicalAppUidCacheKey (origin) {
+        const encodedOrigin = encodeURIComponent(origin);
+        return `${this.getAppOriginLocalCacheNamespace()}:${encodedOrigin}`;
+    }
+
+    readLocalCanonicalAppUidFromCache (origin) {
+        const localCacheKey = this.buildLocalCanonicalAppUidCacheKey(origin);
+        const cachedResolution = kv.get(localCacheKey);
+        if ( !cachedResolution || typeof cachedResolution !== 'object' ) {
+            return undefined;
+        }
+        if ( ! Object.prototype.hasOwnProperty.call(cachedResolution, 'appUid') ) {
+            return undefined;
+        }
+        return cachedResolution.appUid;
+    }
+
+    writeLocalCanonicalAppUidToCache (origin, appUid) {
+        const ttlSeconds = this.getAppOriginCanonicalCacheTtlSeconds();
+        const localCacheKey = this.buildLocalCanonicalAppUidCacheKey(origin);
+        kv.set(localCacheKey, {
+            appUid: appUid ?? null,
+        }, { EX: ttlSeconds });
+    }
+
+    async readCanonicalAppUidFromRedisCache (origin) {
+        const cacheKey = this.buildAppOriginCanonicalCacheKey({
+            origin,
+        });
+
+        try {
+            const cachedPayload = await redisClient.get(cacheKey);
+            if ( typeof cachedPayload !== 'string' || cachedPayload === '' ) {
+                return undefined;
+            }
+
+            const parsedPayload = JSON.parse(cachedPayload);
+            if ( !parsedPayload || typeof parsedPayload !== 'object' ) {
+                return undefined;
+            }
+            if ( ! Object.prototype.hasOwnProperty.call(parsedPayload, 'appUid') ) {
+                return undefined;
+            }
+            return parsedPayload.appUid ?? null;
+        } catch {
+            return undefined;
+        }
+    }
+
+    async writeCanonicalAppUidToRedisCache (origin, appUid) {
+        const cacheKey = this.buildAppOriginCanonicalCacheKey({
+            origin,
+        });
+
+        await setRedisCacheValue(
+            cacheKey,
+            JSON.stringify({ appUid: appUid ?? null }),
+            { ttlSeconds: this.getAppOriginCanonicalCacheTtlSeconds() },
+        );
+    }
+
+    async resolveCanonicalAppUidFromOrigin (origin) {
+        const normalizedOrigin = this._origin_from_url(origin);
+        if ( normalizedOrigin === null ) return null;
+
+        const canonicalOrigin = this.canonicalizeHostedAppOriginForUid(normalizedOrigin);
+        const localCachedAppUid = this.readLocalCanonicalAppUidFromCache(canonicalOrigin);
+        if ( localCachedAppUid !== undefined ) {
+            return localCachedAppUid;
+        }
+
+        const redisCachedAppUid = await this.readCanonicalAppUidFromRedisCache(canonicalOrigin);
+        if ( redisCachedAppUid !== undefined ) {
+            this.writeLocalCanonicalAppUidToCache(canonicalOrigin, redisCachedAppUid);
+            return redisCachedAppUid;
+        }
+
+        const canonicalAppUid = await this.lookupCanonicalAppUidFromOrigin(canonicalOrigin);
+        this.writeLocalCanonicalAppUidToCache(canonicalOrigin, canonicalAppUid);
+        try {
+            await this.writeCanonicalAppUidToRedisCache(canonicalOrigin, canonicalAppUid);
+        } catch {
+            // Redis cache writes are best-effort.
+        }
+        return canonicalAppUid;
+    }
+
+    normalizeOriginForCanonicalAppUidCache (originCandidate) {
+        const normalizedOrigin = this._origin_from_url(originCandidate);
+        if ( normalizedOrigin === null ) return null;
+        return this.canonicalizeHostedAppOriginForUid(normalizedOrigin);
+    }
+
+    collectCanonicalCacheOriginsFromAppChangeEvent (event = {}) {
+        const originCandidates = [];
+        if ( event?.app?.index_url ) {
+            originCandidates.push(event.app.index_url);
+        }
+        if ( event?.old_app?.index_url ) {
+            originCandidates.push(event.old_app.index_url);
+        }
+        if ( event?.index_url ) {
+            originCandidates.push(event.index_url);
+        }
+        if ( event?.old_index_url ) {
+            originCandidates.push(event.old_index_url);
+        }
+
+        const canonicalOrigins = new Set();
+        for ( const originCandidate of originCandidates ) {
+            const normalizedCanonicalOrigin = this.normalizeOriginForCanonicalAppUidCache(originCandidate);
+            if ( normalizedCanonicalOrigin ) {
+                canonicalOrigins.add(normalizedCanonicalOrigin);
+            }
+        }
+
+        return [...canonicalOrigins];
+    }
+
+    async invalidateCanonicalAppUidCacheForOrigins (originCandidates = []) {
+        const canonicalOrigins = new Set();
+        for ( const originCandidate of originCandidates ) {
+            const normalizedCanonicalOrigin = this.normalizeOriginForCanonicalAppUidCache(originCandidate);
+            if ( normalizedCanonicalOrigin ) {
+                canonicalOrigins.add(normalizedCanonicalOrigin);
+            }
+        }
+
+        if ( canonicalOrigins.size === 0 ) return;
+
+        const localCacheKeys = [];
+        const redisCacheKeys = [];
+        for ( const canonicalOrigin of canonicalOrigins ) {
+            localCacheKeys.push(this.buildLocalCanonicalAppUidCacheKey(canonicalOrigin));
+            redisCacheKeys.push(this.buildAppOriginCanonicalCacheKey({ origin: canonicalOrigin }));
+        }
+
+        if ( localCacheKeys.length > 0 ) {
+            kv.del(...localCacheKeys);
+        }
+        if ( redisCacheKeys.length > 0 ) {
+            try {
+                await deleteRedisKeys(redisCacheKeys);
+            } catch {
+                // best-effort invalidation; cache TTL bounds stale reads.
+            }
+        }
+    }
+
+    async invalidateCanonicalAppUidCacheFromAppChangeEvent (event = {}) {
+        const canonicalOrigins = this.collectCanonicalCacheOriginsFromAppChangeEvent(event);
+        await this.invalidateCanonicalAppUidCacheForOrigins(canonicalOrigins);
+    }
+
+    buildIndexUrlCandidatesFromOrigin (origin) {
+        try {
+            const parsedOrigin = new URL(origin);
+            const hostCandidates = new Set();
+            hostCandidates.add(parsedOrigin.host.toLowerCase());
+
+            const hostedSubdomain = this.extractHostedAppSubdomainFromHostname(parsedOrigin.hostname);
+            if ( hostedSubdomain ) {
+                const hostedDomainCandidates = this.getHostedAppDomainCandidatesForMatch();
+                for ( const hostedDomainCandidate of hostedDomainCandidates ) {
+                    if ( hostedDomainCandidate?.host ) {
+                        hostCandidates.add(`${hostedSubdomain}.${hostedDomainCandidate.host}`);
+                    }
+                }
+            }
+
+            const indexUrlCandidates = [];
+            for ( const hostCandidate of hostCandidates ) {
+                const baseUrl = `${parsedOrigin.protocol}//${hostCandidate}`;
+                indexUrlCandidates.push(baseUrl);
+                indexUrlCandidates.push(`${baseUrl}/`);
+                indexUrlCandidates.push(`${baseUrl}/index.html`);
+            }
+
+            return [...new Set(indexUrlCandidates)];
+        } catch {
+            return [];
+        }
+    }
+
+    async getHostedSubdomainOwnerUserId (subdomain) {
+        if ( typeof subdomain !== 'string' || !subdomain ) return null;
+        try {
+            const databaseService = this.services.get('database');
+            const dbReadSites = databaseService.get(DB_READ, 'sites');
+            const rows = await dbReadSites.read(
+                'SELECT user_id FROM subdomains WHERE subdomain = ? LIMIT 1',
+                [subdomain],
+            );
+            const ownerUserId = Number(rows?.[0]?.user_id);
+            if ( Number.isInteger(ownerUserId) && ownerUserId > 0 ) {
+                return ownerUserId;
+            }
+            return null;
+        } catch {
+            return null;
+        }
+    }
+
+    async queryOldestAppUidForIndexUrlCandidates ({
+        indexUrlCandidates,
+        ownerUserId,
+    }) {
+        if ( !Array.isArray(indexUrlCandidates) || indexUrlCandidates.length === 0 ) {
+            return null;
+        }
+
+        const placeholders = indexUrlCandidates.map(() => '?').join(', ');
+        const parameters = [];
+        let whereClause = `index_url IN (${placeholders})`;
+        parameters.push(...indexUrlCandidates);
+
+        if ( Number.isInteger(ownerUserId) && ownerUserId > 0 ) {
+            whereClause = `owner_user_id = ? AND ${whereClause}`;
+            parameters.unshift(ownerUserId);
+        }
+
+        try {
+            const dbReadApps = this.services.get('database').get(DB_READ, 'apps');
+            const rows = await dbReadApps.read(
+                `SELECT uid FROM apps WHERE ${whereClause} ORDER BY timestamp ASC, id ASC LIMIT 1`,
+                parameters,
+            );
+            const oldestAppUid = rows?.[0]?.uid;
+            if ( typeof oldestAppUid === 'string' && oldestAppUid ) {
+                return oldestAppUid;
+            }
+        } catch {
+            return null;
+        }
+
+        return null;
+    }
+
+    async lookupCanonicalAppUidFromOrigin (origin) {
+        const indexUrlCandidates = this.buildIndexUrlCandidatesFromOrigin(origin);
+        if ( indexUrlCandidates.length === 0 ) return null;
+
+        try {
+            const parsedOrigin = new URL(origin);
+            const hostedSubdomain = this.extractHostedAppSubdomainFromHostname(parsedOrigin.hostname);
+
+            if ( hostedSubdomain ) {
+                const hostedSubdomainOwnerUserId = await this.getHostedSubdomainOwnerUserId(hostedSubdomain);
+                if ( ! hostedSubdomainOwnerUserId ) {
+                    return null;
+                }
+                return await this.queryOldestAppUidForIndexUrlCandidates({
+                    ownerUserId: hostedSubdomainOwnerUserId,
+                    indexUrlCandidates,
+                });
+            }
+
+            return await this.queryOldestAppUidForIndexUrlCandidates({ indexUrlCandidates });
+        } catch {
+            return null;
+        }
     }
 
     normalizeHostedDomainCandidate (domainValue) {

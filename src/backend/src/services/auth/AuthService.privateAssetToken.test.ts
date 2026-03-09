@@ -7,6 +7,7 @@ type AuthServiceForPrivateTokenTests = AuthService & {
         jwt_secret: string;
         private_app_asset_token_ttl_seconds: number;
         private_app_asset_cookie_name: string;
+        app_origin_canonical_cache_ttl_seconds?: number;
         static_hosting_domain: string;
         static_hosting_domain_alt?: string;
         private_app_hosting_domain: string;
@@ -27,10 +28,9 @@ type AuthServiceForPrivateTokenTests = AuthService & {
         decrypt: (value: string) => string;
     };
     services: {
-        get: (name: string) => {
-            emit?: (eventName: string, event: unknown) => Promise<void>;
-        };
+        get: (name: string) => unknown;
     };
+    appOriginCanonicalizationLocalCacheNamespace?: string;
 };
 
 const createAuthService = (): AuthServiceForPrivateTokenTests => {
@@ -39,6 +39,7 @@ const createAuthService = (): AuthServiceForPrivateTokenTests => {
         jwt_secret: 'private-asset-test-secret',
         private_app_asset_token_ttl_seconds: 3600,
         private_app_asset_cookie_name: 'puter.private.asset.token',
+        app_origin_canonical_cache_ttl_seconds: 300,
         static_hosting_domain: 'puter.site',
         static_hosting_domain_alt: 'puter.host',
         private_app_hosting_domain: 'app.puter.localhost',
@@ -66,6 +67,9 @@ const createAuthService = (): AuthServiceForPrivateTokenTests => {
             },
         }),
     };
+    authService.appOriginCanonicalizationLocalCacheNamespace = `test:${Math.random().toString(36).slice(2)}`;
+    authService.readCanonicalAppUidFromRedisCache = vi.fn().mockResolvedValue(undefined);
+    authService.writeCanonicalAppUidToRedisCache = vi.fn().mockResolvedValue(undefined);
     authService.get_session_ = vi.fn().mockResolvedValue(undefined);
     return authService;
 };
@@ -317,6 +321,124 @@ describe('AuthService private asset token helpers', () => {
         await expect(authService.resolvePrivateBootstrapIdentityFromToken(tampered))
             .rejects
             .toThrow();
+    });
+
+    it('prefers oldest owner-matched app for hosted subdomain origins', async () => {
+        const authService = createAuthService();
+        const readSites = vi.fn().mockResolvedValue([{ user_id: 42 }]);
+        const readApps = vi.fn().mockResolvedValue([{ uid: 'app-oldest-owner-match' }]);
+
+        authService.services = {
+            get: (name: string) => {
+                if ( name === 'database' ) {
+                    return {
+                        get: (_mode: unknown, dbName: string) => (
+                            dbName === 'sites'
+                                ? { read: readSites }
+                                : { read: readApps }
+                        ),
+                    };
+                }
+                return {
+                    emit: async () => {
+                    },
+                };
+            },
+        };
+        authService.readCanonicalAppUidFromRedisCache = vi.fn().mockResolvedValue(undefined);
+        authService.writeCanonicalAppUidToRedisCache = vi.fn().mockResolvedValue(undefined);
+
+        const appUid = await authService.app_uid_from_origin('https://beans.puter.dev');
+
+        expect(appUid).toBe('app-oldest-owner-match');
+        expect(readSites).toHaveBeenCalledWith(
+            'SELECT user_id FROM subdomains WHERE subdomain = ? LIMIT 1',
+            ['beans'],
+        );
+        expect(readApps).toHaveBeenCalled();
+    });
+
+    it('falls back to deterministic origin uid when hosted subdomain owner cannot be resolved', async () => {
+        const authService = createAuthService();
+        const readSites = vi.fn().mockResolvedValue([]);
+        const readApps = vi.fn().mockResolvedValue([]);
+
+        authService.services = {
+            get: (name: string) => {
+                if ( name === 'database' ) {
+                    return {
+                        get: (_mode: unknown, dbName: string) => (
+                            dbName === 'sites'
+                                ? { read: readSites }
+                                : { read: readApps }
+                        ),
+                    };
+                }
+                return {
+                    emit: async () => {
+                    },
+                };
+            },
+        };
+        authService.readCanonicalAppUidFromRedisCache = vi.fn().mockResolvedValue(undefined);
+        authService.writeCanonicalAppUidToRedisCache = vi.fn().mockResolvedValue(undefined);
+
+        const uidFromPrivateAlias = await authService.app_uid_from_origin('https://beans.puter.dev');
+        const uidFromStaticAlias = await authService.app_uid_from_origin('https://beans.puter.site');
+
+        expect(uidFromPrivateAlias).toBe(uidFromStaticAlias);
+        expect(uidFromPrivateAlias.startsWith('app-')).toBe(true);
+    });
+
+    it('prefers oldest app for non-hosted origins', async () => {
+        const authService = createAuthService();
+        const readApps = vi.fn().mockResolvedValue([{ uid: 'app-oldest-external' }]);
+
+        authService.services = {
+            get: (name: string) => {
+                if ( name === 'database' ) {
+                    return {
+                        get: (_mode: unknown, dbName: string) => (
+                            dbName === 'apps'
+                                ? { read: readApps }
+                                : { read: vi.fn().mockResolvedValue([]) }
+                        ),
+                    };
+                }
+                return {
+                    emit: async () => {
+                    },
+                };
+            },
+        };
+        authService.readCanonicalAppUidFromRedisCache = vi.fn().mockResolvedValue(undefined);
+        authService.writeCanonicalAppUidToRedisCache = vi.fn().mockResolvedValue(undefined);
+
+        const appUid = await authService.app_uid_from_origin('https://example.com');
+        expect(appUid).toBe('app-oldest-external');
+        expect(readApps).toHaveBeenCalled();
+    });
+
+    it('collects canonical cache origins from app change payloads', () => {
+        const authService = createAuthService();
+        authService.global_config.static_hosting_domain = 'puter.site';
+        authService.global_config.static_hosting_domain_alt = 'puter.host';
+        authService.global_config.private_app_hosting_domain = 'puter.app';
+        authService.global_config.private_app_hosting_domain_alt = 'puter.dev';
+
+        const canonicalOrigins = authService.collectCanonicalCacheOriginsFromAppChangeEvent({
+            app: {
+                index_url: 'https://beans.puter.dev/index.html',
+            },
+            old_app: {
+                index_url: 'https://beans.puter.site/',
+            },
+            old_index_url: 'https://example.com',
+        });
+
+        expect(canonicalOrigins).toContain('https://beans.puter.site');
+        expect(canonicalOrigins).toContain('https://example.com');
+        expect(canonicalOrigins.filter(origin => origin === 'https://beans.puter.site')).toHaveLength(1);
     });
 
     it('derives same app uid for hosted app domain aliases', async () => {

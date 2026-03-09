@@ -1231,10 +1231,17 @@ export default class AppService extends BaseService {
 
     async #emit_change_events (object, old_app) {
         const svc_event = this.services.get('event');
+        const app = {
+            ...old_app,
+            ...object,
+            uid: old_app.uid,
+        };
 
         await svc_event.emit('app.changed', {
             app_uid: old_app.uid,
             action: 'updated',
+            app,
+            old_app,
         });
 
         // Emit icon change event
