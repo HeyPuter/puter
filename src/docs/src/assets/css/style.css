@@ -429,8 +429,15 @@ ul code {
 
 .search-result mark {
 	background-color: #fff3cd;
-	padding: 0;
+	color: #333;
+	padding: 0 1px;
 	border-radius: 2px;
+}
+
+/* Dark-mode highlight for matched text in search results */
+.dark-mode .search-result mark {
+	background-color: #534a1e;
+	color: #f0e6b2;
 }
 
 .search-no-results {

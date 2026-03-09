@@ -101,22 +101,33 @@ $(document).ready(function () {
     fetchSearchIndex();
 });
 
+// Shared Fuse search keys and options, kept in one place so the
+// index and instance always stay in sync.
+const fuseKeys = [
+    { name: 'title', weight: 2.0 },
+    { name: 'text', weight: 1.0 }
+];
+
+const fuseOptions = {
+    keys: fuseKeys,
+    includeMatches: true,
+    includeScore: true,
+    threshold: 0.4,
+    ignoreLocation: true,
+    minMatchCharLength: 2,
+};
+
 async function fetchSearchIndex () {
     try {
         const response = await fetch('/index.json');
         const data = await response.json();
         searchIndex = data;
-        fuseInstance = new Fuse(searchIndex, {
-            keys: [
-                { name: 'title', weight: 2.0 },
-                { name: 'text', weight: 1.0 }
-            ],
-            includeMatches: true,
-            includeScore: true,
-            threshold: 0.4,
-            ignoreLocation: true,
-            minMatchCharLength: 2,
-        });
+
+        // Prebuild a Fuse index for better performance on larger datasets.
+        // Reference: https://www.fusejs.io/api/indexing.html
+        const index = Fuse.createIndex(fuseKeys, searchIndex);
+        fuseInstance = new Fuse(searchIndex, fuseOptions, index);
+
         console.log('Search index loaded:', `${searchIndex.length } items`);
     } catch ( error ) {
         console.error('Failed to load search index:', error);
@@ -258,10 +269,33 @@ function performSearch (query) {
         }
 
         if (occurrences.length === 0) {
+             // No exact or fuzzy text match — show the first 80 chars of the
+             // page body. We still attempt to highlight any query tokens that
+             // happen to appear in this preview snippet so the result feels
+             // consistent with the other highlighted entries.
+             const snippetEnd = Math.min(item.text.length, 80);
+             let snippetHTML;
+             const snippetLower = item.text.substring(0, snippetEnd).toLowerCase();
+             const tokenIndices = [];
+             for (const token of queryTokens) {
+                 let pos = 0;
+                 while (pos < snippetEnd) {
+                     const idx = snippetLower.indexOf(token, pos);
+                     if (idx === -1 || idx >= snippetEnd) break;
+                     tokenIndices.push([idx, idx + token.length - 1]);
+                     pos = idx + token.length;
+                 }
+             }
+             if (tokenIndices.length > 0) {
+                 snippetHTML = highlightIndices(item.text, tokenIndices, 0, snippetEnd) + '...';
+             } else {
+                 snippetHTML = escapeHtml(item.text.substring(0, snippetEnd)) + '...';
+             }
+
              finalResults.push({
                  title: highlightedTitle,
                  path: item.path,
-                 text: escapeHtml(item.text.substring(0, 80)) + '...',
+                 text: snippetHTML,
                  textFragment: '',
                  score: score + 50
              });
