@@ -30,7 +30,7 @@ type AuthServiceForPrivateTokenTests = AuthService & {
     services: {
         get: (name: string) => unknown;
     };
-    appOriginCanonicalizationLocalCache: Map<string, { appUid: string | null; expiresAt: number }>;
+    appOriginCanonicalizationLocalCacheNamespace?: string;
     appOriginCacheVersionMemo: { value: string | null; expiresAt: number };
 };
 
@@ -68,7 +68,7 @@ const createAuthService = (): AuthServiceForPrivateTokenTests => {
             },
         }),
     };
-    authService.appOriginCanonicalizationLocalCache = new Map();
+    authService.appOriginCanonicalizationLocalCacheNamespace = `test:${Math.random().toString(36).slice(2)}`;
     authService.appOriginCacheVersionMemo = { value: null, expiresAt: 0 };
     authService.getAppOriginCacheVersion = vi.fn().mockResolvedValue('0');
     authService.readCanonicalAppUidFromRedisCache = vi.fn().mockResolvedValue(undefined);

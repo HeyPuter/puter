@@ -20,6 +20,7 @@ const { Actor, UserActorType, AppUnderUserActorType, AccessTokenActorType, SiteA
 const { BaseService } = require('../BaseService');
 const { get_user, get_app } = require('../../helpers');
 const { Context } = require('../../util/context');
+const { kv } = require('../../util/kvSingleton');
 const APIError = require('../../api/APIError');
 const { setRedisCacheValue } = require('../../clients/redis/cacheUpdate.js');
 const { redisClient } = require('../../clients/redis/redisSingleton.js');
@@ -31,6 +32,7 @@ const crypto = require('crypto');
 const APP_ORIGIN_UUID_NAMESPACE = '33de3768-8ee0-43e9-9e73-db192b97a5d8';
 const APP_ORIGIN_CACHE_VERSION_KEY = 'auth:appOriginCanonicalization:version';
 const APP_ORIGIN_CACHE_KEY_PREFIX = 'auth:appOriginCanonicalization:origin';
+const APP_ORIGIN_LOCAL_CACHE_KEY_PREFIX = 'auth:appOriginCanonicalization:local';
 const DEFAULT_APP_ORIGIN_CANONICAL_CACHE_TTL_SECONDS = 300;
 const APP_ORIGIN_VERSION_MEMORY_TTL_MS = 5000;
 const DEFAULT_PRIVATE_APP_ASSET_TOKEN_TTL_SECONDS = 60 * 60;
@@ -74,7 +76,7 @@ class AuthService extends BaseService {
 
         this.tokenService = await this.services.get('token');
 
-        this.appOriginCanonicalizationLocalCache = new Map();
+        this.appOriginCanonicalizationLocalCacheNamespace = this.createAppOriginLocalCacheNamespace();
         this.appOriginCacheVersionMemo = {
             value: null,
             expiresAt: 0,
@@ -1041,24 +1043,43 @@ class AuthService extends BaseService {
         return `${APP_ORIGIN_CACHE_KEY_PREFIX}:${version}:${encodedOrigin}`;
     }
 
-    readLocalCanonicalAppUidFromCache (origin) {
-        const cachedResolution = this.appOriginCanonicalizationLocalCache.get(origin);
-        if ( ! cachedResolution ) return undefined;
+    createAppOriginLocalCacheNamespace () {
+        return `${APP_ORIGIN_LOCAL_CACHE_KEY_PREFIX}:${uuidLib.v4()}`;
+    }
 
-        if ( cachedResolution.expiresAt <= Date.now() ) {
-            this.appOriginCanonicalizationLocalCache.delete(origin);
+    getAppOriginLocalCacheNamespace () {
+        if (
+            typeof this.appOriginCanonicalizationLocalCacheNamespace !== 'string'
+            || !this.appOriginCanonicalizationLocalCacheNamespace
+        ) {
+            this.appOriginCanonicalizationLocalCacheNamespace = this.createAppOriginLocalCacheNamespace();
+        }
+        return this.appOriginCanonicalizationLocalCacheNamespace;
+    }
+
+    buildLocalCanonicalAppUidCacheKey (origin) {
+        const encodedOrigin = encodeURIComponent(origin);
+        return `${this.getAppOriginLocalCacheNamespace()}:${encodedOrigin}`;
+    }
+
+    readLocalCanonicalAppUidFromCache (origin) {
+        const localCacheKey = this.buildLocalCanonicalAppUidCacheKey(origin);
+        const cachedResolution = kv.get(localCacheKey);
+        if ( !cachedResolution || typeof cachedResolution !== 'object' ) {
             return undefined;
         }
-
+        if ( ! Object.prototype.hasOwnProperty.call(cachedResolution, 'appUid') ) {
+            return undefined;
+        }
         return cachedResolution.appUid;
     }
 
     writeLocalCanonicalAppUidToCache (origin, appUid) {
         const ttlSeconds = this.getAppOriginCanonicalCacheTtlSeconds();
-        this.appOriginCanonicalizationLocalCache.set(origin, {
+        const localCacheKey = this.buildLocalCanonicalAppUidCacheKey(origin);
+        kv.set(localCacheKey, {
             appUid: appUid ?? null,
-            expiresAt: Date.now() + ttlSeconds * 1000,
-        });
+        }, { EX: ttlSeconds });
     }
 
     async getAppOriginCacheVersion () {
@@ -1100,7 +1121,7 @@ class AuthService extends BaseService {
                 expiresAt: Date.now() + APP_ORIGIN_VERSION_MEMORY_TTL_MS,
             };
         }
-        this.appOriginCanonicalizationLocalCache.clear();
+        this.appOriginCanonicalizationLocalCacheNamespace = this.createAppOriginLocalCacheNamespace();
     }
 
     async readCanonicalAppUidFromRedisCache (origin, version) {
