@@ -80,8 +80,10 @@ const testWithEachService = async (fnToRunOnBoth, {
                 .read('SELECT * FROM user WHERE uuid = ?', [uuid]);
 
             if ( existingUser.length === 0 ) {
-                await db.write('INSERT INTO user (uuid, username, free_storage) VALUES (?, ?, ?)',
-                                [uuid, username, 1024 * 1024 * 1024]);
+                await db.write(
+                    'INSERT INTO user (uuid, username, free_storage) VALUES (?, ?, ?)',
+                    [uuid, username, 1024 * 1024 * 1024],
+                );
             }
 
             // Read the user back to get the actual id
@@ -179,31 +181,33 @@ describe('AppService Regression Prevention Tests', () => {
         // This should fail because we create apps with different names
         let assertionErrorThrown = false;
         try {
-            await testWithEachService(async ({ kernel, key }) => {
-                const service = kernel.services.get(key);
-                const crudQ = service.constructor.IMPLEMENTS['crud-q'];
-                await crudQ.create.call(service, {
-                    object: {
-                        name: 'test-app',
-                        title: 'Test App',
-                        index_url: 'https://example.com',
-                    },
-                });
-            },
-            {
-                fnToRunOnTheOther: async ({ kernel, key }) => {
+            await testWithEachService(
+                async ({ kernel, key }) => {
                     const service = kernel.services.get(key);
                     const crudQ = service.constructor.IMPLEMENTS['crud-q'];
-                    // Create app with DIFFERENT name to cause deviation
                     await crudQ.create.call(service, {
                         object: {
-                            name: 'different-app', // Different name!
-                            title: 'Different Test App',
+                            name: 'test-app',
+                            title: 'Test App',
                             index_url: 'https://example.com',
                         },
                     });
                 },
-            });
+                {
+                    fnToRunOnTheOther: async ({ kernel, key }) => {
+                        const service = kernel.services.get(key);
+                        const crudQ = service.constructor.IMPLEMENTS['crud-q'];
+                        // Create app with DIFFERENT name to cause deviation
+                        await crudQ.create.call(service, {
+                            object: {
+                                name: 'different-app', // Different name!
+                                title: 'Different Test App',
+                                index_url: 'https://example.com',
+                            },
+                        });
+                    },
+                },
+            );
         } catch ( error ) {
             // Vitest assertion errors are thrown when expect() fails
             // Check if it's an AssertionError or has assertion-related properties
@@ -387,7 +391,8 @@ describe('AppService Regression Prevention Tests', () => {
                 const read = await crudQ.read.call(service, { uid: created.uid });
                 expect(read.title).toBe('Filetype App Updated');
                 expect(read.filetype_associations).toEqual(
-                                expect.arrayContaining(['txt', 'md', 'json']));
+                    expect.arrayContaining(['txt', 'md', 'json']),
+                );
             });
         });
 
@@ -401,7 +406,7 @@ describe('AppService Regression Prevention Tests', () => {
                     object: {
                         name: 'taken-name',
                         title: 'First App',
-                        index_url: 'https://example.com',
+                        index_url: 'https://example.com/taken-name',
                     },
                 });
 
@@ -409,7 +414,7 @@ describe('AppService Regression Prevention Tests', () => {
                     object: {
                         name: 'second-app',
                         title: 'Second App',
-                        index_url: 'https://example.com',
+                        index_url: 'https://example.com/second-app',
                     },
                 });
 
@@ -520,21 +525,21 @@ describe('AppService Regression Prevention Tests', () => {
                     object: {
                         name: 'select-app-1',
                         title: 'Select App 1',
-                        index_url: 'https://example.com',
+                        index_url: 'https://example.com/select-app-1',
                     },
                 });
                 await crudQ.create.call(service, {
                     object: {
                         name: 'select-app-2',
                         title: 'Select App 2',
-                        index_url: 'https://example.com',
+                        index_url: 'https://example.com/select-app-2',
                     },
                 });
                 await crudQ.create.call(service, {
                     object: {
                         name: 'select-app-3',
                         title: 'Select App 3',
-                        index_url: 'https://example.com',
+                        index_url: 'https://example.com/select-app-3',
                     },
                 });
 
@@ -683,7 +688,7 @@ describe('AppService Regression Prevention Tests', () => {
                     object: {
                         name: 'conflict-name',
                         title: 'First App',
-                        index_url: 'https://example.com',
+                        index_url: 'https://example.com/conflict-name-1',
                     },
                 });
 
@@ -694,7 +699,7 @@ describe('AppService Regression Prevention Tests', () => {
                         object: {
                             name: 'conflict-name',
                             title: 'Second App',
-                            index_url: 'https://example.com',
+                            index_url: 'https://example.com/conflict-name-2',
                         },
                     });
                 } catch ( error ) {
@@ -716,7 +721,7 @@ describe('AppService Regression Prevention Tests', () => {
                     object: {
                         name: 'dedupe-name',
                         title: 'First App',
-                        index_url: 'https://example.com',
+                        index_url: 'https://example.com/dedupe-name-1',
                     },
                 });
 
@@ -725,7 +730,7 @@ describe('AppService Regression Prevention Tests', () => {
                     object: {
                         name: 'dedupe-name',
                         title: 'Second App',
-                        index_url: 'https://example.com',
+                        index_url: 'https://example.com/dedupe-name-2',
                     },
                     options: { dedupe_name: true },
                 });
