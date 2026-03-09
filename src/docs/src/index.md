@@ -288,7 +288,7 @@ Puter.js is powered by [Puter](https://github.com/HeyPuter/puter), the open-sour
 
 #### Fetch a resource without CORS restrictions
 
-```html;intro-networking
+```html;net-fetch
 <html>
 <body>
     <script src="https://js.puter.com/v2/"></script>
