@@ -30,7 +30,7 @@ if ( argv.assets_url ) {
     const assetsTar = Buffer.from(await fetch(argv.assets_url).then(r => r.arrayBuffer()));
     await fs.promises.writeFile('assets.tar.gz', assetsTar);
     if ( fs.existsSync('src/icons') ) {
-        fs.promises.cp('src/icons', 'src/icons.old', { recursive: true });
+        await fs.promises.cp('src/icons', 'src/icons.old', { recursive: true });
     }
     execSync('tar -xzvf assets.tar.gz');
     fs.promises.rm('assets.tar.gz');
