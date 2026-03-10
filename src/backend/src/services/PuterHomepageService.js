@@ -17,12 +17,12 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 import { encode } from 'html-entities';
+import { LRUCache } from 'lru-cache';
+import fs from 'node:fs';
 import { is_valid_url } from '../helpers.js';
 import { Endpoint } from '../util/expressutil.js';
 import { PathBuilder } from '../util/pathutil.js';
 import BaseService from './BaseService.js';
-import fs from 'node:fs';
-import { LRUCache } from 'lru-cache';
 /**
  * PuterHomepageService serves the initial HTML page that loads the Puter GUI
  * and all of its assets.
@@ -194,7 +194,14 @@ export class PuterHomepageService extends BaseService {
             },
         });
 
-        this.#outputCache.set(cacheKey, outputHTML);
+        // TODO: we will re-enable this shortly (within 24 hours)
+        //
+        //   It is currently disabled so that we can determine the impact on
+        //   performance of b687ba0 (not b687ba0 specifically but the subsequent
+        //   fixed version of b687ba0) in isolation without confounding
+        //   variables.
+        //
+        // this.#outputCache.set(cacheKey, outputHTML);
 
         res.send(outputHTML);
     }
