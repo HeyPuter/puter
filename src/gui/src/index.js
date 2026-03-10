@@ -72,9 +72,11 @@ window.gui = async (options) => {
     // note: the order of the bundles is important
     // note: Build script will prepend `window.gui_env="prod"` to the top of the file
     else if ( window.gui_env === 'prod' ) {
-        await window.loadScript('https://js.puter.com/v2/');
+        // This stuff is now handled in the backend in PuterHomepageService
+
+        // await window.loadScript('https://js.puter.com/v2/');
         // Load the minified bundles
-        await window.loadCSS('/dist/bundle.min.css');
+        // await window.loadCSS('/dist/bundle.min.css');
     }
 
     // Load Cloudflare Turnstile script
@@ -152,7 +154,9 @@ window.loadCSS = async function (url) {
         document.head.appendChild(link);
     });
 };
-console.log("%c⚠️Warning⚠️\n%cPlease refrain from adding or pasting any sort of code here, as doing so could potentially compromise your account. \nYou don't get what you intended anyway, but the hacker will! \n\n%cFor further information please visit https://developer.chrome.com/blog/self-xss",
-                "color:red; font-size:2rem; display:block; margin-left:0; margin-bottom: 20px; background: black; width: 100%; margin-top:20px; font-family: 'Helvetica Neue', HelveticaNeue, Helvetica, Arial, sans-serif;",
-                "font-size:1rem; font-family: 'Helvetica Neue', HelveticaNeue, Helvetica, Arial, sans-serif;",
-                "font-size:0.9rem; font-family: 'Helvetica Neue', HelveticaNeue, Helvetica, Arial, sans-serif;");
+console.log(
+    "%c⚠️Warning⚠️\n%cPlease refrain from adding or pasting any sort of code here, as doing so could potentially compromise your account. \nYou don't get what you intended anyway, but the hacker will! \n\n%cFor further information please visit https://developer.chrome.com/blog/self-xss",
+    "color:red; font-size:2rem; display:block; margin-left:0; margin-bottom: 20px; background: black; width: 100%; margin-top:20px; font-family: 'Helvetica Neue', HelveticaNeue, Helvetica, Arial, sans-serif;",
+    "font-size:1rem; font-family: 'Helvetica Neue', HelveticaNeue, Helvetica, Arial, sans-serif;",
+    "font-size:0.9rem; font-family: 'Helvetica Neue', HelveticaNeue, Helvetica, Arial, sans-serif;",
+);
