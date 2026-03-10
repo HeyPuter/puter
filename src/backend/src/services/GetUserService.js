@@ -87,6 +87,8 @@ class GetUserService extends BaseService {
      * @param {Object} options - The options for retrieving the user.
      * @param {boolean} [options.cached=true] - Indicates if caching should be used.
      * @param {boolean} [options.force=false] - Forces a read from the database regardless of cache.
+     * @param {number?} [options.id] - Forces a read from the database regardless of cache.
+     * @param {string?} [options.uuid] - Forces a read from the database regardless of cache.
      * @returns {Promise<Object|null>} The user object if found, else null.
      */
     async get_user (options) {

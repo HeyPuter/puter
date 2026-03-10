@@ -217,7 +217,7 @@ export class MeteringService {
             });
         } catch ( e ) {
             console.error('Metering: Failed to increment usage for actor', actor, 'usageType', usageType, 'usageAmount', usageAmount, e);
-            this.#alarmService.create(`metering service error for user: ${ actor.type?.user?.username} app: ${ actor.type.app.uid}`, (e as Error).message, {
+            this.#alarmService.create(`metering service error for user: ${ actor.type?.user?.username} app: ${ actor.type.app?.uid}`, (e as Error).message, {
                 userId: actor.type?.user?.uuid,
                 username: actor.type?.user?.username,
                 appId: actor.type?.app?.uid,
@@ -398,7 +398,7 @@ export class MeteringService {
             });
         } catch (e) {
             console.error('Metering: Failed to batch increment usage for actor', actor, 'usages', usages, e);
-            this.#alarmService.create(`metering service error for user: ${ actor.type?.user?.username} app: ${ actor.type.app.uid}`, (e as Error).message, {
+            this.#alarmService.create(`metering service error for user: ${ actor.type?.user?.username} app: ${ actor.type.app?.uid}`, (e as Error).message, {
                 userId: actor.type?.user?.uuid,
                 username: actor.type?.user?.username,
                 appId: actor.type?.app?.uid,
