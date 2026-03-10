@@ -42,11 +42,13 @@ export class PuterHomepageService extends BaseService {
     async _init () {
         // Load manifest
         const config = this.global_config;
-        const manifest_raw = fs.readFileSync(PathBuilder
-            .add(config.assets.gui, { allow_traversal: true })
-            .add('puter-gui.json')
-            .build(),
-        'utf8');
+        const manifest_raw = fs.readFileSync(
+            PathBuilder
+                .add(config.assets.gui, { allow_traversal: true })
+                .add('puter-gui.json')
+                .build(),
+            'utf8',
+        );
         const manifest_data = JSON.parse(manifest_raw);
         this.manifest = manifest_data[config.assets.gui_profile];
     }
@@ -246,7 +248,8 @@ export class PuterHomepageService extends BaseService {
 
     <head>
         <title>${e(title)}</title>
-        
+        <link rel="preload" href="${this.config.gui_bundle ?? '/dist/bundle.min.js'}" as="script" />
+
         <meta name="author" content="${e(company)}">
         <meta name="description" content="${e((description).replace(/\n/g, ' ').trim())}">
         <meta name="facebook-domain-verification" content="e29w3hjbnnnypf4kzk2cewcdaxym1y" />
@@ -285,7 +288,9 @@ export class PuterHomepageService extends BaseService {
         <meta name="msapplication-TileColor" content="#ffffff">
         <meta name="msapplication-TileImage" content="${asset_dir}/favicons/ms-icon-144x144.png">
         <meta name="theme-color" content="#ffffff">
-
+        ${(bundled)
+            ? `<link rel="stylesheet" href="${this.config.gui_css || '/dist/bundle.min.css'}">` : ''}
+        
         <!-- Preload images when applicable -->
         <link rel="preload" as="image" href="https://puter-assets.b-cdn.net/wallpaper.webp">
 
@@ -327,8 +332,8 @@ export class PuterHomepageService extends BaseService {
 
         <!-- Files from JSON (may be empty) -->
         ${((!bundled && manifest?.css_paths)
-            ? manifest.css_paths.map(path => `<link rel="stylesheet" href="${path}">\n`)
-            : []).join('')
+                ? manifest.css_paths.map(path => `<link rel="stylesheet" href="${path}">\n`)
+                : []).join('')
         }
         <!-- END Files from JSON -->
 
@@ -346,13 +351,18 @@ export class PuterHomepageService extends BaseService {
         <script>window.puter_gui_enabled = true;</script>
         ${custom_script_tags_str
         }
-        ${use_bundled_gui
+        ${bundled
                 ? '<script>window.gui_env = \'prod\';</script>'
+                : ''
+        }
+        
+        ${bundled
+                ? `<script src="${this.config.gui_puterjs_bundle || 'https://js.puter.com/v2/'}"></script>`
                 : ''
         }
 
         <!-- Load the GUI script -->
-        <script src="/dist/bundle.min.js"></script>
+        <script src="${this.config.gui_bundle ?? '/dist/bundle.min.js'}"></script>
         <!-- Initialize GUI when document is loaded -->
         <script type="module">
         /**
