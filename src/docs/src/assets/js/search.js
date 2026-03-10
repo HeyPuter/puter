@@ -121,11 +121,11 @@ async function fetchSearchIndex () {
     try {
         const response = await fetch('/index.json');
         const data = await response.json();
-        searchIndex = data;
+        searchIndex = data.documents;
 
-        // Prebuild a Fuse index for better performance on larger datasets.
+        // Load the pre-built Fuse index generated at build time.
         // Reference: https://www.fusejs.io/api/indexing.html
-        const index = Fuse.createIndex(fuseKeys, searchIndex);
+        const index = Fuse.parseIndex(data.index);
         fuseInstance = new Fuse(searchIndex, fuseOptions, index);
 
         console.log('Search index loaded:', `${searchIndex.length } items`);

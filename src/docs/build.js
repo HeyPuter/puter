@@ -10,6 +10,7 @@ const { JSDOM } = require('jsdom');
 const yaml = require('js-yaml');
 const esbuild = require('esbuild');
 const { generatePlayground } = require('./src/playground');
+const Fuse = require('fuse.js');
 
 const site = 'https://docs.puter.com';
 
@@ -880,13 +881,13 @@ function markdownToSearchSections (markdown, pageTitle, pagePath) {
 const generateSearchIndex = () => {
     const currentDir = process.cwd();
     const outputFile = path.join(currentDir, 'dist', 'index.json');
-    const json = [];
+    const documents = [];
 
     const indexFile = path.join(currentDir, 'src', 'index.md');
     if (fs.existsSync(indexFile)) {
         const indexMarkdown = fs.readFileSync(indexFile, 'utf8');
         const { content: indexContent } = parseFrontMatter(indexMarkdown);
-        json.push(...markdownToSearchSections(indexContent, 'Puter.js', ''));
+        documents.push(...markdownToSearchSections(indexContent, 'Puter.js', ''));
     }
 
     sidebar.forEach((item) => {
@@ -895,7 +896,7 @@ const generateSearchIndex = () => {
             if (fs.existsSync(file)) {
                 const markdown = fs.readFileSync(file, 'utf8');
                 const { content } = parseFrontMatter(markdown);
-                json.push(...markdownToSearchSections(content, item.title_tag ?? item.title, item.path));
+                documents.push(...markdownToSearchSections(content, item.title_tag ?? item.title, item.path));
             }
         }
 
@@ -906,14 +907,25 @@ const generateSearchIndex = () => {
                     if (fs.existsSync(file)) {
                         const markdown = fs.readFileSync(file, 'utf8');
                         const { content } = parseFrontMatter(markdown);
-                        json.push(...markdownToSearchSections(content, child.title_tag ?? child.title, child.path));
+                        documents.push(...markdownToSearchSections(content, child.title_tag ?? child.title, child.path));
                     }
                 }
             });
         }
     });
 
-    fs.writeFileSync(outputFile, JSON.stringify(json), 'utf8');
+    // Generate the Fuse.js index at build time so the client can skip
+    // the indexing step via Fuse.parseIndex().
+    const fuseKeys = [
+        { name: 'title', weight: 2.0 },
+        { name: 'text', weight: 1.0 }
+    ];
+    const fuseIndex = Fuse.createIndex(fuseKeys, documents);
+
+    fs.writeFileSync(outputFile, JSON.stringify({
+        documents,
+        index: fuseIndex.toJSON()
+    }), 'utf8');
 };
 
 // Main execution
