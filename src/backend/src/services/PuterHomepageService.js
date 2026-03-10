@@ -288,7 +288,7 @@ export class PuterHomepageService extends BaseService {
         <meta name="msapplication-TileColor" content="#ffffff">
         <meta name="msapplication-TileImage" content="${asset_dir}/favicons/ms-icon-144x144.png">
         <meta name="theme-color" content="#ffffff">
-        ${(use_bundled_gui)
+        ${(bundled)
             ? `<link rel="stylesheet" href="${this.config.gui_css || '/dist/bundle.min.css'}">` : ''}
         
         <!-- Preload images when applicable -->
@@ -351,15 +351,15 @@ export class PuterHomepageService extends BaseService {
         <script>window.puter_gui_enabled = true;</script>
         ${custom_script_tags_str
         }
-        ${use_bundled_gui
+        ${bundled
                 ? '<script>window.gui_env = \'prod\';</script>'
                 : ''
         }
-        ${use_bundled_gui
+        
+        ${bundled
                 ? `<script src="${this.config.gui_puterjs_bundle || 'https://js.puter.com/v2/'}>`
                 : ''
         }
-
         <!-- Load the GUI script -->
         <script src="${this.config.gui_bundle ?? '/dist/bundle.min.js'}"></script>
         <!-- Initialize GUI when document is loaded -->
