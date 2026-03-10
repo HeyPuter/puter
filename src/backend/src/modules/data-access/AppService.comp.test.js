@@ -711,6 +711,31 @@ describe('AppService Regression Prevention Tests', () => {
             });
         });
 
+        it('should allow duplicate dev-center placeholder index_url', async () => {
+            await testWithEachService(async ({ kernel, key }) => {
+                const service = kernel.services.get(key);
+                const crudQ = service.constructor.IMPLEMENTS['crud-q'];
+
+                await crudQ.create.call(service, {
+                    object: {
+                        name: 'placeholder-app-1',
+                        title: 'Placeholder App 1',
+                        index_url: 'https://dev-center.puter.com/coming-soon.html',
+                    },
+                });
+
+                const second = await crudQ.create.call(service, {
+                    object: {
+                        name: 'placeholder-app-2',
+                        title: 'Placeholder App 2',
+                        index_url: 'https://dev-center.puter.com/coming-soon.html',
+                    },
+                });
+
+                expect(second.uid).toBeDefined();
+            });
+        });
+
         it('should dedupe name with dedupe_name option', async () => {
             await testWithEachService(async ({ kernel, key }) => {
                 const service = kernel.services.get(key);

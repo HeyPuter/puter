@@ -29,6 +29,17 @@ const { Eq, Like, Or, And } = require('../query/query');
 const { BaseES } = require('./BaseES');
 
 const uuidv4 = require('uuid').v4;
+const indexUrlUniquenessExemptionCandidates =  [
+    'https://dev-center.puter.com/coming-soon',
+];
+const hasIndexUrlUniquenessExemption = (candidates) => {
+    for ( const candidate of candidates ) {
+        if ( indexUrlUniquenessExemptionCandidates.find(exception => candidate.startsWith(exception)) ) {
+            return true;
+        }
+    }
+    return false;
+};
 let privateLaunchAccessModulePromise;
 const getPrivateLaunchAccessModule = async () => {
     if ( ! privateLaunchAccessModulePromise ) {
@@ -571,6 +582,7 @@ class AppES extends BaseES {
             })();
 
             if ( candidates.length === 0 ) return;
+            if ( hasIndexUrlUniquenessExemption(candidates) ) return;
 
             const placeholders = candidates.map(() => '?').join(', ');
             const parameters = [...candidates];

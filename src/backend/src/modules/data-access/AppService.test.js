@@ -916,6 +916,30 @@ describe('AppService', () => {
             })).rejects.toThrow();
         });
 
+        it('should allow duplicate dev-center placeholder index_url on create', async () => {
+            setupContextForWrite(createMockUserActor(1));
+            mockDb.read.mockImplementation(async (query) => {
+                if ( typeof query === 'string' && query.includes('SELECT id, uid, index_url FROM apps WHERE index_url IN') ) {
+                    return [{
+                        id: 999,
+                        uid: 'app-existing-placeholder',
+                        index_url: 'https://dev-center.puter.com/coming-soon.html',
+                    }];
+                }
+                return [createMockAppRow()];
+            });
+
+            const crudQ = AppService.IMPLEMENTS['crud-q'];
+
+            await expect(crudQ.create.call(appService, {
+                object: {
+                    name: 'new-app',
+                    title: 'New App',
+                    index_url: 'https://dev-center.puter.com/coming-soon.html',
+                },
+            })).resolves.toBeDefined();
+        });
+
         it('should set app_owner when actor is AppUnderUserActorType', async () => {
             setupContextForWrite(createMockAppUnderUserActor(1, 100));
             mockDb.read.mockResolvedValue([createMockAppRow()]);
@@ -1666,6 +1690,28 @@ describe('AppService', () => {
                     index_url: 'https://updated.com/index.html',
                 },
             })).rejects.toThrow();
+        });
+
+        it('should allow duplicate dev-center placeholder index_url on update', async () => {
+            setupContextForWrite(createMockUserActor(1));
+            mockDb.read.mockImplementation(async (query) => {
+                if ( typeof query === 'string' && query.includes('SELECT id, uid, index_url FROM apps WHERE index_url IN') ) {
+                    return [{
+                        id: 777,
+                        uid: 'app-existing-placeholder',
+                        index_url: 'https://dev-center.puter.com/coming-soon.html',
+                    }];
+                }
+                return [createMockAppRow()];
+            });
+
+            const crudQ = AppService.IMPLEMENTS['crud-q'];
+            await expect(crudQ.update.call(appService, {
+                object: {
+                    uid: 'app-uid-123',
+                    index_url: 'https://dev-center.puter.com/coming-soon.html',
+                },
+            })).resolves.toBeDefined();
         });
 
         it('should throw forbidden when app actor does not own the entity (AppLimitedES behavior)', async () => {

@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import APIError from '../../api/APIError.js';
 import { deleteRedisKeys } from '../../clients/redis/deleteRedisKeys.js';
 import config from '../../config.js';
+import { APP_ICONS_SUBDOMAIN } from '../../consts/app-icons.js';
 import { NodeInternalIDSelector } from '../../filesystem/node/selectors.js';
 import { app_name_exists, get_app } from '../../helpers.js';
 import { AppUnderUserActorType, UserActorType } from '../../services/auth/Actor.js';
@@ -22,13 +23,23 @@ import {
     validate_string,
     validate_url,
 } from './lib/validation.js';
-import { APP_ICONS_SUBDOMAIN } from '../../consts/app-icons.js';
 
 const APP_ICON_ENDPOINT_PATH_REGEX = /^\/app-icon\/([^/?#]+)(?:\/(\d+))?\/?$/;
 const LEGACY_APP_ICON_FILE_PATH_REGEX = /^\/(app-[^/?#]+?)(?:-(\d+))?\.png$/;
 const ABSOLUTE_URL_REGEX = /^[a-zA-Z][a-zA-Z\d+\-.]*:/;
 const RAW_BASE64_REGEX = /^[A-Za-z0-9+/]+={0,2}$/;
+const indexUrlUniquenessExemptionCandidates =  [
+    'https://dev-center.puter.com/coming-soon',
+];
 const isAbsoluteUrl = value => ABSOLUTE_URL_REGEX.test(value) || value.startsWith('//');
+const hasIndexUrlUniquenessExemption = (candidates) => {
+    for ( const candidate of candidates ) {
+        if ( indexUrlUniquenessExemptionCandidates.find(exception => candidate.startsWith(exception)) ) {
+            return true;
+        }
+    }
+    return false;
+};
 
 const isRawBase64ImageString = value => {
     if ( typeof value !== 'string' ) return false;
@@ -1177,6 +1188,7 @@ export default class AppService extends BaseService {
     async #ensureIndexUrlNotAlreadyInUse ({ indexUrl, excludeAppId } = {}) {
         const indexUrlCandidates = this.#buildEquivalentIndexUrlCandidates(indexUrl);
         if ( indexUrlCandidates.length === 0 ) return;
+        if ( hasIndexUrlUniquenessExemption(indexUrlCandidates) ) return;
 
         const placeholders = indexUrlCandidates.map(() => '?').join(', ');
         const parameters = [...indexUrlCandidates];
