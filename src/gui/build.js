@@ -17,5 +17,23 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 import { build } from './utils.js';
+import { hideBin } from 'yargs/helpers';
+import yargs from 'yargs';
+import fs from 'node:fs';
+import { execSync } from 'node:child_process';
+import { Buffer } from 'node:buffer';
+
+// eslint-disable-next-line no-undef
+const argv = yargs(hideBin(process.argv)).parse();
+if ( argv.icons_url ) {
+    console.log('Extracting icons...');
+    const iconsTar = Buffer.from(await fetch(argv.icons_url).then(r => r.arrayBuffer()));
+    await fs.promises.writeFile('icons.tar.gz', iconsTar);
+    if ( fs.existsSync('src/icons') ) {
+        fs.promises.rename('src/icons', 'src/icons.old');
+    }
+    execSync('tar -xzvf icons.tar.gz');
+    fs.promises.rm('icons.tar.gz');
+}
 
 build();
