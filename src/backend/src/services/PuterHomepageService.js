@@ -357,9 +357,10 @@ export class PuterHomepageService extends BaseService {
         }
         
         ${bundled
-                ? `<script src="${this.config.gui_puterjs_bundle || 'https://js.puter.com/v2/'}">`
+                ? `<script src="${this.config.gui_puterjs_bundle || 'https://js.puter.com/v2/'}"></script>`
                 : ''
         }
+
         <!-- Load the GUI script -->
         <script src="${this.config.gui_bundle ?? '/dist/bundle.min.js'}"></script>
         <!-- Initialize GUI when document is loaded -->
