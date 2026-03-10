@@ -24,6 +24,8 @@ import { setRedisCacheValue } from '../../../clients/redis/cacheUpdate.js';
 import { redisClient } from '../../../clients/redis/redisSingleton.js';
 import { ErrorService } from '../../../modules/core/ErrorService.js';
 import { Context } from '../../../util/context.js';
+import { concurrentRequestLimiter } from '../../abuse-prevention/concurrentRequestLimiter/index.js';
+import type { GroupLimitConfig } from '../../abuse-prevention/concurrentRequestLimiter/types.js';
 import BaseService from '../../BaseService.js';
 import { BaseDatabaseAccessService } from '../../database/BaseDatabaseAccessService.js';
 import { DriverService } from '../../drivers/DriverService.js';
@@ -51,6 +53,8 @@ import { XAIProvider } from './providers/XAIProvider/XAIProvider.js';
 
 // Maximum number of fallback attempts when a model fails, including the first attempt
 const MAX_FALLBACKS = 3 + 1; // includes first attempt
+const aiChatConcurrentLimitKey = 'ai-chat.complete';
+const defaultAiChatConcurrentLeaseMs = 2 * 60 * 1000;
 
 export class AIChatService extends BaseService {
 
@@ -84,6 +88,53 @@ export class AIChatService extends BaseService {
 
     #providers: Record<string, IChatProvider> = {};
     #modelIdMap: Record<string, IChatModel[]> = {};
+
+    #toLimitValue (rawLimit: unknown): number | null {
+        if ( typeof rawLimit === 'number' && Number.isFinite(rawLimit) && rawLimit > 0 ) {
+            return rawLimit;
+        }
+
+        if ( rawLimit && typeof rawLimit === 'object' && 'limit' in rawLimit ) {
+            const nestedLimit = Number((rawLimit as { limit?: unknown }).limit);
+            if ( Number.isFinite(nestedLimit) && nestedLimit > 0 ) {
+                return nestedLimit;
+            }
+        }
+
+        return null;
+    }
+
+    #getAiChatConcurrentLimitConfig (): GroupLimitConfig {
+        const limitConfig: GroupLimitConfig = {
+            default: { limit: 3 },
+            temp_free: { limit: 3 },
+            user_free: { limit: 5 },
+        };
+
+        const subscriptionLimits = this.config?.concurrentRequests?.subscriptionLimits;
+        if ( !subscriptionLimits || typeof subscriptionLimits !== 'object' || Array.isArray(subscriptionLimits) ) {
+            return limitConfig;
+        }
+
+        for ( const [subscriptionId, rawLimit] of Object.entries(subscriptionLimits) ) {
+            const parsedLimit = this.#toLimitValue(rawLimit);
+            if ( ! parsedLimit ) {
+                continue;
+            }
+            limitConfig[subscriptionId] = { limit: parsedLimit };
+        }
+
+        return limitConfig;
+    }
+
+    #getAiChatConcurrentLeaseMs (): number {
+        const rawLeaseMs = this.config?.concurrentRequests?.leaseMs;
+        const leaseMs = Number(rawLeaseMs);
+        if ( Number.isFinite(leaseMs) && leaseMs > 0 ) {
+            return leaseMs;
+        }
+        return defaultAiChatConcurrentLeaseMs;
+    }
 
     /** Driver interfaces */
     static IMPLEMENTS = {
@@ -197,6 +248,12 @@ export class AIChatService extends BaseService {
     }
 
     protected async '__on_boot.consolidation' () {
+        // register
+        concurrentRequestLimiter.registerLimitKey(
+            aiChatConcurrentLimitKey,
+            this.#getAiChatConcurrentLimitConfig(),
+        );
+
         // register chat providers here
         await this.registerProviders();
 
@@ -323,318 +380,353 @@ export class AIChatService extends BaseService {
         resMetadata = (resMetadata ?? {}) as Record<string, unknown>;
         const actor = Context.get('actor');
 
-        let intendedProvider = parameters.provider || (legacyProviderName === AIChatService.SERVICE_NAME ? '' : legacyProviderName); // should now all go through here
-
-        if ( !parameters.model && !intendedProvider ) {
-            intendedProvider = AIChatService.DEFAULT_PROVIDER;
-        }
-        if ( !parameters.model && intendedProvider ) {
-            parameters.model = this.#providers[intendedProvider].getDefaultModel();
-        }
-        let model = this.getModel({ modelId: parameters.model, provider: intendedProvider }) || await this.getFallbackModel(parameters.model, [], []);
-        const abuseModel = this.getModel({ modelId: 'abuse' });
-
-        const completionId = cuid2();
-        const event = {
+        const concurrentRequestAllowance = await concurrentRequestLimiter.checkAndIncrementConcurrent({
             actor,
-            completionId,
-            allow: true,
-            intended_service: intendedProvider || '',
-            parameters,
-        } as Record<string, unknown>;
-
-        // If we reach here with a suspended user, block and log; this shouldn't happen
-        const user = actor.type.user ?? (actor as any).type?.authorizer?.type?.user ?? Context.get('user');
-        if ( ! user ) {
-            this.errors.report('this should not happen: no user in AIChatService', {
-                trace: true,
-            });
-            throw APIError.create('permission_denied');
-        }
-        const svc_getUser = this.services.get('get-user');
-        const nocache_user = await svc_getUser.get_user({ id: user.id, force: true });
-        if ( nocache_user?.suspended ) {
-            this.errors.report('this should not happen: reached AIChatService with suspended user', {
-                trace: true,
-            });
-            throw APIError.create('account_suspended');
-        }
-        if ( user.requires_email_confirmation && !user.email_confirmed ) {
-            throw APIError.create('email_must_be_confirmed', null, {
-                action: 'use this service',
-            });
-        }
-
-        await this.eventService.emit('ai.prompt.validate', event);
-        if ( ! event.allow ) {
-            testMode = true;
-            if ( event.custom ) parameters.custom = event.custom;
-        }
-
-        if ( parameters.messages ) {
-            parameters.messages =
-                normalize_messages(parameters.messages);
-        }
-
-        // Skip moderation for Ollama (local service) and other local services
-        const should_moderate = !testMode &&
-            parameters.provider !== 'ollama';
-
-        if ( should_moderate && !await this.moderate(parameters) ) {
-            testMode = true;
-            throw APIError.create('moderation_failed');
-        }
-
-        // Only set moderated flag if we actually ran moderation
-        if ( !testMode && should_moderate ) {
-            Context.set('moderated', true);
-        }
-
-        if ( testMode ) {
-            if ( event.abuse ) {
-                model = abuseModel;
-            }
-        }
-
-        if ( parameters.tools ) {
-            normalize_tools_object(parameters.tools);
-        }
-
-        if ( ! model ) {
-            // TODO DS: route them to new endpoints once ready
-            const availableModelsUrl = `${this.global_config.origin }/puterai/chat/models`;
-
-            throw APIError.create('field_invalid', undefined, {
-                key: 'model',
-                expected: `a valid model name from ${availableModelsUrl}`,
-                got: model,
-            });
-        }
-
-        const inputTokenCost = model.costs[model.input_cost_key || 'input_tokens'] as number;
-        const outputTokenCost =  model.costs[model.output_cost_key || 'output_tokens'] as number;
-        const maxTokens = model.max_tokens;
-        const text = extract_text(parameters.messages);
-        const approximateTokenCount = Math.floor(((text.length / 4) + (text.split(/\s+/).length * (4 / 3))) / 2); // see https://help.openai.com/en/articles/4936856-what-are-tokens-and-how-to-count-them
-        const approximateInputCost = approximateTokenCount * inputTokenCost;
-        const minimumCredits = model.minimumCredits || 0;
-        const usageAllowed = await this.meteringService.hasEnoughCredits(actor, Math.max(approximateInputCost, minimumCredits));
-
-        // Handle usage limits reached case
-        if ( ! usageAllowed ) {
-            throw APIError.create('insufficient_funds', new Error('No usage left for request.'), {
-                delegate: 'usage-limited-chat',
-                message: 'No usage left for request.',
-            });
-        }
-
-        // block non subscriber only models for non-subscribers
-        if ( model.subscriberOnly ) {
-            const eventObject = { actor, userSubscriptionId: '' };
-            await this.eventService.emit('metering:getUserSubscription', eventObject);
-            if ( ! eventObject.userSubscriptionId ) {
-                //TODO DS: register checker events when we add more of these exclusions
-                throw APIError.create('permission_denied', undefined, {
-                    message: `The model ${model.id} is only available to subscribers. Please subscribe to access this model.`,
-                });
-            }
-        }
-
-        const availableCredits = await this.meteringService.getRemainingUsage(actor);
-        const maxAllowedOutput =
-            availableCredits - approximateInputCost;
-
-        const maxAllowedOutputTokens =
-            maxAllowedOutput / outputTokenCost;
-
-        if ( maxAllowedOutputTokens ) {
-            parameters.max_tokens = Math.floor(Math.min(
-                parameters.max_tokens ?? Number.POSITIVE_INFINITY,
-                maxAllowedOutputTokens,
-                maxTokens - approximateTokenCount,
-            ));
-            if ( parameters.max_tokens < 1 ) {
-                parameters.max_tokens = undefined;
-            }
-        }
-
-        // call model provider;
-        let res: Awaited<ReturnType<IChatProvider['complete']>>;
-        const provider = this.#providers[model.provider!];
-        if ( ! provider ) {
-            throw new Error(`no provider found for model ${model.id}`);
-        }
-        try {
-            res = await provider.complete({
-                ...parameters,
-                model: model.id,
-                provider: model.provider,
-            });
-        } catch (e) {
-            const tried: string[] = [];
-            const triedProviders: string[] = [];
-
-            tried.push(model.id);
-            triedProviders.push(model.provider!);
-
-            let error = e as Error;
-
-            while ( error ) {
-
-                // TODO: simplify our error handling
-                // Distinguishing between user errors and service errors
-                // is very messy because of different conventions between
-                // services. This is a best-effort attempt to catch user
-                // errors and throw them as 400s.
-                const isRequestError = (() => {
-                    if ( error instanceof APIError ) {
-                        return true;
-                    }
-                    if ( (error as unknown as { type: string }).type === 'invalid_request_error' ) {
-                        return true;
-                    }
-                })();
-
-                if ( isRequestError ) {
-                    console.error((error as Error));
-                    throw APIError.create('error_400_from_delegate', error as Error, {
-                        delegate: model.provider,
-                        message: (error as Error).message,
-                    });
-                }
-
-                if ( this.config.disable_fallback_mechanisms ) {
-                    console.error((error as Error));
-                    throw error;
-                }
-
-                console.error('error calling ai chat provider for model: ', model, '\n trying fallbacks...');
-
-                // No fallbacks for pseudo-models
-                if ( model.provider === 'fake-chat' ) {
-                    break;
-                }
-
-                const fallback = await this.getFallbackModel(model.id, tried, triedProviders);
-
-                if ( ! fallback ) {
-                    throw new Error('no fallback model available');
-                }
-
-                const {
-                    fallbackModelId,
-                    fallbackProvider,
-                } = fallback;
-
-                console.warn('model fallback', {
-                    fallbackModelId,
-                    fallbackProvider,
-                });
-
-                let fallBackModel = this.getModel({ modelId: fallbackModelId, provider: fallbackProvider });
-
-                tried.push(fallbackModelId);
-                triedProviders.push(fallbackProvider);
-
-                if ( tried.length > MAX_FALLBACKS ) {
-                    console.error('max fallbacks reached', { tried, triedProviders });
-                    break;
-                }
-
-                const fallbackUsageAllowed = await this.meteringService.hasEnoughCredits(actor, 1); // we checked earlier, assume same costs
-
-                if ( ! fallbackUsageAllowed ) {
-                    throw APIError.create('insufficient_funds', new Error('No usage left for request.'), {
-                        delegate: 'usage-limited-chat',
-                        message: 'No usage left for request.',
-                    });
-                }
-
-                const provider = this.#providers[fallBackModel.provider!];
-                if ( ! provider ) {
-                    throw new Error(`no provider found for model ${fallBackModel.id}`);
-                }
-                try {
-                    res = await provider.complete({
-                        ...parameters,
-                        model: fallBackModel.id,
-                        provider: fallBackModel.provider,
-                    });
-                    model = fallBackModel;
-                    break; // success
-                } catch (e) {
-                    console.error('error during fallback selection: ', e);
-                    error = e as Error;
-                }
-            }
-        }
-
-        resMetadata.service_used = model.provider; // legacy field
-        resMetadata.providerUsed = model.id;
-
-        const username = actor.type?.user?.username;
-
-        if ( ! res! ) {
-            throw new Error('No response from AI chat provider');
-        }
-
-        res.via_ai_chat_service = true; // legacy field always true now
-        if ( res.stream ) {
-            if ( res.init_chat_stream ) {
-                const stream = new PassThrough();
-                // TODO DS: simplify how we handle streaming responses and remove custom runtime types
-                const retval = new TypedValue({
-                    $: 'stream',
-                    content_type: 'application/x-ndjson',
-                    chunked: true,
-                }, stream);
-
-                const chatStream = new Streaming.AIChatStream({
-                    stream,
-                });
-
-                (async () => {
-                    try {
-                        await res.init_chat_stream({ chatStream });
-                    } catch (e) {
-                        this.errors.report('error during stream response', {
-                            source: e,
-                        });
-                        stream.write(`${JSON.stringify({
-                            type: 'error',
-                            message: (e as Error).message,
-                        }) }\n`);
-                        stream.end();
-                    } finally {
-                        if ( res.finally_fn ) {
-                            await res.finally_fn();
-                        }
-                    }
-                })();
-
-                return retval;
-            }
-
-            return res;
-        }
-        await this.eventService.emit('ai.prompt.complete', {
-            username,
-            intended_service: intendedProvider,
-            parameters,
-            result: res,
-            model_used: model.id,
-            service_used: model.provider,
+            key: aiChatConcurrentLimitKey,
+            leaseMs: this.#getAiChatConcurrentLeaseMs(),
         });
-
-        if ( parameters.response?.normalize ) {
-            res = {
-                ...res,
-                message: normalize_single_message(res.message),
-                normalized: true,
-            };
+        if ( ! concurrentRequestAllowance.allowed ) {
+            throw APIError.create('too_many_requests', undefined, {
+                message: `Concurrent request limit reached (${concurrentRequestAllowance.activeCount}/${concurrentRequestAllowance.limit})`,
+            });
         }
-        return res;
 
+        let concurrentPermit = concurrentRequestAllowance.permit;
+        const releaseConcurrentPermit = async () => {
+            if ( ! concurrentPermit ) return;
+            const permit = concurrentPermit;
+            concurrentPermit = undefined;
+            await concurrentRequestLimiter.decrementConcurrent(permit);
+        };
+
+        try {
+            let intendedProvider = parameters.provider || (legacyProviderName === AIChatService.SERVICE_NAME ? '' : legacyProviderName); // should now all go through here
+
+            if ( !parameters.model && !intendedProvider ) {
+                intendedProvider = AIChatService.DEFAULT_PROVIDER;
+            }
+            if ( !parameters.model && intendedProvider ) {
+                parameters.model = this.#providers[intendedProvider].getDefaultModel();
+            }
+            let model = this.getModel({ modelId: parameters.model, provider: intendedProvider }) || await this.getFallbackModel(parameters.model, [], []);
+            const abuseModel = this.getModel({ modelId: 'abuse' });
+
+            const completionId = cuid2();
+            const event = {
+                actor,
+                completionId,
+                allow: true,
+                intended_service: intendedProvider || '',
+                parameters,
+            } as Record<string, unknown>;
+
+            // If we reach here with a suspended user, block and log; this shouldn't happen
+            const user = actor.type.user ?? actor.type?.authorizer?.type?.user ?? Context.get('user');
+            if ( ! user ) {
+                this.errors.report('this should not happen: no user in AIChatService', {
+                    trace: true,
+                });
+                throw APIError.create('permission_denied');
+            }
+            const svc_getUser = this.services.get('get-user');
+            const nocache_user = await svc_getUser.get_user({ id: user.id, force: true });
+            if ( nocache_user?.suspended ) {
+                this.errors.report('this should not happen: reached AIChatService with suspended user', {
+                    trace: true,
+                });
+                throw APIError.create('account_suspended');
+            }
+            if ( user.requires_email_confirmation && !user.email_confirmed ) {
+                throw APIError.create('email_must_be_confirmed', null, {
+                    action: 'use this service',
+                });
+            }
+
+            await this.eventService.emit('ai.prompt.validate', event);
+            if ( ! event.allow ) {
+                testMode = true;
+                if ( event.custom ) parameters.custom = event.custom;
+            }
+
+            if ( parameters.messages ) {
+                parameters.messages =
+                    normalize_messages(parameters.messages);
+            }
+
+            // Skip moderation for Ollama (local service) and other local services
+            const should_moderate = !testMode &&
+                parameters.provider !== 'ollama';
+
+            if ( should_moderate && !await this.moderate(parameters) ) {
+                testMode = true;
+                throw APIError.create('moderation_failed');
+            }
+
+            // Only set moderated flag if we actually ran moderation
+            if ( !testMode && should_moderate ) {
+                Context.set('moderated', true);
+            }
+
+            if ( testMode ) {
+                if ( event.abuse ) {
+                    model = abuseModel;
+                }
+            }
+
+            if ( parameters.tools ) {
+                normalize_tools_object(parameters.tools);
+            }
+
+            if ( ! model ) {
+            // TODO DS: route them to new endpoints once ready
+                const availableModelsUrl = `${this.global_config.origin }/puterai/chat/models`;
+
+                throw APIError.create('field_invalid', undefined, {
+                    key: 'model',
+                    expected: `a valid model name from ${availableModelsUrl}`,
+                    got: model,
+                });
+            }
+
+            const inputTokenCost = model.costs[model.input_cost_key || 'input_tokens'] as number;
+            const outputTokenCost =  model.costs[model.output_cost_key || 'output_tokens'] as number;
+            const maxTokens = model.max_tokens;
+            const text = extract_text(parameters.messages);
+            const approximateTokenCount = Math.floor(((text.length / 4) + (text.split(/\s+/).length * (4 / 3))) / 2); // see https://help.openai.com/en/articles/4936856-what-are-tokens-and-how-to-count-them
+            const approximateInputCost = approximateTokenCount * inputTokenCost;
+            const minimumCredits = model.minimumCredits || 0;
+            const usageAllowed = await this.meteringService.hasEnoughCredits(actor, Math.max(approximateInputCost, minimumCredits));
+
+            // Handle usage limits reached case
+            if ( ! usageAllowed ) {
+                throw APIError.create('insufficient_funds', new Error('No usage left for request.'), {
+                    delegate: 'usage-limited-chat',
+                    message: 'No usage left for request.',
+                });
+            }
+
+            // block non subscriber only models for non-subscribers
+            if ( model.subscriberOnly ) {
+                const eventObject = { actor, userSubscriptionId: '' };
+                await this.eventService.emit('metering:getUserSubscription', eventObject);
+                if ( ! eventObject.userSubscriptionId ) {
+                //TODO DS: register checker events when we add more of these exclusions
+                    throw APIError.create('permission_denied', undefined, {
+                        message: `The model ${model.id} is only available to subscribers. Please subscribe to access this model.`,
+                    });
+                }
+            }
+
+            const availableCredits = await this.meteringService.getRemainingUsage(actor);
+            const maxAllowedOutput =
+                availableCredits - approximateInputCost;
+
+            const maxAllowedOutputTokens =
+                maxAllowedOutput / outputTokenCost;
+
+            if ( maxAllowedOutputTokens ) {
+                parameters.max_tokens = Math.floor(Math.min(
+                    parameters.max_tokens ?? Number.POSITIVE_INFINITY,
+                    maxAllowedOutputTokens,
+                    maxTokens - approximateTokenCount,
+                ));
+                if ( parameters.max_tokens < 1 ) {
+                    parameters.max_tokens = undefined;
+                }
+            }
+
+            // call model provider;
+            let res: Awaited<ReturnType<IChatProvider['complete']>>;
+            const provider = this.#providers[model.provider!];
+            if ( ! provider ) {
+                throw new Error(`no provider found for model ${model.id}`);
+            }
+            try {
+                res = await provider.complete({
+                    ...parameters,
+                    model: model.id,
+                    provider: model.provider,
+                });
+            } catch (e) {
+                const tried: string[] = [];
+                const triedProviders: string[] = [];
+
+                tried.push(model.id);
+                triedProviders.push(model.provider!);
+
+                let error = e as Error;
+
+                while ( error ) {
+
+                    // TODO: simplify our error handling
+                    // Distinguishing between user errors and service errors
+                    // is very messy because of different conventions between
+                    // services. This is a best-effort attempt to catch user
+                    // errors and throw them as 400s.
+                    const isRequestError = (() => {
+                        if ( error instanceof APIError ) {
+                            return true;
+                        }
+                        if ( (error as unknown as { type: string }).type === 'invalid_request_error' ) {
+                            return true;
+                        }
+                    })();
+
+                    if ( isRequestError ) {
+                        console.error((error as Error));
+                        throw APIError.create('error_400_from_delegate', error as Error, {
+                            delegate: model.provider,
+                            message: (error as Error).message,
+                        });
+                    }
+
+                    if ( this.config.disable_fallback_mechanisms ) {
+                        console.error((error as Error));
+                        throw error;
+                    }
+
+                    console.error('error calling ai chat provider for model: ', model, '\n trying fallbacks...');
+
+                    // No fallbacks for pseudo-models
+                    if ( model.provider === 'fake-chat' ) {
+                        break;
+                    }
+
+                    const fallback = await this.getFallbackModel(model.id, tried, triedProviders);
+
+                    if ( ! fallback ) {
+                        throw new Error('no fallback model available');
+                    }
+
+                    const {
+                        fallbackModelId,
+                        fallbackProvider,
+                    } = fallback;
+
+                    console.warn('model fallback', {
+                        fallbackModelId,
+                        fallbackProvider,
+                    });
+
+                    let fallBackModel = this.getModel({ modelId: fallbackModelId, provider: fallbackProvider });
+
+                    tried.push(fallbackModelId);
+                    triedProviders.push(fallbackProvider);
+
+                    if ( tried.length > MAX_FALLBACKS ) {
+                        console.error('max fallbacks reached', { tried, triedProviders });
+                        break;
+                    }
+
+                    const fallbackUsageAllowed = await this.meteringService.hasEnoughCredits(actor, 1); // we checked earlier, assume same costs
+
+                    if ( ! fallbackUsageAllowed ) {
+                        throw APIError.create('insufficient_funds', new Error('No usage left for request.'), {
+                            delegate: 'usage-limited-chat',
+                            message: 'No usage left for request.',
+                        });
+                    }
+
+                    const provider = this.#providers[fallBackModel.provider!];
+                    if ( ! provider ) {
+                        throw new Error(`no provider found for model ${fallBackModel.id}`);
+                    }
+                    try {
+                        res = await provider.complete({
+                            ...parameters,
+                            model: fallBackModel.id,
+                            provider: fallBackModel.provider,
+                        });
+                        model = fallBackModel;
+                        break; // success
+                    } catch (e) {
+                        console.error('error during fallback selection: ', e);
+                        error = e as Error;
+                    }
+                }
+            }
+
+            resMetadata.service_used = model.provider; // legacy field
+            resMetadata.providerUsed = model.id;
+
+            const username = actor.type?.user?.username;
+
+            if ( ! res! ) {
+                throw new Error('No response from AI chat provider');
+            }
+
+            res.via_ai_chat_service = true; // legacy field always true now
+            if ( res.stream ) {
+                const originalFinallyFn = res.finally_fn;
+                res.finally_fn = async () => {
+                    try {
+                        if ( originalFinallyFn ) {
+                            await originalFinallyFn();
+                        }
+                    } finally {
+                        await releaseConcurrentPermit();
+                    }
+                };
+
+                if ( res.init_chat_stream ) {
+                    const stream = new PassThrough();
+                    // TODO DS: simplify how we handle streaming responses and remove custom runtime types
+                    const retval = new TypedValue({
+                        $: 'stream',
+                        content_type: 'application/x-ndjson',
+                        chunked: true,
+                    }, stream);
+
+                    const chatStream = new Streaming.AIChatStream({
+                        stream,
+                    });
+
+                    (async () => {
+                        try {
+                            await res.init_chat_stream({ chatStream });
+                        } catch (e) {
+                            this.errors.report('error during stream response', {
+                                source: e,
+                            });
+                            stream.write(`${JSON.stringify({
+                                type: 'error',
+                                message: (e as Error).message,
+                            }) }\n`);
+                            stream.end();
+                        } finally {
+                            if ( res.finally_fn ) {
+                                await res.finally_fn();
+                            }
+                        }
+                    })();
+
+                    return retval;
+                }
+
+                return res;
+            }
+            await this.eventService.emit('ai.prompt.complete', {
+                username,
+                intended_service: intendedProvider,
+                parameters,
+                result: res,
+                model_used: model.id,
+                service_used: model.provider,
+            });
+
+            if ( parameters.response?.normalize ) {
+                res = {
+                    ...res,
+                    message: normalize_single_message(res.message),
+                    normalized: true,
+                };
+            }
+            await releaseConcurrentPermit();
+            return res;
+        } catch ( error ) {
+            await releaseConcurrentPermit();
+            throw error;
+        }
     }
 
     async moderate ({ messages }: { messages: Array<unknown>; }) {

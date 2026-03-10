@@ -57,7 +57,8 @@ export interface ActorInit {
 export class Actor {
     constructor (init: ActorInit);
     type: {
-        app: { uid: string, timestamp?: Date }
+        app?: { uid: string, timestamp?: Date }
+        authorizer?: Actor
         user: IUser
     };
     get uid (): string;
