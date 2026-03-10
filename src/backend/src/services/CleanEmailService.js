@@ -152,6 +152,8 @@ class CleanEmailService extends BaseService {
     * set event.allow=false to reject the email.
     */
     async validate (email) {
+        if ( this?.global_config?.env === 'dev' ) return true;
+
         email = this.clean(email);
         const config = this.global_config;
 
