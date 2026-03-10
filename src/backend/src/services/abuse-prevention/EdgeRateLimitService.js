@@ -16,14 +16,13 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { Context } = require('../../util/context');
-const { safeHasOwnProperty } = require('../../util/safety');
-const { asyncSafeSetInterval } = require('@heyputer/putility').libs.promise;
-const { quot } = require('@heyputer/putility').libs.string;
+import { asyncSafeSetInterval } from '@heyputer/putility/src/libs/promise.js';
+import { Context } from '../../util/context.js';
+import { safeHasOwnProperty } from '../../util/safety.js';
+import { BaseService } from '../BaseService.js';
 
 const MINUTE = 60 * 1000;
 const HOUR = 60 * MINUTE;
-const BaseService = require('../BaseService');
 
 const DEFAULT_SCOPE = {
     limit: 500,
@@ -42,102 +41,96 @@ const DEFAULT_SCOPE = {
 * to prevent abuse. It keeps track of request timestamps
 * and enforces limits based on a specified time window.
 */
-class EdgeRateLimitService extends BaseService {
-    /**
-    * Initializes the EdgeRateLimitService by setting up the rate limit scopes
-    * and creating a Map to store request timestamps. It also starts a periodic
-    * cleanup process to remove old request logs.
-    */
-    _construct () {
-        this.scopes = {
-            'oidc-general': {
-                limit: 100,
-                window: 15 * MINUTE,
-            },
-            'login': {
-                limit: 10,
-                window: 15 * MINUTE,
-            },
-            'signup': {
-                limit: 10,
-                window: 15 * MINUTE,
-            },
-            'contact-us': {
-                limit: 10,
-                window: 15 * MINUTE,
-            },
-            'share': {
-                limit: 30,
-                window: 1 * MINUTE,
-            },
-            'send-confirm-email': {
-                limit: 10,
-                window: HOUR,
-            },
-            'confirm-email': {
-                limit: 10,
-                window: HOUR,
-            },
-            'send-pass-recovery-email': {
-                limit: 10,
-                window: HOUR,
-            },
-            'verify-pass-recovery-token': {
-                limit: 10,
-                window: 15 * MINUTE,
-            },
-            'set-pass-using-token': {
-                limit: 10,
-                window: HOUR,
-            },
-            'save-account': {
-                limit: 10,
-                window: HOUR,
-            },
-            'change-email-start': {
-                limit: 10,
-                window: HOUR,
-            },
-            'change-email-confirm': {
-                limit: 10,
-                window: HOUR,
-            },
-            'passwd': {
-                limit: 10,
-                window: HOUR,
-            },
-            '/user-protected/change-password': {
-                limit: 10,
-                window: HOUR,
-            },
-            '/user-protected/change-email': {
-                limit: 10,
-                window: HOUR,
-            },
-            '/user-protected/change-username': {
-                limit: 10,
-                window: HOUR,
-            },
-            '/user-protected/disable-2fa': {
-                limit: 10,
-                window: HOUR,
-            },
-            'login-otp': {
-                limit: 15,
-                window: 30 * MINUTE,
-            },
-            'login-recovery': {
-                limit: 10,
-                window: HOUR,
-            },
-            'enable-2fa': {
-                limit: 10,
-                window: HOUR,
-            },
+export class EdgeRateLimitService extends BaseService {
 
-        };
-        this.requests = new Map();
-    }
+    scopes = {
+        'oidc-general': {
+            limit: 100,
+            window: 15 * MINUTE,
+        },
+        'login': {
+            limit: 10,
+            window: 15 * MINUTE,
+        },
+        'signup': {
+            limit: 10,
+            window: 15 * MINUTE,
+        },
+        'contact-us': {
+            limit: 10,
+            window: 15 * MINUTE,
+        },
+        'share': {
+            limit: 30,
+            window: 1 * MINUTE,
+        },
+        'send-confirm-email': {
+            limit: 10,
+            window: HOUR,
+        },
+        'confirm-email': {
+            limit: 10,
+            window: HOUR,
+        },
+        'send-pass-recovery-email': {
+            limit: 10,
+            window: HOUR,
+        },
+        'verify-pass-recovery-token': {
+            limit: 10,
+            window: 15 * MINUTE,
+        },
+        'set-pass-using-token': {
+            limit: 10,
+            window: HOUR,
+        },
+        'save-account': {
+            limit: 10,
+            window: HOUR,
+        },
+        'change-email-start': {
+            limit: 10,
+            window: HOUR,
+        },
+        'change-email-confirm': {
+            limit: 10,
+            window: HOUR,
+        },
+        'passwd': {
+            limit: 10,
+            window: HOUR,
+        },
+        '/user-protected/change-password': {
+            limit: 10,
+            window: HOUR,
+        },
+        '/user-protected/change-email': {
+            limit: 10,
+            window: HOUR,
+        },
+        '/user-protected/change-username': {
+            limit: 10,
+            window: HOUR,
+        },
+        '/user-protected/disable-2fa': {
+            limit: 10,
+            window: HOUR,
+        },
+        'login-otp': {
+            limit: 15,
+            window: 30 * MINUTE,
+        },
+        'login-recovery': {
+            limit: 10,
+            window: HOUR,
+        },
+        'enable-2fa': {
+            limit: 10,
+            window: HOUR,
+        },
+
+    };
+    requests = new Map();
 
     /**
      * Initializes the EdgeRateLimitService by setting up a periodic cleanup interval.
@@ -188,7 +181,7 @@ class EdgeRateLimitService extends BaseService {
 
     incr (scope) {
         if ( ! Object.prototype.hasOwnProperty.call(this.scopes, scope) ) {
-            throw new Error(`unrecognized rate-limit scope: ${quot(scope)}`);
+            throw new Error(`unrecognized rate-limit scope: ${scope}`);
         }
         const requester = Context.get('requester');
         const rl_identifier = requester.rl_identifier;
@@ -216,5 +209,3 @@ class EdgeRateLimitService extends BaseService {
         }
     }
 }
-
-module.exports = { EdgeRateLimitService };
