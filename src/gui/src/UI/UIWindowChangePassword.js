@@ -32,7 +32,7 @@ async function UIWindowChangePassword (options) {
     // success msg
     h += '<div class="form-success-msg"></div>';
     // current password / OIDC revalidate
-    h += '<div class="change-password-auth-row" style="display: none; overflow: hidden; margin-bottom: 20px;">';
+    h += '<div class="change-password-auth-row" style="overflow: hidden; margin-bottom: 20px;">';
     h += '<div class="change-password-current-wrap">';
     h += `<label for="current-password-${internal_id}">${i18n('current_password')}</label>`;
     h += `<input id="current-password-${internal_id}" class="current-password" type="password" name="current-password" autocomplete="current-password" />`;

@@ -40,7 +40,7 @@ async function UIWindowDisable2FA (options) {
     h += '<div style="overflow: hidden; margin-top: 10px; margin-bottom: 20px;">';
     h += `<p style="margin:0;font-size:14px;color:#333;">${i18n('disable_2fa_instructions')}</p>`;
     h += '</div>';
-    h += '<div class="disable-2fa-auth-row" style="display: none; overflow: hidden; margin-top: 10px; margin-bottom: 30px;">';
+    h += '<div class="disable-2fa-auth-row" style="overflow: hidden; margin-top: 10px; margin-bottom: 30px;">';
     h += '<div class="disable-2fa-password-wrap">';
     h += `<label>${i18n('account_password')}</label>`;
     h += `${place_password_entry.html}`;

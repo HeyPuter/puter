@@ -33,7 +33,7 @@ async function UIWindowChangeUsername (options) {
     h += `<label for="confirm-new-username-${internal_id}">${i18n('new_username')}</label>`;
     h += `<input id="confirm-new-username-${internal_id}" type="text" name="new-username" class="new-username" autocomplete="off" />`;
     h += '</div>';
-    h += '<div class="change-username-auth-row" style="display: none; overflow: hidden; margin-top: 10px; margin-bottom: 30px;">';
+    h += '<div class="change-username-auth-row" style="overflow: hidden; margin-top: 10px; margin-bottom: 30px;">';
     h += `<label for="change-username-password-${internal_id}">${i18n('account_password')}</label>`;
     h += '<div class="change-username-password-wrap">';
     h += `<input id="change-username-password-${internal_id}" type="password" name="password" class="change-username-password" autocomplete="current-password" placeholder="" />`;
