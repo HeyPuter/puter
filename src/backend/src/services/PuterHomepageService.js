@@ -282,6 +282,11 @@ export class PuterHomepageService extends BaseService {
     <head>
         <title>${e(title)}</title>
         <link rel="preload" href="${this.config.gui_bundle ?? '/dist/bundle.min.js'}" as="script" />
+        ${bundled
+                ? `<link rel="preload" href="${this.config.gui_puterjs_bundle || 'https://js.puter.com/v2/'} as="script"></script>`
+                : ''
+        }
+
 
         <meta name="author" content="${e(company)}">
         <meta name="description" content="${e((description).replace(/\n/g, ' ').trim())}">
@@ -386,11 +391,6 @@ export class PuterHomepageService extends BaseService {
         }
         ${bundled
                 ? '<script>window.gui_env = \'prod\';</script>'
-                : ''
-        }
-        
-        ${bundled
-                ? `<script src="${this.config.gui_puterjs_bundle || 'https://js.puter.com/v2/'}"></script>`
                 : ''
         }
 
