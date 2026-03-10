@@ -25,15 +25,15 @@ import { Buffer } from 'node:buffer';
 
 // eslint-disable-next-line no-undef
 const argv = yargs(hideBin(process.argv)).parse();
-if ( argv.assets_url ) {
-    console.log('Extracting assets...');
-    const assetsTar = Buffer.from(await fetch(argv.assets_url).then(r => r.arrayBuffer()));
-    await fs.promises.writeFile('assets.tar.gz', assetsTar);
+if ( argv.icons_url ) {
+    console.log('Extracting icons...');
+    const iconsTar = Buffer.from(await fetch(argv.icons_url).then(r => r.arrayBuffer()));
+    await fs.promises.writeFile('icons.tar.gz', iconsTar);
     if ( fs.existsSync('src/icons') ) {
-        fs.promises.rename('src/icons', 'src/icons.old');
+        await fs.promises.cp('src/icons', 'src/icons.old', { recursive: true });
     }
-    execSync('tar -xzvf assets.tar.gz');
-    fs.promises.rm('assets.tar.gz');
+    execSync('tar -xzvf icons.tar.gz');
+    fs.promises.rm('icons.tar.gz');
 }
 
 build();
