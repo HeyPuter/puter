@@ -17,12 +17,12 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 import { encode } from 'html-entities';
+import { LRUCache } from 'lru-cache';
+import fs from 'node:fs';
 import { is_valid_url } from '../helpers.js';
 import { Endpoint } from '../util/expressutil.js';
 import { PathBuilder } from '../util/pathutil.js';
 import BaseService from './BaseService.js';
-import fs from 'node:fs';
-import { LRUCache } from 'lru-cache';
 /**
  * PuterHomepageService serves the initial HTML page that loads the Puter GUI
  * and all of its assets.
@@ -276,7 +276,7 @@ export class PuterHomepageService extends BaseService {
             },
         };
         await eventService.emit('puter.gui.addons', event);
-        return `<!DOCTYPE html>
+        let htmlOutput = `<!DOCTYPE html>
     <html lang="en">
 
     <head>
@@ -430,6 +430,24 @@ export class PuterHomepageService extends BaseService {
     </body>
 
     </html>`;
+
+        // A mostly minimal minifier that minifies minimally
+        // - this is NOT a general-purpose HTML minifier
+        // - it does not account for <pre> tags
+        // - it does not minify javascript code
+        htmlOutput = htmlOutput //...
+            // remove regular HTML comments, but keep conditional comments
+            .replace(/<!--(?!\[if[\s\S]*?]|<!|>)[\s\S]*?-->/g, '')
+            // collapse whitespace between tags
+            .replace(/>\s+</g, '><')
+            // collapse runs of whitespace
+            .replace(/\s+/g, ' ')
+            // remove extra space around = in attributes
+            .replace(/\s*=\s*/g, '=')
+            // remove spaces before tag close
+            .replace(/\s+>/g, '>')
+            .trim();
+        return htmlOutput;
     };
 
     generate_error_html ({ message }) {
