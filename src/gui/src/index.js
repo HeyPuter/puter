@@ -74,7 +74,7 @@ window.gui = async (options) => {
     else if ( window.gui_env === 'prod' ) {
         // This stuff is now handled in the backend in PuterHomepageService
 
-        // await window.loadScript('https://js.puter.com/v2/');
+        await window.loadScript('https://js.puter.com/v2/');
         // Load the minified bundles
         // await window.loadCSS('/dist/bundle.min.css');
     }
