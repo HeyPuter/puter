@@ -22,15 +22,22 @@ import { Endpoint } from '../util/expressutil.js';
 import { PathBuilder } from '../util/pathutil.js';
 import BaseService from './BaseService.js';
 import fs from 'node:fs';
+import { LRUCache } from 'lru-cache';
 /**
  * PuterHomepageService serves the initial HTML page that loads the Puter GUI
  * and all of its assets.
  */
 export class PuterHomepageService extends BaseService {
 
+    #outputCache = null;
+
     _construct () {
         this.service_scripts = [];
         this.gui_params = {};
+
+        this.#outputCache = new LRUCache({
+            max: 200,
+        });
     }
 
     /**
@@ -121,7 +128,29 @@ export class PuterHomepageService extends BaseService {
         // cloudflare turnstile site key
         const turnstileSiteKey = config.services?.['cloudflare-turnstile']?.enabled ? config.services?.['cloudflare-turnstile']?.site_key : null;
 
-        return res.send(await this.generate_puter_page_html({
+        const cacheKey = (() => {
+            const cacheKeyObject = {
+                ...(meta ? {
+                    title: meta.title,
+                    app_name: meta?.app?.name,
+                } : {}),
+            };
+            return JSON.stringify(
+                cacheKeyObject,
+                Object.keys(cacheKeyObject).sort(),
+            );
+        })();
+
+        // Possibly send cached output
+        {
+            const maybeCachedOutputHTML = this.#outputCache.get(cacheKey);
+            if ( maybeCachedOutputHTML ) {
+                res.send(maybeCachedOutputHTML);
+                return;
+            }
+        }
+
+        const outputHTML = await this.generate_puter_page_html({
             env: config.env,
 
             app_origin: config.origin,
@@ -163,7 +192,11 @@ export class PuterHomepageService extends BaseService {
                 captchaRequired: captchaRequired,
                 turnstileSiteKey: turnstileSiteKey,
             },
-        }));
+        });
+
+        this.#outputCache.set(cacheKey, outputHTML);
+
+        res.send(outputHTML);
     }
 
     async generate_puter_page_html ({
