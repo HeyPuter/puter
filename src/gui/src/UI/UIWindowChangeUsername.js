@@ -33,9 +33,9 @@ async function UIWindowChangeUsername (options) {
     h += `<label for="confirm-new-username-${internal_id}">${i18n('new_username')}</label>`;
     h += `<input id="confirm-new-username-${internal_id}" type="text" name="new-username" class="new-username" autocomplete="off" />`;
     h += '</div>';
-    h += '<div class="change-username-auth-row" style="display: none; overflow: hidden; margin-top: 10px; margin-bottom: 30px;">';
-    h += `<label for="change-username-password-${internal_id}">${i18n('account_password')}</label>`;
+    h += '<div class="change-username-auth-row" style="overflow: hidden; margin-top: 10px; margin-bottom: 30px;">';
     h += '<div class="change-username-password-wrap">';
+    h += `<label for="change-username-password-${internal_id}">${i18n('account_password')}</label>`;
     h += `<input id="change-username-password-${internal_id}" type="password" name="password" class="change-username-password" autocomplete="current-password" placeholder="" />`;
     h += '</div>';
     h += '<div class="change-username-oidc-wrap" style="display:none;">';
@@ -74,11 +74,7 @@ async function UIWindowChangeUsername (options) {
             const authRow = $(this_window).find('.change-username-auth-row');
             if ( oidc_only ) {
                 authRow.find('.change-username-password-wrap').hide();
-                const oidcWrap = authRow.find('.change-username-oidc-wrap').show();
-                oidcWrap.find('.change-username-oidc-flow-notice').text(
-                    i18n('revalidate_flow_notice') ||
-                    'You will be asked to sign in with your linked account when you continue.',
-                );
+                // OIDC: no notice box; user will see revalidation when they continue
             } else {
                 authRow.find('.change-username-oidc-wrap').hide();
             }
@@ -112,7 +108,6 @@ async function UIWindowChangeUsername (options) {
         } finally {
             hint.hide();
         }
-        $(el_window).find('.change-username-revalidated-msg').text(i18n('revalidated') || 'Re-validated.').show();
     };
 
     $(el_window).find('.change-username-btn').on('click', async function (e) {

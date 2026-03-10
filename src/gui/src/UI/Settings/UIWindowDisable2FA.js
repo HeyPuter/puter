@@ -40,7 +40,7 @@ async function UIWindowDisable2FA (options) {
     h += '<div style="overflow: hidden; margin-top: 10px; margin-bottom: 20px;">';
     h += `<p style="margin:0;font-size:14px;color:#333;">${i18n('disable_2fa_instructions')}</p>`;
     h += '</div>';
-    h += '<div class="disable-2fa-auth-row" style="display: none; overflow: hidden; margin-top: 10px; margin-bottom: 30px;">';
+    h += '<div class="disable-2fa-auth-row" style="overflow: hidden; margin-top: 10px; margin-bottom: 30px;">';
     h += '<div class="disable-2fa-password-wrap">';
     h += `<label>${i18n('account_password')}</label>`;
     h += `${place_password_entry.html}`;
@@ -87,11 +87,7 @@ async function UIWindowDisable2FA (options) {
             const authRow = $(this_window).find('.disable-2fa-auth-row');
             if ( oidc_only ) {
                 authRow.find('.disable-2fa-password-wrap').hide();
-                const oidcWrap = authRow.find('.disable-2fa-oidc-wrap').show();
-                oidcWrap.find('.disable-2fa-oidc-flow-notice').text(
-                    i18n('revalidate_flow_notice') ||
-                    'You will be asked to sign in with your linked account when you continue.',
-                );
+                // OIDC: no notice box; user will see revalidation when they continue
             } else {
                 authRow.find('.disable-2fa-oidc-wrap').hide();
             }
@@ -127,7 +123,6 @@ async function UIWindowDisable2FA (options) {
         } finally {
             hint.hide();
         }
-        $(el_window).find('.disable-2fa-revalidated-msg').text(i18n('revalidated') || 'Re-validated.').show();
     };
 
     $(el_window).find('.disable-2fa-btn').on('click', async function (e) {

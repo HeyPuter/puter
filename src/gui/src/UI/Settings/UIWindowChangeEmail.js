@@ -43,7 +43,7 @@ async function UIWindowChangeEmail (options) {
     h += `<input id="confirm-new-email-${internal_id}" type="text" name="new-email" class="new-email" autocomplete="off" />`;
     h += '</div>';
     // password / OIDC revalidate
-    h += '<div class="change-email-auth-row" style="display: none; overflow: hidden; margin-top: 10px; margin-bottom: 30px;">';
+    h += '<div class="change-email-auth-row" style="overflow: hidden; margin-top: 10px; margin-bottom: 30px;">';
     h += '<div class="change-email-password-wrap">';
     h += `<label>${i18n('account_password')}</label>`;
     h += `${place_password_entry.html}`;
@@ -86,11 +86,7 @@ async function UIWindowChangeEmail (options) {
             const authRow = $(this_window).find('.change-email-auth-row');
             if ( oidc_only ) {
                 authRow.find('.change-email-password-wrap').hide();
-                const oidcWrap = authRow.find('.change-email-oidc-wrap').show();
-                oidcWrap.find('.change-email-oidc-flow-notice').text(
-                    i18n('revalidate_flow_notice') ||
-                    'You will be asked to sign in with your linked account when you continue.',
-                );
+                // OIDC: no notice box; user will see revalidation when they continue
             } else {
                 authRow.find('.change-email-oidc-wrap').hide();
             }
@@ -126,7 +122,6 @@ async function UIWindowChangeEmail (options) {
         } finally {
             hint.hide();
         }
-        $(el_window).find('.change-email-revalidated-msg').text(i18n('revalidated') || 'Re-validated.').show();
     };
 
     $(el_window).find('.change-email-btn').on('click', async function (e) {

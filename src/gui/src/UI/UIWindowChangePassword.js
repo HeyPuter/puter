@@ -32,7 +32,7 @@ async function UIWindowChangePassword (options) {
     // success msg
     h += '<div class="form-success-msg"></div>';
     // current password / OIDC revalidate
-    h += '<div class="change-password-auth-row" style="display: none; overflow: hidden; margin-bottom: 20px;">';
+    h += '<div class="change-password-auth-row" style="overflow: hidden; margin-bottom: 20px;">';
     h += '<div class="change-password-current-wrap">';
     h += `<label for="current-password-${internal_id}">${i18n('current_password')}</label>`;
     h += `<input id="current-password-${internal_id}" class="current-password" type="password" name="current-password" autocomplete="current-password" />`;
@@ -85,11 +85,7 @@ async function UIWindowChangePassword (options) {
             const authRow = $(this_window).find('.change-password-auth-row');
             if ( oidc_only ) {
                 authRow.find('.change-password-current-wrap').hide();
-                const oidcWrap = authRow.find('.change-password-oidc-wrap').show();
-                oidcWrap.find('.change-password-oidc-flow-notice').text(
-                    i18n('revalidate_flow_notice') ||
-                    'You will be asked to sign in with your linked account when you continue.',
-                );
+                // OIDC: no notice box; user will see revalidation when they continue
             } else {
                 authRow.find('.change-password-oidc-wrap').hide();
             }
@@ -123,7 +119,6 @@ async function UIWindowChangePassword (options) {
         } finally {
             hint.hide();
         }
-        $(el_window).find('.change-password-revalidated-msg').text(i18n('revalidated') || 'Re-validated.').show();
     };
 
     $(el_window).find('.change-password-btn').on('click', async function (e) {
