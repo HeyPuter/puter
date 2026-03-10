@@ -74,11 +74,7 @@ async function UIWindowChangeUsername (options) {
             const authRow = $(this_window).find('.change-username-auth-row');
             if ( oidc_only ) {
                 authRow.find('.change-username-password-wrap').hide();
-                const oidcWrap = authRow.find('.change-username-oidc-wrap').show();
-                oidcWrap.find('.change-username-oidc-flow-notice').text(
-                    i18n('revalidate_flow_notice') ||
-                    'You will be asked to sign in with your linked account when you continue.',
-                );
+                // OIDC: no notice box; user will see revalidation when they continue
             } else {
                 authRow.find('.change-username-oidc-wrap').hide();
             }
@@ -112,7 +108,6 @@ async function UIWindowChangeUsername (options) {
         } finally {
             hint.hide();
         }
-        $(el_window).find('.change-username-revalidated-msg').text(i18n('revalidated') || 'Re-validated.').show();
     };
 
     $(el_window).find('.change-username-btn').on('click', async function (e) {
