@@ -340,27 +340,9 @@ const puterInit = (function () {
                 const bootstrapAuthToken = normalizeAuthTokenCandidate(
                     URLParams.get('puter.auth.token') ?? URLParams.get('auth_token'),
                 );
-                this.authToken = bootstrapAuthToken;
-                // initialize submodules
-                this.initSubmodules();
                 try {
                     if ( bootstrapAuthToken ) {
                         this.setAuthToken(bootstrapAuthToken);
-
-                        // Token-in-query is bootstrap-only; persist it then scrub from URL.
-                        if ( globalThis.history?.replaceState && globalThis.location?.href ) {
-                            const currentUrl = new URL(globalThis.location.href);
-                            const hadBootstrapToken =
-                                currentUrl.searchParams.has('puter.auth.token')
-                                || currentUrl.searchParams.has('auth_token');
-                            if ( hadBootstrapToken ) {
-                                currentUrl.searchParams.delete('puter.auth.token');
-                                currentUrl.searchParams.delete('auth_token');
-                                const currentUrlSearch = currentUrl.searchParams.toString();
-                                const sanitizedRelativeUrl = `${currentUrl.pathname}${currentUrlSearch ? `?${currentUrlSearch}` : ''}${currentUrl.hash || ''}`;
-                                globalThis.history.replaceState(globalThis.history.state, '', sanitizedRelativeUrl);
-                            }
-                        }
                     } else {
                         const storedAuthToken = normalizeAuthTokenCandidate(
                             localStorage.getItem('puter.auth.token'),
@@ -379,6 +361,7 @@ const puterInit = (function () {
                     // Handle the error here
                     console.error('Error accessing localStorage:', error);
                 }
+                this.initSubmodules();
             }
             // SDK was loaded in a 3rd-party website.
             // When SDK is loaded in GUI the initiation process should start when the DOM is ready. This is because
