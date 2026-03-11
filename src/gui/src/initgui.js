@@ -1091,7 +1091,7 @@ window.initgui = async function (options) {
             const resp = await fetch(`${window.gui_origin }/whoarewe`);
             const whoarewe = await resp.json();
             await UIWindowLogin({
-                reload_on_success,
+                reload_on_success: !window.embedded_in_popup,
                 send_confirmation_code: false,
                 show_signup_button: ( !whoarewe.disable_user_signup ),
                 redirect_url: needs_action ? window.location.href : undefined,
