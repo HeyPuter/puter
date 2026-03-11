@@ -65,6 +65,16 @@ export class SUService extends BaseService {
     }
 
     /**
+     * Retrieves the system user instance (resolved during consolidation).
+     * Prefer this over calling get_user({ username: 'system' }) to avoid re-fetching.
+     *
+     * @returns {Promise<object>} A promise that resolves to the system user.
+     */
+    async get_system_user () {
+        return this.sys_user_;
+    }
+
+    /**
      * Retrieves the system actor instance.
      *
      * This method returns a promise that resolves to the system actor. The actor
