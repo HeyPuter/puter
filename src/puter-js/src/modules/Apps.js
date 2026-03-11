@@ -203,6 +203,32 @@ class Apps {
         return utils.make_driver_method(['uid'], 'puter-apps', 'es:app', 'delete').call(this, options);
     };
 
+    checkName = async (name) => {
+        if ( typeof name !== 'string' || name.length === 0 ) {
+            throw {
+                success: false,
+                error: {
+                    code: 'invalid_request',
+                    message: 'Name is required',
+                },
+            };
+        }
+
+        const resp = await fetch(
+            `${puter.APIOrigin}/apps/nameAvailable?name=${encodeURIComponent(name)}`,
+            {
+                headers: {
+                    Authorization: `Bearer ${puter.authToken}`,
+                },
+            },
+        );
+        const result = await resp.json();
+        if ( ! resp.ok ) {
+            throw result;
+        }
+        return result;
+    };
+
     getDeveloperProfile = function (...args) {
         let options;
 

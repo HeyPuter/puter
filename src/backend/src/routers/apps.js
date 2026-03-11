@@ -21,7 +21,7 @@ const express = require('express');
 const router = new express.Router();
 const auth = require('../middleware/auth.js');
 const config = require('../config');
-const { get_apps } = require('../helpers');
+const { get_apps, app_name_exists } = require('../helpers');
 const { DB_READ } = require('../services/database/consts.js');
 const subdomain = require('../middleware/subdomain.js');
 let privateLaunchAccessModulePromise;
@@ -96,6 +96,52 @@ router.get(
         }
 
         return res.send(apps);
+    },
+);
+
+// -----------------------------------------------------------------------//
+// GET /apps/nameAvailable?name=
+// -----------------------------------------------------------------------//
+router.get(
+    '/apps/nameAvailable',
+    subdomain('api'),
+    auth,
+    express.json({ limit: '50mb' }),
+    async (req, res) => {
+        const name = req.query.name;
+
+        // check if user is verified
+        if ( (config.strict_email_verification_required || req.user.requires_email_confirmation) && !req.user.email_confirmed )
+        {
+            return res.status(400).send({ code: 'account_is_not_verified', message: 'Account is not verified' });
+        }
+
+        if ( typeof name !== 'string' ) {
+            return res.status(400).send({
+                code: 'invalid_request',
+                message: 'name query parameter must be a string',
+            });
+        }
+
+        if ( name.length === 0 ) {
+            return res.status(400).send({
+                code: 'invalid_request',
+                message: 'name query parameter is required',
+            });
+        }
+
+        if ( name.length > config.app_name_max_length || !config.app_name_regex.test(name) ) {
+            return res.status(400).send({
+                code: 'invalid_request',
+                message: `name must match app naming rules (max length: ${config.app_name_max_length})`,
+            });
+        }
+
+        const exists = !!(await app_name_exists(name));
+        return res.send({
+            name,
+            available: !exists,
+        });
     },
 );
 
