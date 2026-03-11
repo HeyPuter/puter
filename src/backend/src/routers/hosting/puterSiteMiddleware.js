@@ -57,6 +57,7 @@ const {
 const AT_DIRECTORY_NAMESPACE = '4aa6dc52-34c1-4b8a-b63c-a62b27f727cf';
 const puterSiteConfigFilename = '.puter_site_config';
 const puterSiteConfigMaxSize = 256 * 1024;
+const defaultPublicHostedActorCookieName = 'puter.public.hosted.actor.token';
 
 function isPrivateApp (app) {
     return Number(app?.is_private ?? 0) > 0;
@@ -663,6 +664,277 @@ async function resolvePrivateIdentity ({ req, services, appUid }) {
     };
 }
 
+function getPublicHostedActorCookieName (authService) {
+    if ( typeof authService?.getPublicHostedActorCookieName === 'function' ) {
+        return authService.getPublicHostedActorCookieName();
+    }
+    return defaultPublicHostedActorCookieName;
+}
+
+function getRequestedHostedHost (req) {
+    const normalizedHost = normalizeConfiguredHostname(req.hostname);
+    return normalizedHost || undefined;
+}
+
+function buildLightweightHostedActor ({ userUid, sessionUuid }) {
+    if ( typeof userUid !== 'string' || !userUid ) {
+        return null;
+    }
+
+    return new Actor({
+        user_uid: userUid,
+        type: new UserActorType({
+            user: { uuid: userUid },
+            ...(sessionUuid ? { session: sessionUuid } : {}),
+            hasHttpOnlyCookie: false,
+        }),
+    });
+}
+
+function setHostedActorOnRequestContext ({ req, actor }) {
+    if ( ! actor ) return;
+    req.actor = actor;
+    Context.set('actor', actor);
+}
+
+async function resolvePublicHostedIdentity ({ req, services, appUid }) {
+    const authService = services.get('auth');
+    const publicHostedCookieName = getPublicHostedActorCookieName(authService);
+    const publicHostedCookieToken = req.cookies?.[publicHostedCookieName];
+    const hostedSubdomain = getSubdomainFromHostedRequest(req) || undefined;
+    const requestedHost = getRequestedHostedHost(req);
+    const hasPublicCookie = typeof publicHostedCookieToken === 'string' && !!publicHostedCookieToken;
+    let hasInvalidPublicCookie = false;
+
+    if (
+        typeof publicHostedCookieToken === 'string'
+        && publicHostedCookieToken
+        && typeof authService.verifyPublicHostedActorToken === 'function'
+    ) {
+        try {
+            const claims = authService.verifyPublicHostedActorToken(publicHostedCookieToken, {
+                ...(appUid ? { expectedAppUid: appUid } : {}),
+                expectedSubdomain: hostedSubdomain,
+                expectedHost: requestedHost,
+            });
+            return {
+                source: 'public-cookie',
+                userUid: claims.userUid,
+                sessionUuid: claims.sessionUuid,
+                tokenAppUid: claims.appUid || appUid,
+                subdomain: claims.subdomain || hostedSubdomain,
+                host: claims.host || requestedHost,
+                hasValidPublicCookie: true,
+                hasPublicCookie,
+                hasInvalidPublicCookie,
+                actor: null,
+            };
+        } catch (e) {
+            hasInvalidPublicCookie = true;
+            logPrivateAccessEvent('public_actor.identity_public_cookie_rejected', {
+                appUid: appUid ?? null,
+                requestHost: req.hostname,
+                reason: getPrivateAccessRejectionReason(e),
+            });
+        }
+    }
+
+    const sessionToken = req.cookies?.[cookieName];
+    if ( typeof sessionToken === 'string' && sessionToken ) {
+        try {
+            const actor = await authService.authenticate_from_token(sessionToken);
+            const identity = actorToPrivateIdentity(actor);
+            if ( identity ) {
+                return {
+                    source: 'session-cookie',
+                    ...identity,
+                    tokenAppUid: appUid,
+                    subdomain: hostedSubdomain,
+                    host: requestedHost,
+                    hasValidPublicCookie: false,
+                    hasPublicCookie,
+                    hasInvalidPublicCookie,
+                    actor,
+                };
+            }
+        } catch (e) {
+            logPrivateAccessEvent('public_actor.identity_session_cookie_rejected', {
+                appUid: appUid ?? null,
+                requestHost: req.hostname,
+                reason: getPrivateAccessRejectionReason(e),
+            });
+        }
+    }
+
+    const bootstrapToken = getBootstrapPrivateToken(req);
+    if ( typeof bootstrapToken === 'string' && bootstrapToken ) {
+        if ( typeof authService.resolvePrivateBootstrapIdentityFromToken === 'function' ) {
+            try {
+                const identity = await authService.resolvePrivateBootstrapIdentityFromToken(
+                    bootstrapToken,
+                    {
+                        ...(appUid ? { expectedAppUid: appUid } : {}),
+                    },
+                );
+                if ( identity?.userUid ) {
+                    return {
+                        source: 'bootstrap-token',
+                        ...identity,
+                        tokenAppUid: appUid,
+                        subdomain: hostedSubdomain,
+                        host: requestedHost,
+                        hasValidPublicCookie: false,
+                        hasPublicCookie,
+                        hasInvalidPublicCookie,
+                        actor: null,
+                    };
+                }
+            } catch (e) {
+                logPrivateAccessEvent('public_actor.identity_bootstrap_rejected', {
+                    appUid: appUid ?? null,
+                    requestHost: req.hostname,
+                    reason: getPrivateAccessRejectionReason(e),
+                });
+            }
+        } else {
+            try {
+                const actor = await authService.authenticate_from_token(bootstrapToken);
+                const identity = actorToPrivateIdentity(actor);
+                if ( identity ) {
+                    return {
+                        source: 'bootstrap-token',
+                        ...identity,
+                        tokenAppUid: appUid,
+                        subdomain: hostedSubdomain,
+                        host: requestedHost,
+                        hasValidPublicCookie: false,
+                        hasPublicCookie,
+                        hasInvalidPublicCookie,
+                        actor,
+                    };
+                }
+            } catch (e) {
+                logPrivateAccessEvent('public_actor.identity_bootstrap_rejected', {
+                    appUid: appUid ?? null,
+                    requestHost: req.hostname,
+                    reason: getPrivateAccessRejectionReason(e),
+                });
+            }
+        }
+    }
+
+    return {
+        source: 'none',
+        userUid: undefined,
+        sessionUuid: undefined,
+        tokenAppUid: appUid,
+        subdomain: hostedSubdomain,
+        host: requestedHost,
+        hasValidPublicCookie: false,
+        hasPublicCookie,
+        hasInvalidPublicCookie,
+        actor: null,
+    };
+}
+
+async function evaluatePublicHostedActorContext ({
+    req,
+    res,
+    services,
+    appUid,
+}) {
+    const existingActor = req.actor || Context.get('actor');
+    if ( existingActor ) {
+        const existingIdentity = actorToPrivateIdentity(existingActor);
+        if ( existingIdentity?.userUid ) {
+            return true;
+        }
+    }
+
+    const authService = services.get('auth');
+    const identity = await resolvePublicHostedIdentity({
+        req,
+        services,
+        appUid,
+    });
+
+    if ( identity.actor ) {
+        setHostedActorOnRequestContext({
+            req,
+            actor: identity.actor,
+        });
+    } else if ( identity.userUid ) {
+        const lightweightActor = buildLightweightHostedActor({
+            userUid: identity.userUid,
+            sessionUuid: identity.sessionUuid,
+        });
+        setHostedActorOnRequestContext({
+            req,
+            actor: lightweightActor,
+        });
+    }
+
+    if ( !identity.userUid || identity.hasValidPublicCookie ) {
+        return true;
+    }
+
+    let tokenAppUid = identity.tokenAppUid;
+    if ( !tokenAppUid && typeof authService.app_uid_from_origin === 'function' ) {
+        try {
+            const protocol = `${config.protocol ?? 'https'}`
+                .trim()
+                .replace(/:$/, '') || 'https';
+            tokenAppUid = await authService.app_uid_from_origin(`${protocol}://${req.hostname}`);
+        } catch {
+            tokenAppUid = undefined;
+        }
+    }
+    if ( !tokenAppUid || typeof authService.createPublicHostedActorToken !== 'function' ) {
+        return true;
+    }
+
+    try {
+        const publicHostedActorToken = authService.createPublicHostedActorToken({
+            appUid: tokenAppUid,
+            userUid: identity.userUid,
+            sessionUuid: identity.sessionUuid,
+            subdomain: identity.subdomain,
+            host: identity.host,
+        });
+        res.cookie(
+            getPublicHostedActorCookieName(authService),
+            publicHostedActorToken,
+            typeof authService.getPublicHostedActorCookieOptions === 'function'
+                ? authService.getPublicHostedActorCookieOptions({
+                    requestHostname: req.hostname,
+                })
+                : undefined,
+        );
+    } catch (e) {
+        logPrivateAccessEvent('public_actor.cookie_set_failed', {
+            appUid: tokenAppUid ?? null,
+            userUid: identity.userUid ?? null,
+            requestHost: req.hostname,
+            reason: getPrivateAccessRejectionReason(e),
+        });
+        return true;
+    }
+
+    const sanitizedUrl = stripBootstrapAuthTokenFromOriginalUrl(req.originalUrl);
+    if ( sanitizedUrl ) {
+        logPrivateAccessEvent('public_actor.cookie_redirect', {
+            appUid: tokenAppUid ?? null,
+            userUid: identity.userUid ?? null,
+            requestHost: req.hostname,
+            redirectUrl: sanitizedUrl,
+        });
+        res.redirect(sanitizedUrl);
+        return false;
+    }
+
+    return true;
+}
+
 function escapeHtml (value) {
     const raw = `${value ?? ''}`;
     return raw
@@ -1165,6 +1437,24 @@ async function runInternal (req, res, next) {
     }
 
     req.__puterSiteRootPath = subdomainRootPath;
+
+    if ( ! privateAppEnabled ) {
+        try {
+            const actorContextReady = await evaluatePublicHostedActorContext({
+                req,
+                res,
+                services,
+                appUid: privateApp?.uid || associatedApp?.uid,
+            });
+            if ( ! actorContextReady ) return;
+        } catch (e) {
+            logPrivateAccessEvent('public_actor.evaluate_failed', {
+                appUid: privateApp?.uid || associatedApp?.uid || null,
+                requestHost: req.hostname,
+                reason: getPrivateAccessRejectionReason(e),
+            });
+        }
+    }
 
     if ( privateAccessGateEnabled && privateAppEnabled ) {
         const accessAllowed = await evaluatePrivateAppAccess({
