@@ -339,6 +339,11 @@ class APIError {
             status: 409,
             message: ({ name }) => `App name ${quot(name)} is already in use.`,
         },
+        'app_index_url_already_in_use': {
+            status: 409,
+            message: ({ index_url: indexUrl, app_uid: appUid }) =>
+                `Index URL ${quot(indexUrl)} is already used by app ${quot(appUid)}.`,
+        },
 
         // Subdomains
         'subdomain_limit_reached': {

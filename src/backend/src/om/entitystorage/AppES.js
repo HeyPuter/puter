@@ -29,6 +29,17 @@ const { Eq, Like, Or, And } = require('../query/query');
 const { BaseES } = require('./BaseES');
 
 const uuidv4 = require('uuid').v4;
+const indexUrlUniquenessExemptionCandidates =  [
+    'https://dev-center.puter.com/coming-soon',
+];
+const hasIndexUrlUniquenessExemption = (candidates) => {
+    for ( const candidate of candidates ) {
+        if ( indexUrlUniquenessExemptionCandidates.find(exception => candidate.startsWith(exception)) ) {
+            return true;
+        }
+    }
+    return false;
+};
 let privateLaunchAccessModulePromise;
 const getPrivateLaunchAccessModule = async () => {
     if ( ! privateLaunchAccessModulePromise ) {
@@ -121,6 +132,7 @@ class AppES extends BaseES {
                 ;
 
             await this.ensure_puter_site_subdomain_is_owned_(full_entity, extra, user);
+            await this.ensure_index_url_unique_(full_entity, extra);
 
             if ( await app_name_exists(await entity.get('name')) ) {
                 const { old_entity } = extra;
@@ -505,20 +517,26 @@ class AppES extends BaseES {
                 return;
             }
 
-            const hosting_domain = config.static_hosting_domain?.toLowerCase();
-            const hosting_domain_alt = config.static_hosting_domain_alt?.toLowerCase();
-            if ( ! hosting_domain ) return;
+            const hostedDomains = [
+                config.static_hosting_domain,
+                config.static_hosting_domain_alt,
+                config.private_app_hosting_domain,
+                config.private_app_hosting_domain_alt,
+            ]
+                .map(value => typeof value === 'string'
+                    ? value.trim().toLowerCase().replace(/^\./, '').split(':')[0]
+                    : null)
+                .filter(Boolean)
+                .sort((domainA, domainB) => domainB.length - domainA.length);
 
-            const suffix = `.${hosting_domain}`;
-            const suffix2 = `.${hosting_domain_alt}`;
-            if (
-                !hostname.endsWith(suffix) &&
-                !(hosting_domain_alt && hostname.endsWith(suffix2))
-            ) {
-                return;
+            let subdomain = null;
+            for ( const hostedDomain of hostedDomains ) {
+                const suffix = `.${hostedDomain}`;
+                if ( hostname.endsWith(suffix) ) {
+                    subdomain = hostname.slice(0, hostname.length - suffix.length);
+                    break;
+                }
             }
-
-            const subdomain = hostname.slice(0, hostname.length - suffix.length);
             if ( ! subdomain ) return;
 
             const svc_puterSite = this.context.get('services').get('puter-site');
@@ -526,6 +544,68 @@ class AppES extends BaseES {
 
             if ( !site || site.user_id !== user.id ) {
                 throw APIError.create('subdomain_not_owned', null, { subdomain });
+            }
+        },
+
+        async ensure_index_url_unique_ (entity, extra) {
+            const new_index_url = await entity.get('index_url');
+            if ( ! new_index_url ) return;
+
+            if ( extra.old_entity ) {
+                const old_index_url = await extra.old_entity.get('index_url');
+                if ( old_index_url === new_index_url ) {
+                    return;
+                }
+            }
+
+            const candidates = (() => {
+                try {
+                    const parsedUrl = new URL(new_index_url);
+                    const origin = `${parsedUrl.protocol}//${parsedUrl.host.toLowerCase()}`;
+                    const pathname = parsedUrl.pathname || '/';
+                    const values = new Set();
+                    if ( pathname === '/' || pathname.toLowerCase() === '/index.html' ) {
+                        values.add(origin);
+                        values.add(`${origin}/`);
+                        values.add(`${origin}/index.html`);
+                    } else {
+                        const normalizedPath = pathname.endsWith('/')
+                            ? pathname.slice(0, -1)
+                            : pathname;
+                        values.add(`${origin}${normalizedPath}`);
+                        values.add(`${origin}${normalizedPath}/`);
+                    }
+                    return [...values];
+                } catch {
+                    return [new_index_url];
+                }
+            })();
+
+            if ( candidates.length === 0 ) return;
+            if ( hasIndexUrlUniquenessExemption(candidates) ) return;
+
+            const placeholders = candidates.map(() => '?').join(', ');
+            const parameters = [...candidates];
+            let query = `SELECT id, uid, index_url FROM apps WHERE index_url IN (${placeholders})`;
+            const currentMysqlId = extra.old_entity?.private_meta?.mysql_id;
+            if ( Number.isInteger(currentMysqlId) && currentMysqlId > 0 ) {
+                query += ' AND id != ?';
+                parameters.push(currentMysqlId);
+            }
+            query += ' ORDER BY timestamp ASC, id ASC LIMIT 1';
+
+            const rows = await this.db.read(query, parameters);
+            const conflictRow = rows.find(row => {
+                if ( typeof row?.index_url === 'string' ) {
+                    return candidates.includes(row.index_url);
+                }
+                return true;
+            });
+            if ( conflictRow ) {
+                throw APIError.create('app_index_url_already_in_use', null, {
+                    index_url: new_index_url,
+                    app_uid: conflictRow.uid,
+                });
             }
         },
     };
