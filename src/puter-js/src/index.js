@@ -343,21 +343,6 @@ const puterInit = (function () {
                 try {
                     if ( bootstrapAuthToken ) {
                         this.setAuthToken(bootstrapAuthToken);
-
-                        // Token-in-query is bootstrap-only; persist it then scrub from URL.
-                        if ( globalThis.history?.replaceState && globalThis.location?.href ) {
-                            const currentUrl = new URL(globalThis.location.href);
-                            const hadBootstrapToken =
-                                currentUrl.searchParams.has('puter.auth.token')
-                                || currentUrl.searchParams.has('auth_token');
-                            if ( hadBootstrapToken ) {
-                                currentUrl.searchParams.delete('puter.auth.token');
-                                currentUrl.searchParams.delete('auth_token');
-                                const currentUrlSearch = currentUrl.searchParams.toString();
-                                const sanitizedRelativeUrl = `${currentUrl.pathname}${currentUrlSearch ? `?${currentUrlSearch}` : ''}${currentUrl.hash || ''}`;
-                                globalThis.history.replaceState(globalThis.history.state, '', sanitizedRelativeUrl);
-                            }
-                        }
                     } else {
                         const storedAuthToken = normalizeAuthTokenCandidate(
                             localStorage.getItem('puter.auth.token'),
@@ -890,7 +875,6 @@ globalThis.addEventListener && globalThis.addEventListener('message', async (eve
         }, '*');
     }
     else if ( event.data.msg === 'puter.token' ) {
-        console.log('post message for token init', event);
         // puterDialog.close();
         // Set the authToken property
         puter.setAuthToken(event.data.token);
