@@ -26,6 +26,8 @@ const { OperationFrame } = require('../../services/OperationTraceService');
 const { HLMkShortcut } = require('../hl_operations/hl_mkshortcut');
 const { HLMkLink } = require('../hl_operations/hl_mklink');
 const { HLRemove } = require('../hl_operations/hl_remove');
+const { HLMove } = require('../hl_operations/hl_move');
+const { NodeUIDSelector } = require('../node/selectors');
 const { safeHasOwnProperty } = require('../../util/safety');
 
 class BatchCommand extends AdvancedBase {
@@ -73,9 +75,11 @@ class MkdirCommand extends BatchCommand {
                 path: parameters.path,
             });
             if ( parameters.as ) {
-                executor.pathResolver.putSelector(parameters.as,
-                                q_mkdir.created.selector,
-                                { conflict_free: true });
+                executor.pathResolver.putSelector(
+                    parameters.as,
+                    q_mkdir.created.selector,
+                    { conflict_free: true },
+                );
             }
             this.setFactory('result', async () => {
                 await q_mkdir.created.awaitStableEntry();
@@ -99,11 +103,13 @@ class MkdirCommand extends BatchCommand {
             actor: executor.actor,
         });
         if ( parameters.as ) {
-            executor.pathResolver.putSelector(parameters.as,
-                            hl_mkdir.created.selector,
-                            hl_mkdir.used_existing
-                                ? undefined
-                                : { conflict_free: true });
+            executor.pathResolver.putSelector(
+                parameters.as,
+                hl_mkdir.created.selector,
+                hl_mkdir.used_existing
+                    ? undefined
+                    : { conflict_free: true },
+            );
         }
         this.provideValue('result', response);
     }
@@ -271,6 +277,41 @@ class DeleteCommand extends BatchCommand {
     }
 }
 
+class MoveCommand extends BatchCommand {
+    async run (executor, parameters) {
+        const context = Context.get();
+        const fs = context.get('services').get('filesystem');
+
+        console.log('what are the parameters???', parameters);
+
+        const source =
+            await fs.node(await executor.pathResolver.awaitSelector(parameters.source));
+        const destinationOrParent =
+            await fs.node(await executor.pathResolver.awaitSelector(parameters.destination));
+
+        const hl_move = new HLMove();
+        const response = await hl_move.run({
+            source,
+            destination_or_parent: destinationOrParent,
+            actor: executor.actor,
+            new_name: parameters.new_name,
+            overwrite: parameters.overwrite ?? false,
+            dedupe_name: parameters.dedupe_name ?? parameters.change_name ?? false,
+            create_missing_parents:
+                parameters.create_missing_ancestors ??
+                parameters.create_missing_parents ??
+                false,
+            new_metadata: parameters.new_metadata,
+        });
+
+        if ( parameters.as && response.moved?.uid ) {
+            executor.pathResolver.putSelector(parameters.as, new NodeUIDSelector(response.moved.uid));
+        }
+
+        this.provideValue('result', response);
+    }
+}
+
 module.exports = {
     commands: {
         mkdir: MkdirCommand,
@@ -278,5 +319,6 @@ module.exports = {
         shortcut: ShortcutCommand,
         symlink: SymlinkCommand,
         delete: DeleteCommand,
+        move: MoveCommand,
     },
 };
