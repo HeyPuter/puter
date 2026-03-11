@@ -340,9 +340,6 @@ const puterInit = (function () {
                 const bootstrapAuthToken = normalizeAuthTokenCandidate(
                     URLParams.get('puter.auth.token') ?? URLParams.get('auth_token'),
                 );
-                this.authToken = bootstrapAuthToken;
-                // initialize submodules
-                this.initSubmodules();
                 try {
                     if ( bootstrapAuthToken ) {
                         this.setAuthToken(bootstrapAuthToken);
@@ -379,6 +376,7 @@ const puterInit = (function () {
                     // Handle the error here
                     console.error('Error accessing localStorage:', error);
                 }
+                this.initSubmodules();
             }
             // SDK was loaded in a 3rd-party website.
             // When SDK is loaded in GUI the initiation process should start when the DOM is ready. This is because
@@ -892,6 +890,7 @@ globalThis.addEventListener && globalThis.addEventListener('message', async (eve
         }, '*');
     }
     else if ( event.data.msg === 'puter.token' ) {
+        console.log('post message for token init', event);
         // puterDialog.close();
         // Set the authToken property
         puter.setAuthToken(event.data.token);
