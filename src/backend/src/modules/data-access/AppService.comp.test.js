@@ -711,28 +711,38 @@ describe('AppService Regression Prevention Tests', () => {
             });
         });
 
-        it('should allow duplicate dev-center placeholder index_url', async () => {
+        it('should allow duplicate exempt index_url values', async () => {
             await testWithEachService(async ({ kernel, key }) => {
                 const service = kernel.services.get(key);
                 const crudQ = service.constructor.IMPLEMENTS['crud-q'];
+                const exemptUrls = [
+                    'https://dev-center.puter.com/coming-soon.html',
+                    'https://example.com',
+                    'https://worker-sandbox.puter.com/',
+                ];
 
-                await crudQ.create.call(service, {
-                    object: {
-                        name: 'placeholder-app-1',
-                        title: 'Placeholder App 1',
-                        index_url: 'https://dev-center.puter.com/coming-soon.html',
-                    },
-                });
+                for ( let i = 0; i < exemptUrls.length; i++ ) {
+                    const indexUrl = exemptUrls[i];
+                    const prefix = `placeholder-app-${i + 1}`;
 
-                const second = await crudQ.create.call(service, {
-                    object: {
-                        name: 'placeholder-app-2',
-                        title: 'Placeholder App 2',
-                        index_url: 'https://dev-center.puter.com/coming-soon.html',
-                    },
-                });
+                    await crudQ.create.call(service, {
+                        object: {
+                            name: `${prefix}-1`,
+                            title: `Placeholder App ${i + 1}-1`,
+                            index_url: indexUrl,
+                        },
+                    });
 
-                expect(second.uid).toBeDefined();
+                    const second = await crudQ.create.call(service, {
+                        object: {
+                            name: `${prefix}-2`,
+                            title: `Placeholder App ${i + 1}-2`,
+                            index_url: indexUrl,
+                        },
+                    });
+
+                    expect(second.uid).toBeDefined();
+                }
             });
         });
 

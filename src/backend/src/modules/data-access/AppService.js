@@ -30,6 +30,12 @@ const ABSOLUTE_URL_REGEX = /^[a-zA-Z][a-zA-Z\d+\-.]*:/;
 const RAW_BASE64_REGEX = /^[A-Za-z0-9+/]+={0,2}$/;
 const indexUrlUniquenessExemptionCandidates =  [
     'https://dev-center.puter.com/coming-soon',
+    'https://example.com',
+    'http://example.com',
+    'https://www.example.com',
+    'http://www.example.com',
+    'https://worker-sandbox.puter.com',
+    'http://worker-sandbox.puter.com',
 ];
 const isAbsoluteUrl = value => ABSOLUTE_URL_REGEX.test(value) || value.startsWith('//');
 const hasIndexUrlUniquenessExemption = (candidates) => {

@@ -31,6 +31,12 @@ const { BaseES } = require('./BaseES');
 const uuidv4 = require('uuid').v4;
 const indexUrlUniquenessExemptionCandidates =  [
     'https://dev-center.puter.com/coming-soon',
+    'https://example.com',
+    'http://example.com',
+    'https://www.example.com',
+    'http://www.example.com',
+    'https://worker-sandbox.puter.com',
+    'http://worker-sandbox.puter.com',
 ];
 const hasIndexUrlUniquenessExemption = (candidates) => {
     for ( const candidate of candidates ) {
