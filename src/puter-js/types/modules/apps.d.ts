@@ -59,6 +59,11 @@ export interface UpdateAppAttributes {
     metadata?: Record<string, unknown>;
 }
 
+export interface CheckAppNameResult {
+    name: string;
+    available: boolean;
+}
+
 export class Apps {
     list (options?: AppListOptions): Promise<App[]>;
     create (name: string, indexURL: string, title?: string): Promise<CreateAppResult>;
@@ -66,6 +71,7 @@ export class Apps {
     update (name: string, attributes: UpdateAppAttributes): Promise<App>;
     get (name: string, options?: AppListOptions): Promise<App>;
     delete (name: string): Promise<{ success?: boolean }>;
+    checkName (name: string): Promise<CheckAppNameResult>;
     getDeveloperProfile (options?: RequestCallbacks<Record<string, unknown>>): Promise<Record<string, unknown>>;
     getDeveloperProfile (success: (value: Record<string, unknown>) => void, error?: (reason: unknown) => void): Promise<Record<string, unknown>>;
 }
