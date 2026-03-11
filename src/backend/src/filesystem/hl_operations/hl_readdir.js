@@ -66,11 +66,13 @@ class HLReadDir extends HLFilesystemOperation {
 
         let children;
 
-        this.log.debug('READDIR',
-                        {
-                            userdir: await subject.isUserDirectory(),
-                            namediff: await subject.get('name') !== user.username,
-                        });
+        this.log.debug(
+            'READDIR',
+            {
+                userdir: await subject.isUserDirectory(),
+                namediff: await subject.get('name') !== user.username,
+            },
+        );
         if ( subject.isRoot ) {
             const ll_listusers = new LLListUsers();
             children = await ll_listusers.run(this.values);
@@ -123,7 +125,8 @@ class HLReadDir extends HLFilesystemOperation {
         }
 
         if ( ! no_subdomains ) {
-            await this.#batchFetchSubdomains(children, user);
+            // await this.#batchFetchSubdomains(children, user);
+            await this.#applySubdomains(children);
         }
 
         return Promise.all(children.map(async child => {
@@ -140,6 +143,16 @@ class HLReadDir extends HLFilesystemOperation {
             }
             return entry;
         }));
+    }
+
+    async #applySubdomains (children) {
+        for ( const child of children ) {
+            if ( child.subdomains?.length > 0 ) child.has_website = true;
+            for ( const subdomain of child.subdomains ) {
+                subdomain.address =
+                    `${config.protocol}://${subdomain.subdomain}.puter.site`;
+            }
+        }
     }
 
     async #batchFetchSubdomains (children, user) {
@@ -160,10 +173,12 @@ class HLReadDir extends HLFilesystemOperation {
 
         const placeholders = childIds.map(() => '?').join(',');
         const db = this.context.get('services').get('database').get(DB_READ, 'filesystem');
-        const rows = await db.read(`SELECT root_dir_id, subdomain, uuid
+        const rows = await db.read(
+            `SELECT root_dir_id, subdomain, uuid
              FROM subdomains
              WHERE root_dir_id IN (${placeholders}) AND user_id = ?`,
-        [...childIds, user.id]);
+            [...childIds, user.id],
+        );
 
         for ( const row of rows ) {
             const child = childById.get(row.root_dir_id);

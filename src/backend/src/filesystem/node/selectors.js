@@ -169,6 +169,10 @@ class NodeRawEntrySelector extends NodeSelector {
         node.uid = this.entry.uid ?? this.entry.uuid;
         node.name = this.entry.name;
         if ( this.entry.path ) node.path = this.entry.path;
+
+        if ( this.entry.subdomains ) {
+            node.subdomains = this.entry.subdomains;
+        }
     }
 
     describe () {
