@@ -875,6 +875,7 @@ globalThis.addEventListener && globalThis.addEventListener('message', async (eve
         }, '*');
     }
     else if ( event.data.msg === 'puter.token' ) {
+        console.log('post message for token init', event);
         // puterDialog.close();
         // Set the authToken property
         puter.setAuthToken(event.data.token);
