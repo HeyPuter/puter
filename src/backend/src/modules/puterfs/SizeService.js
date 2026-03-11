@@ -115,7 +115,15 @@ class SizeService extends BaseService {
         await this.change_usage(user.id, sz * factor);
     }
 
-    async get_storage_capacity (user_or_id) {
+    /**
+     *
+     * @param {*} user_or_id
+     * @param {*} param1.exclude_transient - set to `true` to exclude
+     *   paid storage, and other temporary storage grants which are
+     *   not persisted in the `user.free_storage` column.
+     * @returns
+     */
+    async get_storage_capacity (user_or_id, { exclude_transient } = {}) {
         const user = await UserParameter.adapt(user_or_id);
         if ( ! this.global_config.is_storage_limited ) {
             return this.global_config.available_device_storage;
@@ -125,7 +133,9 @@ class SizeService extends BaseService {
             return this.global_config.storage_capacity;
         }
 
-        return user.free_storage;
+        return exclude_transient
+            ? user.actual_free_storage ?? user.free_storage
+            : user.free_storage;
     }
 
     /**
@@ -141,7 +151,7 @@ class SizeService extends BaseService {
      */
     async add_storage (user_or_id, amount_in_bytes, reason, { field_a, field_b } = {}) {
         const user = await UserParameter.adapt(user_or_id);
-        const capacity = await this.get_storage_capacity(user);
+        const capacity = await this.get_storage_capacity(user, { exclude_transient: true });
 
         // Audit log
         {
