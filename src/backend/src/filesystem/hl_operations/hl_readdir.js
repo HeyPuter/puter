@@ -147,7 +147,8 @@ class HLReadDir extends HLFilesystemOperation {
 
     async #applySubdomains (children) {
         for ( const child of children ) {
-            if ( child.subdomains?.length > 0 ) child.has_website = true;
+            if ( ! child.subdomains ) return;
+            if ( child.subdomains.length > 0 ) child.has_website = true;
             for ( const subdomain of child.subdomains ) {
                 subdomain.address =
                     `${config.protocol}://${subdomain.subdomain}.puter.site`;
