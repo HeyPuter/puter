@@ -69,6 +69,11 @@ export default class FSEntryController {
             'layout',
             'path',
         ];
+
+        this.subdomainProperties = [
+            'uuid',
+            'subdomain',
+        ];
     }
 
     init () {
@@ -223,18 +228,43 @@ export default class FSEntryController {
     async get_descendants_full (uuid, fetch_entry_options) {
         const { thumbnail } = fetch_entry_options;
         const columns = `${
-            this.defaultProperties.join(', ')
+            [
+                ...this.defaultProperties.map(v => `f.${v}`),
+                ...this.subdomainProperties
+                    .map(v => `s.${v} AS subdomain_${v}`),
+            ].join(', ')
         }${thumbnail ? ', thumbnail' : ''}`;
-        return uuid === PuterPath.NULL_UUID
+        const results_with_dupes = uuid === PuterPath.NULL_UUID
             ? await db.read(
                 `SELECT ${columns} FROM fsentries WHERE parent_uid IS NULL`,
                 [uuid],
             )
             : await db.read(
-                `SELECT ${columns} FROM fsentries WHERE parent_uid = ?`,
+                `SELECT ${columns} FROM fsentries AS f ` +
+                'LEFT JOIN subdomains AS s ON f.id=s.root_dir_id ' +
+                'WHERE parent_uid = ? ORDER BY f.id',
                 [uuid],
             )
         ;
+
+        const byId = new Map();
+        for ( const row of results_with_dupes ) {
+            const id = row.id;
+            let entry = byId.get(id);
+            if ( ! entry ) {
+                entry = { ...row };
+                if ( thumbnail ) entry.thumbnail = row.thumbnail;
+                entry.subdomains = [];
+                byId.set(id, entry);
+            }
+            if ( row.subdomain_uuid != null ) {
+                entry.subdomains.push({
+                    uuid: row.subdomain_uuid,
+                    subdomain: row.subdomain_subdomain,
+                });
+            }
+        }
+        return Array.from(byId.values());
     }
 
     async get_recursive_size (uuid) {
