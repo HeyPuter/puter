@@ -24,6 +24,7 @@ async function createWorker (userData, authorization, workerName, body, PREAMBLE
     const workerMetaData = {
 
         body_part: 'swCode',
+        compatibility_flags: ['global_fetch_strictly_public']
         compatibility_date: '2025-07-15',
         bindings: [
             {
