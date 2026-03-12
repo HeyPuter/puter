@@ -62,6 +62,9 @@ describe('AppService', () => {
     let mockPermissionService;
     let mockPuterSiteService;
     let mockOldAppNameService;
+    let mockAppInformationService;
+    let mockKvStoreService;
+    let mockSuService;
 
     // Helper to create a mock database row
     const createMockAppRow = (overrides = {}) => ({
@@ -153,6 +156,23 @@ describe('AppService', () => {
             remove_name: vi.fn().mockResolvedValue(undefined),
         };
 
+        // Mock app-information service
+        mockAppInformationService = {
+            delete_app: vi.fn().mockResolvedValue(undefined),
+        };
+
+        mockKvStoreService = {
+            get: vi.fn().mockResolvedValue(null),
+            set: vi.fn().mockResolvedValue(true),
+        };
+
+        mockSuService = {
+            sudo: vi.fn(async (actorOrCallback, maybeCallback) => {
+                const callback = maybeCallback || actorOrCallback;
+                return await callback();
+            }),
+        };
+
         // Mock services
         mockServices = {
             get: vi.fn().mockImplementation((serviceName) => {
@@ -168,6 +188,9 @@ describe('AppService', () => {
                 if ( serviceName === 'permission' ) return mockPermissionService;
                 if ( serviceName === 'puter-site' ) return mockPuterSiteService;
                 if ( serviceName === 'old-app-name' ) return mockOldAppNameService;
+                if ( serviceName === 'app-information' ) return mockAppInformationService;
+                if ( serviceName === 'puter-kvstore' ) return mockKvStoreService;
+                if ( serviceName === 'su' ) return mockSuService;
                 return null;
             }),
         };
@@ -234,6 +257,30 @@ describe('AppService', () => {
             await expect(crudQ.read.call(appService, { uid: 'nonexistent-uid' })).rejects.toMatchObject({
                 fields: { code: 'entity_not_found' },
             });
+        });
+
+        it('should resolve app by canonical uid alias when old uid is missing', async () => {
+            const canonicalRow = createMockAppRow({
+                uid: 'app-canonical-uid-123',
+            });
+            mockDb.read
+                .mockResolvedValueOnce([])
+                .mockResolvedValueOnce([canonicalRow]);
+            mockKvStoreService.get.mockResolvedValue('app-canonical-uid-123');
+
+            const crudQ = AppService.IMPLEMENTS['crud-q'];
+            const result = await crudQ.read.call(appService, { uid: 'app-old-uid-123' });
+
+            expect(result.uid).toBe('app-canonical-uid-123');
+            expect(mockSuService.sudo).toHaveBeenCalled();
+            expect(mockKvStoreService.get).toHaveBeenCalledWith({
+                key: 'app:canonicalUidAlias:app-old-uid-123',
+            });
+            expect(mockDb.read).toHaveBeenNthCalledWith(
+                2,
+                expect.stringContaining('WHERE apps.uid = ?'),
+                ['app-canonical-uid-123'],
+            );
         });
 
         it('should throw an error when neither uid nor id is provided', async () => {
@@ -724,7 +771,7 @@ describe('AppService', () => {
 
             // Mock the read after insert
             mockDb.read.mockImplementation(async (query) => {
-                if ( typeof query === 'string' && query.includes('SELECT id, uid, index_url FROM apps WHERE index_url IN') ) {
+                if ( typeof query === 'string' && query.includes('FROM apps WHERE index_url IN') ) {
                     return [];
                 }
                 return [createMockAppRow({
@@ -892,13 +939,14 @@ describe('AppService', () => {
             })).rejects.toThrow();
         });
 
-        it('should throw when equivalent index_url is already in use on create', async () => {
+        it('should allow equivalent index_url already in use on create for non-hosted origins', async () => {
             setupContextForWrite(createMockUserActor(1));
             mockDb.read.mockImplementation(async (query) => {
-                if ( typeof query === 'string' && query.includes('SELECT id, uid, index_url FROM apps WHERE index_url IN') ) {
+                if ( typeof query === 'string' && query.includes('FROM apps WHERE index_url IN') ) {
                     return [{
                         id: 999,
                         uid: 'app-existing-uid',
+                        owner_user_id: 1,
                         index_url: 'https://example.com/',
                     }];
                 }
@@ -913,16 +961,17 @@ describe('AppService', () => {
                     title: 'New App',
                     index_url: 'https://example.com/index.html',
                 },
-            })).rejects.toThrow();
+            })).resolves.toBeDefined();
         });
 
         it('should allow duplicate dev-center placeholder index_url on create', async () => {
             setupContextForWrite(createMockUserActor(1));
             mockDb.read.mockImplementation(async (query) => {
-                if ( typeof query === 'string' && query.includes('SELECT id, uid, index_url FROM apps WHERE index_url IN') ) {
+                if ( typeof query === 'string' && query.includes('FROM apps WHERE index_url IN') ) {
                     return [{
                         id: 999,
                         uid: 'app-existing-placeholder',
+                        owner_user_id: 1,
                         index_url: 'https://dev-center.puter.com/coming-soon.html',
                     }];
                 }
@@ -938,6 +987,75 @@ describe('AppService', () => {
                     index_url: 'https://dev-center.puter.com/coming-soon.html',
                 },
             })).resolves.toBeDefined();
+        });
+
+        it('should join existing hosted app when index_url is owned and already used', async () => {
+            setupContextForWrite(createMockUserActor(1));
+            mockPuterSiteService.get_subdomain.mockResolvedValue({ user_id: 1 });
+            mockDb.read.mockImplementation(async (query) => {
+                if ( typeof query === 'string' && query.includes('FROM apps WHERE index_url IN') ) {
+                    return [{
+                        id: 999,
+                        uid: 'app-existing-hosted',
+                        owner_user_id: null,
+                        index_url: 'https://mysite.puter.site',
+                    }];
+                }
+                return [createMockAppRow({
+                    id: 999,
+                    uid: 'app-existing-hosted',
+                    name: 'existing-hosted-app',
+                    title: 'Existing Hosted App',
+                    index_url: 'https://mysite.puter.site',
+                    owner_user_id: 1,
+                })];
+            });
+
+            const crudQ = AppService.IMPLEMENTS['crud-q'];
+            const joined = await crudQ.create.call(appService, {
+                object: {
+                    name: 'joined-hosted-app',
+                    title: 'Joined Hosted App',
+                    index_url: 'https://mysite.puter.site',
+                },
+            });
+
+            expect(joined.uid).toBe('app-existing-hosted');
+            expect(mockDbWrite.write).not.toHaveBeenCalledWith(
+                expect.stringContaining('INSERT INTO apps'),
+                expect.any(Array),
+            );
+            expect(mockKvStoreService.set).not.toHaveBeenCalled();
+        });
+
+        it('should throw when hosted index_url is already in use by another owner on create', async () => {
+            setupContextForWrite(createMockUserActor(1));
+            mockPuterSiteService.get_subdomain.mockResolvedValue({ user_id: 1 });
+            mockDb.read.mockImplementation(async (query) => {
+                if ( typeof query === 'string' && query.includes('FROM apps WHERE index_url IN') ) {
+                    return [{
+                        id: 999,
+                        uid: 'app-existing-hosted',
+                        owner_user_id: 2,
+                        index_url: 'https://mysite.puter.site',
+                    }];
+                }
+                return [createMockAppRow()];
+            });
+
+            const crudQ = AppService.IMPLEMENTS['crud-q'];
+
+            await expect(crudQ.create.call(appService, {
+                object: {
+                    name: 'new-app',
+                    title: 'New App',
+                    index_url: 'https://mysite.puter.site',
+                },
+            })).rejects.toMatchObject({
+                fields: {
+                    code: 'app_index_url_already_in_use',
+                },
+            });
         });
 
         it('should set app_owner when actor is AppUnderUserActorType', async () => {
@@ -1190,7 +1308,7 @@ describe('AppService', () => {
         it('should call validate_url for index_url', async () => {
             setupContextForWrite(createMockUserActor(1));
             mockDb.read.mockImplementation(async (query) => {
-                if ( typeof query === 'string' && query.includes('SELECT id, uid, index_url FROM apps WHERE index_url IN') ) {
+                if ( typeof query === 'string' && query.includes('FROM apps WHERE index_url IN') ) {
                     return [];
                 }
                 return [createMockAppRow()];
@@ -1670,13 +1788,14 @@ describe('AppService', () => {
             );
         });
 
-        it('should throw when equivalent index_url is already in use on update', async () => {
+        it('should allow equivalent index_url already in use on update for non-hosted origins', async () => {
             setupContextForWrite(createMockUserActor(1));
             mockDb.read.mockImplementation(async (query) => {
-                if ( typeof query === 'string' && query.includes('SELECT id, uid, index_url FROM apps WHERE index_url IN') ) {
+                if ( typeof query === 'string' && query.includes('FROM apps WHERE index_url IN') ) {
                     return [{
                         id: 777,
                         uid: 'app-conflict-uid',
+                        owner_user_id: 2,
                         index_url: 'https://updated.com/',
                     }];
                 }
@@ -1689,16 +1808,17 @@ describe('AppService', () => {
                     uid: 'app-uid-123',
                     index_url: 'https://updated.com/index.html',
                 },
-            })).rejects.toThrow();
+            })).resolves.toBeDefined();
         });
 
         it('should allow duplicate dev-center placeholder index_url on update', async () => {
             setupContextForWrite(createMockUserActor(1));
             mockDb.read.mockImplementation(async (query) => {
-                if ( typeof query === 'string' && query.includes('SELECT id, uid, index_url FROM apps WHERE index_url IN') ) {
+                if ( typeof query === 'string' && query.includes('FROM apps WHERE index_url IN') ) {
                     return [{
                         id: 777,
                         uid: 'app-existing-placeholder',
+                        owner_user_id: 1,
                         index_url: 'https://dev-center.puter.com/coming-soon.html',
                     }];
                 }
@@ -1712,6 +1832,115 @@ describe('AppService', () => {
                     index_url: 'https://dev-center.puter.com/coming-soon.html',
                 },
             })).resolves.toBeDefined();
+        });
+
+        it('should join existing unowned hosted app when index_url is already in use on update', async () => {
+            setupContextForWrite(createMockUserActor(1));
+            mockPuterSiteService.get_subdomain.mockResolvedValue({ user_id: 1 });
+            mockDb.read.mockImplementation(async (query, params) => {
+                if ( typeof query === 'string' && query.includes('FROM apps WHERE index_url IN') ) {
+                    return [{
+                        id: 777,
+                        uid: 'app-conflict-uid',
+                        owner_user_id: null,
+                        index_url: 'https://mysite.puter.site/',
+                    }];
+                }
+                if ( Array.isArray(params) && params[0] === 'app-conflict-uid' ) {
+                    return [createMockAppRow({
+                        id: 777,
+                        uid: 'app-conflict-uid',
+                        name: 'existing-hosted-app',
+                        title: 'Existing Hosted App',
+                        index_url: 'https://mysite.puter.site/',
+                        owner_user_id: 1,
+                    })];
+                }
+                return [createMockAppRow({
+                    id: 1,
+                    uid: 'app-uid-123',
+                    name: 'updating-app',
+                    title: 'Updating App',
+                    index_url: 'https://other.puter.site',
+                    owner_user_id: 1,
+                })];
+            });
+
+            const crudQ = AppService.IMPLEMENTS['crud-q'];
+            const result = await crudQ.update.call(appService, {
+                object: {
+                    uid: 'app-uid-123',
+                    title: 'Joined Update Title',
+                    index_url: 'https://mysite.puter.site/index.html',
+                },
+            });
+
+            expect(result.uid).toBe('app-conflict-uid');
+            expect(mockDbWrite.write).toHaveBeenCalledWith(
+                expect.stringContaining('UPDATE apps SET'),
+                expect.arrayContaining(['Joined Update Title', 777]),
+            );
+            expect(mockAppInformationService.delete_app).toHaveBeenCalledWith('app-uid-123');
+            expect(mockKvStoreService.set).toHaveBeenCalledWith({
+                key: 'app:canonicalUidAlias:app-uid-123',
+                value: 'app-conflict-uid',
+            });
+        });
+
+        it('should throw when owned hosted index_url is already in use on update', async () => {
+            setupContextForWrite(createMockUserActor(1));
+            mockPuterSiteService.get_subdomain.mockResolvedValue({ user_id: 1 });
+            mockDb.read.mockImplementation(async (query) => {
+                if ( typeof query === 'string' && query.includes('FROM apps WHERE index_url IN') ) {
+                    return [{
+                        id: 777,
+                        uid: 'app-conflict-uid',
+                        owner_user_id: 1,
+                        index_url: 'https://mysite.puter.site/',
+                    }];
+                }
+                return [createMockAppRow()];
+            });
+
+            const crudQ = AppService.IMPLEMENTS['crud-q'];
+            await expect(crudQ.update.call(appService, {
+                object: {
+                    uid: 'app-uid-123',
+                    index_url: 'https://mysite.puter.site/index.html',
+                },
+            })).rejects.toMatchObject({
+                fields: {
+                    code: 'app_index_url_already_in_use',
+                },
+            });
+        });
+
+        it('should throw when equivalent hosted index_url is already in use on update', async () => {
+            setupContextForWrite(createMockUserActor(1));
+            mockPuterSiteService.get_subdomain.mockResolvedValue({ user_id: 1 });
+            mockDb.read.mockImplementation(async (query) => {
+                if ( typeof query === 'string' && query.includes('FROM apps WHERE index_url IN') ) {
+                    return [{
+                        id: 777,
+                        uid: 'app-conflict-uid',
+                        owner_user_id: 2,
+                        index_url: 'https://mysite.puter.site/',
+                    }];
+                }
+                return [createMockAppRow()];
+            });
+
+            const crudQ = AppService.IMPLEMENTS['crud-q'];
+            await expect(crudQ.update.call(appService, {
+                object: {
+                    uid: 'app-uid-123',
+                    index_url: 'https://mysite.puter.site/index.html',
+                },
+            })).rejects.toMatchObject({
+                fields: {
+                    code: 'app_index_url_already_in_use',
+                },
+            });
         });
 
         it('should throw forbidden when app actor does not own the entity (AppLimitedES behavior)', async () => {
@@ -1811,8 +2040,6 @@ describe('AppService', () => {
     });
 
     describe('#delete', () => {
-        let mockAppInformationService;
-
         beforeEach(() => {
             // Mock app-information service
             mockAppInformationService = {
@@ -1834,6 +2061,8 @@ describe('AppService', () => {
                 if ( serviceName === 'puter-site' ) return mockPuterSiteService;
                 if ( serviceName === 'old-app-name' ) return mockOldAppNameService;
                 if ( serviceName === 'app-information' ) return mockAppInformationService;
+                if ( serviceName === 'puter-kvstore' ) return mockKvStoreService;
+                if ( serviceName === 'su' ) return mockSuService;
                 return null;
             });
 

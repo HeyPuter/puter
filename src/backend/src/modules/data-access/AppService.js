@@ -28,6 +28,7 @@ const APP_ICON_ENDPOINT_PATH_REGEX = /^\/app-icon\/([^/?#]+)(?:\/(\d+))?\/?$/;
 const LEGACY_APP_ICON_FILE_PATH_REGEX = /^\/(app-[^/?#]+?)(?:-(\d+))?\.png$/;
 const ABSOLUTE_URL_REGEX = /^[a-zA-Z][a-zA-Z\d+\-.]*:/;
 const RAW_BASE64_REGEX = /^[A-Za-z0-9+/]+={0,2}$/;
+const APP_UID_ALIAS_KEY_PREFIX = 'app:canonicalUidAlias';
 const indexUrlUniquenessExemptionCandidates =  [
     'https://dev-center.puter.com/coming-soon',
 ];
@@ -468,11 +469,13 @@ export default class AppService extends BaseService {
         // Build WHERE clause based on identifier type
         let whereClause;
         let whereValues;
+        let canonicalUidAliasPromise = null;
 
         if ( uid !== undefined ) {
             // Simple uid lookup
             whereClause = 'apps.uid = ?';
             whereValues = [uid];
+            canonicalUidAliasPromise = this.#readCanonicalAppUidAlias(uid);
         } else if ( id !== null && typeof id === 'object' && !Array.isArray(id) ) {
             // Complex id lookup (e.g., { name: 'editor' })
             const { clause, values } = this.#build_complex_id_where(id);
@@ -493,7 +496,18 @@ export default class AppService extends BaseService {
             `WHERE ${whereClause} ` +
             'LIMIT 1';
 
-        const rows = await db.read(stmt, whereValues);
+        let rows = await db.read(stmt, whereValues);
+
+        if ( rows.length === 0 && canonicalUidAliasPromise ) {
+            const canonicalUid = await canonicalUidAliasPromise;
+            if (
+                typeof canonicalUid === 'string'
+                && canonicalUid
+                && canonicalUid !== uid
+            ) {
+                rows = await db.read(stmt, [canonicalUid]);
+            }
+        }
 
         if ( rows.length === 0 ) {
             throw APIError.create('entity_not_found', null, {
@@ -736,6 +750,14 @@ export default class AppService extends BaseService {
 
         // Ensure puter.site subdomain is owned by user (if index_url uses it)
         await this.#ensure_puter_site_subdomain_is_owned(object.index_url, user);
+        const joinedApp = await this.#maybeJoinOwnedHostedIndexUrlAppOnCreate({
+            object,
+            options,
+            user,
+        });
+        if ( joinedApp ) {
+            return joinedApp;
+        }
         await this.#ensureIndexUrlNotAlreadyInUse({
             indexUrl: object.index_url,
         });
@@ -1005,6 +1027,15 @@ export default class AppService extends BaseService {
         // Ensure puter.site subdomain is owned by user (if index_url changed)
         if ( object.index_url && object.index_url !== old_app.index_url ) {
             await this.#ensure_puter_site_subdomain_is_owned(object.index_url, user);
+            const joinedApp = await this.#maybeJoinOwnedHostedIndexUrlAppOnCreate({
+                object,
+                options,
+                user,
+                excludeAppId: old_app.id,
+            });
+            if ( joinedApp ) {
+                return joinedApp;
+            }
             await this.#ensureIndexUrlNotAlreadyInUse({
                 indexUrl: object.index_url,
                 excludeAppId: old_app.id,
@@ -1156,6 +1187,10 @@ export default class AppService extends BaseService {
         return null;
     }
 
+    #isPuterHostedIndexUrl (indexUrl) {
+        return !!this.#extractPuterHostedSubdomain(indexUrl);
+    }
+
     #buildEquivalentIndexUrlCandidates (indexUrl) {
         if ( typeof indexUrl !== 'string' || !indexUrl.trim() ) {
             return [];
@@ -1185,14 +1220,18 @@ export default class AppService extends BaseService {
         }
     }
 
-    async #ensureIndexUrlNotAlreadyInUse ({ indexUrl, excludeAppId } = {}) {
+    async #findIndexUrlConflictRow ({ indexUrl, excludeAppId } = {}) {
+        if ( ! this.#isPuterHostedIndexUrl(indexUrl) ) {
+            return null;
+        }
+
         const indexUrlCandidates = this.#buildEquivalentIndexUrlCandidates(indexUrl);
-        if ( indexUrlCandidates.length === 0 ) return;
-        if ( hasIndexUrlUniquenessExemption(indexUrlCandidates) ) return;
+        if ( indexUrlCandidates.length === 0 ) return null;
+        if ( hasIndexUrlUniquenessExemption(indexUrlCandidates) ) return null;
 
         const placeholders = indexUrlCandidates.map(() => '?').join(', ');
         const parameters = [...indexUrlCandidates];
-        let query = `SELECT id, uid, index_url FROM apps WHERE index_url IN (${placeholders})`;
+        let query = `SELECT id, uid, owner_user_id, index_url FROM apps WHERE index_url IN (${placeholders})`;
 
         if ( Number.isInteger(excludeAppId) && excludeAppId > 0 ) {
             query += ' AND id != ?';
@@ -1208,12 +1247,154 @@ export default class AppService extends BaseService {
             }
             return true;
         });
+        return conflictRow || null;
+    }
+
+    async #ensureIndexUrlNotAlreadyInUse ({ indexUrl, excludeAppId } = {}) {
+        const conflictRow = await this.#findIndexUrlConflictRow({ indexUrl, excludeAppId });
         if ( conflictRow ) {
             throw APIError.create('app_index_url_already_in_use', null, {
                 index_url: indexUrl,
                 app_uid: conflictRow.uid,
             });
         }
+    }
+
+    async #claimAppOwnershipByIdForUser ({ appId, userId }) {
+        if ( !Number.isInteger(appId) || appId <= 0 ) return;
+        if ( !Number.isInteger(userId) || userId <= 0 ) return;
+
+        await this.db_write.write(
+            'UPDATE apps SET owner_user_id = ? WHERE id = ? AND owner_user_id IS NULL',
+            [userId, appId],
+        );
+    }
+
+    #buildCanonicalAppUidAliasKey (oldAppUid) {
+        return `${APP_UID_ALIAS_KEY_PREFIX}:${oldAppUid}`;
+    }
+
+    async #readCanonicalAppUidAlias (oldAppUid) {
+        if ( typeof oldAppUid !== 'string' || !oldAppUid ) return null;
+
+        const kvStore = this.services.get('puter-kvstore');
+        const suService = this.services.get('su');
+        if ( !kvStore || typeof kvStore.get !== 'function' ) return null;
+        if ( !suService || typeof suService.sudo !== 'function' ) return null;
+
+        const key = this.#buildCanonicalAppUidAliasKey(oldAppUid);
+        try {
+            const canonicalAppUid = await suService.sudo(() => kvStore.get({ key }));
+            if ( typeof canonicalAppUid === 'string' && canonicalAppUid ) {
+                return canonicalAppUid;
+            }
+        } catch {
+            // Alias reads are best-effort.
+        }
+        return null;
+    }
+
+    async #writeCanonicalAppUidAlias ({ oldAppUid, canonicalAppUid }) {
+        if ( typeof oldAppUid !== 'string' || !oldAppUid ) return;
+        if ( typeof canonicalAppUid !== 'string' || !canonicalAppUid ) return;
+        if ( oldAppUid === canonicalAppUid ) return;
+
+        const kvStore = this.services.get('puter-kvstore');
+        const suService = this.services.get('su');
+        if ( !kvStore || typeof kvStore.set !== 'function' ) return;
+        if ( !suService || typeof suService.sudo !== 'function' ) return;
+
+        const key = this.#buildCanonicalAppUidAliasKey(oldAppUid);
+        try {
+            await suService.sudo(() => kvStore.set({
+                key,
+                value: canonicalAppUid,
+            }));
+        } catch {
+            // Alias writes are best-effort.
+        }
+    }
+
+    async #maybeJoinOwnedHostedIndexUrlAppOnCreate ({
+        object,
+        options,
+        user,
+        excludeAppId,
+    } = {}) {
+        const indexUrl = object?.index_url;
+        const sourceAppUid = object?.uid;
+        if ( ! this.#isPuterHostedIndexUrl(indexUrl) ) {
+            return null;
+        }
+
+        const conflictRow = await this.#findIndexUrlConflictRow({
+            indexUrl,
+            excludeAppId,
+        });
+        if ( ! conflictRow ) {
+            return null;
+        }
+
+        const conflictOwnerUserId = Number(conflictRow.owner_user_id);
+        if ( Number.isInteger(conflictOwnerUserId) && conflictOwnerUserId > 0 ) {
+            throw APIError.create('app_index_url_already_in_use', null, {
+                index_url: indexUrl,
+                app_uid: conflictRow.uid,
+            });
+        }
+
+        if ( !Number.isInteger(conflictOwnerUserId) || conflictOwnerUserId <= 0 ) {
+            await this.#claimAppOwnershipByIdForUser({
+                appId: conflictRow.id,
+                userId: user.id,
+            });
+        }
+
+        const appToJoin = await this.#read({
+            uid: conflictRow.uid,
+            backend_only_options: {
+                no_filter_owner: true,
+            },
+        });
+        if ( !appToJoin || appToJoin.uid !== conflictRow.uid ) {
+            throw APIError.create('app_index_url_already_in_use', null, {
+                index_url: indexUrl,
+                app_uid: conflictRow.uid,
+            });
+        }
+        const appToJoinOwnerId = Number(appToJoin.owner?.id);
+        if ( !Number.isInteger(appToJoinOwnerId) || appToJoinOwnerId !== user.id ) {
+            throw APIError.create('app_index_url_already_in_use', null, {
+                index_url: indexUrl,
+                app_uid: conflictRow.uid,
+            });
+        }
+
+        const joinedObject = {
+            ...object,
+            uid: appToJoin.uid,
+        };
+        if ( object?.uid && joinedObject.name !== undefined ) {
+            delete joinedObject.name;
+        }
+
+        const joinedApp = await this.#update({
+            object: joinedObject,
+            options,
+        });
+
+        if ( sourceAppUid && sourceAppUid !== appToJoin.uid ) {
+            await this.#writeCanonicalAppUidAlias({
+                oldAppUid: sourceAppUid,
+                canonicalAppUid: appToJoin.uid,
+            });
+            const svc_appInformation = this.services.get('app-information');
+            if ( svc_appInformation?.delete_app ) {
+                await svc_appInformation.delete_app(sourceAppUid);
+            }
+        }
+
+        return joinedApp;
     }
 
     async #handle_name_conflict (object, old_app, options) {

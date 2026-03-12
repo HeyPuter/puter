@@ -27,8 +27,10 @@ const { Context } = require('../../util/context');
 const { origin_from_url } = require('../../util/urlutil');
 const { Eq, Like, Or, And } = require('../query/query');
 const { BaseES } = require('./BaseES');
+const { Entity } = require('./Entity');
 
 const uuidv4 = require('uuid').v4;
+const APP_UID_ALIAS_KEY_PREFIX = 'app:canonicalUidAlias';
 const indexUrlUniquenessExemptionCandidates =  [
     'https://dev-center.puter.com/coming-soon',
 ];
@@ -40,6 +42,54 @@ const hasIndexUrlUniquenessExemption = (candidates) => {
     }
     return false;
 };
+
+const normalizeConfiguredHostedDomain = (domainValue) => {
+    if ( typeof domainValue !== 'string' ) return null;
+    const normalizedDomainValue = domainValue.trim().toLowerCase().replace(/^\./, '');
+    if ( ! normalizedDomainValue ) return null;
+    return normalizedDomainValue.split(':')[0] || null;
+};
+
+const getConfiguredHostedDomains = () => {
+    const hostedDomains = new Set();
+    for ( const configuredDomain of [
+        config.static_hosting_domain,
+        config.static_hosting_domain_alt,
+        config.private_app_hosting_domain,
+        config.private_app_hosting_domain_alt,
+    ] ) {
+        const normalizedDomain = normalizeConfiguredHostedDomain(configuredDomain);
+        if ( normalizedDomain ) {
+            hostedDomains.add(normalizedDomain);
+        }
+    }
+    return [...hostedDomains];
+};
+
+const extractPuterHostedSubdomainFromIndexUrl = (indexUrl) => {
+    if ( typeof indexUrl !== 'string' || !indexUrl ) return null;
+
+    let hostname;
+    try {
+        hostname = (new URL(indexUrl)).hostname.toLowerCase();
+    } catch {
+        return null;
+    }
+
+    const hostedDomains = getConfiguredHostedDomains()
+        .sort((domainA, domainB) => domainB.length - domainA.length);
+
+    for ( const hostedDomain of hostedDomains ) {
+        const suffix = `.${hostedDomain}`;
+        if ( hostname.endsWith(suffix) ) {
+            const subdomain = hostname.slice(0, hostname.length - suffix.length);
+            return subdomain || null;
+        }
+    }
+
+    return null;
+};
+
 let privateLaunchAccessModulePromise;
 const getPrivateLaunchAccessModule = async () => {
     if ( ! privateLaunchAccessModulePromise ) {
@@ -78,6 +128,25 @@ class AppES extends BaseES {
         async delete (uid, _extra) {
             const svc_appInformation = this.context.get('services').get('app-information');
             await svc_appInformation.delete_app(uid);
+        },
+
+        async read (uid) {
+            if ( typeof uid !== 'string' || !uid ) {
+                return await this.upstream.read(uid);
+            }
+
+            const canonicalUidAliasPromise = this.read_canonical_app_uid_alias_(uid);
+            const entity = await this.upstream.read(uid);
+            if ( entity ) {
+                return entity;
+            }
+
+            const canonicalUid = await canonicalUidAliasPromise;
+            if ( !canonicalUid || canonicalUid === uid ) {
+                return null;
+            }
+
+            return await this.upstream.read(canonicalUid);
         },
 
         /**
@@ -123,16 +192,24 @@ class AppES extends BaseES {
          * @returns {Promise<Object>} Upsert operation results
          */
         async upsert (entity, extra) {
+            extra = extra || {};
             const actor = Context.get('actor');
             const user = actor?.type?.user;
+
+            const preJoinFullEntity = extra.old_entity
+                ? await (await extra.old_entity.clone()).apply(entity)
+                : entity
+                ;
+            await this.ensurePuterSiteSubdomainIsOwned(preJoinFullEntity, extra, user);
+
+            await this.maybe_join_owned_hosted_index_url_app_on_create_(entity, extra, user);
 
             const full_entity = extra.old_entity
                 ? await (await extra.old_entity.clone()).apply(entity)
                 : entity
                 ;
 
-            await this.ensure_puter_site_subdomain_is_owned_(full_entity, extra, user);
-            await this.ensure_index_url_unique_(full_entity, extra);
+            await this.ensureIndexUrlUnique(full_entity, extra);
 
             if ( await app_name_exists(await entity.get('name')) ) {
                 const { old_entity } = extra;
@@ -266,6 +343,17 @@ class AppES extends BaseES {
                     app,
                     old_app,
                 });
+            }
+
+            if ( extra.joined_source_app_uid ) {
+                await this.write_canonical_app_uid_alias_({
+                    oldAppUid: extra.joined_source_app_uid,
+                    canonicalAppUid: await full_entity.get('uid'),
+                });
+                const svc_appInformation = this.context.get('services').get('app-information');
+                if ( svc_appInformation?.delete_app ) {
+                    await svc_appInformation.delete_app(extra.joined_source_app_uid);
+                }
             }
 
             return result;
@@ -497,7 +585,7 @@ class AppES extends BaseES {
          * Ensures that when an app uses a puter.site subdomain as its index_url,
          * the subdomain belongs to the user creating/updating the app.
          */
-        async ensure_puter_site_subdomain_is_owned_ (entity, extra, user) {
+        async ensurePuterSiteSubdomainIsOwned (entity, extra, user) {
             if ( ! user ) return;
 
             // Only enforce when the index_url is being set or changed
@@ -510,33 +598,7 @@ class AppES extends BaseES {
                 }
             }
 
-            let hostname;
-            try {
-                hostname = (new URL(new_index_url)).hostname.toLowerCase();
-            } catch {
-                return;
-            }
-
-            const hostedDomains = [
-                config.static_hosting_domain,
-                config.static_hosting_domain_alt,
-                config.private_app_hosting_domain,
-                config.private_app_hosting_domain_alt,
-            ]
-                .map(value => typeof value === 'string'
-                    ? value.trim().toLowerCase().replace(/^\./, '').split(':')[0]
-                    : null)
-                .filter(Boolean)
-                .sort((domainA, domainB) => domainB.length - domainA.length);
-
-            let subdomain = null;
-            for ( const hostedDomain of hostedDomains ) {
-                const suffix = `.${hostedDomain}`;
-                if ( hostname.endsWith(suffix) ) {
-                    subdomain = hostname.slice(0, hostname.length - suffix.length);
-                    break;
-                }
-            }
+            const subdomain = extractPuterHostedSubdomainFromIndexUrl(new_index_url);
             if ( ! subdomain ) return;
 
             const svc_puterSite = this.context.get('services').get('puter-site');
@@ -547,50 +609,52 @@ class AppES extends BaseES {
             }
         },
 
-        async ensure_index_url_unique_ (entity, extra) {
-            const new_index_url = await entity.get('index_url');
-            if ( ! new_index_url ) return;
+        is_puter_hosted_index_url_ (index_url) {
+            return !!extractPuterHostedSubdomainFromIndexUrl(index_url);
+        },
 
-            if ( extra.old_entity ) {
-                const old_index_url = await extra.old_entity.get('index_url');
-                if ( old_index_url === new_index_url ) {
-                    return;
-                }
+        build_equivalent_index_url_candidates_ (index_url) {
+            if ( typeof index_url !== 'string' || !index_url.trim() ) {
+                return [];
             }
 
-            const candidates = (() => {
-                try {
-                    const parsedUrl = new URL(new_index_url);
-                    const origin = `${parsedUrl.protocol}//${parsedUrl.host.toLowerCase()}`;
-                    const pathname = parsedUrl.pathname || '/';
-                    const values = new Set();
-                    if ( pathname === '/' || pathname.toLowerCase() === '/index.html' ) {
-                        values.add(origin);
-                        values.add(`${origin}/`);
-                        values.add(`${origin}/index.html`);
-                    } else {
-                        const normalizedPath = pathname.endsWith('/')
-                            ? pathname.slice(0, -1)
-                            : pathname;
-                        values.add(`${origin}${normalizedPath}`);
-                        values.add(`${origin}${normalizedPath}/`);
-                    }
-                    return [...values];
-                } catch {
-                    return [new_index_url];
+            try {
+                const parsedUrl = new URL(index_url);
+                const origin = `${parsedUrl.protocol}//${parsedUrl.host.toLowerCase()}`;
+                const pathname = parsedUrl.pathname || '/';
+                const values = new Set();
+                if ( pathname === '/' || pathname.toLowerCase() === '/index.html' ) {
+                    values.add(origin);
+                    values.add(`${origin}/`);
+                    values.add(`${origin}/index.html`);
+                } else {
+                    const normalizedPath = pathname.endsWith('/')
+                        ? pathname.slice(0, -1)
+                        : pathname;
+                    values.add(`${origin}${normalizedPath}`);
+                    values.add(`${origin}${normalizedPath}/`);
                 }
-            })();
+                return [...values];
+            } catch {
+                return [index_url.trim()];
+            }
+        },
 
-            if ( candidates.length === 0 ) return;
-            if ( hasIndexUrlUniquenessExemption(candidates) ) return;
+        async find_index_url_conflict_ ({ indexUrl, excludeMysqlId }) {
+            if ( ! this.is_puter_hosted_index_url_(indexUrl) ) {
+                return null;
+            }
+
+            const candidates = this.build_equivalent_index_url_candidates_(indexUrl);
+            if ( candidates.length === 0 ) return null;
+            if ( hasIndexUrlUniquenessExemption(candidates) ) return null;
 
             const placeholders = candidates.map(() => '?').join(', ');
             const parameters = [...candidates];
-            let query = `SELECT id, uid, index_url FROM apps WHERE index_url IN (${placeholders})`;
-            const currentMysqlId = extra.old_entity?.private_meta?.mysql_id;
-            if ( Number.isInteger(currentMysqlId) && currentMysqlId > 0 ) {
+            let query = `SELECT id, uid, owner_user_id, index_url FROM apps WHERE index_url IN (${placeholders})`;
+            if ( Number.isInteger(excludeMysqlId) && excludeMysqlId > 0 ) {
                 query += ' AND id != ?';
-                parameters.push(currentMysqlId);
+                parameters.push(excludeMysqlId);
             }
             query += ' ORDER BY timestamp ASC, id ASC LIMIT 1';
 
@@ -600,6 +664,150 @@ class AppES extends BaseES {
                     return candidates.includes(row.index_url);
                 }
                 return true;
+            });
+            return conflictRow || null;
+        },
+
+        async claim_app_ownership_by_id_for_user_ ({ appId, userId }) {
+            if ( !Number.isInteger(appId) || appId <= 0 ) return;
+            if ( !Number.isInteger(userId) || userId <= 0 ) return;
+
+            await this.db.write(
+                'UPDATE apps SET owner_user_id = ? WHERE id = ? AND owner_user_id IS NULL',
+                [userId, appId],
+            );
+        },
+
+        build_canonical_app_uid_alias_key_ (oldAppUid) {
+            return `${APP_UID_ALIAS_KEY_PREFIX}:${oldAppUid}`;
+        },
+
+        async read_canonical_app_uid_alias_ (oldAppUid) {
+            if ( typeof oldAppUid !== 'string' || !oldAppUid ) return null;
+
+            const services = this.context.get('services');
+            const kvStore = services.get('puter-kvstore');
+            const suService = services.get('su');
+            if ( !kvStore || typeof kvStore.get !== 'function' ) return null;
+            if ( !suService || typeof suService.sudo !== 'function' ) return null;
+
+            const key = this.build_canonical_app_uid_alias_key_(oldAppUid);
+            try {
+                const canonicalAppUid = await suService.sudo(() => kvStore.get({ key }));
+                if ( typeof canonicalAppUid === 'string' && canonicalAppUid ) {
+                    return canonicalAppUid;
+                }
+            } catch {
+                // Alias reads are best-effort.
+            }
+            return null;
+        },
+
+        async write_canonical_app_uid_alias_ ({ oldAppUid, canonicalAppUid }) {
+            if ( typeof oldAppUid !== 'string' || !oldAppUid ) return;
+            if ( typeof canonicalAppUid !== 'string' || !canonicalAppUid ) return;
+            if ( oldAppUid === canonicalAppUid ) return;
+
+            const services = this.context.get('services');
+            const kvStore = services.get('puter-kvstore');
+            const suService = services.get('su');
+            if ( !kvStore || typeof kvStore.set !== 'function' ) return;
+            if ( !suService || typeof suService.sudo !== 'function' ) return;
+
+            const key = this.build_canonical_app_uid_alias_key_(oldAppUid);
+            try {
+                await suService.sudo(() => kvStore.set({
+                    key,
+                    value: canonicalAppUid,
+                }));
+            } catch {
+                // Alias writes are best-effort.
+            }
+        },
+
+        async maybe_join_owned_hosted_index_url_app_on_create_ (entity, extra, user) {
+            if ( ! user ) return;
+
+            const new_index_url = await entity.get('index_url');
+            const source_entity = extra.old_entity;
+            const currentMysqlId = extra.old_entity?.private_meta?.mysql_id;
+            const conflictRow = await this.find_index_url_conflict_({
+                indexUrl: new_index_url,
+                excludeMysqlId: currentMysqlId,
+            });
+            if ( ! conflictRow ) return;
+
+            const conflictOwnerUserId = Number(conflictRow.owner_user_id);
+            if (
+                Number.isInteger(conflictOwnerUserId)
+                && conflictOwnerUserId > 0
+            ) {
+                throw APIError.create('app_index_url_already_in_use', null, {
+                    index_url: new_index_url,
+                    app_uid: conflictRow.uid,
+                });
+            }
+
+            if ( !Number.isInteger(conflictOwnerUserId) || conflictOwnerUserId <= 0 ) {
+                await this.claim_app_ownership_by_id_for_user_({
+                    appId: conflictRow.id,
+                    userId: user.id,
+                });
+            }
+
+            const old_entity = await this.upstream.read(conflictRow.uid);
+            const owner = await old_entity?.get('owner');
+            let ownerUserId = owner?.id ?? owner;
+            if ( owner instanceof Entity ) {
+                ownerUserId = owner.private_meta.mysql_id;
+            }
+            ownerUserId = Number(ownerUserId);
+            if ( !old_entity || !Number.isInteger(ownerUserId) || ownerUserId !== user.id ) {
+                throw APIError.create('app_index_url_already_in_use', null, {
+                    index_url: new_index_url,
+                    app_uid: conflictRow.uid,
+                });
+            }
+
+            if ( source_entity ) {
+                const sourceUid = await source_entity.get('uid');
+                const targetUid = await old_entity.get('uid');
+                const requestedName = await entity.get('name');
+
+                if (
+                    sourceUid
+                    && targetUid
+                    && sourceUid !== targetUid
+                    && requestedName !== undefined
+                ) {
+                    entity.del('name');
+                }
+
+                if ( sourceUid && targetUid && sourceUid !== targetUid ) {
+                    extra.joined_source_app_uid = sourceUid;
+                }
+            }
+
+            await entity.set('uid', await old_entity.get('uid'));
+            extra.old_entity = old_entity;
+        },
+
+        async ensureIndexUrlUnique (entity, extra) {
+            const new_index_url = await entity.get('index_url');
+            if ( ! new_index_url ) return;
+            if ( ! this.is_puter_hosted_index_url_(new_index_url) ) return;
+
+            if ( extra.old_entity ) {
+                const old_index_url = await extra.old_entity.get('index_url');
+                if ( old_index_url === new_index_url ) {
+                    return;
+                }
+            }
+
+            const currentMysqlId = extra.old_entity?.private_meta?.mysql_id;
+            const conflictRow = await this.find_index_url_conflict_({
+                indexUrl: new_index_url,
+                excludeMysqlId: currentMysqlId,
             });
             if ( conflictRow ) {
                 throw APIError.create('app_index_url_already_in_use', null, {
