@@ -110,6 +110,14 @@ class Auth {
     };
 
     getUser = function (...args) {
+        if ( ! puter.authToken ) {
+            // Fake the server response for backwards compatibility
+            // We already know this will fail
+            throw {
+                'status': 401,
+                'message': 'Unauthorized',
+            };
+        }
         let options;
 
         // If first argument is an object, it's the options
@@ -138,6 +146,15 @@ class Auth {
     };
 
     async whoami () {
+        if ( ! this.authToken ) {
+            // Fake the server response for backwards compatibility
+            // We already know this will fail
+            throw {
+                'status': 401,
+                'message': 'Unauthorized',
+            };
+        }
+
         try {
             const resp = await fetch(`${this.APIOrigin}/whoami`, {
                 headers: {
