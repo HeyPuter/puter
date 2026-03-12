@@ -18,12 +18,59 @@
  */
 'use strict';
 const express = require('express');
+const config = require('../config');
 const router = new express.Router();
+
+const normalizeHostDomain = (domain) => {
+    if ( typeof domain !== 'string' ) return null;
+    const normalizedDomain = domain.trim().toLowerCase().replace(/^\./, '');
+    if ( ! normalizedDomain ) return null;
+
+    try {
+        return new URL(`http://${normalizedDomain}`).hostname.toLowerCase();
+    } catch {
+        return normalizedDomain.split(':')[0] || null;
+    }
+};
+
+const hostMatchesDomain = (hostname, domain) => {
+    const normalizedHost = normalizeHostDomain(hostname);
+    const normalizedDomain = normalizeHostDomain(domain);
+    if ( !normalizedHost || !normalizedDomain ) return false;
+    return normalizedHost === normalizedDomain ||
+        normalizedHost.endsWith(`.${normalizedDomain}`);
+};
+
+const isHostedDomainRequest = (req) => {
+    const requestHost = normalizeHostDomain(req.hostname ?? req.headers?.host);
+    if ( ! requestHost ) return false;
+
+    const hostedDomains = new Set();
+    for ( const domain of [
+        config.static_hosting_domain,
+        config.static_hosting_domain_alt,
+        config.private_app_hosting_domain,
+        config.private_app_hosting_domain_alt,
+    ] ) {
+        const normalizedDomain = normalizeHostDomain(domain);
+        if ( normalizedDomain ) {
+            hostedDomains.add(normalizedDomain);
+        }
+    }
+
+    return [...hostedDomains].some(hostedDomain =>
+        hostMatchesDomain(requestHost, hostedDomain));
+};
 
 // -----------------------------------------------------------------------//
 // GET /healthcheck
 // -----------------------------------------------------------------------//
-router.get('/healthcheck', async (req, res) => {
+router.get('/healthcheck', async (req, res, next) => {
+    if ( isHostedDomainRequest(req) ) {
+        next();
+        return;
+    }
+
     const svc_serverHealth = req.services.get('server-health');
 
     const status = await svc_serverHealth.get_status();
