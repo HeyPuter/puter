@@ -29,6 +29,8 @@ const LEGACY_APP_ICON_FILE_PATH_REGEX = /^\/(app-[^/?#]+?)(?:-(\d+))?\.png$/;
 const ABSOLUTE_URL_REGEX = /^[a-zA-Z][a-zA-Z\d+\-.]*:/;
 const RAW_BASE64_REGEX = /^[A-Za-z0-9+/]+={0,2}$/;
 const APP_UID_ALIAS_KEY_PREFIX = 'app:canonicalUidAlias';
+const APP_UID_ALIAS_REVERSE_KEY_PREFIX = 'app:canonicalUidAliasReverse';
+const APP_UID_ALIAS_TTL_SECONDS = 60 * 60 * 24 * 90;
 const indexUrlUniquenessExemptionCandidates =  [
     'https://dev-center.puter.com/coming-soon',
 ];
@@ -1274,6 +1276,23 @@ export default class AppService extends BaseService {
         return `${APP_UID_ALIAS_KEY_PREFIX}:${oldAppUid}`;
     }
 
+    #buildCanonicalAppUidAliasReverseKey (canonicalAppUid) {
+        return `${APP_UID_ALIAS_REVERSE_KEY_PREFIX}:${canonicalAppUid}`;
+    }
+
+    #normalizeCanonicalAliasUidList (value) {
+        if ( ! Array.isArray(value) ) return [];
+        const normalizedList = [];
+        const seen = new Set();
+        for ( const item of value ) {
+            if ( typeof item !== 'string' || !item ) continue;
+            if ( seen.has(item) ) continue;
+            seen.add(item);
+            normalizedList.push(item);
+        }
+        return normalizedList;
+    }
+
     async #readCanonicalAppUidAlias (oldAppUid) {
         if ( typeof oldAppUid !== 'string' || !oldAppUid ) return null;
 
@@ -1305,11 +1324,27 @@ export default class AppService extends BaseService {
         if ( !suService || typeof suService.sudo !== 'function' ) return;
 
         const key = this.#buildCanonicalAppUidAliasKey(oldAppUid);
+        const reverseKey = this.#buildCanonicalAppUidAliasReverseKey(canonicalAppUid);
+        const expireAt = Math.floor(Date.now() / 1000) + APP_UID_ALIAS_TTL_SECONDS;
         try {
-            await suService.sudo(() => kvStore.set({
-                key,
-                value: canonicalAppUid,
-            }));
+            await suService.sudo(async () => {
+                const reverseValue = await kvStore.get({ key: reverseKey });
+                const reverseAliases = this.#normalizeCanonicalAliasUidList(reverseValue);
+                if ( ! reverseAliases.includes(oldAppUid) ) {
+                    reverseAliases.push(oldAppUid);
+                }
+
+                await kvStore.set({
+                    key,
+                    value: canonicalAppUid,
+                    expireAt,
+                });
+                await kvStore.set({
+                    key: reverseKey,
+                    value: reverseAliases,
+                    expireAt,
+                });
+            });
         } catch {
             // Alias writes are best-effort.
         }
@@ -1390,11 +1425,20 @@ export default class AppService extends BaseService {
             ...object,
             uid: appToJoin.uid,
         };
+        const requestedJoinedName = (
+            typeof joinedObject.name === 'string'
+                ? joinedObject.name.trim()
+                : ''
+        ) || null;
+        const shouldReapplyRequestedNameAfterMerge = (
+            !!object?.uid
+            && !!requestedJoinedName
+        );
         if ( object?.uid && joinedObject.name !== undefined ) {
             delete joinedObject.name;
         }
 
-        const joinedApp = await this.#update({
+        let joinedApp = await this.#update({
             object: joinedObject,
             options,
         });
@@ -1406,8 +1450,20 @@ export default class AppService extends BaseService {
             });
             const svc_appInformation = this.services.get('app-information');
             if ( svc_appInformation?.delete_app ) {
-                await svc_appInformation.delete_app(sourceAppUid);
+                await svc_appInformation.delete_app(sourceAppUid, undefined, {
+                    preserveCanonicalUidAlias: true,
+                });
             }
+        }
+
+        if ( shouldReapplyRequestedNameAfterMerge ) {
+            joinedApp = await this.#update({
+                object: {
+                    uid: appToJoin.uid,
+                    name: requestedJoinedName,
+                },
+                options,
+            });
         }
 
         return joinedApp;

@@ -1880,11 +1880,15 @@ describe('AppService', () => {
                 expect.stringContaining('UPDATE apps SET'),
                 expect.arrayContaining(['Joined Update Title', 777]),
             );
-            expect(mockAppInformationService.delete_app).toHaveBeenCalledWith('app-uid-123');
-            expect(mockKvStoreService.set).toHaveBeenCalledWith({
+            expect(mockAppInformationService.delete_app).toHaveBeenCalledWith(
+                'app-uid-123',
+                undefined,
+                { preserveCanonicalUidAlias: true },
+            );
+            expect(mockKvStoreService.set).toHaveBeenCalledWith(expect.objectContaining({
                 key: 'app:canonicalUidAlias:app-uid-123',
                 value: 'app-conflict-uid',
-            });
+            }));
         });
 
         it('should throw when owned hosted index_url is already in use on update', async () => {

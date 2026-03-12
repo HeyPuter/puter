@@ -23,6 +23,8 @@ const { redisClient } = require('../../clients/redis/redisSingleton');
 const { deleteRedisKeys } = require('../../clients/redis/deleteRedisKeys.js');
 const { setRedisCacheValue } = require('../../clients/redis/cacheUpdate.js');
 const { AppRedisCacheSpace } = require('./AppRedisCacheSpace.js');
+const APP_UID_ALIAS_KEY_PREFIX = 'app:canonicalUidAlias';
+const APP_UID_ALIAS_REVERSE_KEY_PREFIX = 'app:canonicalUidAliasReverse';
 
 /**
 * @class AppInformationService
@@ -677,10 +679,11 @@ class AppInformationService extends BaseService {
     *
     * @param {string} app_uid - The unique identifier of the app to be deleted.
     * @param {Object} [app] - The app object, if already fetched. If not provided, it will be retrieved.
+    * @param {Object} [options] - Optional delete behavior flags.
     * @throws {Error} If the app is not found in either cache or database.
     * @returns {Promise<void>} A promise that resolves when the app has been successfully deleted.
     */
-    async delete_app (app_uid, app) {
+    async delete_app (app_uid, app, options = {}) {
         const db = this.services.get('database').get(DB_READ, 'apps');
 
         if ( ! app ) {
@@ -709,6 +712,10 @@ class AppInformationService extends BaseService {
             'DELETE FROM apps WHERE uid = ? LIMIT 1',
             [app_uid],
         );
+
+        if ( ! options.preserveCanonicalUidAlias ) {
+            await this.cleanupCanonicalAppUidAliases_(app_uid);
+        }
 
         // remove from caches
         AppRedisCacheSpace.invalidateCachedApp(app, {
@@ -740,6 +747,59 @@ class AppInformationService extends BaseService {
             action: 'deleted',
             app,
         });
+    }
+
+    buildCanonicalAppUidAliasKey_ (appUid) {
+        return `${APP_UID_ALIAS_KEY_PREFIX}:${appUid}`;
+    }
+
+    buildCanonicalAppUidAliasReverseKey_ (canonicalAppUid) {
+        return `${APP_UID_ALIAS_REVERSE_KEY_PREFIX}:${canonicalAppUid}`;
+    }
+
+    normalizeCanonicalAliasUidList_ (value) {
+        if ( ! Array.isArray(value) ) return [];
+        const normalizedList = [];
+        const seen = new Set();
+        for ( const item of value ) {
+            if ( typeof item !== 'string' || !item ) continue;
+            if ( seen.has(item) ) continue;
+            seen.add(item);
+            normalizedList.push(item);
+        }
+        return normalizedList;
+    }
+
+    async cleanupCanonicalAppUidAliases_ (appUid) {
+        if ( typeof appUid !== 'string' || !appUid ) return;
+
+        const kvStore = this.services.get('puter-kvstore');
+        const suService = this.services.get('su');
+        if ( !kvStore || typeof kvStore.get !== 'function' || typeof kvStore.del !== 'function' ) return;
+        if ( !suService || typeof suService.sudo !== 'function' ) return;
+
+        const selfAliasKey = this.buildCanonicalAppUidAliasKey_(appUid);
+        const reverseKey = this.buildCanonicalAppUidAliasReverseKey_(appUid);
+
+        try {
+            await suService.sudo(async () => {
+                const reverseValue = await kvStore.get({ key: reverseKey });
+                const reverseAliases = this.normalizeCanonicalAliasUidList_(reverseValue);
+
+                const deleteOps = [
+                    kvStore.del({ key: selfAliasKey }),
+                    kvStore.del({ key: reverseKey }),
+                ];
+                for ( const oldUid of reverseAliases ) {
+                    deleteOps.push(kvStore.del({
+                        key: this.buildCanonicalAppUidAliasKey_(oldUid),
+                    }));
+                }
+                await Promise.all(deleteOps);
+            });
+        } catch {
+            // KV cleanup is best-effort.
+        }
     }
 
     // Helper function to generate array of all periods between start and end dates

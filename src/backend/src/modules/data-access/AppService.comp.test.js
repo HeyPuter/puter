@@ -880,7 +880,7 @@ describe('AppService Regression Prevention Tests', () => {
                 );
                 expect(joinedRows).toHaveLength(1);
                 expect(joinedRows[0].uid).toBe(existingUid);
-                expect(joinedRows[0].name).toBe('joinable-update-existing');
+                expect(joinedRows[0].name).toBe('joinable-update-merged');
                 expect(joinedRows[0].title).toBe('Joinable Update Merged');
                 expect(joinedRows[0].owner_user_id).toBe(user.id);
 
@@ -949,7 +949,7 @@ describe('AppService Regression Prevention Tests', () => {
                     [existingUid],
                 );
                 expect(targetRows).toHaveLength(1);
-                expect(targetRows[0].name).toBe('existing-target-name');
+                expect(targetRows[0].name).toBe('staging-app-center');
                 expect(targetRows[0].title).toBe('Merged Title');
 
                 const sourceRows = await db.read(
