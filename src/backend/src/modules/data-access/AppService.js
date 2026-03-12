@@ -1336,7 +1336,11 @@ export default class AppService extends BaseService {
         }
 
         const conflictOwnerUserId = Number(conflictRow.owner_user_id);
-        if ( Number.isInteger(conflictOwnerUserId) && conflictOwnerUserId > 0 ) {
+        if (
+            Number.isInteger(conflictOwnerUserId)
+            && conflictOwnerUserId > 0
+            && conflictOwnerUserId !== user.id
+        ) {
             throw APIError.create('app_index_url_already_in_use', null, {
                 index_url: indexUrl,
                 app_uid: conflictRow.uid,
@@ -1369,6 +1373,18 @@ export default class AppService extends BaseService {
                 app_uid: conflictRow.uid,
             });
         }
+        if (
+            Number.isInteger(conflictOwnerUserId)
+            && conflictOwnerUserId === user.id
+            && !this.#isOriginBootstrapApp(appToJoin)
+        ) {
+            // Prevent merging arbitrary same-owner apps; only allow the
+            // auto-created origin bootstrap app to be absorbed.
+            throw APIError.create('app_index_url_already_in_use', null, {
+                index_url: indexUrl,
+                app_uid: conflictRow.uid,
+            });
+        }
 
         const joinedObject = {
             ...object,
@@ -1395,6 +1411,15 @@ export default class AppService extends BaseService {
         }
 
         return joinedApp;
+    }
+
+    #isOriginBootstrapApp (app) {
+        if ( !app || typeof app !== 'object' ) return false;
+        if ( typeof app.uid !== 'string' || !app.uid ) return false;
+        if ( app.name !== app.uid ) return false;
+        if ( app.title !== app.uid ) return false;
+        if ( typeof app.description !== 'string' ) return false;
+        return app.description.startsWith('App created from origin ');
     }
 
     async #handle_name_conflict (object, old_app, options) {

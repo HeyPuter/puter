@@ -965,6 +965,69 @@ describe('AppService Regression Prevention Tests', () => {
             });
         });
 
+        it('should join owned bootstrap hosted app on update', async () => {
+            await testWithEachService(async ({ kernel, key, user }) => {
+                const service = kernel.services.get(key);
+                const crudQ = service.constructor.IMPLEMENTS['crud-q'];
+                const db = kernel.services.get('database').get('write', 'test');
+                const hostedIndexUrl = getHostedIndexUrl('joinable-owned-bootstrap');
+                const existingUid = 'app-55555555-5555-4555-8555-555555555555';
+
+                kernel.services.set('puter-site', {
+                    get_subdomain: async (subdomain) => {
+                        const rows = await db.read(
+                            'SELECT * FROM subdomains WHERE subdomain = ? LIMIT 1',
+                            [subdomain],
+                        );
+                        return rows[0] || null;
+                    },
+                });
+
+                await db.write(
+                    'INSERT INTO subdomains (uuid, subdomain, user_id, root_dir_id) VALUES (?, ?, ?, ?)',
+                    ['sd-55555555-5555-4555-8555-555555555555', 'joinable-owned-bootstrap', user.id, 555],
+                );
+                await db.write(
+                    'INSERT INTO apps (uid, name, title, description, index_url, owner_user_id) VALUES (?, ?, ?, ?, ?, ?)',
+                    [
+                        existingUid,
+                        existingUid,
+                        existingUid,
+                        `App created from origin ${hostedIndexUrl}`,
+                        hostedIndexUrl,
+                        user.id,
+                    ],
+                );
+
+                const source = await crudQ.create.call(service, {
+                    object: {
+                        name: 'owned-bootstrap-source',
+                        title: 'Owned Bootstrap Source',
+                        description: 'Source app to be merged',
+                        index_url: 'https://example.com/owned-bootstrap-source',
+                    },
+                });
+
+                const joined = await crudQ.update.call(service, {
+                    object: {
+                        uid: source.uid,
+                        title: 'Merged Bootstrap Title',
+                        index_url: hostedIndexUrl,
+                    },
+                });
+
+                expect(joined.uid).toBe(existingUid);
+
+                const targetRows = await db.read(
+                    'SELECT uid, title, owner_user_id FROM apps WHERE uid = ?',
+                    [existingUid],
+                );
+                expect(targetRows).toHaveLength(1);
+                expect(targetRows[0].title).toBe('Merged Bootstrap Title');
+                expect(targetRows[0].owner_user_id).toBe(user.id);
+            });
+        });
+
         it('should reject hosted duplicate index_url owned by another user', async () => {
             await testWithEachService(async ({ kernel, key, user }) => {
                 const service = kernel.services.get(key);

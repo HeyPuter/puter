@@ -741,6 +741,7 @@ class AppES extends BaseES {
             if (
                 Number.isInteger(conflictOwnerUserId)
                 && conflictOwnerUserId > 0
+                && conflictOwnerUserId !== user.id
             ) {
                 throw APIError.create('app_index_url_already_in_use', null, {
                     index_url: new_index_url,
@@ -768,6 +769,18 @@ class AppES extends BaseES {
                     app_uid: conflictRow.uid,
                 });
             }
+            if (
+                Number.isInteger(conflictOwnerUserId)
+                && conflictOwnerUserId === user.id
+                && !await this.is_origin_bootstrap_app_entity_(old_entity)
+            ) {
+                // Prevent merging arbitrary same-owner apps; only allow the
+                // auto-created origin bootstrap app to be absorbed.
+                throw APIError.create('app_index_url_already_in_use', null, {
+                    index_url: new_index_url,
+                    app_uid: conflictRow.uid,
+                });
+            }
 
             if ( source_entity ) {
                 const sourceUid = await source_entity.get('uid');
@@ -790,6 +803,17 @@ class AppES extends BaseES {
 
             await entity.set('uid', await old_entity.get('uid'));
             extra.old_entity = old_entity;
+        },
+
+        async is_origin_bootstrap_app_entity_ (entity) {
+            if ( ! entity ) return false;
+            const uid = await entity.get('uid');
+            if ( typeof uid !== 'string' || !uid ) return false;
+            if ( await entity.get('name') !== uid ) return false;
+            if ( await entity.get('title') !== uid ) return false;
+            const description = await entity.get('description');
+            if ( typeof description !== 'string' ) return false;
+            return description.startsWith('App created from origin ');
         },
 
         async ensureIndexUrlUnique (entity, extra) {
