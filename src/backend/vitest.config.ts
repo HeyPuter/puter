@@ -8,7 +8,8 @@ export default defineConfig(({ mode }) => ({
         coverage: {
             provider: 'v8',
             reporter: ['text', 'json', 'json-summary', 'html', 'lcov'],
-            include: ['src/**/*.{js,mjs,ts,mts}'],
+            // Keep coverage focused on executed files to avoid high-memory
+            // uncovered-file remapping in CI.
             exclude: [
                 'src/**/types/**',
                 'src/**/constants/**',
@@ -17,6 +18,10 @@ export default defineConfig(({ mode }) => ({
                 'src/**/*.d.cts',
                 'src/**/dist/**',
                 'src/**/*.min.*',
+                'src/**/*.bench.{js,mjs,ts,mts}',
+                'src/**/*.{test,spec}.{js,mjs,ts,mts}',
+                'src/public/**',
+                'src/services/worker/template/**',
             ],
         },
         env: loadEnv(mode, '', 'PUTER_'),
