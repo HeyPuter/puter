@@ -31,6 +31,8 @@ const { Entity } = require('./Entity');
 
 const uuidv4 = require('uuid').v4;
 const APP_UID_ALIAS_KEY_PREFIX = 'app:canonicalUidAlias';
+const APP_UID_ALIAS_REVERSE_KEY_PREFIX = 'app:canonicalUidAliasReverse';
+const APP_UID_ALIAS_TTL_SECONDS = 60 * 60 * 24 * 90;
 const indexUrlUniquenessExemptionCandidates =  [
     'https://dev-center.puter.com/coming-soon',
 ];
@@ -352,7 +354,25 @@ class AppES extends BaseES {
                 });
                 const svc_appInformation = this.context.get('services').get('app-information');
                 if ( svc_appInformation?.delete_app ) {
-                    await svc_appInformation.delete_app(extra.joined_source_app_uid);
+                    await svc_appInformation.delete_app(extra.joined_source_app_uid, undefined, {
+                        preserveCanonicalUidAlias: true,
+                    });
+                }
+            }
+
+            if ( typeof extra.joined_requested_name === 'string' && extra.joined_requested_name.trim() ) {
+                const renameResult = await this.apply_joined_requested_name_({
+                    canonicalUid: await full_entity.get('uid'),
+                    requestedName: extra.joined_requested_name,
+                });
+                if ( renameResult ) {
+                    const svc_event = this.context.get('services').get('event');
+                    await svc_event.emit('app.rename', {
+                        app_uid: await full_entity.get('uid'),
+                        old_name: renameResult.oldName,
+                        new_name: renameResult.newName,
+                    });
+                    await full_entity.set('name', renameResult.newName);
                 }
             }
 
@@ -682,6 +702,23 @@ class AppES extends BaseES {
             return `${APP_UID_ALIAS_KEY_PREFIX}:${oldAppUid}`;
         },
 
+        build_canonical_app_uid_alias_reverse_key_ (canonicalAppUid) {
+            return `${APP_UID_ALIAS_REVERSE_KEY_PREFIX}:${canonicalAppUid}`;
+        },
+
+        normalize_canonical_alias_uid_list_ (value) {
+            if ( ! Array.isArray(value) ) return [];
+            const normalizedList = [];
+            const seen = new Set();
+            for ( const item of value ) {
+                if ( typeof item !== 'string' || !item ) continue;
+                if ( seen.has(item) ) continue;
+                seen.add(item);
+                normalizedList.push(item);
+            }
+            return normalizedList;
+        },
+
         async read_canonical_app_uid_alias_ (oldAppUid) {
             if ( typeof oldAppUid !== 'string' || !oldAppUid ) return null;
 
@@ -715,11 +752,27 @@ class AppES extends BaseES {
             if ( !suService || typeof suService.sudo !== 'function' ) return;
 
             const key = this.build_canonical_app_uid_alias_key_(oldAppUid);
+            const reverseKey = this.build_canonical_app_uid_alias_reverse_key_(canonicalAppUid);
+            const expireAt = Math.floor(Date.now() / 1000) + APP_UID_ALIAS_TTL_SECONDS;
             try {
-                await suService.sudo(() => kvStore.set({
-                    key,
-                    value: canonicalAppUid,
-                }));
+                await suService.sudo(async () => {
+                    const reverseValue = await kvStore.get({ key: reverseKey });
+                    const reverseAliases = this.normalize_canonical_alias_uid_list_(reverseValue);
+                    if ( ! reverseAliases.includes(oldAppUid) ) {
+                        reverseAliases.push(oldAppUid);
+                    }
+
+                    await kvStore.set({
+                        key,
+                        value: canonicalAppUid,
+                        expireAt,
+                    });
+                    await kvStore.set({
+                        key: reverseKey,
+                        value: reverseAliases,
+                        expireAt,
+                    });
+                });
             } catch {
                 // Alias writes are best-effort.
             }
@@ -794,6 +847,9 @@ class AppES extends BaseES {
                     && requestedName !== undefined
                 ) {
                     entity.del('name');
+                    if ( typeof requestedName === 'string' && requestedName.trim() ) {
+                        extra.joined_requested_name = requestedName.trim();
+                    }
                 }
 
                 if ( sourceUid && targetUid && sourceUid !== targetUid ) {
@@ -803,6 +859,40 @@ class AppES extends BaseES {
 
             await entity.set('uid', await old_entity.get('uid'));
             extra.old_entity = old_entity;
+        },
+
+        async apply_joined_requested_name_ ({ canonicalUid, requestedName }) {
+            if ( typeof canonicalUid !== 'string' || !canonicalUid ) return null;
+            if ( typeof requestedName !== 'string' || !requestedName.trim() ) return null;
+            const normalizedName = requestedName.trim();
+
+            const currentRows = await this.db.read(
+                'SELECT name FROM apps WHERE uid = ? LIMIT 1',
+                [canonicalUid],
+            );
+            const currentName = currentRows?.[0]?.name;
+            if ( typeof currentName !== 'string' ) return null;
+            if ( currentName === normalizedName ) return null;
+
+            const conflictRows = await this.db.read(
+                'SELECT uid FROM apps WHERE name = ? AND uid != ? LIMIT 1',
+                [normalizedName, canonicalUid],
+            );
+            if ( conflictRows.length > 0 ) {
+                throw APIError.create('app_name_already_in_use', null, {
+                    name: normalizedName,
+                });
+            }
+
+            await this.db.write(
+                'UPDATE apps SET name = ? WHERE uid = ? LIMIT 1',
+                [normalizedName, canonicalUid],
+            );
+
+            return {
+                oldName: currentName,
+                newName: normalizedName,
+            };
         },
 
         async is_origin_bootstrap_app_entity_ (entity) {
