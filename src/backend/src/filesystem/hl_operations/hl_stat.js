@@ -54,41 +54,86 @@ class HLStat extends HLFilesystemOperation {
         const user_unix_ts = Number((`${Date.parse(Context.get('actor')?.type?.user?.timestamp)}`).slice(0, -3));
         const paths_are_fine = user_unix_ts >= 1722385593;
 
-        if ( maybe_uid_selector || paths_are_fine ) {
-            // We are able to fetch the entry and is_empty simultaneously
-            await Promise.all([
-                subject.fetchEntry(),
-                subject.fetchIsEmpty(),
-            ]);
-        } else {
-            // We need the entry first in order for is_empty to work correctly
-            await subject.fetchEntry();
-            await subject.fetchIsEmpty();
+        const do_after_fetchEntry = [];
+        const do_alongside_fetchEntry = [];
+
+        if ( return_size ) {
+            do_after_fetchEntry.push(async () => {
+                await subject.fetchSize(user);
+            });
         }
+
+        if ( return_subdomains ) {
+            do_after_fetchEntry.push(async () => {
+                await subject.fetchSubdomains(user);
+            });
+        }
+
+        if ( return_shares || return_permissions ) {
+            do_after_fetchEntry.push(async () => {
+                await subject.fetchShares();
+            });
+        }
+
+        if ( return_versions ) {
+            do_after_fetchEntry.push(async () => {
+                await subject.fetchVersions();
+            });
+        }
+
+        do_after_fetchEntry.push(async () => {
+            await subject.fetchOwner();
+        }, async () => {
+            await subject.get('writable');
+        });
+
+        ((maybe_uid_selector || paths_are_fine)
+            ? do_alongside_fetchEntry
+            : do_after_fetchEntry).push(subject.fetchIsEmpty.bind(subject));
+
+        // if ( maybe_uid_selector || paths_are_fine ) {
+        //     await Promise.all([
+        //         subject.fetchEntry(),
+        //         subject.fetchIsEmpty(),
+        //     ]);
+        // } else {
+        //     // We need the entry first in order for is_empty to work correctly
+        //     await subject.fetchEntry();
+        //     await subject.fetchIsEmpty();
+        // }
+
+        await Promise.all([
+            (async () => {
+                await subject.fetchEntry();
+                const context = Context.get();
+                const svc_acl = context.get('services').get('acl');
+                const actor = context.get('actor');
+                if ( ! await svc_acl.check(actor, subject, 'read') ) {
+                    throw await svc_acl.get_safe_acl_error(actor, subject, 'read');
+                }
+                if ( ! subject.found ) {
+                    throw APIError.create('subject_does_not_exist');
+                }
+                await Promise.all(do_after_fetchEntry.map(f => f()));
+            })(),
+            ...(do_alongside_fetchEntry.map(f => f())),
+        ]);
 
         // file not found
-        if ( ! subject.found ) throw APIError.create('subject_does_not_exist');
 
-        await subject.fetchOwner();
-
-        const context = Context.get();
-        const svc_acl = context.get('services').get('acl');
-        const actor = context.get('actor');
-        if ( ! await svc_acl.check(actor, subject, 'read') ) {
-            throw await svc_acl.get_safe_acl_error(actor, subject, 'read');
-        }
+        // await subject.fetchOwner();
 
         // TODO: why is this specific to stat?
         const mime = this.require('mime-types');
         const contentType = mime.contentType(subject.entry.name);
         subject.entry.type = contentType ? contentType : null;
 
-        if ( return_size ) await subject.fetchSize(user);
-        if ( return_subdomains ) await subject.fetchSubdomains(user);
-        if ( return_shares || return_permissions ) {
-            await subject.fetchShares();
-        }
-        if ( return_versions ) await subject.fetchVersions();
+        // if ( return_size ) await subject.fetchSize(user);
+        // if ( return_subdomains ) await subject.fetchSubdomains(user);
+        // if ( return_shares || return_permissions ) {
+        //     await subject.fetchShares();
+        // }
+        // if ( return_versions ) await subject.fetchVersions();
 
         return await subject.getSafeEntry();
     }

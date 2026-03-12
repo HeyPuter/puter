@@ -69,6 +69,8 @@ module.exports = class FSNodeContext {
         NodePathSelector,
     ];
 
+    #writable;
+
     /**
      * Creates an instance of FSNodeContext.
      * @param {*} opt_identifier
@@ -401,27 +403,32 @@ module.exports = class FSNodeContext {
 
         this.entry.subdomains = [];
         this.entry.workers = [];
-        let subdomains = await db.read('SELECT * FROM subdomains WHERE root_dir_id = ? AND user_id = ?',
-                        [this.entry.id, user.id]);
+        let subdomains = await db.read(
+            'SELECT * FROM subdomains WHERE root_dir_id = ? AND user_id = ?',
+            [this.entry.id, user.id],
+        );
         if ( subdomains.length > 0 ) {
             subdomains.forEach((sd) => {
-                if ( this.entry.is_dir ) {
-                    this.entry.subdomains.push({
-                        subdomain: sd.subdomain,
-                        address: `${config.protocol }://${ sd.subdomain }.` + 'puter.site',
-                        uuid: sd.uuid,
-                    });
-                } else {
-                    const workerName = sd.subdomain.split('.').pop();
-                    this.entry.workers.push({
-                        subdomain: workerName,
-                        address: `https://${ workerName }.` + 'puter.work',
-                        uuid: sd.uuid,
-                    });
-                }
-
+                this.applySingleSubdomain(sd);
             });
             this.entry.has_website = true;
+        }
+    }
+
+    applySingleSubdomain (sd) {
+        if ( this.entry.is_dir ) {
+            this.entry.subdomains.push({
+                subdomain: sd.subdomain,
+                address: `${config.protocol }://${ sd.subdomain }.` + 'puter.site',
+                uuid: sd.uuid,
+            });
+        } else {
+            const workerName = sd.subdomain.split('.').pop();
+            this.entry.workers.push({
+                subdomain: workerName,
+                address: `https://${ workerName }.` + 'puter.work',
+                uuid: sd.uuid,
+            });
         }
     }
 
@@ -535,8 +542,10 @@ module.exports = class FSNodeContext {
 
         const db = this.services.get('database').get(DB_READ, 'filesystem');
 
-        let versions = await db.read('SELECT * FROM fsentry_versions WHERE fsentry_id = ?',
-                        [this.entry.id]);
+        let versions = await db.read(
+            'SELECT * FROM fsentry_versions WHERE fsentry_id = ?',
+            [this.entry.id],
+        );
         const versions_tidy = [];
         for ( const version of versions ) {
             let username = version.user_id ? (await get_user({ id: version.user_id })).username : null;
@@ -599,7 +608,7 @@ module.exports = class FSNodeContext {
         await this.fetchIsEmpty();
     }
 
-    async get (key) {
+    async get (key, force) {
         /*
             This isn't supposed to stay like this!
 
@@ -719,10 +728,11 @@ module.exports = class FSNodeContext {
         }
 
         if ( key === 'writable' ) {
+            if ( this.#writable && !force ) return this.#writable;
             const actor = Context.get('actor');
             if ( !actor || !actor.type.user ) return undefined;
             const svc_acl = this.services.get('acl');
-            return await svc_acl.check(actor, this, 'write');
+            return this.#writable = await svc_acl.check(actor, this, 'write');
         }
 
         throw new Error(`unrecognize key for FSNodeContext.get: ${key}`);
