@@ -540,8 +540,7 @@ class WebServerService extends BaseService {
             // Check if the hostname matches any of the allowed domains or is a subdomain of an allowed domain
             // Exception: allow /healthcheck endpoint on the root domain
             if (
-                req.path === '/healthcheck' &&
-                hostName === config.domain.toLowerCase()
+                req.path === '/healthcheck'
             ) {
                 next();
                 return;

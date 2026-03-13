@@ -1025,6 +1025,7 @@ export default class AppService extends BaseService {
 
         // Handle app-specific logic (AppES behavior)
         const user = actor.type.user;
+        const oldAppId = await this.#resolveAppId(old_app);
 
         // Ensure puter.site subdomain is owned by user (if index_url changed)
         if ( object.index_url && object.index_url !== old_app.index_url ) {
@@ -1033,14 +1034,14 @@ export default class AppService extends BaseService {
                 object,
                 options,
                 user,
-                excludeAppId: old_app.id,
+                excludeAppId: oldAppId,
             });
             if ( joinedApp ) {
                 return joinedApp;
             }
             await this.#ensureIndexUrlNotAlreadyInUse({
                 indexUrl: object.index_url,
-                excludeAppId: old_app.id,
+                excludeAppId: oldAppId,
             });
         }
 
@@ -1063,6 +1064,20 @@ export default class AppService extends BaseService {
         // Return the updated app (re-fetch for client-safe output)
         // TODO: optimize this
         return await this.#read({ uid: old_app.uid });
+    }
+
+    async #resolveAppId (app) {
+        const appId = Number(app?.id);
+        if ( Number.isInteger(appId) && appId > 0 ) return appId;
+        if ( typeof app?.uid !== 'string' || !app.uid ) return undefined;
+
+        const rows = await this.db.read(
+            'SELECT id FROM apps WHERE uid = ? LIMIT 1',
+            [app.uid],
+        );
+        const resolvedId = Number(rows?.[0]?.id);
+        if ( Number.isInteger(resolvedId) && resolvedId > 0 ) return resolvedId;
+        return undefined;
     }
 
     async #check_owner_permission (old_app) {
@@ -1244,6 +1259,13 @@ export default class AppService extends BaseService {
 
         const rows = await this.db.read(query, parameters);
         const conflictRow = rows.find(row => {
+            if (
+                Number.isInteger(excludeAppId)
+                && excludeAppId > 0
+                && Number(row?.id) === excludeAppId
+            ) {
+                return false;
+            }
             if ( typeof row?.index_url === 'string' ) {
                 return indexUrlCandidates.includes(row.index_url);
             }

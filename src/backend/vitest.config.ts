@@ -7,14 +7,11 @@ const isCi = process.env.CI === 'true';
 export default defineConfig(({ mode }) => ({
     test: {
         globals: true,
-        maxWorkers: isCi ? 2 : undefined,
-        minWorkers: isCi ? 1 : undefined,
         coverage: {
             provider: 'v8',
             reporter: isCi
                 ? ['json', 'json-summary', 'lcov']
                 : ['text', 'json', 'json-summary', 'html', 'lcov'],
-            processingConcurrency: isCi ? 2 : undefined,
             excludeAfterRemap: true,
             // Keep coverage focused on executed files to avoid high-memory
             // uncovered-file remapping in CI.

@@ -679,13 +679,48 @@ class AppES extends BaseES {
             query += ' ORDER BY timestamp ASC, id ASC LIMIT 1';
 
             const rows = await this.db.read(query, parameters);
+            const normalizedExcludeMysqlId = Number(excludeMysqlId);
             const conflictRow = rows.find(row => {
+                if (
+                    Number.isInteger(normalizedExcludeMysqlId)
+                    && normalizedExcludeMysqlId > 0
+                    && Number(row?.id) === normalizedExcludeMysqlId
+                ) {
+                    return false;
+                }
                 if ( typeof row?.index_url === 'string' ) {
                     return candidates.includes(row.index_url);
                 }
                 return true;
             });
             return conflictRow || null;
+        },
+
+        async resolve_entity_mysql_id_ (entity) {
+            const directMysqlId = Number(entity?.private_meta?.mysql_id);
+            if ( Number.isInteger(directMysqlId) && directMysqlId > 0 ) {
+                return directMysqlId;
+            }
+
+            if ( !entity || typeof entity.get !== 'function' ) {
+                return undefined;
+            }
+
+            const uid = await entity.get('uid');
+            if ( typeof uid !== 'string' || !uid ) {
+                return undefined;
+            }
+
+            const rows = await this.db.read(
+                'SELECT id FROM apps WHERE uid = ? LIMIT 1',
+                [uid],
+            );
+            const mysqlId = Number(rows?.[0]?.id);
+            if ( Number.isInteger(mysqlId) && mysqlId > 0 ) {
+                return mysqlId;
+            }
+
+            return undefined;
         },
 
         async claim_app_ownership_by_id_for_user_ ({ appId, userId }) {
@@ -783,7 +818,7 @@ class AppES extends BaseES {
 
             const new_index_url = await entity.get('index_url');
             const source_entity = extra.old_entity;
-            const currentMysqlId = extra.old_entity?.private_meta?.mysql_id;
+            const currentMysqlId = await this.resolve_entity_mysql_id_(extra.old_entity);
             const conflictRow = await this.find_index_url_conflict_({
                 indexUrl: new_index_url,
                 excludeMysqlId: currentMysqlId,
@@ -918,7 +953,7 @@ class AppES extends BaseES {
                 }
             }
 
-            const currentMysqlId = extra.old_entity?.private_meta?.mysql_id;
+            const currentMysqlId = await this.resolve_entity_mysql_id_(extra.old_entity);
             const conflictRow = await this.find_index_url_conflict_({
                 indexUrl: new_index_url,
                 excludeMysqlId: currentMysqlId,
