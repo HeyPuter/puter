@@ -15,6 +15,43 @@ interface DBClientConfig {
     endpoint?: string
 }
 
+const LOCAL_DYNAMO_PATH_KEY = ':memory:';
+const localDynaliteEndpointPromises = new Map<string, Promise<string>>();
+
+const getDynalitePathKey = (path?: string) => {
+    if ( path === ':memory:' ) return LOCAL_DYNAMO_PATH_KEY;
+    return path || './puter-ddb';
+};
+
+const getOrCreateLocalDynaliteEndpoint = async (pathKey: string) => {
+    let endpointPromise = localDynaliteEndpointPromises.get(pathKey);
+    if ( endpointPromise ) return endpointPromise;
+
+    endpointPromise = (async () => {
+        const dynaliteOptions = pathKey === LOCAL_DYNAMO_PATH_KEY
+            ? { createTableMs: 0 }
+            : { createTableMs: 0, path: pathKey };
+
+        const dynaliteInstance = dynalite(dynaliteOptions);
+        const dynaliteServer = dynaliteInstance.listen(0, '127.0.0.1');
+        // Don't keep test workers alive just because dynalite is still open.
+        dynaliteServer.unref?.();
+        await once(dynaliteServer, 'listening');
+
+        const address = dynaliteServer.address();
+        const port = (typeof address === 'object' && address ? address.port : undefined) || 4567;
+        return `http://127.0.0.1:${port}`;
+    })();
+
+    localDynaliteEndpointPromises.set(pathKey, endpointPromise);
+    endpointPromise.catch(() => {
+        if ( localDynaliteEndpointPromises.get(pathKey) === endpointPromise ) {
+            localDynaliteEndpointPromises.delete(pathKey);
+        }
+    });
+    return endpointPromise;
+};
+
 export class DDBClient {
     ddbClientPromise: Promise<DynamoDBClient>;
     #documentClient!: DynamoDBDocumentClient;
@@ -42,12 +79,8 @@ export class DDBClient {
     async #getClient () {
         if ( ! this.config?.aws ) {
             console.warn('No config for DynamoDB, will fall back on local dynalite');
-            const dynaliteInstance = dynalite({ createTableMs: 0, path: this.config?.path === ':memory:' ? undefined : this.config?.path || './puter-ddb' });
-            const dynaliteServer = dynaliteInstance.listen(0, '127.0.0.1');
-            await once(dynaliteServer, 'listening');
-            const address = dynaliteServer.address();
-            const port = (typeof address === 'object' && address ? address.port : undefined) || 4567;
-            const dynamoEndpoint = `http://127.0.0.1:${port}`;
+            const pathKey = getDynalitePathKey(this.config?.path);
+            const dynamoEndpoint = await getOrCreateLocalDynaliteEndpoint(pathKey);
 
             const client =  new DynamoDBClient({
                 credentials: {
@@ -117,15 +150,17 @@ export class DDBClient {
             return acc;
         }, {} as Record<string, Record<string, unknown>[]>);
 
-        const RequestItems: BatchGetCommandInput['RequestItems'] = Object.entries(allRequestItemsPerTable).reduce((acc, [table, keyList]) => {
-            const Keys = keyList;
-            acc[table] = {
-                Keys,
-                ConsistentRead: consistentRead,
-            };
-            return acc;
-        },
-        {} as NonNullable<BatchGetCommandInput['RequestItems']>);
+        const RequestItems: BatchGetCommandInput['RequestItems'] = Object.entries(allRequestItemsPerTable).reduce(
+            (acc, [table, keyList]) => {
+                const Keys = keyList;
+                acc[table] = {
+                    Keys,
+                    ConsistentRead: consistentRead,
+                };
+                return acc;
+            },
+            {} as NonNullable<BatchGetCommandInput['RequestItems']>,
+        );
 
         const command = new BatchGetCommand({
             RequestItems,
