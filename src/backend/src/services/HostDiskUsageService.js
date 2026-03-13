@@ -18,6 +18,7 @@
  */
 const BaseService = require('./BaseService');
 const { execSync } = require('child_process');
+const { Shescape } = require('shescape');
 const config = require('../config');
 
 /**
@@ -112,12 +113,14 @@ class HostDiskUsageService extends BaseService {
 
     // Get the mountpoint/drive of the current working directory in mac os
     get_darwin_mountpoint (directory) {
-        return execSync(`df -P "${directory}" | awk 'NR==2 {print $6}'`, { encoding: 'utf-8' }).trim();
+        const shescape = new Shescape({ shell: 'bash', quote: true });
+        return execSync(`df -P ${shescape.escape(directory)} | awk 'NR==2 {print $6}'`, { encoding: 'utf-8' }).trim();
     }
 
     // Get the mountpoint/drive of the current working directory in linux
     get_linux_mountpint (directory) {
-        return execSync(`df -P "${directory}" | awk 'NR==2 {print $6}'`, { encoding: 'utf-8' }).trim();
+        const shescape = new Shescape({ shell: 'bash', quote: true });
+        return execSync(`df -P ${shescape.escape(directory)} | awk 'NR==2 {print $6}'`, { encoding: 'utf-8' }).trim();
         // TODO: Implement for linux systems
     }
 
@@ -128,13 +131,15 @@ class HostDiskUsageService extends BaseService {
 
     // Get the total drive capacity on the mountpoint/drive in mac os
     get_disk_capacity_darwin (mountpoint) {
-        const disk_info = execSync(`df -P "${mountpoint}" | awk 'NR==2 {print $2}'`, { encoding: 'utf-8' }).trim().split(' ');
+        const shescape = new Shescape({ shell: 'bash', quote: true });
+        const disk_info = execSync(`df -P ${shescape.escape(mountpoint)} | awk 'NR==2 {print $2}'`, { encoding: 'utf-8' }).trim().split(' ');
         return parseInt(disk_info) * 512;
     }
 
     // Get the total drive capacity on the mountpoint/drive in linux
     get_disk_capacity_linux (mountpoint) {
-        const disk_info = execSync(`df -P "${mountpoint}" | awk 'NR==2 {print $2}'`, { encoding: 'utf-8' }).trim().split(' ');
+        const shescape = new Shescape({ shell: 'bash', quote: true });
+        const disk_info = execSync(`df -P ${shescape.escape(mountpoint)} | awk 'NR==2 {print $2}'`, { encoding: 'utf-8' }).trim().split(' ');
         return parseInt(disk_info) * 1024;
     }
 
@@ -145,13 +150,15 @@ class HostDiskUsageService extends BaseService {
 
     // Get the free space on the mountpoint/drive in mac os
     get_disk_use_darwin (mountpoint) {
-        const disk_info = execSync(`df -P "${mountpoint}" | awk 'NR==2 {print $4}'`, { encoding: 'utf-8' }).trim().split(' ');
+        const shescape = new Shescape({ shell: 'bash', quote: true });
+        const disk_info = execSync(`df -P ${shescape.escape(mountpoint)} | awk 'NR==2 {print $4}'`, { encoding: 'utf-8' }).trim().split(' ');
         return parseInt(disk_info) * 512;
     }
 
     // Get the free space on the mountpoint/drive in linux
     get_disk_use_linux (mountpoint) {
-        const disk_info = execSync(`df -P "${mountpoint}" | awk 'NR==2 {print $4}'`, { encoding: 'utf-8' }).trim().split(' ');
+        const shescape = new Shescape({ shell: 'bash', quote: true });
+        const disk_info = execSync(`df -P ${shescape.escape(mountpoint)} | awk 'NR==2 {print $4}'`, { encoding: 'utf-8' }).trim().split(' ');
         return parseInt(disk_info) * 1024;
     }
 

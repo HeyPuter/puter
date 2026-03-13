@@ -78,6 +78,7 @@
     "sharp": "^0.34.3",
     "sharp-bmp": "^0.1.5",
     "sharp-ico": "^0.1.5",
+    "shescape": "^2.1.10",
     "socket.io": "^4.6.2",
     "socket.io-client": "^4.6.2",
     "ssh2": "^1.13.0",
