@@ -7,16 +7,11 @@ const isCi = process.env.CI === 'true';
 export default defineConfig(({ mode }) => ({
     test: {
         globals: true,
-        // Run test files serially by default to reduce heap pressure in large backend suites.
-        maxWorkers: 1,
-        minWorkers: 1,
-        fileParallelism: false,
         coverage: {
             provider: 'v8',
             reporter: isCi
                 ? ['json', 'json-summary', 'lcov']
                 : ['text', 'json', 'json-summary', 'html', 'lcov'],
-            processingConcurrency: 1,
             excludeAfterRemap: true,
             // Keep coverage focused on executed files to avoid high-memory
             // uncovered-file remapping in CI.

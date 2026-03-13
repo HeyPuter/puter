@@ -1837,8 +1837,17 @@ describe('AppService', () => {
         it('should join existing unowned hosted app when index_url is already in use on update', async () => {
             setupContextForWrite(createMockUserActor(1));
             mockPuterSiteService.get_subdomain.mockResolvedValue({ user_id: 1 });
+            let readCallCount = 0;
             mockDb.read.mockImplementation(async (query, params) => {
+                readCallCount++;
+                if ( readCallCount > 100 ) {
+                    throw new Error(`excessive mockDb.read calls in join test: ${String(query)} :: ${JSON.stringify(params)}`);
+                }
                 if ( typeof query === 'string' && query.includes('FROM apps WHERE index_url IN') ) {
+                    if ( Array.isArray(params) && params[params.length - 1] === 777 ) {
+                        // Mirrors SQL `AND id != ?` behavior during join follow-up updates.
+                        return [];
+                    }
                     return [{
                         id: 777,
                         uid: 'app-conflict-uid',
@@ -1878,7 +1887,7 @@ describe('AppService', () => {
             expect(result.uid).toBe('app-conflict-uid');
             expect(mockDbWrite.write).toHaveBeenCalledWith(
                 expect.stringContaining('UPDATE apps SET'),
-                expect.arrayContaining(['Joined Update Title', 777]),
+                expect.arrayContaining(['Joined Update Title', 'app-conflict-uid']),
             );
             expect(mockAppInformationService.delete_app).toHaveBeenCalledWith(
                 'app-uid-123',
