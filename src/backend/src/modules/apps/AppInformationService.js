@@ -552,25 +552,50 @@ class AppInformationService extends BaseService {
 
         const db = this.services.get('database').get(DB_READ, 'apps');
 
-        // Fetch all stats in two aggregate queries instead of per-app queries
-        const [openCounts, userCounts] = await Promise.all([
-            db.read(`
-                SELECT app_uid, COUNT(_id) AS open_count 
-                FROM app_opens 
-                GROUP BY app_uid
-            `),
-            db.read(`
-                SELECT app_uid, COUNT(DISTINCT user_id) AS user_count 
-                FROM app_opens 
-                GROUP BY app_uid
-            `),
-        ]);
+        let openCountMap;
+        let userCountMap;
 
-        // Build maps for quick lookup
-        const openCountMap = new Map(openCounts.map(row => [row.app_uid, row.open_count]));
-        const userCountMap = new Map(userCounts.map(row => [row.app_uid, row.user_count]));
+        if ( global.clickhouseClient ) {
+            const [openResult, userResult] = await Promise.all([
+                global.clickhouseClient.query({
+                    query: `
+                        SELECT app_uid, COUNT(_id) AS open_count
+                        FROM app_opens
+                        GROUP BY app_uid
+                    `,
+                    format: 'JSONEachRow',
+                }),
+                global.clickhouseClient.query({
+                    query: `
+                        SELECT app_uid, COUNT(DISTINCT user_id) AS user_count
+                        FROM app_opens
+                        GROUP BY app_uid
+                    `,
+                    format: 'JSONEachRow',
+                }),
+            ]);
+            const openRows = await openResult.json();
+            const userRows = await userResult.json();
+            openCountMap = new Map(openRows.map(row => [row.app_uid, parseInt(row.open_count, 10)]));
+            userCountMap = new Map(userRows.map(row => [row.app_uid, parseInt(row.user_count, 10)]));
+        } else {
+            const [openCounts, userCounts] = await Promise.all([
+                db.read(`
+                    SELECT app_uid, COUNT(_id) AS open_count 
+                    FROM app_opens 
+                    GROUP BY app_uid
+                `),
+                db.read(`
+                    SELECT app_uid, COUNT(DISTINCT user_id) AS user_count 
+                    FROM app_opens 
+                    GROUP BY app_uid
+                `),
+            ]);
+            openCountMap = new Map(openCounts.map(row => [row.app_uid, row.open_count]));
+            userCountMap = new Map(userCounts.map(row => [row.app_uid, row.user_count]));
+        }
 
-        // Get all app UIDs and update the cache
+        // Get all app UIDs and update the cache (apps list lives in MySQL)
         const apps = await db.read('SELECT uid FROM apps');
 
         for ( const app of apps ) {
