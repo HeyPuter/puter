@@ -118,7 +118,7 @@ _handle_multipart = async (req) => {
     const Busboy = require('busboy');
     const { PassThrough } = require('stream');
 
-    const params = {};
+    const params = Object.create(null);
     const files = [];
     let file_index = 0;
 
@@ -140,7 +140,7 @@ _handle_multipart = async (req) => {
         let dst = params;
         for ( let i = 0; i < key_parts.length; i++ ) {
             if ( ! Object.prototype.hasOwnProperty.call(dst, key_parts[i]) ) {
-                dst[key_parts[i]] = {};
+                dst[key_parts[i]] = Object.create(null);
             }
             if ( !dst[key_parts[i]] || typeof dst[key_parts[i]] !== 'object' || Array.isArray(dst[key_parts[i]]) ) {
                 throw new Error(`Tried to set member of non-object: ${key_parts[i]} in ${fieldname}`);
@@ -173,7 +173,12 @@ _handle_multipart = async (req) => {
     };
 
     bb.on('field', (fieldname, value, _details) => {
-        const o = JSON.parse(value);
+        const o = JSON.parse(value, (key, val) => {
+            if ( val !== null && typeof val === 'object' && !Array.isArray(val) ) {
+                return Object.assign(Object.create(null), val);
+            }
+            return val;
+        });
         for ( const k in o ) {
             on_field(k, o[k]);
         }
