@@ -10,6 +10,7 @@ const { JSDOM } = require('jsdom');
 const yaml = require('js-yaml');
 const esbuild = require('esbuild');
 const { generatePlayground } = require('./src/playground');
+const Fuse = require('fuse.js');
 
 const site = 'https://docs.puter.com';
 
@@ -796,56 +797,135 @@ IMPORTANT: when creating an app, include a link to 'https://developer.puter.com'
     fs.writeFileSync(outputFile, outputContent, 'utf8');
 };
 
-function markdownToPlainText (markdown) {
+function markdownToSearchSections (markdown, pageTitle, pagePath) {
     const html = marked.parse(markdown);
 
     const dom = new JSDOM();
     const div = dom.window.document.createElement('div');
     div.innerHTML = html;
 
-    return div.textContent.replace(/\s+/g, ' ').trim();
+    const sections = [];
+    let currentSection = {
+        title: pageTitle,
+        path: pagePath,
+        subheading: '',
+        subheadingTitle: '',
+        textNodes: [],
+        headingsHTML: []
+    };
+
+    const childNodes = Array.from(div.childNodes);
+    for (const node of childNodes) {
+        if (node.nodeName.toLowerCase() === 'h2') {
+            if (currentSection.textNodes.length > 0 || currentSection.headingsHTML.length > 0) {
+                sections.push(currentSection);
+            }
+            currentSection = {
+                title: pageTitle,
+                path: pagePath,
+                subheading: node.id,
+                subheadingTitle: node.textContent.replace(/\s+/g, ' ').trim(),
+                textNodes: [],
+                headingsHTML: []
+            };
+        }
+        
+        currentSection.textNodes.push(node);
+        if (node.nodeName.toLowerCase() === 'h2' || node.nodeName.toLowerCase() === 'h3') {
+            currentSection.headingsHTML.push({
+                id: node.id,
+                text: node.textContent.replace(/\s+/g, ' ').trim()
+            });
+        } else if (node.querySelectorAll) {
+            const headings = Array.from(node.querySelectorAll('h2, h3'));
+            for (const h of headings) {
+               currentSection.headingsHTML.push({
+                   id: h.id,
+                   text: h.textContent.replace(/\s+/g, ' ').trim()
+               });
+            }
+        }
+    }
+    
+    if (currentSection.textNodes.length > 0 || currentSection.headingsHTML.length > 0) {
+        sections.push(currentSection);
+    }
+
+    return sections.map(sec => {
+        const secDiv = dom.window.document.createElement('div');
+        sec.textNodes.forEach(n => secDiv.appendChild(n.cloneNode(true)));
+        const plainText = secDiv.textContent.replace(/\s+/g, ' ').trim();
+        
+        let offset = 0;
+        const headings = [];
+        for (const h of sec.headingsHTML) {
+            if (!h.text) continue;
+            const index = plainText.indexOf(h.text, offset);
+            if (index !== -1) {
+                headings.push({ slug: h.id, title: h.text, index });
+                offset = index;
+            }
+        }
+        
+        return {
+            title: sec.title,
+            path: sec.path,
+            subheading: sec.subheading,
+            subheadingTitle: sec.subheadingTitle,
+            text: plainText,
+            headings: headings
+        };
+    }).filter(sec => sec.text.trim().length > 0);
 }
 
 const generateSearchIndex = () => {
     const currentDir = process.cwd();
     const outputFile = path.join(currentDir, 'dist', 'index.json');
-    const json = [];
+    const documents = [];
 
     const indexFile = path.join(currentDir, 'src', 'index.md');
-    const indexMarkdown = fs.readFileSync(indexFile, 'utf8');
-    json.push({
-        title: 'Puter.js',
-        path: '',
-        text: markdownToPlainText(indexMarkdown),
-    });
+    if (fs.existsSync(indexFile)) {
+        const indexMarkdown = fs.readFileSync(indexFile, 'utf8');
+        const { content: indexContent } = parseFrontMatter(indexMarkdown);
+        documents.push(...markdownToSearchSections(indexContent, 'Puter.js', ''));
+    }
 
     sidebar.forEach((item) => {
         if ( item.source ) {
             const file = path.join(currentDir, 'src', item.source);
-            const markdown = fs.readFileSync(file, 'utf8');
-            json.push({
-                title: item.title_tag ?? item.title,
-                path: item.path,
-                text: markdownToPlainText(markdown),
-            });
+            if (fs.existsSync(file)) {
+                const markdown = fs.readFileSync(file, 'utf8');
+                const { content } = parseFrontMatter(markdown);
+                documents.push(...markdownToSearchSections(content, item.title_tag ?? item.title, item.path));
+            }
         }
 
         if ( item.children && Array.isArray(item.children) ) {
             item.children.forEach((child) => {
                 if ( child.source ) {
                     const file = path.join(currentDir, 'src', child.source);
-                    const markdown = fs.readFileSync(file, 'utf8');
-                    json.push({
-                        title: child.title_tag ?? child.title,
-                        path: child.path,
-                        text: markdownToPlainText(markdown),
-                    });
+                    if (fs.existsSync(file)) {
+                        const markdown = fs.readFileSync(file, 'utf8');
+                        const { content } = parseFrontMatter(markdown);
+                        documents.push(...markdownToSearchSections(content, child.title_tag ?? child.title, child.path));
+                    }
                 }
             });
         }
     });
 
-    fs.writeFileSync(outputFile, JSON.stringify(json), 'utf8');
+    // Generate the Fuse.js index at build time so the client can skip
+    // the indexing step via Fuse.parseIndex().
+    const fuseKeys = [
+        { name: 'title', weight: 2.0 },
+        { name: 'text', weight: 1.0 }
+    ];
+    const fuseIndex = Fuse.createIndex(fuseKeys, documents);
+
+    fs.writeFileSync(outputFile, JSON.stringify({
+        documents,
+        index: fuseIndex.toJSON()
+    }), 'utf8');
 };
 
 // Main execution
