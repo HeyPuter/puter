@@ -182,11 +182,15 @@ class DriverService extends BaseService {
                 col_types.set(k, types[k]);
             }
         }
-        await services.emit('driver.register.interfaces',
-                        { col_interfaces });
+        await services.emit(
+            'driver.register.interfaces',
+            { col_interfaces },
+        );
 
-        await services.emit('driver.register.drivers',
-                        { col_drivers });
+        await services.emit(
+            'driver.register.drivers',
+            { col_drivers },
+        );
     }
 
     // This is a bit meta: we register the "driver" driver interface.
@@ -421,8 +425,10 @@ class DriverService extends BaseService {
         }
 
         const svc_permission = this.services.get('permission');
-        const reading = await svc_permission.scan(actor,
-                        PermissionUtil.join('service', service_name, 'ii', iface));
+        const reading = await svc_permission.scan(
+            actor,
+            PermissionUtil.join('service', service_name, 'ii', iface),
+        );
         const options = PermissionUtil.reading_to_options(reading);
         if ( options.length <= 0 ) {
             throw APIError.create('forbidden');
@@ -480,9 +486,11 @@ class DriverService extends BaseService {
                         const svc_rateLimit = this.services.get('rate-limit');
 
                         await svc_su.sudo(policy_holder, async () => {
-                            await svc_rateLimit.check_and_increment(`V1:${service_name}:${iface}:${method}`,
-                                            effective_policy['rate-limit'].max,
-                                            effective_policy['rate-limit'].period);
+                            await svc_rateLimit.check_and_increment(
+                                `V1:${service_name}:${iface}:${method}`,
+                                effective_policy['rate-limit'].max,
+                                effective_policy['rate-limit'].period,
+                            );
                         });
                         return args;
                     },
@@ -519,7 +527,10 @@ class DriverService extends BaseService {
                                     : method_spec.result.type
                                     ;
                             const svc_coercion = this.services.get('coercion');
-                            result = await svc_coercion.coerce(desired_type, result);
+                            const coerced = await svc_coercion.coerce(desired_type, result);
+                            if ( coerced ) {
+                                result = coerced;
+                            }
                         }
                         return result;
                     },

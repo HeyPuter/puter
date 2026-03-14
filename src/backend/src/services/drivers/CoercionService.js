@@ -66,11 +66,13 @@ class CoercionService extends BaseService {
             coerce: async typed_value => {
                 console.debug('coercion is running!');
 
-                const response = await secureAxiosRequest(CoercionService.MODULES.axios,
-                                typed_value.value,
-                                {
-                                    responseType: 'stream',
-                                });
+                const response = await secureAxiosRequest(
+                    CoercionService.MODULES.axios,
+                    typed_value.value,
+                    {
+                        responseType: 'stream',
+                    },
+                );
 
                 return new TypedValue({
                     $: 'stream',
@@ -89,11 +91,13 @@ class CoercionService extends BaseService {
                 content_type: 'video',
             },
             coerce: async typed_value => {
-                const response = await secureAxiosRequest(CoercionService.MODULES.axios,
-                                typed_value.value,
-                                {
-                                    responseType: 'stream',
-                                });
+                const response = await secureAxiosRequest(
+                    CoercionService.MODULES.axios,
+                    typed_value.value,
+                    {
+                        responseType: 'stream',
+                    },
+                );
 
                 return new TypedValue({
                     $: 'stream',
@@ -172,7 +176,7 @@ class CoercionService extends BaseService {
             return coerced;
         }
 
-        return typed_value;
+        return undefined;
     }
 }
 
