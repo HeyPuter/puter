@@ -31,7 +31,7 @@ export const GEMINI_ESTIMATED_IMAGE_TOKENS: Record<string, number> = {
     'gemini-3-pro-image-preview:2K': 1120,
     'gemini-3-pro-image-preview:4K': 2000,
 
-    'gemini-3.1-flash-image-preview:0.5K': 747,
+    'gemini-3.1-flash-image-preview:512': 747,
     'gemini-3.1-flash-image-preview:1K': 1120,
     'gemini-3.1-flash-image-preview:2K': 1680,
     'gemini-3.1-flash-image-preview:4K': 2520,
@@ -124,7 +124,7 @@ export const GEMINI_IMAGE_GENERATION_MODELS: IImageModel[] = [
             'google/gemini-3.1-flash-image',
             'google:google/gemini-3.1-flash-image-preview',
         ],
-        allowedQualityLevels: ['0.5K', '1K', '2K', '4K'],
+        allowedQualityLevels: ['512', '1K', '2K', '4K'],
         allowedRatios: [
             { w: 1, h: 1 },
             { w: 1, h: 4 },
