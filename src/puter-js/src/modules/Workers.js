@@ -67,9 +67,10 @@ export class WorkersHandler {
         }
 
         const req = new Request(...args);
-        if ( ! req.headers.get('puter-auth') ) {
+        if ( ! req.headers.get('puter-auth') && !req.headers.get('x-puter-no-auth')) {
             req.headers.set('puter-auth', puter.authToken);
         }
+        req.headers.delete('x-puter-no-auth');
         return fetch(req);
     }
 
