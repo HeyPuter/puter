@@ -260,7 +260,7 @@ const en = {
         recent: 'Recent',
         recommended: 'Recommended',
         recover_password: 'Recover Password',
-        refer_friends_c2a: 'Get 1 GB of storage and $0.25 worth of usage credit for resources (AI, Bandwidth, KV, etc.) for every friend who creates and confirms an account on Puter. Your friend will get the same too!',
+        refer_friends_c2a: 'Get 1 GB of storage and $0.25 worth of usage credit for resources (AI, Bandwidth, KV, etc.) for every friend who creates and confirms an account on Puter, for up to 20 users per month. Your friend will get the same too!',
         refer_friends_social_media_c2a: 'Get 1 GB of free storage on Puter.com!',
         refresh: 'Refresh',
         release_address_confirmation: 'Are you sure you want to release this address?',
