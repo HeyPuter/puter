@@ -18,6 +18,7 @@
  */
 import { createHmac, timingSafeEqual } from 'crypto';
 import { Server as SocketIoServer } from 'socket.io';
+import { Agent } from 'undici';
 import { BaseService } from '../../services/BaseService.js';
 import { Context } from '../../util/context.js';
 import { Endpoint } from '../../util/expressutil.js';
@@ -38,6 +39,9 @@ export class BroadcastService extends BaseService {
     #dedupFallbackCounter = 0;
     #webhookReplayWindowSeconds = 300;
     #outboundFlushMs = 5000;
+    #webhookHostHeader = null;
+    #webhookProtocol = 'https';
+    #webhookInsecureDispatcher = new Agent({ connect: { rejectUnauthorized: false } });
 
     async _init () {
         const peers = this.config.peers ?? [];
@@ -69,6 +73,14 @@ export class BroadcastService extends BaseService {
         this.#outboundFlushMs = Number.isFinite(outboundFlushMs) && outboundFlushMs >= 0
             ? outboundFlushMs
             : 5000;
+        this.#webhookHostHeader = typeof this.config.host === 'string' &&
+            this.config.host.trim() !== ''
+            ? this.config.host
+            : null;
+        {
+            const protocol = String(this.config.protocol ?? '').trim().replace(/:$/, '').toLowerCase();
+            this.#webhookProtocol = protocol === 'http' || protocol === 'https' ? protocol : 'https';
+        }
 
         const svc_event = this.services.get('event');
         svc_event.on('outer.*', this.outBroadcastEventHandler.bind(this));
@@ -322,10 +334,11 @@ export class BroadcastService extends BaseService {
     async #sendWebhookToPeer (peer_config, events) {
         const peerId = peer_config.key;
         const url = peer_config.webhook_url;
+        const requestUrl = this.#normalizeWebhookUrl(url);
         const mySecretKey = this.config.webhook?.secret ?? '';
-        console.log(`I am trying to send to webhook peer: ${url} with secret: ${ mySecretKey}`);
+        console.log(`I am trying to send to webhook peer: ${requestUrl} with secret: ${ mySecretKey}`);
 
-        if ( !url || !mySecretKey ) return;
+        if ( !requestUrl || !mySecretKey ) return;
 
         let nextNonce = this.#outgoingNonceByPeer.get(peerId) ?? 0;
         this.#outgoingNonceByPeer.set(peerId, nextNonce + 1);
@@ -338,21 +351,48 @@ export class BroadcastService extends BaseService {
         const signature = createHmac('sha256', mySecretKey).update(payloadToSign).digest('hex');
 
         const myPublicKey = this.config.webhook?.key ?? '';
-        const response = await fetch(url, {
+        const headers = {
+            'Content-Type': 'application/json',
+            'X-Broadcast-Peer-Id': myPublicKey,
+            'X-Broadcast-Timestamp': String(timestamp),
+            'X-Broadcast-Nonce': String(nextNonce),
+            'X-Broadcast-Signature': signature,
+        };
+        if ( this.#webhookHostHeader ) {
+            headers.Host = this.#webhookHostHeader;
+        }
+
+        const fetchOptions = {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-Broadcast-Peer-Id': myPublicKey,
-                'X-Broadcast-Timestamp': String(timestamp),
-                'X-Broadcast-Nonce': String(nextNonce),
-                'X-Broadcast-Signature': signature,
-            },
+            headers,
             body: rawBody,
-        });
+        };
+        fetchOptions.dispatcher = this.#webhookInsecureDispatcher;
+
+        const response = await fetch(requestUrl, fetchOptions);
 
         if ( ! response.ok ) {
             throw new Error(`Webhook POST failed: ${response.status} ${response.statusText}`);
         }
+    }
+
+    #normalizeWebhookUrl (url) {
+        if ( typeof url !== 'string' || url.trim() === '' ) {
+            return null;
+        }
+
+        const urlValue = url.trim();
+        let parsedUrl;
+        try {
+            parsedUrl = urlValue.includes('://')
+                ? new URL(urlValue)
+                : new URL(`${this.#webhookProtocol}://${urlValue}`);
+        } catch {
+            return null;
+        }
+
+        parsedUrl.protocol = `${this.#webhookProtocol}:`;
+        return parsedUrl.toString();
     }
 
     async '__on_install.websockets' () {
