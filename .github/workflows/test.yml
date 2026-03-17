@@ -28,7 +28,7 @@ jobs:
 
       - name: Backend Tests (with coverage)
         env:
-          NODE_OPTIONS: --max-old-space-size=4096
+          NODE_OPTIONS: "--max-old-space-size=4096"
         run: |
           npm ci
           npm run build
