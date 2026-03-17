@@ -21,7 +21,6 @@ const config = require('../config');
 const { LegacyTokenError } = require('../services/auth/AuthService');
 const { AccessTokenActorType } = require('../services/auth/Actor');
 const { Context } = require('../util/context');
-const jwt = require('jsonwebtoken');
 
 // The "/whoami" endpoint is a special case where we want to allow
 // a legacy token to be used for authentication. The "/whoami"
@@ -47,6 +46,7 @@ const configurable_auth = options => async (req, res, next) => {
     }
 
     const optional = options?.optional;
+    const allow_cached_user = options?.allow_cached_user;
 
     // Request might already have been authed (PreAuthService)
     if ( req.actor ) return next();
@@ -159,6 +159,10 @@ const configurable_auth = options => async (req, res, next) => {
     // === Populate Context ===
     context.set('actor', actor);
     if ( actor.type.user ) {
+        if ( allow_cached_user === false ) {
+            const svc_getUser = services.get('get-user');
+            actor.type.user = await svc_getUser.get_user({ id: actor.type.user.id, force: true });
+        }
         if ( actor.type.user?.suspended ) {
             throw APIError.create('forbidden');
         }
