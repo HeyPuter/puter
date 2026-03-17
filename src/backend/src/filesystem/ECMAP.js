@@ -35,7 +35,7 @@ class ECMAP {
      * GC'd. This is called by ECMAP.arun() after the callback has resolved.
      */
     unlink () {
-        this.unlink = true;
+        this.unlinked = true;
         this.uuid_to_fsNodeContext = null;
         this.path_to_fsNodeContext = null;
         this.id_to_fsNodeContext = null;
