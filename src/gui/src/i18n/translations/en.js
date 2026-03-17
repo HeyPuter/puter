@@ -27,6 +27,7 @@ const en = {
         account_password: 'Verify Account Password',
         access_granted_to: 'Access Granted To',
         add_existing_account: 'Add Existing Account',
+        add_to_desktop: 'Add to Desktop',
         ai_app_unavailable: 'AI app is not available. Please try again later.',
         all_fields_required: 'All fields are required.',
         allow: 'Allow',
