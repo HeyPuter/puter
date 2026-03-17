@@ -320,6 +320,7 @@ export class BroadcastService extends BaseService {
 
         let nextNonce = this.#outgoingNonceByPeer.get(peerId) ?? 0;
         this.#outgoingNonceByPeer.set(peerId, nextNonce + 1);
+        console.log('Sending webhook message to peer', { peerId });
 
         const timestamp = Math.floor(Date.now() / 1000);
         const body = { events };
@@ -328,7 +329,6 @@ export class BroadcastService extends BaseService {
         const signature = createHmac('sha256', mySecretKey).update(payloadToSign).digest('hex');
 
         const myPublicKey = this.config.webhook?.key ?? '';
-        console.debug('Sending webhook message to peer', { peerId });
         const response = await fetch(url, {
             method: 'POST',
             headers: {
