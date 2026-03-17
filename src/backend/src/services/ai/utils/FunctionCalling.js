@@ -85,7 +85,7 @@ export const normalize_tools_object =  (tools) => {
         } else if ( tool.type === 'function' ) {
             normalized_tool = {
                 type: 'function',
-                function: normalize_function(tool.function),
+                function: normalize_function(tool.function || tool),
             };
         } else {
             normalized_tool = {

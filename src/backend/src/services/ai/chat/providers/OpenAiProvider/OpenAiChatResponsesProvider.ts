@@ -54,7 +54,8 @@ export class OpenAiResponsesChatProvider implements IChatProvider {
 
     constructor (
         meteringService: MeteringService,
-        config: { apiKey?: string, secret_key?: string }) {
+        config: { apiKey?: string, secret_key?: string },
+    ) {
 
         this.#meteringService = meteringService;
         let apiKey = config.apiKey;
@@ -103,7 +104,34 @@ export class OpenAiResponsesChatProvider implements IChatProvider {
         return this.#defaultModel;
     }
 
-    async complete ({ messages, model, max_tokens, moderation, tools, verbosity, stream, reasoning, reasoning_effort, temperature, text }: ICompleteArguments): ReturnType<IChatProvider['complete']>
+    async complete ({
+        messages,
+        model,
+        max_tokens,
+        moderation,
+        tools,
+        tool_choice,
+        parallel_tool_calls,
+        include,
+        conversation,
+        previous_response_id,
+        instructions,
+        metadata,
+        prompt,
+        prompt_cache_key,
+        prompt_cache_retention,
+        store,
+        top_p,
+        truncation,
+        background,
+        service_tier,
+        verbosity,
+        stream,
+        reasoning,
+        reasoning_effort,
+        temperature,
+        text,
+    }: ICompleteArguments): ReturnType<IChatProvider['complete']>
     {
         // Validate messages
         if ( ! Array.isArray(messages) ) {
@@ -215,15 +243,32 @@ export class OpenAiResponsesChatProvider implements IChatProvider {
             input: messages,
             model: modelUsed.id,
             ...(tools ? { tools } : {}),
-            ...(max_tokens ? { max_output_tokens: max_tokens } : {}),
-            ...(temperature ? { temperature } : {}),
-            stream: !!stream,
+            ...(tool_choice !== undefined ? { tool_choice } : {}),
+            ...(parallel_tool_calls !== undefined ? { parallel_tool_calls } : {}),
+            ...(include !== undefined ? { include } : {}),
+            ...(conversation !== undefined ? { conversation } : {}),
+            ...(previous_response_id !== undefined ? { previous_response_id } : {}),
+            ...(instructions !== undefined ? { instructions } : {}),
+            ...(metadata !== undefined ? { metadata } : {}),
+            ...(prompt !== undefined ? { prompt } : {}),
+            ...(prompt_cache_key !== undefined ? { prompt_cache_key } : {}),
+            ...(prompt_cache_retention !== undefined ? { prompt_cache_retention } : {}),
+            ...(store !== undefined ? { store } : {}),
+            ...(max_tokens !== undefined ? { max_output_tokens: max_tokens } : {}),
+            ...(temperature !== undefined ? { temperature } : {}),
+            ...(top_p !== undefined ? { top_p } : {}),
+            ...(truncation !== undefined ? { truncation } : {}),
+            ...(background !== undefined ? { background } : {}),
+            ...(service_tier !== undefined ? { service_tier } : {}),
+            ...(stream !== undefined ? { stream: !!stream } : {}),
+            ...(text !== undefined ? { text } : {}),
             ...(supportsReasoningControls ? {} :
                 {
                     ...(requestedReasoningEffort ? { reasoning_effort: requestedReasoningEffort } : {}),
                     ...(requestedVerbosity ? { verbosity: requestedVerbosity } : {}),
                 }
             ),
+            ...(supportsReasoningControls && reasoning ? { reasoning } : {}),
         } as ResponseCreateParams;
 
         // console.log("completion params: ", completionParams)
