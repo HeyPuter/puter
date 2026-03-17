@@ -212,6 +212,7 @@ export class BroadcastService extends BaseService {
         const svc_web = this.services.get('web-server');
         svc_web.allow_undefined_origin('/broadcast/webhook');
 
+        // TODO DS: stop using Endpoint
         Endpoint({
             route: '/broadcast/webhook',
             methods: ['POST'],
@@ -220,6 +221,7 @@ export class BroadcastService extends BaseService {
     }
 
     async #handleWebhookRequest (req, res) {
+        console;
         const rawBody = req.rawBody;
         if ( rawBody === undefined || rawBody === null ) {
             res.status(400).send({ error: { message: 'Missing or invalid body' } });
@@ -244,7 +246,7 @@ export class BroadcastService extends BaseService {
             return;
         }
 
-        console.debug('received peerId', { value: peerId });
+        console.log('received peerId', { value: peerId });
 
         const peer = this.#peersByKey[peerId];
         if ( !peer || !peer.webhook_secret ) {

@@ -30,9 +30,7 @@ jobs:
         env:
           NODE_OPTIONS: --max-old-space-size=4096
         run: |
-          rm package-lock.json
-          npm install -g npm@latest
-          npm install
+          npm ci
           npm run build
           npm run test:backend -- --coverage --coverage.reporter=json --coverage.reporter=json-summary --coverage.reporter=lcov
 
