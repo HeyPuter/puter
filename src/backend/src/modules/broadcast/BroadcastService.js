@@ -77,6 +77,8 @@ export class BroadcastService extends BaseService {
     async outBroadcastEventHandler (key, data, meta) {
         if ( meta?.from_outside ) return;
 
+        console.log('I should be enqueing outbound events');
+
         const safeMeta = this.#normalizeMeta(meta);
         this.#enqueueOutboundEvent({ key, data, meta: safeMeta });
     }
@@ -100,23 +102,28 @@ export class BroadcastService extends BaseService {
     #scheduleOutboundFlush () {
         if ( this.#outboundFlushTimer ) return;
 
-        this.#outboundFlushTimer = setTimeout(() => {
+        this.#outboundFlushTimer = setTimeout(async () => {
             this.#outboundFlushTimer = null;
-            this.#flushOutboundEvents().catch(error => {
+            try {
+                await this.#flushOutboundEvents();
+            } catch ( error ) {
                 console.warn('outbound broadcast flush failed', { error });
-            });
+            }
         }, this.#outboundFlushMs);
     }
 
     async #flushOutboundEvents () {
+        console.log('I have called flush');
         if ( this.#outboundIsFlushing || this.#outboundEventsByDedupKey.size === 0 ) return;
 
         this.#outboundIsFlushing = true;
         try {
             const events = [...this.#outboundEventsByDedupKey.values()];
+            console.log(`I am attempting to flush ${ events.length } events`);
             this.#outboundEventsByDedupKey.clear();
             const message = { events };
 
+            console.log(`I have ${this.#peers.length} deprecated ws peers and ${this.#webhookPeers.length} webhook peers`);
             for ( const peer of this.#peers ) {
                 try {
                     peer.send(message);
@@ -129,7 +136,7 @@ export class BroadcastService extends BaseService {
                 try {
                     await this.#sendWebhookToPeer(peer_config, events);
                 } catch (e) {
-                    console.warn(`webhook broadcast send error: ${ JSON.stringify({ peer: peer_config.key, error: e })}`);
+                    console.warn(`webhook broadcast send error: ${ JSON.stringify({ peer: peer_config.key, error: e.message })}`);
                 }
             }
         } finally {
@@ -316,6 +323,8 @@ export class BroadcastService extends BaseService {
         const peerId = peer_config.key;
         const url = peer_config.webhook_url;
         const mySecretKey = this.config.webhook?.secret ?? '';
+        console.log(`I am trying to send to webhook peer: ${url} with secret: ${ mySecretKey}`);
+
         if ( !url || !mySecretKey ) return;
 
         let nextNonce = this.#outgoingNonceByPeer.get(peerId) ?? 0;
