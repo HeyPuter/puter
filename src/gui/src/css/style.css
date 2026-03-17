@@ -1327,7 +1327,7 @@ span.header-sort-icon img {
 }
 
 .window-sidebar-item-active, .window-sidebar-item-drag-active, .window-sidebar-item-active:hover {
-    background-color: var(--primary-color-sidebar-item);
+    background-color: #fefeff;
 }
 
 .window-sidebar-item-placeholder {
@@ -1482,7 +1482,6 @@ span.header-sort-icon img {
     -moz-user-select: none;
     -webkit-user-select: none;
     -ms-user-select: none;
-    filter: var(--primary-color-icon);
 }
 
 .window-action-btn:hover>img {
