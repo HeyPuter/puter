@@ -44,11 +44,15 @@ const CHANGE_EMAIL_CONFIRM = eggspress('/change_email/confirm', {
 
     const db = req.services.get('database').get(DB_WRITE, 'auth');
     const rows = await db.read(
-        'SELECT `unconfirmed_change_email` FROM `user` WHERE `id` = ? AND `change_email_confirm_token` = ?',
+        'SELECT `unconfirmed_change_email`, `suspended` FROM `user` WHERE `id` = ? AND `change_email_confirm_token` = ?',
         [user_id, token],
     );
     if ( rows.length === 0 ) {
         throw APIError.create('token_invalid');
+    }
+
+    if ( rows[0].suspended ) {
+        throw APIError.create('forbidden');
     }
 
     const svc_cleanEmail = req.services.get('clean-email');
