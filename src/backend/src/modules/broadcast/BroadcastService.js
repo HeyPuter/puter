@@ -221,7 +221,7 @@ export class BroadcastService extends BaseService {
     }
 
     async #handleWebhookRequest (req, res) {
-        console;
+        console.log('handling some request via webhooks');
         const rawBody = req.rawBody;
         if ( rawBody === undefined || rawBody === null ) {
             res.status(400).send({ error: { message: 'Missing or invalid body' } });
