@@ -1,0 +1,18 @@
+name: Notify HeyPuter
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger heyputer build
+        run: |
+          curl -X POST \
+            -H "Authorization: token ${{ secrets.HEYPUTER_DISPATCH_TOKEN }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            https://api.github.com/repos/HeyPuter/heyputer/dispatches \
+            -d '{"event_type":"puter-main-updated","client_payload":{"puter_ref":"main"}}'
