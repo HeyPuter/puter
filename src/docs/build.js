@@ -273,7 +273,7 @@ function generateDocsHTML (filePath, rootDir, page, isIndex = false) {
         html += `<meta name="title" content="${removeTags(page.title_tag ?? page.title)}" />`;
     }
     // Self referencing canonical
-    html += `<link rel="canonical" href="${new URL(page.path, site).href}/">`;
+    html += `<link rel="canonical" href="${new URL(page.path, site).href.replace(/\/$/, '')}/">`;
     // Viewport
     html += '<meta name="viewport" content="width=device-width, initial-scale=1.0">';
     // Description
