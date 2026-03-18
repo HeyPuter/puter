@@ -381,6 +381,9 @@ const install = async ({ context, services, app, useapi, modapi }) => {
     const { PermissionShortcutService } = require('./services/auth/PermissionShortcutService');
     services.registerService('permission-shortcut', PermissionShortcutService);
 
+    const { PeerService } = require('./services/PeerService');
+    services.registerService('peer', PeerService);
+
 };
 
 const install_legacy = async ({ services }) => {
