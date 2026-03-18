@@ -17,8 +17,9 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 import { createHmac, timingSafeEqual } from 'crypto';
+import { Agent as HttpsAgent } from 'https';
+import axios from 'axios';
 import { Server as SocketIoServer } from 'socket.io';
-import { Agent } from 'undici';
 import { BaseService } from '../../services/BaseService.js';
 import { Context } from '../../util/context.js';
 import { Endpoint } from '../../util/expressutil.js';
@@ -41,12 +42,12 @@ export class BroadcastService extends BaseService {
     #outboundFlushMs = 5000;
     #webhookHostHeader = null;
     #webhookProtocol = 'https';
-    #webhookInsecureDispatcher = new Agent({ connect: { rejectUnauthorized: false } });
+    #webhookHttpsAgent = new HttpsAgent({ rejectUnauthorized: false });
 
     async _init () {
         const peers = this.config.peers ?? [];
         const replayWindowSeconds = this.config.webhook_replay_window_seconds ?? 300;
-        const outboundFlushMs = Number(this.config.outbound_flush_ms ?? 5000);
+        const outboundFlushMs = Number(this.config.outbound_flush_ms ?? 2000);
 
         for ( const peer_config of peers ) {
             this.#trustedPublicKeys[peer_config.key] = true;
@@ -73,12 +74,9 @@ export class BroadcastService extends BaseService {
         this.#outboundFlushMs = Number.isFinite(outboundFlushMs) && outboundFlushMs >= 0
             ? outboundFlushMs
             : 5000;
-        this.#webhookHostHeader = typeof this.config.host === 'string' &&
-            this.config.host.trim() !== ''
-            ? this.config.host
-            : null;
+        this.#webhookHostHeader = this.global_config.domain;
         {
-            const protocol = String(this.config.protocol ?? '').trim().replace(/:$/, '').toLowerCase();
+            const protocol = String(this.global_config.protocol ?? '').trim().replace(/:$/, '').toLowerCase();
             this.#webhookProtocol = protocol === 'http' || protocol === 'https' ? protocol : 'https';
         }
 
@@ -88,8 +86,6 @@ export class BroadcastService extends BaseService {
 
     async outBroadcastEventHandler (key, data, meta) {
         if ( meta?.from_outside ) return;
-
-        console.log('I should be enqueing outbound events');
 
         const safeMeta = this.#normalizeMeta(meta);
         this.#enqueueOutboundEvent({ key, data, meta: safeMeta });
@@ -125,17 +121,14 @@ export class BroadcastService extends BaseService {
     }
 
     async #flushOutboundEvents () {
-        console.log('I have called flush');
         if ( this.#outboundIsFlushing || this.#outboundEventsByDedupKey.size === 0 ) return;
 
         this.#outboundIsFlushing = true;
         try {
             const events = [...this.#outboundEventsByDedupKey.values()];
-            console.log(`I am attempting to flush ${ events.length } events`);
             this.#outboundEventsByDedupKey.clear();
             const message = { events };
 
-            console.log(`I have ${this.#peers.length} deprecated ws peers and ${this.#webhookPeers.length} webhook peers`);
             for ( const peer of this.#peers ) {
                 try {
                     peer.send(message);
@@ -265,8 +258,6 @@ export class BroadcastService extends BaseService {
             return;
         }
 
-        console.log('received peerId', { value: peerId });
-
         const peer = this.#peersByKey[peerId];
         if ( !peer || !peer.webhook_secret ) {
             res.status(403).send({ error: { message: 'Unknown peer or webhook not configured' } });
@@ -336,7 +327,6 @@ export class BroadcastService extends BaseService {
         const url = peer_config.webhook_url;
         const requestUrl = this.#normalizeWebhookUrl(url);
         const mySecretKey = this.config.webhook?.secret ?? '';
-        console.log(`I am trying to send to webhook peer: ${requestUrl} with secret: ${ mySecretKey}`);
 
         if ( !requestUrl || !mySecretKey ) return;
 
@@ -353,26 +343,30 @@ export class BroadcastService extends BaseService {
         const myPublicKey = this.config.webhook?.key ?? '';
         const headers = {
             'Content-Type': 'application/json',
+            'Content-Length': String(Buffer.byteLength(rawBody)),
             'X-Broadcast-Peer-Id': myPublicKey,
             'X-Broadcast-Timestamp': String(timestamp),
             'X-Broadcast-Nonce': String(nextNonce),
             'X-Broadcast-Signature': signature,
+            ...(this.#webhookHostHeader ? { Host: this.#webhookHostHeader } : {}),
         };
-        if ( this.#webhookHostHeader ) {
-            headers.Host = this.#webhookHostHeader;
-        }
 
-        const fetchOptions = {
+        const response = await axios.request({
             method: 'POST',
+            url: requestUrl,
             headers,
-            body: rawBody,
-        };
-        fetchOptions.dispatcher = this.#webhookInsecureDispatcher;
+            data: rawBody,
+            timeout: 15000,
+            validateStatus: () => true,
+            responseType: 'text',
+            transformResponse: value => value,
+            ...(requestUrl.startsWith('https:')
+                ? { httpsAgent: this.#webhookHttpsAgent }
+                : {}),
+        });
 
-        const response = await fetch(requestUrl, fetchOptions);
-
-        if ( ! response.ok ) {
-            console.warn(`error with body: ${ await JSON.stringify(response.json())}`);
+        if ( response.status < 200 || response.status >= 300 ) {
+            console.warn(`error with body: ${response.data}`);
             throw new Error(`Webhook POST failed: ${response.status} ${response.statusText}`);
         }
     }
