@@ -16,10 +16,11 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-import { createHmac, timingSafeEqual } from 'crypto';
+import { createHmac, randomUUID, timingSafeEqual } from 'crypto';
 import { Agent as HttpsAgent } from 'https';
 import axios from 'axios';
 import { Server as SocketIoServer } from 'socket.io';
+import { redisClient } from '../../clients/redis/redisSingleton.js';
 import { BaseService } from '../../services/BaseService.js';
 import { Context } from '../../util/context.js';
 import { Endpoint } from '../../util/expressutil.js';
@@ -43,6 +44,9 @@ export class BroadcastService extends BaseService {
     #webhookHostHeader = null;
     #webhookProtocol = 'https';
     #webhookHttpsAgent = new HttpsAgent({ rejectUnauthorized: false });
+    #redisPubSubChannel = 'broadcast.webhook.events';
+    #redisSubscriber = null;
+    #redisSourceId = randomUUID();
 
     async _init () {
         const peers = this.config.peers ?? [];
@@ -79,6 +83,9 @@ export class BroadcastService extends BaseService {
             const protocol = String(this.global_config.protocol ?? '').trim().replace(/:$/, '').toLowerCase();
             this.#webhookProtocol = protocol === 'http' || protocol === 'https' ? protocol : 'https';
         }
+        this.#redisSourceId = `${String(this.global_config?.server_id ?? 'local')}:${randomUUID()}`;
+
+        await this.#initRedisPubSub();
 
         const svc_event = this.services.get('event');
         svc_event.on('outer.*', this.outBroadcastEventHandler.bind(this));
@@ -157,6 +164,97 @@ export class BroadcastService extends BaseService {
             return {};
         }
         return meta;
+    }
+
+    async #initRedisPubSub () {
+        if ( typeof redisClient?.duplicate !== 'function' ) {
+            console.warn('redis pubsub unavailable; duplicate client is not supported');
+            return;
+        }
+
+        try {
+            this.#redisSubscriber = redisClient.duplicate();
+            this.#redisSubscriber.on('error', error => {
+                console.warn('redis pubsub subscriber error', { error });
+            });
+            this.#redisSubscriber.on('message', (channel, message) => {
+                this.#handleRedisPubSubMessage(channel, message).catch(error => {
+                    console.warn('redis pubsub message handling error', { error });
+                });
+            });
+            await this.#redisSubscriber.subscribe(this.#redisPubSubChannel);
+        } catch ( error ) {
+            console.warn('failed to initialize redis pubsub subscriber', { error });
+            this.#redisSubscriber = null;
+        }
+    }
+
+    #isRedisWebhookEventKey (key) {
+        if ( typeof key !== 'string' ) return false;
+        return key === 'outer.gui' ||
+            key.startsWith('outer.gui.') ||
+            key === 'outer.pub' ||
+            key.startsWith('outer.pub.');
+    }
+
+    #filterRedisWebhookEvents (events) {
+        return events.filter(event => this.#isRedisWebhookEventKey(event?.key));
+    }
+
+    async #publishWebhookEventsToRedis (events) {
+        if ( !Array.isArray(events) || events.length === 0 ) return;
+
+        const eventsToPublish = this.#filterRedisWebhookEvents(events);
+        if ( eventsToPublish.length === 0 ) return;
+
+        let payload;
+        try {
+            payload = JSON.stringify({
+                sourceId: this.#redisSourceId,
+                events: eventsToPublish,
+            });
+        } catch ( error ) {
+            console.warn('redis pubsub publish failed: payload not serializable', { error });
+            return;
+        }
+
+        try {
+            await redisClient.publish(this.#redisPubSubChannel, payload);
+        } catch ( error ) {
+            console.warn('redis pubsub publish failed', { error });
+        }
+    }
+
+    async #handleRedisPubSubMessage (channel, message) {
+        if ( channel !== this.#redisPubSubChannel ) return;
+
+        let payload;
+        try {
+            payload = JSON.parse(message);
+        } catch {
+            console.warn('invalid redis pubsub payload: not json');
+            return;
+        }
+
+        if ( !payload || typeof payload !== 'object' || Array.isArray(payload) ) {
+            console.warn('invalid redis pubsub payload: expected object');
+            return;
+        }
+
+        if ( payload.sourceId && payload.sourceId === this.#redisSourceId ) {
+            return;
+        }
+
+        const incomingEvents = this.#normalizeIncomingPayload(payload);
+        if ( ! incomingEvents ) {
+            console.warn('invalid redis pubsub payload: invalid events');
+            return;
+        }
+
+        const eventsToEmit = this.#filterRedisWebhookEvents(incomingEvents);
+        if ( eventsToEmit.length === 0 ) return;
+
+        await this.#emitIncomingEventsSequentially(eventsToEmit);
     }
 
     #normalizeIncomingPayload (payload) {
@@ -317,6 +415,7 @@ export class BroadcastService extends BaseService {
 
         this.#incomingLastNonceByPeer.set(peerId, nonce);
 
+        await this.#publishWebhookEventsToRedis(incomingEvents);
         this.#emitIncomingEventsSequentially(incomingEvents);
 
         res.status(200).send({ ok: true });
