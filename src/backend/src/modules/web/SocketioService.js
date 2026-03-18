@@ -22,6 +22,22 @@ const socketio = require('socket.io');
 const { createAdapter } = require('@socket.io/redis-streams-adapter');
 const { redisClient } = require('../../clients/redis/redisSingleton');
 
+const normalizeHost = (value) => {
+    if ( typeof value !== 'string' ) return null;
+    const trimmedValue = value.trim().toLowerCase().replace(/^\./, '');
+    if ( ! trimmedValue ) return null;
+    return trimmedValue.split(':')[0];
+};
+
+const extractOriginHost = (origin) => {
+    if ( typeof origin !== 'string' || origin.length === 0 ) return null;
+    try {
+        return normalizeHost(new URL(origin).host);
+    } catch {
+        return null;
+    }
+};
+
 /**
  * SocketioService provides a service for sending messages to clients.
  * socket.io is used behind the scenes. This service provides a simpler
@@ -34,15 +50,39 @@ class SocketioService extends BaseService {
      * @evtparam server The server to attach socket.io to.
      */
     '__on_install.socketio' (_, { server }) {
+        const uiHost = normalizeHost(this.global_config.domain);
+        const apiHost = uiHost ? `api.${uiHost}` : null;
+        const isApiRequest = (req) => normalizeHost(req?.headers?.host) === apiHost;
+        const isUiOriginAllowed = (req) => {
+            const origin = req?.headers?.origin;
+            if ( ! origin ) return false;
+            return extractOriginHost(origin) === uiHost;
+        };
+
         /**
          * @type {import('socket.io').Server}
          */
         const socketioOptions = {
-            cors: {
-                origin: (origin, callback) => {
-                    callback(null, origin);
-                },
-                credentials: true,
+            cors: (req, callback) => {
+                if ( isApiRequest(req) ) {
+                    callback(null, {
+                        origin: true,
+                        credentials: true,
+                    });
+                    return;
+                }
+
+                callback(null, {
+                    origin: isUiOriginAllowed(req),
+                    credentials: true,
+                });
+            },
+            allowRequest: (req, callback) => {
+                if ( isApiRequest(req) ) {
+                    callback(null, true);
+                    return;
+                }
+                callback(null, isUiOriginAllowed(req));
             },
             adapter: createAdapter(redisClient),
         };
