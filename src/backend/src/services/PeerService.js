@@ -26,6 +26,7 @@ export class PeerService extends BaseService {
         Endpoint({
             route: '/peer/signaller-info',
             methods: ['GET'],
+            subdomain: "api",
             handler: async (req, res) => {
                 res.json({
                     url: this.config.signaller_url,
@@ -38,6 +39,7 @@ export class PeerService extends BaseService {
             route: '/peer/generate-turn',
             methods: ['POST'],
             mw: [configurable_auth()],
+            subdomain: "api",
             handler: async (req, res) => {
                 if ( ! this.config.cloudflare_turn ) {
                     res.status(500).send({ error: 'TURN is not configured' });
@@ -53,7 +55,7 @@ export class PeerService extends BaseService {
                         method: 'POST',
                         body: JSON.stringify({
                             ttl: this.config.cloudflare_turn.ttl_ms,
-                            customIdentifier: req.actor.type.user.uuid,
+                            customIdentifier: `${req.actor.type.user.uuid}:${req.actor.type?.app?.uid ?? 'global'}`,
                         }),
                     },
                 );
