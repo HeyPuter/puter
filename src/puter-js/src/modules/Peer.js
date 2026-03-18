@@ -39,9 +39,10 @@ class PuterPeerConnectionErrorEvent extends Event {
 }
 
 class PuterPeerServer extends EventTarget {
-    #conn;
+    #wsconn;
     #oncreateresolve;
 
+    /** @type {Map<string, PuterPeerConnection>} */
     #connections = new Map();
     invitecode;
     #peerConfig;
@@ -49,27 +50,28 @@ class PuterPeerServer extends EventTarget {
     constructor (peerConfig) {
         super();
         this.#peerConfig = peerConfig;
-        this.#conn = new WebSocket(peerConfig.signallerUrl);
+        this.#wsconn = new WebSocket(peerConfig.signallerUrl);
     }
 
     async start () {
         await new Promise((resolve, reject) => {
-            this.#conn.onopen = resolve;
-            this.#conn.onerror = reject;
-            this.#conn.onclose = () => {
+            this.#wsconn.onopen = resolve;
+            this.#wsconn.onerror = reject;
+            this.#wsconn.onclose = () => {
                 reject(new Error('Connection closed unexpectedly'));
             };
         });
 
-        this.#conn.onmessage = (event) => {
+        this.#wsconn.onmessage = (event) => {
             let data = JSON.parse(event.data);
-            this.message(data);
+            this.#message(data);
         };
 
-        this.#conn.onclose = () => {
+        this.#wsconn.onclose = () => {
+            // what should we do here?
         };
 
-        this.#conn.send(
+        this.#wsconn.send(
             JSON.stringify({
                 server: {
                     create: {
@@ -100,7 +102,7 @@ class PuterPeerServer extends EventTarget {
         return invitecode;
     }
 
-    async message (data) {
+    async #message (data) {
         if ( ! data.server ) return;
         if ( data.server.create ) {
             this.#oncreateresolve(data.server.create);
@@ -113,7 +115,7 @@ class PuterPeerServer extends EventTarget {
             this.#connections.set(uuid, connection);
             connection.peerconnection.onicecandidate = (e) => {
                 if ( e.candidate ) {
-                    this.#conn.send(
+                    this.#wsconn.send(
                         JSON.stringify({
                             server: {
                                 candidate: {
@@ -153,7 +155,7 @@ class PuterPeerServer extends EventTarget {
             }
 
             const answer = await connection.createAnswer();
-            this.#conn.send(
+            this.#wsconn.send(
                 JSON.stringify({
                     server: {
                         answer: {
@@ -164,6 +166,14 @@ class PuterPeerServer extends EventTarget {
                 }),
             );
         }
+    }
+
+    close () {
+        for ( const [uuid, connection] of this.#connections ) {
+            connection.close();
+        }
+        this.#wsconn.onclose = null;
+        this.#wsconn.close();
     }
 }
 
@@ -302,22 +312,22 @@ class PuterPeerConnection extends EventTarget {
 
     async createOffer () {
         const offer = await this.peerconnection.createOffer();
-        this.peerconnection.setLocalDescription(offer);
+        await this.peerconnection.setLocalDescription(offer);
         return offer;
     }
 
     async createAnswer () {
         const answer = await this.peerconnection.createAnswer();
-        this.peerconnection.setLocalDescription(answer);
+        await this.peerconnection.setLocalDescription(answer);
         return answer;
     }
 
-    setRemoteDescription (description) {
-        this.peerconnection.setRemoteDescription(description);
+    async setRemoteDescription (description) {
+        await this.peerconnection.setRemoteDescription(description);
     }
 
-    addIceCandidate (candidate) {
-        this.peerconnection.addIceCandidate(candidate);
+    async addIceCandidate (candidate) {
+        await this.peerconnection.addIceCandidate(candidate);
     }
 
     send ( message ) {
