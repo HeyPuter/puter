@@ -372,6 +372,7 @@ export class BroadcastService extends BaseService {
         const response = await fetch(requestUrl, fetchOptions);
 
         if ( ! response.ok ) {
+            console.warn(`error with body: ${ await JSON.stringify(response.json())}`);
             throw new Error(`Webhook POST failed: ${response.status} ${response.statusText}`);
         }
     }
