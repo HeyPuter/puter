@@ -26,7 +26,7 @@ export class PeerService extends BaseService {
         Endpoint({
             route: '/peer/signaller-info',
             methods: ['GET'],
-            subdomain: "api",
+            subdomain: 'api',
             handler: async (req, res) => {
                 res.json({
                     url: this.config.signaller_url,
@@ -39,11 +39,18 @@ export class PeerService extends BaseService {
             route: '/peer/generate-turn',
             methods: ['POST'],
             mw: [configurable_auth()],
-            subdomain: "api",
+            subdomain: 'api',
             handler: async (req, res) => {
                 if ( ! this.config.cloudflare_turn ) {
                     res.status(500).send({ error: 'TURN is not configured' });
                     return;
+                }
+
+                // Build the custom identifier (short max length, we must compress it from hex to b64)
+                let customIdentifier = '';
+                customIdentifier += Buffer.from(req.actor.type.user.uuid.replaceAll('-', ''), 'hex').toString('base64url');
+                if ( req.actor.type?.app ) {
+                    customIdentifier += `:${ Buffer.from(req.actor.type.app.uid.replace('app-', '').replaceAll('-', ''), 'hex').toString('base64url')}`;
                 }
                 let response = await fetch(
                     `https://rtc.live.cloudflare.com/v1/turn/keys/${this.config.cloudflare_turn.turn_key_id}/credentials/generate-ice-servers`,
@@ -55,7 +62,7 @@ export class PeerService extends BaseService {
                         method: 'POST',
                         body: JSON.stringify({
                             ttl: this.config.cloudflare_turn.ttl_ms,
-                            customIdentifier: `${req.actor.type.user.uuid}.${req.actor.type?.app?.uid ?? 'global'}`,
+                            customIdentifier,
                         }),
                     },
                 );
