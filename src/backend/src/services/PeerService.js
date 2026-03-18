@@ -55,7 +55,7 @@ export class PeerService extends BaseService {
                         method: 'POST',
                         body: JSON.stringify({
                             ttl: this.config.cloudflare_turn.ttl_ms,
-                            customIdentifier: `${req.actor.type.user.uuid}:${req.actor.type?.app?.uid ?? 'global'}`,
+                            customIdentifier: `${req.actor.type.user.uuid}.${req.actor.type?.app?.uid ?? 'global'}`,
                         }),
                     },
                 );
