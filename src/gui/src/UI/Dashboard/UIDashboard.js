@@ -170,6 +170,8 @@ async function UIDashboard (options) {
         auth: {
             auth_token: window.auth_token,
         },
+        transports: ['websocket', 'polling'],
+        withCredentials: true,
     });
 
     window.socket.on('error', (error) => {
