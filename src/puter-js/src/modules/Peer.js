@@ -44,7 +44,7 @@ class PuterPeerServer extends EventTarget {
 
     /** @type {Map<string, PuterPeerConnection>} */
     #connections = new Map();
-    invitecode;
+    inviteCode;
     #peerConfig;
 
     constructor (peerConfig) {
@@ -81,14 +81,14 @@ class PuterPeerServer extends EventTarget {
             }),
         );
 
-        const { invitecode } = await new Promise((resolve, reject) => {
+        const { inviteCode } = await new Promise((resolve, reject) => {
             this.#oncreateresolve = (data) => {
                 if ( data.success ) {
                     resolve({
-                        invitecode: data.invitecode,
+                        inviteCode: data.invitecode,
                     });
                     this.#oncreateresolve = null;
-                    this.invitecode = data.invitecode;
+                    this.inviteCode = data.invitecode;
                 } else {
                     reject(new Error(data.error));
                 }
@@ -99,7 +99,7 @@ class PuterPeerServer extends EventTarget {
             );
         });
 
-        return invitecode;
+        return inviteCode;
     }
 
     async #message (data) {
