@@ -39,7 +39,7 @@ export interface PuterPeerConnectionEventMap {
 }
 
 export class PuterPeerServer extends EventTarget {
-    invitecode?: string;
+    inviteCode?: string;
 
     start (): Promise<string>;
     message (data: unknown): Promise<void>;
