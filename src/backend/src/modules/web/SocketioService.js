@@ -19,6 +19,8 @@
 
 const BaseService = require('../../services/BaseService');
 const socketio = require('socket.io');
+const { createAdapter } = require('@socket.io/redis-streams-adapter');
+const { redisClient } = require('../../clients/redis/redisSingleton');
 
 /**
  * SocketioService provides a service for sending messages to clients.
@@ -35,11 +37,16 @@ class SocketioService extends BaseService {
         /**
          * @type {import('socket.io').Server}
          */
-        this.io = socketio(server, {
+        const socketioOptions = {
             cors: {
-                origin: '*',
+                origin: (origin, callback) => {
+                    callback(null, origin);
+                },
+                credentials: true,
             },
-        });
+            adapter: createAdapter(redisClient),
+        };
+        this.io = socketio(server, socketioOptions);
     }
 
     /**

@@ -99,6 +99,8 @@ export class PuterJSFileSystemModule {
                 auth_token: this.authToken,
             },
             autoUnref: this.puter.env === 'nodejs',
+            transports: ['websocket', 'polling'],
+            withCredentials: true,
         });
 
         this.bindSocketEvents();
