@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import configurable_auth from '../middleware/configurable_auth.js';
 import { Endpoint } from '../util/expressutil.js';
 import BaseService from './BaseService.js';
 
@@ -28,6 +29,45 @@ export class PeerService extends BaseService {
             handler: async (req, res) => {
                 res.json({
                     url: this.config.signaller_url,
+                    fallbackIce: this.config.fallback_ice,
+                });
+            },
+        }).attach(app);
+
+        Endpoint({
+            route: '/peer/generate-turn',
+            methods: ['POST'],
+            mw: [configurable_auth()],
+            handler: async (req, res) => {
+                if ( ! this.config.cloudflare_turn ) {
+                    res.status(500).send({ error: 'TURN is not configured' });
+                    return;
+                }
+                let response = await fetch(
+                    `https://rtc.live.cloudflare.com/v1/turn/keys/${this.config.cloudflare_turn.turn_key_id}/credentials/generate-ice-servers`,
+                    {
+                        headers: {
+                            Authorization: `Bearer ${this.config.cloudflare_turn.turn_key_api_token}`,
+                            'Content-Type': 'application/json',
+                        },
+                        method: 'POST',
+                        body: JSON.stringify({
+                            ttl: this.config.cloudflare_turn.ttl_ms,
+                            customIdentifier: req.actor.type.user.uuid,
+                        }),
+                    },
+                );
+
+                if ( ! response.ok ) {
+                    res.status(500).send({ error: 'Failed to generate TURN credentials' });
+                    return;
+                }
+
+                const { iceServers } = await response.json();
+
+                res.json({
+                    ttl: this.config.cloudflare_turn.ttl_ms,
+                    iceServers,
                 });
             },
         }).attach(app);

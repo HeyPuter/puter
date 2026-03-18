@@ -11,6 +11,7 @@ import type { KV, KVIncrementPath, KVPair } from './types/modules/kv.d.ts';
 import type { Networking, PSocket, PTLSSocket } from './types/modules/networking.d.ts';
 import type { OS } from './types/modules/os.d.ts';
 import type { Perms } from './types/modules/perms.d.ts';
+import type Peer, { PuterPeerConnection, PuterPeerServer } from './types/modules/peer.d.ts';
 import type { AlertButton, AppConnection, AppConnectionCloseEvent, CancelAwarePromise, ContextMenuItem, ContextMenuOptions, DirectoryPickerOptions, FilePickerOptions, LaunchAppOptions, MenuItem, MenubarOptions, ThemeData, UI, WindowOptions } from './types/modules/ui.d.ts';
 import type Util, { UtilRPC } from './types/modules/util.d.ts';
 import type { WorkerDeployment, WorkerInfo, WorkersHandler } from './types/modules/workers.d.ts';
@@ -77,8 +78,11 @@ export type {
     OS,
     PaginatedResult,
     PaginationOptions,
+    Peer,
     Perms,
     PSocket,
+    PuterPeerConnection,
+    PuterPeerServer,
     PTLSSocket,
     Puter,
     PuterEnvironment,

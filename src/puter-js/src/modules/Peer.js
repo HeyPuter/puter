@@ -1,9 +1,3 @@
-let iceServers = [
-    { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' },
-    { urls: 'stun:stun.blackberry.com:3478' },
-];
-
 class PuterPeerServerConnectionEvent extends Event {
     conn;
     user;
@@ -49,15 +43,13 @@ class PuterPeerServer extends EventTarget {
     #oncreateresolve;
 
     #connections = new Map();
-    #authToken;
     invitecode;
-    #signallerUrl;
+    #peerConfig;
 
-    constructor (signallerUrl, authToken) {
+    constructor (peerConfig) {
         super();
-        this.#authToken = authToken;
-        this.#signallerUrl = signallerUrl;
-        this.#conn = new WebSocket(signallerUrl);
+        this.#peerConfig = peerConfig;
+        this.#conn = new WebSocket(peerConfig.signallerUrl);
     }
 
     async start () {
@@ -81,7 +73,7 @@ class PuterPeerServer extends EventTarget {
             JSON.stringify({
                 server: {
                     create: {
-                        authToken: this.#authToken,
+                        authToken: this.#peerConfig.authToken,
                     },
                 },
             }),
@@ -117,9 +109,9 @@ class PuterPeerServer extends EventTarget {
 
         if ( data.server.connect ) {
             let uuid = data.server.connect.id;
-            let connection = new PuterPeerConnection(this.#signallerUrl, this.#authToken);
+            let connection = new PuterPeerConnection(this.#peerConfig);
             this.#connections.set(uuid, connection);
-            connection.rtconn.onicecandidate = (e) => {
+            connection.peerconnection.onicecandidate = (e) => {
                 if ( e.candidate ) {
                     this.#conn.send(
                         JSON.stringify({
@@ -177,19 +169,19 @@ class PuterPeerServer extends EventTarget {
 
 class PuterPeerConnection extends EventTarget {
     #wsconn;
-    rtconn;
-    #authToken;
-    #signallerUrl;
+    peerconnection;
+    #peerConfig;
     #datachannel;
     connected = false;
     closed = false;
     #bufferedMessages = [];
-    constructor (signallerUrl, authToken) {
+    constructor (peerConfig) {
         super();
-        this.#signallerUrl = signallerUrl;
-        this.#authToken = authToken;
-        this.rtconn = new RTCPeerConnection({ iceServers });
-        this.#datachannel = this.rtconn.createDataChannel('channel-1', { negotiated: true, id: 2 });
+        this.#peerConfig = peerConfig;
+        this.peerconnection = new RTCPeerConnection({
+            iceServers: peerConfig.iceServers,
+        });
+        this.#datachannel = this.peerconnection.createDataChannel('channel-1', { negotiated: true, id: 2 });
         this.#datachannel.onmessage = (evt) => {
             this.dispatchEvent(new PuterPeerConnectionMessageEvent(evt.data));
         };
@@ -203,12 +195,10 @@ class PuterPeerConnection extends EventTarget {
             this.#closews();
         };
         this.#datachannel.onclose = () => {
-            this.dispatchEvent(new PuterPeerConnectionCloseEvent());
-            this.#closews();
+            this.#doclose(undefined, undefined);
         };
         this.#datachannel.onerror = (evt) => {
-            this.dispatchEvent(new PuterPeerConnectionErrorEvent(evt.error));
-            this.#closews();
+            this.#doclose(undefined, evt.error);
         };
     }
 
@@ -221,7 +211,7 @@ class PuterPeerConnection extends EventTarget {
     }
 
     async connect (invitecode) {
-        this.#wsconn = new WebSocket(this.#signallerUrl);
+        this.#wsconn = new WebSocket(this.#peerConfig.signallerUrl);
         await new Promise((resolve, reject) => {
             this.#wsconn.onopen = resolve;
             this.#wsconn.onerror = reject;
@@ -240,14 +230,14 @@ class PuterPeerConnection extends EventTarget {
             JSON.stringify({
                 client: {
                     connect: {
-                        authToken: this.#authToken,
+                        authToken: this.#peerConfig.authToken,
                         invitecode,
                     },
                 },
             }),
         );
 
-        this.rtconn.onicecandidate = (evt) => {
+        this.peerconnection.onicecandidate = (evt) => {
             this.#wsconn.send(
                 JSON.stringify({
                     client: {
@@ -294,33 +284,40 @@ class PuterPeerConnection extends EventTarget {
         if ( this.closed ) return;
         this.closed = true;
         this.connected = false;
-        if ( this.#wsconn ) this.#wsconn.close();
+        if ( this.#wsconn ) this.#closews();
+        if ( this.#datachannel ) {
+            this.#datachannel.onclose = null;
+            this.#datachannel.close();
+        }
+        if ( this.peerconnection ) {
+            this.peerconnection.close();
+        }
         if ( error ) this.dispatchEvent(new PuterPeerConnectionErrorEvent(error));
         this.dispatchEvent(new PuterPeerConnectionCloseEvent(reason));
     }
 
-    close () {
-
+    close (reason) {
+        this.#doclose(reason, undefined);
     }
 
     async createOffer () {
-        const offer = await this.rtconn.createOffer();
-        this.rtconn.setLocalDescription(offer);
+        const offer = await this.peerconnection.createOffer();
+        this.peerconnection.setLocalDescription(offer);
         return offer;
     }
 
     async createAnswer () {
-        const answer = await this.rtconn.createAnswer();
-        this.rtconn.setLocalDescription(answer);
+        const answer = await this.peerconnection.createAnswer();
+        this.peerconnection.setLocalDescription(answer);
         return answer;
     }
 
     setRemoteDescription (description) {
-        this.rtconn.setRemoteDescription(description);
+        this.peerconnection.setRemoteDescription(description);
     }
 
     addIceCandidate (candidate) {
-        this.rtconn.addIceCandidate(candidate);
+        this.peerconnection.addIceCandidate(candidate);
     }
 
     send ( message ) {
@@ -334,6 +331,11 @@ class PuterPeerConnection extends EventTarget {
 
 class Peer {
     #signallerUrl;
+    #turnServers;
+    #fallbackIceServers;
+    #turnTTL;
+    #turnStartedAt;
+    #turnFailed;
     /**
      * Creates a new instance with the given authentication token, API origin, and app ID,
      *
@@ -371,9 +373,33 @@ class Peer {
         this.APIOrigin = APIOrigin;
     }
 
+    async ensureTurnRelays () {
+        if ( this.#turnFailed ) return;
+        if ( this.#turnServers && Date.now() - this.#turnStartedAt < this.#turnTTL * 1000 ) return;
+
+        const response = await fetch(`${this.APIOrigin}/peer/generate-turn`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${this.authToken}`,
+            },
+        });
+
+        if ( ! response.ok ) {
+            this.#turnFailed = true;
+            return;
+        }
+
+        const { iceServers, ttl, fallbackIce } = await response.json();
+        this.#fallbackIceServers = fallbackIce;
+        this.#turnServers = iceServers;
+        this.#turnTTL = ttl;
+        this.#turnStartedAt = Date.now();
+    }
+
     async #loadMetadata () {
         if ( this.#signallerUrl ) return;
-        const response = await fetch(`${this.APIOrigin}peer/signaller-info`);
+        const response = await fetch(`${this.APIOrigin}/peer/signaller-info`);
         if ( ! response.ok ) {
             throw new Error('Failed to get signaller info from Puter.');
         }
@@ -381,30 +407,48 @@ class Peer {
         this.#signallerUrl = url;
     }
 
-    async serve () {
-        if ( !this.authToken && this.puter.env === 'web' ) {
-            try {
-                await this.puter.ui.authenticateWithPuter();
-            } catch (e) {
-                throw new Error('Need authentication to create a server but failed to authenticate with Puter.');
+    async #authenticateForPeerAction (action) {
+        if ( this.authToken || this.puter.env !== 'web' ) return;
+        try {
+            await this.puter.ui.authenticateWithPuter();
+        } catch (e) {
+            throw new Error(`Need authentication to ${action} but failed to authenticate with Puter.`);
+        }
+    }
+
+    async #resolvePeerConfig (options) {
+        await this.#loadMetadata();
+        let iceServers;
+        if ( options?.iceServers ) {
+            iceServers = options.iceServers;
+        } else {
+            await this.ensureTurnRelays();
+            if ( this.#turnServers ) {
+                iceServers = this.#turnServers;
+            } else {
+                iceServers = this.#fallbackIceServers;
+                console.warn('Unable to use TURN relays. Some connections may fail.');
             }
         }
-        await this.#loadMetadata();
-        const server = new PuterPeerServer(this.#signallerUrl, this.authToken);
+
+        return {
+            authToken: this.authToken,
+            iceServers,
+            signallerUrl: this.#signallerUrl,
+        };
+    }
+    async serve (options) {
+        await this.#authenticateForPeerAction('create a server');
+        const peerConfig = await this.#resolvePeerConfig(options);
+        const server = new PuterPeerServer(peerConfig);
         await server.start();
         return server;
     }
 
-    async connect (invitecode) {
-        if ( !this.authToken && this.puter.env === 'web' ) {
-            try {
-                await this.puter.ui.authenticateWithPuter();
-            } catch (e) {
-                throw new Error('Need authentication to connect to a server but failed to authenticate with Puter.');
-            }
-        }
-        await this.#loadMetadata();
-        const conn = new PuterPeerConnection(this.#signallerUrl, this.authToken);
+    async connect (invitecode, options) {
+        await this.#authenticateForPeerAction('connect to a server');
+        const peerConfig = await this.#resolvePeerConfig(options);
+        const conn = new PuterPeerConnection(peerConfig);
         await conn.connect(invitecode);
         return conn;
     }
