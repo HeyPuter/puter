@@ -1546,7 +1546,7 @@ export function subdomain (req) {
     return req.hostname.slice(0, -1 * (config.domain.length + 1));
 }
 
-export async function jwt_auth (req) {
+export async function jwt_auth (req, authService) {
     let token;
     // HTTML Auth header
     if ( req.header && req.header('Authorization') )
@@ -1583,8 +1583,11 @@ export async function jwt_auth (req) {
     }
 
     try {
-        const svc_auth = Context.get('services').get('auth');
-        const actor = await svc_auth.authenticate_from_token(token);
+        if ( ! authService ) {
+            throw new Error('jwt_auth requires authService');
+        }
+
+        const actor = await authService.authenticate_from_token(token);
 
         if ( !actor.type?.constructor?.name === 'UserActorType' ) {
             throw ({
