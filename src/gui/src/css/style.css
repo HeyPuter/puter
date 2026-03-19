@@ -2436,7 +2436,7 @@ label {
 
     height: 50px;
     border-radius: 10px;
-    bottom: 5px;
+    bottom: calc(5px + env(safe-area-inset-bottom, 0px));
     padding-left: 7px;
     padding-right: 7px;
     width: auto;
