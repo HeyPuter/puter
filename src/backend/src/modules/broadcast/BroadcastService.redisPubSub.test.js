@@ -88,4 +88,29 @@ describe('BroadcastService redis pubsub', () => {
 
         expect(eventService.emit).not.toHaveBeenCalled();
     });
+
+    it('publishes local outer.gui/pub events to redis pubsub for replicas', async () => {
+        const publishSpy = vi.spyOn(redisClient, 'publish');
+        try {
+            await service.outBroadcastEventHandler('outer.gui.notif.message', { id: 'gui-local' }, {});
+            await wait();
+
+            const publishCall = publishSpy.mock.calls.find(([channel]) => channel === 'broadcast.webhook.events');
+            expect(publishCall).toBeDefined();
+            const [channel, payload] = publishCall;
+            expect(channel).toBe('broadcast.webhook.events');
+
+            const parsedPayload = JSON.parse(payload);
+            expect(parsedPayload.sourceId).toBeDefined();
+            expect(parsedPayload.events).toEqual([
+                {
+                    key: 'outer.gui.notif.message',
+                    data: { id: 'gui-local' },
+                    meta: {},
+                },
+            ]);
+        } finally {
+            publishSpy.mockRestore();
+        }
+    });
 });

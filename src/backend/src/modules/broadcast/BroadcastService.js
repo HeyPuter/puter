@@ -19,18 +19,12 @@
 import { createHmac, randomUUID, timingSafeEqual } from 'crypto';
 import { Agent as HttpsAgent } from 'https';
 import axios from 'axios';
-import { Server as SocketIoServer } from 'socket.io';
 import { redisClient } from '../../clients/redis/redisSingleton.js';
 import { BaseService } from '../../services/BaseService.js';
 import { Context } from '../../util/context.js';
 import { Endpoint } from '../../util/expressutil.js';
-import { CLink } from './connection/CLink.js';
-import { SLink } from './connection/SLink.js';
 
 export class BroadcastService extends BaseService {
-    #peers = [];
-    #connections = [];
-    #trustedPublicKeys = {};
     #peersByKey = {};
     #webhookPeers = [];
     #incomingLastNonceByPeer = new Map();
@@ -54,23 +48,35 @@ export class BroadcastService extends BaseService {
         const outboundFlushMs = Number(this.config.outbound_flush_ms ?? 2000);
 
         for ( const peer_config of peers ) {
-            this.#trustedPublicKeys[peer_config.key] = true;
-            this.#peersByKey[peer_config.key] = {
+            const peerId = this.#resolvePeerId(peer_config);
+            if ( ! peerId ) {
+                console.warn('ignoring broadcast peer config with missing key/peerId', { peer_config });
+                continue;
+            }
+
+            if ( this.#peersByKey[peerId] ) {
+                console.warn('duplicate broadcast peer id configured', {
+                    peerId,
+                    existing: this.#peersByKey[peerId]?.webhook_url,
+                    duplicate: peer_config.webhook_url,
+                });
+            }
+
+            this.#peersByKey[peerId] = {
                 webhook_secret: peer_config.webhook_secret,
                 webhook_url: peer_config.webhook_url,
                 webhook: !!peer_config.webhook,
             };
 
             if ( peer_config.webhook ) {
-                this.#webhookPeers.push(peer_config);
-            } else {
-                const peer = new CLink({
-                    keys: this.config.keys,
-                    config: peer_config,
-                    log: this.log,
+                this.#webhookPeers.push({
+                    ...peer_config,
+                    peerId,
                 });
-                this.#peers.push(peer);
-                peer.connect();
+            } else {
+                console.warn('ignoring non-webhook broadcast peer; websocket transport is disabled', {
+                    peerId,
+                });
             }
         }
 
@@ -95,7 +101,15 @@ export class BroadcastService extends BaseService {
         if ( meta?.from_outside ) return;
 
         const safeMeta = this.#normalizeMeta(meta);
-        this.#enqueueOutboundEvent({ key, data, meta: safeMeta });
+        const outboundEvent = { key, data, meta: safeMeta };
+
+        // Mirror local outer.gui/pub events to Redis so same-cluster replicas
+        // receive them even when this instance is the originator.
+        this.#publishWebhookEventsToRedis([outboundEvent]).catch(error => {
+            console.warn('local redis pubsub publish failed', { error, key });
+        });
+
+        this.#enqueueOutboundEvent(outboundEvent);
     }
 
     #enqueueOutboundEvent (event) {
@@ -134,21 +148,12 @@ export class BroadcastService extends BaseService {
         try {
             const events = [...this.#outboundEventsByDedupKey.values()];
             this.#outboundEventsByDedupKey.clear();
-            const message = { events };
-
-            for ( const peer of this.#peers ) {
-                try {
-                    peer.send(message);
-                } catch (e) {
-                    console.warn(`ws broadcast send error: ${ JSON.stringify({ peer: peer.key, error: e })}`);
-                }
-            }
 
             for ( const peer_config of this.#webhookPeers ) {
                 try {
                     await this.#sendWebhookToPeer(peer_config, events);
                 } catch (e) {
-                    console.warn(`webhook broadcast send error: ${ JSON.stringify({ peer: peer_config.key, error: e.message })}`);
+                    console.warn(`webhook broadcast send error: ${ JSON.stringify({ peer: peer_config.peerId ?? peer_config.key, error: e.message })}`);
                 }
             }
         } finally {
@@ -164,6 +169,23 @@ export class BroadcastService extends BaseService {
             return {};
         }
         return meta;
+    }
+
+    #resolvePeerId (peerConfig) {
+        if ( !peerConfig || typeof peerConfig !== 'object' ) return null;
+        const peerId = peerConfig.peerId ?? peerConfig.key;
+        if ( typeof peerId !== 'string' || peerId.trim() === '' ) return null;
+        return peerId.trim();
+    }
+
+    #isNonceReplayForPeer ({ timestamp, nonce, peerId }) {
+        const lastSeen = this.#incomingLastNonceByPeer.get(peerId);
+        if ( ! lastSeen ) return false;
+
+        // A newer timestamp should reset nonce ordering for this peer.
+        if ( timestamp > lastSeen.timestamp ) return false;
+        if ( timestamp < lastSeen.timestamp ) return true;
+        return nonce <= lastSeen.nonce;
     }
 
     async #initRedisPubSub () {
@@ -350,7 +372,8 @@ export class BroadcastService extends BaseService {
             return;
         }
 
-        const peerId = req.headers['x-broadcast-peer-id'];
+        const peerIdHeader = req.headers['x-broadcast-peer-id'];
+        const peerId = Array.isArray(peerIdHeader) ? peerIdHeader[0] : peerIdHeader;
         if ( ! peerId ) {
             res.status(403).send({ error: { message: 'Missing X-Broadcast-Peer-Id' } });
             return;
@@ -391,8 +414,7 @@ export class BroadcastService extends BaseService {
             res.status(400).send({ error: { message: 'Invalid X-Broadcast-Nonce' } });
             return;
         }
-        const lastNonce = this.#incomingLastNonceByPeer.get(peerId) ?? -1;
-        if ( nonce <= lastNonce ) {
+        if ( this.#isNonceReplayForPeer({ timestamp, nonce, peerId }) ) {
             res.status(403).send({ error: { message: 'Duplicate or stale nonce' } });
             return;
         }
@@ -413,7 +435,7 @@ export class BroadcastService extends BaseService {
             return;
         }
 
-        this.#incomingLastNonceByPeer.set(peerId, nonce);
+        this.#incomingLastNonceByPeer.set(peerId, { timestamp, nonce });
 
         await this.#publishWebhookEventsToRedis(incomingEvents);
         this.#emitIncomingEventsSequentially(incomingEvents);
@@ -422,7 +444,8 @@ export class BroadcastService extends BaseService {
     }
 
     async #sendWebhookToPeer (peer_config, events) {
-        const peerId = peer_config.key;
+        const peerId = this.#resolvePeerId(peer_config);
+        if ( ! peerId ) return;
         const url = peer_config.webhook_url;
         const requestUrl = this.#normalizeWebhookUrl(url);
         const mySecretKey = this.config.webhook?.secret ?? '';
@@ -439,7 +462,7 @@ export class BroadcastService extends BaseService {
         const payloadToSign = `${timestamp}.${nextNonce}.${rawBody}`;
         const signature = createHmac('sha256', mySecretKey).update(payloadToSign).digest('hex');
 
-        const myPublicKey = this.config.webhook?.key ?? '';
+        const myPublicKey = this.config.webhook?.peerId ?? this.config.webhook?.key ?? '';
         const headers = {
             'Content-Type': 'application/json',
             'Content-Length': String(Buffer.byteLength(rawBody)),
@@ -487,39 +510,5 @@ export class BroadcastService extends BaseService {
 
         parsedUrl.protocol = `${this.#webhookProtocol}:`;
         return parsedUrl.toString();
-    }
-
-    async '__on_install.websockets' () {
-        const svc_webServer = this.services.get('web-server');
-
-        const server = svc_webServer.get_server();
-
-        const io = new SocketIoServer(server, {
-            cors: { origin: '*' },
-            path: '/wssinternal',
-        });
-
-        io.on('connection', async socket => {
-            const conn = new SLink({
-                keys: this.config.keys,
-                trustedKeys: this.#trustedPublicKeys,
-                socket,
-            });
-            this.#connections.push(conn);
-
-            conn.channels.message.on(async message => {
-                const incomingEvents = this.#normalizeIncomingPayload(message);
-                if ( ! incomingEvents ) {
-                    console.warn('invalid ws broadcast payload');
-                    return;
-                }
-
-                try {
-                    await this.#emitIncomingEventsSequentially(incomingEvents);
-                } catch ( error ) {
-                    console.warn('ws broadcast receive error', { error });
-                }
-            });
-        });
     }
 }
