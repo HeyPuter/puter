@@ -19,7 +19,12 @@
 
 import configurable_auth from '../middleware/configurable_auth.js';
 import { Endpoint } from '../util/expressutil.js';
+import { Actor, UserActorType } from './auth/Actor.js';
 import BaseService from './BaseService.js';
+
+function addDashesToUUID (i) {
+    return `${i.substr(0, 8) }-${ i.substr(8, 4) }-${ i.substr(12, 4) }-${ i.substr(16, 4) }-${ i.substr(20)}`;
+}
 
 export class PeerService extends BaseService {
     '__on_install.routes' (_, { app }) {
@@ -78,6 +83,37 @@ export class PeerService extends BaseService {
                     ttl: this.config.cloudflare_turn.ttl_ms,
                     iceServers,
                 });
+            },
+        }).attach(app);
+
+        const svc_web = this.services.get('web-server');
+        const meteringService = this.services.get('meteringService').meteringService;
+        svc_web.allow_undefined_origin('/turn/ingest-usage');
+
+        Endpoint({
+            route: '/turn/ingest-usage',
+            methods: ['POST'],
+            subdomain: 'api',
+            handler: async (req, res) => {
+                if ( req.headers['x-puter-internal-auth'] !== this.config.turn_meter_secret ) {
+                    res.status(403).send({ error: 'Failed to meter TURN credentials' });
+                    return;
+                }
+                /** @type {{timestamp: string, userId: string, origin: string, customIdentifier: Number, egressBytes: number, ingressBytes: number}[]} */
+                const records = req.body.records;
+                for ( const record of records ) {
+                    try {
+                        const actor = await Actor.create(UserActorType, {
+                            user_uid: addDashesToUUID(Buffer.from(record.userId, 'base64url').toString('hex')),
+                        });
+                        const costInMicrocents = record.egressBytes * 0.005;
+                        meteringService.incrementUsage(actor, 'turn:egress-bytes', record.egressBytes, costInMicrocents);
+                    } catch (e) {
+                        // failed to get user likely
+                        console.error('TURN metering error: ', e);
+                    }
+                    res.send('ok');
+                }
             },
         }).attach(app);
     }
