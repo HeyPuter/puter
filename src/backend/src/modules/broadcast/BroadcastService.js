@@ -353,7 +353,6 @@ export class BroadcastService extends BaseService {
     }
 
     async #handleWebhookRequest (req, res) {
-        console.log('handling some request via webhooks');
         const rawBody = req.rawBody;
         if ( rawBody === undefined || rawBody === null ) {
             res.status(400).send({ error: { message: 'Missing or invalid body' } });
@@ -454,7 +453,6 @@ export class BroadcastService extends BaseService {
 
         let nextNonce = this.#outgoingNonceByPeer.get(peerId) ?? 0;
         this.#outgoingNonceByPeer.set(peerId, nextNonce + 1);
-        console.log('Sending webhook message to peer', { peerId });
 
         const timestamp = Math.floor(Date.now() / 1000);
         const body = { events };
