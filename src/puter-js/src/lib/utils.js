@@ -92,7 +92,6 @@ const createDeferred = () => {
 function initXhr (endpoint, APIOrigin, authToken, method = 'post', contentType = 'text/plain;actually=json', responseType = undefined) {
     const xhr = new XMLHttpRequest();
     xhr.open(method, APIOrigin + endpoint, true);
-    xhr.withCredentials = true;
     if ( authToken )
     {
         xhr.setRequestHeader('Authorization', `Bearer ${ authToken}`);
@@ -281,18 +280,16 @@ function make_driver_method (arg_defs, driverInterface, driverName, driverMethod
 async function driverCall (options, driverInterface, driverName, driverMethod, driverArgs, settings) {
     const deferred = createDeferred();
 
-    driverCall_(
-        options,
-        deferred.resolve,
-        deferred.reject,
-        driverInterface,
-        driverName,
-        driverMethod,
-        driverArgs,
-        undefined,
-        undefined,
-        settings,
-    );
+    driverCall_(options,
+                    deferred.resolve,
+                    deferred.reject,
+                    driverInterface,
+                    driverName,
+                    driverMethod,
+                    driverArgs,
+                    undefined,
+                    undefined,
+                    settings);
 
     return await deferred.promise;
 }
@@ -300,12 +297,8 @@ async function driverCall (options, driverInterface, driverName, driverMethod, d
 // This function encapsulates the logic for sending a driver call request
 async function driverCall_ (
     options = {},
-    resolve_func,
-    reject_func,
-    driverInterface,
-    driverName,
-    driverMethod,
-    driverArgs,
+    resolve_func, reject_func,
+    driverInterface, driverName, driverMethod, driverArgs,
     method,
     contentType = 'text/plain;actually=json',
     settings = {},

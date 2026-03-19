@@ -34,22 +34,14 @@ class WSPushService extends BaseService {
         this.svc_event.on('fs.write.*', this._on_fs_update.bind(this));
         this.svc_event.on('fs.move.*', this._on_fs_move.bind(this));
         this.svc_event.on('fs.pending.*', this._on_fs_pending.bind(this));
-        this.svc_event.on(
-            'fs.storage.upload-progress',
-            this._on_upload_progress.bind(this),
-        );
-        this.svc_event.on(
-            'fs.storage.progress.*',
-            this._on_upload_progress.bind(this),
-        );
-        this.svc_event.on(
-            'puter-exec.submission.done',
-            this._on_submission_done.bind(this),
-        );
-        this.svc_event.on(
-            'outer.gui.*',
-            this._on_outer_gui.bind(this),
-        );
+        this.svc_event.on('fs.storage.upload-progress',
+                        this._on_upload_progress.bind(this));
+        this.svc_event.on('fs.storage.progress.*',
+                        this._on_upload_progress.bind(this));
+        this.svc_event.on('puter-exec.submission.done',
+                        this._on_submission_done.bind(this));
+        this.svc_event.on('outer.gui.*',
+                        this._on_outer_gui.bind(this));
     }
 
     async _on_fs_create (key, data) {
@@ -259,11 +251,15 @@ class WSPushService extends BaseService {
         const { socket_id } = metadata;
 
         if ( ! socket_id ) {
-            console.warn('missing socket id', { metadata });
-            return;
+            this.log.warn('missing socket id', { metadata });
         }
 
+        this.log.info(`socket id: ${ socket_id}`);
+
         const svc_socketio = context.get('services').get('socketio');
+        if ( ! svc_socketio.has({ socket: socket_id }) ) {
+            return;
+        }
 
         const ws_event_name = metadata.call_it_download
             ? 'download.progress' : 'upload.progress';
@@ -315,6 +311,9 @@ class WSPushService extends BaseService {
         const svc_socketio = this.services.get('socketio');
 
         for ( const user_id of user_id_list ) {
+            if ( ! svc_socketio.has({ room: user_id }) ) {
+                continue;
+            }
             svc_socketio.send({ room: user_id }, key, response);
             this.svc_event.emit(`sent-to-user.${key}`, {
                 user_id,
@@ -341,7 +340,7 @@ class WSPushService extends BaseService {
                 const kvStore = Context.get('services').get('puter-kvstore');
                 await kvStore.set({ key: key, value: ts });
             } catch ( error ) {
-                console.error('Failed to update user timestamp in kvstore', { user_id, error: error.message });
+                this.log.error('Failed to update user timestamp in kvstore', { user_id, error: error.message });
             }
         }
 

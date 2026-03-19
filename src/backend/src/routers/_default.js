@@ -113,7 +113,6 @@ router.all('*', async function (req, res, next) {
     }
 
     const db = Context.get('services').get('database').get(DB_READ, 'default');
-    const authService = Context.get('services').get('auth');
 
     // --------------------------------------
     // POST to login/signup/logout
@@ -138,7 +137,7 @@ router.all('*', async function (req, res, next) {
         let authed = false;
         try {
             try {
-                auth_user = await jwt_auth(req, authService);
+                auth_user = await jwt_auth(req);
                 auth_user = auth_user.user;
                 authed = true;
             } catch (e) {

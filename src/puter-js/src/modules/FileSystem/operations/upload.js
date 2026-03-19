@@ -457,7 +457,6 @@ const upload = async function (items, dirPath, options = {}) {
 
         // open request to server
         xhr.open('post', (`${this.APIOrigin }/batch`), true);
-        xhr.withCredentials = true;
         // set auth header
         xhr.setRequestHeader('Authorization', `Bearer ${ this.authToken}`);
 
