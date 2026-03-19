@@ -66,9 +66,7 @@ class SocketioService extends BaseService {
             if ( socket_specifier.room ) {
                 this.io.to(socket_specifier.room).emit(key, data);
             } else if ( socket_specifier.socket ) {
-                const io = this.io.sockets.sockets.get(socket_specifier.socket);
-                if ( ! io ) continue;
-                io.emit(key, data);
+                this.io.to(socket_specifier.socket).emit(key, data);
             }
         }
     }
