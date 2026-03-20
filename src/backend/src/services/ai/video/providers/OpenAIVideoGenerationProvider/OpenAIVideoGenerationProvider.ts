@@ -123,7 +123,7 @@ export class OpenAIVideoGenerationProvider implements IVideoProvider {
             }, DEFAULT_TEST_VIDEO_URL);
         }
 
-        const defaultSize = selectedModel.allowedResolutions?.[0] ?? '720x1280';
+        const defaultSize = selectedModel.dimensions?.[0] ?? '720x1280';
         const normalizedSize = this.#normalizeSize(size ?? resolution, selectedModel) ?? defaultSize;
         const normalizedSeconds = this.#normalizeSeconds(seconds ?? duration) ?? String(DEFAULT_DURATION_SECONDS);
 
@@ -179,7 +179,7 @@ export class OpenAIVideoGenerationProvider implements IVideoProvider {
             stream = Readable.from(Buffer.from(arrayBuffer));
         }
 
-        this.#meteringService.incrementUsage(actor, finalUsageKey as any, actualSeconds);
+        this.#meteringService.incrementUsage(actor, finalUsageKey, actualSeconds);
 
         return new TypedValue({
             $: 'stream',
@@ -214,7 +214,7 @@ export class OpenAIVideoGenerationProvider implements IVideoProvider {
     #normalizeSize (candidate: unknown, model: IVideoModel): string | undefined {
         if ( ! candidate ) return undefined;
         const normalized = this.#normalizeResolution(candidate);
-        if ( normalized && model.allowedResolutions?.includes(normalized) ) {
+        if ( normalized && model.dimensions?.includes(normalized) ) {
             return normalized;
         }
         return undefined;

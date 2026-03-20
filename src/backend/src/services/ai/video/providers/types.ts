@@ -29,8 +29,8 @@ export interface IVideoModel {
     index_cost_key?: string;
     output_cost_key?: string;
     costs?: Record<string, number>;
-    allowedDurationsSeconds?: number[] | null;
-    allowedResolutions?: string[] | null;
+    durationSeconds?: number[] | null;
+    dimensions?: string[] | null;
     defaultUsageKey?: string;
     organization?: string;
     model?: string;

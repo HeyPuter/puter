@@ -246,28 +246,28 @@ export class AIVideoGenerationService extends BaseService {
             throw new Error(`no provider found for model ${model.id}`);
         }
 
-        if ( model.allowedDurationsSeconds?.length ) {
+        if ( model.durationSeconds?.length ) {
             const requestedSeconds = parameters.seconds ?? parameters.duration;
             const normalizedSeconds = typeof requestedSeconds === 'string'
                 ? Number.parseInt(requestedSeconds, 10)
                 : requestedSeconds;
-            const validSeconds = model.allowedDurationsSeconds.includes(Number(normalizedSeconds))
+            const validSeconds = model.durationSeconds.includes(Number(normalizedSeconds))
                 ? normalizedSeconds
-                : model.allowedDurationsSeconds[0];
+                : model.durationSeconds[0];
             parameters.seconds = validSeconds;
             parameters.duration = validSeconds;
         }
 
-        if ( model.allowedResolutions?.length ) {
+        if ( model.dimensions?.length ) {
             const requestedResolution = typeof parameters.size === 'string' && parameters.size.trim()
                 ? parameters.size
                 : typeof parameters.resolution === 'string' && parameters.resolution.trim()
                     ? parameters.resolution
                     : undefined;
 
-            const normalizedResolution = requestedResolution && model.allowedResolutions.includes(requestedResolution)
+            const normalizedResolution = requestedResolution && model.dimensions.includes(requestedResolution)
                 ? requestedResolution
-                : model.allowedResolutions[0];
+                : model.dimensions[0];
             parameters.size = normalizedResolution;
             parameters.resolution = normalizedResolution;
         }

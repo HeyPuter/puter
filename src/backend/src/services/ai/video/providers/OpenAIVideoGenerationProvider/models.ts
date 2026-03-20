@@ -27,13 +27,12 @@ export const OPENAI_VIDEO_MODELS: IVideoModel[] = [
         puterId: 'openai:openai/sora-2',
         aliases: ['openai/sora-2'],
         name: 'Sora 2',
-        version: '1.0',
         costs_currency: 'usd-cents',
         costs: {
             default: 10, // $0.10 per second
         },
-        allowedDurationsSeconds: OPENAI_VIDEO_ALLOWED_SECONDS.slice(),
-        allowedResolutions: ['720x1280', '1280x720'],
+        durationSeconds: OPENAI_VIDEO_ALLOWED_SECONDS.slice(),
+        dimensions: ['720x1280', '1280x720'],
         defaultUsageKey: 'openai:sora-2:default',
     },
     {
@@ -41,15 +40,14 @@ export const OPENAI_VIDEO_MODELS: IVideoModel[] = [
         puterId: 'openai:openai/sora-2-pro',
         aliases: ['openai/sora-2-pro'],
         name: 'Sora 2 Pro',
-        version: '1.0',
         costs_currency: 'usd-cents',
         costs: {
             default: 30, // $0.30 per second (720x1280 / 1280x720)
             xl: 50, // $0.50 per second (1024x1792 / 1792x1024)
             xxl: 70, // $0.70 per second (1080x1920 / 1920x1080)
         },
-        allowedDurationsSeconds: OPENAI_VIDEO_ALLOWED_SECONDS.slice(),
-        allowedResolutions: ['720x1280', '1280x720', '1024x1792', '1792x1024', '1080x1920', '1920x1080'],
+        durationSeconds: OPENAI_VIDEO_ALLOWED_SECONDS.slice(),
+        dimensions: ['720x1280', '1280x720', '1024x1792', '1792x1024', '1080x1920', '1920x1080'],
         defaultUsageKey: 'openai:sora-2-pro:default',
     },
 ];
