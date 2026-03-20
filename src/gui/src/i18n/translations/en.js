@@ -452,6 +452,10 @@ const en = {
         'billing.offering.pro': 'Professional',
         'billing.offering.professional': 'Professional',
         'billing.offering.business': 'Business',
+        'business': 'Business',
+        'professional': 'Professional',
+        'basic': 'Basic',
+        'free': 'Free',
         'billing.cloud_storage': 'Cloud Storage',
         'billing.ai_access': 'AI Access',
         'billing.bandwidth': 'Bandwidth',
@@ -482,6 +486,7 @@ const en = {
         'billing.expanded': 'Expanded',
         'billing.accelerated': 'Accelerated',
         'billing.enjoy_msg': 'Enjoy %% of Cloud Storage plus other benefits.',
+
         'too_many_attempts': 'Too many attempts. Please try again later.',
         'server_timeout': 'The server took too long to respond. Please try again.',
         'signup_error': 'An error occurred during signup. Please try again.',
