@@ -48,50 +48,7 @@ export class OpenAIVideoGenerationProvider implements IVideoProvider {
     }
 
     async models (): Promise<IVideoModel[]> {
-        const costMapModule = await import('../../../../MeteringService/costMaps/openaiVideoCostMap.js');
-        const OPENAI_VIDEO_COST_MAP = costMapModule.OPENAI_VIDEO_COST_MAP;
-        const microCentsToCents = (microCents: number) => microCents / 1_000_000;
-
-        return OPENAI_VIDEO_MODELS.map(model => {
-            const result: IVideoModel = { ...model };
-
-            const defaultCostMicroCents = OPENAI_VIDEO_COST_MAP[model.defaultUsageKey!];
-            if ( defaultCostMicroCents !== undefined ) {
-                const perSecondCost = microCentsToCents(defaultCostMicroCents);
-                result.costs_currency = 'usd-cents';
-                result.costs = {
-                    'per-second': perSecondCost,
-                    'default-duration-per-video': perSecondCost * DEFAULT_DURATION_SECONDS,
-                };
-                result.output_cost_key = 'default-duration-per-video';
-            }
-
-            if ( model.id === 'sora-2-pro' ) {
-                const xlCostMicroCents = OPENAI_VIDEO_COST_MAP['openai:sora-2-pro:xl'];
-                if ( xlCostMicroCents !== undefined ) {
-                    if ( ! result.costs ) {
-                        result.costs = {};
-                        result.costs_currency = 'usd-cents';
-                    }
-                    const perSecondXlCost = microCentsToCents(xlCostMicroCents);
-                    result.costs['per-second-xl'] = perSecondXlCost;
-                    result.costs['default-duration-per-video-xl'] = perSecondXlCost * DEFAULT_DURATION_SECONDS;
-                }
-
-                const xxlCostMicroCents = OPENAI_VIDEO_COST_MAP['openai:sora-2-pro:xxl'];
-                if ( xxlCostMicroCents !== undefined ) {
-                    if ( ! result.costs ) {
-                        result.costs = {};
-                        result.costs_currency = 'usd-cents';
-                    }
-                    const perSecondXxlCost = microCentsToCents(xxlCostMicroCents);
-                    result.costs['per-second-xxl'] = perSecondXxlCost;
-                    result.costs['default-duration-per-video-xxl'] = perSecondXxlCost * DEFAULT_DURATION_SECONDS;
-                }
-            }
-
-            return result;
-        });
+        return OPENAI_VIDEO_MODELS;
     }
 
     async generate (params: IGenerateVideoParams): Promise<unknown> {
@@ -114,7 +71,11 @@ export class OpenAIVideoGenerationProvider implements IVideoProvider {
             });
         }
 
-        const selectedModel = this.#selectModel(requestedModel);
+        const selectedModel = await this.#selectModel(requestedModel);
+
+        if ( ! selectedModel ) {
+            throw new Error(`Unknown video model: ${requestedModel}`);
+        }
 
         if ( testMode ) {
             return new TypedValue({
@@ -127,30 +88,33 @@ export class OpenAIVideoGenerationProvider implements IVideoProvider {
         const normalizedSize = this.#normalizeSize(size ?? resolution, selectedModel) ?? defaultSize;
         const normalizedSeconds = this.#normalizeSeconds(seconds ?? duration) ?? String(DEFAULT_DURATION_SECONDS);
 
-        const usageKey = this.#determineUsageKey(selectedModel, normalizedSize);
-        if ( ! usageKey ) {
-            throw new Error(`Unsupported pricing tier for model ${selectedModel.id}`);
+        const sizeTier = this.#determineSizeTier(selectedModel, normalizedSize);
+        const costPerSecondCents = this.#getCostPerSecond(selectedModel, sizeTier);
+
+        if ( ! costPerSecondCents ) {
+            throw new Error(`No pricing configured for model ${selectedModel.id} at size ${normalizedSize}`);
         }
 
         const estimatedUnits = this.#parseSeconds(normalizedSeconds) ?? DEFAULT_DURATION_SECONDS;
         const actor = Context.get('actor');
-        const usageAllowed = await this.#meteringService.hasEnoughCreditsFor(actor, usageKey as any, estimatedUnits);
+        const costInMicroCents = costPerSecondCents * 1_000_000;
+        const usageAllowed = await this.#meteringService.hasEnoughCredits(actor, costInMicroCents * estimatedUnits);
         if ( ! usageAllowed ) {
             throw APIError.create('insufficient_funds');
         }
 
-        const createParams: Record<string, unknown> = {
-            model: selectedModel.id,
+        const createParams: OpenAI.VideoCreateParams = {
             prompt,
-            seconds: normalizedSeconds,
-            size: normalizedSize,
+            model: selectedModel.id,
+            seconds: normalizedSeconds as OpenAI.VideoSeconds,
+            size: normalizedSize as OpenAI.VideoSize,
         };
 
         if ( inputReference ) {
-            createParams.input_reference = inputReference;
+            createParams.input_reference = inputReference as OpenAI.VideoCreateParams['input_reference'];
         }
 
-        const createResponse = await (this.#openai as any).videos.create(createParams);
+        const createResponse = await this.#openai.videos.create(createParams);
         const finalJob = await this.#pollUntilComplete(createResponse);
 
         if ( finalJob.status === 'failed' ) {
@@ -159,19 +123,22 @@ export class OpenAIVideoGenerationProvider implements IVideoProvider {
         }
 
         const finalResolution = this.#normalizeSize(finalJob.size, selectedModel) ?? normalizedSize;
-        const finalUsageKey = this.#determineUsageKey(selectedModel, finalResolution);
-        if ( ! finalUsageKey ) {
-            throw new Error(`Unsupported pricing tier for model ${selectedModel.id}`);
+        const finalTier = this.#determineSizeTier(selectedModel, finalResolution);
+        const finalCostPerSecondCents = this.#getCostPerSecond(selectedModel, finalTier);
+
+        if ( ! finalCostPerSecondCents ) {
+            throw new Error(`No pricing configured for model ${selectedModel.id} at size ${finalResolution}`);
         }
 
+        const finalCostInMicroCents = finalCostPerSecondCents * 1_000_000;
         const actualSeconds = this.#parseSeconds(finalJob.seconds) ?? estimatedUnits;
 
-        const downloadResponse = await (this.#openai as any).videos.downloadContent(finalJob.id);
+        const downloadResponse = await this.#openai.videos.downloadContent(finalJob.id);
         const contentType = downloadResponse.headers.get('content-type') ?? 'video/mp4';
 
-        let stream = downloadResponse.body;
+        let stream: any = downloadResponse.body;
         if ( stream && typeof stream.getReader === 'function' ) {
-            stream = Readable.fromWeb(stream);
+            stream = Readable.fromWeb(stream as any);
         }
 
         if ( ! stream ) {
@@ -179,7 +146,8 @@ export class OpenAIVideoGenerationProvider implements IVideoProvider {
             stream = Readable.from(Buffer.from(arrayBuffer));
         }
 
-        this.#meteringService.incrementUsage(actor, finalUsageKey, actualSeconds);
+        const finalUsageKey = this.#getUsageKey(selectedModel, finalTier);
+        await this.#meteringService.incrementUsage(actor, finalUsageKey, actualSeconds, finalCostInMicroCents * actualSeconds);
 
         return new TypedValue({
             $: 'stream',
@@ -187,11 +155,12 @@ export class OpenAIVideoGenerationProvider implements IVideoProvider {
         }, stream);
     }
 
-    #selectModel (requestedModel?: string): IVideoModel {
-        return OPENAI_VIDEO_MODELS.find(m => m.id === requestedModel) ?? OPENAI_VIDEO_MODELS[0];
+    async #selectModel (requestedModel?: string): Promise<IVideoModel | undefined> {
+        const allModels = await this.models();
+        return allModels.find(m => m.id.toLowerCase() === requestedModel?.toLowerCase());
     }
 
-    async #pollUntilComplete (initialJob: any): Promise<any> {
+    async #pollUntilComplete (initialJob: OpenAI.Video): Promise<OpenAI.Video> {
         let job = initialJob;
         const start = Date.now();
 
@@ -201,7 +170,7 @@ export class OpenAIVideoGenerationProvider implements IVideoProvider {
             }
 
             await this.#delay(POLL_INTERVAL_MS);
-            job = await (this.#openai as any).videos.retrieve(job.id);
+            job = await this.#openai.videos.retrieve(job.id);
         }
 
         return job;
@@ -231,16 +200,21 @@ export class OpenAIVideoGenerationProvider implements IVideoProvider {
         return undefined;
     }
 
-    #determineUsageKey (model: IVideoModel, size: string): string | null {
+    #determineSizeTier (model: IVideoModel, size: string): string {
         if ( model.id === 'sora-2-pro' ) {
-            if ( size === '1080x1920' || size === '1920x1080' ) {
-                return 'openai:sora-2-pro:xxl';
-            }
-            if ( size === '1024x1792' || size === '1792x1024' ) {
-                return 'openai:sora-2-pro:xl';
-            }
+            if ( size === '1080x1920' || size === '1920x1080' ) return 'xxl';
+            if ( size === '1024x1792' || size === '1792x1024' ) return 'xl';
         }
-        return model.defaultUsageKey ?? null;
+        return 'default';
+    }
+
+    #getCostPerSecond (model: IVideoModel, tier: string): number | undefined {
+        const key = tier === 'default' ? 'per-second' : `per-second-${tier}`;
+        return model.costs?.[key];
+    }
+
+    #getUsageKey (model: IVideoModel, tier: string): string {
+        return `openai:${model.id}:${tier}`;
     }
 
     #normalizeResolution (value: unknown): string | undefined {

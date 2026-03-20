@@ -77,6 +77,12 @@ export class AIVideoGenerationService extends BaseService {
             return model ?? models[0];
         }
 
+        // Prefer exact primary ID match over alias matches
+        const exactIdMatch = models.find(m => m.id === modelId);
+        if ( exactIdMatch ) {
+            return exactIdMatch;
+        }
+
         const exactPuterIdMatch = models.find(m => m.puterId === modelId);
         if ( exactPuterIdMatch ) {
             return exactPuterIdMatch;
@@ -237,7 +243,7 @@ export class AIVideoGenerationService extends BaseService {
             throw APIError.create('field_invalid', undefined, {
                 key: 'model',
                 expected: `a valid model name from ${availableModelsUrl}`,
-                got: model,
+                got: parameters.model,
             });
         }
 

@@ -29,8 +29,10 @@ export const OPENAI_VIDEO_MODELS: IVideoModel[] = [
         name: 'Sora 2',
         costs_currency: 'usd-cents',
         costs: {
-            default: 10, // $0.10 per second
+            'per-second': 10,
+            'default-duration-per-video': 40,
         },
+        output_cost_key: 'default-duration-per-video',
         durationSeconds: OPENAI_VIDEO_ALLOWED_SECONDS.slice(),
         dimensions: ['720x1280', '1280x720'],
         defaultUsageKey: 'openai:sora-2:default',
@@ -42,10 +44,14 @@ export const OPENAI_VIDEO_MODELS: IVideoModel[] = [
         name: 'Sora 2 Pro',
         costs_currency: 'usd-cents',
         costs: {
-            default: 30, // $0.30 per second (720x1280 / 1280x720)
-            xl: 50, // $0.50 per second (1024x1792 / 1792x1024)
-            xxl: 70, // $0.70 per second (1080x1920 / 1920x1080)
+            'per-second': 30,
+            'default-duration-per-video': 120,
+            'per-second-xl': 50,
+            'default-duration-per-video-xl': 200,
+            'per-second-xxl': 70,
+            'default-duration-per-video-xxl': 280,
         },
+        output_cost_key: 'default-duration-per-video',
         durationSeconds: OPENAI_VIDEO_ALLOWED_SECONDS.slice(),
         dimensions: ['720x1280', '1280x720', '1024x1792', '1792x1024', '1080x1920', '1920x1080'],
         defaultUsageKey: 'openai:sora-2-pro:default',
