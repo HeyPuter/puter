@@ -49,7 +49,7 @@ describe('BroadcastService redis pubsub', () => {
         eventService.emit.mockClear();
     });
 
-    it('re-emits only outer.gui/pub events from redis pubsub payloads', async () => {
+    it('re-emits only outer.pub events from redis pubsub payloads', async () => {
         await redisClient.publish('broadcast.webhook.events', JSON.stringify({
             sourceId: 'other-instance',
             events: [
@@ -61,15 +61,9 @@ describe('BroadcastService redis pubsub', () => {
 
         await wait();
 
-        expect(eventService.emit).toHaveBeenCalledTimes(2);
+        expect(eventService.emit).toHaveBeenCalledTimes(1);
         expect(eventService.emit).toHaveBeenNthCalledWith(
             1,
-            'outer.gui.notif.message',
-            { id: 'gui-1' },
-            expect.objectContaining({ from_outside: true }),
-        );
-        expect(eventService.emit).toHaveBeenNthCalledWith(
-            2,
             'outer.pub.notice',
             { id: 'pub-1' },
             expect.objectContaining({ from_outside: true }),
@@ -89,10 +83,10 @@ describe('BroadcastService redis pubsub', () => {
         expect(eventService.emit).not.toHaveBeenCalled();
     });
 
-    it('publishes local outer.gui/pub events to redis pubsub for replicas', async () => {
+    it('publishes local outer.pub events to redis pubsub for replicas', async () => {
         const publishSpy = vi.spyOn(redisClient, 'publish');
         try {
-            await service.outBroadcastEventHandler('outer.gui.notif.message', { id: 'gui-local' }, {});
+            await service.outBroadcastEventHandler('outer.pub.notice', { id: 'pub-local' }, {});
             await wait();
 
             const publishCall = publishSpy.mock.calls.find(([channel]) => channel === 'broadcast.webhook.events');
@@ -104,11 +98,58 @@ describe('BroadcastService redis pubsub', () => {
             expect(parsedPayload.sourceId).toBeDefined();
             expect(parsedPayload.events).toEqual([
                 {
-                    key: 'outer.gui.notif.message',
-                    data: { id: 'gui-local' },
+                    key: 'outer.pub.notice',
+                    data: { id: 'pub-local' },
                     meta: {},
                 },
             ]);
+        } finally {
+            publishSpy.mockRestore();
+        }
+    });
+
+    it('does not publish local outer.gui events to redis pubsub', async () => {
+        const publishSpy = vi.spyOn(redisClient, 'publish');
+        try {
+            await service.outBroadcastEventHandler('outer.gui.notif.message', { id: 'gui-local' }, {});
+            await wait();
+
+            const publishCall = publishSpy.mock.calls.find(([channel]) => channel === 'broadcast.webhook.events');
+            expect(publishCall).toBeUndefined();
+        } finally {
+            publishSpy.mockRestore();
+        }
+    });
+
+    it('does not rebroadcast events marked from_outside', async () => {
+        const publishSpy = vi.spyOn(redisClient, 'publish');
+        try {
+            await service.outBroadcastEventHandler('outer.gui.notif.message', { id: 'outside' }, {
+                from_outside: true,
+            });
+            await wait();
+
+            expect(publishSpy).not.toHaveBeenCalled();
+        } finally {
+            publishSpy.mockRestore();
+        }
+    });
+
+    it('ignores redis pubsub payloads with this instance sourceId', async () => {
+        const publishSpy = vi.spyOn(redisClient, 'publish');
+        try {
+            await service.outBroadcastEventHandler('outer.pub.notice', { id: 'self-source' }, {});
+            await wait();
+
+            const publishCall = publishSpy.mock.calls.find(([channel]) => channel === 'broadcast.webhook.events');
+            expect(publishCall).toBeDefined();
+            const [_channel, payload] = publishCall;
+
+            eventService.emit.mockClear();
+            await redisClient.publish('broadcast.webhook.events', payload);
+            await wait();
+
+            expect(eventService.emit).not.toHaveBeenCalled();
         } finally {
             publishSpy.mockRestore();
         }
