@@ -59,12 +59,10 @@ class WSPushService extends BaseService {
             from_new_service: true,
         };
 
-        {
-            const svc_operationTrace = context.get('services').get('operationTrace');
-            const frame = context.get(svc_operationTrace.ckey('frame'));
-            const gui_metadata = frame.get_attr('gui_metadata') || {};
-            Object.assign(metadata, gui_metadata);
-        }
+        const svc_operationTrace = context.get('services').get('operationTrace');
+        const frame = context.get(svc_operationTrace.ckey('frame'));
+        const gui_metadata = frame.get_attr('gui_metadata') || {};
+        Object.assign(metadata, gui_metadata);
 
         const response = await node.getSafeEntry({ thumbnail: true });
 
@@ -109,12 +107,10 @@ class WSPushService extends BaseService {
             from_new_service: true,
         };
 
-        {
-            const svc_operationTrace = context.get('services').get('operationTrace');
-            const frame = context.get(svc_operationTrace.ckey('frame'));
-            const gui_metadata = frame?.get_attr?.('gui_metadata') || {};
-            Object.assign(metadata, gui_metadata);
-        }
+        const svc_operationTrace = context.get('services').get('operationTrace');
+        const frame = context.get(svc_operationTrace.ckey('frame'));
+        const gui_metadata = frame?.get_attr?.('gui_metadata') || {};
+        Object.assign(metadata, gui_metadata);
 
         const response = await node.getSafeEntry({ debug: 'hi', thumbnail: true });
 
@@ -157,12 +153,10 @@ class WSPushService extends BaseService {
             from_new_service: true,
         };
 
-        {
-            const svc_operationTrace = context.get('services').get('operationTrace');
-            const frame = context.get(svc_operationTrace.ckey('frame'));
-            const gui_metadata = frame.get_attr('gui_metadata') || {};
-            Object.assign(metadata, gui_metadata);
-        }
+        const svc_operationTrace = context.get('services').get('operationTrace');
+        const frame = context.get(svc_operationTrace.ckey('frame'));
+        const gui_metadata = frame.get_attr('gui_metadata') || {};
+        Object.assign(metadata, gui_metadata);
 
         const response = await moved.getSafeEntry();
 
@@ -205,12 +199,10 @@ class WSPushService extends BaseService {
 
         const response = { ...fsentry };
 
-        {
-            const svc_operationTrace = context.get('services').get('operationTrace');
-            const frame = context.get(svc_operationTrace.ckey('frame'));
-            const gui_metadata = frame.get_attr('gui_metadata') || {};
-            Object.assign(metadata, gui_metadata);
-        }
+        const svc_operationTrace = context.get('services').get('operationTrace');
+        const frame = context.get(svc_operationTrace.ckey('frame'));
+        const gui_metadata = frame.get_attr('gui_metadata') || {};
+        Object.assign(metadata, gui_metadata);
 
         const user_id_list = await (async () => {
             const user_id_set = new Set();
@@ -230,7 +222,7 @@ class WSPushService extends BaseService {
     }
 
     /**
-    * Emits an upload or download progress event to the relevant socket.
+    * Emits an upload or download progress event to the relevant user room.
     *
     * @param {string} key - The event key that triggered this method.
     * @param {Object} data - Contains upload_tracker, context, and meta information.
@@ -238,7 +230,7 @@ class WSPushService extends BaseService {
     * @param {Object} data.context - Context of the operation.
     * @param {Object} data.meta - Additional metadata for the event.
     *
-    * It emits a progress event to the socket if it exists, otherwise, it does nothing.
+    * It emits a progress event to the room if it exists, otherwise, it does nothing.
     */
     async _on_upload_progress (key, data) {
         this.log.info('got upload progress event');
@@ -249,17 +241,15 @@ class WSPushService extends BaseService {
             from_new_service: true,
         };
 
-        {
-            const svc_operationTrace = context.get('services').get('operationTrace');
-            const frame = context.get(svc_operationTrace.ckey('frame'));
-            const gui_metadata = frame.get_attr('gui_metadata') || {};
-            Object.assign(metadata, gui_metadata);
-        }
+        const svc_operationTrace = context.get('services').get('operationTrace');
+        const frame = context.get(svc_operationTrace.ckey('frame'));
+        const gui_metadata = frame.get_attr('gui_metadata') || {};
+        Object.assign(metadata, gui_metadata);
 
-        const { socket_id } = metadata;
+        const roomId = metadata.user_id ?? metadata.userId;
 
-        if ( ! socket_id ) {
-            console.warn('missing socket id', { metadata });
+        if ( ! roomId ) {
+            console.warn('missing room id for upload progress', { metadata });
             return;
         }
 
@@ -270,7 +260,7 @@ class WSPushService extends BaseService {
 
         upload_tracker.sub(delta => {
             this.log.info('emitting progress event');
-            svc_socketio.send({ socket: socket_id }, ws_event_name, {
+            svc_socketio.send({ room: roomId }, ws_event_name, {
                 ...metadata,
                 total: upload_tracker.total_,
                 loaded: upload_tracker.progress_,

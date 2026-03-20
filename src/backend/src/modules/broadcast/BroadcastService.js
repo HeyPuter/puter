@@ -103,7 +103,7 @@ export class BroadcastService extends BaseService {
         const safeMeta = this.#normalizeMeta(meta);
         const outboundEvent = { key, data, meta: safeMeta };
 
-        // Mirror local outer.gui/pub events to Redis so same-cluster replicas
+        // Mirror local outer.pub events to Redis so same-cluster replicas
         // receive them even when this instance is the originator.
         this.#publishWebhookEventsToRedis([outboundEvent]).catch(error => {
             console.warn('local redis pubsub publish failed', { error, key });
@@ -171,6 +171,12 @@ export class BroadcastService extends BaseService {
         return meta;
     }
 
+    #resolveLocalPeerId () {
+        const localPeerId = this.config?.webhook?.peerId ?? this.config?.webhook?.key;
+        if ( typeof localPeerId !== 'string' || localPeerId.trim() === '' ) return null;
+        return localPeerId.trim();
+    }
+
     #resolvePeerId (peerConfig) {
         if ( !peerConfig || typeof peerConfig !== 'object' ) return null;
         const peerId = peerConfig.peerId ?? peerConfig.key;
@@ -213,9 +219,7 @@ export class BroadcastService extends BaseService {
 
     #isRedisWebhookEventKey (key) {
         if ( typeof key !== 'string' ) return false;
-        return key === 'outer.gui' ||
-            key.startsWith('outer.gui.') ||
-            key === 'outer.pub' ||
+        return key === 'outer.pub' ||
             key.startsWith('outer.pub.');
     }
 
@@ -377,6 +381,11 @@ export class BroadcastService extends BaseService {
             res.status(403).send({ error: { message: 'Missing X-Broadcast-Peer-Id' } });
             return;
         }
+        const localPeerId = this.#resolveLocalPeerId();
+        if ( localPeerId && peerId === localPeerId ) {
+            res.status(200).send({ ok: true, ignored: 'self-peer' });
+            return;
+        }
 
         const peer = this.#peersByKey[peerId];
         if ( !peer || !peer.webhook_secret ) {
@@ -437,7 +446,7 @@ export class BroadcastService extends BaseService {
         this.#incomingLastNonceByPeer.set(peerId, { timestamp, nonce });
 
         await this.#publishWebhookEventsToRedis(incomingEvents);
-        this.#emitIncomingEventsSequentially(incomingEvents);
+        await this.#emitIncomingEventsSequentially(incomingEvents);
 
         res.status(200).send({ ok: true });
     }
