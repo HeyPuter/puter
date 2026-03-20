@@ -118,6 +118,8 @@ Puter is available as a hosted service at [**puter.com**](https://puter.com).
 - **Operating Systems:** Linux, macOS, Windows
 - **RAM:** 2GB minimum (4GB recommended)
 - **Disk Space:** 1GB free space
+- **Cloud Credits:** Starter credits included  for AI and cloud features.
+- **Billing:** View usage and limits in the [Puter Dashboard](https://puter.com/dashboard). 
 - **Node.js:** Version 24+
 - **npm:** Latest stable version
 
