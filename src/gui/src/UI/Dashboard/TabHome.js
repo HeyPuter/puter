@@ -261,7 +261,7 @@ const TabHome = {
         try {
             const hasSubscription = window.user?.subscription?.active;
             const planName = hasSubscription
-                ? (window.user?.subscription?.plan_name || i18n('billing.offering.pro'))
+                ? (window.user?.subscription?.offering?.name || i18n('billing.offering.pro'))
                 : i18n('billing.offering.free');
 
             $el_window.find('.bento-plan-name').text(planName);
