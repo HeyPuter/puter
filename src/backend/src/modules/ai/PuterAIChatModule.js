@@ -28,9 +28,7 @@ import { OpenAISpeechToTextService } from '../../services/ai/stt/OpenAISpeechToT
 import { AWSPollyService } from '../../services/ai/tts/AWSPollyService.js';
 import { ElevenLabsTTSService } from '../../services/ai/tts/ElevenLabsTTSService.js';
 import { OpenAITTSService } from '../../services/ai/tts/OpenAITTSService.js';
-import { TogetherVideoGenerationService } from '../../services/ai/video/TogetherVideoGenerationService/TogetherVideoGenerationService.js';
-import { OpenAIVideoGenerationService } from '../../services/ai/video/OpenAIVideoGenerationService/OpenAIVideoGenerationService.js';
-// import { AIVideoGenerationService } from '../../services/ai/video/AIVideoGenerationService.js';
+import { AIVideoGenerationService } from '../../services/ai/video/AIVideoGenerationService.js';
 
 /**
 * PuterAIModule class extends AdvancedBase to manage and register various AI services.
@@ -59,7 +57,7 @@ export class PuterAIModule extends AdvancedBase {
         services.registerService('ai-image', AIImageGenerationService);
 
         // video generation ai service
-        // services.registerService('ai-video', AIVideoGenerationService);
+        services.registerService('ai-video', AIVideoGenerationService);
 
         // TODO DS: centralize other service types too
         // TODO: services should govern their own availability instead of the module deciding what to register
@@ -83,14 +81,6 @@ export class PuterAIModule extends AdvancedBase {
 
             services.registerService('openai-tts', OpenAITTSService);
             services.registerService('openai-speech2txt', OpenAISpeechToTextService);
-
-            // TODO DS: move to video service
-            services.registerService('openai-video-generation', OpenAIVideoGenerationService);
-        }
-
-        if ( config?.services?.['together-ai'] ) {
-            // TODO DS: move to video service
-            services.registerService('together-video-generation', TogetherVideoGenerationService);
         }
     }
 }

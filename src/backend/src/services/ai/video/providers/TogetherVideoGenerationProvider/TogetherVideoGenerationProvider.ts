@@ -17,56 +17,73 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-const APIError = require('../../../../api/APIError');
-const BaseService = require('../../../BaseService');
-const { TypedValue } = require('../../../drivers/meta/Runtime');
-const { Context } = require('../../../../util/context');
-const { Together } = require('together-ai');
+import { Together } from 'together-ai';
+import APIError from '../../../../../api/APIError.js';
+import { Context } from '../../../../../util/context.js';
+import { MeteringService } from '../../../../MeteringService/MeteringService.js';
+import { IGenerateVideoParams, IVideoModel, IVideoProvider } from '../types.js';
+import { TypedValue } from '../../../../drivers/meta/Runtime.js';
+import { TOGETHER_VIDEO_GENERATION_MODELS } from './models.js';
 
 const DEFAULT_TEST_VIDEO_URL = 'https://assets.puter.site/txt2vid.mp4';
 const POLL_INTERVAL_MS = 5_000;
-const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000;
 const DEFAULT_MODEL = 'minimax/video-01-director';
 const DEFAULT_DURATION_SECONDS = 6;
 const DEFAULT_USAGE_KEY = 'together-video:default';
 
-let models = [];
+export class TogetherVideoGenerationProvider implements IVideoProvider {
+    #client: Together;
+    #meteringService: MeteringService;
 
-class TogetherVideoGenerationService extends BaseService {
-    /** @type {import('../../../MeteringService/MeteringService').MeteringService} */
-    get meteringService () {
-        return this.services.get('meteringService').meteringService;
-    }
-
-    static MODULES = {};
-
-    async _init () {
-        const apiKey =
-            this.config?.apiKey ??
-            this.global_config?.services?.['together-ai']?.apiKey;
-
-        if ( ! apiKey ) {
+    constructor (config: { apiKey: string }, meteringService: MeteringService) {
+        if ( ! config.apiKey ) {
             throw new Error('Together AI video generation requires an API key');
         }
-
-        this.client = new Together({ apiKey });
+        this.#client = new Together({ apiKey: config.apiKey });
+        this.#meteringService = meteringService;
     }
 
-    static IMPLEMENTS = {
-        'driver-capabilities': {
-            supports_test_mode (iface, method_name) {
-                return iface === 'puter-video-generation' &&
-                    method_name === 'generate';
-            },
-        },
-        'puter-video-generation': {
-            async generate (params) {
-                return await this.generateVideo(params);
-            },
-        },
-    };
+    getDefaultModel (): string {
+        return 'togetherai:minimax/video-01-director';
+    }
 
-    async generateVideo (params) {
+    async models (): Promise<IVideoModel[]> {
+        const costMapModule = await import('../../../../MeteringService/costMaps/togetherCostMap.js');
+        const TOGETHER_COST_MAP = costMapModule.TOGETHER_COST_MAP;
+        const microCentsToCents = (microCents: number) => microCents / 1_000_000;
+
+        return TOGETHER_VIDEO_GENERATION_MODELS.map((model) => {
+            const result: IVideoModel = {
+                id: model.id,
+                name: model.name,
+                aliases: [model.model],
+                organization: model.organization,
+                model: model.model,
+                allowedDurationsSeconds: model.allowedDurationsSeconds ?? undefined,
+                allowedResolutions: model.allowedResolutions ?? undefined,
+                fps: model.fps ?? undefined,
+                keyframes: model.keyframes ?? undefined,
+                promptLength: model.promptLength ?? undefined,
+                promptSupported: model.promptSupported ?? undefined,
+            };
+
+            const costKey = model.id.replace('togetherai:', 'together-video:');
+            const costMicroCents = TOGETHER_COST_MAP[costKey];
+
+            if ( costMicroCents !== undefined && costMicroCents > 0 ) {
+                result.costs_currency = 'usd-cents';
+                result.costs = {
+                    'per-video': microCentsToCents(costMicroCents),
+                };
+                result.output_cost_key = 'per-video';
+            }
+
+            return result;
+        });
+    }
+
+    async generate (params: IGenerateVideoParams): Promise<unknown> {
         const {
             prompt,
             model: requestedModel,
@@ -107,8 +124,7 @@ class TogetherVideoGenerationService extends BaseService {
 
         let normalizedSeconds = this.#coercePositiveInteger(seconds ?? duration);
 
-        if ( ! no_extra_params )
-        {
+        if ( ! no_extra_params ) {
             normalizedSeconds ??= DEFAULT_DURATION_SECONDS;
         }
 
@@ -117,15 +133,15 @@ class TogetherVideoGenerationService extends BaseService {
             throw new Error('actor not found in context');
         }
 
-        const estimatedUsageUnits = 1; // Together video billing is per generated video
+        const estimatedUsageUnits = 1;
         const usageKey = this.#determineUsageKey(model);
 
-        const usageAllowed = await this.meteringService.hasEnoughCreditsFor(actor, usageKey, estimatedUsageUnits);
+        const usageAllowed = await this.#meteringService.hasEnoughCreditsFor(actor, usageKey as any, estimatedUsageUnits);
         if ( ! usageAllowed ) {
             throw APIError.create('insufficient_funds');
         }
 
-        const createPayload = {
+        const createPayload: Record<string, unknown> = {
             prompt,
             model,
         };
@@ -161,16 +177,16 @@ class TogetherVideoGenerationService extends BaseService {
             createPayload.negative_prompt = negativePrompt;
         }
         if ( Array.isArray(referenceImages) && referenceImages.length > 0 ) {
-            createPayload.reference_images = referenceImages.filter(item => typeof item === 'string' && item.trim().length > 0);
+            createPayload.reference_images = referenceImages.filter((item: string) => typeof item === 'string' && item.trim().length > 0);
         }
         if ( Array.isArray(frameImages) && frameImages.length > 0 ) {
-            createPayload.frame_images = frameImages.filter(frame => frame && typeof frame === 'object');
+            createPayload.frame_images = frameImages.filter((frame: any) => frame && typeof frame === 'object');
         }
         if ( metadata && typeof metadata === 'object' ) {
             createPayload.metadata = metadata;
         }
 
-        const job = await this.client.videos.create(createPayload);
+        const job = await (this.#client as any).videos.create(createPayload);
         const finalJob = await this.#pollUntilComplete(job.id);
 
         if ( finalJob.status === 'failed' ) {
@@ -185,7 +201,7 @@ class TogetherVideoGenerationService extends BaseService {
             throw new Error('Video generation was cancelled');
         }
 
-        this.meteringService.incrementUsage(actor, usageKey, 1);
+        this.#meteringService.incrementUsage(actor, usageKey, 1);
 
         const videoUrl = finalJob?.outputs?.video_url;
         if ( typeof videoUrl === 'string' && videoUrl.trim() ) {
@@ -198,41 +214,8 @@ class TogetherVideoGenerationService extends BaseService {
         throw new Error('Together AI response did not include a video URL');
     }
 
-    async models () {
-        if ( models.length > 0 && models[0].costs_currency ) {
-            return models;
-        }
-
-        const { TOGETHER_VIDEO_GENERATION_MODELS } = await import('./models.js');
-        const costMapModule = await import('../../../MeteringService/costMaps/togetherCostMap.ts');
-        const TOGETHER_COST_MAP = costMapModule.TOGETHER_COST_MAP;
-
-        // Convert microcents to cents (divide by 1,000,000)
-        const microCentsToCents = (microCents) => microCents / 1_000_000;
-
-        models = TOGETHER_VIDEO_GENERATION_MODELS.map(model => {
-            const result = { ...model };
-
-            // Convert model ID from 'togetherai:google/veo-3.0' to cost key 'together-video:google/veo-3.0'
-            const costKey = model.id.replace('togetherai:', 'together-video:');
-            const costMicroCents = TOGETHER_COST_MAP[costKey];
-
-            if ( costMicroCents !== undefined && costMicroCents > 0 ) {
-                result.costs_currency = 'usd-cents';
-                result.costs = {
-                    'per-video': microCentsToCents(costMicroCents),
-                };
-                result.output_cost_key = 'per-video';
-            }
-
-            return result;
-        });
-
-        return models;
-    }
-
-    async #pollUntilComplete (jobId) {
-        let job = await this.client.videos.retrieve(jobId);
+    async #pollUntilComplete (jobId: string): Promise<any> {
+        let job = await (this.#client as any).videos.retrieve(jobId);
         const start = Date.now();
 
         while ( job.status === 'queued' || job.status === 'in_progress' ) {
@@ -241,31 +224,31 @@ class TogetherVideoGenerationService extends BaseService {
             }
 
             await this.#delay(POLL_INTERVAL_MS);
-            job = await this.client.videos.retrieve(jobId);
+            job = await (this.#client as any).videos.retrieve(jobId);
         }
 
         return job;
     }
 
-    async #delay (ms) {
+    async #delay (ms: number): Promise<void> {
         return await new Promise(resolve => setTimeout(resolve, ms));
     }
 
-    #determineUsageKey (model) {
+    #determineUsageKey (model: string): string {
         if ( typeof model === 'string' && model.trim() ) {
             return `together-video:${model}`;
         }
         return DEFAULT_USAGE_KEY;
     }
 
-    #stripTogetherPrefix (model) {
+    #stripTogetherPrefix (model: string): string {
         if ( typeof model === 'string' && model.startsWith('togetherai:') ) {
             return model.slice('togetherai:'.length);
         }
         return model;
     }
 
-    #coercePositiveInteger (value) {
+    #coercePositiveInteger (value: unknown): number | undefined {
         if ( typeof value === 'number' && Number.isFinite(value) ) {
             const rounded = Math.round(value);
             return rounded > 0 ? rounded : undefined;
@@ -277,7 +260,7 @@ class TogetherVideoGenerationService extends BaseService {
         return undefined;
     }
 
-    #isFiniteNumber (value) {
+    #isFiniteNumber (value: unknown): boolean {
         if ( typeof value === 'number' ) {
             return Number.isFinite(value);
         }
@@ -288,7 +271,3 @@ class TogetherVideoGenerationService extends BaseService {
         return false;
     }
 }
-
-module.exports = {
-    TogetherVideoGenerationService,
-};
