@@ -260,11 +260,9 @@ const TabHome = {
         // Load plan data
         try {
             const hasSubscription = window.user?.subscription?.active;
-            const planName = hasSubscription
-                ? (window.user?.subscription?.offering?.name || i18n('billing.offering.pro'))
-                : i18n('billing.offering.free');
+            const planName = window.user?.subscription?.offering?.name || 'free';
 
-            $el_window.find('.bento-plan-name').text(planName);
+            $el_window.find('.bento-plan-name').text(i18n(planName));
 
             if ( hasSubscription ) {
                 $el_window.find('.bento-plan-badge').text('Active subscription').addClass('active');
