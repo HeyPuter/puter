@@ -439,6 +439,17 @@ const examples = [
         ],
     },
     {
+        title: 'Peer',
+        children: [
+            {
+                title: 'Peer Chat',
+                description: 'Create a peer-to-peer data channel with Puter.js. Run and experiment with this example directly in the playground.',
+                slug: 'peer-basic',
+                source: '/playground/examples/peer-basic.html',
+            },
+        ],
+    },
+    {
         title: 'Hosting',
         children: [
             {
