@@ -11,6 +11,8 @@ description: Create peer-to-peer connections between Puter.js clients with WebRT
 
 The Puter.js Peer API gives you WebRTC data channels with built-in signaling and TURN relays, so you can connect clients directly without running your own signaling server.
 
+Use the Peer API to build peer-to-peer applications without the need for a server or proxy. Multiplayer games, collaborative editing, and real-time communication are all possible with the Peer API!
+
 <div class="info">
 
 Peer connections require authentication. On websites, Puter.js will prompt the user to authenticate if needed.

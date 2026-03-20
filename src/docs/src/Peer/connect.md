@@ -52,7 +52,7 @@ A `Promise` that resolves to a `PuterPeerConnection` instance.
 
 ## Example
 
-```html;peer-basic
+```html
 <html>
 <body>
     <script src="https://js.puter.com/v2/"></script>
