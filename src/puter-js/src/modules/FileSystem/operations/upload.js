@@ -616,10 +616,67 @@ const upload = async function (items, dirPath, options = {}) {
                             isAborted: () => wasAborted,
                         });
                     } else {
-                        throw {
-                            code: 'signed_uploads_not_supported',
-                            message: 'Signed multipart uploads are not enabled in this client version.',
-                        };
+                        const partSize = prepareResponse.upload?.part_size ?? (8 * 1024 * 1024);
+                        const partCount = Math.max(1, Math.ceil(file.size / partSize));
+                        const parts = [];
+
+                        for ( let partNumber = 1; partNumber <= partCount; partNumber++ ) {
+                            const start = (partNumber - 1) * partSize;
+                            const end = Math.min(file.size, start + partSize);
+                            const chunk = file.slice(start, end);
+
+                            const signPartResponse = await signedApiRequest({
+                                apiOrigin: this.APIOrigin,
+                                authToken: this.authToken,
+                                endpoint: '/upload/multipart/sign-part',
+                                body: {
+                                    session_uid: sessionUid,
+                                    part_number: partNumber,
+                                    content_length: chunk.size,
+                                },
+                            });
+
+                            const uploadResponse = await uploadBlobToSignedUrl({
+                                blob: chunk,
+                                upload: signPartResponse.upload,
+                                setAbortHandler: (handler) => {
+                                    activeAbortHandler = handler;
+                                },
+                                onLoaded: (delta) => {
+                                    loadedSignedBytes += delta;
+                                    emitProgress();
+                                },
+                                isAborted: () => wasAborted,
+                            });
+
+                            if ( !uploadResponse?.etag ) {
+                                throw {
+                                    code: 'upload_multipart_parts_invalid',
+                                    message: 'Missing ETag for multipart part upload.',
+                                };
+                            }
+
+                            parts.push({
+                                part_number: partNumber,
+                                etag: uploadResponse.etag,
+                            });
+                        }
+
+                        emitPhase('finalizing');
+                        const completedItem = await signedApiRequest({
+                            apiOrigin: this.APIOrigin,
+                            authToken: this.authToken,
+                            endpoint: '/upload/complete',
+                            body: {
+                                session_uid: sessionUid,
+                                parts,
+                                operation_id,
+                                original_client_socket_id: this.socket?.id,
+                            },
+                        });
+                        activeSessions.delete(sessionUid);
+                        signedItems.push(completedItem);
+                        continue;
                     }
 
                     emitPhase('finalizing');
