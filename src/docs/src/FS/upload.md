@@ -31,6 +31,20 @@ A set of key/value pairs that configure the upload process. The following option
 - `overwrite` (Boolean) - Whether to overwrite the destination file if it already exists. Defaults to `false`.
 - `dedupeName` (Boolean) - Whether to deduplicate the file name if it already exists. Defaults to `false`.
 - `createMissingParents` (Boolean) - Whether to create missing parent directories. Defaults to `false`.
+- `useSignedUploads` (Boolean) - Enable/disable signed URL uploads for eligible file uploads. Defaults to `true`.
+- `disableSignedFallback` (Boolean) - If `true`, do not fallback to legacy upload when signed upload is unsupported or transiently unavailable. Defaults to `false`.
+- `phase(operationId, phase)` (Function) - Optional callback for high-level upload phases where `phase` is one of: `preparing`, `uploading`, `finalizing`.
+
+## Signed Upload Flow
+
+When possible, `puter.fs.upload()` uses signed upload URLs:
+
+1. Client sends metadata (`name`, `size`, `content_type`, optional `checksum_sha256`) to the server.
+2. Server validates filesystem permissions/capacity and returns signed upload instructions.
+3. Client uploads directly to storage using those signed instructions.
+4. Client calls the completion endpoint, and the filesystem entry is finalized.
+
+If signed uploads are unsupported for the current storage backend, the SDK may fallback to the legacy upload endpoint unless `disableSignedFallback` is set.
 
 ## Return value
 

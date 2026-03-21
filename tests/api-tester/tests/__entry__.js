@@ -1,3 +1,4 @@
+/* global require, module */
 module.exports = registry => {
     // ======================================================================
     // Auth
@@ -18,4 +19,5 @@ module.exports = registry => {
     registry.add_test('batch', require('./batch'));
     registry.add_test('delete', require('./delete'));
     registry.add_test('telem_write', require('./telem_write'));
+    registry.add_test('signed_upload_api', require('./signed_upload_api'));
 };

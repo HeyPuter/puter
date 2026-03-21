@@ -1,7 +1,6 @@
+/* global require, module, process */
 const axios = require('axios');
-const YAML = require('yaml');
 
-const fs = require('node:fs');
 const path_ = require('node:path');
 const url = require('node:url');
 const https = require('node:https');
@@ -18,12 +17,12 @@ module.exports = class TestSDK {
         this.cwd = this.default_cwd;
 
         this.httpsAgent = new https.Agent({
-            rejectUnauthorized: false
-        })
+            rejectUnauthorized: false,
+        });
         const url_origin = new url.URL(conf.api_url).origin;
         this.headers_ = {
             'Origin': url_origin,
-            'Authorization': `Bearer ${conf.auth_token}`
+            'Authorization': `Bearer ${conf.auth_token}`,
         };
 
         this.installAPIMethodShorthands_();
@@ -91,9 +90,9 @@ module.exports = class TestSDK {
 
     async runBenchmark (benchDefinition) {
         const strid = '' +
-            '\x1B[35;1m[bench]\x1B[0m' +
-            this.nameStack.join(` \x1B[36;1m->\x1B[0m `);
-        process.stdout.write(strid + ' ... \n');
+            `\x1B[35;1m[bench]\x1B[0m${
+                this.nameStack.join(' \x1B[36;1m->\x1B[0m ')}`;
+        process.stdout.write(`${strid } ... \n`);
 
         this.resetCwd();
 
@@ -144,15 +143,15 @@ module.exports = class TestSDK {
     async case (id, fn) {
         this.nameStack.push(id);
 
-        // Always reset cwd at the beginning of a test suite to prevent it 
+        // Always reset cwd at the beginning of a test suite to prevent it
         // from affected by others.
-        if (this.nameStack.length === 1) {
+        if ( this.nameStack.length === 1 ) {
             this.resetCwd();
         }
 
         const tabs = Array(this.nameStack.length - 2).fill('  ').join('');
-        const strid = tabs + this.nameStack.join(` \x1B[36;1m->\x1B[0m `);
-        process.stdout.write(strid + ' ... \n');
+        const strid = tabs + this.nameStack.join(' \x1B[36;1m->\x1B[0m ');
+        process.stdout.write(`${strid } ... \n`);
 
         try {
             await fn(this.context);
@@ -164,13 +163,13 @@ module.exports = class TestSDK {
                 success: false,
             });
             log_error(e);
-            
+
             // Check if we should stop on failure
-            if (this.options.stopOnFailure) {
+            if ( this.options.stopOnFailure ) {
                 console.log('\x1B[31;1m[STOPPING] Test execution stopped due to failure and --stop-on-failure flag\x1B[0m');
                 process.exit(1);
             }
-            
+
             return;
         } finally {
             this.nameStack.pop();
@@ -179,7 +178,7 @@ module.exports = class TestSDK {
         process.stdout.write(`${tabs}...\x1B[32;1m[PASS]\x1B[0m\n`);
         this.recordResult({
             strid,
-            success: true
+            success: true,
         });
     }
 
@@ -190,7 +189,7 @@ module.exports = class TestSDK {
     // === information display methods ===
 
     printTestResults () {
-        console.log(`\n\x1B[33;1m=== Test Results ===\x1B[0m`);
+        console.log('\n\x1B[33;1m=== Test Results ===\x1B[0m');
 
         let tbl = {};
         for ( const pkg of this.packageResults ) {
@@ -199,7 +198,7 @@ module.exports = class TestSDK {
                 passed: pkg.caseCount - pkg.failCount,
                 failed: pkg.failCount,
                 total: pkg.caseCount,
-            }
+            };
         }
         console.table(tbl);
 
@@ -207,18 +206,18 @@ module.exports = class TestSDK {
         if ( this.failCount > 0 ) {
             console.log(`\x1B[31;1m✖ ${this.failCount} tests failed!\x1B[0m`);
         } else {
-            console.log(`\x1B[32;1m✔ All tests passed!\x1B[0m`)
+            console.log('\x1B[32;1m✔ All tests passed!\x1B[0m');
         }
     }
 
     printBenchmarkResults () {
-        console.log(`\n\x1B[33;1m=== Benchmark Results ===\x1B[0m`);
+        console.log('\n\x1B[33;1m=== Benchmark Results ===\x1B[0m');
 
         let tbl = {};
         for ( const bench of this.benchmarkResults ) {
             tbl[bench.name] = {
                 'duration (ms)': bench.duration,
-            }
+            };
         }
         console.table(tbl);
     }
@@ -250,11 +249,11 @@ module.exports = class TestSDK {
         this.read = async path => {
             const res = await this.get('read', { path: p(path) });
             return res.data;
-        }
+        };
         this.mkdir = async (path, opts) => {
             const res = await this.post('mkdir', {
                 path: p(path),
-                ...(opts ?? {})
+                ...(opts ?? {}),
             });
             return res.data;
         };
@@ -264,15 +263,15 @@ module.exports = class TestSDK {
             const res = await this.post('mkdir', {
                 parent: p(parent),
                 path: path, // "path" arg should remain relative in this api
-                ...(opts ?? {})
+                ...(opts ?? {}),
             });
             return res.data;
-        }
+        };
         this.write = async (path, bin, params) => {
             path = p(path);
             params = params ?? {};
             let mime = 'text/plain';
-            if ( params.hasOwnProperty('mime') ) {
+            if ( Object.prototype.hasOwnProperty.call(params, 'mime') ) {
                 mime = params.mime;
                 delete params.mime;
             }
@@ -281,39 +280,39 @@ module.exports = class TestSDK {
             params.path = path;
             const res = await this.upload('write', name, mime, bin, params);
             return res.data;
-        }
+        };
         this.stat = async (path, params) => {
             path = p(path);
             const res = await this.post('stat', { ...params, path });
             return res.data;
-        }
+        };
         this.stat_uuid = async (uuid, params) => {
             // for stat(uuid) api:
             // - use "uid" for "uuid"
             // - there have to be a "subject" field which is the same as "uid"
             const res = await this.post('stat', { ...params, uid: uuid, subject: uuid });
             return res.data;
-        }
+        };
         this.statu = async (uid, params) => {
             const res = await this.post('stat', { ...params, uid });
             return res.data;
-        }
+        };
         this.readdir = async (path, params) => {
             path = p(path);
             const res = await this.post('readdir', {
                 ...params,
-                path
-            })
+                path,
+            });
             return res.data;
-        }
+        };
         this.delete = async (path, params) => {
             path = p(path);
             const res = await this.post('delete', {
                 ...params,
-                paths: [path]
+                paths: [path],
             });
             return res.data;
-        }
+        };
         this.move = async (src, dst, params = {}) => {
             src = p(src);
             dst = p(dst);
@@ -328,14 +327,43 @@ module.exports = class TestSDK {
                 new_name,
             });
             return res.data;
-        }
+        };
+        this.uploadCapabilities = async (parentPath) => {
+            const res = await this.post('upload/capabilities', {
+                ...(parentPath ? { parent_path: p(parentPath) } : {}),
+            });
+            return res.data;
+        };
+        this.uploadPrepare = async (params) => {
+            const payload = { ...params };
+            if ( payload.parent_path ) {
+                payload.parent_path = p(payload.parent_path);
+            }
+            const res = await this.post('upload/prepare', payload);
+            return res.data;
+        };
+        this.uploadSignMultipartPart = async (params) => {
+            const res = await this.post('upload/multipart/sign-part', params);
+            return res.data;
+        };
+        this.uploadComplete = async (params) => {
+            const res = await this.post('upload/complete', params);
+            return res.data;
+        };
+        this.uploadAbort = async (sessionUid, reason = 'api_tester_abort') => {
+            const res = await this.post('upload/abort', {
+                session_uid: sessionUid,
+                reason,
+            });
+            return res.data;
+        };
     }
 
     getURL (...path) {
         const apiURL = new url.URL(this.conf.api_url);
         apiURL.pathname = path_.posix.join(
             apiURL.pathname,
-            ...path
+            ...path,
         );
         return apiURL.href;
     };
@@ -349,8 +377,8 @@ module.exports = class TestSDK {
             url: this.getURL(ep),
             params,
             headers: {
-                ...this.headers_
-            }
+                ...this.headers_,
+            },
         });
     }
 
@@ -363,8 +391,8 @@ module.exports = class TestSDK {
             headers: {
                 ...this.headers_,
                 'Content-Type': 'application/json',
-            }
-        })
+            },
+        });
     }
 
     upload (ep, name, mime, bin, params) {
@@ -378,7 +406,7 @@ module.exports = class TestSDK {
         for ( const k in params ) fd.append(k, params[k]);
         const blob = adapt_file(bin, mime);
         fd.append('size', blob.size);
-        fd.append('file', adapt_file(bin, mime), name)
+        fd.append('file', adapt_file(bin, mime), name);
         return axios.request({
             httpsAgent: this.httpsAgent,
             method: 'post',
@@ -386,7 +414,7 @@ module.exports = class TestSDK {
             data: fd,
             headers: {
                 ...this.headers_,
-                'Content-Type': 'multipart/form-data'
+                'Content-Type': 'multipart/form-data',
             },
         });
     }
@@ -405,7 +433,7 @@ module.exports = class TestSDK {
         fd.append('operation_id', '');
 
         let fileI = 0;
-        for ( let i=0 ; i < ops.length ; i++ ) {
+        for ( let i = 0 ; i < ops.length ; i++ ) {
             const op = ops[i];
 
             fd.append('operation', JSON.stringify(op));
@@ -413,7 +441,7 @@ module.exports = class TestSDK {
 
         const files = [];
 
-        for ( let i=0 ; i < ops.length ; i++ ) {
+        for ( let i = 0 ; i < ops.length ; i++ ) {
             const op = ops[i];
 
             if ( op.op === 'mkdir' ) continue;
@@ -428,7 +456,7 @@ module.exports = class TestSDK {
             }));
             files.push({
                 op, file,
-            })
+            });
 
             delete op.name;
         }
@@ -445,13 +473,13 @@ module.exports = class TestSDK {
             data: fd,
             headers: {
                 ...this.headers_,
-                'Content-Type': 'multipart/form-data'
+                'Content-Type': 'multipart/form-data',
             },
         });
         return res.data.results;
     }
 
-    batch_json (ep, ops, bins) {
+    batch_json (ep, ops, _bins) {
         return axios.request({
             httpsAgent: this.httpsAgent,
             method: 'post',
@@ -463,4 +491,4 @@ module.exports = class TestSDK {
             },
         });
     }
-}
+};
