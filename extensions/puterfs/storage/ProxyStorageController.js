@@ -21,4 +21,35 @@ export default class {
     read (...a) {
         return this.delegate.read(...a);
     }
+    getUploadCapabilities (...a) {
+        return this.delegate.getUploadCapabilities?.(...a) ?? {
+            signedUploads: false,
+            multipart: false,
+            reason: 'unsupported',
+        };
+    }
+    createSignedUpload (...a) {
+        return this.delegate.createSignedUpload(...a);
+    }
+    createMultipartUpload (...a) {
+        return this.delegate.createMultipartUpload(...a);
+    }
+    signMultipartUploadPart (...a) {
+        return this.delegate.signMultipartUploadPart(...a);
+    }
+    completeMultipartUpload (...a) {
+        return this.delegate.completeMultipartUpload(...a);
+    }
+    abortMultipartUpload (...a) {
+        return this.delegate.abortMultipartUpload(...a);
+    }
+    headObject (...a) {
+        return this.delegate.headObject(...a);
+    }
+    deleteObject (...a) {
+        return this.delegate.deleteObject(...a);
+    }
+    copyObject (...a) {
+        return this.delegate.copyObject(...a);
+    }
 }

@@ -58,6 +58,37 @@ export default class LocalDiskStorageController {
     }
     read () {
     }
+    getUploadCapabilities () {
+        return {
+            signedUploads: false,
+            multipart: false,
+            reason: 'unsupported',
+        };
+    }
+    createSignedUpload () {
+        throw new Error('signed_uploads_unsupported');
+    }
+    createMultipartUpload () {
+        throw new Error('signed_uploads_unsupported');
+    }
+    signMultipartUploadPart () {
+        throw new Error('signed_uploads_unsupported');
+    }
+    completeMultipartUpload () {
+        throw new Error('signed_uploads_unsupported');
+    }
+    abortMultipartUpload () {
+        throw new Error('signed_uploads_unsupported');
+    }
+    headObject () {
+        throw new Error('signed_uploads_unsupported');
+    }
+    deleteObject () {
+        throw new Error('signed_uploads_unsupported');
+    }
+    copyObject () {
+        throw new Error('signed_uploads_unsupported');
+    }
 
     #getPath (key) {
         return path_.join(this.path, key);
