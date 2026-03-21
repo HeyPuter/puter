@@ -93,6 +93,172 @@ const defaultThumbnailGenerator = async (file) => {
     return undefined;
 };
 
+const UNSUPPORTED_SIGNED_CODES = new Set([
+    'signed_uploads_not_supported',
+    'missing_filesystem_capability',
+]);
+const TRANSIENT_SIGNED_CODES = new Set([
+    'upload_failed',
+    'response_timeout',
+    'temp_error',
+    'internal_error',
+]);
+const FALLBACK_BLOCKED_CODES = new Set([
+    'field_invalid',
+    'fields_invalid',
+    'field_missing',
+    'field_too_long',
+    'invalid_file_name',
+    'item_with_same_name_exists',
+    'storage_limit_reached',
+    'file_too_large',
+    'upload_metadata_mismatch',
+    'upload_session_invalid_state',
+    'upload_session_consumed',
+    'upload_session_expired',
+    'permission_denied',
+    'forbidden',
+    'immutable',
+]);
+
+const parseJsonSafe = async (response) => {
+    try {
+        return await response.json();
+    } catch (e) {
+        return null;
+    }
+};
+
+const signedApiRequest = async ({
+    apiOrigin,
+    authToken,
+    endpoint,
+    method = 'POST',
+    body,
+}) => {
+    let response;
+    try {
+        response = await fetch(`${apiOrigin}${endpoint}`, {
+            method,
+            credentials: 'include',
+            headers: {
+                'Content-Type': 'application/json',
+                ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+            },
+            body: body ? JSON.stringify(body) : undefined,
+        });
+    } catch (e) {
+        throw {
+            code: 'upload_failed',
+            message: e?.message ?? 'Network error while calling upload API.',
+            network: true,
+        };
+    }
+
+    const payload = await parseJsonSafe(response);
+    if ( ! response.ok ) {
+        const error = payload ?? {};
+        error.status = response.status;
+        if ( !error.code && response.status === 404 ) {
+            error.code = 'signed_uploads_not_supported';
+        }
+        throw error;
+    }
+    return payload;
+};
+
+const shouldFallbackToLegacy = (error, options = {}) => {
+    if ( options.disableSignedFallback ) return false;
+    const code = error?.code;
+    const status = Number(error?.status ?? 0);
+
+    if ( code && FALLBACK_BLOCKED_CODES.has(code) ) return false;
+    if ( code && UNSUPPORTED_SIGNED_CODES.has(code) ) return true;
+    if ( code && TRANSIENT_SIGNED_CODES.has(code) ) return true;
+    if ( !code && status === 404 ) return true;
+    if ( status >= 500 ) return true;
+    if ( error?.network ) return true;
+    return false;
+};
+
+const uploadBlobToSignedUrl = async ({
+    blob,
+    upload,
+    setAbortHandler,
+    onLoaded,
+    isAborted,
+}) => {
+    return await new Promise((resolve, reject) => {
+        let loaded = 0;
+        const xhr = new XMLHttpRequest();
+
+        setAbortHandler(() => {
+            xhr.abort();
+        });
+
+        xhr.open(upload.method ?? 'PUT', upload.url, true);
+        for ( const [header, value] of Object.entries(upload.headers ?? {}) ) {
+            if ( value !== undefined && value !== null ) {
+                xhr.setRequestHeader(header, `${value}`);
+            }
+        }
+
+        xhr.upload.onprogress = (event) => {
+            const nextLoaded = Math.min(blob.size, event.loaded ?? loaded);
+            const delta = Math.max(0, nextLoaded - loaded);
+            loaded = nextLoaded;
+            onLoaded(delta);
+        };
+
+        xhr.onerror = () => {
+            reject({
+                code: 'upload_failed',
+                message: 'Failed to upload file to signed URL.',
+                status: xhr.status || 0,
+                network: true,
+            });
+        };
+
+        xhr.onabort = () => {
+            reject({
+                code: 'upload_aborted',
+                message: 'Upload aborted.',
+                aborted: true,
+            });
+        };
+
+        xhr.onreadystatechange = () => {
+            if ( xhr.readyState !== 4 ) return;
+            if ( xhr.status >= 200 && xhr.status < 300 ) {
+                if ( loaded < blob.size ) {
+                    onLoaded(blob.size - loaded);
+                }
+                resolve({
+                    etag: xhr.getResponseHeader('etag'),
+                });
+                return;
+            }
+
+            if ( isAborted() || xhr.status === 0 ) {
+                reject({
+                    code: 'upload_aborted',
+                    message: 'Upload aborted.',
+                    aborted: true,
+                });
+                return;
+            }
+
+            reject({
+                code: 'upload_failed',
+                message: `Signed upload failed with status ${xhr.status}.`,
+                status: xhr.status,
+            });
+        };
+
+        xhr.send(blob);
+    });
+};
+
 /* eslint-disable */
 const upload = async function (items, dirPath, options = {}) {
     return new Promise(async (resolve, reject) => {
@@ -125,6 +291,18 @@ const upload = async function (items, dirPath, options = {}) {
 
         // xhr object to be used for the upload
         let xhr = new XMLHttpRequest();
+        let customAbort = null;
+        const nativeAbort = xhr.abort.bind(xhr);
+        xhr.abort = (...args) => {
+            if ( customAbort ) {
+                customAbort();
+                return;
+            }
+            nativeAbort(...args);
+        };
+        const setCustomAbort = (abortHandler) => {
+            customAbort = abortHandler;
+        };
 
         // Can not write to root
         if ( dirPath === '/' )
@@ -320,6 +498,174 @@ const upload = async function (items, dirPath, options = {}) {
                 }
             } catch (e) {
                 // Ignored
+            }
+        }
+
+        const canAttemptSignedUpload = (
+            options.useSignedUploads !== false &&
+            !options.shortcutTo &&
+            dirs.length === 0 &&
+            files.length > 0 &&
+            !options.createFileParent &&
+            files.every(file => {
+                const fp = file.filepath ?? file.name ?? '';
+                return !(`${fp}`.includes('/'));
+            })
+        );
+
+        if ( canAttemptSignedUpload ) {
+            let shouldFallback = false;
+            let wasAborted = false;
+            let started = false;
+            let activeAbortHandler = null;
+            const activeSessions = new Set();
+            const signedItems = [];
+            const totalSignedBytes = Math.max(1, files.reduce((acc, file) => acc + (file.size ?? 0), 0));
+            let loadedSignedBytes = 0;
+
+            const emitPhase = (phase) => {
+                if ( options.phase && typeof options.phase === 'function' ) {
+                    options.phase(operation_id, phase);
+                }
+            };
+            const emitProgress = () => {
+                const pct = Math.min(100, ((loadedSignedBytes / totalSignedBytes) * 100).toFixed(2));
+                if ( options.progress && typeof options.progress === 'function' ) {
+                    options.progress(operation_id, pct);
+                }
+            };
+            const abortActiveSessions = async (reason = 'aborted_by_client') => {
+                const sessions = Array.from(activeSessions);
+                await Promise.all(sessions.map(async (sessionUid) => {
+                    try {
+                        await signedApiRequest({
+                            apiOrigin: this.APIOrigin,
+                            authToken: this.authToken,
+                            endpoint: '/upload/abort',
+                            body: {
+                                session_uid: sessionUid,
+                                reason,
+                            },
+                        });
+                    } catch (e) {
+                        // Best effort.
+                    }
+                }));
+            };
+
+            setCustomAbort(() => {
+                wasAborted = true;
+                try {
+                    activeAbortHandler?.();
+                } catch (e) {
+                    // ignored
+                }
+                abortActiveSessions().catch(() => {});
+            });
+
+            try {
+                emitPhase('preparing');
+
+                for ( let i = 0; i < files.length; i++ ) {
+                    const file = files[i];
+                    const filename = path.basename(file.filepath ?? file.name);
+                    const contentType = file.type || 'application/octet-stream';
+                    const thumbnail = thumbnails[i] ?? options.thumbnail ?? undefined;
+
+                    const prepareResponse = await signedApiRequest({
+                        apiOrigin: this.APIOrigin,
+                        authToken: this.authToken,
+                        endpoint: '/upload/prepare',
+                        body: {
+                            parent_path: dirPath,
+                            name: filename,
+                            content_type: contentType,
+                            size: file.size,
+                            dedupe_name: options.dedupeName ?? true,
+                            overwrite: options.overwrite ?? false,
+                            thumbnail,
+                            operation_id,
+                            original_client_socket_id: this.socket?.id,
+                            app_uid: options.appUID,
+                        },
+                    });
+
+                    const sessionUid = prepareResponse.session_uid;
+                    activeSessions.add(sessionUid);
+
+                    if ( !started ) {
+                        started = true;
+                        if ( options.start && typeof options.start === 'function' ) {
+                            options.start();
+                        }
+                    }
+
+                    emitPhase('uploading');
+
+                    if ( prepareResponse.upload_mode === 'single' ) {
+                        await uploadBlobToSignedUrl({
+                            blob: file,
+                            upload: prepareResponse.upload,
+                            setAbortHandler: (handler) => {
+                                activeAbortHandler = handler;
+                            },
+                            onLoaded: (delta) => {
+                                loadedSignedBytes += delta;
+                                emitProgress();
+                            },
+                            isAborted: () => wasAborted,
+                        });
+                    } else {
+                        throw {
+                            code: 'signed_uploads_not_supported',
+                            message: 'Signed multipart uploads are not enabled in this client version.',
+                        };
+                    }
+
+                    emitPhase('finalizing');
+                    const completedItem = await signedApiRequest({
+                        apiOrigin: this.APIOrigin,
+                        authToken: this.authToken,
+                        endpoint: '/upload/complete',
+                        body: {
+                            session_uid: sessionUid,
+                            operation_id,
+                            original_client_socket_id: this.socket?.id,
+                        },
+                    });
+                    activeSessions.delete(sessionUid);
+                    signedItems.push(completedItem);
+                }
+
+                loadedSignedBytes = totalSignedBytes;
+                emitProgress();
+
+                const responseItems = signedItems.length === 1 ? signedItems[0] : signedItems;
+                if ( options.success && typeof options.success === 'function' ) {
+                    options.success(responseItems);
+                }
+                setCustomAbort(null);
+                return resolve(responseItems);
+            } catch (e) {
+                const uploadAborted = wasAborted || e?.aborted || e?.code === 'upload_aborted';
+                await abortActiveSessions(uploadAborted ? 'aborted_by_client' : 'aborted_after_error');
+                setCustomAbort(null);
+
+                if ( uploadAborted ) {
+                    if ( options.abort && typeof options.abort === 'function' ) {
+                        options.abort(operation_id);
+                    }
+                    return reject(e);
+                }
+
+                shouldFallback = signedItems.length === 0 && shouldFallbackToLegacy(e, options);
+                if ( !shouldFallback ) {
+                    return error(e);
+                }
+            }
+
+            if ( !shouldFallback ) {
+                return;
             }
         }
 

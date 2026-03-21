@@ -91,7 +91,10 @@ export interface UploadOptions extends RequestCallbacks<FSItem | FSItem[]> {
     init?: (operationId: string, xhr: XMLHttpRequest) => void;
     start?: () => void;
     progress?: (operationId: string, progress: number) => void;
+    phase?: (operationId: string, phase: 'preparing' | 'uploading' | 'finalizing') => void;
     abort?: (operationId: string) => void;
+    useSignedUploads?: boolean;
+    disableSignedFallback?: boolean;
 }
 
 export interface WriteOptions extends RequestCallbacks<FSItem> {
@@ -102,7 +105,10 @@ export interface WriteOptions extends RequestCallbacks<FSItem> {
     init?: (operationId: string, xhr: XMLHttpRequest) => void;
     start?: () => void;
     progress?: (operationId: string, progress: number) => void;
+    phase?: (operationId: string, phase: 'preparing' | 'uploading' | 'finalizing') => void;
     abort?: (operationId: string) => void;
+    useSignedUploads?: boolean;
+    disableSignedFallback?: boolean;
 }
 
 export interface SignResult<T = Record<string, unknown>> {
