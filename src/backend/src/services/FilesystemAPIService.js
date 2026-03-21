@@ -63,6 +63,11 @@ class FilesystemAPIService extends BaseService {
 
         // temporary or alpha
         app.use(require('../routers/filesystem_api/update'));
+        app.use(require('../routers/filesystem_api/upload-capabilities'));
+        app.use(require('../routers/filesystem_api/upload-prepare'));
+        app.use(require('../routers/filesystem_api/upload-multipart-sign-part'));
+        app.use(require('../routers/filesystem_api/upload-complete'));
+        app.use(require('../routers/filesystem_api/upload-abort'));
 
         // v1
         app.use(require('../routers/writeFile'));

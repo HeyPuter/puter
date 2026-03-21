@@ -323,6 +323,40 @@ class APIError {
                     `required capability called ${quot(capability)}.`;
             },
         },
+        'signed_uploads_not_supported': {
+            status: 422,
+            message: ({ reason }) => reason
+                ? `Signed uploads are not supported: ${reason}.`
+                : 'Signed uploads are not supported for this request.',
+        },
+        'upload_session_not_found': {
+            status: 404,
+            message: 'Upload session was not found.',
+        },
+        'upload_session_expired': {
+            status: 410,
+            message: 'Upload session has expired.',
+        },
+        'upload_session_consumed': {
+            status: 409,
+            message: 'Upload session was already completed or consumed.',
+        },
+        'upload_session_invalid_state': {
+            status: 409,
+            message: ({ state }) => state
+                ? `Upload session is in an invalid state: ${quot(state)}.`
+                : 'Upload session is in an invalid state.',
+        },
+        'upload_metadata_mismatch': {
+            status: 422,
+            message: ({ reason }) => reason
+                ? `Uploaded object metadata mismatch: ${reason}.`
+                : 'Uploaded object metadata does not match the prepared request.',
+        },
+        'upload_multipart_parts_invalid': {
+            status: 400,
+            message: 'Multipart completion requires a valid sorted part list.',
+        },
 
         // Open
         'no_suitable_app': {

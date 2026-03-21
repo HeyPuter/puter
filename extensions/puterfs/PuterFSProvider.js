@@ -81,11 +81,6 @@ const {
     capabilities,
 } = extension.import('fs');
 
-const {
-    // MODE_READ,
-    MODE_WRITE,
-} = extension.import('fs').lock;
-
 // ^ Yep I know, import('fs') and import('core').fs is confusing and
 // redundant... this will be cleaned up as the new API is developed
 
@@ -305,14 +300,18 @@ export default class PuterFSProvider {
 
         // shortcut: parent uid + child name
         if ( selector instanceof NodeChildSelector && selector.parent instanceof NodeUIDSelector ) {
-            return await this.fsEntryController.nameExistsUnderParent(selector.parent.uid,
-                            selector.name);
+            return await this.fsEntryController.nameExistsUnderParent(
+                selector.parent.uid,
+                selector.name,
+            );
         }
 
         // shortcut: parent id + child name
         if ( selector instanceof NodeChildSelector && selector.parent instanceof NodeInternalIDSelector ) {
-            return await this.fsEntryController.nameExistsUnderParentID(selector.parent.id,
-                            selector.name);
+            return await this.fsEntryController.nameExistsUnderParentID(
+                selector.parent.id,
+                selector.name,
+            );
         }
 
         return false;
@@ -706,6 +705,10 @@ export default class PuterFSProvider {
         return child_uuids;
     }
 
+    getSignedUploadCapabilities () {
+        return this.storageController.getUploadCapabilities();
+    }
+
     async directory_has_name ({ parent, name }) {
         const uid = await parent.get('uid');
 
@@ -811,15 +814,17 @@ export default class PuterFSProvider {
             const store_version_id = storage_resp.VersionId;
             if ( store_version_id ) {
                 // insert version into db
-                db.write('INSERT INTO `fsentry_versions` (`user_id`, `fsentry_id`, `fsentry_uuid`, `version_id`, `message`, `ts_epoch`) VALUES (?, ?, ?, ?, ?, ?)',
-                                [
-                                    actor.type.user.id,
-                                    new_item.id,
-                                    new_item.uuid,
-                                    store_version_id,
-                                    message ?? null,
-                                    timestamp,
-                                ]);
+                db.write(
+                    'INSERT INTO `fsentry_versions` (`user_id`, `fsentry_id`, `fsentry_uuid`, `version_id`, `message`, `ts_epoch`) VALUES (?, ?, ?, ?, ?, ?)',
+                    [
+                        actor.type.user.id,
+                        new_item.id,
+                        new_item.uuid,
+                        store_version_id,
+                        message ?? null,
+                        timestamp,
+                    ],
+                );
             }
         })();
 
@@ -920,6 +925,173 @@ export default class PuterFSProvider {
         // the local server 2. broadcast system conduct "fire-and-forget" behavior)
         state_upload.post_insert({
             db, user: actor.type.user, node, uid, message, ts,
+        });
+
+        return node;
+    }
+
+    async finalizeSignedUpload ({
+        context,
+        parent,
+        name,
+        overwriteNode,
+        storageMeta,
+        fileMeta,
+        appId = null,
+        message = null,
+        actor: inputActor,
+        fsentryMetadata = {},
+    }) {
+        const actor = inputActor ?? Context.get('actor');
+
+        if ( overwriteNode ) {
+            if ( ! await svc_acl.check(actor, overwriteNode, 'write') ) {
+                throw await svc_acl.get_safe_acl_error(actor, overwriteNode, 'write');
+            }
+        } else {
+            if ( ! await svc_acl.check(actor, parent, 'write') ) {
+                throw await svc_acl.get_safe_acl_error(actor, parent, 'write');
+            }
+        }
+
+        const targetUid = overwriteNode ? await overwriteNode.get('uid') : uuidv4();
+        const targetPath = overwriteNode
+            ? await overwriteNode.get('path')
+            : path_.join(await parent.get('path'), name);
+        const bucket = storageMeta.bucket;
+        const bucketRegion = storageMeta.bucketRegion;
+        const timestamp = Math.round(Date.now() / 1000);
+
+        const copyResult = await this.storageController.copyObject({
+            src_storage_meta: {
+                bucket: bucket,
+                bucket_region: bucketRegion,
+            },
+            src_key: storageMeta.stagingKey,
+            dst_storage_meta: {
+                bucket: bucket,
+                bucket_region: bucketRegion,
+            },
+            dst_key: targetUid,
+            size: fileMeta.size,
+        });
+
+        await this.storageController.deleteObject({
+            storage_meta: {
+                bucket: bucket,
+                bucket_region: bucketRegion,
+            },
+            key: storageMeta.stagingKey,
+        });
+
+        svc_resource.register({
+            uid: targetUid,
+            status: RESOURCE_STATUS_PENDING_CREATE,
+        });
+
+        const ownerId = overwriteNode
+            ? await overwriteNode.get('user_id')
+            : await parent.get('user_id');
+        const ownerActor = new Actor({
+            type: new UserActorType({
+                user: await get_user({ id: ownerId }),
+            }),
+        });
+        svc_metering.incrementUsage(ownerActor, 'filesystem:ingress:bytes', fileMeta.size);
+
+        if ( overwriteNode ) {
+            svc_size.change_usage(actor.type.user.id, fileMeta.size);
+
+            const entryOp = await this.fsEntryController.update(targetUid, {
+                modified: timestamp,
+                accessed: timestamp,
+                size: fileMeta.size,
+                bucket_region: bucketRegion,
+                bucket: bucket,
+                ...fsentryMetadata,
+            });
+
+            (async () => {
+                await entryOp.awaitDone();
+                svc_resource.free(targetUid);
+                svc_event.emit('fs.write.file', {
+                    node: overwriteNode,
+                    context,
+                });
+            })();
+
+            const versionId = copyResult?.VersionId ?? copyResult?.versionId ?? null;
+            if ( versionId ) {
+                (async () => {
+                    await entryOp.awaitDone();
+                    const updated = await overwriteNode.get('entry');
+                    db.write(
+                        'INSERT INTO `fsentry_versions` (`user_id`, `fsentry_id`, `fsentry_uuid`, `version_id`, `message`, `ts_epoch`) VALUES (?, ?, ?, ?, ?, ?)',
+                        [
+                            actor.type.user.id,
+                            updated.id,
+                            updated.uuid,
+                            versionId,
+                            message,
+                            timestamp,
+                        ],
+                    );
+                })();
+            }
+
+            return overwriteNode;
+        }
+
+        svc_size.change_usage(actor.type.user.id, fileMeta.size);
+
+        const rawFsEntry = {
+            uuid: targetUid,
+            is_dir: 0,
+            user_id: actor.type.user.id,
+            created: timestamp,
+            accessed: timestamp,
+            modified: timestamp,
+            parent_uid: await parent.get('uid'),
+            name,
+            size: fileMeta.size,
+            path: targetPath,
+            bucket_region: bucketRegion,
+            bucket: bucket,
+            associated_app_id: appId ?? null,
+            ...fsentryMetadata,
+        };
+
+        const entryOp = await this.fsEntryController.insert(rawFsEntry);
+        (async () => {
+            await entryOp.awaitDone();
+            svc_resource.free(targetUid);
+
+            const versionId = copyResult?.VersionId ?? copyResult?.versionId ?? null;
+            if ( versionId ) {
+                const inserted = await db.read(
+                    'SELECT `id`, `uuid` FROM `fsentries` WHERE `uuid` = ? LIMIT 1',
+                    [targetUid],
+                );
+                if ( inserted[0] ) {
+                    db.write(
+                        'INSERT INTO `fsentry_versions` (`user_id`, `fsentry_id`, `fsentry_uuid`, `version_id`, `message`, `ts_epoch`) VALUES (?, ?, ?, ?, ?, ?)',
+                        [
+                            actor.type.user.id,
+                            inserted[0].id,
+                            inserted[0].uuid,
+                            versionId,
+                            message,
+                            timestamp,
+                        ],
+                    );
+                }
+            }
+        })();
+
+        const node = await svc_fs.node(new NodeUIDSelector(targetUid));
+        svc_event.emit('fs.create.file', {
+            node,
+            context,
         });
 
         return node;
@@ -1059,8 +1231,10 @@ export default class PuterFSProvider {
 
         const userId = await node.get('user_id');
         const fileSize = await node.get('size');
-        svc_size.change_usage(userId,
-                        -1 * fileSize);
+        svc_size.change_usage(
+            userId,
+            -1 * fileSize,
+        );
 
         const ownerActor =  new Actor({
             type: new UserActorType({
