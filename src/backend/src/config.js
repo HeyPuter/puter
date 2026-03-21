@@ -36,6 +36,15 @@ config.default_temp_group = 'b7220104-7905-4985-b996-649fdcdb3c8f';
 config.max_file_size = 100_000_000_000;
 config.max_thumb_size = 1_000;
 config.max_fsentry_name_length = 767;
+config.signed_uploads = {
+    enabled: true,
+    session_ttl_seconds: 60 * 60,
+    url_expiry_seconds: 15 * 60,
+    multipart_threshold_bytes: 64 * 1024 * 1024,
+    multipart_part_size_bytes: 8 * 1024 * 1024,
+    cleanup_batch_size: 500,
+    cleanup_interval_seconds: 5 * 60,
+};
 
 config.username_regex = /^\w+$/;
 config.username_max_length = 45;

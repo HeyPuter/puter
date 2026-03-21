@@ -254,6 +254,9 @@ const install = async ({ context, services, app, useapi, modapi }) => {
     const { SessionService } = require('./services/SessionService');
     services.registerService('session', SessionService);
 
+    const { UploadSessionService } = require('./services/uploadSession/UploadSessionService');
+    services.registerService('upload-session', UploadSessionService);
+
     const { EdgeRateLimitService } = require('./services/abuse-prevention/EdgeRateLimitService');
     services.registerService('edge-rate-limit', EdgeRateLimitService);
 
