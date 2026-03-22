@@ -22,7 +22,8 @@ export const OPEN_AI_MODELS: IChatModel[] = [
             cached_tokens: 25,
             completion_tokens: 1500,
         },
-        max_tokens: 1_050_000, // this is used for context length calculations so its misnamed from when OpenAI max_tokens and content_length were the same value
+        context: 1_050_000,
+        max_tokens: 1_050_000,
     },
     {
         puterId: 'openai:openai/gpt-5.3-codex',
@@ -41,6 +42,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
             cached_tokens: 17.5,
             completion_tokens: 1400,
         },
+        context: 128_000,
         max_tokens: 128000,
         responses_api_only: true,
     },
@@ -62,6 +64,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
             cached_tokens: 18,
             completion_tokens: 1400,
         },
+        context: 128_000,
         max_tokens: 128000,
         responses_api_only: true,
     },
@@ -83,6 +86,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
             cached_tokens: 17.5,
             completion_tokens: 1400,
         },
+        context: 128_000,
         max_tokens: 16384,
     },
     {
@@ -102,6 +106,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
             prompt_tokens: 2100,
             completion_tokens: 16800,
         },
+        context: 128_000,
         max_tokens: 16384,
         responses_api_only: true,
     },
@@ -123,6 +128,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
             cached_tokens: 17.5,
             completion_tokens: 1400,
         },
+        context: 128_000,
         max_tokens: 128000,
     },
     {
@@ -143,6 +149,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
             cached_tokens: 13,
             completion_tokens: 1000,
         },
+        context: 128_000,
         max_tokens: 128000,
     },
     {
@@ -163,6 +170,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
             cached_tokens: 13,
             completion_tokens: 1000,
         },
+        context: 128_000,
         max_tokens: 128000,
         responses_api_only: true,
     },
@@ -184,6 +192,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
             cached_tokens: 3,
             completion_tokens: 200,
         },
+        context: 128_000,
         max_tokens: 128000,
         responses_api_only: true,
     },
@@ -205,6 +214,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
             cached_tokens: 13,
             completion_tokens: 1000,
         },
+        context: 128_000,
         max_tokens: 16384,
     },
     {
@@ -225,6 +235,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
             cached_tokens: 13,
             completion_tokens: 1000,
         },
+        context: 128_000,
         max_tokens: 128000,
     },
     {
@@ -245,6 +256,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
             cached_tokens: 3,
             completion_tokens: 200,
         },
+        context: 128_000,
         max_tokens: 128000,
     },
     {
@@ -265,6 +277,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
             cached_tokens: 1,
             completion_tokens: 40,
         },
+        context: 128_000,
         max_tokens: 128000,
     },
     {
@@ -285,6 +298,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
             cached_tokens: 13,
             completion_tokens: 1000,
         },
+        context: 128_000,
         max_tokens: 16384,
     },
     {
@@ -305,6 +319,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
             cached_tokens: 125,
             completion_tokens: 1000,
         },
+        context: 128_000,
         max_tokens: 16384,
     },
     {
@@ -316,6 +331,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
         knowledge: '2023-09',
         release_date: '2024-07-18',
         aliases: ['openai/gpt-4o-mini'],
+        context: 128_000,
         max_tokens: 16384,
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
@@ -345,6 +361,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
             cached_tokens: 750,
             completion_tokens: 6000,
         },
+        context: 200_000,
         max_tokens: 100000,
     },
     {
@@ -364,6 +381,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
             prompt_tokens: 110,
             completion_tokens: 440,
         },
+        context: 128_000,
         max_tokens: 65536,
     },
     {
@@ -383,6 +401,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
             prompt_tokens: 15000,
             completion_tokens: 60000,
         },
+        context: 200_000,
         max_tokens: 100000,
     },
     {
@@ -403,6 +422,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
             cached_tokens: 50,
             completion_tokens: 800,
         },
+        context: 200_000,
         max_tokens: 100000,
     },
     {
@@ -423,6 +443,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
             cached_tokens: 50,
             completion_tokens: 8000,
         },
+        context: 200_000,
         max_tokens: 100000,
         responses_api_only: true,
     },
@@ -444,6 +465,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
             cached_tokens: 55,
             completion_tokens: 440,
         },
+        context: 200_000,
         max_tokens: 100000,
     },
     {
@@ -463,6 +485,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
             prompt_tokens: 110,
             completion_tokens: 440,
         },
+        context: 200_000,
         max_tokens: 100000,
     },
     {
@@ -483,6 +506,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
             cached_tokens: 50,
             completion_tokens: 800,
         },
+        context: 1_047_576,
         max_tokens: 32768,
     },
     {
@@ -503,6 +527,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
             cached_tokens: 10,
             completion_tokens: 160,
         },
+        context: 1_047_576,
         max_tokens: 32768,
     },
     {
@@ -523,6 +548,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
             cached_tokens: 2,
             completion_tokens: 40,
         },
+        context: 1_047_576,
         max_tokens: 32768,
     },
     {
@@ -537,6 +563,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
             prompt_tokens: 7500,
             completion_tokens: 15000,
         },
+        context: 128_000,
         max_tokens: 32768,
     },
 ];
