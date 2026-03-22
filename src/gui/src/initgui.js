@@ -1108,7 +1108,13 @@ window.initgui = async function (options) {
     // -------------------------------------------------------------------------------------
     // Un-authed and first visit ever -> create temp user with Turnstile challenge
     // -------------------------------------------------------------------------------------
-    else if ( !window.is_auth() && window.first_visit_ever && !window.disable_temp_users ) {
+    else if (
+        !window.is_auth() &&
+        window.first_visit_ever &&
+        !window.disable_temp_users &&
+        action !== 'login' &&
+        action !== 'signup'
+    ) {
         let referrer;
         try {
             referrer = new URL(window.location.href).pathname;
