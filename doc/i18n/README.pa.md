@@ -8,7 +8,7 @@
     <br />
     <a href="https://puter.com/?ref=github.com">Puter.com</a>
     ·
-    <a href="https://puter.com/app/app-center">ਐਪ ਸਟੋਰ</a>
+    <a href="https://apps.puter.com/">ਐਪ ਸਟੋਰ</a>
     ·
     <a href="https://developer.puter.com" target="_blank">ਡਿਵੈਲਪਰ</a>
     ·
