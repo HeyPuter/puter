@@ -581,9 +581,8 @@ window.initgui = async function (options) {
     else if ( action === 'login' ) {
         const authError = window.url_query_params.get('message') || null;
         const opts = window.url_query_params.has('auth_error') ? { authError } : {};
-        opts.window_options = { cover_page: true };
         if ( ! window.is_auth() ) {
-            opts.window_options = { has_head: false };
+            opts.window_options = { cover_page: true, has_head: false };
         }
         await UIWindowLogin(Object.keys(opts).length ? opts : undefined);
     }
@@ -593,9 +592,8 @@ window.initgui = async function (options) {
     else if ( action === 'signup' ) {
         const authError = window.url_query_params.get('message') || null;
         const opts = window.url_query_params.has('auth_error') ? { authError } : {};
-        opts.window_options = { cover_page: true };
         if ( ! window.is_auth() ) {
-            opts.window_options.has_head = false;
+            opts.window_options = { cover_page: true, has_head: false };
         }
         await UIWindowSignup(Object.keys(opts).length ? opts : undefined);
     }
