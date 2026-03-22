@@ -46,7 +46,7 @@ async function UIWindowLogin (options) {
         const internal_id = window.uuidv4();
 
         let h = '';
-        h += '<div style="max-width:100%; width:100%; height:100%; min-height:0; box-sizing:border-box; display:flex; flex-direction:column; justify-content:flex-start; align-items:stretch; padding:0; overflow:auto; color:var(--color-text);">';
+        h += '<div style="max-width:100%; width:100%; height:100%; min-height:0; box-sizing:border-box; display:flex; flex-direction:column; justify-content:center; align-items:stretch; padding:0; overflow:auto; color:var(--color-text);">';
         // logo
         h += '<div class="logo-wrapper" style="display:flex; justify-content:center; padding:20px 20px 0 20px; margin-bottom: 0;">';
         h += `<img src="${window.icons['logo-white.svg']}" style="width: 40px; height: 40px; margin: 0 auto; display: block; padding: 15px; background-color: blue; border-radius: 5px;">`;
@@ -57,7 +57,7 @@ async function UIWindowLogin (options) {
         h += '</div>';
         // form
         h += '<div style="padding:20px; overflow-y:auto; overflow-x:hidden;">';
-        h += '<form class="login-form" style="width:100%;">';
+        h += '<form class="login-form" style="width:100%; width: 100%; max-width: 500px; margin: 0 auto;">';
         // server messages
         h += '<div class="login-error-msg" style="color:#e74c3c; display:none; margin-bottom:10px; line-height:15px; font-size:13px;"></div>';
         // email or username
