@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const parse_meminfo = text => {
+export const parse_meminfo = text => {
     const lines = text.split('\n');
 
     let meminfo = {};
@@ -34,8 +34,4 @@ const parse_meminfo = text => {
     }
 
     return meminfo;
-};
-
-module.exports = {
-    parse_meminfo,
 };
