@@ -170,6 +170,12 @@ const examples = [
                 source: '/playground/examples/ai-txt2speech-elevenlabs.html',
             },
             {
+                title: 'Voice Changer',
+                description: 'Swap a sample clip into a new voice using Puter.js AI speech-to-speech helpers.',
+                slug: 'ai-voice-changer',
+                source: '/playground/examples/ai-voice-changer.html',
+            },
+            {
                 title: 'ElevenLabs Voice changer with a sample clip',
                 description: 'Transform an audio clip into a new voice using Puter.js speech-to-speech helper.',
                 slug: 'ai-speech2speech-url',
