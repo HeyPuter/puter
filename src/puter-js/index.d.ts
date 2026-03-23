@@ -150,8 +150,7 @@ export type {
 
 // -- puter.net --
 export type { Networking, SocketEvent } from './types/modules/networking/types.js';
-export type { PSocket } from './types/modules/networking/PSocket.js';
-export type { PTLSSocket } from './types/modules/networking/PTLS.js';
+export type { PSocket, PTLSSocket } from './types/modules/networking/PSocket.js';
 
 // -- puter.os --
 

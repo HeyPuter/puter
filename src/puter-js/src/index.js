@@ -16,9 +16,7 @@ import { PuterJSFileSystemModule } from './modules/FileSystem/index.js';
 import FSItem from './modules/FSItem.js';
 import { Hosting } from './modules/hosting/index.js';
 import { KV } from './modules/kv/index.js';
-import { PSocket } from './modules/networking/PSocket.js';
-import { PTLSSocket } from './modules/networking/PTLS.js';
-import { pFetch } from './modules/networking/requests.js';
+import { netAPI } from './modules/networking/index.js';
 import { OS } from './modules/os/index.js';
 import { Perms } from './modules/perms/index.js';
 import PuterDialog from './modules/PuterDialog.js';
@@ -732,36 +730,7 @@ export class Puter {
         })();
 
         /** @type {import('./modules/networking/types.js').Networking} */
-        this.net = {
-            /**
-             * Mints a relay URL (server + single-use token) for speaking
-             * the Wisp v1 protocol directly, which is what the sockets
-             * below do for you.
-             *
-             * @returns {Promise<string>}
-             */
-            generateWispV1URL: async () => {
-                const { token: wispToken, server: wispServer } = await (
-                    await fetchUrl(
-                        `${this.APIOrigin}/wisp/relay-token/create`,
-                        {
-                            method: 'POST',
-                            includePuterAuth: true,
-                            headers: {
-                                'Content-Type': 'application/json',
-                            },
-                            body: JSON.stringify({}),
-                        },
-                    )
-                ).json();
-                return `${wispServer}/${wispToken}/`;
-            },
-            Socket: PSocket,
-            tls: {
-                TLSSocket: PTLSSocket,
-            },
-            fetch: pFetch,
-        };
+        this.net = netAPI;
 
         // Initialize network connectivity monitoring and cache purging
         this.initNetworkMonitoring();
