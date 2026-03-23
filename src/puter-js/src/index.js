@@ -13,9 +13,7 @@ import { PuterJSFileSystemModule } from './modules/FileSystem/index.js';
 import FSItem from './modules/FSItem.js';
 import Hosting from './modules/Hosting.js';
 import KV from './modules/KV.js';
-import { PSocket } from './modules/networking/PSocket.js';
-import { PTLSSocket } from './modules/networking/PTLS.js';
-import { pFetch } from './modules/networking/requests.js';
+import { netAPI } from './modules/networking/index.js';
 import OS from './modules/OS.js';
 import Perms from './modules/Perms.js';
 import UI from './modules/UI.js';
@@ -526,24 +524,7 @@ const puterInit = (function () {
             // Flag that indicates if a request to `/rao` has been made
             this.rao_requested_ = false;
 
-            this.net = {
-                generateWispV1URL: async () => {
-                    const { token: wispToken, server: wispServer } = (await (await fetch(`${this.APIOrigin }/wisp/relay-token/create`, {
-                        method: 'POST',
-                        headers: {
-                            Authorization: `Bearer ${this.authToken}`,
-                            'Content-Type': 'application/json',
-                        },
-                        body: JSON.stringify({}),
-                    })).json());
-                    return `${wispServer}/${wispToken}/`;
-                },
-                Socket: PSocket,
-                tls: {
-                    TLSSocket: PTLSSocket,
-                },
-                fetch: pFetch,
-            };
+            this.net = netAPI;
 
             this.workers = new WorkersHandler(this.authToken);
 
