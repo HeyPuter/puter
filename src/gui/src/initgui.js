@@ -582,7 +582,7 @@ window.initgui = async function (options) {
         const authError = window.url_query_params.get('message') || null;
         const opts = window.url_query_params.has('auth_error') ? { authError } : {};
         if ( ! window.is_auth() ) {
-            opts.window_options = { has_head: false };
+            opts.window_options = { cover_page: true, has_head: false };
         }
         await UIWindowLogin(Object.keys(opts).length ? opts : undefined);
     }
@@ -593,7 +593,7 @@ window.initgui = async function (options) {
         const authError = window.url_query_params.get('message') || null;
         const opts = window.url_query_params.has('auth_error') ? { authError } : {};
         if ( ! window.is_auth() ) {
-            opts.window_options = { has_head: false };
+            opts.window_options = { cover_page: true, has_head: false };
         }
         await UIWindowSignup(Object.keys(opts).length ? opts : undefined);
     }
@@ -1108,7 +1108,13 @@ window.initgui = async function (options) {
     // -------------------------------------------------------------------------------------
     // Un-authed and first visit ever -> create temp user with Turnstile challenge
     // -------------------------------------------------------------------------------------
-    else if ( !window.is_auth() && window.first_visit_ever && !window.disable_temp_users ) {
+    else if (
+        !window.is_auth() &&
+        window.first_visit_ever &&
+        !window.disable_temp_users &&
+        action !== 'login' &&
+        action !== 'signup'
+    ) {
         let referrer;
         try {
             referrer = new URL(window.location.href).pathname;

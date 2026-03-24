@@ -46,7 +46,7 @@ async function UIWindowLogin (options) {
         const internal_id = window.uuidv4();
 
         let h = '';
-        h += '<div style="max-width:100%; width:100%; height:100%; min-height:0; box-sizing:border-box; display:flex; flex-direction:column; justify-content:flex-start; align-items:stretch; padding:0; overflow:auto; color:var(--color-text);">';
+        h += '<div style="max-width:100%; width:100%; height:100%; min-height:0; box-sizing:border-box; display:flex; flex-direction:column; justify-content:center; align-items:stretch; padding:0; overflow:auto; color:var(--color-text);">';
         // logo
         h += '<div class="logo-wrapper" style="display:flex; justify-content:center; padding:20px 20px 0 20px; margin-bottom: 0;">';
         h += `<img src="${window.icons['logo-white.svg']}" style="width: 40px; height: 40px; margin: 0 auto; display: block; padding: 15px; background-color: blue; border-radius: 5px;">`;
@@ -57,7 +57,7 @@ async function UIWindowLogin (options) {
         h += '</div>';
         // form
         h += '<div style="padding:20px; overflow-y:auto; overflow-x:hidden;">';
-        h += '<form class="login-form" style="width:100%;">';
+        h += '<form class="login-form" style="width:100%; width: 100%; max-width: 400px; margin: 0 auto;">';
         // server messages
         h += '<div class="login-error-msg" style="color:#e74c3c; display:none; margin-bottom:10px; line-height:15px; font-size:13px;"></div>';
         // email or username
@@ -82,14 +82,15 @@ async function UIWindowLogin (options) {
         h += `<button type="submit" class="login-btn button button-primary button-block button-normal">${i18n('log_in')}</button>`;
         // password recovery
         h += `<p style="text-align:center; margin-bottom: 0;"><span class="forgot-password-link">${i18n('forgot_pass_c2a')}</span></p>`;
-        h += '</form>';
+        // OIDC
         h += '<div class="oidc-providers-wrapper" style="display:none; padding: 0 0 10px 0;">';
         h += `<div style="text-align:center; margin: 10px 0; font-size:13px; color:var(--color-text-muted);">${ i18n('or') }</div>`;
         h += `<button type="button" class="oidc-google-btn button button-block button-normal" style="display:flex; align-items:center; justify-content:center; gap:8px;">
-<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-google" viewBox="0 0 16 16">
-  <path d="M15.545 6.558a9.4 9.4 0 0 1 .139 1.626c0 2.434-.87 4.492-2.384 5.885h.002C11.978 15.292 10.158 16 8 16A8 8 0 1 1 8 0a7.7 7.7 0 0 1 5.352 2.082l-2.284 2.284A4.35 4.35 0 0 0 8 3.166c-2.087 0-3.86 1.408-4.492 3.304a4.8 4.8 0 0 0 0 3.063h.003c.635 1.893 2.405 3.301 4.492 3.301 1.078 0 2.004-.276 2.722-.764h-.003a3.7 3.7 0 0 0 1.599-2.431H8v-3.08z"/>
-</svg>${i18n('sign_in_with_google')}</button>`;
+    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-google" viewBox="0 0 16 16">
+    <path d="M15.545 6.558a9.4 9.4 0 0 1 .139 1.626c0 2.434-.87 4.492-2.384 5.885h.002C11.978 15.292 10.158 16 8 16A8 8 0 1 1 8 0a7.7 7.7 0 0 1 5.352 2.082l-2.284 2.284A4.35 4.35 0 0 0 8 3.166c-2.087 0-3.86 1.408-4.492 3.304a4.8 4.8 0 0 0 0 3.063h.003c.635 1.893 2.405 3.301 4.492 3.301 1.078 0 2.004-.276 2.722-.764h-.003a3.7 3.7 0 0 0 1.599-2.431H8v-3.08z"/>
+    </svg>${i18n('sign_in_with_google')}</button>`;
         h += '</div>';
+        h += '</form>';
         h += '</div>';
         // create account link
 

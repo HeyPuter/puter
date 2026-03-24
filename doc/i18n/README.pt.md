@@ -8,7 +8,7 @@
     <br />
     <a href="https://puter.com">Puter.com</a>
     ·
-    <a href="https://puter.com/app/app-center">App Store</a>
+    <a href="https://apps.puter.com/">App Store</a>
     ·
     <a href="https://developer.puter.com" target="_blank">Developers</a>
     ·

@@ -58,6 +58,56 @@ const endLaunchTransaction = (transaction) => {
     }
 };
 
+const fetchUserAppTokenForLaunch = async ({ appUid } = {}) => {
+    if ( ! appUid ) {
+        return {
+            token: null,
+            reason: 'missing-app-uid',
+        };
+    }
+
+    try {
+        const response = await fetch(`${window.api_origin }/auth/get-user-app-token`, {
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${ window.auth_token}`,
+            },
+            body: JSON.stringify({ app_uid: appUid }),
+            method: 'POST',
+        });
+
+        let responseBody;
+        try {
+            responseBody = await response.json();
+        } catch ( error ) {
+            responseBody = null;
+        }
+
+        if ( response.ok && responseBody?.token ) {
+            return {
+                token: responseBody.token,
+            };
+        }
+
+        return {
+            token: null,
+            reason: 'token-request-failed',
+            status: response.status,
+            responseCode: responseBody?.code ?? responseBody?.error?.code,
+            responseMessage: responseBody?.message ?? responseBody?.error?.message,
+            responseBody,
+            attempts: 1,
+        };
+    } catch ( error ) {
+        return {
+            token: null,
+            reason: 'network-error',
+            error,
+            attempts: 1,
+        };
+    }
+};
+
 /**
  * Launches an app.
  *
@@ -390,19 +440,42 @@ const launch_app = async (options) => {
         else if ( options.token ) {
             iframe_url.searchParams.append('puter.auth.token', options.token);
         } else {
-            // Try to acquire app token from the server
-
-            let response = await fetch(`${window.api_origin }/auth/get-user-app-token`, {
-                'headers': {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${ window.auth_token}`,
-                },
-                'body': JSON.stringify({ app_uid: app_info.uid ?? app_info.uuid }),
-                'method': 'POST',
+            const tokenResult = await fetchUserAppTokenForLaunch({
+                appUid: app_info.uid ?? app_info.uuid,
             });
-            let res = await response.json();
-            if ( res.token ) {
-                iframe_url.searchParams.append('puter.auth.token', res.token);
+
+            if ( tokenResult?.token ) {
+                iframe_url.searchParams.append('puter.auth.token', tokenResult.token);
+            } else {
+                console.error('App launch blocked because app token could not be acquired', {
+                    appName: app_info?.name ?? options?.name,
+                    appUid: app_info?.uid ?? app_info?.uuid,
+                    tokenResult,
+                });
+
+                const tokenErrorAppTitle = app_info?.title ?? app_info?.name ?? options?.name ?? 'this app';
+                const safeTokenErrorAppTitle = window.html_encode
+                    ? window.html_encode(tokenErrorAppTitle)
+                    : tokenErrorAppTitle;
+                if ( typeof window.UIAlert === 'function' ) {
+                    await window.UIAlert(`Couldn't open ${safeTokenErrorAppTitle}. Please try again.`);
+                } else {
+                    window.alert(`Couldn't open ${tokenErrorAppTitle}. Please try again.`);
+                }
+
+                const tokenFailureLaunchResult = {
+                    launched: false,
+                    requestedAppName,
+                    openedAppName: null,
+                    appInstanceID: null,
+                    appUid: app_info?.uid ?? app_info?.uuid ?? null,
+                    redirectedToFallback: privateLaunchRedirectDepth > 0,
+                    deniedPrivateAccess: false,
+                    privateAccess: privateAccessDecision ?? undefined,
+                    authTokenAcquired: false,
+                };
+                endLaunchTransaction(transaction);
+                return { launchResult: tokenFailureLaunchResult };
             }
         }
 

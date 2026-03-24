@@ -583,7 +583,7 @@ let sidebar = [
     {
         title: 'Peer',
         title_tag: 'Peer',
-        icon: '/assets/img/networking.svg',
+        icon: '/assets/img/peer.svg',
         source: '/Peer.md',
         path: '/Peer',
         children: [

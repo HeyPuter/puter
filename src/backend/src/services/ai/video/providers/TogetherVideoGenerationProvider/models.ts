@@ -1,10 +1,45 @@
-export const TOGETHER_VIDEO_GENERATION_MODELS = [
+/*
+ * Copyright (C) 2024-present Puter Technologies Inc.
+ *
+ * This file is part of Puter.
+ *
+ * Puter is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published
+ * by the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+import { IVideoModel } from '../types.js';
+
+interface ITogetherVideoModel extends IVideoModel {
+    model: string;
+    organization: string;
+    durationSeconds: number[] | null;
+    dimensions: string[] | null;
+    fps: number[] | null;
+    keyframes: string[] | null;
+    promptLength: { min: number; max: number } | null;
+    promptSupported: boolean | null;
+}
+
+export const TOGETHER_VIDEO_GENERATION_MODELS: ITogetherVideoModel[] = [
     {
         id: 'togetherai:minimax/video-01-director',
         organization: 'MiniMax',
         name: 'MiniMax 01 Director',
         model: 'minimax/video-01-director',
-        durationSeconds: 5,
+        costs_currency: 'usd-cents',
+        costs: { 'per-video': 28 },
+        output_cost_key: 'per-video',
+        durationSeconds: [5],
         dimensions: ['1366x768'],
         fps: [25],
         keyframes: ['first'],
@@ -16,7 +51,10 @@ export const TOGETHER_VIDEO_GENERATION_MODELS = [
         organization: 'MiniMax',
         name: 'MiniMax Hailuo 02',
         model: 'minimax/hailuo-02',
-        durationSeconds: 10,
+        costs_currency: 'usd-cents',
+        costs: { 'per-video': 56 },
+        output_cost_key: 'per-video',
+        durationSeconds: [10],
         dimensions: ['1366x768', '1920x1080'],
         fps: [25],
         keyframes: ['first'],
@@ -28,7 +66,10 @@ export const TOGETHER_VIDEO_GENERATION_MODELS = [
         organization: 'Google',
         name: 'Veo 2.0',
         model: 'google/veo-2.0',
-        durationSeconds: 5,
+        costs_currency: 'usd-cents',
+        costs: { 'per-video': 250 },
+        output_cost_key: 'per-video',
+        durationSeconds: [5],
         dimensions: ['1280x720', '720x1280'],
         fps: [24],
         keyframes: ['first', 'last'],
@@ -40,7 +81,10 @@ export const TOGETHER_VIDEO_GENERATION_MODELS = [
         organization: 'Google',
         name: 'Veo 3.0',
         model: 'google/veo-3.0',
-        durationSeconds: 8,
+        costs_currency: 'usd-cents',
+        costs: { 'per-video': 160 },
+        output_cost_key: 'per-video',
+        durationSeconds: [8],
         dimensions: ['1280x720', '720x1280', '1920x1080', '1080x1920'],
         fps: [24],
         keyframes: ['first'],
@@ -52,7 +96,10 @@ export const TOGETHER_VIDEO_GENERATION_MODELS = [
         organization: 'Google',
         name: 'Veo 3.0 + Audio',
         model: 'google/veo-3.0-audio',
-        durationSeconds: 8,
+        costs_currency: 'usd-cents',
+        costs: { 'per-video': 320 },
+        output_cost_key: 'per-video',
+        durationSeconds: [8],
         dimensions: ['1280x720', '720x1280', '1920x1080', '1080x1920'],
         fps: [24],
         keyframes: ['first'],
@@ -64,7 +111,10 @@ export const TOGETHER_VIDEO_GENERATION_MODELS = [
         organization: 'Google',
         name: 'Veo 3.0 Fast',
         model: 'google/veo-3.0-fast',
-        durationSeconds: 8,
+        costs_currency: 'usd-cents',
+        costs: { 'per-video': 80 },
+        output_cost_key: 'per-video',
+        durationSeconds: [8],
         dimensions: ['1280x720', '720x1280', '1920x1080', '1080x1920'],
         fps: [24],
         keyframes: ['first'],
@@ -76,7 +126,10 @@ export const TOGETHER_VIDEO_GENERATION_MODELS = [
         organization: 'Google',
         name: 'Veo 3.0 Fast + Audio',
         model: 'google/veo-3.0-fast-audio',
-        durationSeconds: 8,
+        costs_currency: 'usd-cents',
+        costs: { 'per-video': 120 },
+        output_cost_key: 'per-video',
+        durationSeconds: [8],
         dimensions: ['1280x720', '720x1280', '1920x1080', '1080x1920'],
         fps: [24],
         keyframes: ['first'],
@@ -88,7 +141,10 @@ export const TOGETHER_VIDEO_GENERATION_MODELS = [
         organization: 'ByteDance',
         name: 'Seedance 1.0 Lite',
         model: 'ByteDance/Seedance-1.0-lite',
-        durationSeconds: 5,
+        costs_currency: 'usd-cents',
+        costs: { 'per-video': 14 },
+        output_cost_key: 'per-video',
+        durationSeconds: [5],
         dimensions: [
             '864x480',
             '736x544',
@@ -111,7 +167,10 @@ export const TOGETHER_VIDEO_GENERATION_MODELS = [
         organization: 'ByteDance',
         name: 'Seedance 1.0 Pro',
         model: 'ByteDance/Seedance-1.0-pro',
-        durationSeconds: 5,
+        costs_currency: 'usd-cents',
+        costs: { 'per-video': 57 },
+        output_cost_key: 'per-video',
+        durationSeconds: [5],
         dimensions: [
             '864x480',
             '736x544',
@@ -134,7 +193,10 @@ export const TOGETHER_VIDEO_GENERATION_MODELS = [
         organization: 'PixVerse',
         name: 'PixVerse v5',
         model: 'pixverse/pixverse-v5',
-        durationSeconds: 5,
+        costs_currency: 'usd-cents',
+        costs: { 'per-video': 30 },
+        output_cost_key: 'per-video',
+        durationSeconds: [5],
         dimensions: [
             '640x360',
             '480x360',
@@ -167,7 +229,10 @@ export const TOGETHER_VIDEO_GENERATION_MODELS = [
         organization: 'Kuaishou',
         name: 'Kling 2.1 Master',
         model: 'kwaivgI/kling-2.1-master',
-        durationSeconds: 5,
+        costs_currency: 'usd-cents',
+        costs: { 'per-video': 92 },
+        output_cost_key: 'per-video',
+        durationSeconds: [5],
         dimensions: ['1920x1080', '1080x1080', '1080x1920'],
         fps: [24],
         keyframes: ['first'],
@@ -179,7 +244,10 @@ export const TOGETHER_VIDEO_GENERATION_MODELS = [
         organization: 'Kuaishou',
         name: 'Kling 2.1 Standard',
         model: 'kwaivgI/kling-2.1-standard',
-        durationSeconds: 5,
+        costs_currency: 'usd-cents',
+        costs: { 'per-video': 18 },
+        output_cost_key: 'per-video',
+        durationSeconds: [5],
         dimensions: ['1920x1080', '1080x1080', '1080x1920'],
         fps: [24],
         keyframes: ['first'],
@@ -191,7 +259,10 @@ export const TOGETHER_VIDEO_GENERATION_MODELS = [
         organization: 'Kuaishou',
         name: 'Kling 2.1 Pro',
         model: 'kwaivgI/kling-2.1-pro',
-        durationSeconds: 5,
+        costs_currency: 'usd-cents',
+        costs: { 'per-video': 32 },
+        output_cost_key: 'per-video',
+        durationSeconds: [5],
         dimensions: ['1920x1080', '1080x1080', '1080x1920'],
         fps: [24],
         keyframes: ['first', 'last'],
@@ -203,7 +274,10 @@ export const TOGETHER_VIDEO_GENERATION_MODELS = [
         organization: 'Kuaishou',
         name: 'Kling 2.0 Master',
         model: 'kwaivgI/kling-2.0-master',
-        durationSeconds: 5,
+        costs_currency: 'usd-cents',
+        costs: { 'per-video': 92 },
+        output_cost_key: 'per-video',
+        durationSeconds: [5],
         dimensions: ['1280x720', '720x720', '720x1280'],
         fps: [24],
         keyframes: ['first'],
@@ -215,7 +289,10 @@ export const TOGETHER_VIDEO_GENERATION_MODELS = [
         organization: 'Kuaishou',
         name: 'Kling 1.6 Standard',
         model: 'kwaivgI/kling-1.6-standard',
-        durationSeconds: 5,
+        costs_currency: 'usd-cents',
+        costs: { 'per-video': 19 },
+        output_cost_key: 'per-video',
+        durationSeconds: [5],
         dimensions: ['1920x1080', '1080x1080', '1080x1920'],
         fps: [30, 24],
         keyframes: ['first'],
@@ -227,7 +304,10 @@ export const TOGETHER_VIDEO_GENERATION_MODELS = [
         organization: 'Kuaishou',
         name: 'Kling 1.6 Pro',
         model: 'kwaivgI/kling-1.6-pro',
-        durationSeconds: 5,
+        costs_currency: 'usd-cents',
+        costs: { 'per-video': 32 },
+        output_cost_key: 'per-video',
+        durationSeconds: [5],
         dimensions: ['1920x1080', '1080x1080', '1080x1920'],
         fps: [24],
         keyframes: ['first'],
@@ -239,6 +319,9 @@ export const TOGETHER_VIDEO_GENERATION_MODELS = [
         organization: 'Wan-AI',
         name: 'Wan 2.2 I2V',
         model: 'Wan-AI/Wan2.2-I2V-A14B',
+        costs_currency: 'usd-cents',
+        costs: { 'per-video': 31 },
+        output_cost_key: 'per-video',
         durationSeconds: null,
         dimensions: null,
         fps: null,
@@ -251,6 +334,9 @@ export const TOGETHER_VIDEO_GENERATION_MODELS = [
         organization: 'Wan-AI',
         name: 'Wan 2.2 T2V',
         model: 'Wan-AI/Wan2.2-T2V-A14B',
+        costs_currency: 'usd-cents',
+        costs: { 'per-video': 66 },
+        output_cost_key: 'per-video',
         durationSeconds: null,
         dimensions: null,
         fps: null,
@@ -263,7 +349,10 @@ export const TOGETHER_VIDEO_GENERATION_MODELS = [
         organization: 'Vidu',
         name: 'Vidu 2.0',
         model: 'vidu/vidu-2.0',
-        durationSeconds: 8,
+        costs_currency: 'usd-cents',
+        costs: { 'per-video': 28 },
+        output_cost_key: 'per-video',
+        durationSeconds: [8],
         dimensions: [
             '1920x1080',
             '1080x1080',
@@ -285,7 +374,10 @@ export const TOGETHER_VIDEO_GENERATION_MODELS = [
         organization: 'Vidu',
         name: 'Vidu Q1',
         model: 'vidu/vidu-q1',
-        durationSeconds: 5,
+        costs_currency: 'usd-cents',
+        costs: { 'per-video': 22 },
+        output_cost_key: 'per-video',
+        durationSeconds: [5],
         dimensions: ['1920x1080', '1080x1080', '1080x1920'],
         fps: [24],
         keyframes: ['first', 'last'],
@@ -297,7 +389,10 @@ export const TOGETHER_VIDEO_GENERATION_MODELS = [
         organization: 'OpenAI',
         name: 'Sora 2',
         model: 'openai/sora-2',
-        durationSeconds: 8,
+        costs_currency: 'usd-cents',
+        costs: { 'per-video': 80 },
+        output_cost_key: 'per-video',
+        durationSeconds: [8],
         dimensions: ['1280x720', '720x1280'],
         fps: null,
         keyframes: ['first'],
@@ -309,7 +404,10 @@ export const TOGETHER_VIDEO_GENERATION_MODELS = [
         organization: 'OpenAI',
         name: 'Sora 2 Pro',
         model: 'openai/sora-2-pro',
-        durationSeconds: 8,
+        costs_currency: 'usd-cents',
+        costs: { 'per-video': 400 },
+        output_cost_key: 'per-video',
+        durationSeconds: [8],
         dimensions: ['1280x720', '720x1280'],
         fps: null,
         keyframes: ['first'],

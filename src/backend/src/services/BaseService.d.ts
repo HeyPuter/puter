@@ -19,6 +19,7 @@ import type { MeteringServiceWrapper } from './MeteringService/MeteringServiceWr
 import type { SUService } from './SUService';
 import type { UserService } from './UserService';
 import { TokenService } from './auth/TokenService';
+import { SessionService } from './SessionService';
 
 export interface ServicesMap {
     su: SUService;
@@ -41,7 +42,8 @@ export interface ServicesMap {
     'clean-email': CleanEmailService;
     'error-service': ErrorService;
     driver: DriverService;
-    'token': TokenService
+    'token': TokenService;
+    'session': SessionService;
 }
 
 export interface ServiceResources {

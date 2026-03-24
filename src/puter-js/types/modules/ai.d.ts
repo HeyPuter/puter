@@ -82,8 +82,10 @@ export interface Txt2ImgOptions {
 export interface Txt2VidOptions {
     prompt?: string;
     provider?: string;
+    driver?: string;
     model?: string;
     seconds?: number;
+    duration?: number;
     test_mode?: boolean;
 
     // OpenAI options

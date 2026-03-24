@@ -20,7 +20,8 @@ import express from 'express';
 import jwt from 'jsonwebtoken';
 import config from '../../config.js';
 import { get_user, subdomain } from '../../helpers.js';
-const router = express.Router();
+
+export const router = express.Router();
 
 const REVALIDATION_COOKIE_NAME = 'puter_revalidation';
 const REVALIDATION_EXPIRY_SEC = 300; // 5 minutes
@@ -341,5 +342,3 @@ if (window.opener) {
 })();
 </script><p>Re-validated. Closing&hellip;</p></body></html>`);
 });
-
-export default router;
