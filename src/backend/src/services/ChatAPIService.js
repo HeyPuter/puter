@@ -40,7 +40,7 @@ class ChatAPIService extends BaseService {
     * @param {Express} options.app Express application instance to install routes on
     * @returns {Promise<void>}
     */
-    async '__on_install.routes' (_, { app }) {
+    async '__on_install.routes'(_, { app }) {
         // Create a router for chat API endpoints
         const router = (() => {
             const require = this.require;
@@ -61,10 +61,11 @@ class ChatAPIService extends BaseService {
     * @param {express.Router} options.router Express router to install endpoints on
     * @private
     */
-    install_chat_endpoints_ ({ router }) {
+    install_chat_endpoints_({ router }) {
         const Endpoint = this.require('Endpoint');
         router.use(require('../routers/puterai/openai/completions'));
         router.use(require('../routers/puterai/openai/chat_completions'));
+        router.use(require('../routers/puterai/anthropic/messages'));
         // Endpoint to list available AI chat models
         Endpoint({
             route: '/chat/models',
@@ -81,7 +82,7 @@ class ChatAPIService extends BaseService {
 
                     // Return the list of models
                     res.json({ models: models.filter(e => !['costly', 'fake', 'abuse', 'model-fallback-test-1'].includes(e)) });
-                } catch ( error ) {
+                } catch (error) {
                     this.log.error('Error fetching models:', error);
                     throw APIError.create('internal_server_error');
                 }
@@ -104,7 +105,7 @@ class ChatAPIService extends BaseService {
 
                     // Return the detailed list of models
                     res.json({ models: models.filter((e) => !['costly', 'fake', 'abuse', 'model-fallback-test-1'].includes(e.id)) });
-                } catch ( error ) {
+                } catch (error) {
                     this.log.error('Error fetching model details:', error);
                     throw APIError.create('internal_server_error');
                 }
@@ -125,7 +126,7 @@ class ChatAPIService extends BaseService {
                     });
                     // Return the list of models
                     res.json({ models });
-                } catch ( error ) {
+                } catch (error) {
                     this.log.error('Error fetching image models:', error);
                     throw APIError.create('internal_server_error');
                 }
@@ -146,7 +147,7 @@ class ChatAPIService extends BaseService {
                     });
                     // Return the detailed list of models
                     res.json({ models });
-                } catch ( error ) {
+                } catch (error) {
                     this.log.error('Error fetching image model details:', error);
                     throw APIError.create('internal_server_error');
                 }
@@ -164,7 +165,7 @@ class ChatAPIService extends BaseService {
                         return svc_video.models();
                     });
                     res.json({ models });
-                } catch ( error ) {
+                } catch (error) {
                     this.log.error('Error fetching video model details:', error);
                     throw APIError.create('internal_server_error');
                 }
@@ -182,7 +183,7 @@ class ChatAPIService extends BaseService {
                         return svc_video.list();
                     });
                     res.json({ models });
-                } catch ( error ) {
+                } catch (error) {
                     this.log.error('Error fetching video models:', error);
                     throw APIError.create('internal_server_error');
                 }
