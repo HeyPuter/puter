@@ -84,8 +84,8 @@ class UserProtectedEndpointsService extends BaseService {
             next();
         });
 
-        // Require authenticated session
-        router.use(configurable_auth({ no_options_auth: true }));
+        // Require authenticated session; bypass user cache to enforce suspension reliably
+        router.use(configurable_auth({ no_options_auth: true, allow_cached_user: false }));
 
         // Only allow user sessions with HTTP powers (session token), not GUI tokens or API tokens
         router.use((req, res, next) => {

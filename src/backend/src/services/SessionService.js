@@ -19,14 +19,18 @@
 const { redisClient } = require('../clients/redis/redisSingleton');
 const { UserRedisCacheSpace } = require('./UserRedisCacheSpace.js');
 const { get_user } = require('../helpers');
-const { asyncSafeSetInterval } = require('@heyputer/putility').libs.promise;
 const { v4: uuidv4 } = require('uuid');
 const SECOND = 1000;
-const MINUTE = 60 * SECOND;
-const BaseService = require('./BaseService');
-const { DB_WRITE } = require('./database/consts');
+const { BaseService } = require('./BaseService');
 const SESSION_CACHE_TTL_SECONDS = 5 * 60;
 const SESSION_CACHE_KEY_PREFIX = 'session-cache';
+const SESSION_FLUSH_PENDING_SET_KEY = `${SESSION_CACHE_KEY_PREFIX}:flush-pending`;
+const SESSION_USER_SESSIONS_KEY_PREFIX = `${SESSION_CACHE_KEY_PREFIX}:user-sessions`;
+const SESSION_FLUSH_LOCK_KEY_PREFIX = `${SESSION_CACHE_KEY_PREFIX}:flush-lock`;
+const SESSION_FLUSH_LOCK_TTL_SECONDS = 30;
+const SESSION_FLUSH_INTERVAL_STEP_SECONDS = 5;
+const SESSION_FLUSH_INTERVAL_MIN_STEPS = 1;
+const SESSION_FLUSH_INTERVAL_MAX_STEPS = 12;
 
 /**
  * This service is responsible for updating session activity
@@ -44,26 +48,80 @@ const SESSION_CACHE_KEY_PREFIX = 'session-cache';
 * - Provides methods to interact with sessions, including session creation, retrieval, and termination.
 */
 class SessionService extends BaseService {
-    _construct () {
-        this.sessions = {};
-    }
-
     getSessionCacheKey (uuid) {
         return `${SESSION_CACHE_KEY_PREFIX}:${uuid}`;
     }
 
-    async cacheSession (session) {
+    getSessionUserSetKey (userId) {
+        return `${SESSION_USER_SESSIONS_KEY_PREFIX}:${userId}`;
+    }
+
+    getSessionFlushLockKey (uuid) {
+        return `${SESSION_FLUSH_LOCK_KEY_PREFIX}:${uuid}`;
+    }
+
+    #getRandomFlushIntervalMs () {
+        const randomSteps =
+            Math.floor(
+                Math.random() * (
+                    SESSION_FLUSH_INTERVAL_MAX_STEPS
+                    - SESSION_FLUSH_INTERVAL_MIN_STEPS
+                    + 1
+                ),
+            ) + SESSION_FLUSH_INTERVAL_MIN_STEPS;
+        return randomSteps * SESSION_FLUSH_INTERVAL_STEP_SECONDS * SECOND;
+    }
+
+    #scheduleSessionFlushLoop () {
+        setTimeout(async () => {
+            try {
+                await this.#updateSessions();
+            } catch (e) {
+                console.warn('session flush loop failed', {
+                    reason: e?.message || String(e),
+                });
+            }
+            this.#scheduleSessionFlushLoop();
+        }, this.#getRandomFlushIntervalMs());
+    }
+
+    async cacheSession (session, options = {}) {
         if ( ! session?.uuid ) return;
+        const flushState = options.flushState || 'unchanged';
+        const normalizedSession = {
+            ...session,
+            flushPending:
+                flushState === 'pending'
+                    ? true
+                    : (
+                        flushState === 'flushed'
+                            ? false
+                            : !!session.flushPending
+                    ),
+        };
         try {
             await redisClient.set(
-                this.getSessionCacheKey(session.uuid),
-                JSON.stringify(session),
+                this.getSessionCacheKey(normalizedSession.uuid),
+                JSON.stringify(normalizedSession),
                 'EX',
                 SESSION_CACHE_TTL_SECONDS,
             );
+
+            if ( normalizedSession.user_id ) {
+                const userSessionSetKey =
+                    this.getSessionUserSetKey(normalizedSession.user_id);
+                await redisClient.sadd(userSessionSetKey, normalizedSession.uuid);
+                await redisClient.expire(userSessionSetKey, SESSION_CACHE_TTL_SECONDS);
+            }
+
+            if ( flushState === 'pending' ) {
+                await redisClient.sadd(SESSION_FLUSH_PENDING_SET_KEY, normalizedSession.uuid);
+            } else if ( flushState === 'flushed' ) {
+                await redisClient.srem(SESSION_FLUSH_PENDING_SET_KEY, normalizedSession.uuid);
+            }
         } catch (e) {
-            this.log.warn('failed to cache session in redis', {
-                uuid: session.uuid,
+            console.warn('failed to cache session in redis', {
+                uuid: normalizedSession.uuid,
                 reason: e?.message || String(e),
             });
         }
@@ -74,7 +132,7 @@ class SessionService extends BaseService {
         try {
             cachedSessionRaw = await redisClient.get(this.getSessionCacheKey(uuid));
         } catch (e) {
-            this.log.warn('failed to read session from redis', {
+            console.warn('failed to read session from redis', {
                 uuid,
                 reason: e?.message || String(e),
             });
@@ -94,11 +152,17 @@ class SessionService extends BaseService {
         }
     }
 
-    async invalidateCachedSession (uuid) {
+    async invalidateCachedSession (uuid, userId) {
         try {
-            await redisClient.del(this.getSessionCacheKey(uuid));
+            await redisClient.del(
+                this.getSessionCacheKey(uuid),
+            );
+            await redisClient.srem(SESSION_FLUSH_PENDING_SET_KEY, uuid);
+            if ( userId ) {
+                await redisClient.srem(this.getSessionUserSetKey(userId), uuid);
+            }
         } catch (e) {
-            this.log.warn('failed to delete cached session from redis', {
+            console.warn('failed to delete cached session from redis', {
                 uuid,
                 reason: e?.message || String(e),
             });
@@ -114,25 +178,8 @@ class SessionService extends BaseService {
     * @method _init
     */
     async _init () {
-        this.db = await this.services.get('database').get(DB_WRITE, 'session');
-
-        (async () => {
-            // TODO: change to 5 minutes or configured value
-            /**
-            * Initializes periodic session updates.
-            *
-            * This method sets up an interval to call `_update_sessions` every 2 minutes.
-            *
-            * @memberof SessionService
-            * @private
-            * @async
-            * @param {none} - No parameters are required.
-            * @returns {Promise<void>} - Resolves when the interval is set.
-            */
-            asyncSafeSetInterval(async () => {
-                await this._update_sessions();
-            }, 2 * MINUTE);
-        })();
+        this.db = await this.services.get('database').get();
+        this.#scheduleSessionFlushLoop();
     }
 
     /**
@@ -165,8 +212,8 @@ class SessionService extends BaseService {
             user_uid: user.uuid,
             user_id: user.id,
             meta,
+            flushPending: false,
         };
-        this.sessions[uuid] = session;
         await this.cacheSession(session);
 
         return session;
@@ -179,15 +226,13 @@ class SessionService extends BaseService {
     * @param {string} uuid - The UUID of the session to retrieve.
     * @returns {Object|undefined} The session object with internal values removed, or undefined if the session does not exist.
     */
-    async get_session_ (uuid) {
+    async #getSession (uuid) {
         let session = await this.getCachedSession(uuid);
         if ( session ) {
             session.last_touch = Date.now();
-            this.sessions[uuid] = session;
-            await this.cacheSession(session);
             return session;
         }
-        ;[session] = await this.db.read(
+        ;[session] = await this.db.tryHardRead(
             'SELECT * FROM `sessions` WHERE `uuid` = ? LIMIT 1',
             [uuid],
         );
@@ -204,8 +249,6 @@ class SessionService extends BaseService {
         })();
         const user = await get_user({ id: session.user_id });
         session.user_uid = user?.uuid;
-        this.sessions[uuid] = session;
-        await this.cacheSession(session);
         return session;
     }
     /**
@@ -213,17 +256,22 @@ class SessionService extends BaseService {
     * @param {string} uuid - The unique identifier for the session to retrieve.
     * @returns {Promise<Object|undefined>} The session object with internal values removed, or undefined if not found.
     */
-    async get_session (uuid) {
-        const session = await this.get_session_(uuid);
+    async getSession (uuid) {
+        const session = await this.#getSession(uuid);
         if ( session ) {
             session.last_touch = Date.now();
-            session.meta.last_activity = (new Date()).toISOString();
-            await this.cacheSession(session);
+            session.meta = {
+                ...(session.meta || {}),
+                last_activity: (new Date()).toISOString(),
+            };
+            await this.cacheSession(session, {
+                flushState: 'pending',
+            });
         }
-        return this.remove_internal_values_(session);
+        return this.#removeInternalValues(session);
     }
 
-    remove_internal_values_ (session) {
+    #removeInternalValues (session) {
         if ( session === undefined ) return;
 
         const copy = {
@@ -232,86 +280,182 @@ class SessionService extends BaseService {
         delete copy.last_touch;
         delete copy.last_store;
         delete copy.user_id;
+        delete copy.flushPending;
         return copy;
     }
 
-    get_user_sessions (user) {
-        const sessions = [];
-        for ( const session of Object.values(this.sessions) ) {
-            if ( session.user_id === user.id ) {
-                sessions.push(session);
-            }
+    async get_user_sessions (user) {
+        if ( ! user?.id ) return [];
+
+        let sessionUuids;
+        try {
+            sessionUuids = await redisClient.smembers(
+                this.getSessionUserSetKey(user.id),
+            );
+        } catch (e) {
+            console.warn('failed to read user session set from redis', {
+                userId: user.id,
+                reason: e?.message || String(e),
+            });
+            return [];
         }
-        return sessions.map(this.remove_internal_values_.bind(this));
+
+        if ( !Array.isArray(sessionUuids) || sessionUuids.length === 0 ) {
+            return [];
+        }
+
+        const sessions = [];
+        for ( const sessionUuid of sessionUuids ) {
+            const session = await this.getCachedSession(sessionUuid);
+            if ( !session || session.user_id !== user.id ) {
+                await redisClient.srem(this.getSessionUserSetKey(user.id), sessionUuid);
+                continue;
+            }
+            sessions.push(session);
+        }
+
+        return sessions.map(this.#removeInternalValues.bind(this));
     }
 
     /**
-    * Removes a session from the in-memory cache and the database.
+    * Removes a session from Redis-backed cache state and the database.
     *
     * @param {string} uuid - The UUID of the session to remove.
     * @returns {Promise} A promise that resolves to the result of the database write operation.
     */
     async remove_session (uuid) {
-        delete this.sessions[uuid];
-        await this.invalidateCachedSession(uuid);
+        const cachedSession = await this.getCachedSession(uuid);
+        const [dbSession] = await this.db.tryHardRead(
+            'SELECT `user_id` FROM `sessions` WHERE `uuid` = ? LIMIT 1',
+            [uuid],
+        );
+        await this.invalidateCachedSession(uuid, cachedSession?.user_id ?? dbSession?.user_id);
         return await this.db.write(
             'DELETE FROM `sessions` WHERE `uuid` = ?',
             [uuid],
         );
     }
 
-    async _update_sessions () {
-        this.log.tick('UPDATING SESSIONS');
+    async #updateSessions () {
         const now = Date.now();
-        const keys = Object.keys(this.sessions);
+        let pendingSessionUuids;
+        try {
+            pendingSessionUuids = await redisClient.smembers(SESSION_FLUSH_PENDING_SET_KEY);
+        } catch (e) {
+            console.warn('failed to read pending session flush set from redis', {
+                reason: e?.message || String(e),
+            });
+            return;
+        }
+        if ( !Array.isArray(pendingSessionUuids) || pendingSessionUuids.length === 0 ) {
+            return;
+        }
 
-        const user_updates = {};
+        const userUpdates = {};
 
-        for ( const key of keys ) {
-            const session = this.sessions[key];
-            if ( now - session.last_store > 5 * MINUTE ) {
-                this.log.debug(`storing session meta: ${ session.uuid}`);
-                const unix_ts = Math.floor(now / 1000);
-                const { anyRowsAffected } = await this.db.write(
-                    'UPDATE `sessions` ' +
-                    'SET `meta` = ?, `last_activity` = ? ' +
-                    'WHERE `uuid` = ?',
-                    [JSON.stringify(session.meta), unix_ts, session.uuid],
+        for ( const sessionUuid of pendingSessionUuids ) {
+            const lockKey = this.getSessionFlushLockKey(sessionUuid);
+            let lockAcquired = false;
+            try {
+                lockAcquired = await redisClient.set(
+                    lockKey,
+                    '1',
+                    'EX',
+                    SESSION_FLUSH_LOCK_TTL_SECONDS,
+                    'NX',
                 );
+                if ( ! lockAcquired ) continue;
 
-                if ( ! anyRowsAffected ) {
-                    delete this.sessions[key];
+                const session = await this.getCachedSession(sessionUuid);
+                if ( ! session ) {
+                    await redisClient.srem(SESSION_FLUSH_PENDING_SET_KEY, sessionUuid);
+                    continue;
+                }
+                if ( ! session.flushPending ) {
+                    await redisClient.srem(SESSION_FLUSH_PENDING_SET_KEY, sessionUuid);
                     continue;
                 }
 
+                const lastTouch = typeof session.last_touch === 'number'
+                    ? session.last_touch
+                    : now;
+                const unixTs = Math.floor(lastTouch / 1000);
+                session.meta = {
+                    ...(session.meta || {}),
+                    last_activity: (new Date(lastTouch)).toISOString(),
+                };
+
+                const { anyRowsAffected } = await this.db.write(
+                    'UPDATE `sessions` ' +
+                    'SET `meta` = ?, `last_activity` = ? ' +
+                    'WHERE `uuid` = ? AND (`last_activity` IS NULL OR `last_activity` < ?)',
+                    [JSON.stringify(session.meta), unixTs, session.uuid, unixTs],
+                );
+
+                if ( ! anyRowsAffected ) {
+                    const [existingSession] = await this.db.tryHardRead(
+                        'SELECT `uuid` FROM `sessions` WHERE `uuid` = ? LIMIT 1',
+                        [session.uuid],
+                    );
+                    if ( ! existingSession ) {
+                        await this.invalidateCachedSession(session.uuid, session.user_id);
+                        continue;
+                    }
+                }
+
                 session.last_store = now;
+                await this.cacheSession({
+                    ...session,
+                    flushPending: false,
+                }, {
+                    flushState: 'flushed',
+                });
+
                 if (
-                    !user_updates[session.user_id] ||
-                    user_updates[session.user_id][1] < session.last_touch
+                    session.user_id &&
+                    (
+                        !userUpdates[session.user_id]
+                        || userUpdates[session.user_id] < lastTouch
+                    )
                 ) {
-                    user_updates[session.user_id] = [session.user_id, session.last_touch];
+                    userUpdates[session.user_id] = lastTouch;
+                }
+            } catch (e) {
+                console.warn('failed to flush session update to db', {
+                    uuid: sessionUuid,
+                    reason: e?.message || String(e),
+                });
+            } finally {
+                if ( lockAcquired ) {
+                    await redisClient.del(lockKey);
                 }
             }
         }
 
-        for ( const [user_id, last_touch] of Object.values(user_updates) ) {
+        for ( const [userIdRaw, lastTouch] of Object.entries(userUpdates) ) {
+            const userId = Number(userIdRaw);
             const sql_ts = (date =>
                 `${date.toISOString().split('T')[0] } ${
                     date.toTimeString().split(' ')[0]}`
-            )(new Date(last_touch));
+            )(new Date(lastTouch));
 
             await this.db.write(
                 'UPDATE `user` ' +
                 'SET `last_activity_ts` = ? ' +
-                'WHERE `id` = ? LIMIT 1',
-                [sql_ts, user_id],
+                'WHERE `id` = ? AND (`last_activity_ts` IS NULL OR `last_activity_ts` < ?) LIMIT 1',
+                [sql_ts, userId, sql_ts],
             );
-            const cachedUser = await redisClient.get(UserRedisCacheSpace.key('id', user_id));
+            const cachedUser = await redisClient.get(UserRedisCacheSpace.key('id', userId));
             if ( cachedUser ) {
                 try {
                     const user = JSON.parse(cachedUser);
-                    user.last_activity_ts = sql_ts;
-                    UserRedisCacheSpace.setUser(user);
+                    if (
+                        !user.last_activity_ts ||
+                        user.last_activity_ts < sql_ts
+                    ) {
+                        user.last_activity_ts = sql_ts;
+                        UserRedisCacheSpace.setUser(user);
+                    }
                 } catch ( e ) {
                     console.warn(e);
                     // ignore malformed cache entries

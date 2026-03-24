@@ -3,7 +3,7 @@ title: CreateAppResult
 description: The CreateAppResult object containing puter.apps.create() result.
 ---
 
-The `CreateAppResult` object containing [`puter.apps.create()`](/apps/create/) result.
+The `CreateAppResult` object containing [`puter.apps.create()`](/Apps/create/) result.
 
 ## Attributes
 

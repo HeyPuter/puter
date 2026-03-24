@@ -580,6 +580,39 @@ let sidebar = [
 
         ],
     },
+    {
+        title: 'Peer',
+        title_tag: 'Peer',
+        icon: '/assets/img/peer.svg',
+        source: '/Peer.md',
+        path: '/Peer',
+        children: [
+            {
+                title: '<code>serve()</code>',
+                page_title: '<code>puter.peer.serve()</code>',
+                title_tag: 'puter.peer.serve()',
+                icon: '/assets/img/function.svg',
+                source: '/Peer/serve.md',
+                path: '/Peer/serve',
+            },
+            {
+                title: '<code>connect()</code>',
+                page_title: '<code>puter.peer.connect()</code>',
+                title_tag: 'puter.peer.connect()',
+                icon: '/assets/img/function.svg',
+                source: '/Peer/connect.md',
+                path: '/Peer/connect',
+            },
+            {
+                title: '<code>ensureTurnRelays()</code>',
+                page_title: '<code>puter.peer.ensureTurnRelays()</code>',
+                title_tag: 'puter.peer.ensureTurnRelays()',
+                icon: '/assets/img/function.svg',
+                source: '/Peer/ensureTurnRelays.md',
+                path: '/Peer/ensureTurnRelays',
+            },
+        ],
+    },
     // {
     //     title: '<svg style="margin-right: 5px; margin-bottom: -3px;" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px" width="16px" height="16px" viewBox="0 0 16 16"><g transform="translate(0, 0)"><rect x="9.5" y="11.5" width="6" height="4" fill="none" stroke="#012238" stroke-linecap="round" stroke-linejoin="round" data-color="color-2"></rect><path d="M10.5,11.5v-2c0-1.105,.895-2,2-2h0c1.105,0,2,.895,2,2v2" fill="none" stroke="#012238" stroke-linecap="round" stroke-linejoin="round" data-color="color-2"></path><circle cx="7" cy="3.75" r="3.25" fill="none" stroke="#012238" stroke-linecap="round" stroke-linejoin="round"></circle><path d="M8,9.577c-.326-.05-.66-.077-1-.077-3.421,0-6.219,2.645-6.475,6H6.5" fill="none" stroke="#012238" stroke-linecap="round" stroke-linejoin="round"></path></g></svg>Perms',
     //     children: [

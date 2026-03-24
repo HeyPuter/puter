@@ -1,0 +1,19 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <button id="swap">Convert voice</button>
+    <script>
+        document.getElementById('swap').addEventListener('click', async ()=>{
+            const audio = await puter.ai.speech2speech(
+                'https://puter-sample-data.puter.site/tts_example.mp3',
+                {
+                    voice: '21m00Tcm4TlvDq8ikWAM',
+                    model: 'eleven_multilingual_sts_v2',
+                    output_format: 'mp3_44100_128'
+                }
+            );
+            audio.play();
+        });
+    </script>
+</body>
+</html>

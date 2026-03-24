@@ -9,6 +9,7 @@ import type { Hosting } from './modules/hosting.d.ts';
 import type { KV } from './modules/kv.d.ts';
 import type { Networking } from './modules/networking.d.ts';
 import type { OS } from './modules/os.d.ts';
+import type Peer from './modules/peer.d.ts';
 import type { Perms } from './modules/perms.d.ts';
 import type { UI } from './modules/ui.d.ts';
 import type Util from './modules/util.d.ts';
@@ -55,6 +56,7 @@ export class Puter {
     perms: Perms;
     drivers: Drivers;
     debug: Debug;
+    peer: Peer | null;
     path: {
         join: (...parts: string[]) => string;
         dirname: (p: string) => string;

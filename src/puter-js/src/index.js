@@ -21,6 +21,7 @@ import Perms from './modules/Perms.js';
 import UI from './modules/UI.js';
 import Util from './modules/Util.js';
 import { WorkersHandler } from './modules/Workers.js';
+import Peer from './modules/Peer.js';
 
 class SimpleLogger {
     constructor (fields = {}) {
@@ -172,6 +173,7 @@ const puterInit = (function () {
             this.registerModule('perms', Perms);
             this.registerModule('drivers', Drivers);
             this.registerModule('debug', Debug);
+            this.registerModule('peer', Peer);
 
             // Path
             this.path = path;

@@ -8,7 +8,7 @@
     <br />
     <a href="https://puter.com/?ref=github.com">Puter.com</a>
     ·
-    <a href="https://puter.com/app/app-center">App Store</a>
+    <a href="https://apps.puter.com/">App Store</a>
     ·
     <a href="https://developer.puter.com" target="_blank">Developers</a>
     ·
@@ -39,9 +39,6 @@ Puter is an advanced, open-source internet operating system designed to be featu
 
 ## Getting Started
 
-### to install npm and node 
-
-[install](install.md)
 
 ### 💻 Local Development
 

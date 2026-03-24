@@ -1429,6 +1429,54 @@ footer .copyright-notice{
 	color: #fbbf24;
 }
 
+/* Alpha Notice Banner */
+.alpha-notice-banner {
+	position: fixed;
+	top: 0;
+	left: 0;
+	right: 0;
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	justify-content: center;
+	padding: 8px 12px;
+	background-color: #111827;
+	color: #f9fafb;
+	border-bottom: 1px solid #1f2937;
+	font-size: 12px;
+	line-height: 1.2;
+	z-index: 100000;
+}
+
+.alpha-notice-label {
+	background-color: #f59e0b;
+	color: #111827;
+	border-radius: 999px;
+	padding: 2px 6px;
+	font-size: 10px;
+	font-weight: 700;
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
+}
+
+.alpha-notice-text {
+	font-weight: 500;
+}
+
+.alpha-notice-spacer {
+	height: 32px;
+}
+
+@media (max-width: 640px) {
+	.alpha-notice-banner {
+		padding: 6px 10px;
+		font-size: 11px;
+	}
+	.alpha-notice-spacer {
+		height: 34px;
+	}
+}
+
 /* Menu Dropdown Styles */
 .menu-dropdown {
 	position: relative;

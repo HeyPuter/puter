@@ -293,7 +293,7 @@ class DriverService extends BaseService {
             'puter-speech2txt': 'openai-speech2txt',
             'puter-chat-completion': 'openai-completion',
             'puter-image-generation': 'openai-image-generation',
-            'puter-video-generation': 'openai-video-generation',
+            'puter-video-generation': 'ai-video',
             'puter-apps': 'es:app',
             'puter-subdomains': 'es:subdomain',
             'puter-notifications': 'es:notification',

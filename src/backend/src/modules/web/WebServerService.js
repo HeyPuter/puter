@@ -260,27 +260,36 @@ class WebServerService extends BaseService {
         // TODO: ^ Replace above line with the following code:
         await this.services.emit('install.socketio', { server });
         const socketio = this.services.get('socketio').io;
+        const authService = this.services.get('auth');
 
         // Socket.io middleware for authentication
         socketio.use(async (socket, next) => {
-            if ( socket.handshake.auth.auth_token ) {
-                try {
-                    let auth_res = await jwt_auth(socket);
-                    // successful auth
-                    socket.actor = auth_res.actor;
-                    socket.user = auth_res.user;
-                    socket.token = auth_res.token;
-                    // join user room
-                    socket.join(socket.user.id);
+            const authToken = socket.handshake?.auth?.auth_token;
+            if ( ! authToken ) {
+                next(new Error('socket auth token missing'));
+                return;
+            }
 
-                    // setTimeout 0 is needed because we need to send
-                    // the notifications after this handler is done
-                    // setTimeout(() => {
-                    // }, 1000);
-                    next();
-                } catch (e) {
-                    console.warn('socket auth err', e);
-                }
+            try {
+                const authRes = await jwt_auth(socket, authService);
+                // successful auth
+                socket.actor = authRes.actor;
+                socket.user = authRes.user;
+                socket.token = authRes.token;
+                // join user room
+                socket.join(socket.user.id);
+
+                // setTimeout 0 is needed because we need to send
+                // the notifications after this handler is done
+                // setTimeout(() => {
+                // }, 1000);
+                next();
+            } catch ( error ) {
+                console.warn('socket auth err', error);
+                const authError = error instanceof Error
+                    ? error
+                    : new Error('socket auth failed');
+                next(authError);
             }
         });
 
@@ -674,6 +683,16 @@ class WebServerService extends BaseService {
 
         app.use(function (req, res, next) {
             const origin = req.headers.origin;
+            const subdomain = req.subdomains[req.subdomains.length - 1];
+            const isApiOrDavRequest =
+                config.experimental_no_subdomain ||
+                subdomain === 'api' ||
+                subdomain === 'dav';
+            const isCrossOriginAuthRoute =
+                req.path === '/signup' ||
+                req.path === '/login' ||
+                req.path.startsWith('/extensions/') ||
+                req.path.startsWith('/auth/oidc');
 
             const is_site =
                 hostMatchesDomain(req.hostname, config.static_hosting_domain) ||
@@ -692,16 +711,16 @@ class WebServerService extends BaseService {
                 req.co_isolation_enabled
                 ;
 
-            if ( req.path === '/signup' || req.path === '/login' || req.path.startsWith('/extensions/') || req.path.startsWith('/auth/oidc') ) {
+            if ( isCrossOriginAuthRoute || isApiOrDavRequest ) {
                 res.setHeader('Access-Control-Allow-Origin', origin ?? '*');
+                if ( origin ) {
+                    res.vary('Origin');
+                }
             }
-            // Website(s) to allow to connect
-            if (
-                config.experimental_no_subdomain ||
-                req.subdomains[req.subdomains.length - 1] === 'api' ||
-                req.subdomains[req.subdomains.length - 1] === 'dav'
-            ) {
-                res.setHeader('Access-Control-Allow-Origin', origin ?? '*');
+
+            // Allow browser credentials on API/DAV cross-origin requests.
+            if ( isApiOrDavRequest && origin ) {
+                res.setHeader('Access-Control-Allow-Credentials', 'true');
             }
 
             // Request methods to allow
@@ -714,10 +733,6 @@ class WebServerService extends BaseService {
 
             // Request headers to allow
             res.header('Access-Control-Allow-Headers', allowed_headers.join(', '));
-
-            // Set to true if you need the website to include cookies in the requests sent
-            // to the API (e.g. in case you use sessions)
-            // res.setHeader('Access-Control-Allow-Credentials', true);
 
             // Needed for SharedArrayBuffer
             // NOTE: This is put behind a configuration flag because we

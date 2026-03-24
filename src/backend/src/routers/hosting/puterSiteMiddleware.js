@@ -331,53 +331,6 @@ function getPrivateAccessRejectionReason (error) {
     return error?.code || error?.message || 'unknown';
 }
 
-function stripBootstrapAuthTokenFromOriginalUrl (originalUrl) {
-    if ( typeof originalUrl !== 'string' || !originalUrl ) return null;
-
-    try {
-        const placeholderOrigin = 'https://placeholder.puter.local';
-        const parsedUrl = new URL(originalUrl, placeholderOrigin);
-        const hadToken =
-            parsedUrl.searchParams.has('puter.auth.token')
-            || parsedUrl.searchParams.has('auth_token');
-        if ( ! hadToken ) return null;
-
-        parsedUrl.searchParams.delete('puter.auth.token');
-        parsedUrl.searchParams.delete('auth_token');
-
-        const search = parsedUrl.searchParams.toString();
-        const cleanPath = parsedUrl.pathname || '/';
-        return search ? `${cleanPath}?${search}` : cleanPath;
-    } catch {
-        return null;
-    }
-}
-
-function hasAppInstanceIdQueryParam (req) {
-    const queryParamCandidates = [
-        req.query?.['puter.app_instance_id'],
-        req.query?.puter?.app_instance_id,
-    ];
-    for ( const queryParamCandidate of queryParamCandidates ) {
-        if ( typeof queryParamCandidate === 'string' && queryParamCandidate.trim() ) {
-            return true;
-        }
-    }
-
-    if ( typeof req.originalUrl !== 'string' || !req.originalUrl ) {
-        return false;
-    }
-
-    try {
-        const placeholderOrigin = 'https://placeholder.puter.local';
-        const parsedUrl = new URL(req.originalUrl, placeholderOrigin);
-        const appInstanceId = parsedUrl.searchParams.get('puter.app_instance_id');
-        return typeof appInstanceId === 'string' && !!appInstanceId.trim();
-    } catch {
-        return false;
-    }
-}
-
 function getTokenFromAuthorizationHeader (req) {
     const authorizationHeader = req.headers?.authorization;
     if ( typeof authorizationHeader !== 'string' ) return null;
@@ -920,18 +873,6 @@ async function evaluatePublicHostedActorContext ({
         return true;
     }
 
-    const sanitizedUrl = stripBootstrapAuthTokenFromOriginalUrl(req.originalUrl);
-    if ( sanitizedUrl ) {
-        logPrivateAccessEvent('public_actor.cookie_redirect', {
-            appUid: tokenAppUid ?? null,
-            userUid: identity.userUid ?? null,
-            requestHost: req.hostname,
-            redirectUrl: sanitizedUrl,
-        });
-        res.redirect(sanitizedUrl);
-        return false;
-    }
-
     return true;
 }
 
@@ -1238,30 +1179,6 @@ async function evaluatePrivateAppAccess ({ req, res, services, app, requestPath 
             }),
         );
 
-        const sanitizedUrl = stripBootstrapAuthTokenFromOriginalUrl(req.originalUrl);
-        const shouldKeepBootstrapTokenInUrl = hasAppInstanceIdQueryParam(req);
-        if ( sanitizedUrl && !shouldKeepBootstrapTokenInUrl ) {
-            logPrivateAccessEvent('private_access.allowed_cookie_redirect', {
-                appUid: app.uid,
-                userUid: identity.userUid ?? null,
-                requestHost: req.hostname,
-                requestPath,
-                source: identity.source,
-                redirectUrl: sanitizedUrl,
-            });
-            res.redirect(sanitizedUrl);
-            return false;
-        }
-        if ( sanitizedUrl && shouldKeepBootstrapTokenInUrl ) {
-            logPrivateAccessEvent('private_access.allowed_cookie_redirect_skipped_for_app_instance', {
-                appUid: app.uid,
-                userUid: identity.userUid ?? null,
-                requestHost: req.hostname,
-                requestPath,
-                source: identity.source,
-                redirectUrl: sanitizedUrl,
-            });
-        }
     }
 
     logPrivateAccessEvent('private_access.allowed', {

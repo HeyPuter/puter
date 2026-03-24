@@ -34,14 +34,22 @@ class WSPushService extends BaseService {
         this.svc_event.on('fs.write.*', this._on_fs_update.bind(this));
         this.svc_event.on('fs.move.*', this._on_fs_move.bind(this));
         this.svc_event.on('fs.pending.*', this._on_fs_pending.bind(this));
-        this.svc_event.on('fs.storage.upload-progress',
-                        this._on_upload_progress.bind(this));
-        this.svc_event.on('fs.storage.progress.*',
-                        this._on_upload_progress.bind(this));
-        this.svc_event.on('puter-exec.submission.done',
-                        this._on_submission_done.bind(this));
-        this.svc_event.on('outer.gui.*',
-                        this._on_outer_gui.bind(this));
+        this.svc_event.on(
+            'fs.storage.upload-progress',
+            this._on_upload_progress.bind(this),
+        );
+        this.svc_event.on(
+            'fs.storage.progress.*',
+            this._on_upload_progress.bind(this),
+        );
+        this.svc_event.on(
+            'puter-exec.submission.done',
+            this._on_submission_done.bind(this),
+        );
+        this.svc_event.on(
+            'outer.gui.*',
+            this._on_outer_gui.bind(this),
+        );
     }
 
     async _on_fs_create (key, data) {
@@ -51,12 +59,10 @@ class WSPushService extends BaseService {
             from_new_service: true,
         };
 
-        {
-            const svc_operationTrace = context.get('services').get('operationTrace');
-            const frame = context.get(svc_operationTrace.ckey('frame'));
-            const gui_metadata = frame.get_attr('gui_metadata') || {};
-            Object.assign(metadata, gui_metadata);
-        }
+        const svc_operationTrace = context.get('services').get('operationTrace');
+        const frame = context.get(svc_operationTrace.ckey('frame'));
+        const gui_metadata = frame.get_attr('gui_metadata') || {};
+        Object.assign(metadata, gui_metadata);
 
         const response = await node.getSafeEntry({ thumbnail: true });
 
@@ -101,12 +107,10 @@ class WSPushService extends BaseService {
             from_new_service: true,
         };
 
-        {
-            const svc_operationTrace = context.get('services').get('operationTrace');
-            const frame = context.get(svc_operationTrace.ckey('frame'));
-            const gui_metadata = frame?.get_attr?.('gui_metadata') || {};
-            Object.assign(metadata, gui_metadata);
-        }
+        const svc_operationTrace = context.get('services').get('operationTrace');
+        const frame = context.get(svc_operationTrace.ckey('frame'));
+        const gui_metadata = frame?.get_attr?.('gui_metadata') || {};
+        Object.assign(metadata, gui_metadata);
 
         const response = await node.getSafeEntry({ debug: 'hi', thumbnail: true });
 
@@ -149,12 +153,10 @@ class WSPushService extends BaseService {
             from_new_service: true,
         };
 
-        {
-            const svc_operationTrace = context.get('services').get('operationTrace');
-            const frame = context.get(svc_operationTrace.ckey('frame'));
-            const gui_metadata = frame.get_attr('gui_metadata') || {};
-            Object.assign(metadata, gui_metadata);
-        }
+        const svc_operationTrace = context.get('services').get('operationTrace');
+        const frame = context.get(svc_operationTrace.ckey('frame'));
+        const gui_metadata = frame.get_attr('gui_metadata') || {};
+        Object.assign(metadata, gui_metadata);
 
         const response = await moved.getSafeEntry();
 
@@ -197,12 +199,10 @@ class WSPushService extends BaseService {
 
         const response = { ...fsentry };
 
-        {
-            const svc_operationTrace = context.get('services').get('operationTrace');
-            const frame = context.get(svc_operationTrace.ckey('frame'));
-            const gui_metadata = frame.get_attr('gui_metadata') || {};
-            Object.assign(metadata, gui_metadata);
-        }
+        const svc_operationTrace = context.get('services').get('operationTrace');
+        const frame = context.get(svc_operationTrace.ckey('frame'));
+        const gui_metadata = frame.get_attr('gui_metadata') || {};
+        Object.assign(metadata, gui_metadata);
 
         const user_id_list = await (async () => {
             const user_id_set = new Set();
@@ -222,7 +222,7 @@ class WSPushService extends BaseService {
     }
 
     /**
-    * Emits an upload or download progress event to the relevant socket.
+    * Emits an upload or download progress event to the relevant user room.
     *
     * @param {string} key - The event key that triggered this method.
     * @param {Object} data - Contains upload_tracker, context, and meta information.
@@ -230,7 +230,7 @@ class WSPushService extends BaseService {
     * @param {Object} data.context - Context of the operation.
     * @param {Object} data.meta - Additional metadata for the event.
     *
-    * It emits a progress event to the socket if it exists, otherwise, it does nothing.
+    * It emits a progress event to the room if it exists, otherwise, it does nothing.
     */
     async _on_upload_progress (key, data) {
         this.log.info('got upload progress event');
@@ -241,32 +241,26 @@ class WSPushService extends BaseService {
             from_new_service: true,
         };
 
-        {
-            const svc_operationTrace = context.get('services').get('operationTrace');
-            const frame = context.get(svc_operationTrace.ckey('frame'));
-            const gui_metadata = frame.get_attr('gui_metadata') || {};
-            Object.assign(metadata, gui_metadata);
-        }
+        const svc_operationTrace = context.get('services').get('operationTrace');
+        const frame = context.get(svc_operationTrace.ckey('frame'));
+        const gui_metadata = frame.get_attr('gui_metadata') || {};
+        Object.assign(metadata, gui_metadata);
 
-        const { socket_id } = metadata;
+        const roomId = metadata.user_id ?? metadata.userId;
 
-        if ( ! socket_id ) {
-            this.log.warn('missing socket id', { metadata });
-        }
-
-        this.log.info(`socket id: ${ socket_id}`);
-
-        const svc_socketio = context.get('services').get('socketio');
-        if ( ! svc_socketio.has({ socket: socket_id }) ) {
+        if ( ! roomId ) {
+            console.warn('missing room id for upload progress', { metadata });
             return;
         }
+
+        const svc_socketio = context.get('services').get('socketio');
 
         const ws_event_name = metadata.call_it_download
             ? 'download.progress' : 'upload.progress';
 
         upload_tracker.sub(delta => {
             this.log.info('emitting progress event');
-            svc_socketio.send({ socket: socket_id }, ws_event_name, {
+            svc_socketio.send({ room: roomId }, ws_event_name, {
                 ...metadata,
                 total: upload_tracker.total_,
                 loaded: upload_tracker.progress_,
@@ -311,9 +305,6 @@ class WSPushService extends BaseService {
         const svc_socketio = this.services.get('socketio');
 
         for ( const user_id of user_id_list ) {
-            if ( ! svc_socketio.has({ room: user_id }) ) {
-                continue;
-            }
             svc_socketio.send({ room: user_id }, key, response);
             this.svc_event.emit(`sent-to-user.${key}`, {
                 user_id,
@@ -340,7 +331,7 @@ class WSPushService extends BaseService {
                 const kvStore = Context.get('services').get('puter-kvstore');
                 await kvStore.set({ key: key, value: ts });
             } catch ( error ) {
-                this.log.error('Failed to update user timestamp in kvstore', { user_id, error: error.message });
+                console.error('Failed to update user timestamp in kvstore', { user_id, error: error.message });
             }
         }
 

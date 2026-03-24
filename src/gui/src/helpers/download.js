@@ -49,6 +49,7 @@ const download = function (options) {
 
         let xhr = new XMLHttpRequest();
         xhr.open('post', (`${window.api_origin }/download`), true);
+        xhr.withCredentials = true;
         xhr.setRequestHeader('Authorization', `Bearer ${ window.auth_token}`);
         xhr.setRequestHeader('Content-Type', 'application/json;charset=UTF-8');
 
