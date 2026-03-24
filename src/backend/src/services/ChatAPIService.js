@@ -160,20 +160,8 @@ class ChatAPIService extends BaseService {
                 try {
                     const svc_su = this.services.get('su');
                     const models = await svc_su.sudo(async () => {
-                        const items = [];
-                        if ( this.services.has('openai-video-generation') ) {
-                            const svc_video = this.services.get('openai-video-generation');
-                            if ( typeof svc_video.models === 'function' ) {
-                                items.push(...await svc_video.models());
-                            }
-                        }
-                        if ( this.services.has('together-video-generation') ) {
-                            const svc_video = this.services.get('together-video-generation');
-                            if ( typeof svc_video.models === 'function' ) {
-                                items.push(...await svc_video.models());
-                            }
-                        }
-                        return items;
+                        const svc_video = this.services.get('ai-video');
+                        return svc_video.models();
                     });
                     res.json({ models });
                 } catch ( error ) {
@@ -190,20 +178,8 @@ class ChatAPIService extends BaseService {
                 try {
                     const svc_su = this.services.get('su');
                     const models = await svc_su.sudo(async () => {
-                        const items = [];
-                        if ( this.services.has('openai-video-generation') ) {
-                            const svc_video = this.services.get('openai-video-generation');
-                            if ( typeof svc_video.models === 'function' ) {
-                                items.push(...(await svc_video.models()).map(model => model.puterId || model.id));
-                            }
-                        }
-                        if ( this.services.has('together-video-generation') ) {
-                            const svc_video = this.services.get('together-video-generation');
-                            if ( typeof svc_video.models === 'function' ) {
-                                items.push(...(await svc_video.models()).map(model => model.id));
-                            }
-                        }
-                        return items;
+                        const svc_video = this.services.get('ai-video');
+                        return svc_video.list();
                     });
                     res.json({ models });
                 } catch ( error ) {
