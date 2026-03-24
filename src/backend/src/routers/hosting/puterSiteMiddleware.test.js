@@ -1135,7 +1135,7 @@ describe('PuterSiteMiddleware', () => {
                 'private-token',
                 { sameSite: 'none' },
             );
-            expect(mockRes.redirect).toHaveBeenCalledWith('/asset.js?foo=bar');
+            expect(mockRes.redirect).not.toHaveBeenCalled();
             expect(mockNext).not.toHaveBeenCalled();
         });
 
@@ -1729,7 +1729,7 @@ describe('PuterSiteMiddleware', () => {
             expect(mockNext).not.toHaveBeenCalled();
         });
 
-        it('sets public hosted cookie and redirects to sanitized url for bootstrap tokens', async () => {
+        it('sets public hosted cookie for bootstrap tokens without server-side token stripping redirect', async () => {
             const { rootDirectoryNode, missingFileNode } = createRootAndMissingNodes();
             let filesystemNodeCallCount = 0;
             const authService = {
@@ -1835,7 +1835,7 @@ describe('PuterSiteMiddleware', () => {
                 'public-hosted-token-333',
                 { sameSite: 'none' },
             );
-            expect(mockRes.redirect).toHaveBeenCalledWith('/asset.js?foo=bar');
+            expect(mockRes.redirect).not.toHaveBeenCalled();
             expect(mockNext).not.toHaveBeenCalled();
         });
 
@@ -1942,7 +1942,7 @@ describe('PuterSiteMiddleware', () => {
                 subdomain: 'paid',
                 host: 'paid.site.puter.localhost',
             });
-            expect(mockRes.redirect).toHaveBeenCalledWith('/asset.js?foo=bar');
+            expect(mockRes.redirect).not.toHaveBeenCalled();
             expect(mockNext).not.toHaveBeenCalled();
         });
 

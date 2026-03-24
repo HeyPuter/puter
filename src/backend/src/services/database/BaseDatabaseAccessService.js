@@ -16,10 +16,9 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { trace } = require('@opentelemetry/api');
-const BaseService = require('../BaseService');
-const { DB_WRITE, DB_READ } = require('./consts');
-const { spanify } = require('../../util/otelutil');
+import { BaseService } from '../BaseService.js';
+import { DB_WRITE, DB_READ } from './consts.js';
+import { spanify } from '../../util/otelutil.js';
 
 /**
 * BaseDatabaseAccessService class extends BaseService to provide
@@ -27,15 +26,10 @@ const { spanify } = require('../../util/otelutil');
 * like reading, writing, and inserting data while managing
 * different database configurations and optimizations.
 */
-class BaseDatabaseAccessService extends BaseService {
+export class BaseDatabaseAccessService extends BaseService {
     static DB_WRITE = DB_WRITE;
     static DB_READ = DB_READ;
-    _setDbSpanAttributes (query) {
-        const activeSpan = trace.getActiveSpan();
-        if ( ! activeSpan ) return;
-        activeSpan.setAttribute('query', query);
-        activeSpan.setAttribute('trace', (new Error()).stack);
-    }
+
     case ( choices ) {
         const engine_name = this.constructor.ENGINE_NAME;
         if ( Object.prototype.hasOwnProperty.call(choices, engine_name) ) {
@@ -44,11 +38,6 @@ class BaseDatabaseAccessService extends BaseService {
         return choices.otherwise;
     }
 
-    // Call get() with an access mode and a scope.
-    // Right now it just returns `this`, but in the
-    // future it can be used to audit the behaviour
-    // of other services or handle service-specific
-    // database optimizations.
     /**
     * Retrieves the current instance of the service.
     * This method currently returns `this`, but it is designed
@@ -58,13 +47,11 @@ class BaseDatabaseAccessService extends BaseService {
     *
     * @returns {BaseDatabaseAccessService} The current instance of the service.
     */
-    get (_accessLevel, _scope) {
+    get () {
         return this;
     }
 
     read = spanify('database:read', async (query, params) => {
-        this._setDbSpanAttributes(query);
-        if ( this.config.slow ) await new Promise(rslv => setTimeout(rslv, 70));
         return await this._read(query, params);
     });
 
@@ -78,7 +65,6 @@ class BaseDatabaseAccessService extends BaseService {
      * @returns {Promise<*>}
      */
     async tryHardRead (query, params) {
-        if ( this.config.slow ) await new Promise(rslv => setTimeout(rslv, 70));
         return this._tryHardRead(query, params);
     }
 
@@ -93,7 +79,6 @@ class BaseDatabaseAccessService extends BaseService {
      * @returns {Promise<*>}
      */
     async requireRead (query, params) {
-        if ( this.config.slow ) await new Promise(rslv => setTimeout(rslv, 70));
         const results = this._tryHardRead(query, params);
         if ( results.length === 0 ) {
             throw new Error(`required read failed: ${ query}`);
@@ -102,14 +87,10 @@ class BaseDatabaseAccessService extends BaseService {
     }
 
     pread = spanify('database:pread', async (query, params) => {
-        this._setDbSpanAttributes(query);
-        if ( this.config.slow ) await new Promise(rslv => setTimeout(rslv, 70));
         return await this._read(query, params, { use_primary: true });
     });
 
     write = spanify('database:write', async (query, params) => {
-        this._setDbSpanAttributes(query);
-        if ( this.config.slow ) await new Promise(rslv => setTimeout(rslv, 70));
         return await this._write(query, params);
     });
 
@@ -130,7 +111,3 @@ class BaseDatabaseAccessService extends BaseService {
         return this._batch_write(statements);
     }
 }
-
-module.exports = {
-    BaseDatabaseAccessService,
-};

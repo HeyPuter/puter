@@ -50,7 +50,7 @@ class AuthService extends BaseService {
 
     async _init () {
         this.db = await this.services.get('database').get(DB_WRITE, 'auth');
-        this.svc_session = await this.services.get('session');
+        this.sessionService = await this.services.get('session');
 
         const svc_feature_flag = await this.services.get('feature-flag');
         svc_feature_flag.register('temp-users-disabled', {
@@ -103,7 +103,7 @@ class AuthService extends BaseService {
         }
 
         if ( decoded.type === 'session' ) {
-            const session = await this.get_session_(decoded.uuid);
+            const session = await this.sessionService.getSession(decoded.uuid);
 
             if ( ! session ) {
                 throw APIError.create('token_auth_failed');
@@ -128,7 +128,7 @@ class AuthService extends BaseService {
         }
 
         if ( decoded.type === 'gui' ) {
-            const session = await this.get_session_(decoded.uuid);
+            const session = await this.sessionService.getSession(decoded.uuid);
 
             if ( ! session ) {
                 throw APIError.create('token_auth_failed');
@@ -156,7 +156,7 @@ class AuthService extends BaseService {
             let session;
             if ( decoded.session ) {
                 const session_uuid = this.uuid_fpe.decrypt(decoded.session);
-                session = await this.get_session_(session_uuid);
+                session = await this.sessionService.getSession(session_uuid);
 
                 if ( ! session ) {
                     throw APIError.create('token_auth_failed');
@@ -799,7 +799,7 @@ class AuthService extends BaseService {
             throw new Error('Token missing sessionUuid');
         }
 
-        const session = await this.get_session_(sessionUuid);
+        const session = await this.sessionService.getSession(sessionUuid);
         if ( ! session ) {
             throw new Error('Token missing session');
         }
@@ -864,15 +864,7 @@ class AuthService extends BaseService {
             }
         }
 
-        return await this.svc_session.create_session(user, meta);
-    }
-
-    /**
-     * Alias to SessionService's get_session method,
-     * in case AuthService ever needs to wrap this functionality.
-     */
-    async get_session_ (uuid) {
-        return await this.svc_session.get_session(uuid);
+        return await this.sessionService.create_session(user, meta);
     }
 
     /**
@@ -963,7 +955,7 @@ class AuthService extends BaseService {
 
         if ( ! is_legacy ) {
             // Ensure session exists
-            const session = await this.get_session_(decoded.uuid);
+            const session = await this.sessionService.getSession(decoded.uuid);
             if ( ! session ) {
                 return {};
             }
@@ -1010,7 +1002,7 @@ class AuthService extends BaseService {
             return;
         }
 
-        await this.svc_session.remove_session(decoded.uuid);
+        await this.sessionService.remove_session(decoded.uuid);
     }
 
     /**
@@ -1122,7 +1114,7 @@ class AuthService extends BaseService {
         const seen = new Set();
         const sessions = [];
 
-        const cache_sessions = this.svc_session.get_user_sessions(actor.type.user);
+        const cache_sessions = await this.sessionService.get_user_sessions(actor.type.user);
         for ( const session of cache_sessions ) {
             seen.add(session.uuid);
             sessions.push(session);
@@ -1170,7 +1162,7 @@ class AuthService extends BaseService {
      */
     async revoke_session (actor, uuid) {
         delete this.sessions[uuid];
-        this.svc_session.remove_session(uuid);
+        this.sessionService.remove_session(uuid);
     }
 
     /**
