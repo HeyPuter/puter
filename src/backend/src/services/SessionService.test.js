@@ -1,123 +1,123 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { createTestKernel } from '../../tools/test.mjs';
 import { SessionService } from './SessionService.js';
 import { tmp_provide_services } from '../helpers.js';
 import { redisClient } from '../clients/redis/redisSingleton.js';
 
-describe('SessionService', () => {
-    let getUserMock;
-    const cachedSessionUuid = 'session-11111111-1111-1111-1111-111111111111';
+describe('SessionService', async () => {
+    const testKernel = await createTestKernel({
+        initLevelString: 'init',
+        testCore: true,
+        serviceMap: {
+            session: SessionService,
+        },
+        serviceConfigOverrideMap: {
+            database: {
+                path: ':memory:',
+            },
+        },
+    });
 
-    const createSessionService = () => {
-        const sessionService = Object.create(SessionService.prototype);
-        sessionService.sessions = {};
-        sessionService.log = {
-            warn: vi.fn(),
-            tick: vi.fn(),
-            debug: vi.fn(),
-        };
-        return sessionService;
+    await tmp_provide_services(testKernel.services);
+
+    const sessionService = testKernel.services.get('session');
+    const db = testKernel.services.get('database').get('write', 'session-test');
+
+    const makeUnique = (prefix) => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+    const createUser = async () => {
+        const userUuid = makeUnique('user');
+        const username = makeUnique('session-user');
+        await db.write(
+            'INSERT INTO `user` (`uuid`, `username`) VALUES (?, ?)',
+            [userUuid, username],
+        );
+        const [user] = await db.read(
+            'SELECT * FROM `user` WHERE `uuid` = ? LIMIT 1',
+            [userUuid],
+        );
+        return user;
     };
 
-    beforeEach(async () => {
-        getUserMock = vi.fn().mockResolvedValue({
-            uuid: 'user-11111111-1111-1111-1111-111111111111',
-        });
-        await tmp_provide_services({
-            ready: Promise.resolve(),
-            get: (serviceName) => {
-                if ( serviceName === 'get-user' ) {
-                    return {
-                        get_user: getUserMock,
-                    };
-                }
-                throw new Error(`unexpected service lookup: ${serviceName}`);
-            },
-        });
-    });
-
-    afterEach(async () => {
-        await redisClient.del(`session-cache:${cachedSessionUuid}`);
-    });
+    const clearSessionState = async (sessionUuid, userId) => {
+        if ( sessionUuid ) {
+            await redisClient.del(sessionService.getSessionCacheKey(sessionUuid));
+            await redisClient.srem('session-cache:flush-pending', sessionUuid);
+            if ( userId ) {
+                await redisClient.srem(
+                    sessionService.getSessionUserSetKey(userId),
+                    sessionUuid,
+                );
+            }
+            await db.write('DELETE FROM `sessions` WHERE `uuid` = ?', [sessionUuid]);
+        }
+    };
 
     it('caches sessions in redis on create with five-minute ttl', async () => {
-        const sessionService = createSessionService();
-        sessionService.db = {
-            write: vi.fn().mockResolvedValue({}),
-        };
-        sessionService.getSessionCacheKey = vi.fn().mockReturnValue(`session-cache:${cachedSessionUuid}`);
-
-        const session = await sessionService.create_session({
-            id: 42,
-            uuid: 'user-11111111-1111-1111-1111-111111111111',
-        }, {});
-
-        const cacheKey = sessionService.getSessionCacheKey.mock.results[0].value;
-        const cached = await redisClient.get(cacheKey);
-        expect(cached).toBeTruthy();
-        expect(JSON.parse(cached).uuid).toBe(session.uuid);
-        expect(await redisClient.ttl(cacheKey)).toBeGreaterThan(0);
-        expect(await redisClient.ttl(cacheKey)).toBeLessThanOrEqual(300);
+        const user = await createUser();
+        const session = await sessionService.create_session(user, {});
+        try {
+            const cacheKey = sessionService.getSessionCacheKey(session.uuid);
+            const cached = await redisClient.get(cacheKey);
+            expect(cached).toBeTruthy();
+            expect(JSON.parse(cached).uuid).toBe(session.uuid);
+            expect(await redisClient.ttl(cacheKey)).toBeGreaterThan(0);
+            expect(await redisClient.ttl(cacheKey)).toBeLessThanOrEqual(300);
+            const cachedUserSessionUuids = await redisClient.smembers(
+                sessionService.getSessionUserSetKey(user.id),
+            );
+            expect(cachedUserSessionUuids).toContain(session.uuid);
+        } finally {
+            await clearSessionState(session.uuid, user.id);
+        }
     });
 
     it('loads sessions from redis cache before db on read', async () => {
-        const sessionService = createSessionService();
-        sessionService.db = {
-            read: vi.fn(),
-            case: ({ mysql }) => mysql,
-        };
-        const cachedSession = {
-            uuid: cachedSessionUuid,
-            user_id: 42,
-            user_uid: 'user-11111111-1111-1111-1111-111111111111',
-            meta: {},
-            last_touch: Date.now(),
-            last_store: Date.now(),
-        };
-        await sessionService.cacheSession(cachedSession);
-
-        const session = await sessionService.get_session_(cachedSessionUuid);
-
-        expect(sessionService.db.read).not.toHaveBeenCalled();
-        expect(session.user_uid).toBe('user-11111111-1111-1111-1111-111111111111');
+        const user = await createUser();
+        const session = await sessionService.create_session(user, {});
+        const dbReadSpy = vi.spyOn(sessionService.db, 'tryHardRead');
+        try {
+            const loaded = await sessionService.getSession(session.uuid);
+            expect(dbReadSpy).not.toHaveBeenCalled();
+            expect(loaded.user_uid).toBe(user.uuid);
+            const pendingSessions = await redisClient.smembers('session-cache:flush-pending');
+            expect(pendingSessions).toContain(session.uuid);
+        } finally {
+            dbReadSpy.mockRestore();
+            await clearSessionState(session.uuid, user.id);
+        }
     });
 
     it('invalidates redis cache when removing session', async () => {
-        const sessionService = createSessionService();
-        sessionService.db = {
-            write: vi.fn().mockResolvedValue({ anyRowsAffected: true }),
-        };
-        await sessionService.cacheSession({
-            uuid: cachedSessionUuid,
-            user_id: 42,
-            user_uid: 'user-11111111-1111-1111-1111-111111111111',
-            meta: {},
-            last_touch: Date.now(),
-            last_store: Date.now(),
-        });
+        const user = await createUser();
+        const session = await sessionService.create_session(user, {});
+        await sessionService.remove_session(session.uuid);
 
-        await sessionService.remove_session(cachedSessionUuid);
-
-        expect(await redisClient.get(`session-cache:${cachedSessionUuid}`)).toBeNull();
-        expect(sessionService.db.write).toHaveBeenCalledWith(
-            'DELETE FROM `sessions` WHERE `uuid` = ?',
-            [cachedSessionUuid],
+        const [dbSession] = await db.read(
+            'SELECT * FROM `sessions` WHERE `uuid` = ? LIMIT 1',
+            [session.uuid],
         );
+        expect(await redisClient.get(`session-cache:${session.uuid}`)).toBeNull();
+        expect(dbSession).toBeUndefined();
+        const pendingSessions = await redisClient.smembers('session-cache:flush-pending');
+        expect(pendingSessions).not.toContain(session.uuid);
+        const cachedUserSessionUuids = await redisClient.smembers(
+            sessionService.getSessionUserSetKey(user.id),
+        );
+        expect(cachedUserSessionUuids).not.toContain(session.uuid);
     });
 
     it('loads session user uid using object lookup options', async () => {
-        const sessionService = createSessionService();
-        sessionService.db = {
-            read: vi.fn().mockResolvedValue([{
-                uuid: cachedSessionUuid,
-                user_id: 42,
-                meta: '{}',
-            }]),
-            case: ({ mysql }) => mysql,
-        };
+        const user = await createUser();
+        const session = await sessionService.create_session(user, {});
 
-        const session = await sessionService.get_session_(cachedSessionUuid);
+        await redisClient.del(`session-cache:${session.uuid}`);
 
-        expect(getUserMock).toHaveBeenCalledWith({ id: 42 });
-        expect(session.user_uid).toBe('user-11111111-1111-1111-1111-111111111111');
+        const loadedSession = await sessionService.getSession(session.uuid);
+        try {
+            expect(loadedSession.user_uid).toBe(user.uuid);
+        } finally {
+            await clearSessionState(session.uuid, user.id);
+        }
     });
 });
