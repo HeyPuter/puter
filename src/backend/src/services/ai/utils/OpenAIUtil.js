@@ -424,8 +424,21 @@ export const handle_completion_output_responses_api = async ({
 
     if ( finally_fn ) await finally_fn();
 
+    const output = Array.isArray(completion.output) ? completion.output : [];
+    const responseToolCalls = output
+        .filter(item => item?.type === 'function_call')
+        .map(item => ({
+            id: item.call_id,
+            type: 'function',
+            function: {
+                name: item.name,
+                arguments: item.arguments,
+            },
+            ...(item.id ? { canonical_id: item.id } : {}),
+        }));
+
     const is_empty = completion.output_text.trim() === '';
-    if ( is_empty && !completion.choices?.[0]?.message?.tool_calls ) {
+    if ( is_empty && responseToolCalls.length < 1 ) {
         // GPT refuses to generate an empty response if you ask it to,
         // so this will probably only happen on an error condition.
         throw new Error('an empty response was generated');
@@ -448,9 +461,10 @@ export const handle_completion_output_responses_api = async ({
             reasoning: null, // Fix later to add proper reasoning
             refusal: null,
             role: 'assistant',
+            ...(responseToolCalls.length ? { tool_calls: responseToolCalls } : {}),
         },
     };
-    ret.role = completion.output[0].role;
+    ret.role = output.find(item => item?.role)?.role ?? 'assistant';
 
     delete ret.type;
 
