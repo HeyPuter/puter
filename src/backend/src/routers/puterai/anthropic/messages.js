@@ -23,6 +23,7 @@ const APIError = require('../../../api/APIError.js');
 const eggspress = require('../../../api/eggspress.js');
 const { TypedValue } = require('../../../services/drivers/meta/Runtime.js');
 const { Context } = require('../../../util/context.js');
+const auth2 = require('../../../middleware/auth2.js');
 
 const DEFAULT_PROVIDER = 'claude';
 
@@ -31,7 +32,7 @@ const DEFAULT_PROVIDER = 'claude';
  * format so that `svcAiChat.complete()` handles them uniformly.
  */
 const normalizeTools = (tools) => {
-    if ( ! Array.isArray(tools) || tools.length === 0 ) return undefined;
+    if ( !Array.isArray(tools) || tools.length === 0 ) return undefined;
     return tools.map((t) => {
         // Already in OpenAI format (e.g. from passthrough)
         if ( t.type === 'function' && t.function ) return t;
@@ -93,7 +94,13 @@ const extractToolUseBlocks = (message) => {
                 id: tc.id,
                 name: tc.function?.name ?? '',
                 input: typeof tc.function?.arguments === 'string'
-                    ? (() => { try { return JSON.parse(tc.function.arguments); } catch { return {}; } })()
+                    ? (() => {
+                        try {
+                            return JSON.parse(tc.function.arguments);
+                        } catch {
+                            return {};
+                        }
+                    })()
                     : (tc.function?.arguments ?? {}),
             });
         }
@@ -102,14 +109,20 @@ const extractToolUseBlocks = (message) => {
     // Check for tool_use blocks inside array-style content
     if ( Array.isArray(message.content) ) {
         for ( const part of message.content ) {
-            if ( ! part || typeof part !== 'object' ) continue;
+            if ( !part || typeof part !== 'object' ) continue;
             if ( part.type === 'tool_use' ) {
                 blocks.push({
                     type: 'tool_use',
                     id: part.id,
                     name: part.name,
                     input: typeof part.input === 'string'
-                        ? (() => { try { return JSON.parse(part.input); } catch { return {}; } })()
+                        ? (() => {
+                            try {
+                                return JSON.parse(part.input);
+                            } catch {
+                                return {};
+                            }
+                        })()
                         : (part.input ?? {}),
                 });
             }
@@ -194,10 +207,15 @@ const svc_web = Context.get('services').get('web-server');
 svc_web.allow_undefined_origin(/^\/puterai\/anthropic\/v1\/messages(\/.*)?$/);
 
 module.exports = eggspress('/anthropic/v1/messages', {
-    auth2: true,
     json: true,
     jsonCanBeLarge: true,
     allowedMethods: ['POST'],
+    mw: [(req, _res, next) => {
+        if ( !req.headers.authorization && req.headers['x-api-key'] ) {
+            req.headers.authorization = `Bearer ${req.headers['x-api-key']}`;
+        }
+        next();
+    }, auth2],
 }, async (req, res) => {
     // We don't allow apps
     if ( Context.get('actor').type.app ) {
