@@ -90,8 +90,8 @@ export class TogetherVideoGenerationProvider implements IVideoProvider {
             });
         }
 
-        const model = this.#stripTogetherPrefix(requestedModel ?? DEFAULT_MODEL);
         const selectedModel = await this.#getModel(requestedModel);
+        const model = selectedModel?.model ?? this.#stripTogetherPrefix(requestedModel ?? DEFAULT_MODEL);
 
         if ( testMode ) {
             return new TypedValue({
