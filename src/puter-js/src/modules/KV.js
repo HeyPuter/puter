@@ -26,6 +26,10 @@ const gui_cache_keys = [
     'taskbar_position',
     'has_seen_toolbar_animation',
 ];
+
+const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
+const isOptConfigShorthand = (value) => isObject(value) && Object.prototype.hasOwnProperty.call(value, 'appUuid');
+
 class KV {
     MAX_KEY_SIZE = 1024;
     MAX_VALUE_SIZE = 399 * 1024;
@@ -105,16 +109,53 @@ class KV {
     }
 
     /**
-     * @typedef {function(key: string, value: any, expireAt?: number): Promise<boolean>} SetFunction
+     * @typedef {function(key: string, value: any, expireAt?: number, optConfig?: object): Promise<boolean>} SetFunction
      * Resolves to 'true' on success, or rejects with an error on failure.
      * @param {string} key - Cannot be undefined or null. Cannot be larger than 1KB.
      * @param {any} value - Cannot be larger than 399KB.
      * @param {number} [expireAt] - Optional expiration time for the key. Note that clients with a clock that is not in sync with the server may experience issues with this method.
+     * @param {object} [optConfig] - Optional driver call config, e.g. `{ appUuid: 'uuid' }`.
      * @memberof KV
      */
 
     /** @type {SetFunction} */
-    set = utils.make_driver_method(['key', 'value', 'expireAt'], 'puter-kvstore', undefined, 'set', {
+    set = async (...args) => {
+        if ( args.length === 1 && isObject(args[0]) ) {
+            return await this.set_(args[0]);
+        }
+
+        const key = args[0];
+        const value = args[1];
+        const rest = args.slice(2);
+
+        let expireAt;
+        let optConfig;
+        let success;
+        let error;
+
+        if ( typeof rest[0] === 'number' || rest[0] === null ) {
+            expireAt = rest.shift();
+        }
+
+        if ( rest[0] === undefined ) {
+            rest.shift();
+        }
+
+        if ( isObject(rest[0]) ) {
+            optConfig = rest.shift();
+        }
+
+        if ( typeof rest[0] === 'function' ) {
+            success = rest.shift();
+        }
+        if ( typeof rest[0] === 'function' ) {
+            error = rest.shift();
+        }
+
+        return await this.set_({ key, value, expireAt, optConfig, success, error });
+    };
+
+    set_ = utils.make_driver_method(['key', 'value', 'expireAt'], 'puter-kvstore', undefined, 'set', {
         /**
          *
          * @param {object} args
@@ -145,19 +186,39 @@ class KV {
      * Resolves to the value if the key exists, or `undefined` if the key does not exist. Rejects with an error on failure.
      */
     async get (...args) {
+        if ( args.length === 1 && isObject(args[0]) ) {
+            return await this.get_(args[0]);
+        }
+
+        const key = args[0];
+
+        let optConfig;
+        let success;
+        let error;
+
+        if ( isObject(args[1]) ) {
+            optConfig = args[1];
+            success = args[2];
+            error = args[3];
+        } else {
+            success = args[1];
+            error = args[2];
+        }
+
         // Condition for gui boot cache
         if (
-            typeof args[0] === 'string' &&
-            gui_cache_keys.includes(args[0]) &&
+            typeof key === 'string' &&
+            gui_cache_keys.includes(key) &&
+            !optConfig &&
             this.gui_cached !== null
         ) {
             this.gui_cache_init && this.gui_cache_init.resolve();
             const cache = await this.gui_cached.promise;
-            return cache[args[0]];
+            return cache[key];
         }
 
         // Normal get
-        return await this.get_(...args);
+        return await this.get_({ key, optConfig, success, error });
     }
 
     get_ = utils.make_driver_method(['key'], 'puter-kvstore', undefined, 'get', {
@@ -177,13 +238,24 @@ class KV {
     incr = async (...args) => {
         let options = {};
 
-        // arguments are required
-        if ( !args || args.length === 0 ) {
-            throw ({ message: 'Arguments are required', code: 'arguments_required' });
-        }
+        if ( args.length === 1 && isObject(args[0]) ) {
+            options = { ...args[0] };
+        } else {
+            // arguments are required
+            if ( !args || args.length === 0 ) {
+                throw ({ message: 'Arguments are required', code: 'arguments_required' });
+            }
 
-        options.key = args[0];
-        options.pathAndAmountMap = !args[1] ? { '': 1 } : typeof args[1] === 'number' ? { '': args[1] } : args[1];
+            options.key = args[0];
+            let amountOrMap = args[1];
+            let optConfig = args[2];
+            if ( isOptConfigShorthand(amountOrMap) && optConfig === undefined ) {
+                optConfig = amountOrMap;
+                amountOrMap = undefined;
+            }
+            options.pathAndAmountMap = !amountOrMap ? { '': 1 } : typeof amountOrMap === 'number' ? { '': amountOrMap } : amountOrMap;
+            options.optConfig = optConfig;
+        }
 
         // key size cannot be larger than MAX_KEY_SIZE
         if ( options.key.length > this.MAX_KEY_SIZE ) {
@@ -196,13 +268,24 @@ class KV {
     decr = async (...args) => {
         let options = {};
 
-        // arguments are required
-        if ( !args || args.length === 0 ) {
-            throw ({ message: 'Arguments are required', code: 'arguments_required' });
-        }
+        if ( args.length === 1 && isObject(args[0]) ) {
+            options = { ...args[0] };
+        } else {
+            // arguments are required
+            if ( !args || args.length === 0 ) {
+                throw ({ message: 'Arguments are required', code: 'arguments_required' });
+            }
 
-        options.key = args[0];
-        options.pathAndAmountMap = !args[1] ? { '': 1 } : typeof args[1] === 'number' ? { '': args[1] } : args[1];
+            options.key = args[0];
+            let amountOrMap = args[1];
+            let optConfig = args[2];
+            if ( isOptConfigShorthand(amountOrMap) && optConfig === undefined ) {
+                optConfig = amountOrMap;
+                amountOrMap = undefined;
+            }
+            options.pathAndAmountMap = !amountOrMap ? { '': 1 } : typeof amountOrMap === 'number' ? { '': amountOrMap } : amountOrMap;
+            options.optConfig = optConfig;
+        }
 
         // key size cannot be larger than MAX_KEY_SIZE
         if ( options.key.length > this.MAX_KEY_SIZE ) {
@@ -215,15 +298,27 @@ class KV {
     add = async (...args) => {
         let options = {};
 
-        // arguments are required
-        if ( !args || args.length === 0 ) {
-            throw ({ message: 'Arguments are required', code: 'arguments_required' });
-        }
+        if ( args.length === 1 && isObject(args[0]) ) {
+            options = { ...args[0] };
+        } else {
+            // arguments are required
+            if ( !args || args.length === 0 ) {
+                throw ({ message: 'Arguments are required', code: 'arguments_required' });
+            }
 
-        options.key = args[0];
-        const provided = args[1];
-        const isPathMap = provided && typeof provided === 'object' && !Array.isArray(provided);
-        options.pathAndValueMap = provided === undefined ? { '': 1 } : isPathMap ? provided : { '': provided };
+            options.key = args[0];
+
+            let provided = args[1];
+            let optConfig = args[2];
+            if ( isOptConfigShorthand(provided) && optConfig === undefined ) {
+                optConfig = provided;
+                provided = undefined;
+            }
+
+            const isPathMap = provided && typeof provided === 'object' && !Array.isArray(provided);
+            options.pathAndValueMap = provided === undefined ? { '': 1 } : isPathMap ? provided : { '': provided };
+            options.optConfig = optConfig;
+        }
 
         // key size cannot be larger than MAX_KEY_SIZE
         if ( options.key.length > this.MAX_KEY_SIZE ) {
@@ -240,6 +335,11 @@ class KV {
 
         const key = args[0];
         const paths = args.slice(1);
+        let optConfig;
+
+        if ( isObject(paths[paths.length - 1]) ) {
+            optConfig = paths.pop();
+        }
 
         if ( Array.isArray(paths[0]) && paths.length === 1 ) {
             throw ({ message: 'Paths must be provided as separate arguments', code: 'paths_invalid' });
@@ -262,10 +362,43 @@ class KV {
         }
 
         return utils.make_driver_method(['key', 'paths'], 'puter-kvstore', undefined, 'remove')
-            .call(this, { key, paths });
+            .call(this, { key, paths, optConfig });
     };
 
-    update = utils.make_driver_method(['key', 'pathAndValueMap', 'ttl'], 'puter-kvstore', undefined, 'update', {
+    update = async (...args) => {
+        if ( args.length === 1 && isObject(args[0]) ) {
+            return await this.update_(args[0]);
+        }
+
+        const key = args[0];
+        const pathAndValueMap = args[1];
+
+        let ttl;
+        let optConfig;
+        let success;
+        let error;
+
+        const rest = args.slice(2);
+        if ( typeof rest[0] === 'number' || rest[0] === null ) {
+            ttl = rest.shift();
+        }
+        if ( rest[0] === undefined ) {
+            rest.shift();
+        }
+        if ( isObject(rest[0]) ) {
+            optConfig = rest.shift();
+        }
+        if ( typeof rest[0] === 'function' ) {
+            success = rest.shift();
+        }
+        if ( typeof rest[0] === 'function' ) {
+            error = rest.shift();
+        }
+
+        return await this.update_({ key, pathAndValueMap, ttl, optConfig, success, error });
+    };
+
+    update_ = utils.make_driver_method(['key', 'pathAndValueMap', 'ttl'], 'puter-kvstore', undefined, 'update', {
         preprocess: (args) => {
             if ( args.key === undefined || args.key === null ) {
                 throw { message: 'Key cannot be undefined', code: 'key_undefined' };
@@ -298,10 +431,11 @@ class KV {
      * @memberof [KV]
      * @returns
      */
-    expire = async (key, ttl) => {
+    expire = async (key, ttl, optConfig) => {
         let options = {};
         options.key = key;
         options.ttl = ttl;
+        options.optConfig = optConfig;
 
         // key size cannot be larger than MAX_KEY_SIZE
         if ( options.key.length > this.MAX_KEY_SIZE ) {
@@ -320,10 +454,11 @@ class KV {
      * @memberof [KV]
      * @returns
      */
-    expireAt = async (key, timestamp) => {
+    expireAt = async (key, timestamp, optConfig) => {
         let options = {};
         options.key = key;
         options.timestamp = timestamp;
+        options.optConfig = optConfig;
         // key size cannot be larger than MAX_KEY_SIZE
         if ( options.key.length > this.MAX_KEY_SIZE ) {
             throw ({ message: `Key size cannot be larger than ${this.MAX_KEY_SIZE}`, code: 'key_too_large' });
@@ -334,7 +469,29 @@ class KV {
 
     // resolves to 'true' on success, or rejects with an error on failure
     // will still resolve to 'true' if the key does not exist
-    del = utils.make_driver_method(['key'], 'puter-kvstore', undefined, 'del', {
+    del = async (...args) => {
+        if ( args.length === 1 && isObject(args[0]) ) {
+            return await this.del_(args[0]);
+        }
+
+        const key = args[0];
+        let optConfig;
+        let success;
+        let error;
+
+        if ( isObject(args[1]) ) {
+            optConfig = args[1];
+            success = args[2];
+            error = args[3];
+        } else {
+            success = args[1];
+            error = args[2];
+        }
+
+        return await this.del_({ key, optConfig, success, error });
+    };
+
+    del_ = utils.make_driver_method(['key'], 'puter-kvstore', undefined, 'del', {
         preprocess: (args) => {
             // key size cannot be larger than this.MAX_KEY_SIZE
             if ( args.key.length > this.MAX_KEY_SIZE ) {
@@ -358,6 +515,11 @@ class KV {
                 pattern = input.pattern;
             }
             returnValues = !!input.returnValues;
+            if ( isObject(input.optConfig) ) {
+                options.optConfig = input.optConfig;
+            } else if ( isOptConfigShorthand(input) ) {
+                options.optConfig = input;
+            }
             if ( input.limit !== undefined ) {
                 options.limit = input.limit;
             }
@@ -365,14 +527,34 @@ class KV {
                 options.cursor = input.cursor;
             }
         } else {
+            if ( isObject(args[1]) ) {
+                options.optConfig = args[1];
+            }
+
+            if ( isObject(args[2]) ) {
+                options.optConfig = args[2];
+            }
+
             // list(true) or list(pattern, true) will return the key-value pairs
             if ( (args && args.length === 1 && args[0] === true) || (args && args.length === 2 && args[1] === true) ) {
                 returnValues = true;
             }
 
+            if ( args && args.length === 3 && args[1] === true ) {
+                returnValues = true;
+            }
+
             // list(pattern)
             // list(pattern, true)
+            // list(pattern, optConfig)
+            // list(pattern, true, optConfig)
             if ( (args && args.length === 1 && typeof args[0] === 'string') || (args && args.length === 2 && typeof args[0] === 'string' && args[1] === true) ) {
+                pattern = args[0];
+            }
+            if ( args && args.length === 2 && typeof args[0] === 'string' && isObject(args[1]) ) {
+                pattern = args[0];
+            }
+            if ( args && args.length === 3 && typeof args[0] === 'string' && args[1] === true ) {
                 pattern = args[0];
             }
         }
@@ -391,7 +573,37 @@ class KV {
 
     // resolve to 'true' on success, or rejects with an error on failure
     // will still resolve to 'true' if there are no keys
-    flush = utils.make_driver_method([], 'puter-kvstore', undefined, 'flush');
+    flush = async (...args) => {
+        if ( args.length === 1 && isObject(args[0]) ) {
+            const input = args[0];
+            if (
+                Object.prototype.hasOwnProperty.call(input, 'optConfig') ||
+                Object.prototype.hasOwnProperty.call(input, 'success') ||
+                Object.prototype.hasOwnProperty.call(input, 'error')
+            ) {
+                return await this.flush_(input);
+            }
+
+            return await this.flush_({ optConfig: input });
+        }
+
+        let optConfig;
+        let success;
+        let error;
+
+        if ( isObject(args[0]) ) {
+            optConfig = args[0];
+            success = args[1];
+            error = args[2];
+        } else {
+            success = args[0];
+            error = args[1];
+        }
+
+        return await this.flush_({ optConfig, success, error });
+    };
+
+    flush_ = utils.make_driver_method([], 'puter-kvstore', undefined, 'flush');
 
     // clear is an alias for flush
     clear = this.flush;

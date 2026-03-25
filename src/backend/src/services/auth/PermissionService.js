@@ -16,35 +16,25 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const APIError = require('../../api/APIError');
-const { hardcoded_user_group_permissions } = require('../../data/hardcoded-permissions.js');
-const { ECMAP } = require('../../filesystem/ECMAP');
-const { get_user, get_app } = require('../../helpers');
-const { reading_has_terminal } = require('../../unstructured/permission-scan-lib');
-const { trace } = require('@opentelemetry/api');
-const BaseService = require('../BaseService');
-const { DB_WRITE } = require('../database/consts');
-const { UserActorType, Actor, AppUnderUserActorType } = require('./Actor');
-const { PERM_KEY_PREFIX, MANAGE_PERM_PREFIX } = require('./permissionConts.mjs');
-const { PermissionUtil, PermissionExploder, PermissionImplicator, PermissionRewriter } = require('./permissionUtils.mjs');
-const { spanify } = require('../../util/otelutil');
-const { deleteRedisKeys } = require('../../clients/redis/deleteRedisKeys.js');
-const { setRedisCacheValue } = require('../../clients/redis/cacheUpdate.js');
-const { redisClient } = require('../../clients/redis/redisSingleton');
-const { PermissionScanRedisCacheSpace } = require('./PermissionScanRedisCacheSpace.js');
-const { Context } = require('../../util/context');
+import { trace } from '@opentelemetry/api';
+import { APIError } from '../../api/APIError.js';
+import { setRedisCacheValue } from '../../clients/redis/cacheUpdate.js';
+import { deleteRedisKeys } from '../../clients/redis/deleteRedisKeys.js';
+import { redisClient } from '../../clients/redis/redisSingleton.js';
+import { hardcoded_user_group_permissions } from '../../data/hardcoded-permissions.js';
+import { ECMAP } from '../../filesystem/ECMAP.js';
+import { get_app, get_user } from '../../helpers.js';
+import scanSequence from '../../structured/sequence/scan-permission.mjs';
+import { reading_has_terminal } from '../../unstructured/permission-scan-lib.js';
+import { Context } from '../../util/context.js';
+import { spanify } from '../../util/otelutil.js';
+import { BaseService } from '../BaseService.js';
+import { Actor, UserActorType } from './Actor.js';
+import { MANAGE_PERM_PREFIX, PERM_KEY_PREFIX } from './permissionConts.mjs';
+import { PermissionScanRedisCacheSpace } from './PermissionScanRedisCacheSpace.js';
+import { PermissionExploder, PermissionImplicator, PermissionRewriter, PermissionUtil } from './permissionUtils.mjs';
 
-/**
-* @class PermissionService
-* @extends BaseService
-* @description
-* The PermissionService class manages and enforces permissions within the application. It provides methods to:
-* - Check, grant, and revoke permissions for users and applications.
-* - Scan for existing permissions.
-* - Handle permission implications, rewriting, and explosion to support complex permission hierarchies.
-* This service interacts with the database to manage permissions and logs actions for auditing purposes.
-*/
-class PermissionService extends BaseService {
+export class PermissionService extends BaseService {
     static CONCERN = 'permissions';
     /**
     * Initializes the PermissionService by setting up internal arrays for permission handling.
@@ -66,45 +56,25 @@ class PermissionService extends BaseService {
     * @throws {Error} If the provided exploder is not an instance of PermissionExploder.
     */
     async _init () {
-        /**
-         * @type {import('../../modules/kvstore/KVStoreInterfaceService.js').KVStoreInterface} db
-         */
-        this.kvService = this.services.get('puter-kvstore').as('puter-kvstore');
-        this.db = this.services.get('database').get(DB_WRITE, 'permissions');
-        this._register_commands(this.services.get('commands'));
-        this.kvAvgTimes = { count: 0, avg: 0, max: 0 };
-        this.dbAvgTimes = { count: 0, avg: 0, max: 0 };
+
+        this.kvService = this.services.get('puter-kvstore');
+        this.db = this.services.get('database');
     }
 
     async '__on_boot.consolidation' () {
         const svc_event = this.services.get('event');
         // Event to allow extensions to add permissions
-        {
-            const event = {};
-            event.grant_to_everyone = permission => {
-                /* eslint-disable */
-                hardcoded_user_group_permissions
-                    .system
-                    [this.global_config.default_temp_group]
-                    [permission]
-                    = {};
-                hardcoded_user_group_permissions
-                    .system
-                    [this.global_config.default_user_group]
-                    [permission]
-                    = {};
-                /* eslint-enable */
-            };
-            event.grant_to_users = permission => {
-                /* eslint-disable */
-                hardcoded_user_group_permissions
-                    [this.global_config.default_user_group]
-                    [permission]
-                    = {};
-                /* eslint-enable */
-            };
-            svc_event.emit('create.permissions', event);
-        }
+
+        const event = {};
+        event.grant_to_everyone = permission => {
+            hardcoded_user_group_permissions.system[this.global_config.default_temp_group][permission] = {};
+            hardcoded_user_group_permissions.system[this.global_config.default_user_group][permission] = {};
+        };
+        event.grant_to_users = permission => {
+            hardcoded_user_group_permissions[this.global_config.default_user_group][permission] = {};
+        };
+        svc_event.emit('create.permissions', event);
+
     }
 
     /**
@@ -221,13 +191,12 @@ class PermissionService extends BaseService {
         // cylog(l, 'ACT & PERM:', actor.uid, permission_options);
 
         const start_ts = Date.now();
-        await require('../../structured/sequence/scan-permission.mjs').default
-            .call(this, {
-                actor,
-                permission_options,
-                reading,
-                state,
-            });
+        await scanSequence.call(this, {
+            actor,
+            permission_options,
+            reading,
+            state,
+        });
         const end_ts = Date.now();
 
         // TODO: command to enable these logs
@@ -1272,64 +1241,4 @@ class PermissionService extends BaseService {
 
         this._permission_exploders.push(exploder);
     }
-
-    _register_commands (commands) {
-        commands.registerCommands('perms', [
-            {
-                id: 'grant-user-app',
-                handler: async (args, _log) => {
-                    const [username, app_uid, permission, extra] = args;
-
-                    // actor from username
-                    const actor = new Actor({
-                        type: new UserActorType({
-                            user: await get_user({ username }),
-                        }),
-                    });
-
-                    await this.grant_user_app_permission(actor, app_uid, permission, extra);
-                },
-            },
-            {
-                id: 'scan',
-                handler: async (args, ctx) => {
-                    const [username, permission] = args;
-
-                    // actor from username
-                    const actor = new Actor({
-                        type: new UserActorType({
-                            user: await get_user({ username }),
-                        }),
-                    });
-
-                    let reading = await this.scan(actor, permission);
-                    // reading = PermissionUtil.reading_to_options(reading);
-                    ctx.log(JSON.stringify(reading, undefined, '  '));
-                },
-            },
-            {
-                id: 'scan-app',
-                handler: async (args, ctx) => {
-                    const [username, app_name, permission] = args;
-                    const app = await get_app({ name: app_name });
-
-                    // actor from username
-                    const actor = new Actor({
-                        type: new AppUnderUserActorType({
-                            app,
-                            user: await get_user({ username }),
-                        }),
-                    });
-
-                    const reading = await this.scan(actor, permission);
-                    // reading = PermissionUtil.reading_to_options(reading);
-                    ctx.log(JSON.stringify(reading, undefined, '  '));
-                },
-            },
-        ]);
-    }
 }
-
-module.exports = {
-    PermissionService,
-};

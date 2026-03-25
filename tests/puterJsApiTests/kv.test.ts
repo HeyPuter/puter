@@ -218,6 +218,54 @@ describe('Puter KV Module', () => {
         expect(Array.isArray(secondPageObj.items)).toBe(true);
         expect(secondPageObj.items.length).toBeLessThanOrEqual(1);
     });
+    it('should isolate namespaces when using optConfig.appUuid', async () => {
+        const suffix = Date.now().toString(36);
+        const key = `${TEST_KEY}-opt-override-${suffix}`;
+        const overrideA = { appUuid: `opt-a-${suffix}` };
+        const overrideB = { appUuid: `opt-b-${suffix}` };
+
+        await puter.kv.set(key, 'default-value');
+        await puter.kv.set(key, 'override-a-value', overrideA);
+        await puter.kv.set(key, 'override-b-value', overrideB);
+
+        expect(await puter.kv.get(key)).toBe('default-value');
+        expect(await puter.kv.get(key, overrideA)).toBe('override-a-value');
+        expect(await puter.kv.get(key, overrideB)).toBe('override-b-value');
+
+        const listA = await puter.kv.list(`${key}*`, overrideA);
+        expect(Array.isArray(listA)).toBe(true);
+        expect((listA as string[])).toContain(key);
+
+        await puter.kv.del(key, overrideA);
+        expect(await puter.kv.get(key, overrideA)).toBeNull();
+        expect(await puter.kv.get(key)).toBe('default-value');
+    });
+    it('should support optConfig shorthand and scoped flush', async () => {
+        const suffix = Date.now().toString(36);
+        const overrideA = { appUuid: `opt-shorthand-a-${suffix}` };
+        const overrideB = { appUuid: `opt-shorthand-b-${suffix}` };
+        const counterKey = `${TEST_KEY}-opt-counter-${suffix}`;
+        const updateKey = `${TEST_KEY}-opt-update-${suffix}`;
+        const flushKeyA = `${TEST_KEY}-opt-flush-a-${suffix}`;
+        const flushKeyB = `${TEST_KEY}-opt-flush-b-${suffix}`;
+
+        const incrRes = await puter.kv.incr(counterKey, overrideA);
+        expect(incrRes).toBe(1);
+        expect(await puter.kv.get(counterKey)).toBeNull();
+        expect(await puter.kv.get(counterKey, overrideA)).toBe(1);
+
+        const updateRes = await puter.kv.update(updateKey, { 'profile.name': 'Ada' }, overrideA);
+        expect(updateRes).toEqual({ profile: { name: 'Ada' } });
+        expect(await puter.kv.get(updateKey)).toBeNull();
+        expect(await puter.kv.get(updateKey, overrideA)).toEqual({ profile: { name: 'Ada' } });
+
+        await puter.kv.set(flushKeyA, 'A', overrideA);
+        await puter.kv.set(flushKeyB, 'B', overrideB);
+        await puter.kv.flush(overrideA);
+
+        expect(await puter.kv.get(flushKeyA, overrideA)).toBeNull();
+        expect(await puter.kv.get(flushKeyB, overrideB)).toBe('B');
+    });
     // delete ops should go last
     it('should flush all keys', async () => {
         const flushRes = await puter.kv.flush();

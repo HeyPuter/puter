@@ -16,11 +16,10 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-import { asyncSafeSetInterval, TeePromise } from '@heyputer/putility/src/libs/promise.js';
-import { BaseService } from '../../../services/BaseService.js';
-import { kv } from '../../../util/kvSingleton.js';
-import { ServerHealthRedisCacheKeys } from './ServerHealthRedisCacheKeys.js';
-
+const { ServerHealthRedisCacheKeys } = require('./ServerHealthRedisCacheKeys.js');
+const BaseService = require('../../../services/BaseService');
+const { kv } = require('../../../util/kvSingleton');
+const { promise } = require('@heyputer/putility').libs;
 const SECOND = 1000;
 
 /**
@@ -34,14 +33,24 @@ const SECOND = 1000;
 * This service is designed to work primarily on Linux systems, reading system metrics
 * from `/proc/meminfo` and handling alarms via an external 'alarm' service.
 */
-export class ServerHealthService extends BaseService {
+class ServerHealthService extends BaseService {
+    static USE = {
+        linuxutil: 'core.util.linuxutil',
+    };
 
-    #checks = [];
-    #failures = [];
-    #stats = {};
+    static MODULES = {
+        fs: require('fs'),
+    };
+
+    _construct () {
+        this.checks_ = [];
+        this.failures_ = [];
+    }
 
     async _init () {
-        this.#initServiceChecks();
+        this.init_service_checks_();
+
+        this.stats_ = {};
     }
 
     /**
@@ -52,26 +61,45 @@ export class ServerHealthService extends BaseService {
     * @param {none} - This method does not take any parameters.
     * @returns {void} - This method does not return any value.
     */
-    #initServiceChecks () {
+    init_service_checks_ () {
         const svc_alarm = this.services.get('alarm');
-        asyncSafeSetInterval(async () => {
+        /**
+        * Initializes periodic health checks for the server.
+        *
+        * This method sets up an interval to run all registered health checks
+        * at a specified frequency. It manages the execution of checks, handles
+        * timeouts, and logs errors or triggers alarms when checks fail.
+        *
+        * @private
+        * @method init_service_checks_
+        * @memberof ServerHealthService
+        * @param {none} - No parameters are passed to this method.
+        * @returns {void}
+        */
+        promise.asyncSafeSetInterval(async () => {
+            this.log.tick('service checks');
             const check_failures = [];
-            for ( const { name, fn, chainable } of this.#checks ) {
-                const p_timeout = new TeePromise();
+            for ( const { name, fn, chainable } of this.checks_ ) {
+                const p_timeout = new promise.TeePromise();
+                /**
+                * Creates a TeePromise to handle potential timeouts during health checks.
+                *
+                * @returns {Promise} A promise that can be resolved or rejected from multiple places.
+                */
                 const timeout = setTimeout(() => {
                     p_timeout.reject(new Error('Health check timed out'));
                 }, 5 * SECOND);
-
                 try {
                     await Promise.race([
                         fn(),
                         p_timeout,
                     ]);
+                    clearTimeout(timeout);
                 } catch ( err ) {
                     // Trigger an alarm if this check isn't already in the failure list
 
-                    if ( this.#failures.some(v => v.name === name) ) {
-                        continue;
+                    if ( this.failures_.some(v => v.name === name) ) {
+                        return;
                     }
 
                     svc_alarm.create(
@@ -81,22 +109,20 @@ export class ServerHealthService extends BaseService {
                     );
                     check_failures.push({ name });
 
-                    console.error(`Error for healthcheck fail on ${name}: ${ err.stack}`);
+                    this.log.error(`Error for healthcheck fail on ${name}: ${ err.stack}`);
 
                     // Run the on_fail handlers
                     for ( const fn of chainable.on_fail_ ) {
                         try {
                             await fn(err);
                         } catch ( e ) {
-                            console.error(`Error in on_fail handler for ${name}`, e);
+                            this.log.error(`Error in on_fail handler for ${name}`, e);
                         }
                     }
-                } finally {
-                    clearTimeout(timeout);
                 }
             }
 
-            this.#failures = check_failures;
+            this.failures_ = check_failures;
         }, 10 * SECOND, null, {
             onBehindSchedule: (drift) => {
                 svc_alarm.create(
@@ -116,7 +142,7 @@ export class ServerHealthService extends BaseService {
     * direct manipulation of the service's data.
     */
     async get_stats () {
-        return { ...this.#stats };
+        return { ...this.stats_ };
     }
 
     add_check (name, fn) {
@@ -127,7 +153,7 @@ export class ServerHealthService extends BaseService {
                 return chainable;
             },
         };
-        this.#checks.push({ name, fn, chainable });
+        this.checks_.push({ name, fn, chainable });
         return chainable;
     }
 
@@ -153,15 +179,19 @@ export class ServerHealthService extends BaseService {
         }
 
         // Compute status
-        const failures = this.#failures.map(v => v.name);
+        const failures = this.failures_.map(v => v.name);
         const status = {
             ok: failures.length === 0,
             ...(failures.length ? { failed: failures } : {}),
         };
 
         // Cache with 5 second TTL
-        await kv.set(cacheKey, JSON.stringify(status), { EX: 5 });
+        await kv.set(cacheKey, JSON.stringify(status), {
+            EX: 5,
+        });
 
         return status;
     }
 }
+
+module.exports = { ServerHealthService };
