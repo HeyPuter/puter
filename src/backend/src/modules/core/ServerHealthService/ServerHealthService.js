@@ -25,8 +25,6 @@ const SECOND = 1000;
 const CHECK_INTERVAL_MS = 5 * SECOND;
 const CHECK_TIMEOUT_MS = 4 * SECOND;
 const HEALTH_LOOP_STALE_MULTIPLIER = 3;
-const EVENT_LOOP_MONITOR_INTERVAL_MS = SECOND;
-const DEFAULT_EVENT_LOOP_LAG_FAIL_MS = 1000;
 const DEFAULT_DB_LIVENESS_LATENCY_FAIL_MS = 1500;
 
 /**
@@ -55,7 +53,6 @@ class ServerHealthService extends BaseService {
         this.health_started_at_ = Date.now();
         this.last_check_cycle_started_at_ = 0;
         this.last_check_cycle_completed_at_ = 0;
-        this.event_loop_lag_ms_ = 0;
         this.web_checks_registered_ = false;
     }
 
@@ -63,7 +60,6 @@ class ServerHealthService extends BaseService {
         this.stats_ = {};
 
         this.#initDefaultChecks();
-        this.#initEventLoopMonitor();
         this.#initServiceCheck();
     }
 
@@ -72,20 +68,6 @@ class ServerHealthService extends BaseService {
     }
 
     #initDefaultChecks () {
-        const eventLoopLagFailMs = Number(
-            this.global_config?.server_health?.event_loop_lag_fail_ms,
-        ) || DEFAULT_EVENT_LOOP_LAG_FAIL_MS;
-
-        this.add_check('event-loop-lag', async () => {
-            this.stats_.event_loop_lag_ms = this.event_loop_lag_ms_;
-            if ( this.event_loop_lag_ms_ > eventLoopLagFailMs ) {
-                throw new Error(
-                    `event loop lag too high: ${this.event_loop_lag_ms_}ms ` +
-                    `(threshold ${eventLoopLagFailMs}ms)`,
-                );
-            }
-        });
-
         const dbService = this.#getServiceIfAvailable('database');
         if ( dbService && typeof dbService.read === 'function' ) {
             const dbLivenessLatencyFailMs = Number(
@@ -111,17 +93,6 @@ class ServerHealthService extends BaseService {
                 }
             });
         }
-    }
-
-    #initEventLoopMonitor () {
-        let expectedTickAt = Date.now() + EVENT_LOOP_MONITOR_INTERVAL_MS;
-
-        promise.asyncSafeSetInterval(() => {
-            const now = Date.now();
-            this.event_loop_lag_ms_ = Math.max(0, now - expectedTickAt);
-            this.stats_.event_loop_lag_ms = this.event_loop_lag_ms_;
-            expectedTickAt = now + EVENT_LOOP_MONITOR_INTERVAL_MS;
-        }, EVENT_LOOP_MONITOR_INTERVAL_MS);
     }
 
     #registerWebChecks () {
