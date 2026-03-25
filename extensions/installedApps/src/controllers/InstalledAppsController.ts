@@ -1,6 +1,6 @@
 import type { BaseDatabaseAccessService } from '@heyputer/backend/src/services/database/BaseDatabaseAccessService.js';
 import { Request, Response } from 'express';
-import '../../../api.d.ts';
+import type { } from '../../../api.js';
 
 const { Controller, Get, ExtensionController, HttpError } = extension.import('extensionController');
 
