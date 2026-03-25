@@ -54,7 +54,7 @@ import TabSecurity from './TabSecurity.js';
 // Registry of built-in tabs
 const builtinTabs = [
     TabHome,
-    // TabApps,
+    TabApps,
     TabFiles,
     TabUsage,
     TabAccount,
@@ -95,7 +95,7 @@ async function UIDashboard (options) {
             for ( let i = 0; i < tabs.length; i++ ) {
                 const tab = tabs[i];
                 const isActive = i === 0 ? ' active' : '';
-                const isBeta = tab.label === 'Files';
+                const isBeta = tab.label === 'Apps';
                 h += `<div class="dashboard-sidebar-item${isActive} ${isBeta ? 'beta' : ''}" data-section="${tab.id}">`;
                     h += tab.icon;
                     h += tab.label;

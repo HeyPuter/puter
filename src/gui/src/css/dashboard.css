@@ -433,6 +433,112 @@ body {
     padding: 24px 0;
 }
 
+/* My Apps tab */
+
+.myapps-tab {
+    max-width: 900px;
+    padding: 32px 40px;
+}
+
+.myapps-tab h2 {
+    font-size: 26px;
+    font-weight: 700;
+    color: var(--dashboard-text-heading);
+    margin: 0 0 24px 0;
+}
+
+.myapps-container {
+    min-height: 200px;
+}
+
+.myapps-loading {
+    color: var(--dashboard-text-tertiary);
+    font-size: 14px;
+    padding: 40px 0;
+    text-align: center;
+}
+
+.myapps-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 60px 0;
+    color: var(--dashboard-text-tertiary);
+}
+
+.myapps-empty svg {
+    width: 48px;
+    height: 48px;
+    margin-bottom: 12px;
+    opacity: 0.4;
+}
+
+.myapps-empty p {
+    font-size: 15px;
+    margin: 0;
+}
+
+.myapps-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, 80px);
+    gap: 24px 20px;
+    justify-content: start;
+}
+
+.myapps-tile {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    cursor: pointer;
+    width: 80px;
+    -webkit-user-select: none;
+    user-select: none;
+}
+
+.myapps-tile-icon {
+    width: 60px;
+    height: 60px;
+    border-radius: 14px;
+    overflow: hidden;
+    background: var(--dashboard-card-background);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08), 0 0 0 0.5px rgba(0, 0, 0, 0.04);
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.myapps-tile-icon img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.myapps-tile:hover .myapps-tile-icon {
+    transform: scale(1.08);
+    box-shadow: 0 3px 8px rgba(0, 0, 0, 0.12), 0 0 0 0.5px rgba(0, 0, 0, 0.06);
+}
+
+.myapps-tile:active .myapps-tile-icon {
+    transform: scale(0.95);
+}
+
+.myapps-tile-label {
+    margin-top: 6px;
+    font-size: 12px;
+    color: var(--dashboard-text-heading);
+    text-align: center;
+    line-height: 1.3;
+    max-width: 80px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    word-break: break-word;
+}
+
 /* Dashboard files */
 
 .dashboard-content.files {
@@ -1547,6 +1653,30 @@ body {
     .dashboard-app-icon {
         width: 40px;
         height: 40px;
+    }
+
+    .myapps-tab {
+        padding: 20px 16px;
+    }
+
+    .myapps-tab h2 {
+        font-size: 22px;
+        margin-bottom: 16px;
+    }
+
+    .myapps-grid {
+        grid-template-columns: repeat(auto-fill, 72px);
+        gap: 18px 14px;
+    }
+
+    .myapps-tile {
+        width: 72px;
+    }
+
+    .myapps-tile-icon {
+        width: 52px;
+        height: 52px;
+        border-radius: 12px;
     }
 }
 
