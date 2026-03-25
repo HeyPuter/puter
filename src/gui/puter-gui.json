@@ -21,7 +21,8 @@
             "/css/normalize.css",
             "/lib/jquery-ui-1.13.2/jquery-ui.min.css",
             "/css/style.css",
-            "/css/theme.css"
+            "/css/theme.css",
+            "/css/dashboard.css"
         ],
         "js_paths": [
             "/src/init_sync.js",
