@@ -23,7 +23,7 @@ import BaseService from '../../BaseService.js';
 import { DriverService } from '../../drivers/DriverService.js';
 import { EventService } from '../../EventService.js';
 import { MeteringService } from '../../MeteringService/MeteringService.js';
-import { OpenAIVideoGenerationProvider } from './providers/a/OpenAIVideoGenerationProvider.js';
+import { OpenAIVideoGenerationProvider } from './providers/OpenAIVideoGenerationProvider/OpenAIVideoGenerationProvider.js';
 import { TogetherVideoGenerationProvider } from './providers/TogetherVideoGenerationProvider/TogetherVideoGenerationProvider.js';
 import { IGenerateVideoParams, IVideoModel, IVideoProvider } from './providers/types.js';
 
