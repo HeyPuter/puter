@@ -49,6 +49,7 @@ export class InstalledAppsController extends ExtensionController {
                 apps.uid,
                 apps.title,
                 apps.description,
+                apps.icon,
                 MIN(perm.dt) AS installed_at
             FROM apps
             LEFT JOIN user_to_app_permissions AS perm ON apps.id = perm.app_id

@@ -487,7 +487,7 @@ export const get_app_icon_url = (app, size) => {
 
     // For base64 icons, or if `no_subdomain` was set in config, use the
     // `/app-icon` endpoint on Puter's backend as the URL for this icon.
-    if ( iconIsBase64 || svc_appIcon.config.no_subdomain ) {
+    if ( !app.icon || iconIsBase64 || svc_appIcon.config.no_subdomain ) {
         if ( ! app_uid ) return null;
         const normalized_uid = normalizeAppUid(app_uid);
         const iconSize = Number.isFinite(Number(size)) ? Number(size) : DEFAULT_APP_ICON_SIZE;
