@@ -139,8 +139,10 @@ export class TelemetryService extends BaseService {
         };
     }
 
-    static #resolveExporterConfig (serviceConfig) {
-        return config.jaeger ?? serviceConfig?.jaeger;
+    static #resolveExporterConfig (_serviceConfig) {
+        // return config.jaeger ?? serviceConfig?.jaeger;
+        // TODO DS: reenable if needed
+        return false;
     }
 
     static #getConfiguredExporter (serviceConfig) {
@@ -179,10 +181,11 @@ export class TelemetryService extends BaseService {
         }
 
         const resource = Resource.default().merge(
-                        new Resource({
-                            [SemanticResourceAttributes.SERVICE_NAME]: 'puter-backend',
-                            [SemanticResourceAttributes.SERVICE_VERSION]: '0.1.0',
-                        }));
+            new Resource({
+                [SemanticResourceAttributes.SERVICE_NAME]: 'puter-backend',
+                [SemanticResourceAttributes.SERVICE_VERSION]: '0.1.0',
+            }),
+        );
 
         const sdkConfig = {
             resource,
