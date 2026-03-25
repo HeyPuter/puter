@@ -62,6 +62,19 @@ const isHostedDomainRequest = (req) => {
         hostMatchesDomain(requestHost, hostedDomain));
 };
 
+const get_status = async (req) => {
+    const svc_serverHealth = req.services.get('server-health');
+    return await svc_serverHealth.get_status();
+};
+
+const send_health_status = async (req, res, { fail_with_http_error = false }) => {
+    const status = await get_status(req);
+    const shouldFailWithHttpError =
+        fail_with_http_error || !!req.query['return-http-error'];
+    const httpStatus = shouldFailWithHttpError && !status.ok ? 500 : 200;
+    res.status(httpStatus).json(status);
+};
+
 // -----------------------------------------------------------------------//
 // GET /healthcheck
 // -----------------------------------------------------------------------//
@@ -71,9 +84,7 @@ router.get('/healthcheck', async (req, res, next) => {
         return;
     }
 
-    const svc_serverHealth = req.services.get('server-health');
-
-    const status = await svc_serverHealth.get_status();
-    res.status((req.query['return-http-error'] && !status.ok) ? 500 : 200).json(status);
+    await send_health_status(req, res, { fail_with_http_error: false });
 });
+
 module.exports = router;
