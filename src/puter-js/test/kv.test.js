@@ -320,6 +320,78 @@ window.kvTests = [
         }
     },
     {
+        name: "testOptConfigNamespaceIsolation",
+        description: "Test that optConfig.appUuid isolates KV namespaces",
+        test: async function() {
+            try {
+                const suffix = puter.randName();
+                const key = 'optConfigKey-' + suffix;
+                const overrideA = { appUuid: 'opt-app-a-' + suffix };
+                const overrideB = { appUuid: 'opt-app-b-' + suffix };
+
+                await puter.kv.set(key, 'default-value');
+                await puter.kv.set(key, 'override-a-value', overrideA);
+                await puter.kv.set(key, 'override-b-value', overrideB);
+
+                const defaultValue = await puter.kv.get(key);
+                const overrideAValue = await puter.kv.get(key, overrideA);
+                const overrideBValue = await puter.kv.get(key, overrideB);
+
+                assert(defaultValue === 'default-value', "Default namespace value mismatch");
+                assert(overrideAValue === 'override-a-value', "Override A value mismatch");
+                assert(overrideBValue === 'override-b-value', "Override B value mismatch");
+
+                const listA = await puter.kv.list(key + '*', overrideA);
+                assert(Array.isArray(listA), "Expected list result to be an array");
+                assert(listA.includes(key), "Override A list should include the key");
+
+                await puter.kv.del(key, overrideA);
+                const afterDeleteOverride = await puter.kv.get(key, overrideA);
+                const afterDeleteDefault = await puter.kv.get(key);
+
+                assert(afterDeleteOverride === null, "Override A key should be deleted");
+                assert(afterDeleteDefault === 'default-value', "Default namespace should remain untouched");
+                pass("testOptConfigNamespaceIsolation passed");
+            } catch (error) {
+                fail("testOptConfigNamespaceIsolation failed:", error);
+            }
+        }
+    },
+    {
+        name: "testOptConfigShorthandAndScopedFlush",
+        description: "Test optConfig shorthand calls and namespace-scoped flush",
+        test: async function() {
+            try {
+                const suffix = puter.randName();
+                const overrideA = { appUuid: 'opt-shorthand-a-' + suffix };
+                const overrideB = { appUuid: 'opt-shorthand-b-' + suffix };
+                const counterKey = 'optCounter-' + suffix;
+                const updateKey = 'optUpdate-' + suffix;
+                const flushKeyA = 'optFlushA-' + suffix;
+                const flushKeyB = 'optFlushB-' + suffix;
+
+                const incrResult = await puter.kv.incr(counterKey, overrideA);
+                assert(incrResult === 1, "Expected shorthand incr to initialize counter to 1");
+                assert(await puter.kv.get(counterKey) === null, "Default namespace counter should remain unset");
+                assert(await puter.kv.get(counterKey, overrideA) === 1, "Override namespace counter mismatch");
+
+                const updateResult = await puter.kv.update(updateKey, { 'profile.name': 'Ada' }, overrideA);
+                assert(updateResult?.profile?.name === 'Ada', "Expected update in override namespace to succeed");
+                assert(await puter.kv.get(updateKey) === null, "Default namespace update key should remain unset");
+
+                await puter.kv.set(flushKeyA, 'A', overrideA);
+                await puter.kv.set(flushKeyB, 'B', overrideB);
+                await puter.kv.flush(overrideA);
+
+                assert(await puter.kv.get(flushKeyA, overrideA) === null, "Scoped flush should clear override A keys");
+                assert(await puter.kv.get(flushKeyB, overrideB) === 'B', "Scoped flush should not clear override B keys");
+                pass("testOptConfigShorthandAndScopedFlush passed");
+            } catch (error) {
+                fail("testOptConfigShorthandAndScopedFlush failed:", error);
+            }
+        }
+    },
+    {
         name: "testIncr",
         description: "Test incrementing a key and verify it returns 1",
         test: async function() {

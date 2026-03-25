@@ -16,10 +16,11 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { APIError } = require('openai');
+const { APIError } = require('../api/APIError.js');
 const configurable_auth = require('../middleware/configurable_auth');
 const { Endpoint } = require('../util/expressutil');
-const BaseService = require('./BaseService');
+const { BaseService } = require('./BaseService');
+const { revokeUserAppPermsRoute } = require('../routers/auth/revoke-user-app');
 
 /**
 * @class PermissionAPIService
@@ -44,7 +45,7 @@ class PermissionAPIService extends BaseService {
     async '__on_install.routes' (_, { app }) {
         app.use(require('../routers/auth/get-user-app-token'));
         app.use(require('../routers/auth/grant-user-app'));
-        app.use(require('../routers/auth/revoke-user-app'));
+        app.use(revokeUserAppPermsRoute);
         app.use(require('../routers/auth/grant-dev-app'));
         app.use(require('../routers/auth/revoke-dev-app'));
         app.use(require('../routers/auth/grant-user-user'));

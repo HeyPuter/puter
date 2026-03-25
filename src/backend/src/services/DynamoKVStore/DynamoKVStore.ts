@@ -33,21 +33,21 @@ export class DynamoKVStore {
         await this.#ddbClient.createTableIfNotExists({ ...PUTER_KV_STORE_TABLE_DEFINITION, TableName: this.#tableName }, 'ttl');
     }
 
-    #getNameSpace (actor: Actor) {
+    #getNameSpace (actor: Actor, appUuidOverride?: string) {
         if ( actor.type instanceof SystemActorType ) {
             return 'v1:system';
         } else {
-            const app = actor.type?.app ?? undefined;
+            const appUuid = !actor.type?.app ? (appUuidOverride || undefined) : actor.type.app.uid;
             const user = actor.type?.user ?? undefined;
             if ( ! user ) throw new Error('User not found');
 
-            return `v1:${app ? `${user.uuid}:${app.uid}`
+            return `v1:${appUuid ? `${user.uuid}:${appUuid}`
                 : `${user.uuid}:${this.#enableMigrationFromSQL ? DynamoKVStore.LEGACY_GLOBAL_APP_KEY : DynamoKVStore.GLOBAL_APP_KEY}`}`;
         }
     }
 
     @Span('kv:get')
-    async get ({ key }: { key: string | string[]; }): Promise<unknown | null | (unknown | null)[]> {
+    async get ({ key, optConfig }: { key: string | string[]; optConfig?: { appUuid?: string } }): Promise<unknown | null | (unknown | null)[]> {
         if ( key === '' ) {
             throw APIError.create('field_empty', null, {
                 key: 'key',
@@ -55,10 +55,10 @@ export class DynamoKVStore {
         }
 
         const actor = Context.get('actor');
-        const app = actor.type?.app ?? undefined;
+        const appUuid = !actor.type?.app ? optConfig?.appUuid : actor.type.app.uid;
         const user = actor.type?.user ?? undefined;
 
-        const namespace = this.#getNameSpace(actor);
+        const namespace = this.#getNameSpace(actor, optConfig?.appUuid);
 
         const multi = Array.isArray(key);
         const keys = multi ? key : [key];
@@ -92,15 +92,19 @@ export class DynamoKVStore {
 
             if ( this.#enableMigrationFromSQL ) {
                 const key_hash = murmurhash.v3(key);
-                const kv_row = await this.#sqlClient.read('SELECT * FROM kv WHERE user_id=? AND app=? AND kkey_hash=? LIMIT 1',
-                                [user.id, app?.uid ?? DynamoKVStore.LEGACY_GLOBAL_APP_KEY, key_hash]);
+                const kv_row = await this.#sqlClient.read(
+                    'SELECT * FROM kv WHERE user_id=? AND app=? AND kkey_hash=? LIMIT 1',
+                    [user.id, appUuid ?? DynamoKVStore.LEGACY_GLOBAL_APP_KEY, key_hash],
+                );
 
                 if ( kv_row[0]?.value ) {
                     // update and delete from this table
                     (async () => {
                         await this.set({ key: kv_row[0].key, value: kv_row[0].value });
-                        await this.#sqlClient.write('DELETE FROM kv WHERE user_id=? AND app=? AND kkey_hash=?',
-                                        [user.id, app?.uid ?? DynamoKVStore.LEGACY_GLOBAL_APP_KEY, key_hash]);
+                        await this.#sqlClient.write(
+                            'DELETE FROM kv WHERE user_id=? AND app=? AND kkey_hash=?',
+                            [user.id, appUuid ?? DynamoKVStore.LEGACY_GLOBAL_APP_KEY, key_hash],
+                        );
                     })();
                     values.push(kv_row[0]?.value);
                     continue;
@@ -141,7 +145,7 @@ export class DynamoKVStore {
     }
 
     @Span('kv:set')
-    async set ({ key, value, expireAt }: { key: string; value: unknown; expireAt?: number; }): Promise<boolean> {
+    async set ({ key, value, expireAt, optConfig }: { key: string; value: unknown; expireAt?: number; optConfig?: { appUuid?: string } }): Promise<boolean> {
 
         const context = Context.get();
         const actor = context.get('actor');
@@ -161,7 +165,7 @@ export class DynamoKVStore {
             this.get({ key });
         }
 
-        const namespace = this.#getNameSpace(actor);
+        const namespace = this.#getNameSpace(actor, optConfig?.appUuid);
 
         const res = await this.#ddbClient.put(this.#tableName, {
             namespace,
@@ -175,14 +179,14 @@ export class DynamoKVStore {
     }
 
     @Span('kv:del')
-    async del ({ key }: { key: string; }): Promise<boolean> {
+    async del ({ key, optConfig}: { key: string;optConfig?: { appUuid?: string } }): Promise<boolean> {
         const actor = Context.get('actor');
 
         const app = actor.type?.app ?? undefined;
         const user = actor.type?.user ?? undefined;
         if ( ! user ) throw new Error('User not found');
 
-        const namespace = this.#getNameSpace(actor);
+        const namespace = this.#getNameSpace(actor, optConfig?.appUuid);
 
         const res = await this.#ddbClient.del(this.#tableName, {
             namespace,
@@ -193,8 +197,10 @@ export class DynamoKVStore {
 
         if ( this.#enableMigrationFromSQL ) {
             const key_hash = murmurhash.v3(key);
-            await this.#sqlClient.write('DELETE FROM kv WHERE user_id=? AND app=? AND kkey_hash=?',
-                            [user.id, app?.uid ?? DynamoKVStore.LEGACY_GLOBAL_APP_KEY, key_hash]);
+            await this.#sqlClient.write(
+                'DELETE FROM kv WHERE user_id=? AND app=? AND kkey_hash=?',
+                [user.id, app?.uid ?? DynamoKVStore.LEGACY_GLOBAL_APP_KEY, key_hash],
+            );
         }
 
         return true;
@@ -277,11 +283,13 @@ export class DynamoKVStore {
         limit,
         cursor,
         pattern,
+        optConfig,
     }: {
         as?: 'keys' | 'values' | 'entries';
         limit?: number;
         cursor?: string | Record<string, unknown>;
         pattern?: string;
+        optConfig?: { appUuid?: string }
     }): Promise<
         | string[]
         | unknown[]
@@ -296,20 +304,22 @@ export class DynamoKVStore {
         const user = actor.type?.user ?? undefined;
         if ( ! user ) throw new Error('User not found');
 
-        const namespace = this.#getNameSpace(actor);
+        const namespace = this.#getNameSpace(actor, optConfig?.appUuid);
 
         const normalizedLimit = this.#normalizeLimit(limit);
         const pageKey = this.#decodeCursor(cursor);
         const normalizedPattern = this.#normalizePattern(pattern);
         const paginated = normalizedLimit !== undefined || pageKey !== undefined;
 
-        const entriesRes = await this.#ddbClient.query(this.#tableName,
-                        { namespace },
-                        normalizedLimit ?? 0,
-                        pageKey,
-                        '',
-                        false,
-                        normalizedPattern ? { beginsWith: { key: 'key', value: normalizedPattern } } : undefined);
+        const entriesRes = await this.#ddbClient.query(
+            this.#tableName,
+            { namespace },
+            normalizedLimit ?? 0,
+            pageKey,
+            '',
+            false,
+            normalizedPattern ? { beginsWith: { key: 'key', value: normalizedPattern } } : undefined,
+        );
 
         this.#meteringService.incrementUsage(actor, 'kv:read', entriesRes.ConsumedCapacity?.CapacityUnits ?? 1);
 
@@ -326,8 +336,10 @@ export class DynamoKVStore {
         });
 
         if ( this.#enableMigrationFromSQL && !paginated ) {
-            const oldEntries =  await this.#sqlClient.read('SELECT * FROM kv WHERE user_id=? AND app=?',
-                            [user.id, app?.uid ?? DynamoKVStore.LEGACY_GLOBAL_APP_KEY]);
+            const oldEntries =  await this.#sqlClient.read(
+                'SELECT * FROM kv WHERE user_id=? AND app=?',
+                [user.id, app?.uid ?? DynamoKVStore.LEGACY_GLOBAL_APP_KEY],
+            );
             oldEntries.forEach(oldEntry => {
                 if ( normalizedPattern && !oldEntry.kkey?.startsWith(normalizedPattern) ) {
                     return;
@@ -370,18 +382,20 @@ export class DynamoKVStore {
     }
 
     @Span('kv:flush')
-    async flush () {
+    async flush ({ optConfig}: { optConfig?: { appUuid?: string } }) {
         const actor = Context.get('actor');
 
         const app = actor.type.app ?? undefined;
         const user = actor.type?.user ?? undefined;
         if ( ! user ) throw new Error('User not found');
 
-        const namespace = this.#getNameSpace(actor);
+        const namespace = this.#getNameSpace(actor, optConfig?.appUuid);
 
         // Query all keys
-        const entriesRes = await this.#ddbClient.query(this.#tableName,
-                        { namespace });
+        const entriesRes = await this.#ddbClient.query(
+            this.#tableName,
+            { namespace },
+        );
         const entries = entriesRes.Items ?? [];
         const readUsage = entriesRes?.ConsumedCapacity?.CapacityUnits ?? 0;
 
@@ -406,15 +420,17 @@ export class DynamoKVStore {
         this.#meteringService.incrementUsage(actor, 'kv:write', writeUsage);
 
         if ( this.#enableMigrationFromSQL ) {
-            await this.#sqlClient.write('DELETE FROM kv WHERE user_id=? AND app=?',
-                            [user.id, app?.uid ?? DynamoKVStore.LEGACY_GLOBAL_APP_KEY]);
+            await this.#sqlClient.write(
+                'DELETE FROM kv WHERE user_id=? AND app=?',
+                [user.id, app?.uid ?? DynamoKVStore.LEGACY_GLOBAL_APP_KEY],
+            );
         }
 
         return !!allRes;
     }
 
     @Span('kv:expireAt')
-    async expireAt ({ key, timestamp }: { key: string; timestamp: number; }): Promise<void> {
+    async expireAt ({ key, timestamp, optConfig}: { key: string; timestamp: number;optConfig?: { appUuid?: string } }): Promise<void> {
         if ( key === '' ) {
             throw APIError.create('field_empty', null, {
                 key: 'key',
@@ -423,11 +439,11 @@ export class DynamoKVStore {
 
         timestamp = Number(timestamp);
 
-        return await this.#expireAt(key, timestamp);
+        return await this.#expireAt(key, timestamp, optConfig);
     }
 
     @Span('kv:expire')
-    async expire ({ key, ttl }: { key: string; ttl: number; }): Promise<void> {
+    async expire ({ key, ttl, optConfig}: { key: string; ttl: number; optConfig?: { appUuid?: string } }): Promise<void> {
         if ( key === '' ) {
             throw APIError.create('field_empty', null, {
                 key: 'key',
@@ -439,7 +455,7 @@ export class DynamoKVStore {
         // timestamp in seconds
         let timestamp = Math.floor(Date.now() / 1000) + ttl;
 
-        return await this.#expireAt(key, timestamp);
+        return await this.#expireAt(key, timestamp, optConfig);
     }
 
     async #createPaths ( namespace: string, key: string, pathList: string[]) {
@@ -515,11 +531,13 @@ export class DynamoKVStore {
                 : { ':emptyMap': {} };
             const valueToken = isRootLayer ? ':nestedMap' : ':emptyMap';
             // Issue update to set layer to {} if not exists
-            const layerUpsertRes = await this.#ddbClient.update(this.#tableName,
-                            { key, namespace },
-                            `SET ${attrName} = if_not_exists(${attrName}, ${valueToken})`,
-                            expressionValues,
-                            expressionNames);
+            const layerUpsertRes = await this.#ddbClient.update(
+                this.#tableName,
+                { key, namespace },
+                `SET ${attrName} = if_not_exists(${attrName}, ${valueToken})`,
+                expressionValues,
+                expressionNames,
+            );
             writeUnits += layerUpsertRes.ConsumedCapacity?.CapacityUnits ?? 0;
             if ( isRootLayer && objectsEqual(layerUpsertRes.Attributes?.value, nestedMapValue) ) {
                 return writeUnits;
@@ -530,7 +548,7 @@ export class DynamoKVStore {
 
     // Ideally the paths support syntax like "a.b[2].c"
     @Span('kv:incr')
-    async incr<T extends Record<string, number>>({ key, pathAndAmountMap }: { key: string; pathAndAmountMap: T; }): Promise<T extends { '': number; } ? number : RecursiveRecord<number>> {
+    async incr<T extends Record<string, number>>({ key, pathAndAmountMap, optConfig }: { key: string; pathAndAmountMap: T;optConfig?: { appUuid?: string } }): Promise<T extends { '': number; } ? number : RecursiveRecord<number>> {
         if ( Object.values(pathAndAmountMap).find((v) => typeof v !== 'number') ) {
             throw new Error('All values in pathAndAmountMap must be numbers');
         }
@@ -549,7 +567,7 @@ export class DynamoKVStore {
         const user = actor.type?.user ?? undefined;
         if ( ! user ) throw new Error('User not found');
 
-        const namespace = this.#getNameSpace(actor);
+        const namespace = this.#getNameSpace(actor, optConfig?.appUuid);
 
         if ( this.#enableMigrationFromSQL ) {
             // trigger get to move element if exists
@@ -579,23 +597,25 @@ export class DynamoKVStore {
             return acc;
         }, {} as Record<string, string>);
 
-        const res = await this.#ddbClient.update(this.#tableName,
-                        { key, namespace },
-                        `SET ${[...setStatements].join(', ')}`,
-                        valueAttributeValues,
-                        { ...valueAttributeNames, '#value': 'value' });
+        const res = await this.#ddbClient.update(
+            this.#tableName,
+            { key, namespace },
+            `SET ${[...setStatements].join(', ')}`,
+            valueAttributeValues,
+            { ...valueAttributeNames, '#value': 'value' },
+        );
 
         writeUnits += res.ConsumedCapacity?.CapacityUnits ?? 0;
         this.#meteringService.incrementUsage(actor, 'kv:write', writeUnits);
         return res.Attributes?.value;
     }
 
-    async decr<T extends Record<string, number>>({ key, pathAndAmountMap }: { key: string; pathAndAmountMap: T; }) {
-        return await this.incr({ key, pathAndAmountMap: Object.fromEntries(Object.entries(pathAndAmountMap).map(([k, v]) => [k, -v])) as T });
+    async decr<T extends Record<string, number>>({ key, pathAndAmountMap, optConfig }: { key: string; pathAndAmountMap: T; optConfig?: { appUuid?: string } }) {
+        return await this.incr({ key, pathAndAmountMap: Object.fromEntries(Object.entries(pathAndAmountMap).map(([k, v]) => [k, -v])) as T, optConfig });
     }
 
     @Span('kv:add')
-    async add ({ key, pathAndValueMap }: { key: string; pathAndValueMap: Record<string, unknown>; }): Promise<unknown> {
+    async add ({ key, pathAndValueMap, optConfig}: { key: string; pathAndValueMap: Record<string, unknown>; optConfig?: { appUuid?: string } }): Promise<unknown> {
         if ( !pathAndValueMap || Object.keys(pathAndValueMap).length === 0 ) {
             throw new Error('invalid use of #add: no pathAndValueMap');
         }
@@ -610,7 +630,7 @@ export class DynamoKVStore {
         const user = actor.type?.user ?? undefined;
         if ( ! user ) throw new Error('User not found');
 
-        const namespace = this.#getNameSpace(actor);
+        const namespace = this.#getNameSpace(actor, optConfig?.appUuid);
 
         if ( this.#enableMigrationFromSQL ) {
             // trigger get to move element if exists
@@ -640,11 +660,13 @@ export class DynamoKVStore {
             return acc;
         }, {} as Record<string, string>);
 
-        const res = await this.#ddbClient.update(this.#tableName,
-                        { key, namespace },
-                        `SET ${[...setStatements].join(', ')}`,
-                        valueAttributeValues,
-                        { ...valueAttributeNames, '#value': 'value' });
+        const res = await this.#ddbClient.update(
+            this.#tableName,
+            { key, namespace },
+            `SET ${[...setStatements].join(', ')}`,
+            valueAttributeValues,
+            { ...valueAttributeNames, '#value': 'value' },
+        );
 
         writeUnits += res.ConsumedCapacity?.CapacityUnits ?? 0;
         this.#meteringService.incrementUsage(actor, 'kv:write', writeUnits);
@@ -652,7 +674,7 @@ export class DynamoKVStore {
     }
 
     @Span('kv:remove')
-    async remove ({ key, paths }: { key: string; paths: string[]; }): Promise<unknown> {
+    async remove ({ key, paths, optConfig }: { key: string; paths: string[]; optConfig?: { appUuid?: string } }): Promise<unknown> {
         if ( !paths || paths.length === 0 ) {
             throw new Error('invalid use of #remove: no paths');
         }
@@ -667,7 +689,7 @@ export class DynamoKVStore {
         const user = actor.type?.user ?? undefined;
         if ( ! user ) throw new Error('User not found');
 
-        const namespace = this.#getNameSpace(actor);
+        const namespace = this.#getNameSpace(actor, optConfig?.appUuid);
 
         if ( this.#enableMigrationFromSQL ) {
             // trigger get to move element if exists
@@ -695,11 +717,13 @@ export class DynamoKVStore {
         }, {} as Record<string, string>);
 
         try {
-            const res = await this.#ddbClient.update(this.#tableName,
-                            { key, namespace },
-                            `REMOVE ${removeStatements.join(', ')}`,
-                            undefined,
-                            { ...valueAttributeNames, '#value': 'value' });
+            const res = await this.#ddbClient.update(
+                this.#tableName,
+                { key, namespace },
+                `REMOVE ${removeStatements.join(', ')}`,
+                undefined,
+                { ...valueAttributeNames, '#value': 'value' },
+            );
 
             this.#meteringService.incrementUsage(actor, 'kv:write', res?.ConsumedCapacity?.CapacityUnits ?? 1);
             return res.Attributes?.value;
@@ -714,7 +738,7 @@ export class DynamoKVStore {
     }
 
     @Span('kv:update')
-    async update ({ key, pathAndValueMap, ttl }: { key: string; pathAndValueMap: Record<string, unknown>; ttl?: number; }): Promise<unknown> {
+    async update ({ key, pathAndValueMap, ttl, optConfig }: { key: string; pathAndValueMap: Record<string, unknown>; ttl?: number; optConfig?: { appUuid?: string } }): Promise<unknown> {
         if ( !pathAndValueMap || Object.keys(pathAndValueMap).length === 0 ) {
             throw new Error('invalid use of #update: no pathAndValueMap');
         }
@@ -729,7 +753,7 @@ export class DynamoKVStore {
         const user = actor.type?.user ?? undefined;
         if ( ! user ) throw new Error('User not found');
 
-        const namespace = this.#getNameSpace(actor);
+        const namespace = this.#getNameSpace(actor, optConfig?.appUuid);
 
         if ( this.#enableMigrationFromSQL ) {
             // trigger get to move element if exists
@@ -769,36 +793,40 @@ export class DynamoKVStore {
             valueAttributeNames['#ttl'] = 'ttl';
         }
 
-        const res = await this.#ddbClient.update(this.#tableName,
-                        { key, namespace },
-                        `SET ${[...setStatements].join(', ')}`,
-                        valueAttributeValues,
-                        { ...valueAttributeNames, '#value': 'value' });
+        const res = await this.#ddbClient.update(
+            this.#tableName,
+            { key, namespace },
+            `SET ${[...setStatements].join(', ')}`,
+            valueAttributeValues,
+            { ...valueAttributeNames, '#value': 'value' },
+        );
 
         writeUnits += res.ConsumedCapacity?.CapacityUnits ?? 0;
         this.#meteringService.incrementUsage(actor, 'kv:write', writeUnits);
         return res.Attributes?.value;
     }
 
-    async #expireAt (key: string, timestamp: number) {
+    async #expireAt (key: string, timestamp: number, optConfig?: { appUuid?: string }) {
 
         const actor = Context.get('actor');
 
         const user = actor.type?.user ?? undefined;
         if ( ! user ) throw new Error('User not found');
 
-        const namespace = this.#getNameSpace(actor);
+        const namespace = this.#getNameSpace(actor, optConfig?.appUuid);
 
         // if possibly migrating from old SQL store, get entry first to move to dynamo
         if ( this.#enableMigrationFromSQL ) {
             await this.get({ key });
         }
 
-        const res = await this.#ddbClient.update(this.#tableName,
-                        { key, namespace },
-                        'SET #ttl = :ttl, #value = if_not_exists(#value, :defaultValue)',
-                        { ':ttl': timestamp, ':defaultValue': null },
-                        { '#ttl': 'ttl', '#value': 'value' });
+        const res = await this.#ddbClient.update(
+            this.#tableName,
+            { key, namespace },
+            'SET #ttl = :ttl, #value = if_not_exists(#value, :defaultValue)',
+            { ':ttl': timestamp, ':defaultValue': null },
+            { '#ttl': 'ttl', '#value': 'value' },
+        );
 
         // meter usage
         this.#meteringService.incrementUsage(actor, 'kv:write', res?.ConsumedCapacity?.CapacityUnits ?? 1);

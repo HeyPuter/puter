@@ -480,7 +480,7 @@ export async function get_app (options) {
     return app;
 }
 
-const get_app_icon_url = (app, size) => {
+export const get_app_icon_url = (app, size) => {
     const iconIsBase64 = isBase64AppIcon(app);
     const svc_appIcon = servicesContainer.services.get('app-icon');
     const app_uid = app.uid ?? app.uuid;

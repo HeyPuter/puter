@@ -479,6 +479,69 @@ describe('DynamoKVStore', async () => {
         expect((stored as { a?: { b?: number[] } }).a?.b).toEqual([1, 5]);
     });
 
+    it('supports appUuid namespace isolation for non-app actors', async () => {
+        const actor = makeActor(22);
+        const key = 'override-key';
+        const optConfig = { appUuid: 'override-app-a' };
+
+        await su.sudo(actor, () => kvStore.set({ key, value: 'default-value' }));
+        await su.sudo(actor, () => kvStore.set({ key, value: 'override-value', optConfig }));
+
+        const defaultRead = await su.sudo(actor, () => kvStore.get({ key }));
+        const overrideRead = await su.sudo(actor, () => kvStore.get({ key, optConfig }));
+        const overrideList = await su.sudo(actor, () => kvStore.list({ as: 'keys', pattern: `${key}*`, optConfig })) as string[];
+
+        expect(defaultRead).toBe('default-value');
+        expect(overrideRead).toBe('override-value');
+        expect(overrideList).toContain(key);
+
+        await su.sudo(actor, () => kvStore.del({ key, optConfig }));
+        const afterOverrideDelete = await su.sudo(actor, () => kvStore.get({ key, optConfig }));
+        const defaultAfterOverrideDelete = await su.sudo(actor, () => kvStore.get({ key }));
+
+        expect(afterOverrideDelete).toBeNull();
+        expect(defaultAfterOverrideDelete).toBe('default-value');
+    });
+
+    it('flush with appUuid only clears that override namespace', async () => {
+        const actor = makeActor(23);
+        const overrideA = { appUuid: 'flush-override-a' };
+        const overrideB = { appUuid: 'flush-override-b' };
+        const keyA = 'flush-override-key-a';
+        const keyB = 'flush-override-key-b';
+        const defaultKey = 'flush-default-key';
+
+        await su.sudo(actor, () => kvStore.set({ key: keyA, value: 'A', optConfig: overrideA }));
+        await su.sudo(actor, () => kvStore.set({ key: keyB, value: 'B', optConfig: overrideB }));
+        await su.sudo(actor, () => kvStore.set({ key: defaultKey, value: 'default' }));
+
+        await su.sudo(actor, () => kvStore.flush({ optConfig: overrideA }));
+
+        expect(await su.sudo(actor, () => kvStore.get({ key: keyA, optConfig: overrideA }))).toBeNull();
+        expect(await su.sudo(actor, () => kvStore.get({ key: keyB, optConfig: overrideB }))).toBe('B');
+        expect(await su.sudo(actor, () => kvStore.get({ key: defaultKey }))).toBe('default');
+    });
+
+    it('ignores appUuid when actor already has an app context', async () => {
+        const appActor = makeActor(24, 'real-app');
+        const userActor = makeActor(24);
+        const key = 'app-context-override-ignore';
+
+        await su.sudo(appActor, () => kvStore.set({
+            key,
+            value: 'from-app-context',
+            optConfig: { appUuid: 'fake-app' },
+        }));
+
+        const appRead = await su.sudo(appActor, () => kvStore.get({ key }));
+        const userReadFromFake = await su.sudo(userActor, () => kvStore.get({ key, optConfig: { appUuid: 'fake-app' } }));
+        const userReadFromReal = await su.sudo(userActor, () => kvStore.get({ key, optConfig: { appUuid: 'real-app' } }));
+
+        expect(appRead).toBe('from-app-context');
+        expect(userReadFromFake).toBeNull();
+        expect(userReadFromReal).toBe('from-app-context');
+    });
+
     it('enforces key and value size limits', async () => {
         const actor = makeActor(11);
         const oversizedKey = 'a'.repeat(((config as unknown as Record<string, number>).kv_max_key_size as number) + 1);

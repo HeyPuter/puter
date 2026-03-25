@@ -24,6 +24,7 @@ export interface KVListOptions {
     returnValues?: boolean;
     limit?: number;
     cursor?: string;
+    optConfig?: KVOptConfig;
 }
 
 export type KVListPaginationOptions =
@@ -35,27 +36,39 @@ export interface KVListPage<T = unknown> {
     cursor?: string;
 }
 
+export interface KVOptConfig {
+    appUuid?: string;
+}
+
 export class KV {
     readonly MAX_KEY_SIZE: number;
     readonly MAX_VALUE_SIZE: number;
 
-    set<T = KVScalar>(key: string, value: T, expireAt?: number): Promise<boolean>;
-    get<T = unknown>(key: string): Promise<T | undefined>;
-    del (key: string): Promise<boolean>;
-    incr (key: string, amount?: number | KVIncrementPath): Promise<number>;
-    decr (key: string, amount?: number | KVIncrementPath): Promise<number>;
-    add (key: string, value?: KVValue | KVAddPath): Promise<KVValue>;
-    remove (key: string, ...paths: string[]): Promise<KVValue>;
-    update (key: string, pathAndValueMap: KVUpdatePath, ttlSeconds?: number): Promise<KVValue>;
-    expire (key: string, ttlSeconds: number): Promise<boolean>;
-    expireAt (key: string, timestampSeconds: number): Promise<boolean>;
+    set<T = KVScalar>(key: string, value: T, optConfig: KVOptConfig): Promise<boolean>;
+    set<T = KVScalar>(key: string, value: T, expireAt?: number, optConfig?: KVOptConfig): Promise<boolean>;
+    get<T = unknown>(key: string, optConfig?: KVOptConfig): Promise<T | undefined>;
+    del (key: string, optConfig?: KVOptConfig): Promise<boolean>;
+    incr (key: string, optConfig: KVOptConfig): Promise<number>;
+    incr (key: string, amount?: number | KVIncrementPath, optConfig?: KVOptConfig): Promise<number>;
+    decr (key: string, optConfig: KVOptConfig): Promise<number>;
+    decr (key: string, amount?: number | KVIncrementPath, optConfig?: KVOptConfig): Promise<number>;
+    add (key: string, optConfig: KVOptConfig): Promise<KVValue>;
+    add (key: string, value?: KVValue | KVAddPath, optConfig?: KVOptConfig): Promise<KVValue>;
+    remove (key: string, ...paths: Array<string | KVOptConfig>): Promise<KVValue>;
+    update (key: string, pathAndValueMap: KVUpdatePath, optConfig: KVOptConfig): Promise<KVValue>;
+    update (key: string, pathAndValueMap: KVUpdatePath, ttlSeconds?: number, optConfig?: KVOptConfig): Promise<KVValue>;
+    expire (key: string, ttlSeconds: number, optConfig?: KVOptConfig): Promise<boolean>;
+    expireAt (key: string, timestampSeconds: number, optConfig?: KVOptConfig): Promise<boolean>;
     list (pattern?: string, returnValues?: false): Promise<string[]>;
     list<T = unknown>(pattern: string, returnValues: true): Promise<KVPair<T>[]>;
     list<T = unknown>(returnValues: true): Promise<KVPair<T>[]>;
+    list (pattern: string, returnValues: boolean, optConfig: KVOptConfig): Promise<string[] | KVPair<unknown>[]>;
+    list (pattern: string, optConfig: KVOptConfig): Promise<string[]>;
+    list<T = unknown>(returnValues: true, optConfig: KVOptConfig): Promise<KVPair<T>[]>;
     list (options: KVListOptions & KVListPaginationOptions & { returnValues?: false }): Promise<KVListPage<string>>;
     list<T = unknown>(options: KVListOptions & KVListPaginationOptions & { returnValues: true }): Promise<KVListPage<KVPair<T>>>;
     list (options: KVListOptions & { returnValues?: false }): Promise<string[]>;
     list<T = unknown>(options: KVListOptions & { returnValues: true }): Promise<KVPair<T>[]>;
-    flush (): Promise<boolean>;
-    clear (): Promise<boolean>;
+    flush (optConfig?: KVOptConfig): Promise<boolean>;
+    clear (optConfig?: KVOptConfig): Promise<boolean>;
 }

@@ -43,19 +43,14 @@ const createMethodDecorator = (method: HttpMethod) => {
         adminUsernames?: string[],
     ) => {
         const { allowedAppIds, ...options } = routeOptions ?? {};
-        return <
-            P extends Record<string, string | undefined> = Record<
-                string,
-        string | undefined
-            >,
-        >(
-            target: RequestHandler<P>,
+        return (
+            target: RequestHandler<any, any, any, any, any>,
             _context: ClassMethodDecoratorContext<
                 This,
                 (
                     this: This,
-                    ...args: Parameters<RequestHandler<P>>
-                ) => ReturnType<RequestHandler<P>>
+                    ...args: Parameters<RequestHandler<any, any, any, any, any>>
+                ) => ReturnType<RequestHandler<any, any, any, any, any>>
             >,
         ) => {
             _context.addInitializer(function () {
