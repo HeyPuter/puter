@@ -9,12 +9,7 @@ const getAppIconUrl = extension.import('core').util.helpers.get_app_icon_url;
 @Controller('/installedApps')
 export class InstalledAppsController extends ExtensionController {
 
-    static ALLOWED_ORDER_BY = ['id',
-        'name',
-        'uid',
-        'title',
-        'owner_id',
-        'dt'];
+    static ALLOWED_ORDER_BY = ['id', 'name', 'uid', 'title', 'owner_id', 'installed_at'];
     #db: BaseDatabaseAccessService;
     constructor (db: BaseDatabaseAccessService) {
         super();
