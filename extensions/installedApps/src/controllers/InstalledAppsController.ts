@@ -27,7 +27,7 @@ export class InstalledAppsController extends ExtensionController {
     async getInstalledApps (req: Request<null, null, null, { orderBy: string, desc: boolean, page: number, limit: number }>, res: Response): Promise<void> {
         const actor = req.actor;
         if ( ! actor ) {
-            throw Error('actor not found in context');
+            throw new HttpError(401, 'actor not found in context');
         }
         if ( actor.type.app ) {
             throw new HttpError(403, 'Apps are not allowed to access this resource');
@@ -49,7 +49,7 @@ export class InstalledAppsController extends ExtensionController {
                 apps.uid,
                 apps.title,
                 apps.description,
-                MIN(perm.dt) AS installed_at,
+                MIN(perm.dt) AS installed_at
             FROM apps
             LEFT JOIN user_to_app_permissions AS perm ON apps.id = perm.app_id
             WHERE perm.user_id = ?
@@ -57,7 +57,7 @@ export class InstalledAppsController extends ExtensionController {
             ORDER BY ${orderByField} ${sortDirection}
             LIMIT ?
             OFFSET ?`,
-            [actor.type.user.id, actor.type.user.id, limit, offset],
+            [actor.type.user.id, limit, offset],
         ) as {
             name: string;
             uid: string;

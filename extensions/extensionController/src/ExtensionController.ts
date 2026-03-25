@@ -151,7 +151,7 @@ export class ExtensionController {
                                     );
                                 }
                             }
-                            await route.handler.bind(this)(req, res, next);
+                            return await route.handler.bind(this)(req, res, next);
                         } catch ( error ) {
                             if ( error instanceof HttpError ) {
                                 res.status(error.statusCode).send({ error: error.message });
