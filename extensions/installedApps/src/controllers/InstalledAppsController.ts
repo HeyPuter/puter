@@ -45,16 +45,13 @@ export class InstalledAppsController extends ExtensionController {
 
         const installedApps = await this.#db.read(
             `SELECT
-                apps.id,
                 apps.name,
                 apps.uid,
                 apps.title,
                 apps.description,
                 MIN(perm.dt) AS installed_at,
-                MAX(app_opens.ts) AS last_opened
             FROM apps
             LEFT JOIN user_to_app_permissions AS perm ON apps.id = perm.app_id
-            LEFT JOIN app_opens ON app_opens.app_uid = apps.uid AND app_opens.user_id = ?
             WHERE perm.user_id = ?
             GROUP BY apps.id, apps.name, apps.uid, apps.title, apps.description
             ORDER BY ${orderByField} ${sortDirection}
@@ -62,7 +59,6 @@ export class InstalledAppsController extends ExtensionController {
             OFFSET ?`,
             [actor.type.user.id, actor.type.user.id, limit, offset],
         ) as {
-            id: number;
             name: string;
             uid: string;
             title: string;
