@@ -137,7 +137,7 @@ export class EdgeRateLimitService extends BaseService {
      * This method sets an interval that calls the cleanup function every 5 minutes.
      */
     async _init () {
-        asyncSafeSetInterval(() => this.cleanup(), 5 * MINUTE);
+        asyncSafeSetInterval(() => this.cleanup(), 4.5 * MINUTE);
     }
 
     check (scope, noIncrease = false) {

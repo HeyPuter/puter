@@ -73,7 +73,7 @@ class RefreshAssociationsService extends BaseService {
                 await Context.allow_fallback(async () => {
                     await refresh_associations_cache();
                 });
-            }, 30000);
+            }, 32000);
         }, 15000);
     }
 }

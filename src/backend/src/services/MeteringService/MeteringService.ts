@@ -28,7 +28,7 @@ export class MeteringService {
         this.#eventService = eventService;
         setInterval(() => {
             this.#checkRateOfChange();
-        }, 1000 * 60 * 15); // check every 15 minutes
+        }, 1000 * 60 * 16); // check every 16 minutes
     }
 
     utilRecordUsageObject<T extends Record<string, number>>(trackedUsageObject: T, actor: Actor, modelPrefix: string, costsOverrides?: Partial<Record<keyof T, number>>) {

@@ -20,7 +20,14 @@ const { ServerHealthRedisCacheKeys } = require('./ServerHealthRedisCacheKeys.js'
 const BaseService = require('../../../services/BaseService');
 const { kv } = require('../../../util/kvSingleton');
 const { promise } = require('@heyputer/putility').libs;
+
 const SECOND = 1000;
+const CHECK_INTERVAL_MS = 5 * SECOND;
+const CHECK_TIMEOUT_MS = 4 * SECOND;
+const HEALTH_LOOP_STALE_MULTIPLIER = 3;
+const EVENT_LOOP_MONITOR_INTERVAL_MS = SECOND;
+const DEFAULT_EVENT_LOOP_LAG_FAIL_MS = 1000;
+const DEFAULT_DB_LIVENESS_LATENCY_FAIL_MS = 1500;
 
 /**
 * The ServerHealthService class provides comprehensive health monitoring for the server.
@@ -45,12 +52,105 @@ class ServerHealthService extends BaseService {
     _construct () {
         this.checks_ = [];
         this.failures_ = [];
+        this.health_started_at_ = Date.now();
+        this.last_check_cycle_started_at_ = 0;
+        this.last_check_cycle_completed_at_ = 0;
+        this.event_loop_lag_ms_ = 0;
+        this.web_checks_registered_ = false;
     }
 
     async _init () {
-        this.init_service_checks_();
-
         this.stats_ = {};
+
+        this.#initDefaultChecks();
+        this.#initEventLoopMonitor();
+        this.#initServiceCheck();
+    }
+
+    async '__on_ready.webserver' () {
+        this.#registerWebChecks();
+    }
+
+    #initDefaultChecks () {
+        const eventLoopLagFailMs = Number(
+            this.global_config?.server_health?.event_loop_lag_fail_ms,
+        ) || DEFAULT_EVENT_LOOP_LAG_FAIL_MS;
+
+        this.add_check('event-loop-lag', async () => {
+            this.stats_.event_loop_lag_ms = this.event_loop_lag_ms_;
+            if ( this.event_loop_lag_ms_ > eventLoopLagFailMs ) {
+                throw new Error(
+                    `event loop lag too high: ${this.event_loop_lag_ms_}ms ` +
+                    `(threshold ${eventLoopLagFailMs}ms)`,
+                );
+            }
+        });
+
+        const dbService = this.#getServiceIfAvailable('database');
+        if ( dbService && typeof dbService.read === 'function' ) {
+            const dbLivenessLatencyFailMs = Number(
+                this.global_config?.server_health?.db_liveness_latency_fail_ms,
+            ) || DEFAULT_DB_LIVENESS_LATENCY_FAIL_MS;
+
+            this.add_check('database-liveness', async () => {
+                const startedAt = Date.now();
+                const rows = await dbService.read('SELECT 1 AS ok');
+                const durationMs = Date.now() - startedAt;
+
+                this.stats_.database_liveness_latency_ms = durationMs;
+
+                if ( !Array.isArray(rows) || rows.length === 0 ) {
+                    throw new Error('database liveness check returned no rows');
+                }
+
+                if ( durationMs > dbLivenessLatencyFailMs ) {
+                    throw new Error(
+                        `database liveness query latency too high: ${durationMs}ms ` +
+                        `(threshold ${dbLivenessLatencyFailMs}ms)`,
+                    );
+                }
+            });
+        }
+    }
+
+    #initEventLoopMonitor () {
+        let expectedTickAt = Date.now() + EVENT_LOOP_MONITOR_INTERVAL_MS;
+
+        promise.asyncSafeSetInterval(() => {
+            const now = Date.now();
+            this.event_loop_lag_ms_ = Math.max(0, now - expectedTickAt);
+            this.stats_.event_loop_lag_ms = this.event_loop_lag_ms_;
+            expectedTickAt = now + EVENT_LOOP_MONITOR_INTERVAL_MS;
+        }, EVENT_LOOP_MONITOR_INTERVAL_MS);
+    }
+
+    #registerWebChecks () {
+        if ( this.web_checks_registered_ ) return;
+
+        const webServerService = this.#getServiceIfAvailable('web-server');
+        if ( ! webServerService ) return;
+
+        this.add_check('web-server-listening', async () => {
+            const server = webServerService.get_server?.();
+            if ( ! server ) {
+                throw new Error('web server is not initialized');
+            }
+
+            if ( server.listening !== true ) {
+                throw new Error('web server is not listening');
+            }
+        });
+
+        const socketioService = this.#getServiceIfAvailable('socketio');
+        if ( socketioService ) {
+            this.add_check('socketio-initialized', async () => {
+                if ( ! socketioService.io ) {
+                    throw new Error('socket.io is not initialized');
+                }
+            });
+        }
+
+        this.web_checks_registered_ = true;
     }
 
     /**
@@ -61,7 +161,7 @@ class ServerHealthService extends BaseService {
     * @param {none} - This method does not take any parameters.
     * @returns {void} - This method does not return any value.
     */
-    init_service_checks_ () {
+    #initServiceCheck () {
         const svc_alarm = this.services.get('alarm');
         /**
         * Initializes periodic health checks for the server.
@@ -77,8 +177,11 @@ class ServerHealthService extends BaseService {
         * @returns {void}
         */
         promise.asyncSafeSetInterval(async () => {
+            this.last_check_cycle_started_at_ = Date.now();
+            this.stats_.last_check_cycle_started_at = this.last_check_cycle_started_at_;
             this.log.tick('service checks');
             const check_failures = [];
+            const check_durations_ms = {};
             for ( const { name, fn, chainable } of this.checks_ ) {
                 const p_timeout = new promise.TeePromise();
                 /**
@@ -88,42 +191,47 @@ class ServerHealthService extends BaseService {
                 */
                 const timeout = setTimeout(() => {
                     p_timeout.reject(new Error('Health check timed out'));
-                }, 5 * SECOND);
+                }, CHECK_TIMEOUT_MS);
+                const check_started_at = Date.now();
                 try {
                     await Promise.race([
                         fn(),
                         p_timeout,
                     ]);
-                    clearTimeout(timeout);
                 } catch ( err ) {
-                    // Trigger an alarm if this check isn't already in the failure list
-
-                    if ( this.failures_.some(v => v.name === name) ) {
-                        return;
-                    }
-
-                    svc_alarm.create(
-                        'health-check-failure',
-                        `Health check ${name} failed`,
-                        { error: err },
-                    );
                     check_failures.push({ name });
+                    const alreadyFailing = this.failures_.some(v => v.name === name);
 
-                    this.log.error(`Error for healthcheck fail on ${name}: ${ err.stack}`);
+                    if ( ! alreadyFailing ) {
+                        svc_alarm.create(
+                            'health-check-failure',
+                            `Health check ${name} failed`,
+                            { error: err },
+                        );
 
-                    // Run the on_fail handlers
-                    for ( const fn of chainable.on_fail_ ) {
-                        try {
-                            await fn(err);
-                        } catch ( e ) {
-                            this.log.error(`Error in on_fail handler for ${name}`, e);
+                        // Run the on_fail handlers only on new failures
+                        for ( const fn of chainable.on_fail_ ) {
+                            try {
+                                await fn(err);
+                            } catch ( e ) {
+                                this.log.error(`Error in on_fail handler for ${name}`, e);
+                            }
                         }
                     }
+
+                    this.log.error(`Error for healthcheck fail on ${name}: ${ err.stack}`);
+                } finally {
+                    clearTimeout(timeout);
+                    check_durations_ms[name] = Date.now() - check_started_at;
                 }
             }
 
             this.failures_ = check_failures;
-        }, 10 * SECOND, null, {
+            this.last_check_cycle_completed_at_ = Date.now();
+            this.stats_.last_check_cycle_completed_at = this.last_check_cycle_completed_at_;
+            this.stats_.check_durations_ms = check_durations_ms;
+            this.stats_.failed_checks = this.failures_.map(v => v.name);
+        }, CHECK_INTERVAL_MS, null, {
             onBehindSchedule: (drift) => {
                 svc_alarm.create(
                     'health-checks-behind-schedule',
@@ -169,28 +277,70 @@ class ServerHealthService extends BaseService {
         const cacheKey = ServerHealthRedisCacheKeys.status;
 
         // Check cache first
-        const cached = await kv.get(cacheKey);
-        if ( cached ) {
-            try {
-                return JSON.parse(cached);
-            } catch (e) {
-                // no op cache is in an invalid state
+        try {
+            const cached = await kv.get(cacheKey);
+            if ( cached ) {
+                try {
+                    return JSON.parse(cached);
+                } catch (e) {
+                    // no op cache is in an invalid state
+                }
             }
+        } catch (e) {
+            this.log.warn(`Unable to read health status cache: ${e.message}`);
         }
 
         // Compute status
-        const failures = this.failures_.map(v => v.name);
+        const failures = this.#getStatusFailures();
         const status = {
             ok: failures.length === 0,
             ...(failures.length ? { failed: failures } : {}),
         };
 
         // Cache with 5 second TTL
-        await kv.set(cacheKey, JSON.stringify(status), {
-            EX: 5,
-        });
+        try {
+            await kv.set(cacheKey, JSON.stringify(status), {
+                EX: 5,
+            });
+        } catch (e) {
+            this.log.warn(`Unable to write health status cache: ${e.message}`);
+        }
 
         return status;
+    }
+
+    #getStatusFailures () {
+        const failures = this.failures_.map(v => v.name);
+        const staleHealthRunnerFailure = this.#getStaleHealthRunnerFailure();
+        if ( staleHealthRunnerFailure ) {
+            failures.push(staleHealthRunnerFailure);
+        }
+        return failures;
+    }
+
+    #getStaleHealthRunnerFailure () {
+        const staleAfterMs = Number(
+            this.global_config?.server_health?.stale_health_loop_fail_ms,
+        ) || (CHECK_INTERVAL_MS * HEALTH_LOOP_STALE_MULTIPLIER);
+        const now = Date.now();
+
+        if ( this.last_check_cycle_completed_at_ === 0 ) {
+            return (now - this.health_started_at_) > staleAfterMs
+                ? 'health-check-loop-not-running'
+                : null;
+        }
+
+        return (now - this.last_check_cycle_completed_at_) > staleAfterMs
+            ? 'health-check-loop-stale'
+            : null;
+    }
+
+    #getServiceIfAvailable (serviceName) {
+        try {
+            return this.services.get(serviceName);
+        } catch {
+            return null;
+        }
     }
 }
 

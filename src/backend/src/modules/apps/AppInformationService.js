@@ -86,7 +86,7 @@ class AppInformationService extends BaseService {
                 } catch (e) {
                     console.error('App stats cache failed to update:', e);
                 }
-            }, 15.314 * 60 * 1000);
+            }, 13.314 * 60 * 1000);
         })();
     }
 

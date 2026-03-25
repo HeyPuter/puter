@@ -15,13 +15,14 @@ class DynamoKVStoreServiceWrapper extends BaseService {
             tableName: this.config.tableName || 'store-kv-v1',
         });
         await this.kvStore.createTableIfNotExists();
+        await this.#registerHealthcheck();
         Object.getOwnPropertyNames(DynamoKVStore.prototype).forEach(fn => {
             if ( fn === 'constructor' ) return;
             this[fn] = (...args: unknown[]) => this.kvStore[fn](...args);
         });
     }
 
-    async registerHealthcheck () {
+    async #registerHealthcheck () {
         const healthcheckService = this.services.get('server-health');
 
         healthcheckService.add_check('kv-store', async () => {
