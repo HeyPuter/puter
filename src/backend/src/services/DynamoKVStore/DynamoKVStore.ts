@@ -382,7 +382,7 @@ export class DynamoKVStore {
     }
 
     @Span('kv:flush')
-    async flush ({ optConfig}: { optConfig?: { appUuid?: string } }) {
+    async flush ({ optConfig }: { optConfig?: { appUuid?: string } } = {}) {
         const actor = Context.get('actor');
 
         const app = actor.type.app ?? undefined;

@@ -16,16 +16,16 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-import eggspress from '../../api/eggspress.js';
-import { UserActorType } from '../../services/auth/Actor.js';
-import { Context } from '../../util/context.js';
-import { APIError } from '../../api/APIError.js';
+const eggspress = require('../../api/eggspress');
+const { UserActorType } = require('../../services/auth/Actor');
+const { Context } = require('../../util/context');
+const APIError = require('../../api/APIError');
 
-export const revokeUserAppPermsRoute = eggspress('/auth/revoke-user-app', {
+module.exports = eggspress('/auth/revoke-user-app', {
     subdomain: 'api',
     auth2: true,
     allowedMethods: ['POST'],
-}, async (req, res) => {
+}, async (req, res, next) => {
     const x = Context.get();
     const svc_permission = x.get('services').get('permission');
 
