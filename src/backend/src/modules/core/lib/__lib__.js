@@ -24,5 +24,4 @@ module.exports = {
         stdioutil: require('./stdio.js'),
         linuxutil: require('./linux.js'),
     },
-    expect: require('./expect.js'),
 };

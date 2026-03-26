@@ -18,6 +18,12 @@
  */
 const eggspress = require('../api/eggspress');
 
+/**
+ * @deprecated Use eggspress directly
+ * @param {any} spec
+ * @param {any} handler
+ * @returns {any}
+ */
 const Endpoint = function Endpoint (spec, handler) {
     return {
         attach (route) {
@@ -29,9 +35,11 @@ const Endpoint = function Endpoint (spec, handler) {
                 ...(spec.mw ? { mw: spec.mw } : {}),
                 ...spec.otherOpts,
             };
-            const eggspress_router = eggspress(spec.route,
-                            eggspress_options,
-                            handler ?? spec.handler);
+            const eggspress_router = eggspress(
+                spec.route,
+                eggspress_options,
+                handler ?? spec.handler,
+            );
             route.use(eggspress_router);
         },
         but (newSpec) {

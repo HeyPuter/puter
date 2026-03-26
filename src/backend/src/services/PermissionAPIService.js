@@ -17,8 +17,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const { APIError } = require('openai');
+const eggspress = require('../api/eggspress');
 const configurable_auth = require('../middleware/configurable_auth');
-const { Endpoint } = require('../util/expressutil');
 const BaseService = require('./BaseService');
 
 /**
@@ -55,9 +55,15 @@ class PermissionAPIService extends BaseService {
         app.use(require('../routers/auth/check-permissions.js'));
         app.use(require('../routers/auth/request-app-root-dir'));
 
-        Endpoint(require('../routers/auth/check-app-acl.endpoint.js')).but({
-            route: '/auth/check-app-acl',
-        }).attach(app);
+        const checkAppAclSpec = require('../routers/auth/check-app-acl.endpoint.js');
+        app.use(eggspress('/auth/check-app-acl', {
+            allowedMethods: checkAppAclSpec.methods ?? ['GET'],
+            ...(checkAppAclSpec.subdomain ? { subdomain: checkAppAclSpec.subdomain } : {}),
+            ...(checkAppAclSpec.parameters ? { parameters: checkAppAclSpec.parameters } : {}),
+            ...(checkAppAclSpec.alias ? { alias: checkAppAclSpec.alias } : {}),
+            ...(checkAppAclSpec.mw ? { mw: checkAppAclSpec.mw } : {}),
+            ...checkAppAclSpec.otherOpts,
+        }, checkAppAclSpec.handler));
 
         // track: scoping iife
         /**
@@ -76,174 +82,164 @@ class PermissionAPIService extends BaseService {
     }
 
     install_group_endpoints_ ({ router }) {
-        Endpoint({
-            route: '/create',
-            methods: ['POST'],
+        router.use(eggspress('/create', {
+            allowedMethods: ['POST'],
             mw: [configurable_auth()],
-            handler: async (req, res) => {
-                const owner_user_id = req.user.id;
+        }, async (req, res) => {
+            const owner_user_id = req.user.id;
 
-                const extra = req.body.extra ?? {};
-                const metadata = req.body.metadata ?? {};
-                if ( !extra || typeof extra !== 'object' || Array.isArray(extra) ) {
-                    throw APIError.create('field_invalid', null, {
-                        key: 'extra',
-                        expected: 'object',
-                        got: extra,
-                    });
-                }
-                if ( !metadata || typeof metadata !== 'object' || Array.isArray(metadata) ) {
-                    throw APIError.create('field_invalid', null, {
-                        key: 'metadata',
-                        expected: 'object',
-                        got: metadata,
-                    });
-                }
-
-                const svc_group = this.services.get('group');
-                const uid = await svc_group.create({
-                    owner_user_id,
-                    // TODO: includeslist for allowed 'extra' fields
-                    extra: {},
-                    // Metadata can be specified in request
-                    metadata: metadata ?? {},
+            const extra = req.body.extra ?? {};
+            const metadata = req.body.metadata ?? {};
+            if ( !extra || typeof extra !== 'object' || Array.isArray(extra) ) {
+                throw APIError.create('field_invalid', null, {
+                    key: 'extra',
+                    expected: 'object',
+                    got: extra,
                 });
+            }
+            if ( !metadata || typeof metadata !== 'object' || Array.isArray(metadata) ) {
+                throw APIError.create('field_invalid', null, {
+                    key: 'metadata',
+                    expected: 'object',
+                    got: metadata,
+                });
+            }
 
-                res.json({ uid });
-            },
-        }).attach(router);
+            const svc_group = this.services.get('group');
+            const uid = await svc_group.create({
+                owner_user_id,
+                // TODO: includeslist for allowed 'extra' fields
+                extra: {},
+                // Metadata can be specified in request
+                metadata: metadata ?? {},
+            });
 
-        Endpoint({
-            route: '/add-users',
-            methods: ['POST'],
+            res.json({ uid });
+        }));
+
+        router.use(eggspress('/add-users', {
+            allowedMethods: ['POST'],
             mw: [configurable_auth()],
-            handler: async (req, res) => {
-                const svc_group = this.services.get('group');
+        }, async (req, res) => {
+            const svc_group = this.services.get('group');
 
-                // TODO: validate string and uuid for request
+            // TODO: validate string and uuid for request
 
-                const group = await svc_group.get({ uid: req.body.uid });
+            const group = await svc_group.get({ uid: req.body.uid });
 
-                if ( ! group ) {
-                    throw APIError.create('entity_not_found', null, {
-                        identifier: req.body.uid,
-                    });
-                }
-
-                if ( group.owner_user_id !== req.user.id ) {
-                    throw APIError.create('forbidden');
-                }
-
-                if ( ! Array.isArray(req.body.users) ) {
-                    throw APIError.create('field_invalid', null, {
-                        key: 'users',
-                        expected: 'array',
-                        got: req.body.users,
-                    });
-                }
-
-                for ( let i = 0 ; i < req.body.users.length ; i++ ) {
-                    const value = req.body.users[i];
-                    if ( typeof value === 'string' ) continue;
-                    throw APIError.create('field_invalid', null, {
-                        key: `users[${i}]`,
-                        expected: 'string',
-                        got: value,
-                    });
-                }
-
-                await svc_group.add_users({
-                    uid: req.body.uid,
-                    users: req.body.users,
+            if ( ! group ) {
+                throw APIError.create('entity_not_found', null, {
+                    identifier: req.body.uid,
                 });
+            }
 
-                res.json({});
-            },
-        }).attach(router);
+            if ( group.owner_user_id !== req.user.id ) {
+                throw APIError.create('forbidden');
+            }
+
+            if ( ! Array.isArray(req.body.users) ) {
+                throw APIError.create('field_invalid', null, {
+                    key: 'users',
+                    expected: 'array',
+                    got: req.body.users,
+                });
+            }
+
+            for ( let i = 0 ; i < req.body.users.length ; i++ ) {
+                const value = req.body.users[i];
+                if ( typeof value === 'string' ) continue;
+                throw APIError.create('field_invalid', null, {
+                    key: `users[${i}]`,
+                    expected: 'string',
+                    got: value,
+                });
+            }
+
+            await svc_group.add_users({
+                uid: req.body.uid,
+                users: req.body.users,
+            });
+
+            res.json({});
+        }));
 
         // TODO: DRY: add-users is very similar
-        Endpoint({
-            route: '/remove-users',
-            methods: ['POST'],
+        router.use(eggspress('/remove-users', {
+            allowedMethods: ['POST'],
             mw: [configurable_auth()],
-            handler: async (req, res) => {
-                const svc_group = this.services.get('group');
+        }, async (req, res) => {
+            const svc_group = this.services.get('group');
 
-                // TODO: validate string and uuid for request
+            // TODO: validate string and uuid for request
 
-                const group = await svc_group.get({ uid: req.body.uid });
+            const group = await svc_group.get({ uid: req.body.uid });
 
-                if ( ! group ) {
-                    throw APIError.create('entity_not_found', null, {
-                        identifier: req.body.uid,
-                    });
-                }
-
-                if ( group.owner_user_id !== req.user.id ) {
-                    throw APIError.create('forbidden');
-                }
-
-                if ( Array.isArray(req.body.users) ) {
-                    throw APIError.create('field_invalid', null, {
-                        key: 'users',
-                        expected: 'array',
-                        got: req.body.users,
-                    });
-                }
-
-                for ( let i = 0 ; i < req.body.users.length ; i++ ) {
-                    const value = req.body.users[i];
-                    if ( typeof value === 'string' ) continue;
-                    throw APIError.create('field_invalid', null, {
-                        key: `users[${i}]`,
-                        expected: 'string',
-                        got: value,
-                    });
-                }
-
-                await svc_group.remove_users({
-                    uid: req.body.uid,
-                    users: req.body.users,
+            if ( ! group ) {
+                throw APIError.create('entity_not_found', null, {
+                    identifier: req.body.uid,
                 });
+            }
 
-                res.json({});
-            },
-        }).attach(router);
+            if ( group.owner_user_id !== req.user.id ) {
+                throw APIError.create('forbidden');
+            }
 
-        Endpoint({
-            route: '/list',
-            methods: ['GET'],
+            if ( Array.isArray(req.body.users) ) {
+                throw APIError.create('field_invalid', null, {
+                    key: 'users',
+                    expected: 'array',
+                    got: req.body.users,
+                });
+            }
+
+            for ( let i = 0 ; i < req.body.users.length ; i++ ) {
+                const value = req.body.users[i];
+                if ( typeof value === 'string' ) continue;
+                throw APIError.create('field_invalid', null, {
+                    key: `users[${i}]`,
+                    expected: 'string',
+                    got: value,
+                });
+            }
+
+            await svc_group.remove_users({
+                uid: req.body.uid,
+                users: req.body.users,
+            });
+
+            res.json({});
+        }));
+
+        router.use(eggspress('/list', {
+            allowedMethods: ['GET'],
             mw: [configurable_auth()],
-            handler: async (req, res) => {
-                const svc_group = this.services.get('group');
+        }, async (req, res) => {
+            const svc_group = this.services.get('group');
 
-                // TODO: validate string and uuid for request
+            // TODO: validate string and uuid for request
 
-                const owned_groups = await svc_group.list_groups_with_owner({ owner_user_id: req.user.id });
+            const owned_groups = await svc_group.list_groups_with_owner({ owner_user_id: req.user.id });
 
-                const in_groups = await svc_group.list_groups_with_member({ user_id: req.user.id });
+            const in_groups = await svc_group.list_groups_with_member({ user_id: req.user.id });
 
-                const public_groups = await svc_group.list_public_groups();
+            const public_groups = await svc_group.list_public_groups();
 
-                res.json({
-                    owned_groups: await Promise.all(owned_groups.map(g => g.get_client_value({ members: true }))),
-                    in_groups: await Promise.all(in_groups.map(g => g.get_client_value({ members: true }))),
-                    public_groups: await Promise.all(public_groups.map(g => g.get_client_value())),
-                });
-            },
-        }).attach(router);
+            res.json({
+                owned_groups: await Promise.all(owned_groups.map(g => g.get_client_value({ members: true }))),
+                in_groups: await Promise.all(in_groups.map(g => g.get_client_value({ members: true }))),
+                public_groups: await Promise.all(public_groups.map(g => g.get_client_value())),
+            });
+        }));
 
-        Endpoint({
-            route: '/public-groups',
-            methods: ['GET'],
+        router.use(eggspress('/public-groups', {
+            allowedMethods: ['GET'],
             mw: [configurable_auth()],
-            handler: async (req, res) => {
-                res.json({
-                    user: this.global_config.default_user_group,
-                    temp: this.global_config.default_temp_group,
-                });
-            },
-        }).attach(router);
+        }, async (req, res) => {
+            res.json({
+                user: this.global_config.default_user_group,
+                temp: this.global_config.default_temp_group,
+            });
+        }));
     }
 }
 

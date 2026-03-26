@@ -19,8 +19,8 @@
 import { encode } from 'html-entities';
 import { LRUCache } from 'lru-cache';
 import fs from 'node:fs';
+import eggspress from '../api/eggspress.js';
 import { is_valid_url } from '../helpers.js';
-import { Endpoint } from '../util/expressutil.js';
 import { PathBuilder } from '../util/pathutil.js';
 import BaseService from './BaseService.js';
 /**
@@ -69,29 +69,27 @@ export class PuterHomepageService extends BaseService {
     }
 
     async '__on_install.routes' (_, { app }) {
-        Endpoint({
-            route: '/whoarewe',
-            methods: ['GET'],
-            handler: async (req, res) => {
-                // Get basic configuration information
-                const responseData = {
-                    disable_user_signup: this.global_config.disable_user_signup,
-                    disable_temp_users: this.global_config.disable_temp_users,
-                    environmentInfo: {
-                        env: this.global_config.env,
-                        version: process.env.VERSION || 'development',
-                    },
-                };
+        app.use(eggspress('/whoarewe', {
+            allowedMethods: ['GET'],
+        }, async (req, res) => {
+            // Get basic configuration information
+            const responseData = {
+                disable_user_signup: this.global_config.disable_user_signup,
+                disable_temp_users: this.global_config.disable_temp_users,
+                environmentInfo: {
+                    env: this.global_config.env,
+                    version: process.env.VERSION || 'development',
+                },
+            };
 
-                // Add captcha requirement information
-                responseData.captchaRequired = {
-                    login: req.captchaRequired,
-                    signup: req.captchaRequired,
-                };
+            // Add captcha requirement information
+            responseData.captchaRequired = {
+                login: req.captchaRequired,
+                signup: req.captchaRequired,
+            };
 
-                res.json(responseData);
-            },
-        }).attach(app);
+            res.json(responseData);
+        }));
     }
 
     /**

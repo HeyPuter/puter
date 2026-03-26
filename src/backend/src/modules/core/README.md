@@ -77,28 +77,6 @@ the source of the error.
 - **location:** The location where the error occurred.
 - **fields:** The error details to report.
 
-### ExpectationService
-
-
-
-#### Listeners
-
-##### `boot.consolidation`
-
-ExpectationService registers its commands at the consolidation phase because
-the '_init' method of CommandService may not have been called yet.
-
-#### Methods
-
-##### `expect_eventually`
-
-Registers an expectation to be tracked by the service.
-
-###### Parameters
-
-- **workUnit:** The work unit to track
-- **checkpoint:** The checkpoint to expect
-
 ### LogService
 
 The `LogService` class extends `BaseService` and is responsible for managing and 
@@ -182,8 +160,6 @@ Sets up event listeners on the process object to capture and report critical err
 through the logging and error reporting services.
 
 ## Libraries
-
-### core.expect
 
 ### core.util.identutil
 

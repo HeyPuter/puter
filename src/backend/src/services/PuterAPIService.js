@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 import configurable_auth from '../middleware/configurable_auth.js';
+import eggspress from '../api/eggspress.js';
 import appsRouter from '../routers/apps.js';
 import authAppUidFromOriginRouter from '../routers/auth/app-uid-from-origin.js';
 import authCheckAppRouter from '../routers/auth/check-app.js';
@@ -62,7 +63,6 @@ import suggestAppsRouter from '../routers/suggest_apps.js';
 import testRouter from '../routers/test.js';
 import updateTaskbarItemsRouter from '../routers/update-taskbar-items.js';
 import verifyPassRecoveryTokenRouter from '../routers/verify-pass-recovery-token.js';
-import { Endpoint } from '../util/expressutil.js';
 import BaseService from './BaseService.js';
 /**
 * @class PuterAPIService
@@ -132,12 +132,10 @@ export class PuterAPIService extends BaseService {
         app.use(testRouter);
         app.use(updateTaskbarItemsRouter);
 
-        Endpoint({
-            route: '/get-launch-apps',
-            methods: ['GET'],
+        app.use(eggspress('/get-launch-apps', {
+            allowedMethods: ['GET'],
             mw: [configurable_auth()],
-            handler: launchAppsHandler,
-        }).attach(app);
+        }, launchAppsHandler));
 
     }
 }

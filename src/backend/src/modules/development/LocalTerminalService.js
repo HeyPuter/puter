@@ -19,8 +19,8 @@
 
 const { spawn } = require('child_process');
 const APIError = require('../../api/APIError');
+const eggspress = require('../../api/eggspress');
 const configurable_auth = require('../../middleware/configurable_auth');
-const { Endpoint } = require('../../util/expressutil');
 
 const PERM_LOCAL_TERMINAL = 'local-terminal:access';
 
@@ -36,9 +36,11 @@ class LocalTerminalService extends BaseService {
     get_profiles () {
         return {
             'api-test': {
-                cwd: path_.join(__dirname,
-                                '../../../../../',
-                                'tools/api-tester'),
+                cwd: path_.join(
+                    __dirname,
+                    '../../../../../',
+                    'tools/api-tester',
+                ),
                 shell: [
                     '/usr/bin/env', 'node',
                     'apitest.js',
@@ -56,91 +58,87 @@ class LocalTerminalService extends BaseService {
         })();
         app.use('/local-terminal', r_group);
 
-        Endpoint({
-            route: '/new',
-            methods: ['POST'],
+        r_group.use(eggspress('/new', {
+            allowedMethods: ['POST'],
             mw: [configurable_auth()],
-            handler: async (req, res) => {
-                const term_uuid = require('uuid').v4();
+        }, async (req, res) => {
+            const term_uuid = require('uuid').v4();
 
-                const svc_permission = this.services.get('permission');
-                const actor = Context.get('actor');
-                const can_access = actor &&
-                    await svc_permission.check(actor, PERM_LOCAL_TERMINAL);
+            const svc_permission = this.services.get('permission');
+            const actor = Context.get('actor');
+            const can_access = actor &&
+                await svc_permission.check(actor, PERM_LOCAL_TERMINAL);
 
-                if ( ! can_access ) {
-                    throw APIError.create('permission_denied', null, {
-                        permission: PERM_LOCAL_TERMINAL,
-                    });
-                }
-
-                const profiles = this.get_profiles();
-                if ( ! profiles[req.body.profile] ) {
-                    throw APIError.create('invalid_profile', null, {
-                        profile: req.body.profile,
-                    });
-                }
-
-                const profile = profiles[req.body.profile];
-
-                const args = profile.shell.slice(1);
-                if ( profile.allow_args && req.body.args ) {
-                    args.push(...req.body.args);
-                }
-                const proc = spawn(profile.shell[0], args, {
-                    shell: true,
-                    env: {
-                        ...process.env,
-                        ...(profile.env ?? {}),
-                    },
-                    cwd: profile.cwd,
+            if ( ! can_access ) {
+                throw APIError.create('permission_denied', null, {
+                    permission: PERM_LOCAL_TERMINAL,
                 });
+            }
 
-                // stdout to websocket
-                {
-                    const svc_socketio = req.services.get('socketio');
-                    proc.stdout.on('data', data => {
-                        const base64 = data.toString('base64');
-                        console.debug('---------------------- CHUNK?', base64);
-                        svc_socketio.send({ room: req.user.id },
-                                        'local-terminal.stdout',
-                                        {
-                                            term_uuid,
-                                            base64,
-                                        });
-                    });
-                    proc.stderr.on('data', data => {
-                        const base64 = data.toString('base64');
-                        console.debug('---------------------- CHUNK?', base64);
-                        svc_socketio.send({ room: req.user.id },
-                                        'local-terminal.stderr',
-                                        {
-                                            term_uuid,
-                                            base64,
-                                        });
-                    });
-                }
-
-                proc.on('exit', () => {
-                    this.log.noticeme(`[${term_uuid}] Process exited (${proc.exitCode})`);
-                    delete this.sessions_[term_uuid];
-
-                    const svc_socketio = req.services.get('socketio');
-                    svc_socketio.send({ room: req.user.id },
-                                    'local-terminal.exit',
-                                    {
-                                        term_uuid,
-                                    });
+            const profiles = this.get_profiles();
+            if ( ! profiles[req.body.profile] ) {
+                throw APIError.create('invalid_profile', null, {
+                    profile: req.body.profile,
                 });
+            }
 
-                this.sessions_[term_uuid] = {
-                    uuid: term_uuid,
-                    proc,
-                };
+            const profile = profiles[req.body.profile];
 
-                res.json({ term_uuid });
-            },
-        }).attach(r_group);
+            const args = profile.shell.slice(1);
+            if ( profile.allow_args && req.body.args ) {
+                args.push(...req.body.args);
+            }
+            const proc = spawn(profile.shell[0], args, {
+                shell: true,
+                env: {
+                    ...process.env,
+                    ...(profile.env ?? {}),
+                },
+                cwd: profile.cwd,
+            });
+
+            // stdout to websocket
+            {
+                const svc_socketio = req.services.get('socketio');
+                proc.stdout.on('data', data => {
+                    const base64 = data.toString('base64');
+                    console.debug('---------------------- CHUNK?', base64);
+                    svc_socketio.send(
+                        { room: req.user.id },
+                        'local-terminal.stdout',
+                        { term_uuid, base64 },
+                    );
+                });
+                proc.stderr.on('data', data => {
+                    const base64 = data.toString('base64');
+                    console.debug('---------------------- CHUNK?', base64);
+                    svc_socketio.send(
+                        { room: req.user.id },
+                        'local-terminal.stderr',
+                        { term_uuid, base64 },
+                    );
+                });
+            }
+
+            proc.on('exit', () => {
+                this.log.noticeme(`[${term_uuid}] Process exited (${proc.exitCode})`);
+                delete this.sessions_[term_uuid];
+
+                const svc_socketio = req.services.get('socketio');
+                svc_socketio.send(
+                    { room: req.user.id },
+                    'local-terminal.exit',
+                    { term_uuid },
+                );
+            });
+
+            this.sessions_[term_uuid] = {
+                uuid: term_uuid,
+                proc,
+            };
+
+            res.json({ term_uuid });
+        }));
     }
     async _init () {
         const svc_event = this.services.get('event');

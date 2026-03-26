@@ -23,8 +23,6 @@ const APIError = require('../../api/APIError');
 const { Context } = require('../../util/context');
 const config = require('../../config');
 const { TeePromise } = require('@heyputer/putility').libs.promise;
-const { WorkUnit } = require('../../modules/core/lib/expect');
-
 class BatchExecutor extends AdvancedBase {
     static LOG_LEVEL = true;
 
@@ -33,7 +31,6 @@ class BatchExecutor extends AdvancedBase {
         this.x = x;
         this.actor = actor;
         this.pathResolver = new PathResolver({ actor });
-        this.expectations = x.get('services').get('expectations');
         this.log = log;
         this.errors = errors;
         this.responsePromises = [];
@@ -64,18 +61,11 @@ class BatchExecutor extends AdvancedBase {
 
         this.concurrent_ops++;
 
-        const { expectations } = this;
         const command_cls = commands[op.op];
         if ( this.log_batchCommands ) {
             console.log(command_cls, JSON.stringify(op, null, 2));
         }
         delete op.op;
-
-        const workUnit = WorkUnit.create();
-        expectations.expect_eventually({
-            workUnit,
-            checkpoint: 'operation responded',
-        });
 
         // TEMP: event service will handle this
         op.original_client_socket_id = req.body.original_client_socket_id;
@@ -93,22 +83,13 @@ class BatchExecutor extends AdvancedBase {
                     });
                 }
 
-                if ( file ) {
-                    workUnit.checkpoint(`about to run << ${
-                        file.originalname ?? file.name
-                    } >> ${
-                        JSON.stringify(op)}`);
-                }
                 const command_ins = await command_cls.run({
                     getFile: () => file,
                     pathResolver: this.pathResolver,
                     actor: this.actor,
                 }, op);
-                workUnit.checkpoint('operation invoked');
 
                 const res = await command_ins.awaitValue('result');
-                // const res = await opctx.awaitValue('response');
-                workUnit.checkpoint('operation responded');
                 return res;
             } catch (e) {
                 this.hasError = true;
