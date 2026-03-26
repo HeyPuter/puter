@@ -79,18 +79,56 @@ const TabApps = {
         const $container = $el_window.find('.myapps-container');
 
         try {
-            const res = await fetch(
-                `${window.api_origin}/installedApps?orderBy=name&limit=100`,
-                {
-                    headers: {
-                        'Authorization': `Bearer ${puter.authToken}`,
+            // Fetch both APIs in parallel
+            const [installedRes, launchRes] = await Promise.all([
+                fetch(
+                    `${window.api_origin}/installedApps?orderBy=name&limit=100`,
+                    {
+                        headers: { 'Authorization': `Bearer ${puter.authToken}` },
+                        method: 'GET',
                     },
-                    method: 'GET',
-                },
-            );
-            const apps = await res.json();
-            this._apps = apps;
-            $container.html(buildAppsGrid(apps));
+                ),
+                fetch(
+                    `${window.api_origin}/get-launch-apps?icon_size=64`,
+                    {
+                        headers: { 'Authorization': `Bearer ${window.auth_token}` },
+                        method: 'GET',
+                    },
+                ),
+            ]);
+
+            const installedApps = await installedRes.json();
+            const launchData = await launchRes.json();
+
+            // Normalize launch apps (recommended + recent) to same shape
+            const launchApps = [
+                ...(launchData.recommended || []),
+                ...(launchData.recent || []),
+            ].map(app => ({
+                name: app.name,
+                title: app.title,
+                iconUrl: app.icon || null,
+            }));
+
+            // Build seen set from launch apps
+            const seen = new Set();
+            const merged = [];
+
+            for ( const app of launchApps ) {
+                if ( seen.has(app.name) ) continue;
+                seen.add(app.name);
+                merged.push(app);
+            }
+
+            // Append installed apps that aren't already in the list
+            for ( const app of installedApps ) {
+                if ( seen.has(app.name) ) continue;
+                seen.add(app.name);
+                merged.push(app);
+            }
+
+            this._apps = merged;
+            $container.html(buildAppsGrid(merged));
         } catch (e) {
             console.error('Failed to load installed apps:', e);
             $container.html('<div class="myapps-empty"><p>Failed to load apps</p></div>');

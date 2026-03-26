@@ -499,10 +499,8 @@ body {
 .myapps-tile-icon {
     width: 60px;
     height: 60px;
-    border-radius: 14px;
     overflow: hidden;
     background: var(--dashboard-card-background);
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08), 0 0 0 0.5px rgba(0, 0, 0, 0.04);
     transition: transform 0.15s ease, box-shadow 0.15s ease;
     display: flex;
     align-items: center;
@@ -517,7 +515,6 @@ body {
 
 .myapps-tile:hover .myapps-tile-icon {
     transform: scale(1.08);
-    box-shadow: 0 3px 8px rgba(0, 0, 0, 0.12), 0 0 0 0.5px rgba(0, 0, 0, 0.06);
 }
 
 .myapps-tile:active .myapps-tile-icon {
