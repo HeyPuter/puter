@@ -440,11 +440,52 @@ body {
     padding: 32px 40px;
 }
 
-.myapps-tab h2 {
-    font-size: 26px;
-    font-weight: 700;
-    color: var(--dashboard-text-heading);
-    margin: 0 0 24px 0;
+.myapps-search-wrap {
+    position: relative;
+    margin-bottom: 24px;
+    max-width: 360px;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+.myapps-search-icon {
+    position: absolute;
+    right: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 16px;
+    height: 16px;
+    color: var(--dashboard-text-tertiary);
+    pointer-events: none;
+}
+
+.myapps-icon-clear {
+    pointer-events: auto;
+    cursor: pointer;
+}
+
+.myapps-icon-clear:hover {
+    color: var(--dashboard-text-primary);
+}
+
+.myapps-search {
+    width: 100%;
+    padding: 8px 36px 8px 12px;
+    font-size: 14px;
+    border: 1px solid var(--dashboard-border);
+    border-radius: 8px;
+    background: var(--dashboard-input-background);
+    color: var(--dashboard-text-primary);
+    outline: none;
+    transition: border-color 0.15s;
+}
+
+.myapps-search:focus {
+    border-color: var(--select-color);
+}
+
+.myapps-search::placeholder {
+    color: var(--dashboard-text-muted);
 }
 
 .myapps-container {
