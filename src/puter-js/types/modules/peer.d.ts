@@ -2,7 +2,10 @@ export interface PuterPeerOptions {
     iceServers?: RTCIceServer[];
 }
 
-export interface PuterPeerUser extends Record<string, unknown> {}
+export interface PuterPeerUser {
+    username: string;
+    uuid: string;
+}
 
 export type PuterPeerMessage = string | Blob | ArrayBuffer | ArrayBufferView;
 export type PuterPeerDescription = RTCSessionDescription | RTCSessionDescriptionInit;
@@ -14,17 +17,17 @@ export class PuterPeerServerConnectionEvent extends Event {
 }
 
 export class PuterPeerConnectionMessageEvent extends Event {
-    readonly data: unknown;
+    readonly data: ArrayBuffer | string;
 }
 
 export class PuterPeerConnectionOpenEvent extends Event {}
 
 export class PuterPeerConnectionCloseEvent extends Event {
-    readonly reason?: unknown;
+    readonly reason?: string;
 }
 
 export class PuterPeerConnectionErrorEvent extends Event {
-    readonly error: unknown;
+    readonly error: string;
 }
 
 export interface PuterPeerServerEventMap {
@@ -40,9 +43,10 @@ export interface PuterPeerConnectionEventMap {
 
 export class PuterPeerServer extends EventTarget {
     inviteCode?: string;
+    connections: Map<string, PuterPeerConnection>;
 
     start (): Promise<string>;
-    message (data: unknown): Promise<void>;
+    message (data: ArrayBuffer | string): Promise<void>;
 
     addEventListener(type: string, callback: EventListenerOrEventListenerObject | null, options?: boolean | AddEventListenerOptions): void;
     addEventListener<K extends keyof PuterPeerServerEventMap>(
@@ -60,11 +64,12 @@ export class PuterPeerServer extends EventTarget {
 
 export class PuterPeerConnection extends EventTarget {
     peerconnection: RTCPeerConnection;
+    owner?: PuterPeerUser;
     connected: boolean;
     closed: boolean;
 
     connect (invitecode: string): Promise<void>;
-    close (reason?: unknown): void;
+    close (reason?: string): void;
     createOffer (): Promise<RTCSessionDescriptionInit>;
     createAnswer (): Promise<RTCSessionDescriptionInit>;
     setRemoteDescription (description: PuterPeerDescription): void;

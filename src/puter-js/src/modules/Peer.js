@@ -42,8 +42,7 @@ class PuterPeerServer extends EventTarget {
     #wsconn;
     #oncreateresolve;
 
-    /** @type {Map<string, PuterPeerConnection>} */
-    #connections = new Map();
+    connections = new Map();
     inviteCode;
     #peerConfig;
 
@@ -112,7 +111,7 @@ class PuterPeerServer extends EventTarget {
         if ( data.server.connect ) {
             let uuid = data.server.connect.id;
             let connection = new PuterPeerConnection(this.#peerConfig);
-            this.#connections.set(uuid, connection);
+            this.connections.set(uuid, connection);
             connection.peerconnection.onicecandidate = (e) => {
                 if ( e.candidate ) {
                     this.#wsconn.send(
@@ -137,7 +136,7 @@ class PuterPeerServer extends EventTarget {
 
         if ( data.server.candidate ) {
             let uuid = data.server.candidate.id;
-            let connection = this.#connections.get(uuid);
+            let connection = this.connections.get(uuid);
             if ( connection ) {
                 await connection.addIceCandidate(
                     data.server.candidate.candidate,
@@ -147,7 +146,7 @@ class PuterPeerServer extends EventTarget {
 
         if ( data.server.offer ) {
             let uuid = data.server.offer.id;
-            let connection = this.#connections.get(uuid);
+            let connection = this.connections.get(uuid);
             if ( connection ) {
                 await connection.setRemoteDescription(
                     new RTCSessionDescription(data.server.offer.offer),
@@ -169,7 +168,7 @@ class PuterPeerServer extends EventTarget {
     }
 
     close () {
-        for ( const [uuid, connection] of this.#connections ) {
+        for ( const [uuid, connection] of this.connections ) {
             connection.close();
         }
         this.#wsconn.onclose = null;
@@ -180,6 +179,7 @@ class PuterPeerServer extends EventTarget {
 class PuterPeerConnection extends EventTarget {
     #wsconn;
     peerconnection;
+    owner;
     #peerConfig;
     #datachannel;
     connected = false;
@@ -270,6 +270,7 @@ class PuterPeerConnection extends EventTarget {
             }
             if ( msg.connect ) {
                 if ( msg.connect.success ) {
+                    this.owner = msg.connect.owner;
                     const offer = await this.createOffer();
                     this.#wsconn.send(
                         JSON.stringify({
