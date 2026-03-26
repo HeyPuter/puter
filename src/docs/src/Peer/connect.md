@@ -45,7 +45,7 @@ A `Promise` that resolves to a `PuterPeerConnection` instance.
 
 - `send(data)` - Send a message to the peer. Supports strings, `Blob`, `ArrayBuffer`, or `ArrayBufferView`.
 - `close(reason)` - Close the connection.
-- `owner` field: Contains information about the user who created the server.
+- `owner` (`object`) - Information about the user who created the server.
 - `open` event: Fired when the data channel is ready.
 - `message` event: Fired when a message is received (`event.data`).
 - `close` event: Fired when the connection closes (`event.reason`).
