@@ -40,6 +40,7 @@ A `Promise` that resolves to a `PuterPeerServer` instance.
 ### `PuterPeerServer` properties and events
 
 - `inviteCode` (`string`) The code you share with other clients.
+- `connections` (`Map<string, PuterPeerConnection>`) map of all connected clients
 - `connection` event: Fired when a client connects.
   - `event.conn` (`PuterPeerConnection`) The connection to the client.
   - `event.user` (`object`) Metadata about the connecting user (if available).
