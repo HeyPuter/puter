@@ -27,18 +27,50 @@ const { Context } = require('../../../util/context.js');
 const { subdomain } = require('../../../helpers.js');
 const config = require('../../../config.js');
 
+// Oneday, this will be a typescript typedef.
+// Doesn't seem like that day is today.
+
+/**
+ * @typedef {"GET"|"HEAD"|"POST"|"PUT"|"DELETE"|"PROPFIND"|"PROPPATCH"|"MKCOL"|"COPY"|"MOVE"|"LOCK"|"UNLOCK"|"OPTIONS"} EggspressMethod
+ */
+
+/**
+ * @typedef {{
+ *   consolidate(args: {
+ *     req: import('express').Request,
+ *     getParam: (key: string) => unknown,
+ *   }): Promise<unknown>|unknown,
+ * }} EggspressParamDefinition
+ */
+
+/**
+ * @typedef {object} EggspressSettings
+ * @property {boolean} [auth]
+ * @property {boolean} [auth2]
+ * @property {unknown} [abuse]
+ * @property {boolean} [verified]
+ * @property {boolean} [json]
+ * @property {boolean} [jsonCanBeLarge]
+ * @property {boolean} [noReallyItsJson]
+ * @property {string[]} [files]
+ * @property {boolean} [multest]
+ * @property {string[]} [multipart_jsons]
+ * @property {Record<string, string>} [alias]
+ * @property {Record<string, EggspressParamDefinition>} [parameters]
+ * @property {import('express').RequestHandler} [customArgs]
+ * @property {number} [alarm_timeout]
+ * @property {number} [response_timeout]
+ * @property {import('express').RequestHandler[]} [mw]
+ * @property {EggspressMethod[]} allowedMethods
+ * @property {string} [subdomain]
+ */
+
 /**
  * eggspress() is a factory function for creating express routers.
  *
- * @param {*} route the route to the router
- * @param {*} settings the settings for the router. The following
- *  properties are supported:
- * - auth: whether or not to use the auth middleware
- * - fs: whether or not to use the fs middleware
- * - json: whether or not to use the json middleware
- * - customArgs: custom arguments to pass to the router
- * - allowedMethods: the allowed HTTP methods
- * @param {*} handler the handler for the router
+ * @param {string|RegExp|(string|RegExp)[]} route the route to the router
+ * @param {EggspressSettings} settings the settings for the router
+ * @param {import('express').RequestHandler} handler the handler for the router
  * @returns {express.Router} the router
  */
 module.exports = function eggspress (route, settings, handler) {
