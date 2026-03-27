@@ -172,7 +172,7 @@ Puter.js is powered by [Puter](https://github.com/HeyPuter/puter), the open-sour
     <script src="https://js.puter.com/v2/"></script>
     <script>
         // Chat with GPT-5 nano
-        puter.ai.chat(`What is life?`, { model: "gpt-5-nano" }).then(puter.print);
+        puter.ai.chat(`What is life?`, { model: "gpt-5.4-nano" }).then(puter.print);
     </script>
 </body>
 </html>

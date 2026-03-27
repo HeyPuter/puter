@@ -22,14 +22,14 @@ You can use AI models from various providers to perform tasks such as chat, text
 
 <div class="example-content" data-section="ai-chat" style="display:block;">
 
-#### Chat with GPT-5 nano
+#### Chat with GPT-5.4 nano
 
 ```html;ai-chatgpt
 <html>
 <body>
     <script src="https://js.puter.com/v2/"></script>
     <script>
-        puter.ai.chat(`What is life?`, { model: "gpt-5-nano" }).then(puter.print);
+        puter.ai.chat(`What is life?`, { model: "gpt-5.4-nano" }).then(puter.print);
     </script>
 </body>
 </html>
