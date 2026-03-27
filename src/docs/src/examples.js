@@ -56,6 +56,12 @@ const examples = [
                 source: '/playground/examples/ai-gpt-vision.html',
             },
             {
+                title: 'Video Analysis',
+                description: 'Analyze videos with AI using Puter.js. Run and modify this video analysis example instantly in your browser.',
+                slug: 'ai-video-analysis',
+                source: '/playground/examples/ai-video-analysis.html',
+            },
+            {
                 title: 'Stream the response',
                 description: 'Stream AI chat responses in real-time with Puter.js. Run and experiment with this streaming example in the playground.',
                 slug: 'ai-chat-stream',

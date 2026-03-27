@@ -1,6 +1,6 @@
 ---
 title: puter.ai.chat()
-description: Chat with AI models, analyze images, and perform function calls using 500+ models from OpenAI, Anthropic, Google, and more.
+description: Chat with AI models, analyze images and videos, and perform function calls using 500+ models from OpenAI, Anthropic, Google, and more.
 platforms: [websites, apps, nodejs, workers]
 ---
 
@@ -12,8 +12,8 @@ Given a prompt returns the completion that best matches the prompt.
 puter.ai.chat(prompt)
 puter.ai.chat(prompt, options = {})
 puter.ai.chat(prompt, testMode = false, options = {})
-puter.ai.chat(prompt, image, testMode = false, options = {})
-puter.ai.chat(prompt, [imageURLArray], testMode = false, options = {})
+puter.ai.chat(prompt, media, testMode = false, options = {})
+puter.ai.chat(prompt, [mediaURLArray], testMode = false, options = {})
 puter.ai.chat([messages], testMode = false, options = {})
 ```
 
@@ -39,13 +39,13 @@ An object containing the following properties:
 
 A boolean indicating whether you want to use the test API. Defaults to `false`. This is useful for testing your code without using up API credits.
 
-#### `image` (String | File)
+#### `media` (String | File)
 
-A string containing the URL or Puter path of the image, or a `File` object containing the image you want to provide as context for the completion.
+A string containing the URL or Puter path of an image or video, or a `File` object containing the media you want to provide as context for the completion.
 
-#### `imageURLArray` (Array)
+#### `mediaURLArray` (Array)
 
-An array of strings containing the URLs of images you want to provide as context for the completion.
+An array of strings containing the URLs of images or videos you want to provide as context for the completion.
 
 #### `messages` (Array)
 
@@ -187,6 +187,23 @@ List of OpenAI models that support the web search can be found in their [API com
         puter.ai
             .chat(`What do you see?`, `https://assets.puter.site/doge.jpeg`, {
                 model: "gpt-5-nano",
+            })
+            .then(puter.print);
+    </script>
+</body>
+</html>
+```
+
+<strong class="example-title">Video Analysis</strong>
+
+```html;ai-video-analysis
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        puter.ai
+            .chat(`What do you see?`, `https://assets.puter.site/puppy.mp4`, {
+                model: "reka/reka-edge",
             })
             .then(puter.print);
     </script>
