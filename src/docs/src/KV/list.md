@@ -45,6 +45,43 @@ A `Promise` that will resolve to either:
 
 If the user has no keys, the array will be empty.
 
+## Sorting
+
+The list() returns keys in lexicographic (string) order.
+
+### ISO timestamps sort correctly out of the box:
+
+```javascript
+await puter.kv.set('log:2025-03-15T10:00:00Z', { msg: 'third' });
+await puter.kv.set('log:2025-01-01T00:00:00Z', { msg: 'first' });
+await puter.kv.set('log:2025-02-14T08:00:00Z', { msg: 'second' });
+
+const logs = await puter.kv.list('log:*');
+// ["log:2025-01-01T00:00:00Z",
+//  "log:2025-02-14T08:00:00Z",
+//  "log:2025-03-15T10:00:00Z"]
+```
+### Numbers need zero-padding
+
+Otherwise `item:10` sorts before `item:2`:
+
+```javascript
+// Wrong — sorts as 1, 10, 100, 2, 20
+await puter.kv.set('item:1', '...');
+await puter.kv.set('item:10', '...');
+await puter.kv.set('item:2', '...');
+
+// Correct — zero-pad to a fixed width
+await puter.kv.set('item:001', '...');
+await puter.kv.set('item:002', '...');
+await puter.kv.set('item:010', '...');
+
+const items = await puter.kv.list('item:*');
+// Result: ["item:001", "item:002", "item:010"]
+```
+Try it yourself in the [Playground](https://docs.puter.com/playground/).
+
+
 ## Examples
 
 <strong class="example-title">Retrieve all keys in the user's key-value store for the current app</strong>
