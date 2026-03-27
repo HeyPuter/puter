@@ -1,4 +1,4 @@
-import type { RequestHandler } from 'express';
+import type { NextFunction, Request, Response } from 'express';
 import { StatusCodes } from 'http-status-codes';
 import type {
     EndpointOptions,
@@ -31,7 +31,7 @@ interface RouteMeta {
     method: HttpMethod;
     path: string;
     options?: EndpointOptions | undefined;
-    handler: RequestHandler;
+    handler: (req: Request, res: Response, next: NextFunction) => void | Promise<void>;
     adminUsernames?: string[];
     allowedAppIds?: string[];
 }
@@ -44,13 +44,13 @@ const createMethodDecorator = (method: HttpMethod) => {
     ) => {
         const { allowedAppIds, ...options } = routeOptions ?? {};
         return (
-            target: RequestHandler<any, any, any, any, any>,
+            target: (req: Request, res: Response, next: NextFunction) => void | Promise<void>,
             _context: ClassMethodDecoratorContext<
                 This,
                 (
                     this: This,
-                    ...args: Parameters<RequestHandler<any, any, any, any, any>>
-                ) => ReturnType<RequestHandler<any, any, any, any, any>>
+                    ...args: [req: Request, res: Response, next: NextFunction]
+                ) => void | Promise<void>
             >,
         ) => {
             _context.addInitializer(function () {

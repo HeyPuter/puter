@@ -43,6 +43,8 @@ class AlarmService extends BaseService {
         this.alarm_aliases = {};
 
         this.known_errors = [];
+        this.isDraining = false;
+        this.drainSuppressionLogged = false;
     }
     /**
     * Method to initialize AlarmService. Sets the known errors and registers commands.
@@ -76,6 +78,12 @@ class AlarmService extends BaseService {
         return id;
     }
 
+    beginDrain (reason = 'shutdown') {
+        if ( this.isDraining ) return;
+        this.isDraining = true;
+        this.log.info(`alarm service entering drain mode: ${reason}`);
+    }
+
     /**
      * Method to create an alarm with the given ID, message, and fields.
      * If the ID already exists, it will be updated with the new fields
@@ -86,6 +94,14 @@ class AlarmService extends BaseService {
      * @param {object} fields - Additional information about the alarm.
      */
     create (id, message, fields) {
+        if ( this.isDraining ) {
+            if ( ! this.drainSuppressionLogged ) {
+                this.drainSuppressionLogged = true;
+                this.log.info('suppressing alarm create/pager dispatch while draining');
+            }
+            return;
+        }
+
         if ( this.config.log_upcoming_alarms ) {
             this.log.error(`upcoming alarm: ${id}: ${message}`);
         }
@@ -232,8 +248,10 @@ class AlarmService extends BaseService {
     }
 
     handle_alarm_repeat_ (alarm) {
-        this.log.warn(`REPEAT ${alarm.id_string} :: ${alarm.message} (${alarm.count})`,
-                        alarm.fields);
+        this.log.warn(
+            `REPEAT ${alarm.id_string} :: ${alarm.message} (${alarm.count})`,
+            alarm.fields,
+        );
 
         this.apply_known_errors_(alarm);
 
@@ -260,8 +278,10 @@ class AlarmService extends BaseService {
     }
 
     handle_alarm_on_ (alarm) {
-        this.log.error(`ACTIVE ${alarm.id_string} :: ${alarm.message} (${alarm.count})`,
-                        alarm.fields);
+        this.log.error(
+            `ACTIVE ${alarm.id_string} :: ${alarm.message} (${alarm.count})`,
+            alarm.fields,
+        );
 
         this.apply_known_errors_(alarm);
 
@@ -326,8 +346,10 @@ class AlarmService extends BaseService {
     }
 
     handle_alarm_off_ (alarm) {
-        this.log.info(`CLEAR ${alarm.id} :: ${alarm.message} (${alarm.count})`,
-                        alarm.fields);
+        this.log.info(
+            `CLEAR ${alarm.id} :: ${alarm.message} (${alarm.count})`,
+            alarm.fields,
+        );
     }
 
     /**

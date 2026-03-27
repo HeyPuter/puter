@@ -2,9 +2,9 @@
 import type { BaseDatabaseAccessService } from '@heyputer/backend/src/services/database/BaseDatabaseAccessService.js';
 import type { MeteringService } from '@heyputer/backend/src/services/MeteringService/MeteringService.js';
 import type {
-    ExtensionRequest,
-    ExtensionResponse,
-} from '../../api.d.ts';
+    Request,
+    Response,
+} from 'express';
 
 const { Controller, Get, ExtensionController } = extension.import('extensionController');
 
@@ -23,7 +23,7 @@ export class UsageController extends ExtensionController {
     }
 
     @Get('usage', { subdomain: 'api' })
-    async getUsage (req: ExtensionRequest, res: ExtensionResponse) {
+    async getUsage (req: Request, res: Response) {
         const actor = req.actor;
         if ( ! actor ) {
             throw Error('actor not found in context');
@@ -40,7 +40,7 @@ export class UsageController extends ExtensionController {
     }
 
     @Get('usage/:appIdOrName', { subdomain: 'api' })
-    async getUsageByApp (req: ExtensionRequest, res: ExtensionResponse) {
+    async getUsageByApp (req: Request, res: Response) {
         const actor = req.actor;
         if ( ! actor ) {
             throw Error('actor not found in context');
@@ -83,7 +83,7 @@ export class UsageController extends ExtensionController {
     }
 
     @Get('globalUsage', { subdomain: 'api' }, extension.config.allowedGlobalUsageUsers || [])
-    async getGlobalUsage (req: ExtensionRequest, res: ExtensionResponse) {
+    async getGlobalUsage (req: Request, res: Response) {
         const actor = req.actor;
         if ( ! actor ) {
             throw Error('actor not found in context');
