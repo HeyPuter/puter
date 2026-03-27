@@ -51,7 +51,7 @@ const puter = require("@heyputer/puter.js");
 <body>
     <script src="https://js.puter.com/v2/"></script>
     <script>
-        puter.ai.chat(`What is life?`, { model: "gpt-5-nano" }).then(puter.print);
+        puter.ai.chat(`What is life?`, { model: "gpt-5.4-nano" }).then(puter.print);
     </script>
 </body>
 </html>
@@ -96,7 +96,7 @@ import { init } from "@heyputer/puter.js/src/init.cjs";
 
 const puter = init(process.env.puterAuthToken); // uses your auth token
 
-// Chat with GPT-5 nano
+// Chat with GPT-5.4 nano
 puter.ai.chat("What color was Napoleon's white horse?").then((response) => {
   puter.print(response);
 });
