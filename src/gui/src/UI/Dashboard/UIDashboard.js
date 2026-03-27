@@ -61,14 +61,6 @@ const builtinTabs = [
     TabSecurity,
 ];
 
-// Dynamically load dashboard CSS if not already loaded
-if ( ! document.querySelector('link[href*="dashboard.css"]') ) {
-    const link = document.createElement('link');
-    link.rel = 'stylesheet';
-    link.href = '/css/dashboard.css';
-    document.head.appendChild(link);
-}
-
 async function UIDashboard (options) {
     // eslint-disable-next-line no-unused-vars
     options = options ?? {};
