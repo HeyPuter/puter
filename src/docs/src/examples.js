@@ -99,7 +99,7 @@ const examples = [
             },
             {
                 title: 'Prompt caching with Claude',
-                description: 'Reduce time and cost with Claude prompt caching using Puter.js AI API. Try AI examples directly in Puter.js playground.',
+                description: 'Reduce time and costs with Claude prompt caching using Puter.js AI API. Try AI examples directly in Puter.js playground.',
                 slug: 'ai-claude-cache-control',
                 source: '/playground/examples/ai-claude-cache-control.html',
             },
