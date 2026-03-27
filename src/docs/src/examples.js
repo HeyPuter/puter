@@ -98,6 +98,12 @@ const examples = [
                 source: '/playground/examples/ai-chat-claude.html',
             },
             {
+                title: 'Prompt caching with Claude',
+                description: 'Reduce time and cost with Claude prompt caching using Puter.js AI API. Try AI examples directly in Puter.js playground.',
+                slug: 'ai-claude-cache-control',
+                source: '/playground/examples/ai-claude-cache-control.html',
+            },
+            {
                 title: 'Chat with DeepSeek',
                 description: 'Chat with DeepSeek using Puter.js AI API. Run and experiment with this example directly in the playground.',
                 slug: 'ai-chat-deepseek',
