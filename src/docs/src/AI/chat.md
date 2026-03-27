@@ -395,7 +395,7 @@ You can find the implementation in our [prompt caching example](/playground/ai-c
 
 <strong class="example-title">Prompt caching with Claude</strong>
 
-```
+```html;ai-claude-cache-control
 <html>
 <body>
     <script src="https://js.puter.com/v2/"></script>
