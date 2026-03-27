@@ -493,13 +493,6 @@ body {
     min-height: 200px;
 }
 
-.myapps-loading {
-    color: var(--dashboard-text-tertiary);
-    font-size: 14px;
-    padding: 40px 0;
-    text-align: center;
-}
-
 .myapps-empty {
     display: flex;
     flex-direction: column;

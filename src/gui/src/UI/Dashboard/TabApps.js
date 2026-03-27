@@ -90,7 +90,6 @@ const TabApps = {
         h += '<input type="text" class="myapps-search" placeholder="Search apps..." autocomplete="off" spellcheck="false">';
         h += '</div>';
         h += '<div class="myapps-container">';
-        h += '<div class="myapps-loading">Loading apps...</div>';
         h += '</div>';
         h += '</div>';
         return h;
