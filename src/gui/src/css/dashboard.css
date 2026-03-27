@@ -1654,7 +1654,7 @@ body {
 .dashboard-sidebar-separator {
     height: 1px;
     background: var(--dashboard-border);
-    margin: 8px 0;
+    margin: 15px 0;
 }
 
 /* Responsive: tablet and below */
