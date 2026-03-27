@@ -1,4 +1,4 @@
-export type AIMessageContent = string | { image_url?: { url: string } } | Record<string, unknown>;
+export type AIMessageContent = string | { image_url?: { url: string } } | { video_url?: { url: string } } | Record<string, unknown>;
 
 export interface ChatMessage {
     role?: string;
