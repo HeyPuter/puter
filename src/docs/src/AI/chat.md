@@ -161,6 +161,28 @@ The code implementation is available in our [web search example](/playground/ai-
 
 List of OpenAI models that support the web search can be found in their [API compatibility documentation](https://platform.openai.com/docs/guides/tools-web-search#api-compatibility).
 
+## Prompt Caching
+
+Specific to Anthropic models, you can use the cache control feature, allowing you to optimize costs for repeated prompts.
+
+Pass in the `cache_control` parameter inside the object in the `messages` array.
+
+```js
+[
+    {
+        role: 'system',
+        content: 'a really long system prompt',
+        cache_control: { type: "ephemeral" }
+    },
+    {
+        role: 'user',
+        content: '<your message>'
+    },
+]
+```
+
+You can find the implementation in our [prompt caching example](/playground/ai-claude-cache-control/). Find more details about cache control in [Anthropic documentation](https://platform.claude.com/docs/en/build-with-claude/prompt-caching).
+
 ## Examples
 
 <strong class="example-title">Ask GPT-5 nano a question</strong>
@@ -366,6 +388,59 @@ List of OpenAI models that support the web search can be found in their [API com
                 tools: [{ type: "web_search" }],
             })
             .then(puter.print);
+    </script>
+</body>
+</html>
+```
+
+<strong class="example-title">Prompt caching with Claude</strong>
+
+```html;ai-claude-cache-control
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        const systemPrompt = `You are an expert customer support agent for Acme Corporation, a global technology company specializing in cloud computing, AI solutions, and enterprise software.
+COMPANY OVERVIEW:
+Acme Corporation was founded in 2010 and is headquartered in San Francisco, California. We serve over 50,000 enterprise customers across 120 countries. Our products include AcmeCloud (infrastructure-as-a-service), AcmeBrain (AI/ML platform), AcmeFlow (workflow automation), and AcmeShield (cybersecurity suite).
+
+PRODUCT POLICIES:
+Policy 1 - Subscription Tiers: We offer four subscription tiers: Starter ($29/month per user), Professional ($79/month per user), Enterprise ($149/month per user), and Ultimate ($299/month per user). Each tier includes different levels of API access, storage, and support. Starter includes 10GB storage and email support. Professional includes 100GB storage, priority email, and chat support. Enterprise includes 1TB storage, 24/7 phone support, and a dedicated account manager. Ultimate includes unlimited storage, 24/7 priority support, a dedicated account manager, and custom SLA agreements.
+Policy 2 - Refund Policy: All subscriptions come with a 30-day money-back guarantee. After 30 days, refunds are prorated based on remaining time. Annual subscriptions receive a 20% discount but refunds after 30 days are calculated at the monthly rate. Enterprise and Ultimate customers may negotiate custom refund terms with their account manager. Refund requests must be submitted through the billing portal or by contacting support.
+Policy 3 - Data Retention: Customer data is retained for the duration of the subscription plus 90 days after cancellation. After 90 days, all data is permanently deleted unless the customer requests an extension. Backups are maintained for 30 days on Starter and Professional tiers, 90 days on Enterprise, and 365 days on Ultimate. Customers can export their data at any time through the dashboard or API.
+Policy 4 - Service Level Agreements: Starter tier: 99.5% uptime guarantee. Professional tier: 99.9% uptime guarantee. Enterprise tier: 99.95% uptime guarantee. Ultimate tier: 99.99% uptime guarantee with custom SLA options. SLA credits are calculated as 10x the downtime duration applied to the next billing cycle. Scheduled maintenance windows are excluded from SLA calculations and are announced 72 hours in advance.
+Policy 5 - Security and Compliance: All tiers include SOC 2 Type II compliance, GDPR compliance, and TLS 1.3 encryption. Enterprise and Ultimate tiers additionally include HIPAA compliance, FedRAMP authorization (in progress), and custom data residency options. Two-factor authentication is available on all tiers and mandatory on Enterprise and Ultimate. SSO integration via SAML 2.0 and OIDC is available on Professional tier and above.
+Policy 6 - API Rate Limits: Starter: 100 requests per minute. Professional: 1,000 requests per minute. Enterprise: 10,000 requests per minute. Ultimate: 100,000 requests per minute with burst capacity up to 500,000. Rate limit increases can be requested by Enterprise and Ultimate customers through their account manager. API usage is monitored and customers approaching their limits are notified automatically.
+Policy 7 - Support Escalation: Level 1 (General Support): Available to all tiers, response within 24 hours for Starter, 4 hours for Professional, 1 hour for Enterprise, and 15 minutes for Ultimate. Level 2 (Technical Specialist): Available to Professional and above, response within 8 hours for Professional, 2 hours for Enterprise, and 30 minutes for Ultimate. Level 3 (Engineering Team): Available to Enterprise and above, response within 4 hours for Enterprise and 1 hour for Ultimate.`;
+
+        async function askQuestion(question) {
+            const response = await puter.ai.chat(
+                [
+                    {
+                        role: "system",
+                        content: systemPrompt,
+                        cache_control: { type: "ephemeral" },
+                    },
+                    { role: "user", content: question },
+                ],
+                { model: "claude-sonnet-4-5" }
+            );
+            return response.message.content[0].text;
+        }
+
+        (async () => {
+            puter.print("<b>Call 1 (cache write — first time processing system prompt)</b><br>");
+            const r1 = await askQuestion("How do I get a refund?");
+            puter.print(r1 + "<br><br>");
+
+            puter.print("<b>Call 2 (cache hit — system prompt reused from cache)</b><br>");
+            const r2 = await askQuestion("What are your API rate limits?");
+            puter.print(r2 + "<br><br>");
+
+            puter.print("<b>Call 3 (cache hit)</b><br>");
+            const r3 = await askQuestion("What is your data retention policy?");
+            puter.print(r3 + "<br><br>");
+        })();
     </script>
 </body>
 </html>
