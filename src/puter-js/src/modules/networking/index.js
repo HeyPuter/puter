@@ -2,8 +2,7 @@ import { initEpoxy } from './epoxy.js';
 import { PSocket, PTLSSocket } from './PSocket.js';
 import { pFetch } from './requests.js';
 
-let cachedEpoxyClientPromise;
-let cachedEpoxyClientKey;
+let cachedEpoxy = undefined;
 
 function getPuterInstance () {
     const puter = globalThis.puter;
@@ -59,28 +58,33 @@ export async function generateWispV1URL () {
 }
 
 export async function getEpoxyClient ({ refresh = false } = {}) {
-    const nextKey = getClientCacheKey();
-    if ( refresh || !cachedEpoxyClientPromise || cachedEpoxyClientKey !== nextKey ) {
-        cachedEpoxyClientKey = nextKey;
-        cachedEpoxyClientPromise = (async () => {
-            const { wispToken, wispServer } = await getWispCredentials();
-            return await initEpoxy({ wispToken, wispServer });
-        })();
+    if ( cachedEpoxy && cachedEpoxy.initting ) return await cachedEpoxy.promise;
 
-        cachedEpoxyClientPromise.catch(() => {
-            if ( cachedEpoxyClientKey === nextKey ) {
-                cachedEpoxyClientPromise = undefined;
-                cachedEpoxyClientKey = undefined;
+    const nextKey = getClientCacheKey();
+    if ( refresh || !(cachedEpoxy && cachedEpoxy.key === nextKey) ) {
+        let epoxy = { key: nextKey, initting: true };
+        let promise = (async () => {
+            try {
+                const { wispToken, wispServer } = await getWispCredentials();
+                let ret = await initEpoxy({ wispToken, wispServer });
+                epoxy.initting = false;
+                return ret;
+            } catch {
+                if ( cachedEpoxy === epoxy ) {
+                    cachedEpoxy = undefined;
+                }
             }
-        });
+        })();
+        epoxy.promise = promise;
+
+        cachedEpoxy = epoxy;
     }
 
-    return await cachedEpoxyClientPromise;
+    return await cachedEpoxy.promise;
 }
 
 export function clearEpoxyClientCache () {
-    cachedEpoxyClientPromise = undefined;
-    cachedEpoxyClientKey = undefined;
+    cachedEpoxy = undefined;
 }
 
 export let netAPI = {
