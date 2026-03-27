@@ -161,11 +161,11 @@ The code implementation is available in our [web search example](/playground/ai-
 
 List of OpenAI models that support the web search can be found in their [API compatibility documentation](https://platform.openai.com/docs/guides/tools-web-search#api-compatibility).
 
-## Cache Control
+## Prompt Caching
 
-Specific to Anthropic models, you can use the cache control feature, allowing you to reduce time and costs for repetitive tasks.
+Specific to Anthropic models, you can use the cache control feature, allowing you to optimize costs for repeated prompt.
 
-Pass in the `cache_control` parameter inside the message object.
+Pass in the `cache_control` parameter inside the object in the `messages` array.
 
 ```js
 [
@@ -181,7 +181,7 @@ Pass in the `cache_control` parameter inside the message object.
 ]
 ```
 
-You can find the implementation in our [cache control example](/playground/ai-claude-cache-control/). Find more details about cache control in [Anthropic documentation](https://platform.claude.com/docs/en/build-with-claude/prompt-caching).
+You can find the implementation in our [prompt caching example](/playground/ai-claude-cache-control/). Find more details about cache control in [Anthropic documentation](https://platform.claude.com/docs/en/build-with-claude/prompt-caching).
 
 ## Examples
 
@@ -393,7 +393,7 @@ You can find the implementation in our [cache control example](/playground/ai-cl
 </html>
 ```
 
-<strong class="example-title">Cache Control</strong>
+<strong class="example-title">Prompt caching with Claude</strong>
 
 ```
 <html>
