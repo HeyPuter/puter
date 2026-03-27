@@ -97,7 +97,7 @@ export class PuterHomepageService extends BaseService {
     /**
     * This method sends the initial HTML page that loads the Puter GUI and its assets.
     */
-    async send ({ req, res }, meta, launch_options) {
+    async send ({ req, res, auth_user }, meta, launch_options) {
         const config = this.global_config;
 
         if (
@@ -150,6 +150,9 @@ export class PuterHomepageService extends BaseService {
             }
         }
 
+        // Check if user is logged in
+        const logged_in_user = auth_user || null;
+
         const outputHTML = await this.generate_puter_page_html({
             env: config.env,
 
@@ -165,6 +168,9 @@ export class PuterHomepageService extends BaseService {
 
             // launch options
             launch_options,
+
+            // logged-in user info
+            logged_in_user,
 
             // gui parameters
             gui_params: {
@@ -215,6 +221,7 @@ export class PuterHomepageService extends BaseService {
         api_origin,
         meta,
         launch_options,
+        logged_in_user,
         gui_params,
     }) {
 
@@ -283,6 +290,26 @@ export class PuterHomepageService extends BaseService {
             },
         };
         await eventService.emit('puter.gui.addons', event);
+        const logged_in_banner = logged_in_user ? `
+        <div id="logged-in-banner" style="
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            z-index: 999999;
+            background: linear-gradient(135deg, #2f70ab, #4a90d9);
+            color: white;
+            text-align: center;
+            padding: 16px 20px;
+            font-family: 'Inter', 'Helvetica Neue', HelveticaNeue, Helvetica, Arial, sans-serif;
+            font-size: 18px;
+            font-weight: 600;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+            letter-spacing: 0.3px;
+        ">
+            Logged in as ${encode(logged_in_user.username)}
+        </div>` : '';
+
         return `<!DOCTYPE html>
     <html lang="en">
 
@@ -388,7 +415,9 @@ export class PuterHomepageService extends BaseService {
     </head>
 
     <body>
-    
+
+        ${logged_in_banner}
+
         <!-- Custom body content to be added to the homepage by extensions -->
         ${event.bodyContent || ''}
         <!-- END Custom body content -->
