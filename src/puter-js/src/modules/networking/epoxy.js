@@ -1,22 +1,15 @@
-let EPOXY_BASE = 'https://epoxy.puter.com/0265590';
+let EPOXY_BASE = 'https://puter-net.b-cdn.net/epoxy/7fbb05b';
 let epoxyRuntimePromise;
 
 const textEncoder = new TextEncoder();
 
-function getEpoxyBase () {
-    const overriddenBase =
-        globalThis.PUTER_EPOXY_BASE || globalThis.PUTER_EPOXY_BASE_ENV;
-    const base = overriddenBase || EPOXY_BASE;
-    return base.endsWith('/') ? base.slice(0, -1) : base;
-}
-
 async function getEpoxyRuntime () {
     if ( epoxyRuntimePromise ) {
-        return epoxyRuntimePromise;
+        return await epoxyRuntimePromise;
     }
 
     epoxyRuntimePromise = (async () => {
-        const base = getEpoxyBase();
+        const base = EPOXY_BASE;
         const runtime = await import(/* webpackIgnore: true */ `${base}/full.js`);
         const wasmResponse = await fetch(`${base}/full.wasm`);
         if ( ! wasmResponse.ok ) {
@@ -82,10 +75,6 @@ function createPuterPasswordBuilder (runtime, wispToken) {
 }
 
 export let initEpoxy = async ({ wispToken, wispServer }) => {
-    if ( !wispServer || !wispToken ) {
-        throw new Error('Both wispServer and wispToken are required to initialize networking.');
-    }
-
     const runtime = await getEpoxyRuntime();
 
     const provider = new runtime.WispSocketProvider(
