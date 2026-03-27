@@ -478,6 +478,7 @@ body {
     color: var(--dashboard-text-primary);
     outline: none;
     transition: border-color 0.15s;
+    padding-right: 35px;
 }
 
 .myapps-search:focus {
@@ -525,6 +526,12 @@ body {
     grid-template-columns: repeat(auto-fill, 80px);
     gap: 24px 20px;
     justify-content: start;
+    opacity: 1;
+    transition: opacity 0.2s ease;
+}
+
+.myapps-grid-loading {
+    opacity: 0;
 }
 
 .myapps-tile {

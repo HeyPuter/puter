@@ -29,7 +29,7 @@ function buildAppsGrid (apps) {
         return h;
     }
 
-    let h = '<div class="myapps-grid">';
+    let h = '<div class="myapps-grid myapps-grid-loading">';
     for ( const app of apps ) {
         const title = (app.title || app.name || '').trim();
         const iconUrl = app.iconUrl || window.icons['app.svg'];
@@ -43,6 +43,36 @@ function buildAppsGrid (apps) {
     }
     h += '</div>';
     return h;
+}
+
+function revealWhenLoaded ($container) {
+    const $grid = $container.find('.myapps-grid-loading');
+    if ( $grid.length === 0 ) return;
+
+    const imgs = $grid.find('img').toArray();
+    if ( imgs.length === 0 ) {
+        $grid.removeClass('myapps-grid-loading');
+        return;
+    }
+
+    let loaded = 0;
+    const total = imgs.length;
+
+    function onDone () {
+        loaded++;
+        if ( loaded >= total ) {
+            $grid.removeClass('myapps-grid-loading');
+        }
+    }
+
+    for ( const img of imgs ) {
+        if ( img.complete ) {
+            onDone();
+        } else {
+            img.addEventListener('load', onDone, { once: true });
+            img.addEventListener('error', onDone, { once: true });
+        }
+    }
 }
 
 const TabApps = {
@@ -80,8 +110,11 @@ const TabApps = {
 
             if ( ! self._apps ) return;
 
+            const $container = $el_window.find('.myapps-container');
+
             if ( ! query ) {
-                $el_window.find('.myapps-container').html(buildAppsGrid(self._apps));
+                $container.html(buildAppsGrid(self._apps));
+                revealWhenLoaded($container);
                 return;
             }
 
@@ -91,11 +124,12 @@ const TabApps = {
                 return title.includes(query) || name.includes(query);
             });
 
-            $el_window.find('.myapps-container').html(
+            $container.html(
                 filtered.length > 0
                     ? buildAppsGrid(filtered)
                     : '<div class="myapps-empty"><p>No apps match your search</p></div>',
             );
+            revealWhenLoaded($container);
         }
 
         $el_window.on('input', '.myapps-search', function () {
@@ -174,6 +208,7 @@ const TabApps = {
 
             this._apps = merged;
             $container.html(buildAppsGrid(merged));
+            revealWhenLoaded($container);
         } catch (e) {
             console.error('Failed to load installed apps:', e);
             $container.html('<div class="myapps-empty"><p>Failed to load apps</p></div>');
