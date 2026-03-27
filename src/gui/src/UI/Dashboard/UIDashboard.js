@@ -56,6 +56,7 @@ const builtinTabs = [
     TabHome,
     TabApps,
     TabFiles,
+    '-',
     TabUsage,
     TabAccount,
     TabSecurity,
@@ -86,6 +87,10 @@ async function UIDashboard (options) {
             h += '<div class="dashboard-sidebar-nav">';
             for ( let i = 0; i < tabs.length; i++ ) {
                 const tab = tabs[i];
+                if ( tab === '-' ) {
+                    h += '<hr class="dashboard-sidebar-separator">';
+                    continue;
+                }
                 const isActive = i === 0 ? ' active' : '';
                 const isBeta = tab.label === 'Apps';
                 h += `<div class="dashboard-sidebar-item${isActive} ${isBeta ? 'beta' : ''}" data-section="${tab.id}">`;
@@ -109,6 +114,7 @@ async function UIDashboard (options) {
         h += '<div class="dashboard-content">';
         for ( let i = 0; i < tabs.length; i++ ) {
             const tab = tabs[i];
+            if ( tab === '-' ) continue;
             const isActive = i === 0 ? ' active' : '';
             h += `<div class="dashboard-section dashboard-section-${tab.id}${isActive}" data-section="${tab.id}">`;
             h += tab.html();

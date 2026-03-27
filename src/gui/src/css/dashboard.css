@@ -186,6 +186,12 @@ body {
     flex: 1;
 }
 
+.dashboard-sidebar-separator {
+    border: none;
+    border-top: 1px solid var(--dashboard-border);
+    margin: 8px 16px;
+}
+
 .dashboard-sidebar-item {
     display: flex;
     position: relative;
