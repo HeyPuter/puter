@@ -163,7 +163,7 @@ List of OpenAI models that support the web search can be found in their [API com
 
 ## Prompt Caching
 
-Specific to Anthropic models, you can use the cache control feature, allowing you to optimize costs for repeated prompt.
+Specific to Anthropic models, you can use the cache control feature, allowing you to optimize costs for repeated prompts.
 
 Pass in the `cache_control` parameter inside the object in the `messages` array.
 
