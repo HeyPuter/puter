@@ -2170,6 +2170,8 @@ body {
     padding: 20px 24px;
     background: linear-gradient(135deg, var(--dashboard-fancy-header-start) 0%, var(--dashboard-fancy-header-end) 100%);
     border-bottom: 1px solid var(--dashboard-shadow-light);
+    text-decoration: none;
+    color: inherit;
 }
 
 .dashboard .bento-card-fancy-icon {
