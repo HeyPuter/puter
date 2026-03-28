@@ -154,6 +154,8 @@ export class PuterHomepageService extends BaseService {
         const logged_in_user = auth_user || null;
 
         const outputHTML = await this.generate_puter_page_html({
+            path: req.path,
+
             env: config.env,
 
             app_origin: config.origin,
@@ -213,6 +215,7 @@ export class PuterHomepageService extends BaseService {
     }
 
     async generate_puter_page_html ({
+        path,
         env,
         manifest,
         gui_path: _gui_path,
@@ -283,32 +286,15 @@ export class PuterHomepageService extends BaseService {
 
         // emit extension event
         const event = {
+            path: path,
             bodyContent: '',
             headContent: '',
+            logged_in_user: logged_in_user,
             guiParams: {
                 ...gui_params,
             },
         };
         await eventService.emit('puter.gui.addons', event);
-        const logged_in_banner = logged_in_user ? `
-        <div id="logged-in-banner" style="
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            z-index: 999999;
-            background: linear-gradient(135deg, #2f70ab, #4a90d9);
-            color: white;
-            text-align: center;
-            padding: 16px 20px;
-            font-family: 'Inter', 'Helvetica Neue', HelveticaNeue, Helvetica, Arial, sans-serif;
-            font-size: 18px;
-            font-weight: 600;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
-            letter-spacing: 0.3px;
-        ">
-            Logged in as ${encode(logged_in_user.username)}
-        </div>` : '';
 
         return `<!DOCTYPE html>
     <html lang="en">
@@ -415,8 +401,6 @@ export class PuterHomepageService extends BaseService {
     </head>
 
     <body>
-
-        ${logged_in_banner}
 
         <!-- Custom body content to be added to the homepage by extensions -->
         ${event.bodyContent || ''}
