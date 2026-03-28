@@ -154,6 +154,7 @@ export class PuterHomepageService extends BaseService {
         const logged_in_user = auth_user || null;
 
         const outputHTML = await this.generate_puter_page_html({
+            req,
             path: req.path,
 
             env: config.env,
@@ -215,6 +216,7 @@ export class PuterHomepageService extends BaseService {
     }
 
     async generate_puter_page_html ({
+        req,
         path,
         env,
         manifest,
@@ -286,6 +288,7 @@ export class PuterHomepageService extends BaseService {
 
         // emit extension event
         const event = {
+            req: req,
             path: path,
             bodyContent: '',
             headContent: '',
@@ -402,10 +405,6 @@ export class PuterHomepageService extends BaseService {
 
     <body>
 
-        <!-- Custom body content to be added to the homepage by extensions -->
-        ${event.bodyContent || ''}
-        <!-- END Custom body content -->
-
         <script>window.puter_gui_enabled = true;</script>
         ${custom_script_tags_str
         }
@@ -447,6 +446,10 @@ export class PuterHomepageService extends BaseService {
         }
         <div id="templates" style="display: none;"></div>
         
+        <!-- Custom body content to be added to the homepage by extensions -->
+        ${event.bodyContent || ''}
+        <!-- END Custom body content -->
+
     </body>
 
     </html>`;
