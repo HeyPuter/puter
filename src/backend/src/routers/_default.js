@@ -25,8 +25,7 @@ const _fs = require('fs');
 const { Context } = require('../util/context');
 const { DB_READ } = require('../services/database/consts');
 const { PathBuilder } = require('../util/pathutil.js');
-
-let auth_user;
+const { jwt_auth, get_app, invalidate_cached_user } = require('../helpers');
 
 // Helper function to safely handle metadata parsing
 const parseMetadata = (metadata) => {
@@ -59,8 +58,18 @@ const parseMetadata = (metadata) => {
 // All other requests
 // -----------------------------------------------------------------------//
 router.all('*', async function (req, res, next) {
+    const authService = Context.get('services').get('auth');
+
     const subdomain = req.hostname.slice(0, -1 * (config.domain.length + 1));
     let path = req.params[0] ? req.params[0] : 'index.html';
+    let auth_user;
+    // TODO DS: we should just do this as a middleware for every request, and check all possible types of auth
+    try {
+        auth_user = (await jwt_auth(req, authService))?.user;
+    }
+    catch (e) {
+        // no-op
+    }
 
     // --------------------------------------
     // API
@@ -113,7 +122,6 @@ router.all('*', async function (req, res, next) {
     }
 
     const db = Context.get('services').get('database').get(DB_READ, 'default');
-    const authService = Context.get('services').get('auth');
 
     // --------------------------------------
     // POST to login/signup/logout
@@ -133,21 +141,6 @@ router.all('*', async function (req, res, next) {
     // No subdomain: either GUI or landing pages
     // --------------------------------------
     else if ( subdomain === '' ) {
-        // auth
-        const { jwt_auth, get_app, invalidate_cached_user } = require('../helpers');
-        let authed = false;
-        try {
-            try {
-                auth_user = await jwt_auth(req, authService);
-                auth_user = auth_user.user;
-                authed = true;
-            } catch (e) {
-                authed = false;
-            }
-        }
-        catch (e) {
-            authed = false;
-        }
 
         if ( path === '/robots.txt' ) {
             res.set('Content-Type', 'text/plain');
