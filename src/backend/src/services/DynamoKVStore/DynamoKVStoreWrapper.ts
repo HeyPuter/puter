@@ -7,6 +7,10 @@ import { DynamoKVStore } from './DynamoKVStore.js';
 class DynamoKVStoreServiceWrapper extends BaseService {
 
     kvStore!: DynamoKVStore;
+    kvStoreHealthcheckCache_:
+        { expiresAtMs: number; passed: boolean } |
+        null = null;
+
     async _init () {
         this.kvStore = new DynamoKVStore({
             ddbClient: this.services.get('dynamo'),
@@ -15,34 +19,9 @@ class DynamoKVStoreServiceWrapper extends BaseService {
             tableName: this.config.tableName || 'store-kv-v1',
         });
         await this.kvStore.createTableIfNotExists();
-        await this.#registerHealthcheck();
         Object.getOwnPropertyNames(DynamoKVStore.prototype).forEach(fn => {
             if ( fn === 'constructor' ) return;
             this[fn] = (...args: unknown[]) => this.kvStore[fn](...args);
-        });
-    }
-
-    async #registerHealthcheck () {
-        const healthcheckService = this.services.get('server-health');
-
-        healthcheckService.add_check('kv-store', async () => {
-            try {
-                const passed = await this.services.get('su').sudo(async () => {
-                    const rand = Math.floor(Math.random() * 1000000);
-                    const randKey = `healthcheck-${Date.now()}-${rand}`;
-                    await this.kvStore.set({ key: randKey, value: rand });
-                    const setRight = await this.kvStore.get({ key: randKey }) === rand;
-                    await this.kvStore.del({ key: randKey });
-                    return setRight;
-                });
-                if ( ! passed ) {
-                    throw new Error('KV Store healthcheck failed: set/get mismatch');
-                }
-            } catch (e) {
-                throw new Error(`KV Store healthcheck failed: ${(e as Error).message}`);
-            }
-        }).on_fail(async () => {
-            await this.services.get('dynamo').recreateClient();
         });
     }
 
