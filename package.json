@@ -25,7 +25,7 @@
     "dotenv": "^16.4.5",
     "eslint": "^9.35.0",
     "eslint-rule-composer": "^0.3.0",
-    "express": "^4.18.2",
+    "@types/express": "^4.17.21",
     "globals": "^15.15.0",
     "html-entities": "^2.3.3",
     "html-webpack-plugin": "^5.6.0",
@@ -92,7 +92,8 @@
     "open": "^10.1.0",
     "parse-domain": "^8.2.2",
     "string-template": "^1.0.0",
-    "uuid": "^9.0.1"
+    "uuid": "^9.0.1",
+    "express": "^4.18.2"
   },
   "optionalDependencies": {
     "sharp": "^0.34.4",

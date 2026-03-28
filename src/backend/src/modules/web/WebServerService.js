@@ -66,6 +66,11 @@ class WebServerService extends BaseService {
     };
 
     allowedRoutesWithUndefinedOrigins = [];
+    isDraining = false;
+    shutdownStarted = false;
+    shutdownForceExitTimer = null;
+    shutdownCloseTimer = null;
+    gracefulShutdownHandlersInstalled = false;
 
     allow_undefined_origin (route) {
         this.allowedRoutesWithUndefinedOrigins.push(route);
@@ -252,7 +257,8 @@ class WebServerService extends BaseService {
         server.timeout = 1000 * 60 * 60 * 2; // 2 hours
         server.requestTimeout = 1000 * 60 * 60 * 2; // 2 hours
         server.headersTimeout = 1000 * 60 * 60 * 2; // 2 hours
-        // server.keepAliveTimeout = 1000 * 60 * 60 * 2; // 2 hours
+        const albIdleTimeoutMs = 1000 * 60 * 5;
+        server.keepAliveTimeout = albIdleTimeoutMs + (1000 * 15);
 
         // Socket.io server instance
         // const socketio = require('../../socketio.js').init(server);
@@ -318,6 +324,7 @@ class WebServerService extends BaseService {
         });
 
         this.server_ = server;
+        this.registerGracefulShutdownHandlers();
         await this.services.emit('install.websockets');
     }
 
@@ -331,6 +338,87 @@ class WebServerService extends BaseService {
         return this.server_;
     }
 
+    registerGracefulShutdownHandlers () {
+        if ( this.gracefulShutdownHandlersInstalled ) return;
+        this.gracefulShutdownHandlersInstalled = true;
+
+        process.on('SIGTERM', () => {
+            this.beginGracefulShutdown('SIGTERM');
+        });
+        process.on('SIGINT', () => {
+            this.beginGracefulShutdown('SIGINT');
+        });
+    }
+
+    beginGracefulShutdown (signal) {
+        if ( this.shutdownStarted ) return;
+        this.shutdownStarted = true;
+        this.isDraining = true;
+        this.app?.set('isDraining', true);
+        this.drainCoreServicesForShutdown(signal);
+        const albFailoverDelayMs = 15 * 1000;
+
+        this.log.info(
+            `received ${signal}; beginning graceful shutdown with ${albFailoverDelayMs}ms ALB failover delay`,
+        );
+        const server = this.server_;
+        if ( ! server ) {
+            process.exit(0);
+            return;
+        }
+
+        this.shutdownForceExitTimer = setTimeout(() => {
+            this.log.error('graceful shutdown timed out; forcing process exit');
+            process.exit(1);
+        }, 110 * 1000);
+        if ( typeof this.shutdownForceExitTimer.unref === 'function' ) {
+            this.shutdownForceExitTimer.unref();
+        }
+
+        this.shutdownCloseTimer = setTimeout(() => {
+            this.shutdownCloseTimer = null;
+            if ( typeof server.closeIdleConnections === 'function' ) {
+                server.closeIdleConnections();
+            }
+
+            server.close((error) => {
+                if ( this.shutdownForceExitTimer ) {
+                    clearTimeout(this.shutdownForceExitTimer);
+                    this.shutdownForceExitTimer = null;
+                }
+
+                if ( error ) {
+                    this.log.error('error while closing HTTP server during shutdown', error);
+                    process.exit(1);
+                    return;
+                }
+
+                this.log.info('graceful shutdown completed');
+                process.exit(0);
+            });
+        }, albFailoverDelayMs);
+        if ( typeof this.shutdownCloseTimer.unref === 'function' ) {
+            this.shutdownCloseTimer.unref();
+        }
+    }
+
+    drainCoreServicesForShutdown (signal) {
+        const reason = `signal:${signal}`;
+        for ( const serviceName of ['alarm', 'server-health'] ) {
+            try {
+                const service = this.services.get(serviceName);
+                if ( typeof service?.beginDrain === 'function' ) {
+                    service.beginDrain(reason);
+                }
+            } catch ( error ) {
+                this.log.error(
+                    `failed to drain ${serviceName} during shutdown`,
+                    error,
+                );
+            }
+        }
+    }
+
     /**
     * Handles starting and managing the Puter web server.
     *
@@ -341,6 +429,7 @@ class WebServerService extends BaseService {
         this.app = app;
 
         app.set('services', this.services);
+        app.set('isDraining', false);
 
         this.middlewares = { auth };
 
@@ -479,6 +568,7 @@ class WebServerService extends BaseService {
                 onFinished(res, () => {
                     if ( res.statusCode !== 500 ) return;
                     if ( req.__error_handled ) return;
+                    if ( req.path === '/healthcheck' ) return;
                     const alarm = this.services.get('alarm');
                     alarm.create('responded-500', 'server sent a 500 response', {
                         error: req.__error_source,

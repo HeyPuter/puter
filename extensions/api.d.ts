@@ -60,15 +60,6 @@ interface DriverInterface {
 
 export type HttpMethod = 'get' | 'post' | 'put' | 'delete' | 'patch';
 
-export type ExtensionRequestHandler = RequestHandler<
-    Record<string, string | undefined>,
-    unknown,
-    unknown
->;
-export type ExtensionRequest = Parameters<ExtensionRequestHandler>[0];
-export type ExtensionResponse = Parameters<ExtensionRequestHandler>[1];
-export type ExtensionNextFunction = Parameters<ExtensionRequestHandler>[2];
-
 export type AddRouteFunction = (
     path: string,
     options: EndpointOptions,

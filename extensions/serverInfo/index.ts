@@ -1,16 +1,16 @@
 /* global config, extension */
+import type {
+    Request,
+    Response,
+} from 'express';
 import fs from 'fs/promises';
 import os from 'os';
-import type {
-    ExtensionRequest,
-    ExtensionResponse,
-} from '../api.d.ts';
 const { Controller, Get, ExtensionController } = extension.import('extensionController');
 
 @Controller('/serverInfo', [...config.allowedUsernames])
 class ServerInfoController extends ExtensionController {
     @Get('', { subdomain: 'api' })
-    async getServerInfo (_req: ExtensionRequest, res: ExtensionResponse) {
+    async getServerInfo (_req: Request, res: Response) {
         const osData = {
             platform: os.platform(),
             type: os.type(),

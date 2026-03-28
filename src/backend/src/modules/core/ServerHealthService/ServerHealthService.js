@@ -54,6 +54,7 @@ class ServerHealthService extends BaseService {
         this.last_check_cycle_started_at_ = 0;
         this.last_check_cycle_completed_at_ = 0;
         this.web_checks_registered_ = false;
+        this.isDraining_ = false;
     }
 
     async _init () {
@@ -65,6 +66,18 @@ class ServerHealthService extends BaseService {
 
     async '__on_ready.webserver' () {
         this.#registerWebChecks();
+    }
+
+    beginDrain (reason = 'shutdown') {
+        if ( this.isDraining_ ) return;
+        this.isDraining_ = true;
+        this.failures_ = [];
+        this.last_check_cycle_completed_at_ = Date.now();
+        this.stats_ = this.stats_ ?? {};
+        this.stats_.last_check_cycle_completed_at = this.last_check_cycle_completed_at_;
+        this.stats_.check_durations_ms = {};
+        this.stats_.failed_checks = [];
+        this.log.info(`server health entering drain mode: ${reason}`);
     }
 
     #initDefaultChecks () {
@@ -148,9 +161,14 @@ class ServerHealthService extends BaseService {
         * @returns {void}
         */
         promise.asyncSafeSetInterval(async () => {
-            this.last_check_cycle_started_at_ = Date.now();
-            this.stats_.last_check_cycle_started_at = this.last_check_cycle_started_at_;
-            this.log.tick('service checks');
+            if ( this.isDraining_ ) {
+                this.last_check_cycle_completed_at_ = Date.now();
+                this.stats_.last_check_cycle_completed_at = this.last_check_cycle_completed_at_;
+                this.stats_.check_durations_ms = {};
+                this.stats_.failed_checks = [];
+                return;
+            }
+
             const check_failures = [];
             const check_durations_ms = {};
             for ( const { name, fn, chainable } of this.checks_ ) {
@@ -245,6 +263,13 @@ class ServerHealthService extends BaseService {
     * - `failed` {Array<string>}: An array of names of failed health checks, if any.
     */
     async get_status () {
+        if ( this.isDraining_ ) {
+            return {
+                ok: false,
+                failed: ['draining'],
+            };
+        }
+
         const cacheKey = ServerHealthRedisCacheKeys.status;
 
         // Check cache first

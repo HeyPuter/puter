@@ -29,9 +29,10 @@ class DynamoKVStoreServiceWrapper extends BaseService {
             try {
                 const passed = await this.services.get('su').sudo(async () => {
                     const rand = Math.floor(Math.random() * 1000000);
-                    await this.kvStore.set({ key: 'healthTestKey', value: rand });
-                    const setRight = await this.kvStore.get({ key: 'healthTestKey' }) === rand;
-                    await this.kvStore.del({ key: 'healthTestKey' });
+                    const randKey = `healthcheck-${Date.now()}-${rand}`;
+                    await this.kvStore.set({ key: randKey, value: rand });
+                    const setRight = await this.kvStore.get({ key: randKey }) === rand;
+                    await this.kvStore.del({ key: randKey });
                     return setRight;
                 });
                 if ( ! passed ) {
