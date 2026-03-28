@@ -1096,6 +1096,7 @@ window.initgui = async function (options) {
                 show_signup_button: ( !whoarewe.disable_user_signup ),
                 redirect_url: needs_action ? window.location.href : undefined,
                 window_options: {
+                    cover_page: true,
                     has_head: false,
                 },
             });
@@ -1240,7 +1241,7 @@ window.initgui = async function (options) {
                             send_confirmation_code: false,
                             window_options: {
                                 has_head: false,
-                                cover_page: window.is_embedded || window.is_fullpage_mode,
+                                cover_page: true,
                             },
                         });
 
