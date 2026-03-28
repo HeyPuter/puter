@@ -97,7 +97,7 @@ export class PuterHomepageService extends BaseService {
     /**
     * This method sends the initial HTML page that loads the Puter GUI and its assets.
     */
-    async send ({ req, res }, meta, launch_options) {
+    async send ({ req, res, auth_user }, meta, launch_options) {
         const config = this.global_config;
 
         if (
@@ -150,7 +150,12 @@ export class PuterHomepageService extends BaseService {
             }
         }
 
+        // Check if user is logged in
+        const logged_in_user = auth_user || null;
+
         const outputHTML = await this.generate_puter_page_html({
+            path: req.path,
+
             env: config.env,
 
             app_origin: config.origin,
@@ -165,6 +170,9 @@ export class PuterHomepageService extends BaseService {
 
             // launch options
             launch_options,
+
+            // logged-in user info
+            logged_in_user,
 
             // gui parameters
             gui_params: {
@@ -207,6 +215,7 @@ export class PuterHomepageService extends BaseService {
     }
 
     async generate_puter_page_html ({
+        path,
         env,
         manifest,
         gui_path: _gui_path,
@@ -215,6 +224,7 @@ export class PuterHomepageService extends BaseService {
         api_origin,
         meta,
         launch_options,
+        logged_in_user,
         gui_params,
     }) {
 
@@ -276,13 +286,16 @@ export class PuterHomepageService extends BaseService {
 
         // emit extension event
         const event = {
+            path: path,
             bodyContent: '',
             headContent: '',
+            logged_in_user: logged_in_user,
             guiParams: {
                 ...gui_params,
             },
         };
         await eventService.emit('puter.gui.addons', event);
+
         return `<!DOCTYPE html>
     <html lang="en">
 
@@ -388,7 +401,7 @@ export class PuterHomepageService extends BaseService {
     </head>
 
     <body>
-    
+
         <!-- Custom body content to be added to the homepage by extensions -->
         ${event.bodyContent || ''}
         <!-- END Custom body content -->
