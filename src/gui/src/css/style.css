@@ -2674,9 +2674,6 @@ label {
     width: 100%;
     height: 100%;
     background-color: rgba(0, 0, 0, 0.5);
-    display: flex;
-    justify-content: center;
-    align-items: center;
     z-index: 10000;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
@@ -2695,12 +2692,15 @@ label {
 .captcha-modal .modal-content {
     background-color: white;
     padding: 30px;
-    border-radius: 10px;
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
-    max-width: 400px;
-    width: 90%;
+    width: 100%;
+    height: 100%;
     text-align: center;
     position: relative;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
 }
 
 .embedded-in-popup .captcha-modal .modal-content {
