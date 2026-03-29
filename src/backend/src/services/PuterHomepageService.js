@@ -292,6 +292,7 @@ export class PuterHomepageService extends BaseService {
             path: path,
             bodyContent: '',
             headContent: '',
+            prependHeadContent: '',
             logged_in_user: logged_in_user,
             guiParams: {
                 ...gui_params,
@@ -304,6 +305,9 @@ export class PuterHomepageService extends BaseService {
 
     <head>
         <title>${e(title)}</title>
+
+        ${event.prependHeadContent || ''}
+
         <link rel="preload" href="${this.config.gui_bundle ?? '/dist/bundle.min.js'}" as="script" />
         ${bundled
                 ? `<link rel="preload" href="${this.config.gui_puterjs_bundle || 'https://js.puter.com/v2/'} as="script"></script>`
@@ -398,7 +402,7 @@ export class PuterHomepageService extends BaseService {
         }
         <!-- END Files from JSON -->
 
-        <!-- Custom header content to be added tthe homepage by extensions -->
+        <!-- Custom header content to be added to the homepage by extensions -->
         ${event.headContent || ''}
         <!-- END Custom header -->
     </head>

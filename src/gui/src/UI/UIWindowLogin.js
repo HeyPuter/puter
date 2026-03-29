@@ -131,7 +131,10 @@ async function UIWindowLogin (options) {
                 if ( options.authError ) {
                     $(this_window).find('.login-error-msg').html(options.authError).fadeIn();
                 }
-                $(this_window).find('.email_or_username').get(0).focus({ preventScroll: true });
+                if ( ! window.disable_login_autofocus )
+                {
+                    $(this_window).find('.email_or_username').get(0).focus({ preventScroll: true });
+                }
             },
             window_class: 'window-login',
             window_css: {

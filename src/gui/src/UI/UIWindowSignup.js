@@ -135,7 +135,10 @@ function UIWindowSignup (options) {
                 if ( options.authError ) {
                     $(el_window).find('.signup-error-msg').html(options.authError).fadeIn();
                 }
-                $(el_window).find('.username').get(0).focus({ preventScroll: true });
+                if ( ! window.disable_signup_autofocus )
+                {
+                    $(el_window).find('.username').get(0).focus({ preventScroll: true });
+                }
 
                 // Initialize Turnstile widget with callback to capture token
                 const initTurnstile = () => {
