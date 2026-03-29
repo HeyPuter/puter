@@ -1,38 +1,28 @@
-# Documentation for Robots
-
-Hello, if you're an AI agent then you're reading the correct documentation.
-Here are a few important notes:
-- Puter is probably already cloned and configured, so avoid any setup
-  or configuration steps unless explicitly asked to perform them.
-- Anything under `/src` (relative to the root of the repo) is probably
-  a workspace module. That means different directories might have different
-  code styles or use different import mechanisms (ESM vs CJS). Try to keep
-  changes consistent in the scope of where they are.
-  
-# Backend
-
-Any file under `src/backend` that extends **BaseService** is called a
-"backend service". Backend services can implement "traits". That looks
-like this:
-
+# Puter KV Guide
+## Introduction to Puter KV
+Puter KV is a key-value store that allows you to store and retrieve data in a flexible and efficient way.
+## Querying and Filtering with Puter KV
+You can query and filter data in Puter KV using designed keys and patterns. For example, you can use the `puter.kv.list` method to retrieve a list of keys that match a certain pattern. The pattern syntax uses a glob-like syntax, where `*` matches any characters.
+### Example
 ```javascript
-class SomeClass extends BaseService {
-  static IMPLEMENTS = {
-    ['name-of-interface']: {
-      async some_method_name () {
-        const instance_of_SomeClass = this;
-      }
-    }
-  }
-}
+const puter = require('puter');
+const kv = puter.kv;
+
+// Store some data
+kv.put('user:1:name', 'John Doe');
+kv.put('user:1:email', 'john@example.com');
+kv.put('user:2:name', 'Jane Doe');
+kv.put('user:2:email', 'jane@example.com');
+
+// Query and filter data
+const users = await kv.list('user:*:name');
+console.log(users);
+// Output: ['user:1:name', 'user:2:name']
+
+const userEmails = await kv.list('user:*:email');
+console.log(userEmails);
+// Output: ['user:1:email', 'user:2:email']
 ```
-
-Methods on traits are bound to the same "this" (instance variable) as
-methods on the class itself. Trait methods cannot be indexed from the
-instance variable; instead common functionality is usually moved to
-regular instance methods which typically have an underscore at the end
-of their name.
-
-# Furher Documentation
-  
-Proceed to read the README.md document beside this file.
+Note: If no matching keys are found, `kv.list` will return an empty array. You should handle this case according to your application's requirements.
+### Linked Playground
+You can try out the example above in our [playground](https://playground.puter.com/).
