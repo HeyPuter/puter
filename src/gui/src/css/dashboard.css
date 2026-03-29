@@ -523,7 +523,7 @@ body {
 .myapps-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, 80px);
-    gap: 24px 24px;
+    gap: 32px 32px;
     justify-content: center;
     opacity: 1;
     transition: opacity 0.2s ease;
@@ -544,8 +544,8 @@ body {
 }
 
 .myapps-tile-icon {
-    width: 48px;
-    height: 48px;
+    width: 52px;
+    height: 52px;
     overflow: hidden;
     background: var(--dashboard-card-background);
     transition: transform 0.15s ease, box-shadow 0.15s ease;
