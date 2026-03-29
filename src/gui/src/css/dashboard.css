@@ -172,7 +172,7 @@ body {
 }
 
 .dashboard-sidebar {
-    width: 200px;
+    width: 250px;
     min-width: 200px;
     background: var(--dashboard-sidebar-background);
     border-right: 1px solid var(--dashboard-border);
