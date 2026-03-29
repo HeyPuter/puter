@@ -364,7 +364,7 @@ export async function get_app (options) {
     const cacheApp = async (app) => {
         if ( ! app ) return;
         AppRedisCacheSpace.setCachedApp(app, {
-            ttlSeconds: 30,
+            ttlSeconds: 300,
         });
     };
     const isDecoratedAppCacheEntry = (app) => (
@@ -550,7 +550,7 @@ export const get_apps = spanify('get_apps', async (specifiers, options = {}) => 
     const cacheApp = async (app) => {
         if ( ! app ) return;
         AppRedisCacheSpace.setCachedApp(app, {
-            ttlSeconds: 60,
+            ttlSeconds: 300,
         });
     };
 
