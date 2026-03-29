@@ -1,38 +1,18 @@
-# Documentation for Robots
+# KV List API
 
-Hello, if you're an AI agent then you're reading the correct documentation.
-Here are a few important notes:
-- Puter is probably already cloned and configured, so avoid any setup
-  or configuration steps unless explicitly asked to perform them.
-- Anything under `/src` (relative to the root of the repo) is probably
-  a workspace module. That means different directories might have different
-  code styles or use different import mechanisms (ESM vs CJS). Try to keep
-  changes consistent in the scope of where they are.
-  
-# Backend
+The KV List API is used to retrieve a list of items stored in the KV store. The list is returned in a sorted manner.
 
-Any file under `src/backend` that extends **BaseService** is called a
-"backend service". Backend services can implement "traits". That looks
-like this:
+## Overview
+The KV list API returns a list of items in the KV store, sorted lexicographically by key.
 
-```javascript
-class SomeClass extends BaseService {
-  static IMPLEMENTS = {
-    ['name-of-interface']: {
-      async some_method_name () {
-        const instance_of_SomeClass = this;
-      }
-    }
-  }
-}
+## Example
+```bash
+curl https://api.puter.com/kv/list
 ```
+This will return a list of items in the KV store, sorted by key. For instance, if you have items with keys 'apple', 'banana', and 'cherry', the response will be sorted as ['apple', 'banana', 'cherry'].
 
-Methods on traits are bound to the same "this" (instance variable) as
-methods on the class itself. Trait methods cannot be indexed from the
-instance variable; instead common functionality is usually moved to
-regular instance methods which typically have an underscore at the end
-of their name.
+## Sorting
+The KV list API returns results sorted lexicographically by key. For more information on sorting, see the [KV guide](https://developer.puter.com/tutorials/kv-guide/#sorting).
 
-# Furher Documentation
-  
-Proceed to read the README.md document beside this file.
+## Playground
+Try out the KV list API in the [playground](https://playground.puter.com).
