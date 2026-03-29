@@ -522,7 +522,7 @@ body {
 
 .myapps-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, 80px);
+    grid-template-columns: repeat(auto-fill, 70px);
     gap: 32px 32px;
     justify-content: center;
     opacity: 1;
