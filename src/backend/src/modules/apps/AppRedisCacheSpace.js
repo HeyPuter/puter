@@ -81,7 +81,7 @@ export const AppRedisCacheSpace = {
         if ( ! app ) return;
         const serialized = JSON.stringify(app);
         const writes = AppRedisCacheSpace.keysForApp(app)
-            .map(key => setKey(key, serialized, { ttlSeconds }));
+            .map(key => setKey(key, serialized, { ttlSeconds: ttlSeconds || 60 }));
         if ( writes.length ) {
             await Promise.all(writes);
         }
