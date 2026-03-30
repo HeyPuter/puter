@@ -23,6 +23,7 @@ import BaseService from '../../BaseService.js';
 import { DriverService } from '../../drivers/DriverService.js';
 import { EventService } from '../../EventService.js';
 import { MeteringService } from '../../MeteringService/MeteringService.js';
+import { GeminiVideoGenerationProvider } from './providers/GeminiVideoGenerationProvider/GeminiVideoGenerationProvider.js';
 import { OpenAIVideoGenerationProvider } from './providers/OpenAIVideoGenerationProvider/OpenAIVideoGenerationProvider.js';
 import { TogetherVideoGenerationProvider } from './providers/TogetherVideoGenerationProvider/TogetherVideoGenerationProvider.js';
 import { IGenerateVideoParams, IVideoModel, IVideoProvider } from './providers/types.js';
@@ -104,6 +105,14 @@ export class AIVideoGenerationService extends BaseService {
         if ( togetherConfig && (togetherConfig.apiKey || togetherConfig.secret_key) ) {
             this.#providers['together-video-generation'] = new TogetherVideoGenerationProvider(
                 { apiKey: togetherConfig.apiKey || togetherConfig.secret_key },
+                this.meteringService,
+            );
+        }
+
+        const geminiVideoConfig = this.config.providers?.['gemini-video-generation'] || this.global_config?.services?.gemini;
+        if ( geminiVideoConfig && (geminiVideoConfig.apiKey || geminiVideoConfig.secret_key) ) {
+            this.#providers['gemini-video-generation'] = new GeminiVideoGenerationProvider(
+                { apiKey: geminiVideoConfig.apiKey || geminiVideoConfig.secret_key },
                 this.meteringService,
             );
         }
