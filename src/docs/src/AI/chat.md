@@ -429,11 +429,11 @@ Policy 7 - Support Escalation: Level 1 (General Support): Available to all tiers
         }
 
         (async () => {
-            puter.print("<b>Call 1 (cache write — first time processing system prompt)</b><br>");
+            puter.print("<b>Call 1 (cache write: first time processing system prompt)</b><br>");
             const r1 = await askQuestion("How do I get a refund?");
             puter.print(r1 + "<br><br>");
 
-            puter.print("<b>Call 2 (cache hit — system prompt reused from cache)</b><br>");
+            puter.print("<b>Call 2 (cache hit: system prompt reused from cache)</b><br>");
             const r2 = await askQuestion("What are your API rate limits?");
             puter.print(r2 + "<br><br>");
 
