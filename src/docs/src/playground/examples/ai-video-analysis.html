@@ -1,0 +1,16 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        // Loading ...
+        puter.print(`Loading...`);
+
+        // Video analysis with Reka Edge
+        puter.ai
+            .chat(`What do you see?`, `https://assets.puter.site/puppy.mp4`, {
+                model: "reka/reka-edge",
+            })
+            .then(puter.print);
+    </script>
+</body>
+</html>

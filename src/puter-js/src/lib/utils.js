@@ -632,6 +632,15 @@ function arrayBufferToDataUri (arrayBuffer) {
     });
 }
 
+const VIDEO_EXTENSIONS = ['mp4', 'webm', 'mov', 'mpeg', 'avi', 'mkv', 'm4v', 'ogv'];
+
+const isVideoInput = (url) => {
+    if ( typeof url !== 'string' ) return false;
+    if ( url.startsWith('data:video/') ) return true;
+    const ext = url.split('?')[0].split('#')[0].split('.').pop()?.toLowerCase();
+    return VIDEO_EXTENSIONS.includes(ext);
+};
+
 export {
-    arrayBufferToDataUri, blob_to_url, blobToDataUri, driverCall, handle_error, handle_resp, initXhr, make_driver_method, parseResponse, setupXhrEventHandlers, uuidv4,
+    arrayBufferToDataUri, blob_to_url, blobToDataUri, driverCall, handle_error, handle_resp, initXhr, isVideoInput, make_driver_method, parseResponse, setupXhrEventHandlers, uuidv4,
 };
