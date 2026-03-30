@@ -33,6 +33,7 @@ import UIWindowRequestPermission from './UI/UIWindowRequestPermission.js';
 import UIWindowSaveAccount from './UI/UIWindowSaveAccount.js';
 import UIWindowSessionList from './UI/UIWindowSessionList.js';
 import UIWindowSignup from './UI/UIWindowSignup.js';
+import UIWindowRecoverPassword from './UI/UIWindowRecoverPassword.js';
 import { PROCESS_RUNNING } from './definitions.js';
 import item_icon from './helpers/item_icon.js';
 import update_last_touch_coordinates from './helpers/update_last_touch_coordinates.js';
@@ -585,6 +586,17 @@ window.initgui = async function (options) {
             opts.window_options = { cover_page: true, has_head: false };
         }
         await UIWindowLogin(Object.keys(opts).length ? opts : undefined);
+    }
+    //--------------------------------------------------------------------------------------
+    // Action: Password recovery
+    //--------------------------------------------------------------------------------------
+    else if ( action === 'password-recovery' ) {
+        await UIWindowRecoverPassword({
+            window_options: {
+                cover_page: true,
+                has_head: false,
+            },
+        });
     }
     //--------------------------------------------------------------------------------------
     // Action: Signup
