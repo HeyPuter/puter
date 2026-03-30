@@ -13,7 +13,7 @@ description: Find examples of serverless applications built with Puter.js
     </a>
     <div class="example-card-desc">
         <h2 id="ai-chat"><a href="/playground/app-ai-chat/?autorun=1" target="_blank">AI Chat</a></h2>
-        <p>A chat app with AI using the Puter AI module. This app is powered by OpenAI GPT-5.4 nano.</p>
+        <p>A chat app with AI using the Puter AI module. This app is powered by OpenAI GPT-5 nano.</p>
     </div>
 </div>
 

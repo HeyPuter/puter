@@ -96,7 +96,7 @@ import { init } from "@heyputer/puter.js/src/init.cjs";
 
 const puter = init(process.env.puterAuthToken); // uses your auth token
 
-// Chat with GPT-5.4 nano
+// Chat with GPT-5 nano
 puter.ai.chat("What color was Napoleon's white horse?").then((response) => {
   puter.print(response);
 });
