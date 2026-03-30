@@ -6,30 +6,30 @@ export interface ActorLogFields {
 }
 
 export class SystemActorType {
-    constructor (o?: Record<string, unknown>);
+    constructor (_o?: Record<string, unknown>);
     get uid (): string;
-    get_related_type (type_class: unknown): SystemActorType;
+    get_related_type (_type_class: unknown): SystemActorType;
 }
 
 export class UserActorType {
-    constructor (params: { user: IUser; session?: { uuid: string }; hasHttpOnlyCookie?: boolean });
+    constructor (_params: { user: IUser; session?: { uuid: string }; hasHttpOnlyCookie?: boolean });
     user: IUser;
     /** When true, this actor can access user-protected HTTP endpoints (e.g. change password). GUI tokens set this false. */
     hasHttpOnlyCookie: boolean;
     get uid (): string;
-    get_related_type (type_class: unknown): UserActorType;
+    get_related_type (_type_class: unknown): UserActorType;
 }
 
 export class AppUnderUserActorType {
-    constructor (params: { user: IUser, app: { uid: string } });
+    constructor (_params: { user: IUser, app: { id?: number; uid: string } });
     user: IUser;
-    app: { uid: string };
+    app: { id?: number; uid: string };
     get uid (): string;
-    get_related_type (type_class: unknown): UserActorType | AppUnderUserActorType;
+    get_related_type (_type_class: unknown): UserActorType | AppUnderUserActorType;
 }
 
 export class AccessTokenActorType {
-    constructor (params: { authorizer: Actor, authorized?: Actor, token: string });
+    constructor (_params: { authorizer: Actor, authorized?: Actor, token: string });
     authorizer: Actor;
     authorized?: Actor;
     token: string;
@@ -38,7 +38,7 @@ export class AccessTokenActorType {
 }
 
 export class SiteActorType {
-    constructor (params: { site: { name: string } });
+    constructor (_params: { site: { name: string } });
     site: { name: string };
     get uid (): string;
 }
@@ -55,20 +55,20 @@ export interface ActorInit {
 }
 
 export class Actor {
-    constructor (init: ActorInit);
-    type: {
-        app?: { uid: string, timestamp?: Date }
-        authorizer?: Actor
-        user: IUser
+    constructor (_init: ActorInit);
+    type: ActorType & {
+        user?: IUser;
+        app?: { id?: number; uid: string; timestamp?: Date };
+        authorizer?: Actor;
     };
     get uid (): string;
     get private_uid (): string;
     toLogFields (): ActorLogFields;
     clone (): Actor;
-    get_related_actor (type_class: unknown): Actor;
+    get_related_actor (_type_class: unknown): Actor;
     static create (
-        type: new (params?: Record<string, unknown>) => ActorType,
-        params?: {
+        _type: new (_params?: Record<string, unknown>) => ActorType,
+        _params?: {
             user_uid?: string;
             app_uid?: string;
             user?: IUser;
@@ -77,5 +77,5 @@ export class Actor {
         },
     ): Promise<Actor>;
     static get_system_actor (): Actor;
-    static adapt (actor?: Actor | { username?: string, uuid?: string }): Actor;
+    static adapt (_actor?: Actor | { username?: string, uuid?: string }): Actor;
 }

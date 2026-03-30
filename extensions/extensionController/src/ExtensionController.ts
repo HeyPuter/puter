@@ -5,6 +5,7 @@ import type {
     HttpMethod,
     RouterMethods,
 } from '../../api.d.ts';
+declare const extension: Partial<Record<HttpMethod, RouterMethods[HttpMethod]>>;
 /**
  * Class decorator to set prefix on prototype and register routes on instantiation
  * @argument prefix - prefix for all routes under the class
@@ -81,11 +82,53 @@ export const Put = createMethodDecorator('put');
 export const Delete = createMethodDecorator('delete');
 // TODO DS: add others as needed (patch, etc)
 
+interface HttpErrorOptions {
+    cause?: unknown;
+    legacyCode?: string;
+    code?: string;
+    fields?: Record<string, unknown>;
+}
+
+const isHttpErrorOptions = (value: unknown): value is HttpErrorOptions => {
+    if ( !value || typeof value !== 'object' || Array.isArray(value) ) {
+        return false;
+    }
+
+    return (
+        Object.prototype.hasOwnProperty.call(value, 'cause')
+        || Object.prototype.hasOwnProperty.call(value, 'legacyCode')
+        || Object.prototype.hasOwnProperty.call(value, 'code')
+        || Object.prototype.hasOwnProperty.call(value, 'fields')
+    );
+};
+
 export class HttpError extends Error {
     statusCode: number;
-    constructor (statusCode: StatusCodes, message: string, cause?: unknown) {
-        super(`${statusCode} - ${message}`, { cause });
+    legacyCode?: string;
+    code?: string;
+    fields?: Record<string, unknown>;
+    constructor (
+        statusCode: StatusCodes,
+        message: string,
+        causeOrOptions?: unknown,
+        legacyCode?: string,
+    ) {
+        const options = isHttpErrorOptions(causeOrOptions)
+            ? causeOrOptions
+            : undefined;
+        const cause = options
+            ? options.cause
+            : causeOrOptions;
+        const resolvedLegacyCode = legacyCode ?? options?.legacyCode;
+        const code = options?.code;
+        super(
+            `${statusCode} - ${message}`,
+            cause !== undefined ? { cause } : undefined,
+        );
         this.statusCode = statusCode;
+        this.legacyCode = resolvedLegacyCode;
+        this.code = code;
+        this.fields = options?.fields;
     }
 }
 
@@ -154,7 +197,28 @@ export class ExtensionController {
                             return await route.handler.bind(this)(req, res, next);
                         } catch ( error ) {
                             if ( error instanceof HttpError ) {
-                                res.status(error.statusCode).send({ error: error.message });
+                                const payload: Record<string, unknown> = {
+                                    error: error.message,
+                                };
+                                if ( error.legacyCode ) {
+                                    payload.code = error.legacyCode;
+                                }
+                                if ( error.code ) {
+                                    if ( payload.code === undefined ) {
+                                        payload.code = error.code;
+                                    } else {
+                                        payload.errorCode = error.code;
+                                    }
+                                }
+                                if ( error.fields ) {
+                                    for ( const [key, value] of Object.entries(error.fields) ) {
+                                        if ( payload[key] !== undefined ) {
+                                            continue;
+                                        }
+                                        payload[key] = value;
+                                    }
+                                }
+                                res.status(error.statusCode).send(payload);
                                 logger.warn('httpError:', error);
                                 return;
                             }

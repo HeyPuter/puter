@@ -29,6 +29,7 @@ const gui_cache_keys = [
 
 const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 const isOptConfigShorthand = (value) => isObject(value) && Object.prototype.hasOwnProperty.call(value, 'appUuid');
+const isBatchSetItem = (value) => isObject(value) && Object.prototype.hasOwnProperty.call(value, 'key');
 
 class KV {
     MAX_KEY_SIZE = 1024;
@@ -120,7 +121,36 @@ class KV {
 
     /** @type {SetFunction} */
     set = async (...args) => {
+        if ( Array.isArray(args[0]) ) {
+            const items = args[0];
+            const rest = args.slice(1);
+
+            let optConfig;
+            let success;
+            let error;
+
+            if ( rest[0] === undefined ) {
+                rest.shift();
+            }
+
+            if ( isObject(rest[0]) ) {
+                optConfig = rest.shift();
+            }
+
+            if ( typeof rest[0] === 'function' ) {
+                success = rest.shift();
+            }
+            if ( typeof rest[0] === 'function' ) {
+                error = rest.shift();
+            }
+
+            return await this.setBatch_({ items, optConfig, success, error });
+        }
+
         if ( args.length === 1 && isObject(args[0]) ) {
+            if ( Array.isArray(args[0].items) ) {
+                return await this.setBatch_(args[0]);
+            }
             return await this.set_(args[0]);
         }
 
@@ -179,6 +209,43 @@ class KV {
                 throw { message: `Value size cannot be larger than ${this.MAX_VALUE_SIZE}`, code: 'value_too_large' };
             }
             return args;
+        },
+    });
+
+    setBatch_ = utils.make_driver_method(['items'], 'puter-kvstore', undefined, 'batchPut', {
+        preprocess: (args) => {
+            if ( !Array.isArray(args.items) || args.items.length === 0 ) {
+                throw { message: 'Items are required', code: 'items_required' };
+            }
+
+            const normalizedItems = args.items.map((item) => {
+                if ( ! isBatchSetItem(item) ) {
+                    throw { message: 'Each item must include a key', code: 'invalid_item' };
+                }
+
+                const key = String(item.key);
+                if ( key.length === 0 ) {
+                    throw { message: 'Key cannot be undefined', code: 'key_undefined' };
+                }
+                if ( key.length > this.MAX_KEY_SIZE ) {
+                    throw { message: `Key size cannot be larger than ${this.MAX_KEY_SIZE}`, code: 'key_too_large' };
+                }
+
+                if ( item.value && item.value.length > this.MAX_VALUE_SIZE ) {
+                    throw { message: `Value size cannot be larger than ${this.MAX_VALUE_SIZE}`, code: 'value_too_large' };
+                }
+
+                return {
+                    key,
+                    value: item.value,
+                    ...(item.expireAt !== undefined ? { expireAt: item.expireAt } : {}),
+                };
+            });
+
+            return {
+                ...args,
+                items: normalizedItems,
+            };
         },
     });
 

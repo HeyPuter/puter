@@ -118,7 +118,7 @@ export class MeteringService {
 
                 usageType = usageType.replace(/\./g, PERIOD_ESCAPE) as keyof typeof COST_MAPS; // replace dots with underscores for kvstore paths, TODO DS: map this back when reading
                 const appId = actor.type?.app?.uid || GLOBAL_APP_KEY;
-                const userId = actor.type?.user.uuid;
+                const userId = actor.type?.user?.uuid!;
                 const pathAndAmountMap = {
                     'total': totalCost,
                     [`${usageType}.units`]: usageAmount,
@@ -304,7 +304,7 @@ export class MeteringService {
                 }
 
                 const appId = actor.type?.app?.uid || GLOBAL_APP_KEY;
-                const userId = actor.type?.user.uuid;
+                const userId = actor.type?.user?.uuid!;
 
                 const actorUsageKey = `${METRICS_PREFIX}:actor:${userId}:${currentMonth}`;
                 const actorUsagesPromise = this.#kvStore.incr({
@@ -585,7 +585,7 @@ export class MeteringService {
 
     async getActorSubscription (actor: Actor): Promise<(typeof SUB_POLICIES)[number]> {
         // TODO DS: maybe allow non-user actors to have subscriptions eventually
-        if ( ! actor.type?.user.uuid ) {
+        if ( ! actor.type?.user?.uuid ) {
             throw new Error('Actor must be a user to get policy');
         }
 
