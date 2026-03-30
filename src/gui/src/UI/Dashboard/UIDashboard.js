@@ -98,6 +98,9 @@ async function UIDashboard (options) {
                     h += tab.label;
                 h += '</div>';
             }
+            // Pinned apps section (inside nav, right after the built-in items)
+            h += '<hr class="dashboard-sidebar-separator dashboard-pinned-separator">';
+            h += '<div class="dashboard-pinned-apps"></div>';
             h += '</div>';
 
             // User options button at bottom
@@ -157,6 +160,116 @@ async function UIDashboard (options) {
 
     // Dispatch 'dashboard-ready' event for extensions
     window.dispatchEvent(new CustomEvent('dashboard-ready', { detail: { window: $el_window } }));
+
+    // =========================================================================
+    // Pinned apps in sidebar
+    // =========================================================================
+    let pinnedApps = [];
+
+    function renderPinnedApp (app) {
+        const $item = $(`<div class="dashboard-sidebar-item dashboard-pinned-app" data-app-name="${html_encode(app.name)}" title="${html_encode(app.title || app.name)}">`)
+            .append(`<img src="${html_encode(app.iconUrl || window.icons['app.svg'])}" class="dashboard-pinned-icon" alt="">`)
+            .append(document.createTextNode(app.title || app.name));
+        $el_window.find('.dashboard-pinned-apps').append($item);
+    }
+
+    function updatePinnedSeparator () {
+        $el_window.find('.dashboard-pinned-separator').toggleClass('visible', pinnedApps.length > 0);
+    }
+
+    function savePinnedApps () {
+        puter.kv.set('dashboard_pinned_apps', JSON.stringify(pinnedApps));
+    }
+
+    // Load pinned apps
+    (async () => {
+        try {
+            const saved = await puter.kv.get('dashboard_pinned_apps');
+            if ( saved ) {
+                pinnedApps = JSON.parse(saved);
+                for ( const app of pinnedApps ) {
+                    renderPinnedApp(app);
+                }
+                updatePinnedSeparator();
+            }
+        } catch (_) {
+            // KV not available
+        }
+    })();
+
+    // Drag over sidebar — show drop indicator
+    const sidebarEl = $el_window.find('.dashboard-sidebar')[0];
+
+    sidebarEl.addEventListener('dragover', function (e) {
+        if ( ! e.dataTransfer.types.includes('application/x-puter-app') ) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'copy';
+        this.classList.add('drag-over');
+    });
+
+    sidebarEl.addEventListener('dragleave', function (e) {
+        if ( ! this.contains(e.relatedTarget) ) {
+            this.classList.remove('drag-over');
+        }
+    });
+
+    // Drop app on sidebar
+    sidebarEl.addEventListener('drop', function (e) {
+        e.preventDefault();
+        this.classList.remove('drag-over');
+
+        const raw = e.dataTransfer.getData('application/x-puter-app');
+        if ( ! raw ) return;
+
+        let app;
+        try {
+ app = JSON.parse(raw);
+}
+        catch (_) {
+ return;
+}
+
+        // Don't add duplicates
+        if ( pinnedApps.some(p => p.name === app.name) ) return;
+
+        pinnedApps.push({ name: app.name, title: app.title, iconUrl: app.iconUrl });
+        renderPinnedApp(app);
+        updatePinnedSeparator();
+        savePinnedApps();
+    });
+
+    // Click pinned app to launch
+    $el_window.on('click', '.dashboard-pinned-app', function (e) {
+        e.stopPropagation();
+        const appName = $(this).attr('data-app-name');
+        if ( appName ) {
+            window.open(`/app/${appName}`, '_blank');
+        }
+    });
+
+    // Right-click pinned app to unpin
+    $el_window.on('contextmenu', '.dashboard-pinned-app', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        const $item = $(this);
+        const appName = $item.attr('data-app-name');
+
+        UIContextMenu({
+            parent_element: $item[0],
+            position: { top: e.clientY, left: e.clientX },
+            items: [
+                {
+                    html: 'Remove from sidebar',
+                    onClick: () => {
+                        pinnedApps = pinnedApps.filter(p => p.name !== appName);
+                        $item.remove();
+                        updatePinnedSeparator();
+                        savePinnedApps();
+                    },
+                },
+            ],
+        });
+    });
 
     // =========================================================================
     // Socket initialization

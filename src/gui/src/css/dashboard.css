@@ -184,6 +184,8 @@ body {
 
 .dashboard-sidebar-nav {
     flex: 1;
+    display: flex;
+    flex-direction: column;
 }
 
 .dashboard-sidebar-separator {
@@ -230,6 +232,37 @@ body {
     border-radius: 4px;
     position: absolute;
     right: 4px;
+}
+
+/* Pinned apps in sidebar */
+.dashboard-pinned-separator {
+    display: none;
+}
+
+.dashboard-pinned-separator.visible {
+    display: block;
+}
+
+.dashboard-pinned-apps {
+    flex: 1;
+    border: 2px solid transparent;
+}
+
+.dashboard-pinned-icon {
+    width: 18px;
+    height: 18px;
+    border-radius: 4px;
+    flex-shrink: 0;
+    object-fit: cover;
+}
+
+.dashboard-sidebar.drag-over .dashboard-pinned-separator {
+    display: block;
+}
+
+.dashboard-sidebar.drag-over .dashboard-pinned-apps {
+    border: 2px dashed var(--select-color);
+    border-radius: 6px;
 }
 
 /* User options button at bottom of sidebar */
