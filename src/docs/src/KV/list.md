@@ -103,3 +103,62 @@ If the user has no keys, the array will be empty.
     </script>
 </body>
 ```
+
+<strong class="example-title">Sort keys lexicographically</strong>
+
+```html
+<html>
+<body>
+<script src="https://js.puter.com/v2/"></script>
+<script>
+(async () => {
+    await puter.kv.set('log:2025-03-15T10:00:00Z', { msg: 'third' });
+    await puter.kv.set('log:2025-01-01T00:00:00Z', { msg: 'first' });
+    await puter.kv.set('log:2025-02-14T08:00:00Z', { msg: 'second' });
+
+    const logs = await puter.kv.list('log:*');
+    puter.print(`Sorted keys: ${logs}<br>`);
+
+    await puter.kv.del('log:2025-03-15T10:00:00Z');
+    await puter.kv.del('log:2025-01-01T00:00:00Z');
+    await puter.kv.del('log:2025-02-14T08:00:00Z');
+})();
+</script>
+</body>
+</html>
+```
+[Try this example in the Playground](/playground/?example=kv-list-sort)
+
+<strong class="example-title">Sort numeric keys with zero-padding</strong>
+
+```html
+<html>
+<body>
+<script src="https://js.puter.com/v2/"></script>
+<script>
+(async () => {
+    await puter.kv.set('item:1', '...');
+    await puter.kv.set('item:10', '...');
+    await puter.kv.set('item:2', '...');
+
+    await puter.kv.set('item:001', '...');
+    await puter.kv.set('item:002', '...');
+    await puter.kv.set('item:010', '...');
+
+    const items = await puter.kv.list('item:*');
+    puter.print(`Items: ${items}<br>`);
+
+    await puter.kv.del('item:1');
+    await puter.kv.del('item:10');
+    await puter.kv.del('item:2');
+    await puter.kv.del('item:001');
+    await puter.kv.det('item:002');
+    await puter.kv.det('item:010');
+})();
+</script>
+</body>
+</html>
+```
+
+[Try this example in the Playground](/playground/?example=kv-list-padding)
+
