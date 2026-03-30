@@ -48,7 +48,7 @@ router.post('/set_sort_by', auth, express.json(), async (req, res, next) => {
     {
         return res.status(400).send('`sort_by` is required');
     }
-    else if ( req.body.sort_by !== 'name' && req.body.sort_by !== 'size' && req.body.sort_by !== 'modified' && req.body.sort_by !== 'type' )
+    else if ( req.body.sort_by !== 'name' && req.body.sort_by !== 'size' && req.body.sort_by !== 'modified' && req.body.sort_by !== 'type' && req.body.sort_by !== 'kind' )
     {
         return res.status(400).send('invalid `sort_by`');
     }
@@ -94,12 +94,16 @@ router.post('/set_sort_by', auth, express.json(), async (req, res, next) => {
     }
 
     // set sort_by
-    await db.write('UPDATE fsentries SET sort_by = ? WHERE id = ?',
-                    [req.body.sort_by, item.id]);
+    await db.write(
+        'UPDATE fsentries SET sort_by = ? WHERE id = ?',
+        [req.body.sort_by, item.id],
+    );
 
     // set sort_order
-    await db.write('UPDATE fsentries SET sort_order = ? WHERE id = ?',
-                    [req.body.sort_order, item.id]);
+    await db.write(
+        'UPDATE fsentries SET sort_order = ? WHERE id = ?',
+        [req.body.sort_order, item.id],
+    );
 
     // send results to client
     return res.send({});

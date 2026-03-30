@@ -855,6 +855,7 @@ export async function uuid2fsentry (uuid, return_thumbnail) {
             is_shortcut,
             shortcut_to,
             sort_by,
+            group_by_kind,
             ${return_thumbnail ? 'thumbnail,' : ''}
             immutable,
             name,
@@ -903,6 +904,7 @@ export async function id2fsentry (id, return_thumbnail) {
             is_shortcut,
             shortcut_to,
             sort_by,
+            group_by_kind,
             ${return_thumbnail ? 'thumbnail,' : ''}
             immutable,
             name,
@@ -1286,6 +1288,7 @@ async function getDescendantsHelper (path, user, depth, return_thumbnail = false
             accessed: children[i].accessed,
             size: children[i].size,
             sort_by: children[i].sort_by,
+            group_by_kind: children[i].group_by_kind,
             thumbnail: children[i].thumbnail,
             associated_app_id: children[i].associated_app_id,
             type: contentType ? contentType : null,

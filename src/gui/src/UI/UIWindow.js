@@ -2510,6 +2510,8 @@ async function UIWindow (options) {
                             html: i18n('name'),
                             icon: $(el_window).attr('data-sort_by') === 'name' ? '✓' : '',
                             onClick: async function () {
+                                $(el_window).attr('data-group_by_kind', 'false');
+                                $(el_window_body).find('.group-by-kind-header').remove();
                                 window.sort_items(el_window_body, 'name', $(el_window).attr('data-sort_order'));
                                 window.set_sort_by($(el_window).attr('data-uid'), 'name', $(el_window).attr('data-sort_order'));
                             },
@@ -2518,6 +2520,8 @@ async function UIWindow (options) {
                             html: i18n('date_modified'),
                             icon: $(el_window).attr('data-sort_by') === 'modified' ? '✓' : '',
                             onClick: async function () {
+                                $(el_window).attr('data-group_by_kind', 'false');
+                                $(el_window_body).find('.group-by-kind-header').remove();
                                 window.sort_items(el_window_body, 'modified', $(el_window).attr('data-sort_order'));
                                 window.set_sort_by($(el_window).attr('data-uid'), 'modified', $(el_window).attr('data-sort_order'));
                             },
@@ -2526,6 +2530,8 @@ async function UIWindow (options) {
                             html: i18n('type'),
                             icon: $(el_window).attr('data-sort_by') === 'type' ? '✓' : '',
                             onClick: async function () {
+                                $(el_window).attr('data-group_by_kind', 'false');
+                                $(el_window_body).find('.group-by-kind-header').remove();
                                 window.sort_items(el_window_body, 'type', $(el_window).attr('data-sort_order'));
                                 window.set_sort_by($(el_window).attr('data-uid'), 'type', $(el_window).attr('data-sort_order'));
                             },
@@ -2534,8 +2540,29 @@ async function UIWindow (options) {
                             html: i18n('size'),
                             icon: $(el_window).attr('data-sort_by') === 'size' ? '✓' : '',
                             onClick: async function () {
+                                $(el_window).attr('data-group_by_kind', 'false');
+                                $(el_window_body).find('.group-by-kind-header').remove();
                                 window.sort_items(el_window_body, 'size', $(el_window).attr('data-sort_order'));
                                 window.set_sort_by($(el_window).attr('data-uid'), 'size', $(el_window).attr('data-sort_order'));
+                            },
+                        },
+                        {
+                            html: 'Group by Kind',
+                            icon: $(el_window).attr('data-group_by_kind') === 'true' ? '✓' : '',
+                            onClick: async function () {
+                                const item_uid = $(el_window).attr('data-uid');
+                                const is_grouped = $(el_window).attr('data-group_by_kind') === 'true';
+                                if ( is_grouped ) {
+                                    $(el_window).attr('data-group_by_kind', 'false');
+                                    $(el_window_body).find('.group-by-kind-header').remove();
+                                    window.sort_items(el_window_body, 'name', $(el_window).attr('data-sort_order'));
+                                    if ( item_uid ) window.set_sort_by(item_uid, 'name', $(el_window).attr('data-sort_order'));
+                                } else {
+                                    $(el_window).attr('data-group_by_kind', 'true');
+                                    $(el_window).attr('data-sort_by', 'kind');
+                                    window.group_items_by_kind(el_window_body);
+                                    if ( item_uid ) window.set_sort_by(item_uid, 'kind', $(el_window).attr('data-sort_order'));
+                                }
                             },
                         },
                         // -------------------------------------------
@@ -3886,9 +3913,8 @@ window.set_sort_by = function (item_uid, sort_by, sort_order) {
                 window.logout();
             },
         },
-        success: function () {
-        },
     });
+
     // update the sort_by & sort_order attr of every matching element
     $(`[data-uid="${item_uid}"]`).attr({
         'data-sort_by': sort_by,
