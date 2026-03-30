@@ -2,9 +2,26 @@ import path from '../../../lib/path.js';
 import * as utils from '../../../lib/utils.js';
 import getAbsolutePathForApp from '../utils/getAbsolutePathForApp.js';
 
+/* eslint-disable */
 const MAX_THUMBNAIL_BYTES = 2 * 1024 * 1024;
 const DEFAULT_THUMBNAIL_DIMENSION = 128;
 const MIN_THUMBNAIL_DIMENSION = 32;
+const SIGNED_BATCH_WRITE_CAPABILITY_KEY = 'signedBatchWriteSupported';
+const SIGNED_BATCH_REQUEST_CHUNK_SIZE = 500;
+const SIGNED_BATCH_CHUNK_PIPELINE_CONCURRENCY = 4;
+const SIGNED_BATCH_FILE_UPLOAD_CONCURRENCY = 8;
+const SIGNED_MULTIPART_PART_UPLOAD_CONCURRENCY = 8;
+const SIGNED_BATCH_WRITE_UNAVAILABLE_STATUSES = new Set([404, 405, 501]);
+
+// TODO: Remove this api.puter.com gate when signed batch-write is supported in all deployments.
+const isSignedBatchWriteApiOrigin = (apiOrigin) => {
+    try {
+        const hostname = new URL(apiOrigin).hostname.replace(/\.$/, '').toLowerCase();
+        return hostname === 'api.puter.com';
+    } catch (error) {
+        return false;
+    }
+};
 
 const isLikelyImageFile = (file) => {
     if ( ! file ) return false;
@@ -18,6 +35,39 @@ const estimateDataUrlSize = (dataUrl) => {
     const commaIndex = dataUrl.indexOf(',');
     const base64 = commaIndex === -1 ? dataUrl : dataUrl.slice(commaIndex + 1);
     return Math.ceil(base64.length * 3 / 4);
+};
+
+const isDataUrl = (value) => {
+    return typeof value === 'string' && value.startsWith('data:');
+};
+
+const parseDataUrlContentType = (dataUrl) => {
+    if ( ! isDataUrl(dataUrl) ) return undefined;
+    const commaIndex = dataUrl.indexOf(',');
+    const metadata = commaIndex === -1
+        ? dataUrl.slice(5)
+        : dataUrl.slice(5, commaIndex);
+    const [rawContentType] = metadata.split(';');
+    const contentType = rawContentType ? rawContentType.trim() : '';
+    return contentType || 'application/octet-stream';
+};
+
+const dataUrlToBlob = async (dataUrl) => {
+    const response = await fetch(dataUrl);
+    if ( ! response.ok ) {
+        throw new Error('Failed to read thumbnail data URL');
+    }
+    return await response.blob();
+};
+
+const normalizeThumbnailData = (thumbnailData) => {
+    if ( typeof thumbnailData !== 'string' || thumbnailData.length === 0 ) {
+        return undefined;
+    }
+    if ( isDataUrl(thumbnailData) && estimateDataUrlSize(thumbnailData) > MAX_THUMBNAIL_BYTES ) {
+        return undefined;
+    }
+    return thumbnailData;
 };
 
 const scaleDimensions = (width, height, maxDim) => {
@@ -93,7 +143,192 @@ const defaultThumbnailGenerator = async (file) => {
     return undefined;
 };
 
-/* eslint-disable */
+const parseFetchResponseBody = async (response) => {
+    const text = await response.text();
+    if ( ! text ) return null;
+
+    try {
+        return JSON.parse(text);
+    } catch (e) {
+        return text;
+    }
+};
+
+const createApiHeaders = (authToken) => {
+    const headers = {
+        Authorization: `Bearer ${authToken}`,
+        'Content-Type': 'application/json',
+    };
+
+    if ( ['web', 'app'].includes(puter.env) ) {
+        headers.Origin = 'https://puter.work';
+    }
+
+    return headers;
+};
+
+const toRequestError = (response, body, fallbackMessage) => {
+    const bodyRecord = body && typeof body === 'object' ? body : null;
+    const message = bodyRecord?.message
+        ?? (typeof bodyRecord?.error === 'string' ? bodyRecord.error : bodyRecord?.error?.message)
+        ?? (typeof body === 'string' && body.length > 0 ? body : null)
+        ?? fallbackMessage
+        ?? `Request failed with status ${response.status}`;
+    const error = new Error(message);
+    error.status = response.status;
+    error.body = body;
+    if ( typeof bodyRecord?.code === 'string' && bodyRecord.code.length > 0 ) {
+        error.code = bodyRecord.code;
+    } else if ( typeof bodyRecord?.errorCode === 'string' && bodyRecord.errorCode.length > 0 ) {
+        error.code = bodyRecord.errorCode;
+    }
+    return error;
+};
+
+const postJson = async (apiOrigin, authToken, endpoint, payload) => {
+    const response = await fetch(`${apiOrigin}${endpoint}`, {
+        method: 'POST',
+        headers: createApiHeaders(authToken),
+        credentials: 'include',
+        body: JSON.stringify(payload),
+    });
+    const body = await parseFetchResponseBody(response);
+    if ( ! response.ok ) {
+        throw toRequestError(response, body, `Failed request to ${endpoint}`);
+    }
+    return body;
+};
+
+const isSignedBatchWriteUnavailableError = (error) => {
+    if ( !error || typeof error !== 'object' ) return false;
+    if ( error.signedBatchUnavailable === true ) return true;
+    const errorBody = error.body && typeof error.body === 'object'
+        ? error.body
+        : null;
+    const hasStructuredErrorCode = Boolean(
+        typeof errorBody?.code === 'string' && errorBody.code.length > 0,
+    ) || Boolean(
+        typeof errorBody?.errorCode === 'string' && errorBody.errorCode.length > 0,
+    );
+    if ( hasStructuredErrorCode ) {
+        return false;
+    }
+    return SIGNED_BATCH_WRITE_UNAVAILABLE_STATUSES.has(error.status);
+};
+
+const toErrorMessage = (error) => {
+    if ( error && typeof error === 'object' ) {
+        if ( typeof error.message === 'string' && error.message.length > 0 ) {
+            return error.message;
+        }
+        if ( typeof error.body === 'string' && error.body.length > 0 ) {
+            return error.body;
+        }
+        if ( error.body && typeof error.body === 'object' ) {
+            if ( typeof error.body.message === 'string' && error.body.message.length > 0 ) {
+                return error.body.message;
+            }
+            if (
+                error.body.error &&
+                typeof error.body.error === 'object' &&
+                typeof error.body.error.message === 'string' &&
+                error.body.error.message.length > 0
+            ) {
+                return error.body.error.message;
+            }
+        }
+    }
+    return String(error);
+};
+
+const chunkArray = (values, chunkSize) => {
+    const chunks = [];
+    if ( !Array.isArray(values) || values.length === 0 ) {
+        return chunks;
+    }
+
+    const normalizedChunkSize = Math.max(1, Number(chunkSize) || 1);
+    for ( let index = 0; index < values.length; index += normalizedChunkSize ) {
+        chunks.push(values.slice(index, index + normalizedChunkSize));
+    }
+    return chunks;
+};
+
+const uploadBlobToSignedUrl = async ({
+    url,
+    blob,
+    contentType,
+    onProgress,
+    onRequestCreated,
+    onRequestCompleted,
+}) => {
+    return await new Promise((resolve, reject) => {
+        const request = new XMLHttpRequest();
+        request.open('PUT', url, true);
+        request.withCredentials = false;
+
+        if ( contentType ) {
+            request.setRequestHeader('Content-Type', contentType);
+        }
+
+        if ( onRequestCreated ) {
+            onRequestCreated(request);
+        }
+
+        let previousLoaded = 0;
+        request.upload.addEventListener('progress', (event) => {
+            if ( ! onProgress ) return;
+            if ( ! event.lengthComputable ) return;
+
+            const delta = Math.max(0, event.loaded - previousLoaded);
+            previousLoaded = event.loaded;
+            if ( delta > 0 ) {
+                onProgress(delta);
+            }
+        });
+
+        request.onload = () => {
+            if ( onRequestCompleted ) {
+                onRequestCompleted(request);
+            }
+
+            if ( blob.size > previousLoaded && onProgress ) {
+                onProgress(blob.size - previousLoaded);
+            }
+
+            if ( request.status >= 200 && request.status < 300 ) {
+                const etag = request.getResponseHeader('etag') ?? request.getResponseHeader('ETag');
+                resolve({ etag });
+                return;
+            }
+
+            const error = new Error(`Signed upload failed with status ${request.status}`);
+            error.status = request.status;
+            reject(error);
+        };
+
+        request.onerror = () => {
+            if ( onRequestCompleted ) {
+                onRequestCompleted(request);
+            }
+            const error = new Error('Network error during signed upload');
+            error.status = request.status;
+            reject(error);
+        };
+
+        request.onabort = () => {
+            if ( onRequestCompleted ) {
+                onRequestCompleted(request);
+            }
+            const error = new Error('Signed upload aborted');
+            error.aborted = true;
+            reject(error);
+        };
+
+        request.send(blob);
+    });
+};
+
 const upload = async function (items, dirPath, options = {}) {
     return new Promise(async (resolve, reject) => {
         const DataTransferItem = globalThis.DataTransfer || (class DataTransferItem {
@@ -140,6 +375,7 @@ const upload = async function (items, dirPath, options = {}) {
         // This will be used to uniquely identify this operation and its progress
         // across servers and clients
         const operation_id = utils.uuidv4();
+        let start_callback_fired = false;
 
         // Call 'init' callback if provided
         // init is basically a hook that allows the user to get the operation ID and the XMLHttpRequest object
@@ -254,18 +490,29 @@ const upload = async function (items, dirPath, options = {}) {
             //collect dirs
             if ( entries[i].isDirectory )
             {
-                dirs.push({ path: path.join(dirPath, entries[i].finalPath ? entries[i].finalPath : entries[i].fullPath) });
+                const rawDirPath = entries[i].finalPath ? entries[i].finalPath : entries[i].fullPath;
+                const relativeDirPath = typeof rawDirPath === 'string'
+                    ? rawDirPath.replace(/^\/+/, '')
+                    : '';
+                dirs.push({ path: path.join(dirPath, relativeDirPath) });
             }
             // also files
             else {
                 // Dragged and dropped files do not have a finalPath property and hence the fileItem will go undefined.
                 // In such cases, we need default to creating the files as uploaded by the user.
-                let fileItem = entries[i].finalPath ? entries[i].finalPath : entries[i].fullPath;
+                let fileItem = entries[i].finalPath || entries[i].filepath || entries[i].fullPath || entries[i].name;
+                if ( typeof fileItem === 'string' ) {
+                    fileItem = fileItem.replace(/^\/+/, '');
+                }
                 let [dirLevel, fileName] = [fileItem?.slice(0, fileItem?.lastIndexOf('/')), fileItem?.slice(fileItem?.lastIndexOf('/') + 1)];
 
                 // If file name is blank then we need to create only an empty directory.
                 // On the other hand if the file name is not blank(could be undefined), we need to create the file.
-                fileName != '' && files.push(entries[i]);
+                if ( fileName !== '' ) {
+                    const normalizedFileItem = fileItem || entries[i].name;
+                    entries[i].puter_full_path = path.join(dirPath, normalizedFileItem);
+                    files.push(entries[i]);
+                }
                 if ( options.createFileParent && fileItem.includes('/') ) {
                     let incrementalDir;
                     dirLevel.split('/').forEach((directory) => {
@@ -320,6 +567,640 @@ const upload = async function (items, dirPath, options = {}) {
                 }
             } catch (e) {
                 // Ignored
+            }
+        }
+
+        const signedDirectories = dirs.map((dir) => dir.path);
+
+        const signedBatchWriteCapability = this[SIGNED_BATCH_WRITE_CAPABILITY_KEY];
+        const signedBatchWriteAllowed = (
+            signedBatchWriteCapability === true ||
+            (
+                signedBatchWriteCapability !== false &&
+                isSignedBatchWriteApiOrigin(this.APIOrigin)
+            )
+        );
+
+        const shouldAttemptSignedBatchWrite = (
+            !options.shortcutTo &&
+            (files.length > 0 || signedDirectories.length > 0) &&
+            signedBatchWriteAllowed
+        );
+
+        if ( shouldAttemptSignedBatchWrite ) {
+            const overwriteEnabled = options.overwrite ?? false;
+            const shouldCreateMissingParents = Boolean(
+                options.createMissingAncestors ||
+                options.createMissingParents ||
+                options.createFileParent ||
+                dirs.length > 0
+            );
+            let signedTotalSizeForProgress = total_size > 0 ? total_size : 1;
+            let signedBytesUploaded = 0;
+            const activeSignedRequests = new Set();
+            const pendingUploadIds = new Set();
+            let signedUploadAborted = false;
+
+            const emitSignedProgress = () => {
+                let op_progress = ((signedBytesUploaded / signedTotalSizeForProgress) * 100).toFixed(2);
+                op_progress = op_progress > 100 ? 100 : op_progress;
+                if ( options.progress && typeof options.progress === 'function' ) {
+                    options.progress(operation_id, op_progress);
+                }
+            };
+
+            const addSignedProgress = (delta) => {
+                if ( delta <= 0 ) return;
+                signedBytesUploaded += delta;
+                emitSignedProgress();
+            };
+
+            const abortStartedUploads = async () => {
+                if ( pendingUploadIds.size === 0 ) return;
+                const uploadIds = Array.from(pendingUploadIds);
+                await Promise.all(uploadIds.map(async (uploadId) => {
+                    try {
+                        await postJson(this.APIOrigin, this.authToken, '/fs/abortWrite', { uploadId });
+                    } catch (e) {
+                        // Ignore abort failures during cleanup.
+                    }
+                }));
+                pendingUploadIds.clear();
+            };
+
+            const abortSignedUpload = async () => {
+                if ( signedUploadAborted ) return;
+                signedUploadAborted = true;
+                for ( const request of activeSignedRequests ) {
+                    try {
+                        request.abort();
+                    } catch (e) {
+                        // Ignore individual abort errors.
+                    }
+                }
+                await abortStartedUploads();
+                if ( options.abort && typeof options.abort === 'function' ) {
+                    options.abort(operation_id);
+                }
+            };
+
+            xhr.abort = () => {
+                void abortSignedUpload();
+            };
+
+            try {
+                const startRequestItems = [];
+                for ( let index = 0; index < signedDirectories.length; index++ ) {
+                    startRequestItems.push({
+                        type: 'directory',
+                        directoryPath: signedDirectories[index],
+                        itemUploadId: `dir_${index}`,
+                    });
+                }
+                for ( let index = 0; index < files.length; index++ ) {
+                    startRequestItems.push({
+                        type: 'file',
+                        file: files[index],
+                        fileIndex: index,
+                        thumbnailData: normalizeThumbnailData(thumbnails[index] ?? options.thumbnail ?? undefined),
+                        itemUploadId: String(index),
+                    });
+                }
+
+                const signedThumbnailSizeTotal = startRequestItems.reduce((acc, requestItem) => {
+                    if ( requestItem.type !== 'file' ) {
+                        return acc;
+                    }
+                    if ( ! isDataUrl(requestItem.thumbnailData) ) {
+                        return acc;
+                    }
+                    return acc + estimateDataUrlSize(requestItem.thumbnailData);
+                }, 0);
+                const signedTotalBytes = total_size + signedThumbnailSizeTotal;
+                signedTotalSizeForProgress = signedTotalBytes > 0 ? signedTotalBytes : 1;
+
+                const startBatchRequests = startRequestItems.map((requestItem) => {
+                    if ( requestItem.type === 'directory' ) {
+                        return {
+                            fileMetadata: {
+                                path: requestItem.directoryPath,
+                                size: 0,
+                                contentType: 'application/x-puter-directory',
+                                overwrite: overwriteEnabled,
+                                createMissingParents: shouldCreateMissingParents,
+                            },
+                            directory: true,
+                            guiMetadata: {
+                                operationId: operation_id,
+                                itemUploadId: requestItem.itemUploadId,
+                                socketId: this.socket.id,
+                                originalClientSocketId: this.socket.id,
+                            },
+                        };
+                    }
+
+                    const file = requestItem.file;
+                    const targetPath = file.puter_full_path
+                        ?? path.join(dirPath, file.filepath || file.name);
+                    const fileMetadata = {
+                        path: targetPath,
+                        size: file.size,
+                        contentType: file.type || 'application/octet-stream',
+                        overwrite: overwriteEnabled,
+                        dedupeName: options.dedupeName ?? true,
+                        createMissingParents: shouldCreateMissingParents,
+                    };
+
+                    return {
+                        fileMetadata,
+                        ...(isDataUrl(requestItem.thumbnailData) ? {
+                            thumbnailMetadata: {
+                                contentType: parseDataUrlContentType(requestItem.thumbnailData),
+                                size: estimateDataUrlSize(requestItem.thumbnailData),
+                            },
+                        } : {}),
+                        guiMetadata: {
+                            operationId: operation_id,
+                            itemUploadId: requestItem.itemUploadId,
+                            socketId: this.socket.id,
+                            originalClientSocketId: this.socket.id,
+                        },
+                    };
+                });
+
+                if ( options.start && typeof options.start === 'function' ) {
+                    options.start();
+                    start_callback_fired = true;
+                }
+
+                const responseItemsByRequestIndex = new Map();
+                const failedUploadItems = [];
+                const failedCompletionItems = [];
+                const startBatchRequestChunks = chunkArray(startBatchRequests, SIGNED_BATCH_REQUEST_CHUNK_SIZE);
+                const startRequestItemChunks = chunkArray(startRequestItems, SIGNED_BATCH_REQUEST_CHUNK_SIZE);
+                const startRequestIndexChunks = chunkArray(
+                    startRequestItems.map((_item, index) => index),
+                    SIGNED_BATCH_REQUEST_CHUNK_SIZE,
+                );
+
+                if (
+                    startBatchRequestChunks.length !== startRequestItemChunks.length
+                    || startBatchRequestChunks.length !== startRequestIndexChunks.length
+                ) {
+                    throw new Error('Signed batch request chunk mapping is invalid');
+                }
+
+                const uploadSignedFileTask = async (uploadTask) => {
+                    const { requestIndex, requestItem, startResponse } = uploadTask;
+                    const file = requestItem.file;
+
+                    const thumbnailData = requestItem.thumbnailData;
+                    let completionThumbnailData;
+                    if ( isDataUrl(thumbnailData) ) {
+                        const thumbnailUploadUrl = startResponse.thumbnailUploadUrl;
+                        const thumbnailUrl = startResponse.thumbnailUrl;
+                        if ( thumbnailUploadUrl && thumbnailUrl ) {
+                            const thumbnailBlob = await dataUrlToBlob(thumbnailData);
+                            if ( thumbnailBlob.size <= MAX_THUMBNAIL_BYTES ) {
+                                await uploadBlobToSignedUrl({
+                                    url: thumbnailUploadUrl,
+                                    blob: thumbnailBlob,
+                                    contentType: thumbnailBlob.type || parseDataUrlContentType(thumbnailData),
+                                    onProgress: addSignedProgress,
+                                    onRequestCreated: (request) => {
+                                        activeSignedRequests.add(request);
+                                    },
+                                    onRequestCompleted: (request) => {
+                                        activeSignedRequests.delete(request);
+                                    },
+                                });
+                                completionThumbnailData = thumbnailUrl;
+                            }
+                        }
+                    } else if ( typeof thumbnailData === 'string' && thumbnailData.length > 0 ) {
+                        completionThumbnailData = thumbnailData;
+                    }
+
+                    if ( startResponse.uploadMode === 'multipart' ) {
+                        const partSize = Number(startResponse.multipartPartSize) || Math.max(file.size, 1);
+                        const declaredPartCount = Number(startResponse.multipartPartCount);
+                        const inferredPartCount = Math.max(1, Math.ceil(file.size / partSize));
+                        const partCount = Number.isInteger(declaredPartCount) && declaredPartCount > 0
+                            ? declaredPartCount
+                            : inferredPartCount;
+                        const partUrlMap = new Map();
+                        const providedPartUrls = Array.isArray(startResponse.multipartPartUrls)
+                            ? startResponse.multipartPartUrls
+                            : [];
+                        for ( const partUrl of providedPartUrls ) {
+                            if ( partUrl?.partNumber && partUrl?.url ) {
+                                partUrlMap.set(Number(partUrl.partNumber), partUrl.url);
+                            }
+                        }
+
+                        const missingPartNumbers = [];
+                        for ( let partNumber = 1; partNumber <= partCount; partNumber++ ) {
+                            if ( !partUrlMap.has(partNumber) ) {
+                                missingPartNumbers.push(partNumber);
+                            }
+                        }
+                        if ( missingPartNumbers.length > 0 ) {
+                            const signPartsResponse = await postJson(
+                                this.APIOrigin,
+                                this.authToken,
+                                '/fs/signMultipartParts',
+                                {
+                                    uploadId: startResponse.sessionId,
+                                    partNumbers: missingPartNumbers,
+                                },
+                            );
+                            const signedPartUrls = Array.isArray(signPartsResponse?.multipartPartUrls)
+                                ? signPartsResponse.multipartPartUrls
+                                : [];
+                            for ( const partUrl of signedPartUrls ) {
+                                if ( partUrl?.partNumber && partUrl?.url ) {
+                                    partUrlMap.set(Number(partUrl.partNumber), partUrl.url);
+                                }
+                            }
+                        }
+
+                        const completedParts = [];
+                        const allPartNumbers = [];
+                        for ( let partNumber = 1; partNumber <= partCount; partNumber++ ) {
+                            allPartNumbers.push(partNumber);
+                        }
+                        const partNumberChunks = chunkArray(
+                            allPartNumbers,
+                            SIGNED_MULTIPART_PART_UPLOAD_CONCURRENCY,
+                        );
+
+                        for ( const partNumberChunk of partNumberChunks ) {
+                            const partUploadSettledResults = await Promise.allSettled(partNumberChunk.map(async (partNumber) => {
+                                const partUrl = partUrlMap.get(partNumber);
+                                if ( !partUrl ) {
+                                    throw new Error(`Missing signed multipart URL for part ${partNumber}`);
+                                }
+
+                                const startByte = (partNumber - 1) * partSize;
+                                const endByte = Math.min(startByte + partSize, file.size);
+                                const partBlob = file.slice(startByte, endByte);
+                                const uploadResult = await uploadBlobToSignedUrl({
+                                    url: partUrl,
+                                    blob: partBlob,
+                                    contentType: startResponse.contentType || file.type || 'application/octet-stream',
+                                    onProgress: addSignedProgress,
+                                    onRequestCreated: (request) => {
+                                        activeSignedRequests.add(request);
+                                    },
+                                    onRequestCompleted: (request) => {
+                                        activeSignedRequests.delete(request);
+                                    },
+                                });
+                                if ( !uploadResult.etag ) {
+                                    throw new Error(`Missing ETag for multipart part ${partNumber}`);
+                                }
+
+                                return {
+                                    partNumber,
+                                    etag: uploadResult.etag,
+                                };
+                            }));
+
+                            for ( const partUploadSettledResult of partUploadSettledResults ) {
+                                if ( partUploadSettledResult.status === 'rejected' ) {
+                                    throw partUploadSettledResult.reason;
+                                }
+                                completedParts.push(partUploadSettledResult.value);
+                            }
+                        }
+                        completedParts.sort((partA, partB) => partA.partNumber - partB.partNumber);
+
+                        return {
+                            requestIndex,
+                            completionItem: {
+                                uploadId: startResponse.sessionId,
+                                parts: completedParts,
+                                ...(completionThumbnailData !== undefined ? { thumbnailData: completionThumbnailData } : {}),
+                                guiMetadata: {
+                                    operationId: operation_id,
+                                    itemUploadId: requestItem.itemUploadId,
+                                    socketId: this.socket.id,
+                                    originalClientSocketId: this.socket.id,
+                                },
+                            },
+                        };
+                    }
+
+                    if ( !startResponse.url ) {
+                        throw new Error('Signed upload URL is missing');
+                    }
+
+                    await uploadBlobToSignedUrl({
+                        url: startResponse.url,
+                        blob: file,
+                        contentType: startResponse.contentType || file.type || 'application/octet-stream',
+                        onProgress: addSignedProgress,
+                        onRequestCreated: (request) => {
+                            activeSignedRequests.add(request);
+                        },
+                        onRequestCompleted: (request) => {
+                            activeSignedRequests.delete(request);
+                        },
+                    });
+
+                    return {
+                        requestIndex,
+                        completionItem: {
+                            uploadId: startResponse.sessionId,
+                            ...(completionThumbnailData !== undefined ? { thumbnailData: completionThumbnailData } : {}),
+                            guiMetadata: {
+                                operationId: operation_id,
+                                itemUploadId: requestItem.itemUploadId,
+                                socketId: this.socket.id,
+                                originalClientSocketId: this.socket.id,
+                            },
+                        },
+                    };
+                };
+
+                const processSignedRequestChunk = async (chunkIndex) => {
+                    if ( signedUploadAborted ) {
+                        const abortError = new Error('Signed upload aborted');
+                        abortError.aborted = true;
+                        throw abortError;
+                    }
+
+                    const startBatchRequestChunk = startBatchRequestChunks[chunkIndex];
+                    const chunkRequestItems = startRequestItemChunks[chunkIndex];
+                    const chunkRequestIndexes = startRequestIndexChunks[chunkIndex];
+                    if ( !startBatchRequestChunk || !chunkRequestItems || !chunkRequestIndexes ) {
+                        throw new Error('Missing signed batch request chunk');
+                    }
+
+                    const chunkResponses = await postJson(
+                        this.APIOrigin,
+                        this.authToken,
+                        '/fs/startBatchWrite',
+                        startBatchRequestChunk,
+                    );
+
+                    if ( !Array.isArray(chunkResponses) ) {
+                        const unsupportedShapeError = new Error('Signed batch start response is invalid');
+                        unsupportedShapeError.signedBatchUnavailable = true;
+                        throw unsupportedShapeError;
+                    }
+                    if ( chunkResponses.length !== startBatchRequestChunk.length ) {
+                        throw new Error('Signed batch start response count mismatch');
+                    }
+
+                    const fileUploadTasks = [];
+                    for ( let index = 0; index < chunkResponses.length; index++ ) {
+                        const requestIndex = chunkRequestIndexes[index];
+                        const requestItem = chunkRequestItems[index];
+                        const startResponse = chunkResponses[index];
+                        if ( requestIndex === undefined || !requestItem || !startResponse ) {
+                            throw new Error('Missing batch signed upload metadata');
+                        }
+
+                        if ( requestItem.type === 'directory' ) {
+                            responseItemsByRequestIndex.set(requestIndex, startResponse.fsEntry ?? startResponse);
+                            continue;
+                        }
+
+                        if ( !startResponse.sessionId ) {
+                            throw new Error('Signed batch response missing sessionId');
+                        }
+
+                        pendingUploadIds.add(startResponse.sessionId);
+                        fileUploadTasks.push({
+                            requestIndex,
+                            requestItem,
+                            startResponse,
+                        });
+                    }
+
+                    const completionItems = [];
+                    const localFailedUploadItems = [];
+                    const fileUploadTaskChunks = chunkArray(fileUploadTasks, SIGNED_BATCH_FILE_UPLOAD_CONCURRENCY);
+                    for ( const fileUploadTaskChunk of fileUploadTaskChunks ) {
+                        if ( signedUploadAborted ) {
+                            const abortError = new Error('Signed upload aborted');
+                            abortError.aborted = true;
+                            throw abortError;
+                        }
+
+                        const uploadSettledResults = await Promise.allSettled(
+                            fileUploadTaskChunk.map(async (uploadTask) => {
+                                return await uploadSignedFileTask(uploadTask);
+                            }),
+                        );
+
+                        for ( let resultIndex = 0; resultIndex < uploadSettledResults.length; resultIndex++ ) {
+                            const uploadSettledResult = uploadSettledResults[resultIndex];
+                            if ( uploadSettledResult?.status === 'rejected' ) {
+                                const failedUploadTask = fileUploadTaskChunk[resultIndex];
+                                if ( failedUploadTask ) {
+                                    localFailedUploadItems.push({
+                                        requestIndex: failedUploadTask.requestIndex,
+                                        uploadId: failedUploadTask.startResponse.sessionId,
+                                        error: uploadSettledResult.reason,
+                                    });
+                                }
+                                continue;
+                            }
+
+                            completionItems.push(uploadSettledResult.value);
+                        }
+                    }
+
+                    if ( localFailedUploadItems.length > 0 ) {
+                        const failedUploadIds = Array.from(new Set(localFailedUploadItems.map((item) => item.uploadId)));
+                        await Promise.allSettled(failedUploadIds.map(async (uploadId) => {
+                            pendingUploadIds.delete(uploadId);
+                            await postJson(this.APIOrigin, this.authToken, '/fs/abortWrite', { uploadId });
+                        }));
+                        failedUploadItems.push(...localFailedUploadItems);
+                    }
+
+                    if ( completionItems.length === 0 ) {
+                        return;
+                    }
+
+                    completionItems.sort((itemA, itemB) => itemA.requestIndex - itemB.requestIndex);
+                    const completionPayload = completionItems.map((item) => item.completionItem);
+                    const completionRequestIndexes = completionItems.map((item) => item.requestIndex);
+                    const completionPayloadChunks = chunkArray(completionPayload, SIGNED_BATCH_REQUEST_CHUNK_SIZE);
+                    const completionRequestIndexChunks = chunkArray(
+                        completionRequestIndexes,
+                        SIGNED_BATCH_REQUEST_CHUNK_SIZE,
+                    );
+                    if ( completionPayloadChunks.length !== completionRequestIndexChunks.length ) {
+                        throw new Error('Signed batch completion request mapping is invalid');
+                    }
+
+                    const localFailedCompletionItems = [];
+                    for ( let completionChunkIndex = 0; completionChunkIndex < completionPayloadChunks.length; completionChunkIndex++ ) {
+                        if ( signedUploadAborted ) {
+                            const abortError = new Error('Signed upload aborted');
+                            abortError.aborted = true;
+                            throw abortError;
+                        }
+
+                        const completionPayloadChunk = completionPayloadChunks[completionChunkIndex];
+                        const completionRequestIndexChunk = completionRequestIndexChunks[completionChunkIndex];
+                        if ( !completionPayloadChunk || !completionRequestIndexChunk ) {
+                            throw new Error('Missing signed batch completion request chunk');
+                        }
+
+                        try {
+                            const completionResponses = await postJson(
+                                this.APIOrigin,
+                                this.authToken,
+                                '/fs/completeBatchWrite',
+                                completionPayloadChunk,
+                            );
+
+                            if ( !Array.isArray(completionResponses) ) {
+                                throw new Error('Signed batch completion response is invalid');
+                            }
+                            if ( completionResponses.length !== completionPayloadChunk.length ) {
+                                throw new Error('Signed batch completion response count mismatch');
+                            }
+
+                            for ( let index = 0; index < completionResponses.length; index++ ) {
+                                const completionResponse = completionResponses[index];
+                                const requestIndex = completionRequestIndexChunk[index];
+                                const completionPayloadItem = completionPayloadChunk[index];
+                                if ( requestIndex === undefined ) {
+                                    throw new Error('Missing request index for completed signed batch response');
+                                }
+                                if ( completionPayloadItem?.uploadId ) {
+                                    pendingUploadIds.delete(completionPayloadItem.uploadId);
+                                }
+                                responseItemsByRequestIndex.set(requestIndex, completionResponse?.fsEntry ?? completionResponse);
+                            }
+                        } catch (completionChunkError) {
+                            const completionItemSettledResults = await Promise.allSettled(completionPayloadChunk.map(async (completionItem) => {
+                                return await postJson(
+                                    this.APIOrigin,
+                                    this.authToken,
+                                    '/fs/completeWrite',
+                                    completionItem,
+                                );
+                            }));
+
+                            for ( let index = 0; index < completionItemSettledResults.length; index++ ) {
+                                const completionItemSettledResult = completionItemSettledResults[index];
+                                const requestIndex = completionRequestIndexChunk[index];
+                                const completionPayloadItem = completionPayloadChunk[index];
+                                if ( requestIndex === undefined || !completionPayloadItem ) {
+                                    continue;
+                                }
+
+                                if ( completionItemSettledResult?.status === 'fulfilled' ) {
+                                    pendingUploadIds.delete(completionPayloadItem.uploadId);
+                                    responseItemsByRequestIndex.set(
+                                        requestIndex,
+                                        completionItemSettledResult.value?.fsEntry ?? completionItemSettledResult.value,
+                                    );
+                                    continue;
+                                }
+
+                                localFailedCompletionItems.push({
+                                    requestIndex,
+                                    uploadId: completionPayloadItem.uploadId,
+                                    error: completionItemSettledResult?.status === 'rejected'
+                                        ? completionItemSettledResult.reason
+                                        : completionChunkError,
+                                });
+                            }
+                        }
+                    }
+
+                    if ( localFailedCompletionItems.length > 0 ) {
+                        const failedCompletionUploadIds = Array.from(new Set(localFailedCompletionItems.map((item) => item.uploadId)));
+                        await Promise.allSettled(failedCompletionUploadIds.map(async (uploadId) => {
+                            pendingUploadIds.delete(uploadId);
+                            await postJson(this.APIOrigin, this.authToken, '/fs/abortWrite', { uploadId });
+                        }));
+                        failedCompletionItems.push(...localFailedCompletionItems);
+                    }
+                };
+
+                const startChunkIndexes = startBatchRequestChunks.map((_chunk, index) => index);
+                const startChunkGroups = chunkArray(
+                    startChunkIndexes,
+                    SIGNED_BATCH_CHUNK_PIPELINE_CONCURRENCY,
+                );
+                for ( const startChunkGroup of startChunkGroups ) {
+                    const startChunkSettledResults = await Promise.allSettled(startChunkGroup.map(async (chunkIndex) => {
+                        await processSignedRequestChunk(chunkIndex);
+                    }));
+                    for ( const startChunkSettledResult of startChunkSettledResults ) {
+                        if ( startChunkSettledResult.status === 'rejected' ) {
+                            throw startChunkSettledResult.reason;
+                        }
+                    }
+                }
+
+                this[SIGNED_BATCH_WRITE_CAPABILITY_KEY] = true;
+
+                const failedSignedItems = [
+                    ...failedUploadItems.map((item) => ({ ...item, stage: 'upload' })),
+                    ...failedCompletionItems.map((item) => ({ ...item, stage: 'complete' })),
+                ];
+                if ( failedSignedItems.length > 0 ) {
+                    const partialError = new Error('One or more signed batch file operations failed');
+                    partialError.partial = true;
+                    partialError.failedItems = failedSignedItems.map((item) => ({
+                        requestIndex: item.requestIndex,
+                        uploadId: item.uploadId,
+                        stage: item.stage,
+                        message: toErrorMessage(item.error),
+                    }));
+                    partialError.completedItemCount = responseItemsByRequestIndex.size;
+                    partialError.totalItemCount = startRequestItems.length;
+                    throw partialError;
+                }
+
+                const signedItemsList = [];
+                for ( let index = 0; index < startRequestItems.length; index++ ) {
+                    if ( !responseItemsByRequestIndex.has(index) ) {
+                        throw new Error(`Missing signed batch response item at index ${index}`);
+                    }
+                    signedItemsList.push(responseItemsByRequestIndex.get(index));
+                }
+                addSignedProgress(Math.max(0, signedTotalSizeForProgress - signedBytesUploaded));
+
+                let signedItems = signedItemsList;
+                signedItems = signedItems.length === 1 ? signedItems[0] : signedItems;
+
+                if ( options.success && typeof options.success === 'function' ) {
+                    options.success(signedItems);
+                }
+                return resolve(signedItems);
+            } catch (signedError) {
+                if ( signedUploadAborted || signedError?.aborted ) {
+                    return reject(signedError);
+                }
+
+                const shouldFallbackToLegacy = isSignedBatchWriteUnavailableError(signedError);
+
+                if ( isSignedBatchWriteUnavailableError(signedError) ) {
+                    this[SIGNED_BATCH_WRITE_CAPABILITY_KEY] = false;
+                }
+
+                try {
+                    await abortStartedUploads();
+                } catch (e) {
+                    // Ignore cleanup errors.
+                }
+
+                if ( shouldFallbackToLegacy ) {
+                    delete xhr.abort;
+                } else {
+                    return error(signedError?.body ?? signedError);
+                }
             }
         }
 
@@ -391,7 +1272,7 @@ const upload = async function (items, dirPath, options = {}) {
         // Append file metadata to upload request
         if ( ! options.shortcutTo ) {
             for ( let i = 0; i < files.length; i++ ) {
-                const thumbnail = thumbnails[i] ?? options.thumbnail ?? undefined;
+                const thumbnail = normalizeThumbnailData(thumbnails[i] ?? options.thumbnail ?? undefined);
                 const fileinfo_payload = {
                     name: files[i].name,
                     type: files[i].type,
@@ -407,7 +1288,7 @@ const upload = async function (items, dirPath, options = {}) {
         }
         // Append write operations for each file
         for ( let i = 0; i < files.length; i++ ) {
-            const thumbnail = thumbnails[i] ?? options.thumbnail ?? undefined;
+            const thumbnail = normalizeThumbnailData(thumbnails[i] ?? options.thumbnail ?? undefined);
             const operation = {
                 op: options.shortcutTo ? 'shortcut' : 'write',
                 dedupe_name: options.dedupeName ?? true,
@@ -575,8 +1456,9 @@ const upload = async function (items, dirPath, options = {}) {
         };
 
         // Fire off the 'start' event
-        if ( options.start && typeof options.start === 'function' ) {
+        if ( !start_callback_fired && options.start && typeof options.start === 'function' ) {
             options.start();
+            start_callback_fired = true;
         }
 
         // send request

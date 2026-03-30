@@ -94,7 +94,7 @@ export class DynamoKVStore {
                 const key_hash = murmurhash.v3(key);
                 const kv_row = await this.#sqlClient.read(
                     'SELECT * FROM kv WHERE user_id=? AND app=? AND kkey_hash=? LIMIT 1',
-                    [user.id, appUuid ?? DynamoKVStore.LEGACY_GLOBAL_APP_KEY, key_hash],
+                    [user?.id, appUuid ?? DynamoKVStore.LEGACY_GLOBAL_APP_KEY, key_hash],
                 );
 
                 if ( kv_row[0]?.value ) {
@@ -103,7 +103,7 @@ export class DynamoKVStore {
                         await this.set({ key: kv_row[0].key, value: kv_row[0].value });
                         await this.#sqlClient.write(
                             'DELETE FROM kv WHERE user_id=? AND app=? AND kkey_hash=?',
-                            [user.id, appUuid ?? DynamoKVStore.LEGACY_GLOBAL_APP_KEY, key_hash],
+                            [user?.id, appUuid ?? DynamoKVStore.LEGACY_GLOBAL_APP_KEY, key_hash],
                         );
                     })();
                     values.push(kv_row[0]?.value);

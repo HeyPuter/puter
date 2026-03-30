@@ -67,7 +67,6 @@ class ACLService extends BaseService {
     * @returns {Promise<boolean>} True if access is allowed, false otherwise
     */
     async check (actor, resource, mode) {
-        const ld = (Context.get('logdent') ?? 0) + 1;
         /**
         * Checks if an actor has permission for a specific mode on a resource
         *
@@ -76,18 +75,7 @@ class ACLService extends BaseService {
         * @param {('see'| 'list'| 'read'| 'write' | 'manage')} mode - The permission mode to check ('see', 'list', 'read', 'write', 'manage')
         * @returns {Promise<boolean>} True if actor has permission, false otherwise
         */
-        return await Context.get().sub({ logdent: ld }).arun(async () => {
-            const result =  await this._check_fsNode(actor, resource, mode);
-            if ( this.verbose ) {
-                console.log('LOGGING ACL CHECK', {
-                    actor,
-                    mode,
-                    // trace: (new Error()).stack,
-                    result,
-                });
-            }
-            return result;
-        });
+        return await this._check_fsNode(actor, resource, mode);
     }
 
     /**

@@ -5,6 +5,8 @@ export interface IUser {
     uuid: string;
     username: string;
     email?: string;
+    free_storage?: number | string | null;
+    actual_free_storage?: number | string | null;
     subscription?: (typeof SUB_POLICIES)[number]['id'] & {
         active: boolean;
         tier: string;

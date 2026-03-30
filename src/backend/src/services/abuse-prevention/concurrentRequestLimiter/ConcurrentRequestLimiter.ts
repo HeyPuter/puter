@@ -123,7 +123,7 @@ export class ConcurrentRequestLimiter {
             throw new TypeError('leaseMs must be a positive number');
         }
 
-        const userId = actor?.type?.user.uuid;
+        const userId = actor?.type?.user?.uuid;
         if ( ! userId ) {
             throw new Error('actor user id is required for concurrency checks');
         }
