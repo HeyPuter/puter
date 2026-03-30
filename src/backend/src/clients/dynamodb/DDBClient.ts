@@ -1,5 +1,5 @@
 import { CreateTableCommand, CreateTableCommandInput, DynamoDBClient, UpdateTimeToLiveCommand } from '@aws-sdk/client-dynamodb';
-import { BatchGetCommand, BatchGetCommandInput, DeleteCommand, DynamoDBDocumentClient, GetCommand, PutCommand, QueryCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import { BatchGetCommand, BatchGetCommandInput, BatchWriteCommand, BatchWriteCommandInput, DeleteCommand, DynamoDBDocumentClient, GetCommand, PutCommand, QueryCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import { NodeHttpHandler } from '@smithy/node-http-handler';
 import dynalite from 'dynalite';
 import { once } from 'node:events';
@@ -17,6 +17,9 @@ interface DBClientConfig {
 
 const LOCAL_DYNAMO_PATH_KEY = ':memory:';
 const localDynaliteEndpointPromises = new Map<string, Promise<string>>();
+const MAX_BATCH_WRITE_ITEMS = 25;
+const MAX_BATCH_WRITE_RETRIES = 8;
+const BATCH_WRITE_RETRY_BASE_MS = 25;
 
 const getDynalitePathKey = (path?: string) => {
     if ( path === ':memory:' ) return LOCAL_DYNAMO_PATH_KEY;
@@ -50,6 +53,21 @@ const getOrCreateLocalDynaliteEndpoint = async (pathKey: string) => {
         }
     });
     return endpointPromise;
+};
+
+const chunkValues = <T>(values: T[], size: number): T[][] => {
+    if ( values.length === 0 ) {
+        return [];
+    }
+    const chunks: T[][] = [];
+    for ( let index = 0; index < values.length; index += size ) {
+        chunks.push(values.slice(index, index + size));
+    }
+    return chunks;
+};
+
+const sleep = async (ms: number) => {
+    await new Promise((resolve) => setTimeout(resolve, ms));
 };
 
 export class DDBClient {
@@ -168,6 +186,84 @@ export class DDBClient {
         });
 
         return this.#documentClient.send(command);
+    }
+
+    async batchPut (params: { table: string, item: Record<string, unknown> }[]) {
+        const consumedCapacityByTable = new Map<string, number>();
+        if ( params.length === 0 ) {
+            return { ConsumedCapacity: [] };
+        }
+
+        const accumulateConsumedCapacity = (
+            consumedCapacityEntries: Array<{ TableName?: string; CapacityUnits?: number }> | undefined,
+        ) => {
+            if ( ! consumedCapacityEntries ) {
+                return;
+            }
+            for ( const consumedCapacityEntry of consumedCapacityEntries ) {
+                const table = consumedCapacityEntry.TableName;
+                if ( ! table ) {
+                    continue;
+                }
+
+                const existingUsage = consumedCapacityByTable.get(table) ?? 0;
+                consumedCapacityByTable.set(
+                    table,
+                    existingUsage + Number(consumedCapacityEntry.CapacityUnits ?? 0),
+                );
+            }
+        };
+
+        const chunks = chunkValues(params, MAX_BATCH_WRITE_ITEMS);
+        for ( const chunk of chunks ) {
+            let requestItems = chunk.reduce((acc, curr) => {
+                const tableRequests = acc[curr.table] ?? [];
+                tableRequests.push({
+                    PutRequest: {
+                        Item: curr.item,
+                    },
+                });
+                acc[curr.table] = tableRequests;
+                return acc;
+            }, {} as NonNullable<BatchWriteCommandInput['RequestItems']>);
+
+            for ( let attempt = 0; attempt <= MAX_BATCH_WRITE_RETRIES; attempt++ ) {
+                if ( Object.keys(requestItems).length === 0 ) {
+                    break;
+                }
+
+                const response = await this.#documentClient.send(new BatchWriteCommand({
+                    RequestItems: requestItems,
+                    ReturnConsumedCapacity: 'TOTAL',
+                }));
+                accumulateConsumedCapacity(
+                    response.ConsumedCapacity as Array<{ TableName?: string; CapacityUnits?: number }> | undefined,
+                );
+
+                const unprocessedItems = response.UnprocessedItems ?? {};
+                if ( Object.keys(unprocessedItems).length === 0 ) {
+                    requestItems = {};
+                    break;
+                }
+
+                requestItems = unprocessedItems as NonNullable<BatchWriteCommandInput['RequestItems']>;
+                if ( attempt < MAX_BATCH_WRITE_RETRIES ) {
+                    const delayMs = Math.min(1000, BATCH_WRITE_RETRY_BASE_MS * (2 ** attempt));
+                    await sleep(delayMs);
+                }
+            }
+
+            if ( Object.keys(requestItems).length > 0 ) {
+                throw new Error('Failed to batch write all items to DynamoDB');
+            }
+        }
+
+        return {
+            ConsumedCapacity: Array.from(consumedCapacityByTable.entries()).map(([TableName, CapacityUnits]) => ({
+                TableName,
+                CapacityUnits,
+            })),
+        };
     }
 
     async del<T extends Record<string, unknown>> (table: string, key: T) {
