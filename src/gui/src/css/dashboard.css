@@ -315,7 +315,6 @@ body {
 }
 
 .dashboard-section-apps {
-    max-width: 800px;
     margin: 0 auto;
 }
 
@@ -360,6 +359,16 @@ body {
 }
 
 /* Dashboard Apps */
+
+.dashboard-content.apps {
+    padding: 0;
+}
+
+.dashboard-tab-content.myapps-tab {
+    max-width: unset;
+    padding: 0;
+}
+
 .dashboard-apps-container {
     margin-top: 8px;
 }
@@ -442,22 +451,28 @@ body {
 /* My Apps tab */
 
 .myapps-tab {
-    max-width: 900px;
-    padding: 32px 40px;
     width: 100%;
+}
+
+.myapps-toolbar {
+    display: flex;
+    align-items: center;
+    height: 59px;
+    padding: 10px 12px;
+    background: linear-gradient(0deg, var(--dashboard-sidebar-background), var(--dashboard-background));
+    border-bottom: 1px solid var(--dashboard-border);
 }
 
 .myapps-search-wrap {
     position: relative;
-    margin-bottom: 40px;
+    flex: 1;
+    min-width: 0;
     max-width: 360px;
-    margin-left: auto;
-    margin-right: auto;
 }
 
 .myapps-search-icon {
     position: absolute;
-    right: 12px;
+    right: 10px;
     top: 50%;
     transform: translateY(-50%);
     width: 16px;
@@ -467,6 +482,8 @@ body {
 }
 
 .myapps-icon-clear {
+    left: auto;
+    right: 10px;
     pointer-events: auto;
     cursor: pointer;
 }
@@ -477,15 +494,14 @@ body {
 
 .myapps-search {
     width: 100%;
-    padding: 8px 36px 8px 12px;
-    font-size: 14px;
+    padding-right: 33px !important;
+    font-size: 13px;
     border: 1px solid var(--dashboard-border);
-    border-radius: 8px;
+    border-radius: 6px;
     background: var(--dashboard-input-background);
     color: var(--dashboard-text-primary);
     outline: none;
     transition: border-color 0.15s;
-    padding-right: 35px;
 }
 
 .myapps-search:focus {
@@ -496,8 +512,15 @@ body {
     color: var(--dashboard-text-muted);
 }
 
+.myapps-toolbar-actions {
+    display: flex;
+    gap: 10px;
+    margin-left: auto;
+}
+
 .myapps-container {
     min-height: 200px;
+    padding: 32px 40px;
 }
 
 .myapps-empty {
@@ -582,6 +605,88 @@ body {
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
     word-break: break-word;
+}
+
+/* Sort button & dropdown */
+.myapps-sort-wrap {
+    position: relative;
+    flex-shrink: 0;
+}
+
+.myapps-sort-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: transparent;
+    border: none;
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 4px;
+    color: var(--dashboard-icon);
+}
+
+.myapps-sort-btn svg {
+    width: 24px;
+    height: 24px;
+}
+
+.myapps-sort-btn:hover {
+    color: var(--dashboard-background);
+    background-color: var(--select-color);
+}
+
+.myapps-sort-dropdown {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    min-width: 170px;
+    background: var(--dashboard-card-background);
+    border: 1px solid var(--dashboard-border);
+    border-radius: 10px;
+    box-shadow: 0 4px 16px var(--dashboard-shadow-medium);
+    padding: 6px 0;
+    z-index: 100;
+}
+
+.myapps-sort-option {
+    padding: 8px 16px;
+    font-size: 14px;
+    color: var(--dashboard-text-primary);
+    cursor: pointer;
+    transition: background 0.1s;
+}
+
+.myapps-sort-option:hover {
+    background: var(--dashboard-hover);
+}
+
+.myapps-sort-option.active {
+    font-weight: 600;
+    color: var(--select-color);
+}
+
+/* Context menu */
+.myapps-context-menu {
+    position: fixed;
+    min-width: 140px;
+    background: var(--dashboard-card-background);
+    border: 1px solid var(--dashboard-border);
+    border-radius: 8px;
+    box-shadow: 0 4px 16px var(--dashboard-shadow-medium);
+    padding: 4px 0;
+    z-index: 200;
+}
+
+.myapps-context-menu-item {
+    padding: 8px 16px;
+    font-size: 14px;
+    color: var(--dashboard-text-primary);
+    cursor: pointer;
+    transition: background 0.1s;
+}
+
+.myapps-context-menu-item:hover {
+    background: var(--dashboard-hover);
 }
 
 /* Dashboard files */
@@ -1700,7 +1805,11 @@ body {
         height: 40px;
     }
 
-    .myapps-tab {
+    .myapps-toolbar {
+        padding: 8px 12px;
+    }
+
+    .myapps-container {
         padding: 20px 16px;
     }
 

@@ -45,6 +45,29 @@ function buildAppsGrid (apps) {
     return h;
 }
 
+function sortApps (apps, mode) {
+    const sorted = [...apps];
+    switch ( mode ) {
+        case 'name-asc':
+            sorted.sort((a, b) => (a.title || a.name || '').localeCompare(b.title || b.name || ''));
+            break;
+        case 'name-desc':
+            sorted.sort((a, b) => (b.title || b.name || '').localeCompare(a.title || a.name || ''));
+            break;
+        case 'recent':
+            // Keep original order — recent/recommended apps come first from API
+            break;
+        case 'date-added':
+            sorted.sort((a, b) => {
+                const da = a.installed_at || '';
+                const db = b.installed_at || '';
+                return db.localeCompare(da);
+            });
+            break;
+    }
+    return sorted;
+}
+
 function revealWhenLoaded ($container) {
     const $grid = $container.find('.myapps-grid-loading');
     if ( $grid.length === 0 ) return;
@@ -81,15 +104,36 @@ const TabApps = {
     icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/></svg>',
 
     _apps: null,
+    _sortMode: 'name-asc',
 
     html () {
         let h = '<div class="dashboard-tab-content myapps-tab">';
+        // Toolbar matching Files tab header bar
+        h += '<div class="myapps-toolbar">';
         h += '<div class="myapps-search-wrap">';
         h += '<svg class="myapps-search-icon myapps-icon-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>';
         h += '<svg class="myapps-search-icon myapps-icon-clear" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
         h += '<input type="text" class="myapps-search" placeholder="Search apps..." autocomplete="off" spellcheck="false">';
         h += '</div>';
+        h += '<div class="myapps-toolbar-actions">';
+        h += '<div class="myapps-sort-wrap">';
+        h += '<button class="myapps-sort-btn" title="Sort apps">';
+        h += '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="16" y2="12"/><line x1="4" y1="18" x2="12" y2="18"/></svg>';
+        h += '</button>';
+        h += '<div class="myapps-sort-dropdown" style="display:none">';
+        h += '<div class="myapps-sort-option active" data-sort="name-asc">Name (A-Z)</div>';
+        h += '<div class="myapps-sort-option" data-sort="name-desc">Name (Z-A)</div>';
+        h += '<div class="myapps-sort-option" data-sort="recent">Recently Used</div>';
+        h += '<div class="myapps-sort-option" data-sort="date-added">Date Added</div>';
+        h += '</div>';
+        h += '</div>';
+        h += '</div>';
+        h += '</div>';
         h += '<div class="myapps-container">';
+        h += '</div>';
+        // Context menu (hidden by default)
+        h += '<div class="myapps-context-menu" style="display:none">';
+        h += '<div class="myapps-context-menu-item" data-action="uninstall">Uninstall</div>';
         h += '</div>';
         h += '</div>';
         return h;
@@ -100,46 +144,66 @@ const TabApps = {
 
         const self = this;
 
-        // Toggle search/clear icons and filter
-        function updateSearch ($input) {
-            const query = $input.val().toLowerCase().trim();
-            const hasText = query.length > 0;
-            $el_window.find('.myapps-icon-search').toggle(!hasText);
-            $el_window.find('.myapps-icon-clear').toggle(hasText);
-
+        function renderApps () {
             if ( ! self._apps ) return;
-
             const $container = $el_window.find('.myapps-container');
+            const query = $el_window.find('.myapps-search').val().toLowerCase().trim();
+            let apps = sortApps(self._apps, self._sortMode);
 
-            if ( ! query ) {
-                $container.html(buildAppsGrid(self._apps));
-                revealWhenLoaded($container);
-                return;
+            if ( query ) {
+                apps = apps.filter(app => {
+                    const title = (app.title || '').toLowerCase();
+                    const name = (app.name || '').toLowerCase();
+                    return title.includes(query) || name.includes(query);
+                });
             }
 
-            const filtered = self._apps.filter(app => {
-                const title = (app.title || '').toLowerCase();
-                const name = (app.name || '').toLowerCase();
-                return title.includes(query) || name.includes(query);
-            });
-
             $container.html(
-                filtered.length > 0
-                    ? buildAppsGrid(filtered)
-                    : '<div class="myapps-empty"><p>No apps match your search</p></div>',
+                apps.length > 0
+                    ? buildAppsGrid(apps)
+                    : `<div class="myapps-empty"><p>${ query ? 'No apps match your search' : 'No apps installed yet' }</p></div>`,
             );
             revealWhenLoaded($container);
         }
 
+        // Toggle search/clear icons and filter
         $el_window.on('input', '.myapps-search', function () {
-            updateSearch($(this));
+            const query = $(this).val().trim();
+            $el_window.find('.myapps-icon-search').toggle(!query);
+            $el_window.find('.myapps-icon-clear').toggle(!!query);
+            renderApps();
         });
 
         // Clear search on cross click
         $el_window.on('click', '.myapps-icon-clear', function () {
             const $input = $el_window.find('.myapps-search');
             $input.val('').focus();
-            updateSearch($input);
+            $el_window.find('.myapps-icon-search').show();
+            $el_window.find('.myapps-icon-clear').hide();
+            renderApps();
+        });
+
+        // Sort dropdown toggle
+        $el_window.on('click', '.myapps-sort-btn', function (e) {
+            e.stopPropagation();
+            const $dropdown = $el_window.find('.myapps-sort-dropdown');
+            $dropdown.toggle();
+        });
+
+        // Sort option click
+        $el_window.on('click', '.myapps-sort-option', function (e) {
+            e.stopPropagation();
+            const mode = $(this).attr('data-sort');
+            self._sortMode = mode;
+            $el_window.find('.myapps-sort-option').removeClass('active');
+            $(this).addClass('active');
+            $el_window.find('.myapps-sort-dropdown').hide();
+            renderApps();
+        });
+
+        // Close sort dropdown on outside click
+        $(document).on('click', function () {
+            $el_window.find('.myapps-sort-dropdown').hide();
         });
 
         // Handle app tile clicks
@@ -151,6 +215,38 @@ const TabApps = {
                 window.open(`/app/${appName}`, '_blank');
             }
         });
+
+        // Context menu on right-click
+        $el_window.on('contextmenu', '.myapps-tile', function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+            const $menu = $el_window.find('.myapps-context-menu');
+            $menu.css({ top: `${e.clientY }px`, left: `${e.clientX }px` }).show();
+            $menu.data('app-name', $(this).attr('data-app-name'));
+        });
+
+        // Context menu item click
+        $el_window.on('click', '.myapps-context-menu-item', function () {
+            const action = $(this).attr('data-action');
+            const appName = $el_window.find('.myapps-context-menu').data('app-name');
+            if ( action === 'uninstall' ) {
+                console.log('Uninstall requested for:', appName);
+            }
+            $el_window.find('.myapps-context-menu').hide();
+        });
+
+        // Close context menu on outside click or Escape
+        $(document).on('click', function () {
+            $el_window.find('.myapps-context-menu').hide();
+        });
+        $(document).on('keydown', function (e) {
+            if ( e.key === 'Escape' ) {
+                $el_window.find('.myapps-context-menu').hide();
+                $el_window.find('.myapps-sort-dropdown').hide();
+            }
+        });
+
+        this._renderApps = renderApps;
     },
 
     async loadApps ($el_window) {
@@ -202,12 +298,19 @@ const TabApps = {
             for ( const app of installedApps ) {
                 if ( seen.has(app.name) ) continue;
                 seen.add(app.name);
-                merged.push(app);
+                merged.push({
+                    ...app,
+                    installed_at: app.installed_at || '',
+                });
             }
 
             this._apps = merged;
-            $container.html(buildAppsGrid(merged));
-            revealWhenLoaded($container);
+            if ( this._renderApps ) {
+                this._renderApps();
+            } else {
+                $container.html(buildAppsGrid(sortApps(merged, this._sortMode)));
+                revealWhenLoaded($container);
+            }
         } catch (e) {
             console.error('Failed to load installed apps:', e);
             $container.html('<div class="myapps-empty"><p>Failed to load apps</p></div>');
