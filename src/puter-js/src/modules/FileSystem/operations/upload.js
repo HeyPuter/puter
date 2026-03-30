@@ -241,6 +241,24 @@ const toErrorMessage = (error) => {
     return String(error);
 };
 
+const toSignedRequestPath = (baseDirPath, requestItem) => {
+    if ( !requestItem || typeof requestItem !== 'object' ) {
+        return undefined;
+    }
+
+    if ( requestItem.type === 'directory' ) {
+        return requestItem.directoryPath;
+    }
+
+    if ( requestItem.type !== 'file' || !requestItem.file ) {
+        return undefined;
+    }
+
+    const file = requestItem.file;
+    return file.puter_full_path
+        ?? path.join(baseDirPath, file.filepath || file.name || '');
+};
+
 const chunkArray = (values, chunkSize) => {
     const chunks = [];
     if ( !Array.isArray(values) || values.length === 0 ) {
@@ -1151,13 +1169,28 @@ const upload = async function (items, dirPath, options = {}) {
                 ];
                 if ( failedSignedItems.length > 0 ) {
                     const partialError = new Error('One or more signed batch file operations failed');
+                    const mappedFailedSignedItems = failedSignedItems.map((item) => {
+                        const requestItem = startRequestItems[item.requestIndex];
+                        const itemPath = toSignedRequestPath(dirPath, requestItem);
+                        return {
+                            requestIndex: item.requestIndex,
+                            uploadId: item.uploadId,
+                            stage: item.stage,
+                            path: itemPath,
+                            name: typeof itemPath === 'string' && itemPath.length > 0
+                                ? path.basename(itemPath)
+                                : undefined,
+                            message: toErrorMessage(item.error),
+                        };
+                    });
+                    if ( typeof console !== 'undefined' && typeof console.error === 'function' ) {
+                        console.error('Signed batch write failed items:', mappedFailedSignedItems);
+                    }
                     partialError.partial = true;
-                    partialError.failedItems = failedSignedItems.map((item) => ({
-                        requestIndex: item.requestIndex,
-                        uploadId: item.uploadId,
-                        stage: item.stage,
-                        message: toErrorMessage(item.error),
-                    }));
+                    partialError.failedItems = mappedFailedSignedItems;
+                    partialError.failedPaths = mappedFailedSignedItems
+                        .map((item) => item.path)
+                        .filter((itemPath) => typeof itemPath === 'string' && itemPath.length > 0);
                     partialError.completedItemCount = responseItemsByRequestIndex.size;
                     partialError.totalItemCount = startRequestItems.length;
                     throw partialError;
@@ -1199,7 +1232,7 @@ const upload = async function (items, dirPath, options = {}) {
                 if ( shouldFallbackToLegacy ) {
                     delete xhr.abort;
                 } else {
-                    return error(signedError?.body ?? signedError);
+                    return error(signedError);
                 }
             }
         }
