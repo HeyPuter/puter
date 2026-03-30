@@ -402,6 +402,18 @@ const examples = [
                 source: '/playground/examples/kv-list.html',
             },
             {
+                title: 'List (Sorted)',
+                description: 'See how keys are returned in lexicographic order with puter.kv.list(). Run and modify this example in the playground.',
+                slug: 'kv-list-sort',
+                source: '/playground/examples/kv-list-sort.html',
+             },
+             {
+                title: 'List (Zero-Padding)',
+                description: 'Learn how to sort numeric keys correctly by zero-padding. Run and experiment with this example in the playground.',
+                slug: 'kv-list-padding',
+                source: '/playground/examples/kv-list-padding.html',
+             },
+            {
                 title: 'Flush',
                 description: 'Clear all data with Puter.js key-value API. Run and experiment with this flush example in the playground.',
                 slug: 'kv-flush',
