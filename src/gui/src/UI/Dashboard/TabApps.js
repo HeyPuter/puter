@@ -34,7 +34,7 @@ function buildAppsGrid (apps) {
         const title = (app.title || app.name || '').trim();
         const iconUrl = app.iconUrl || window.icons['app.svg'];
 
-        h += `<div class="myapps-tile" data-app-name="${html_encode(app.name)}" title="${html_encode(title)}">`;
+        h += `<div class="myapps-tile" data-app-name="${html_encode(app.name)}" data-app-icon="${html_encode(iconUrl)}" title="${html_encode(title)}" draggable="true">`;
         h += '<div class="myapps-tile-icon">';
         h += `<img src="${html_encode(iconUrl)}" alt="" draggable="false">`;
         h += '</div>';
@@ -336,6 +336,18 @@ const TabApps = {
                 $el_window.find('.myapps-context-menu').hide();
                 $el_window.find('.myapps-sort-dropdown').hide();
             }
+        });
+
+        // Drag app tile to sidebar
+        $el_window.on('dragstart', '.myapps-tile', function (e) {
+            const $tile = $(this);
+            const appData = JSON.stringify({
+                name: $tile.attr('data-app-name'),
+                title: $tile.attr('title'),
+                iconUrl: $tile.attr('data-app-icon'),
+            });
+            e.originalEvent.dataTransfer.setData('application/x-puter-app', appData);
+            e.originalEvent.dataTransfer.effectAllowed = 'copy';
         });
 
         this._renderApps = renderApps;
