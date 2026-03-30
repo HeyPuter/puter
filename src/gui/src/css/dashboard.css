@@ -1748,8 +1748,8 @@ body {
     top: 12px;
     left: 12px;
     z-index: 100;
-    width: 40px;
-    height: 40px;
+    width: 35px;
+    height: 35px;
     background: var(--dashboard-background);
     border: 1px solid var(--dashboard-border);
     border-radius: 6px;
@@ -3024,6 +3024,11 @@ body {
 
     .dashboard-danger-card .button {
         width: 100%;
+    }
+
+    .myapps-search-wrap {
+        margin-left: 45px;
+        margin-right: 10px;
     }
 }
 
