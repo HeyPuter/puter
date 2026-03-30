@@ -56,6 +56,12 @@ const examples = [
                 source: '/playground/examples/ai-gpt-vision.html',
             },
             {
+                title: 'Video Analysis',
+                description: 'Analyze videos with AI using Puter.js. Run and modify this video analysis example instantly in your browser.',
+                slug: 'ai-video-analysis',
+                source: '/playground/examples/ai-video-analysis.html',
+            },
+            {
                 title: 'Stream the response',
                 description: 'Stream AI chat responses in real-time with Puter.js. Run and experiment with this streaming example in the playground.',
                 slug: 'ai-chat-stream',
@@ -96,6 +102,12 @@ const examples = [
                 description: 'Chat with Claude Sonnet using Puter.js AI API. Run and experiment with this example directly in the playground.',
                 slug: 'ai-chat-claude',
                 source: '/playground/examples/ai-chat-claude.html',
+            },
+            {
+                title: 'Prompt caching with Claude',
+                description: 'Reduce time and costs with Claude prompt caching using Puter.js AI API. Try AI examples directly in Puter.js playground.',
+                slug: 'ai-claude-cache-control',
+                source: '/playground/examples/ai-claude-cache-control.html',
             },
             {
                 title: 'Chat with DeepSeek',

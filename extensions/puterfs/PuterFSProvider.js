@@ -305,14 +305,18 @@ export default class PuterFSProvider {
 
         // shortcut: parent uid + child name
         if ( selector instanceof NodeChildSelector && selector.parent instanceof NodeUIDSelector ) {
-            return await this.fsEntryController.nameExistsUnderParent(selector.parent.uid,
-                            selector.name);
+            return await this.fsEntryController.nameExistsUnderParent(
+                selector.parent.uid,
+                selector.name,
+            );
         }
 
         // shortcut: parent id + child name
         if ( selector instanceof NodeChildSelector && selector.parent instanceof NodeInternalIDSelector ) {
-            return await this.fsEntryController.nameExistsUnderParentID(selector.parent.id,
-                            selector.name);
+            return await this.fsEntryController.nameExistsUnderParentID(
+                selector.parent.id,
+                selector.name,
+            );
         }
 
         return false;
@@ -401,7 +405,6 @@ export default class PuterFSProvider {
             } : {}),
         };
 
-        console.log('raw fsentry', raw_fsentry);
         const entryOp = await this.fsEntryController.insert(raw_fsentry);
 
         await entryOp.awaitDone();
@@ -811,15 +814,17 @@ export default class PuterFSProvider {
             const store_version_id = storage_resp.VersionId;
             if ( store_version_id ) {
                 // insert version into db
-                db.write('INSERT INTO `fsentry_versions` (`user_id`, `fsentry_id`, `fsentry_uuid`, `version_id`, `message`, `ts_epoch`) VALUES (?, ?, ?, ?, ?, ?)',
-                                [
-                                    actor.type.user.id,
-                                    new_item.id,
-                                    new_item.uuid,
-                                    store_version_id,
-                                    message ?? null,
-                                    timestamp,
-                                ]);
+                db.write(
+                    'INSERT INTO `fsentry_versions` (`user_id`, `fsentry_id`, `fsentry_uuid`, `version_id`, `message`, `ts_epoch`) VALUES (?, ?, ?, ?, ?, ?)',
+                    [
+                        actor.type.user.id,
+                        new_item.id,
+                        new_item.uuid,
+                        store_version_id,
+                        message ?? null,
+                        timestamp,
+                    ],
+                );
             }
         })();
 
@@ -1059,8 +1064,10 @@ export default class PuterFSProvider {
 
         const userId = await node.get('user_id');
         const fileSize = await node.get('size');
-        svc_size.change_usage(userId,
-                        -1 * fileSize);
+        svc_size.change_usage(
+            userId,
+            -1 * fileSize,
+        );
 
         const ownerActor =  new Actor({
             type: new UserActorType({

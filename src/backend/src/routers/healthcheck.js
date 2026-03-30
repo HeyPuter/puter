@@ -79,6 +79,14 @@ const send_health_status = async (req, res, { fail_with_http_error = false }) =>
 // GET /healthcheck
 // -----------------------------------------------------------------------//
 router.get('/healthcheck', async (req, res, next) => {
+    if ( req.app?.get('isDraining') ) {
+        res.status(503).json({
+            ok: false,
+            failed: ['draining'],
+        });
+        return;
+    }
+
     if ( isHostedDomainRequest(req) ) {
         next();
         return;

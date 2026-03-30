@@ -17,98 +17,36 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { redisClient } from '../../clients/redis/redisSingleton.js';
-import { deleteRedisKeys } from '../../clients/redis/deleteRedisKeys.js';
-import { setRedisCacheValue } from '../../clients/redis/cacheUpdate.js';
 import { get_apps } from '../../helpers.js';
-import BaseService from '../../services/BaseService.js';
-import { RecommendedAppsRedisCacheSpace } from './RecommendedAppsRedisCacheSpace.js';
+import { BaseService } from '../../services/BaseService.js';
 
 export default class RecommendedAppsService extends BaseService {
-    static APP_NAMES = [
+    appNames = new Set([
         'app-center',
         'dev-center',
         'editor',
         'code',
         'camera',
+        'music-player',
         'recorder',
-        'shell-shockers-outpan',
-        'krunker',
-        'slash-frvr',
-        'judge0',
-        'viewer',
-        'solitaire-frvr',
-        'tiles-beat',
-        'silex',
-        'markus',
-        'puterjs-playground',
-        'player',
-        'grist',
-        'pdf',
-        'photopea',
-        'polotno',
-        'basketball-frvr',
-        'gold-digger-frvr',
-        'plushie-connect',
-        'hex-frvr',
-        'spider-solitaire',
-        'danger-cross',
-        'doodle-jump-extra',
-        'endless-lake',
-        'sword-and-jewel',
-        'reversi-2',
-        'in-orbit',
-        'bowling-king',
-        'calc-hklocykcpts',
-        'virtu-piano',
-        'battleship-war',
-        'turbo-racing',
-        'guns-and-bottles',
-        'tronix',
-        'jewel-classic',
-    ];
-
-    _construct () {
-        this.app_names = new Set(RecommendedAppsService.APP_NAMES);
-    }
-
-    '__on_boot.consolidation' () {
-        const svc_appIcon = this.services.get('app-icon');
-        const svc_event = this.services.get('event');
-        svc_event.on('apps.invalidate', async (_, { app }) => {
-            const sizes = svc_appIcon.getSizes();
-
-            // If it's a single-app invalidation, only invalidate if the
-            // app is in the list of recommended apps
-            if ( app ) {
-                const name = app.name;
-                if ( ! this.app_names.has(name) ) return;
-            }
-
-            const keys = [RecommendedAppsRedisCacheSpace.key()];
-            for ( const size of sizes ) {
-                const key = RecommendedAppsRedisCacheSpace.key({ iconSize: size });
-                keys.push(key);
-            }
-            await deleteRedisKeys(keys);
-        });
-    }
+        'memos',
+        'word-processor',
+        'spreadsheet',
+        'presentation',
+        'pdf-editor',
+        'basketball-tap',
+        'blockup',
+        'pretty-tiles',
+        'galaxy-troops',
+        'blend-fruits',
+        'traffic-tap-puzzle',
+    ]);
 
     async get_recommended_apps ({ icon_size: iconSize }) {
-        const recommendedCacheKey = RecommendedAppsRedisCacheSpace.key({ iconSize });
-
-        const cachedRecommended = await redisClient.get(recommendedCacheKey);
-        if ( cachedRecommended ) {
-            try {
-                return JSON.parse(cachedRecommended);
-            } catch (e) {
-                // no op cache is in an invalid state
-            }
-        }
 
         // Prepare each app for returning to user by only returning the necessary fields
         // and adding them to the retobj array
-        let recommended = (await get_apps(Array.from(this.app_names).map(name => ({ name })))).filter(app => !!app).map(app => {
+        let recommended = (await get_apps(Array.from(this.appNames).map(name => ({ name })))).filter(app => !!app).map(app => {
             return {
                 uuid: app.uid,
                 name: app.name,
@@ -129,10 +67,6 @@ export default class RecommendedAppsService extends BaseService {
                 size: iconSize,
             });
         }
-
-        await setRedisCacheValue(recommendedCacheKey, JSON.stringify(recommended), {
-            eventData: recommended,
-        });
 
         return recommended;
     }

@@ -172,7 +172,7 @@ body {
 }
 
 .dashboard-sidebar {
-    width: 200px;
+    width: 250px;
     min-width: 200px;
     background: var(--dashboard-sidebar-background);
     border-right: 1px solid var(--dashboard-border);
@@ -184,6 +184,12 @@ body {
 
 .dashboard-sidebar-nav {
     flex: 1;
+}
+
+.dashboard-sidebar-separator {
+    border: none;
+    border-top: 1px solid var(--dashboard-border);
+    margin: 8px 16px;
 }
 
 .dashboard-sidebar-item {
@@ -309,7 +315,7 @@ body {
 }
 
 .dashboard-section-apps {
-    max-width: 600px;
+    max-width: 800px;
     margin: 0 auto;
 }
 
@@ -438,24 +444,60 @@ body {
 .myapps-tab {
     max-width: 900px;
     padding: 32px 40px;
+    width: 100%;
 }
 
-.myapps-tab h2 {
-    font-size: 26px;
-    font-weight: 700;
-    color: var(--dashboard-text-heading);
-    margin: 0 0 24px 0;
+.myapps-search-wrap {
+    position: relative;
+    margin-bottom: 40px;
+    max-width: 360px;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+.myapps-search-icon {
+    position: absolute;
+    right: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 16px;
+    height: 16px;
+    color: var(--dashboard-text-tertiary);
+    pointer-events: none;
+}
+
+.myapps-icon-clear {
+    pointer-events: auto;
+    cursor: pointer;
+}
+
+.myapps-icon-clear:hover {
+    color: var(--dashboard-text-primary);
+}
+
+.myapps-search {
+    width: 100%;
+    padding: 8px 36px 8px 12px;
+    font-size: 14px;
+    border: 1px solid var(--dashboard-border);
+    border-radius: 8px;
+    background: var(--dashboard-input-background);
+    color: var(--dashboard-text-primary);
+    outline: none;
+    transition: border-color 0.15s;
+    padding-right: 35px;
+}
+
+.myapps-search:focus {
+    border-color: var(--select-color);
+}
+
+.myapps-search::placeholder {
+    color: var(--dashboard-text-muted);
 }
 
 .myapps-container {
     min-height: 200px;
-}
-
-.myapps-loading {
-    color: var(--dashboard-text-tertiary);
-    font-size: 14px;
-    padding: 40px 0;
-    text-align: center;
 }
 
 .myapps-empty {
@@ -482,8 +524,14 @@ body {
 .myapps-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, 80px);
-    gap: 24px 20px;
-    justify-content: start;
+    gap: 32px 32px;
+    justify-content: center;
+    opacity: 1;
+    transition: opacity 0.2s ease;
+}
+
+.myapps-grid-loading {
+    opacity: 0;
 }
 
 .myapps-tile {
@@ -497,12 +545,10 @@ body {
 }
 
 .myapps-tile-icon {
-    width: 60px;
-    height: 60px;
-    border-radius: 14px;
+    width: 52px;
+    height: 52px;
     overflow: hidden;
     background: var(--dashboard-card-background);
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08), 0 0 0 0.5px rgba(0, 0, 0, 0.04);
     transition: transform 0.15s ease, box-shadow 0.15s ease;
     display: flex;
     align-items: center;
@@ -517,7 +563,6 @@ body {
 
 .myapps-tile:hover .myapps-tile-icon {
     transform: scale(1.08);
-    box-shadow: 0 3px 8px rgba(0, 0, 0, 0.12), 0 0 0 0.5px rgba(0, 0, 0, 0.06);
 }
 
 .myapps-tile:active .myapps-tile-icon {
@@ -1610,7 +1655,7 @@ body {
 .dashboard-sidebar-separator {
     height: 1px;
     background: var(--dashboard-border);
-    margin: 8px 0;
+    margin: 15px 0;
 }
 
 /* Responsive: tablet and below */
@@ -2126,6 +2171,8 @@ body {
     padding: 20px 24px;
     background: linear-gradient(135deg, var(--dashboard-fancy-header-start) 0%, var(--dashboard-fancy-header-end) 100%);
     border-bottom: 1px solid var(--dashboard-shadow-light);
+    text-decoration: none;
+    color: inherit;
 }
 
 .dashboard .bento-card-fancy-icon {

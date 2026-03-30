@@ -59,7 +59,7 @@ function UIWindowRecoverPassword (options) {
             onAppend: function (el_window) {
                 $(el_window).find('.pass-recovery-username-or-email').first().focus();
             },
-            window_class: 'window-item-properties',
+            window_class: 'window-recover-password',
             window_css: {
                 height: 'initial',
             },

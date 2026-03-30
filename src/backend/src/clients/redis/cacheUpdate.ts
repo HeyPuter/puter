@@ -118,6 +118,6 @@ export const setRedisCacheValue = async (
     if ( ttlSeconds ) {
         await redisClient.set(key, value, 'EX', ttlSeconds);
     } else {
-        await redisClient.set(key, value);
+        await redisClient.set(key, value, 'EX', 60 * 10); // default to 10 min if no ttl provided
     }
 };

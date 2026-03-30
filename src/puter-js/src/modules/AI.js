@@ -647,36 +647,37 @@ class AI {
             requestParams = { messages: [{ content: args[0] }] };
         }
 
-        // ai.chat(prompt, imageURL/File)
-        // ai.chat(prompt, imageURL/File, testMode)
+        // ai.chat(prompt, mediaURL/File)
+        // ai.chat(prompt, mediaURL/File, testMode)
         else if ( typeof args[0] === 'string' && (typeof args[1] === 'string' || args[1] instanceof File) ) {
-            // if imageURL is a File, transform it to a data URI
+            // if mediaURL is a File, transform it to a data URI
             if ( args[1] instanceof File ) {
                 args[1] = await utils.blobToDataUri(args[1]);
             }
 
-            // parse args[1] as an image_url object
+            const mediaBlock = utils.isVideoInput(args[1])
+                ? { video_url: { url: args[1] } }
+                : { image_url: { url: args[1] } };
+
             requestParams = {
                 vision: true,
                 messages: [
                     {
                         content: [
                             args[0],
-                            {
-                                image_url: {
-                                    url: args[1],
-                                },
-                            },
+                            mediaBlock,
                         ],
                     },
                 ],
             };
         }
-        // chat(prompt, [imageURLs])
+        // chat(prompt, [mediaURLs])
         else if ( typeof args[0] === 'string' && Array.isArray(args[1]) ) {
-            // parse args[1] as an array of image_url objects
             for ( let i = 0; i < args[1].length; i++ ) {
-                args[1][i] = { image_url: { url: args[1][i] } };
+                const url = args[1][i];
+                args[1][i] = utils.isVideoInput(url)
+                    ? { video_url: { url } }
+                    : { image_url: { url } };
             }
             requestParams = {
                 vision: true,

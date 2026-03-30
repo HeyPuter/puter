@@ -18,8 +18,9 @@ import type { MeteringService } from './MeteringService/MeteringService';
 import type { MeteringServiceWrapper } from './MeteringService/MeteringServiceWrapper.mjs';
 import type { SUService } from './SUService';
 import type { UserService } from './UserService';
-import { TokenService } from './auth/TokenService';
-import { SessionService } from './SessionService';
+import type { TokenService } from './auth/TokenService';
+import type { SessionService } from './SessionService';
+import type { PermissionService } from './auth/PermissionService';
 
 export interface ServicesMap {
     su: SUService;
@@ -44,6 +45,7 @@ export interface ServicesMap {
     driver: DriverService;
     'token': TokenService;
     'session': SessionService;
+    'permission': PermissionService;
 }
 
 export interface ServiceResources {

@@ -56,18 +56,11 @@ const builtinTabs = [
     TabHome,
     TabApps,
     TabFiles,
+    '-',
     TabUsage,
     TabAccount,
     TabSecurity,
 ];
-
-// Dynamically load dashboard CSS if not already loaded
-if ( ! document.querySelector('link[href*="dashboard.css"]') ) {
-    const link = document.createElement('link');
-    link.rel = 'stylesheet';
-    link.href = '/css/dashboard.css';
-    document.head.appendChild(link);
-}
 
 async function UIDashboard (options) {
     // eslint-disable-next-line no-unused-vars
@@ -94,6 +87,10 @@ async function UIDashboard (options) {
             h += '<div class="dashboard-sidebar-nav">';
             for ( let i = 0; i < tabs.length; i++ ) {
                 const tab = tabs[i];
+                if ( tab === '-' ) {
+                    h += '<hr class="dashboard-sidebar-separator">';
+                    continue;
+                }
                 const isActive = i === 0 ? ' active' : '';
                 const isBeta = tab.label === 'Apps';
                 h += `<div class="dashboard-sidebar-item${isActive} ${isBeta ? 'beta' : ''}" data-section="${tab.id}">`;
@@ -117,6 +114,7 @@ async function UIDashboard (options) {
         h += '<div class="dashboard-content">';
         for ( let i = 0; i < tabs.length; i++ ) {
             const tab = tabs[i];
+            if ( tab === '-' ) continue;
             const isActive = i === 0 ? ' active' : '';
             h += `<div class="dashboard-section dashboard-section-${tab.id}${isActive}" data-section="${tab.id}">`;
             h += tab.html();
