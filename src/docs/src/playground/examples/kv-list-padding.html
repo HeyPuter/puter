@@ -1,0 +1,31 @@
+<html>
+<body>
+<script src="https://js.puter.com/v2/"></script>
+<script>
+(async () => {
+    // Wrong — will sort as 1, 10, 100, 2, 20
+    await puter.kv.set('item:1', '...');
+    await puter.kv.set('item:10', '...');
+    await puter.kv.set('item:2', '...');
+
+    // Correct — zero-pad to a fixed width
+    await puter.kv.set('item:001', '...');
+    await puter.kv.set('item:002', '...');
+    await puter.kv.set('item:010', '...');
+    await puter.kv.set('item:100', '...');
+
+    const items = await puter.kv.list('item:*');
+    puter.print(`Items with zero-padding: ${items}<br>`);
+
+    // Cleanup
+    await puter.kv.del('item:1');
+    await puter.kv.del('item:10');
+    await puter.kv.del('item:2');
+    await puter.kv.del('item:001');
+    await puter.kv.del('item:002');
+    await puter.kv.del('item:010');
+    await puter.kv.del('item:100');
+})();
+</script>
+</body>
+</html>
