@@ -18,11 +18,11 @@
  */
 const APIError = require('../../api/APIError');
 const FSNodeParam = require('../../api/filesystem/FSNodeParam');
+const eggspress = require('../../api/eggspress');
 const { NodePathSelector } = require('../../filesystem/node/selectors');
 const { get_user } = require('../../helpers');
 const configurable_auth = require('../../middleware/configurable_auth');
 const { Context } = require('../../util/context');
-const { Endpoint } = require('../../util/expressutil');
 const { BaseService } = require('../BaseService');
 const { AppUnderUserActorType, UserActorType, Actor, SystemActorType, AccessTokenActorType } = require('./Actor');
 const { DB_READ } = require('../database/consts');
@@ -121,85 +121,81 @@ class ACLService extends BaseService {
 
         app.use('/acl', r_acl);
 
-        Endpoint({
-            route: '/stat-user-user',
-            methods: ['POST'],
+        r_acl.use(eggspress('/stat-user-user', {
+            allowedMethods: ['POST'],
             mw: [configurable_auth()],
-            handler: async (req, res) => {
-                // Only user actor is allowed
-                if ( ! (req.actor.type instanceof UserActorType) ) {
-                    return res.status(403).json({
-                        error: 'forbidden',
-                    });
-                }
+        }, async (req, res) => {
+            // Only user actor is allowed
+            if ( ! (req.actor.type instanceof UserActorType) ) {
+                return res.status(403).json({
+                    error: 'forbidden',
+                });
+            }
 
-                const holder_user = await get_user({
+            const holder_user = await get_user({
+                username: req.body.user,
+            });
+
+            if ( ! holder_user ) {
+                throw APIError.create('user_does_not_exist', null, {
                     username: req.body.user,
                 });
+            }
 
-                if ( ! holder_user ) {
-                    throw APIError.create('user_does_not_exist', null, {
-                        username: req.body.user,
-                    });
-                }
+            const issuer = req.actor;
+            const holder = new Actor({
+                type: new UserActorType({
+                    user: holder_user,
+                }),
+            });
 
-                const issuer = req.actor;
-                const holder = new Actor({
-                    type: new UserActorType({
-                        user: holder_user,
-                    }),
-                });
+            const node = await (new FSNodeParam('path')).consolidate({
+                req,
+                getParam: () => req.body.resource,
+            });
 
-                const node = await (new FSNodeParam('path')).consolidate({
-                    req,
-                    getParam: () => req.body.resource,
-                });
+            const permissions = await this.stat_user_user(issuer, holder, node);
 
-                const permissions = await this.stat_user_user(issuer, holder, node);
+            res.json({ permissions });
+        }));
 
-                res.json({ permissions });
-            },
-        }).attach(r_acl);
-
-        Endpoint({
-            route: '/set-user-user',
-            methods: ['POST'],
+        r_acl.use(eggspress('/set-user-user', {
+            allowedMethods: ['POST'],
             mw: [configurable_auth()],
-            handler: async (req, res) => {
-                // Only user actor is allowed
-                if ( ! (req.actor.type instanceof UserActorType) ) {
-                    return res.status(403).json({
-                        error: 'forbidden',
-                    });
-                }
+        }, async (req, res) => {
+            // Only user actor is allowed
+            if ( ! (req.actor.type instanceof UserActorType) ) {
+                return res.status(403).json({
+                    error: 'forbidden',
+                });
+            }
 
-                const holder_user = await get_user({
+            const holder_user = await get_user({
+                username: req.body.user,
+            });
+
+            if ( ! holder_user ) {
+                throw APIError.create('user_does_not_exist', null, {
                     username: req.body.user,
                 });
+            }
 
-                if ( ! holder_user ) {
-                    throw APIError.create('user_does_not_exist', null, {
-                        username: req.body.user,
-                    });
-                }
+            const issuer = req.actor;
+            const holder = new Actor({
+                type: new UserActorType({
+                    user: holder_user,
+                }),
+            });
 
-                const issuer = req.actor;
-                const holder = new Actor({
-                    type: new UserActorType({
-                        user: holder_user,
-                    }),
-                });
+            const node = await (new FSNodeParam('path')).consolidate({
+                req,
+                getParam: () => req.body.resource,
+            });
 
-                const node = await (new FSNodeParam('path')).consolidate({
-                    req,
-                    getParam: () => req.body.resource,
-                });
+            await this.set_user_user(issuer, holder, node, req.body.mode, req.body.options ?? {});
 
-                await this.set_user_user(issuer, holder, node, req.body.mode, req.body.options ?? {});
-
-                res.json({});
-            },
-        }).attach(r_acl);
+            res.json({});
+        }));
     }
 
     /**

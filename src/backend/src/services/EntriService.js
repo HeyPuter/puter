@@ -18,15 +18,12 @@
  */
 
 const BaseService = require('./BaseService');
-const fs = require('node:fs');
 
 const { Entity } = require('../om/entitystorage/Entity');;
+const eggspress = require('../api/eggspress');
 // const { get_app, subdomain } = require("../helpers");
 let parseDomain ;
 const { Eq } = require('../om/query/query');
-const { Endpoint } = require('../util/expressutil');
-const { IncomingMessage } = require('node:http');
-const { Context } = require('../util/context');
 const { createHash } = require('crypto');
 const { NULL } = require('../om/proptypes/__all__');
 const APIError = require('../api/APIError');
@@ -46,48 +43,46 @@ class EntriService extends BaseService {
     }
 
     '__on_install.routes' (_, { app }) {
-        Endpoint({
-            route: '/entri/webhook',
-            methods: ['POST', 'GET'],
+        app.use(eggspress('/entri/webhook', {
+            allowedMethods: ['POST', 'GET'],
             /**
              *
              * @param {IncomingMessage} req
              * @param {*} res
              */
-            handler: async (req, res) => {
-                if ( createHash('sha256').update(req.body.id + this.config.secret).digest('hex') !== req.headers['entri-signature'] ) {
-                    res.status(401).send('Lol');
-                    return;
+        }, async (req, res) => {
+            if ( createHash('sha256').update(req.body.id + this.config.secret).digest('hex') !== req.headers['entri-signature'] ) {
+                res.status(401).send('Lol');
+                return;
+            }
+            if ( ! req.body.data.records_propagated ) {
+                return;
+            }
+            let rootDomain = false;
+            if ( req.body.data.records_propagated[0].type === 'A' ) {
+                rootDomain = true;
+            }
+
+            let realDomain = (rootDomain ? '' : (`${req.body.subdomain }.`)) + req.body.domain;
+            const svc_su = this.services.get('su');
+
+            const es_subdomain = this.services.get('es:subdomain');
+
+            await svc_su.sudo(async () => {
+                const rows = (await es_subdomain.select({ predicate: new Eq({ key: 'domain', value: `in-progress:${ realDomain}` }) }));
+                for ( const row of rows ) {
+                    const entity = await Entity.create({ om: es_subdomain.om }, {
+                        uid: row.values_.uid,
+                        domain: realDomain,
+                    });
+                    await es_subdomain.upsert(entity);
+
                 }
-                if ( ! req.body.data.records_propagated ) {
-                    return;
-                }
-                let rootDomain = false;
-                if ( req.body.data.records_propagated[0].type === 'A' ) {
-                    rootDomain = true;
-                }
+                return true;
+            });
 
-                let realDomain = (rootDomain ? '' : (`${req.body.subdomain }.`)) + req.body.domain;
-                const svc_su = this.services.get('su');
-
-                const es_subdomain = this.services.get('es:subdomain');
-
-                await svc_su.sudo(async () => {
-                    const rows = (await es_subdomain.select({ predicate: new Eq({ key: 'domain', value: `in-progress:${ realDomain}` }) }));
-                    for ( const row of rows ) {
-                        const entity = await Entity.create({ om: es_subdomain.om }, {
-                            uid: row.values_.uid,
-                            domain: realDomain,
-                        });
-                        await es_subdomain.upsert(entity);
-
-                    }
-                    return true;
-                });
-
-                res.end('ok');
-            },
-        }).attach(app);
+            res.end('ok');
+        }));
 
         const svc_web = this.services.get('web-server');
         svc_web.allow_undefined_origin('/entri/webhook', '/entri/webhook');

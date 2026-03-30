@@ -19,7 +19,7 @@
 
 // TODO: import via `USE` static member
 const BaseService = require('../../services/BaseService');
-const { Endpoint } = require('../../util/expressutil');
+const eggspress = require('../../api/eggspress');
 
 /**
  * This is a template service that you can copy and paste to create new services.
@@ -47,15 +47,11 @@ class TemplateService extends BaseService {
      */
     '__on_install.routes' (_, { app }) {
         this.log.info('TemplateService get the event for installing endpoint.');
-        Endpoint({
-            route: '/example-endpoint',
-            methods: ['GET'],
-            handler: async (req, res) => {
-                res.send(this.workinprogress.hello_world());
-            },
-        }).attach(app);
-        // ^ Don't forget to attach the endpoint to the app!
-        //   it's very easy to forget this step.
+        app.use(eggspress('/example-endpoint', {
+            allowedMethods: ['GET'],
+        }, async (req, res) => {
+            res.send(this.workinprogress.hello_world());
+        }));
     }
 
     /**

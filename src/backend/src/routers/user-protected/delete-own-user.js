@@ -15,22 +15,21 @@
  *
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
- */
+*/
+const eggspress = require('../../api/eggspress');
 const config = require('../../config');
 const { deleteUser, invalidate_cached_user } = require('../../helpers');
 
 const REVALIDATION_COOKIE_NAME = 'puter_revalidation';
 
-module.exports = {
-    route: '/delete-own-user',
-    methods: ['POST'],
-    handler: async (req, res) => {
-        res.clearCookie(config.cookie_name);
-        res.clearCookie(REVALIDATION_COOKIE_NAME);
+module.exports = eggspress('/delete-own-user', {
+    allowedMethods: ['POST'],
+}, async (req, res) => {
+    res.clearCookie(config.cookie_name);
+    res.clearCookie(REVALIDATION_COOKIE_NAME);
 
-        await deleteUser(req.user.id);
-        invalidate_cached_user(req.user);
+    await deleteUser(req.user.id);
+    invalidate_cached_user(req.user);
 
-        return res.send({ success: true });
-    },
-};
+    return res.send({ success: true });
+});

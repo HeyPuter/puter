@@ -27,7 +27,7 @@ import { NodePathSelector } from '../../filesystem/node/selectors.js';
 import { get_app } from '../../helpers.js';
 import BaseService from '../../services/BaseService.js';
 import { DB_READ, DB_WRITE } from '../../services/database/consts.js';
-import { Endpoint } from '../../util/expressutil.js';
+import eggspress from '../../api/eggspress.js';
 import { buffer_to_stream, stream_to_buffer } from '../../util/streamutil.js';
 import { AppRedisCacheSpace } from './AppRedisCacheSpace.js';
 import DEFAULT_APP_ICON from './default-app-icon.js';
@@ -106,16 +106,12 @@ export class AppIconService extends BaseService {
             stream.pipe(res);
         };
 
-        Endpoint({
-            route: '/app-icon/:app_uid',
-            methods: ['GET'],
-            handler,
-        }).attach(app);
-        Endpoint({
-            route: '/app-icon/:app_uid/:size',
-            methods: ['GET'],
-            handler,
-        }).attach(app);
+        app.use(eggspress('/app-icon/:app_uid', {
+            allowedMethods: ['GET'],
+        }, handler));
+        app.use(eggspress('/app-icon/:app_uid/:size', {
+            allowedMethods: ['GET'],
+        }, handler));
     }
 
     getSizes () {

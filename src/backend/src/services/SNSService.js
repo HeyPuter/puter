@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-const { Endpoint } = require('../util/expressutil');
+const eggspress = require('../api/eggspress');
 const BaseService = require('./BaseService');
 
 const { LRUCache: LRU } = require('lru-cache');
@@ -64,86 +64,84 @@ class SNSService extends BaseService {
     }
 
     async '__on_install.routes' (_, { app }) {
-        Endpoint({
-            route: '/sns',
-            methods: ['POST'],
-            handler: async (req, res) => {
-                const message = req.body;
+        app.use(eggspress('/sns', {
+            allowedMethods: ['POST'],
+        }, async (req, res) => {
+            const message = req.body;
 
-                const REQUIRED_FIELDS = ['SignatureVersion', 'SigningCertURL', 'Type', 'Signature'];
-                for ( const field of REQUIRED_FIELDS ) {
-                    if ( ! message[field] ) {
-                        this.log.info('SES response', { status: 400, because: 'missing field', field });
-                        res.status(400).send(`Missing required field: ${field}`);
-                        return;
-                    }
-                }
-
-                if ( ! SNS_TYPES[message.Type] ) {
-                    this.log.info('SES response', {
-                        status: 400,
-                        because: 'invalid Type',
-                        value: message.Type,
-                    });
-                    res.status(400).send('Invalid SNS message type');
+            const REQUIRED_FIELDS = ['SignatureVersion', 'SigningCertURL', 'Type', 'Signature'];
+            for ( const field of REQUIRED_FIELDS ) {
+                if ( ! message[field] ) {
+                    this.log.info('SES response', { status: 400, because: 'missing field', field });
+                    res.status(400).send(`Missing required field: ${field}`);
                     return;
                 }
+            }
 
-                if ( message.SignatureVersion !== '1' ) {
-                    this.log.info('SES response', {
-                        status: 400,
-                        because: 'invalid SignatureVersion',
-                        value: message.SignatureVersion,
-                    });
-                    res.status(400).send('Invalid SignatureVersion');
+            if ( ! SNS_TYPES[message.Type] ) {
+                this.log.info('SES response', {
+                    status: 400,
+                    because: 'invalid Type',
+                    value: message.Type,
+                });
+                res.status(400).send('Invalid SNS message type');
+                return;
+            }
+
+            if ( message.SignatureVersion !== '1' ) {
+                this.log.info('SES response', {
+                    status: 400,
+                    because: 'invalid SignatureVersion',
+                    value: message.SignatureVersion,
+                });
+                res.status(400).send('Invalid SignatureVersion');
+                return;
+            }
+
+            if ( ! CERT_URL_PATTERN.test(message.SigningCertURL) ) {
+                this.log.info('SES response', {
+                    status: 400,
+                    because: 'invalid SigningCertURL',
+                    value: message.SignatureVersion,
+                });
+                throw Error('Invalid certificate URL');
+            }
+
+            const topic_arns = this.config?.topic_arns ?? [];
+            if ( ! topic_arns.includes(message.TopicArn) ) {
+                this.log.info('SES response', {
+                    status: 403,
+                    because: 'invalid TopicArn',
+                    value: message.TopicArn,
+                });
+                res.status(403).send('Invalid TopicArn');
+                return;
+            }
+
+            if ( ! await this.verify_message_(message) ) {
+                this.log.info('SES response', {
+                    status: 403,
+                    because: 'message signature validation',
+                    value: message.SignatureVersion,
+                });
+                res.status(403).send('Invalid signature');
+                return;
+            }
+
+            if ( message.Type === 'SubscriptionConfirmation' ) {
+                // Confirm subscription
+                const response = await axios.get(message.SubscribeURL);
+                if ( response.status !== 200 ) {
+                    res.status(500).send('Failed to confirm subscription');
                     return;
                 }
+            }
 
-                if ( ! CERT_URL_PATTERN.test(message.SigningCertURL) ) {
-                    this.log.info('SES response', {
-                        status: 400,
-                        because: 'invalid SigningCertURL',
-                        value: message.SignatureVersion,
-                    });
-                    throw Error('Invalid certificate URL');
-                }
-
-                const topic_arns = this.config?.topic_arns ?? [];
-                if ( ! topic_arns.includes(message.TopicArn) ) {
-                    this.log.info('SES response', {
-                        status: 403,
-                        because: 'invalid TopicArn',
-                        value: message.TopicArn,
-                    });
-                    res.status(403).send('Invalid TopicArn');
-                    return;
-                }
-
-                if ( ! await this.verify_message_(message) ) {
-                    this.log.info('SES response', {
-                        status: 403,
-                        because: 'message signature validation',
-                        value: message.SignatureVersion,
-                    });
-                    res.status(403).send('Invalid signature');
-                    return;
-                }
-
-                if ( message.Type === 'SubscriptionConfirmation' ) {
-                    // Confirm subscription
-                    const response = await axios.get(message.SubscribeURL);
-                    if ( response.status !== 200 ) {
-                        res.status(500).send('Failed to confirm subscription');
-                        return;
-                    }
-                }
-
-                const svc_event = this.services.get('event');
-                this.log.info('SNS message', { message });
-                svc_event.emit('sns', { message });
-                res.status(200).send('Thanks SNS');
-            },
-        }).attach(app);
+            const svc_event = this.services.get('event');
+            this.log.info('SNS message', { message });
+            svc_event.emit('sns', { message });
+            res.status(200).send('Thanks SNS');
+        }));
     }
 
     async verify_message_ (message, options = {}) {

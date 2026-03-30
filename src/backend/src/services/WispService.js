@@ -18,7 +18,7 @@
  */
 
 const configurable_auth = require('../middleware/configurable_auth');
-const { Endpoint } = require('../util/expressutil');
+const eggspress = require('../api/eggspress');
 const BaseService = require('./BaseService');
 
 class WispService extends BaseService {
@@ -31,84 +31,80 @@ class WispService extends BaseService {
 
         app.use('/wisp', r_wisp);
 
-        Endpoint({
-            route: '/relay-token/create',
-            methods: ['POST'],
+        r_wisp.use(eggspress('/relay-token/create', {
+            allowedMethods: ['POST'],
             mw: [configurable_auth({ optional: true })],
-            handler: async (req, res) => {
-                const svc_token = this.services.get('token');
-                const actor = req.actor;
+        }, async (req, res) => {
+            const svc_token = this.services.get('token');
+            const actor = req.actor;
 
-                if ( actor ) {
-                    const token = svc_token.sign('wisp', {
-                        $: 'token:wisp',
-                        $v: '0.0.0',
-                        user_uid: actor.type.user.uuid,
-                    }, {
-                        expiresIn: '1d',
-                    });
-                    this.log.info('creating wisp token', {
-                        actor: actor.uid,
-                        token: token,
-                    });
-                    res.json({
-                        token,
-                        server: this.config.server,
-                    });
-                } else {
-                    const token = svc_token.sign('wisp', {
-                        $: 'token:wisp',
-                        $v: '0.0.0',
-                        guest: true,
-                    }, {
-                        expiresIn: '1d',
-                    });
-                    res.json({
-                        token,
-                        server: this.config.server,
-                    });
-                }
-            },
-        }).attach(r_wisp);
+            if ( actor ) {
+                const token = svc_token.sign('wisp', {
+                    $: 'token:wisp',
+                    $v: '0.0.0',
+                    user_uid: actor.type.user.uuid,
+                }, {
+                    expiresIn: '1d',
+                });
+                this.log.info('creating wisp token', {
+                    actor: actor.uid,
+                    token: token,
+                });
+                res.json({
+                    token,
+                    server: this.config.server,
+                });
+            } else {
+                const token = svc_token.sign('wisp', {
+                    $: 'token:wisp',
+                    $v: '0.0.0',
+                    guest: true,
+                }, {
+                    expiresIn: '1d',
+                });
+                res.json({
+                    token,
+                    server: this.config.server,
+                });
+            }
+        }));
 
-        Endpoint({
-            route: '/relay-token/verify',
-            methods: ['POST'],
-            handler: async (req, res) => {
-                const svc_token = this.services.get('token');
-                const svc_apiError = this.services.get('api-error');
-                const svc_event = this.services.get('event');
+        r_wisp.use(eggspress('/relay-token/verify', {
+            allowedMethods: ['POST'],
+        }, async (req, res) => {
+            const svc_token = this.services.get('token');
+            const svc_apiError = this.services.get('api-error');
+            const svc_event = this.services.get('event');
 
-                const decoded = (() => {
-                    try {
-                        const decoded = svc_token.verify('wisp', req.body.token);
-                        if ( decoded.$ !== 'token:wisp' ) {
-                            throw svc_apiError.create('invalid_token');
-                        }
-                        return decoded;
-                    } catch (e) {
-                        throw svc_apiError.create('forbidden');
+            const decoded = (() => {
+                try {
+                    const decoded = svc_token.verify('wisp', req.body.token);
+                    if ( decoded.$ !== 'token:wisp' ) {
+                        throw svc_apiError.create('invalid_token');
                     }
-                })();
-
-                const svc_getUser = this.services.get('get-user');
-
-                const event = {
-                    allow: true,
-                    policy: { allow: true },
-                    guest: decoded.guest,
-                    user: decoded.guest ? undefined : await svc_getUser.get_user({
-                        uuid: decoded.user_uid,
-                    }),
-                };
-                await svc_event.emit('wisp.get-policy', event);
-                if ( ! event.allow ) {
+                    return decoded;
+                } catch (e) {
                     throw svc_apiError.create('forbidden');
                 }
+            })();
 
-                res.json(event.policy);
-            },
-        }).attach(r_wisp);
+            const svc_getUser = this.services.get('get-user');
+
+            const event = {
+                allow: true,
+                policy: { allow: true },
+                guest: decoded.guest,
+                user: decoded.guest ? undefined : await svc_getUser.get_user({
+                    uuid: decoded.user_uid,
+                }),
+            };
+            await svc_event.emit('wisp.get-policy', event);
+            if ( ! event.allow ) {
+                throw svc_apiError.create('forbidden');
+            }
+
+            res.json(event.policy);
+        }));
     }
 }
 

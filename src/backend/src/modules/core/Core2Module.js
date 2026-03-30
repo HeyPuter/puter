@@ -58,9 +58,6 @@ class Core2Module extends AdvancedBase {
         const { PagerService } = require('./PagerService.js');
         services.registerService('pager', PagerService);
 
-        const { ExpectationService } = require('./ExpectationService.js');
-        services.registerService('expectations', ExpectationService);
-
         const { ProcessEventService } = require('./ProcessEventService.js');
         services.registerService('process-event', ProcessEventService);
 

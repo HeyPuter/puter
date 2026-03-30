@@ -1644,60 +1644,56 @@ class AuthService extends BaseService {
      */
     '__on_install.routes' () {
         const { app } = this.services.get('web-server');
+        const eggspress = require('../../api/eggspress');
         const config = require('../../config');
         const configurable_auth = require('../../middleware/configurable_auth');
-        const { Endpoint } = require('../../util/expressutil');
         const svc_auth = this;
 
-        Endpoint({
-            route: '/get-gui-token',
-            methods: ['GET'],
+        app.use(eggspress('/get-gui-token', {
+            allowedMethods: ['GET'],
             mw: [configurable_auth()],
-            handler: async (req, res) => {
-                if ( ! req.user ) {
-                    return res.status(401).json({});
-                }
+        }, async (req, res) => {
+            if ( ! req.user ) {
+                return res.status(401).json({});
+            }
 
-                const actor = Context.get('actor');
-                if ( ! (actor.type instanceof UserActorType) ) {
-                    return res.status(403).json({});
-                }
-                if ( ! actor.type.session ) {
-                    return res.status(400).json({ error: 'No session bound to this actor' });
-                }
+            const actor = Context.get('actor');
+            if ( ! (actor.type instanceof UserActorType) ) {
+                return res.status(403).json({});
+            }
+            if ( ! actor.type.session ) {
+                return res.status(400).json({ error: 'No session bound to this actor' });
+            }
 
-                const gui_token = svc_auth.create_gui_token(actor.type.user, { uuid: actor.type.session });
-                return res.json({ token: gui_token });
-            },
-        }).attach(app);
+            const gui_token = svc_auth.create_gui_token(actor.type.user, { uuid: actor.type.session });
+            return res.json({ token: gui_token });
+        }));
 
         // Sync HTTP-only session cookie to the user implied by the request's auth token.
         // Used when switching users in the UI: client sends Authorization with the new user's
         // GUI token; we set the session cookie so cookie-based (e.g. user-protected) requests match.
-        Endpoint({
-            route: '/session/sync-cookie',
-            methods: ['GET'],
+        app.use(eggspress('/session/sync-cookie', {
+            allowedMethods: ['GET'],
             mw: [configurable_auth()],
-            handler: async (req, res) => {
-                if ( ! req.user ) {
-                    return res.status(401).end();
-                }
-                const actor = Context.get('actor');
-                if ( !(actor.type instanceof UserActorType) || !actor.type.session ) {
-                    return res.status(400).end();
-                }
-                const session_token = svc_auth.create_session_token_for_session(
-                    actor.type.user,
-                    actor.type.session,
-                );
-                res.cookie(config.cookie_name, session_token, {
-                    sameSite: 'none',
-                    secure: true,
-                    httpOnly: true,
-                });
-                return res.status(204).end();
-            },
-        }).attach(app);
+        }, async (req, res) => {
+            if ( ! req.user ) {
+                return res.status(401).end();
+            }
+            const actor = Context.get('actor');
+            if ( !(actor.type instanceof UserActorType) || !actor.type.session ) {
+                return res.status(400).end();
+            }
+            const session_token = svc_auth.create_session_token_for_session(
+                actor.type.user,
+                actor.type.session,
+            );
+            res.cookie(config.cookie_name, session_token, {
+                sameSite: 'none',
+                secure: true,
+                httpOnly: true,
+            });
+            return res.status(204).end();
+        }));
     }
 }
 

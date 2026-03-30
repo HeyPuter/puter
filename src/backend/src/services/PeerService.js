@@ -18,7 +18,7 @@
  */
 
 import configurable_auth from '../middleware/configurable_auth.js';
-import { Endpoint } from '../util/expressutil.js';
+import eggspress from '../api/eggspress.js';
 import { Actor, UserActorType } from './auth/Actor.js';
 import BaseService from './BaseService.js';
 
@@ -28,93 +28,87 @@ function addDashesToUUID (i) {
 
 export class PeerService extends BaseService {
     '__on_install.routes' (_, { app }) {
-        Endpoint({
-            route: '/peer/signaller-info',
-            methods: ['GET'],
+        app.use(eggspress('/peer/signaller-info', {
+            allowedMethods: ['GET'],
             subdomain: 'api',
-            handler: async (req, res) => {
-                res.json({
-                    url: this.config.signaller_url,
-                    fallbackIce: this.config.fallback_ice,
-                });
-            },
-        }).attach(app);
+        }, async (req, res) => {
+            res.json({
+                url: this.config.signaller_url,
+                fallbackIce: this.config.fallback_ice,
+            });
+        }));
 
-        Endpoint({
-            route: '/peer/generate-turn',
-            methods: ['POST'],
+        app.use(eggspress('/peer/generate-turn', {
+            allowedMethods: ['POST'],
             mw: [configurable_auth()],
             subdomain: 'api',
-            handler: async (req, res) => {
-                if ( ! this.config.cloudflare_turn ) {
-                    res.status(500).send({ error: 'TURN is not configured' });
-                    return;
-                }
+        }, async (req, res) => {
+            if ( ! this.config.cloudflare_turn ) {
+                res.status(500).send({ error: 'TURN is not configured' });
+                return;
+            }
 
-                // Build the custom identifier (short max length, we must compress it from hex to b64)
-                let customIdentifier = '';
-                customIdentifier += Buffer.from(req.actor.type.user.uuid.replaceAll('-', ''), 'hex').toString('base64url');
-                if ( req.actor.type?.app ) {
-                    customIdentifier += `:${ Buffer.from(req.actor.type.app.uid.replace('app-', '').replaceAll('-', ''), 'hex').toString('base64url')}`;
-                }
-                let response = await fetch(
-                    `https://rtc.live.cloudflare.com/v1/turn/keys/${this.config.cloudflare_turn.turn_key_id}/credentials/generate-ice-servers`,
-                    {
-                        headers: {
-                            Authorization: `Bearer ${this.config.cloudflare_turn.turn_key_api_token}`,
-                            'Content-Type': 'application/json',
-                        },
-                        method: 'POST',
-                        body: JSON.stringify({
-                            ttl: this.config.cloudflare_turn.ttl_ms,
-                            customIdentifier,
-                        }),
+            // Build the custom identifier (short max length, we must compress it from hex to b64)
+            let customIdentifier = '';
+            customIdentifier += Buffer.from(req.actor.type.user.uuid.replaceAll('-', ''), 'hex').toString('base64url');
+            if ( req.actor.type?.app ) {
+                customIdentifier += `:${ Buffer.from(req.actor.type.app.uid.replace('app-', '').replaceAll('-', ''), 'hex').toString('base64url')}`;
+            }
+            let response = await fetch(
+                `https://rtc.live.cloudflare.com/v1/turn/keys/${this.config.cloudflare_turn.turn_key_id}/credentials/generate-ice-servers`,
+                {
+                    headers: {
+                        Authorization: `Bearer ${this.config.cloudflare_turn.turn_key_api_token}`,
+                        'Content-Type': 'application/json',
                     },
-                );
+                    method: 'POST',
+                    body: JSON.stringify({
+                        ttl: this.config.cloudflare_turn.ttl_ms,
+                        customIdentifier,
+                    }),
+                },
+            );
 
-                if ( ! response.ok ) {
-                    res.status(500).send({ error: 'Failed to generate TURN credentials' });
-                    return;
-                }
+            if ( ! response.ok ) {
+                res.status(500).send({ error: 'Failed to generate TURN credentials' });
+                return;
+            }
 
-                const { iceServers } = await response.json();
+            const { iceServers } = await response.json();
 
-                res.json({
-                    ttl: this.config.cloudflare_turn.ttl_ms,
-                    iceServers,
-                });
-            },
-        }).attach(app);
+            res.json({
+                ttl: this.config.cloudflare_turn.ttl_ms,
+                iceServers,
+            });
+        }));
 
         const svc_web = this.services.get('web-server');
         const meteringService = this.services.get('meteringService').meteringService;
         svc_web.allow_undefined_origin('/turn/ingest-usage');
 
-        Endpoint({
-            route: '/turn/ingest-usage',
-            methods: ['POST'],
+        app.use(eggspress('/turn/ingest-usage', {
+            allowedMethods: ['POST'],
             subdomain: 'api',
-            handler: async (req, res) => {
-                if ( req.headers['x-puter-internal-auth'] !== this.config.turn_meter_secret ) {
-                    res.status(403).send({ error: 'Failed to meter TURN credentials' });
-                    return;
+        }, async (req, res) => {
+            if ( req.headers['x-puter-internal-auth'] !== this.config.turn_meter_secret ) {
+                res.status(403).send({ error: 'Failed to meter TURN credentials' });
+                return;
+            }
+            /** @type {{timestamp: string, userId: string, origin: string, customIdentifier: Number, egressBytes: number, ingressBytes: number}[]} */
+            const records = req.body.records;
+            for ( const record of records ) {
+                try {
+                    const actor = await Actor.create(UserActorType, {
+                        user_uid: addDashesToUUID(Buffer.from(record.userId, 'base64url').toString('hex')),
+                    });
+                    const costInMicrocents = record.egressBytes * 0.005;
+                    meteringService.incrementUsage(actor, 'turn:egress-bytes', record.egressBytes, costInMicrocents);
+                } catch (e) {
+                    // failed to get user likely
+                    console.error('TURN metering error: ', e);
                 }
-                /** @type {{timestamp: string, userId: string, origin: string, customIdentifier: Number, egressBytes: number, ingressBytes: number}[]} */
-                const records = req.body.records;
-                for ( const record of records ) {
-                    try {
-                        const actor = await Actor.create(UserActorType, {
-                            user_uid: addDashesToUUID(Buffer.from(record.userId, 'base64url').toString('hex')),
-                        });
-                        const costInMicrocents = record.egressBytes * 0.005;
-                        meteringService.incrementUsage(actor, 'turn:egress-bytes', record.egressBytes, costInMicrocents);
-                    } catch (e) {
-                        // failed to get user likely
-                        console.error('TURN metering error: ', e);
-                    }
-                    res.send('ok');
-                }
-            },
-        }).attach(app);
+                res.send('ok');
+            }
+        }));
     }
 }
