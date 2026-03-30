@@ -45,7 +45,7 @@ function buildAppsGrid (apps) {
     return h;
 }
 
-function sortApps (apps, mode) {
+function sortApps (apps, mode, customOrder) {
     const sorted = [...apps];
     switch ( mode ) {
         case 'name-asc':
@@ -63,6 +63,17 @@ function sortApps (apps, mode) {
                 const db = b.installed_at || '';
                 return db.localeCompare(da);
             });
+            break;
+        case 'custom':
+            if ( customOrder && customOrder.length > 0 ) {
+                const orderMap = new Map();
+                customOrder.forEach((name, i) => orderMap.set(name, i));
+                sorted.sort((a, b) => {
+                    const ia = orderMap.has(a.name) ? orderMap.get(a.name) : Infinity;
+                    const ib = orderMap.has(b.name) ? orderMap.get(b.name) : Infinity;
+                    return ia - ib;
+                });
+            }
             break;
     }
     return sorted;
@@ -105,6 +116,9 @@ const TabApps = {
 
     _apps: null,
     _sortMode: 'name-asc',
+    _customOrder: null,
+    _sortableActive: false,
+    _isDragging: false,
 
     html () {
         let h = '<div class="dashboard-tab-content myapps-tab">';
@@ -125,6 +139,7 @@ const TabApps = {
         h += '<div class="myapps-sort-option" data-sort="name-desc">Name (Z-A)</div>';
         h += '<div class="myapps-sort-option" data-sort="recent">Recently Used</div>';
         h += '<div class="myapps-sort-option" data-sort="date-added">Date Added</div>';
+        h += '<div class="myapps-sort-option" data-sort="custom">Custom Order</div>';
         h += '</div>';
         h += '</div>';
         h += '</div>';
@@ -139,16 +154,79 @@ const TabApps = {
         return h;
     },
 
-    init ($el_window) {
+    async init ($el_window) {
+        // Load persisted sort preferences
+        try {
+            const [savedMode, savedOrder] = await Promise.all([
+                puter.kv.get('dashboard_apps_sort_mode'),
+                puter.kv.get('dashboard_apps_custom_order'),
+            ]);
+            if ( savedMode ) {
+                this._sortMode = savedMode;
+                $el_window.find('.myapps-sort-option').removeClass('active');
+                $el_window.find(`.myapps-sort-option[data-sort="${savedMode}"]`).addClass('active');
+            }
+            if ( savedOrder ) {
+                try {
+                    this._customOrder = JSON.parse(savedOrder);
+                }
+                catch (_) {
+                    this._customOrder = null;
+                }
+            }
+        } catch (_) {
+            // KV not available — use defaults
+        }
+
         this.loadApps($el_window);
 
         const self = this;
+
+        function enableSortable () {
+            const $grid = $el_window.find('.myapps-grid');
+            if ( $grid.length === 0 ) return;
+            $grid.addClass('myapps-grid-custom');
+            $grid.sortable({
+                items: '.myapps-tile',
+                tolerance: 'pointer',
+                placeholder: 'myapps-tile-placeholder',
+                revert: 80,
+                distance: 5,
+                start () {
+                    self._isDragging = true;
+                },
+                stop () {
+                    setTimeout(() => {
+                        self._isDragging = false;
+                    }, 50);
+                },
+                update () {
+                    const orderedNames = [];
+                    $grid.find('.myapps-tile').each(function () {
+                        orderedNames.push($(this).attr('data-app-name'));
+                    });
+                    self._customOrder = orderedNames;
+                    puter.kv.set('dashboard_apps_custom_order', JSON.stringify(orderedNames));
+                },
+            });
+            self._sortableActive = true;
+        }
+
+        function disableSortable () {
+            const $grid = $el_window.find('.myapps-grid');
+            if ( $grid.length === 0 ) return;
+            $grid.removeClass('myapps-grid-custom');
+            if ( $grid.sortable('instance') ) {
+                $grid.sortable('destroy');
+            }
+            self._sortableActive = false;
+        }
 
         function renderApps () {
             if ( ! self._apps ) return;
             const $container = $el_window.find('.myapps-container');
             const query = $el_window.find('.myapps-search').val().toLowerCase().trim();
-            let apps = sortApps(self._apps, self._sortMode);
+            let apps = sortApps(self._apps, self._sortMode, self._customOrder);
 
             if ( query ) {
                 apps = apps.filter(app => {
@@ -164,6 +242,13 @@ const TabApps = {
                     : `<div class="myapps-empty"><p>${ query ? 'No apps match your search' : 'No apps installed yet' }</p></div>`,
             );
             revealWhenLoaded($container);
+
+            // Enable/disable sortable based on mode and search state
+            if ( self._sortMode === 'custom' && !query ) {
+                enableSortable();
+            } else {
+                disableSortable();
+            }
         }
 
         // Toggle search/clear icons and filter
@@ -198,6 +283,12 @@ const TabApps = {
             $el_window.find('.myapps-sort-option').removeClass('active');
             $(this).addClass('active');
             $el_window.find('.myapps-sort-dropdown').hide();
+            puter.kv.set('dashboard_apps_sort_mode', mode);
+            // Initialize custom order from current view if switching to custom for the first time
+            if ( mode === 'custom' && !self._customOrder && self._apps ) {
+                self._customOrder = self._apps.map(a => a.name);
+                puter.kv.set('dashboard_apps_custom_order', JSON.stringify(self._customOrder));
+            }
             renderApps();
         });
 
@@ -210,6 +301,7 @@ const TabApps = {
         $el_window.on('click', '.myapps-tile', function (e) {
             e.preventDefault();
             e.stopPropagation();
+            if ( self._isDragging ) return;
             const appName = $(this).attr('data-app-name');
             if ( appName ) {
                 window.open(`/app/${appName}`, '_blank');
@@ -305,10 +397,25 @@ const TabApps = {
             }
 
             this._apps = merged;
+
+            // Reconcile custom order with current app list
+            if ( this._customOrder ) {
+                const appNames = new Set(merged.map(a => a.name));
+                // Remove apps no longer present
+                this._customOrder = this._customOrder.filter(n => appNames.has(n));
+                // Append new apps not yet in custom order
+                const inOrder = new Set(this._customOrder);
+                for ( const app of merged ) {
+                    if ( ! inOrder.has(app.name) ) {
+                        this._customOrder.push(app.name);
+                    }
+                }
+            }
+
             if ( this._renderApps ) {
                 this._renderApps();
             } else {
-                $container.html(buildAppsGrid(sortApps(merged, this._sortMode)));
+                $container.html(buildAppsGrid(sortApps(merged, this._sortMode, this._customOrder)));
                 revealWhenLoaded($container);
             }
         } catch (e) {

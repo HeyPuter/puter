@@ -689,6 +689,30 @@ body {
     background: var(--dashboard-hover);
 }
 
+/* Custom sort drag-and-drop */
+.myapps-grid-custom .myapps-tile {
+    cursor: grab;
+}
+
+.myapps-grid-custom .myapps-tile:active {
+    cursor: grabbing;
+}
+
+.myapps-tile-placeholder {
+    width: 80px;
+    border: 2px dashed var(--dashboard-border);
+    border-radius: 12px;
+    background: var(--dashboard-hover);
+    opacity: 0.5;
+}
+
+.ui-sortable-helper.myapps-tile {
+    transform: scale(1.05);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+    z-index: 1000;
+    opacity: 0.9;
+}
+
 /* Dashboard files */
 
 .dashboard-content.files {
