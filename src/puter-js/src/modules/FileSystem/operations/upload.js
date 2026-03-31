@@ -523,6 +523,12 @@ const upload = async function (items, dirPath, options = {}) {
                     fileItem = fileItem.replace(/^\/+/, '');
                 }
                 let [dirLevel, fileName] = [fileItem?.slice(0, fileItem?.lastIndexOf('/')), fileItem?.slice(fileItem?.lastIndexOf('/') + 1)];
+                const normalizedFileName = typeof fileName === 'string'
+                    ? fileName.trim().toLowerCase()
+                    : '';
+                if ( normalizedFileName === '.ds_store' ) {
+                    continue;
+                }
 
                 // If file name is blank then we need to create only an empty directory.
                 // On the other hand if the file name is not blank(could be undefined), we need to create the file.
@@ -1183,9 +1189,6 @@ const upload = async function (items, dirPath, options = {}) {
                             message: toErrorMessage(item.error),
                         };
                     });
-                    if ( typeof console !== 'undefined' && typeof console.error === 'function' ) {
-                        console.error('Signed batch write failed items:', mappedFailedSignedItems);
-                    }
                     partialError.partial = true;
                     partialError.failedItems = mappedFailedSignedItems;
                     partialError.failedPaths = mappedFailedSignedItems
