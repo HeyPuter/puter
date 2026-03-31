@@ -192,6 +192,7 @@ body {
     border: none;
     border-top: 1px solid var(--dashboard-border);
     margin: 8px 16px;
+    flex-shrink: 0;
 }
 
 .dashboard-sidebar-item {
@@ -206,6 +207,12 @@ body {
     font-size: 14px;
     color: var(--dashboard-text);
     transition: background-color 0.15s;
+    flex-shrink: 0;
+}
+
+/* Allow pinned apps to shrink within their scrollable container */
+.dashboard-pinned-apps .dashboard-sidebar-item {
+    flex-shrink: 0;
 }
 
 .dashboard-sidebar-item svg {
@@ -245,7 +252,35 @@ body {
 
 .dashboard-pinned-apps {
     flex: 1;
+    min-height: 0;
+    overflow-y: auto;
     border: 2px solid transparent;
+}
+
+/* Hide scrollbar on pinned apps */
+.dashboard-pinned-apps::-webkit-scrollbar {
+    display: none;
+}
+.dashboard-pinned-apps {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+}
+
+/* Drag reorder indicators */
+.dashboard-pinned-app.drag-reorder-above {
+    box-shadow: 0 -2px 0 0 var(--select-color);
+}
+
+.dashboard-pinned-app.drag-reorder-below {
+    box-shadow: 0 2px 0 0 var(--select-color);
+}
+
+.dashboard-pinned-app.dragging {
+    opacity: 0.4;
+}
+
+.dashboard-pinned-app:focus {
+    outline: none;
 }
 
 .dashboard-pinned-icon {
@@ -2575,6 +2610,46 @@ body {
 .dashboard .bento-recent-apps-empty span {
     font-size: 13px;
     color: var(--dashboard-text-tertiary);
+}
+
+/* Desktop switch bento card */
+.dashboard .bento-desktop-switch {
+    grid-column: 1 / -1;
+    min-height: auto;
+    background: var(--dashboard-usage-bar-background);
+    padding: 16px 24px;
+}
+
+.dashboard .bento-desktop-switch-inner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.dashboard .bento-desktop-switch-text {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--dashboard-text-secondary);
+}
+
+.dashboard .bento-desktop-switch-btn {
+    flex-shrink: 0;
+    padding: 8px 16px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--dashboard-background);
+    background: var(--dashboard-icon-blue-start);
+    border: 1px solid var(--dashboard-primary);
+    border-radius: 8px;
+    cursor: pointer;
+    text-decoration: none;
+    transition: background 0.15s, color 0.15s;
+}
+
+.dashboard .bento-desktop-switch-btn:hover {
+    background: var(--dashboard-icon-blue-end);
+    color: white;
 }
 
 /* Usage bento card */

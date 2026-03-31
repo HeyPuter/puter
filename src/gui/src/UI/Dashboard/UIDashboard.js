@@ -104,8 +104,8 @@ async function UIDashboard (options) {
             h += '</div>';
 
             // User options button at bottom
-            h += '<div class="dashboard-user-options hide-scrollbar">';
-                h += '<div class="dashboard-user-btn hide-scrollbar">';
+            h += '<div class="dashboard-user-options">';
+                h += '<div class="dashboard-user-btn">';
                     h += `<div class="dashboard-user-avatar profile-pic" style="background-image: url(${window.user?.profile?.picture || window.icons['profile.svg']})"></div>`;
                     h += `<span class="dashboard-user-name">${window.html_encode(window.user?.username || 'User')}</span>`;
                     h += '<svg class="dashboard-user-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>';
@@ -165,9 +165,10 @@ async function UIDashboard (options) {
     // Pinned apps in sidebar
     // =========================================================================
     let pinnedApps = [];
+    let reorderDragName = null;
 
     function renderPinnedApp (app) {
-        const $item = $(`<div class="dashboard-sidebar-item dashboard-pinned-app" data-app-name="${html_encode(app.name)}" title="${html_encode(app.title || app.name)}">`)
+        const $item = $(`<div class="dashboard-sidebar-item dashboard-pinned-app" draggable="true" data-app-name="${html_encode(app.name)}" title="${html_encode(app.title || app.name)}">`)
             .append(`<img src="${html_encode(app.iconUrl || window.icons['app.svg'])}" class="dashboard-pinned-icon" alt="">`)
             .append(document.createTextNode(app.title || app.name));
         $el_window.find('.dashboard-pinned-apps').append($item);
@@ -201,6 +202,11 @@ async function UIDashboard (options) {
     const sidebarEl = $el_window.find('.dashboard-sidebar')[0];
 
     sidebarEl.addEventListener('dragover', function (e) {
+        // During internal reorder, still allow drop but skip sidebar styling
+        if ( reorderDragName ) {
+            e.preventDefault();
+            return;
+        }
         if ( ! e.dataTransfer.types.includes('application/x-puter-app') ) return;
         e.preventDefault();
         e.dataTransfer.dropEffect = 'copy';
@@ -213,8 +219,10 @@ async function UIDashboard (options) {
         }
     });
 
-    // Drop app on sidebar
+    // Drop app on sidebar (external app from Apps tab)
     sidebarEl.addEventListener('drop', function (e) {
+        // Skip during internal reorder — handled by pinned-app drop handler
+        if ( reorderDragName ) return;
         e.preventDefault();
         this.classList.remove('drag-over');
 
@@ -255,7 +263,6 @@ async function UIDashboard (options) {
         const appName = $item.attr('data-app-name');
 
         UIContextMenu({
-            parent_element: $item[0],
             position: { top: e.clientY, left: e.clientX },
             items: [
                 {
@@ -269,6 +276,92 @@ async function UIDashboard (options) {
                 },
             ],
         });
+    });
+
+    // =========================================================================
+    // Drag-to-reorder pinned apps
+    // =========================================================================
+    const pinnedContainer = $el_window.find('.dashboard-pinned-apps')[0];
+
+    function getPinnedAppFromEvent (e) {
+        return e.target.closest('.dashboard-pinned-app');
+    }
+
+    pinnedContainer.addEventListener('dragstart', function (e) {
+        const item = getPinnedAppFromEvent(e);
+        if ( ! item ) return;
+        reorderDragName = item.getAttribute('data-app-name');
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/x-pinned-reorder', reorderDragName);
+        item.classList.add('dragging');
+    });
+
+    pinnedContainer.addEventListener('dragend', function (e) {
+        const item = getPinnedAppFromEvent(e);
+        if ( item ) item.classList.remove('dragging');
+        reorderDragName = null;
+        pinnedContainer.querySelectorAll('.dashboard-pinned-app').forEach(el => {
+            el.classList.remove('drag-reorder-above', 'drag-reorder-below');
+        });
+    });
+
+    pinnedContainer.addEventListener('dragover', function (e) {
+        if ( ! reorderDragName ) return;
+        e.preventDefault();
+        e.stopPropagation();
+        e.dataTransfer.dropEffect = 'move';
+
+        const item = getPinnedAppFromEvent(e);
+        if ( ! item ) return;
+
+        // Clear all indicators
+        pinnedContainer.querySelectorAll('.dashboard-pinned-app').forEach(el => {
+            el.classList.remove('drag-reorder-above', 'drag-reorder-below');
+        });
+
+        // Show indicator based on cursor position relative to element midpoint
+        const rect = item.getBoundingClientRect();
+        const midY = rect.top + rect.height / 2;
+        if ( e.clientY < midY ) {
+            item.classList.add('drag-reorder-above');
+        } else {
+            item.classList.add('drag-reorder-below');
+        }
+    });
+
+    pinnedContainer.addEventListener('drop', function (e) {
+        if ( ! reorderDragName ) return;
+        e.preventDefault();
+        e.stopPropagation();
+        sidebarEl.classList.remove('drag-over');
+
+        const item = getPinnedAppFromEvent(e);
+        if ( ! item ) return;
+
+        const targetName = item.getAttribute('data-app-name');
+        if ( targetName === reorderDragName ) return;
+
+        // Determine insert position
+        const rect = item.getBoundingClientRect();
+        const midY = rect.top + rect.height / 2;
+        const insertBefore = e.clientY < midY;
+
+        // Reorder the pinnedApps array
+        const dragIndex = pinnedApps.findIndex(p => p.name === reorderDragName);
+        const [draggedApp] = pinnedApps.splice(dragIndex, 1);
+        let targetIndex = pinnedApps.findIndex(p => p.name === targetName);
+        if ( ! insertBefore ) targetIndex++;
+        pinnedApps.splice(targetIndex, 0, draggedApp);
+
+        // Re-render all pinned apps in new order
+        $el_window.find('.dashboard-pinned-apps').empty();
+        for ( const app of pinnedApps ) {
+            renderPinnedApp(app);
+        }
+        savePinnedApps();
+
+        // Clean up
+        reorderDragName = null;
     });
 
     // =========================================================================
