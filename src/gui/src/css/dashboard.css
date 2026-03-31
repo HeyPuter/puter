@@ -722,6 +722,79 @@ body {
     background: var(--dashboard-hover);
 }
 
+/* Uninstall confirmation modal */
+.myapps-modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 300;
+}
+.myapps-modal {
+    background: var(--dashboard-card-background);
+    border: 1px solid var(--dashboard-border);
+    border-radius: 12px;
+    padding: 24px;
+    min-width: 320px;
+    max-width: 400px;
+    box-shadow: 0 8px 32px var(--dashboard-shadow-medium);
+}
+.myapps-modal h3 {
+    margin: 0 0 8px;
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--dashboard-text-primary);
+}
+.myapps-modal p {
+    margin: 0 0 16px;
+    font-size: 14px;
+    color: var(--dashboard-text-secondary);
+}
+.myapps-modal-checkbox {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--dashboard-text-secondary);
+    cursor: pointer;
+    margin-bottom: 20px;
+}
+.myapps-modal-buttons {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+}
+.myapps-modal-btn {
+    padding: 8px 16px;
+    border-radius: 8px;
+    border: 1px solid var(--dashboard-border);
+    font-size: 14px;
+    cursor: pointer;
+    transition: background 0.15s, opacity 0.15s;
+}
+.myapps-modal-cancel {
+    background: var(--dashboard-card-background);
+    color: var(--dashboard-text-primary);
+}
+.myapps-modal-cancel:hover {
+    background: var(--dashboard-hover);
+}
+.myapps-modal-confirm {
+    background: #e53935;
+    color: #fff;
+    border-color: #e53935;
+}
+.myapps-modal-confirm:hover {
+    background: #c62828;
+    border-color: #c62828;
+}
+.myapps-modal-confirm:disabled {
+    opacity: 0.6;
+    cursor: default;
+}
+
 /* Custom sort drag-and-drop */
 .myapps-grid-custom .myapps-tile {
     cursor: grab;
