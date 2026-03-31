@@ -128,7 +128,6 @@ If the user has no keys, the array will be empty.
     </script>
 </body>
 </html>
-
 ```
 
 <strong class="example-title">Sort numeric keys with zero-padding</strong>
@@ -166,5 +165,4 @@ If the user has no keys, the array will be empty.
     </script>
 </body>
 </html>
-
 ```
