@@ -166,8 +166,26 @@ const TabFiles = {
             const parentDir = path.dirname(file.path);
             if ( _this.currentPath !== parentDir ) return;
 
-            // Don't add if item already exists in the view
-            if ( $(`.files-tab .files .item[data-uid='${file.uid}']`).length > 0 ) return;
+            // If item already exists in view, update in-place.
+            const $existingRow = $(`.files-tab .files .item[data-uid='${file.uid}']`);
+            if ( $existingRow.length > 0 ) {
+                const displayName = file.name || '';
+                $existingRow.attr('data-name', displayName);
+                $existingRow.attr('data-path', file.path || '');
+                $existingRow.attr('data-size', file.size || 0);
+                $existingRow.attr('data-modified', file.modified || 0);
+                $existingRow.attr('data-type', file.type || '');
+                $existingRow.find('.item-name').text(displayName);
+                $existingRow.find('.item-name-editor').val(displayName);
+                if (
+                    _this.currentView === 'grid' &&
+                    typeof file.thumbnail === 'string' &&
+                    file.thumbnail.length > 0
+                ) {
+                    $existingRow.find('.item-icon img').attr('src', file.thumbnail);
+                }
+                return;
+            }
 
             await _this.renderItem(file);
 
@@ -778,18 +796,18 @@ const TabFiles = {
 
                 // Calculate next index based on arrow key
                 switch ( e.which ) {
-                case 37: // Left
-                    nextIndex = Math.max(0, currentIndex - 1);
-                    break;
-                case 38: // Up
-                    nextIndex = Math.max(0, currentIndex - cols);
-                    break;
-                case 39: // Right
-                    nextIndex = Math.min($allRows.length - 1, currentIndex + 1);
-                    break;
-                case 40: // Down
-                    nextIndex = Math.min($allRows.length - 1, currentIndex + cols);
-                    break;
+                    case 37: // Left
+                        nextIndex = Math.max(0, currentIndex - 1);
+                        break;
+                    case 38: // Up
+                        nextIndex = Math.max(0, currentIndex - cols);
+                        break;
+                    case 39: // Right
+                        nextIndex = Math.min($allRows.length - 1, currentIndex + 1);
+                        break;
+                    case 40: // Down
+                        nextIndex = Math.min($allRows.length - 1, currentIndex + cols);
+                        break;
                 }
 
                 if ( nextIndex !== currentIndex ) {
@@ -1169,16 +1187,28 @@ const TabFiles = {
                     // remove from active_uploads
                     delete window.active_uploads[opid];
                     // refresh
-                    _this.renderDirectory(_this.currentPath);
+                    _this.renderDirectory(_this.currentPath, { consistency: 'strong' });
                     // Clear the input value to allow uploading the same file again
                     fileInput.value = '';
                     document.querySelector('form').reset();
                 },
                 // error
                 error: async function (err) {
+                    const failedItems = Array.isArray(err?.failedItems) ? err.failedItems : [];
+                    if ( failedItems.length > 0 ) {
+                        const failedSummary = failedItems.map((item) => {
+                            const failedPath = item?.path || item?.name || `item ${item?.requestIndex ?? '?'}`;
+                            const failedMessage = typeof item?.message === 'string' && item.message.length > 0
+                                ? ` (${item.message})`
+                                : '';
+                            return `- ${failedPath}${failedMessage}`;
+                        }).join('\n');
+                        UIAlert(`Some uploads failed:\n${failedSummary}`);
+                    }
                     upload_progress_window.show_error(i18n('error_uploading_files'), err.message);
                     // remove from active_uploads
                     delete window.active_uploads[opid];
+                    _this.renderDirectory(_this.currentPath, { consistency: 'strong' });
                 },
                 // abort
                 // eslint-disable-next-line no-unused-vars
@@ -1630,17 +1660,17 @@ const TabFiles = {
             const bName = getDisplayName(b);
 
             switch ( this.sortColumn ) {
-            case 'name':
-                comparison = aName.localeCompare(bName);
-                break;
-            case 'size':
-                comparison = (a.size || 0) - (b.size || 0);
-                break;
-            case 'modified':
-                comparison = (a.modified || 0) - (b.modified || 0);
-                break;
-            default:
-                comparison = aName.localeCompare(bName);
+                case 'name':
+                    comparison = aName.localeCompare(bName);
+                    break;
+                case 'size':
+                    comparison = (a.size || 0) - (b.size || 0);
+                    break;
+                case 'modified':
+                    comparison = (a.modified || 0) - (b.modified || 0);
+                    break;
+                default:
+                    comparison = aName.localeCompare(bName);
             }
 
             return this.sortDirection === 'asc' ? comparison : -comparison;
@@ -1689,17 +1719,17 @@ const TabFiles = {
             // Same type — compare by sort column
             let comparison = 0;
             switch ( sortColumn ) {
-            case 'name':
-                comparison = newName.localeCompare(($existing.attr('data-name') || '').toLowerCase());
-                break;
-            case 'size':
-                comparison = newSize - (parseInt($existing.attr('data-size')) || 0);
-                break;
-            case 'modified':
-                comparison = newModified - (parseInt($existing.attr('data-modified')) || 0);
-                break;
-            default:
-                comparison = newName.localeCompare(($existing.attr('data-name') || '').toLowerCase());
+                case 'name':
+                    comparison = newName.localeCompare(($existing.attr('data-name') || '').toLowerCase());
+                    break;
+                case 'size':
+                    comparison = newSize - (parseInt($existing.attr('data-size')) || 0);
+                    break;
+                case 'modified':
+                    comparison = newModified - (parseInt($existing.attr('data-modified')) || 0);
+                    break;
+                default:
+                    comparison = newName.localeCompare(($existing.attr('data-name') || '').toLowerCase());
             }
 
             if ( sortDirection !== 'asc' ) comparison = -comparison;
@@ -2047,105 +2077,105 @@ const TabFiles = {
     determineIcon (file) {
         const extension = file.name.split('.').pop().toLowerCase();
         switch ( extension ) {
-        case 'm4a':
-        case 'ogg':
-        case 'aac':
-        case 'flac':
-            return `<img src="${html_encode(window.icons['file-audio.svg'])}"/>`;
-        case 'cpp':
-            return `<img src="${html_encode(window.icons['file-cpp.svg'])}"/>`;
-        case 'css':
-            return `<img src="${html_encode(window.icons['file-css.svg'])}"/>`;
-        case 'csv':
-            return `<img src="${html_encode(window.icons['file-csv.svg'])}"/>`;
-        case 'doc':
-        case 'docx':
-            return `<img src="${html_encode(window.icons['file-word.svg'])}"/>`;
-        case 'exe':
-            return `<img src="${html_encode(window.icons['file-exe.svg'])}"/>`;
-        case 'gzip':
-            return `<img src="${html_encode(window.icons['file-gzip.svg'])}"/>`;
-        case 'html':
-            return `<img src="${html_encode(window.icons['file-html.svg'])}"/>`;
-        case 'jpg':
-        case 'jpeg':
-        case 'png':
-        case 'webp':
-        case 'gif':
-            return `<img src="${html_encode(window.icons['file-image.svg'])}"/>`;
-        case 'jar':
-            return `<img src="${html_encode(window.icons['file-jar.svg'])}"/>`;
-        case 'java':
-            return `<img src="${html_encode(window.icons['file-pdf.svg'])}"/>`;
-        case 'js':
-            return `<img src="${html_encode(window.icons['file-js.svg'])}"/>`;
-        case 'json':
-            return `<img src="${html_encode(window.icons['file-json.svg'])}"/>`;
-        case 'jsp':
-            return `<img src="${html_encode(window.icons['file-jsp.svg'])}"/>`;
-        case 'log':
-            return `<img src="${html_encode(window.icons['file-log.svg'])}"/>`;
-        case 'md':
-            return `<img src="${html_encode(window.icons['file-md.svg'])}"/>`;
-        case 'mp3':
-            return `<img src="${html_encode(window.icons['file-mp3.svg'])}"/>`;
-        case 'otf':
-            return `<img src="${html_encode(window.icons['file-otf.svg'])}"/>`;
-        case 'pdf':
-            return `<img src="${html_encode(window.icons['file-pdf.svg'])}"/>`;
-        case 'php':
-            return `<img src="${html_encode(window.icons['file-php.svg'])}"/>`;
-        case 'pptx':
-            return `<img src="${html_encode(window.icons['file-pptx.svg'])}"/>`;
-        case 'psd':
-            return `<img src="${html_encode(window.icons['file-psd.svg'])}"/>`;
-        case 'py':
-            return `<img src="${html_encode(window.icons['file-py.svg'])}"/>`;
-        case 'rss':
-            return `<img src="${html_encode(window.icons['file-rss.svg'])}"/>`;
-        case 'rtf':
-            return `<img src="${html_encode(window.icons['file-rtf.svg'])}"/>`;
-        case 'ruby':
-            return `<img src="${html_encode(window.icons['file-ruby.svg'])}"/>`;
-        case 'sketch':
-            return `<img src="${html_encode(window.icons['file-sketch.svg'])}"/>`;
-        case 'sql':
-            return `<img src="${html_encode(window.icons['file-sql.svg'])}"/>`;
-        case 'svg':
-            return `<img src="${html_encode(window.icons['file-svg.svg'])}"/>`;
-        case 'tar':
-            return `<img src="${html_encode(window.icons['file-tar.svg'])}"/>`;
-        case 'tpl':
-        case 'xltx':
-        case 'potx':
-        case 'tmpl':
-            return `<img src="${html_encode(window.icons['file-template.svg'])}"/>`;
-        case 'text':
-        case 'txt':
-            return `<img src="${html_encode(window.icons['file-text.svg'])}"/>`;
-        case 'tif':
-            return `<img src="${html_encode(window.icons['file-tif.svg'])}"/>`;
-        case 'tiff':
-            return `<img src="${html_encode(window.icons['file-tiff.svg'])}"/>`;
-        case 'ttf':
-            return `<img src="${html_encode(window.icons['file-ttf.svg'])}"/>`;
-        case 'mp4':
-        case 'avi':
-        case 'mov':
-        case 'wmf':
-        case 'mkv':
-        case 'webm':
-            return `<img src="${html_encode(window.icons['file-video.svg'])}"/>`;
-        case 'wav':
-            return `<img src="${html_encode(window.icons['file-wav.svg'])}"/>`;
-        case 'xlsx':
-            return `<img src="${html_encode(window.icons['file-xlsx.svg'])}"/>`;
-        case 'xml':
-            return `<img src="${html_encode(window.icons['file-xml.svg'])}"/>`;
-        case 'zip':
-            return `<img src="${html_encode(window.icons['file-zip.svg'])}"/>`;
-        default:
-            return `<img src="${html_encode(window.icons['file.svg'])}"/>`;
+            case 'm4a':
+            case 'ogg':
+            case 'aac':
+            case 'flac':
+                return `<img src="${html_encode(window.icons['file-audio.svg'])}"/>`;
+            case 'cpp':
+                return `<img src="${html_encode(window.icons['file-cpp.svg'])}"/>`;
+            case 'css':
+                return `<img src="${html_encode(window.icons['file-css.svg'])}"/>`;
+            case 'csv':
+                return `<img src="${html_encode(window.icons['file-csv.svg'])}"/>`;
+            case 'doc':
+            case 'docx':
+                return `<img src="${html_encode(window.icons['file-word.svg'])}"/>`;
+            case 'exe':
+                return `<img src="${html_encode(window.icons['file-exe.svg'])}"/>`;
+            case 'gzip':
+                return `<img src="${html_encode(window.icons['file-gzip.svg'])}"/>`;
+            case 'html':
+                return `<img src="${html_encode(window.icons['file-html.svg'])}"/>`;
+            case 'jpg':
+            case 'jpeg':
+            case 'png':
+            case 'webp':
+            case 'gif':
+                return `<img src="${html_encode(window.icons['file-image.svg'])}"/>`;
+            case 'jar':
+                return `<img src="${html_encode(window.icons['file-jar.svg'])}"/>`;
+            case 'java':
+                return `<img src="${html_encode(window.icons['file-pdf.svg'])}"/>`;
+            case 'js':
+                return `<img src="${html_encode(window.icons['file-js.svg'])}"/>`;
+            case 'json':
+                return `<img src="${html_encode(window.icons['file-json.svg'])}"/>`;
+            case 'jsp':
+                return `<img src="${html_encode(window.icons['file-jsp.svg'])}"/>`;
+            case 'log':
+                return `<img src="${html_encode(window.icons['file-log.svg'])}"/>`;
+            case 'md':
+                return `<img src="${html_encode(window.icons['file-md.svg'])}"/>`;
+            case 'mp3':
+                return `<img src="${html_encode(window.icons['file-mp3.svg'])}"/>`;
+            case 'otf':
+                return `<img src="${html_encode(window.icons['file-otf.svg'])}"/>`;
+            case 'pdf':
+                return `<img src="${html_encode(window.icons['file-pdf.svg'])}"/>`;
+            case 'php':
+                return `<img src="${html_encode(window.icons['file-php.svg'])}"/>`;
+            case 'pptx':
+                return `<img src="${html_encode(window.icons['file-pptx.svg'])}"/>`;
+            case 'psd':
+                return `<img src="${html_encode(window.icons['file-psd.svg'])}"/>`;
+            case 'py':
+                return `<img src="${html_encode(window.icons['file-py.svg'])}"/>`;
+            case 'rss':
+                return `<img src="${html_encode(window.icons['file-rss.svg'])}"/>`;
+            case 'rtf':
+                return `<img src="${html_encode(window.icons['file-rtf.svg'])}"/>`;
+            case 'ruby':
+                return `<img src="${html_encode(window.icons['file-ruby.svg'])}"/>`;
+            case 'sketch':
+                return `<img src="${html_encode(window.icons['file-sketch.svg'])}"/>`;
+            case 'sql':
+                return `<img src="${html_encode(window.icons['file-sql.svg'])}"/>`;
+            case 'svg':
+                return `<img src="${html_encode(window.icons['file-svg.svg'])}"/>`;
+            case 'tar':
+                return `<img src="${html_encode(window.icons['file-tar.svg'])}"/>`;
+            case 'tpl':
+            case 'xltx':
+            case 'potx':
+            case 'tmpl':
+                return `<img src="${html_encode(window.icons['file-template.svg'])}"/>`;
+            case 'text':
+            case 'txt':
+                return `<img src="${html_encode(window.icons['file-text.svg'])}"/>`;
+            case 'tif':
+                return `<img src="${html_encode(window.icons['file-tif.svg'])}"/>`;
+            case 'tiff':
+                return `<img src="${html_encode(window.icons['file-tiff.svg'])}"/>`;
+            case 'ttf':
+                return `<img src="${html_encode(window.icons['file-ttf.svg'])}"/>`;
+            case 'mp4':
+            case 'avi':
+            case 'mov':
+            case 'wmf':
+            case 'mkv':
+            case 'webm':
+                return `<img src="${html_encode(window.icons['file-video.svg'])}"/>`;
+            case 'wav':
+                return `<img src="${html_encode(window.icons['file-wav.svg'])}"/>`;
+            case 'xlsx':
+                return `<img src="${html_encode(window.icons['file-xlsx.svg'])}"/>`;
+            case 'xml':
+                return `<img src="${html_encode(window.icons['file-xml.svg'])}"/>`;
+            case 'zip':
+                return `<img src="${html_encode(window.icons['file-zip.svg'])}"/>`;
+            default:
+                return `<img src="${html_encode(window.icons['file.svg'])}"/>`;
         }
     },
 
@@ -2910,7 +2940,8 @@ const TabFiles = {
 
         const itemText = totalCount === 1 ? 'item' : 'items';
         $footer.find('.files-footer-item-count').html(
-                        `${totalCount} ${itemText} · ${window.byte_format(totalSize)}`);
+            `${totalCount} ${itemText} · ${window.byte_format(totalSize)}`,
+        );
 
         if ( selectedCount > 0 ) {
             const selectedItemText = selectedCount === 1 ? 'item' : 'items';
@@ -3811,11 +3842,23 @@ const TabFiles = {
                 window.show_save_account_notice_if_needed();
                 delete window.active_uploads[opid];
                 // Refresh directory to show uploaded files
-                _this.renderDirectory(_this.currentPath);
+                _this.renderDirectory(_this.currentPath, { consistency: 'strong' });
             },
             error: async function (err) {
+                const failedItems = Array.isArray(err?.failedItems) ? err.failedItems : [];
+                if ( failedItems.length > 0 ) {
+                    const failedSummary = failedItems.map((item) => {
+                        const failedPath = item?.path || item?.name || `item ${item?.requestIndex ?? '?'}`;
+                        const failedMessage = typeof item?.message === 'string' && item.message.length > 0
+                            ? ` (${item.message})`
+                            : '';
+                        return `- ${failedPath}${failedMessage}`;
+                    }).join('\n');
+                    UIAlert(`Some uploads failed:\n${failedSummary}`);
+                }
                 upload_progress_window.show_error(i18n('error_uploading_files'), err.message);
                 delete window.active_uploads[opid];
+                _this.renderDirectory(_this.currentPath, { consistency: 'strong' });
             },
             abort: async function (_operation_id) {
                 delete window.active_uploads[opid];
