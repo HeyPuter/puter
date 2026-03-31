@@ -34,7 +34,7 @@ function buildAppsGrid (apps) {
         const title = (app.title || app.name || '').trim();
         const iconUrl = app.iconUrl || window.icons['app.svg'];
 
-        h += `<div class="myapps-tile" data-app-name="${html_encode(app.name)}" data-app-icon="${html_encode(iconUrl)}" title="${html_encode(title)}" draggable="true">`;
+        h += `<div class="myapps-tile" data-app-name="${html_encode(app.name)}" data-app-uid="${html_encode(app.uid || '')}" data-app-icon="${html_encode(iconUrl)}" title="${html_encode(title)}" draggable="true">`;
         h += '<div class="myapps-tile-icon">';
         h += `<img src="${html_encode(iconUrl)}" alt="" draggable="false">`;
         h += '</div>';
@@ -77,6 +77,69 @@ function sortApps (apps, mode, customOrder) {
             break;
     }
     return sorted;
+}
+
+function showUninstallModal ({ appName, appUid, self, $el_window }) {
+    const $overlay = $(`
+        <div class="myapps-modal-overlay">
+            <div class="myapps-modal">
+                <h3>Uninstall ${html_encode(appName)}?</h3>
+                <p>This will revoke all permissions for this app.</p>
+                <label class="myapps-modal-checkbox">
+                    <input type="checkbox" class="myapps-modal-delete-data">
+                    Also remove all app data
+                </label>
+                <div class="myapps-modal-buttons">
+                    <button class="myapps-modal-btn myapps-modal-cancel">Cancel</button>
+                    <button class="myapps-modal-btn myapps-modal-confirm">Uninstall</button>
+                </div>
+            </div>
+        </div>
+    `);
+
+    $el_window.append($overlay);
+
+    const close = () => $overlay.remove();
+
+    $overlay.on('click', '.myapps-modal-cancel', close);
+    $overlay.on('click', function (e) {
+        if ( e.target === $overlay[0] ) close();
+    });
+    $(document).on('keydown.uninstall-modal', function (e) {
+        if ( e.key === 'Escape' ) {
+            close();
+            $(document).off('keydown.uninstall-modal');
+        }
+    });
+
+    $overlay.on('click', '.myapps-modal-confirm', async function () {
+        const deleteData = $overlay.find('.myapps-modal-delete-data').is(':checked');
+        const $btn = $(this);
+        $btn.prop('disabled', true).text('Uninstalling…');
+
+        try {
+            await puter.perms.revokeApp(appUid, '*');
+            if ( deleteData ) {
+                await puter.kv.flush({ appUuid: appUid });
+            }
+            // Remove from internal state
+            self._apps = self._apps.filter(a => a.name !== appName);
+            if ( self._customOrder ) {
+                self._customOrder = self._customOrder.filter(n => n !== appName);
+                puter.kv.set('dashboard_apps_custom_order', JSON.stringify(self._customOrder));
+            }
+            // Remove tile from DOM
+            $el_window.find(`.myapps-tile[data-app-name="${appName}"]`).remove();
+            // Show empty state if no apps left
+            if ( self._apps.length === 0 && self._renderApps ) {
+                self._renderApps();
+            }
+        } catch ( err ) {
+            console.error('Failed to uninstall app:', err);
+        }
+        close();
+        $(document).off('keydown.uninstall-modal');
+    });
 }
 
 function revealWhenLoaded ($container) {
@@ -315,16 +378,21 @@ const TabApps = {
             const $menu = $el_window.find('.myapps-context-menu');
             $menu.css({ top: `${e.clientY }px`, left: `${e.clientX }px` }).show();
             $menu.data('app-name', $(this).attr('data-app-name'));
+            $menu.data('app-uid', $(this).attr('data-app-uid'));
         });
 
         // Context menu item click
         $el_window.on('click', '.myapps-context-menu-item', function () {
             const action = $(this).attr('data-action');
-            const appName = $el_window.find('.myapps-context-menu').data('app-name');
+            const $menu = $el_window.find('.myapps-context-menu');
+            const appName = $menu.data('app-name');
+            const appUid = $menu.data('app-uid');
             if ( action === 'uninstall' ) {
-                console.log('Uninstall requested for:', appName);
+                $menu.hide();
+                showUninstallModal({ appName, appUid, self, $el_window });
+                return;
             }
-            $el_window.find('.myapps-context-menu').hide();
+            $menu.hide();
         });
 
         // Close context menu on outside click or Escape
