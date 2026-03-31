@@ -49,14 +49,14 @@ For more details, see the [OpenAI API reference](https://platform.openai.com/doc
 
 #### Gemini Options
 
-Available when `provider: 'gemini'` or inferred from model (`gemini-2.5-flash-image-preview`, `gemini-3-pro-image-preview`):
+Available when `provider: 'gemini'` or inferred from model:
 
 | Option | Type | Description |
 |--------|------|-------------|
 | `model` | `String` | Image model to use. |
-| `ratio` | `Object` | Currently only `{ w: 1024, h: 1024 }` is supported |
-| `input_image` | `String` | Base64 encoded input image for image-to-image generation |
-| `input_image_mime_type` | `String` | MIME type of the input image. Options: `'image/png'`, `'image/jpeg'`, `'image/jpg'`, `'image/webp'` |
+| `ratio` | `Object` | Aspect ratio as `{ w, h }` (e.g., `{ w: 16, h: 9 }`). |
+| `quality` | `String` | Output size tier: `'512'`, `'1K'`, `'2K'`, `'4K'` (availability varies by model) |
+| `input_images` | `Array<String>` | Base64 input images for image-to-image (Gemini models only) |
 
 #### xAI (Grok) Options
 

@@ -31,14 +31,13 @@ Additional settings for the generation request. Available options depend on the 
 | Option | Type | Description |
 |--------|------|-------------|
 | `prompt` | `String` | Text description for the video generation |
-| `provider` | `String` | The AI provider to use. `'openai' (default) \| 'together'` |
 | `model` | `String` | Video model to use (provider-specific). Defaults to `'sora-2'` |
 | `seconds` | `Number` | Target clip length in seconds |
 | `test_mode` | `Boolean` | When `true`, returns a sample video without using credits |
 
 #### OpenAI Options
 
-Available when `provider: 'openai'` or inferred from model (`sora-2`, `sora-2-pro`):
+Available when using model `sora-2` or `sora-2-pro`:
 
 | Option | Type | Description |
 |--------|------|-------------|
@@ -49,9 +48,25 @@ Available when `provider: 'openai'` or inferred from model (`sora-2`, `sora-2-pr
 
 For more details about each option, see the [OpenAI API reference](https://platform.openai.com/docs/api-reference/videos/create).
 
+#### Google (Veo) Options
+
+Available when using a Veo model (`veo-2.0-generate-001`, `veo-3.0-generate-001`, `veo-3.1-generate-preview`, etc.):
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `model` | `String` | Video model to use. Available: `'veo-2.0-generate-001'`, `'veo-3.0-generate-001'`, `'veo-3.0-fast-generate-001'`, `'veo-3.1-generate-preview'`, `'veo-3.1-fast-generate-preview'` |
+| `seconds` | `Number` | Target clip length in seconds. Veo 2.0: `5`, `6`, `8`. Veo 3.x: `4`, `6`, `8`. Note: 1080p and 4K output require `seconds: 8` |
+| `size` | `String` | Output dimensions (e.g., `'1280x720'`, `'1920x1080'`, `'3840x2160'`). `resolution` is an alias. 4K sizes only available on Veo 3.1 models |
+| `negative_prompt` | `String` | Text describing what to avoid in the video |
+| `input_reference` | `String` | Base64 image used as the first frame (image-to-video). |
+| `reference_images` | `Array<String>` | Up to 3 base64 images used as style/asset references. Supported on Veo 3.1 models only |
+| `last_frame` | `String` | Base64 image used as the last frame |
+
+For more details, see the [Google Veo API reference](https://ai.google.dev/gemini-api/docs/video).
+
 #### TogetherAI Options
 
-Available when `provider: 'together'` or inferred from model:
+Available when using a TogetherAI model:
 
 | Option | Type | Description |
 |--------|------|-------------|
@@ -76,7 +91,7 @@ Any properties not set fall back to provider defaults.
 
 A `Promise` that resolves to an `HTMLVideoElement`. The element is preloaded, has `controls` enabled, and exposes metadata via `data-mime-type` and `data-source` attributes. Append it to the DOM to display the generated clip immediately.
 
-> **Note:** Real Sora renders can take a couple of minutes to complete. The returned promise resolves only when the MP4 is ready, so keep your UI responsive (for example, by showing a spinner) while you wait. Each successful generation consumes the user’s AI credits in accordance with the model, duration, and resolution you request.
+> **Note:** Video generation can take several minutes to complete. The returned promise resolves only when the video is ready, so keep your UI responsive (for example, by showing a spinner) while you wait. Each successful generation consumes the user’s AI credits in accordance with the model, duration, and resolution you request.
 
 ## Examples
 
