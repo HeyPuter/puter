@@ -331,6 +331,27 @@ body {
     background: var(--select-color);
 }
 
+/* Close button on active sidebar app */
+.sidebar-app-close-btn {
+    position: absolute;
+    right: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 18px;
+    height: 18px;
+    line-height: 18px;
+    text-align: center;
+    font-size: 20px;
+    border-radius: 4px;
+    color: var(--dashboard-text-muted);
+    cursor: pointer;
+    opacity: 0.6;
+}
+.sidebar-app-close-btn:hover {
+    opacity: 1;
+    background: rgba(255, 255, 255, 0.1);
+}
+
 /* User options button at bottom of sidebar */
 .dashboard-user-options {
     border-top: 1px solid var(--dashboard-border);
@@ -778,7 +799,7 @@ body {
 
 .myapps-context-menu-item {
     padding: 8px 16px;
-    font-size: 14px;
+    font-size: 12px;
     color: var(--dashboard-text-primary);
     cursor: pointer;
     transition: background 0.1s;
