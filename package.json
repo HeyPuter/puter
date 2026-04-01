@@ -51,7 +51,7 @@
     "start=gui": "nodemon --exec \"node dev-server.js\" ",
     "start": "node ./tools/run-selfhosted.js",
     "prestart": "npm run build:ts",
-    "dev": "npm run build:ts && DEVCONSOLE=1 node ./tools/run-selfhosted.js",
+    "dev": "npm run build:ts && node ./tools/run-selfhosted.js",
     "build": "npx eslint --quiet -c eslint/mandatory.eslint.config.js src/backend/src extensions && npm run build:ts && cd src/gui && node ./build.js",
     "check-translations": "node tools/check-translations.js",
     "prepare": "husky",
