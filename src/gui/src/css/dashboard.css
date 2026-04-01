@@ -165,6 +165,11 @@ body {
     }
 }
 
+.window-dashboard ~ .window {
+    box-shadow: none;
+    border-radius: 0;
+}
+
 .dashboard {
     display: flex;
     height: 100%;
@@ -298,6 +303,32 @@ body {
 .dashboard-sidebar.drag-over .dashboard-pinned-apps {
     border: 2px dashed var(--select-color);
     border-radius: 6px;
+}
+
+/* Running app indicator — small dot on the left */
+.sidebar-app-running {
+    position: relative;
+}
+
+.sidebar-app-running::before {
+    content: '';
+    position: absolute;
+    left: 2px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--dashboard-text-muted);
+}
+
+/* Active (focused) app in sidebar — highlighted background + brighter dot */
+.sidebar-app-active {
+    background: var(--dashboard-border);
+}
+
+.sidebar-app-active::before {
+    background: var(--select-color);
 }
 
 /* User options button at bottom of sidebar */

@@ -17,8 +17,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import launch_app from '../../helpers/launch_app.js';
-
 function buildAppsGrid (apps) {
     if ( !apps || apps.length === 0 ) {
         let h = '<div class="myapps-empty">';
@@ -213,8 +211,8 @@ const TabApps = {
         h += '</div>';
         // Context menu (hidden by default)
         h += '<div class="myapps-context-menu" style="display:none">';
-        h += '<div class="myapps-context-menu-item" data-action="open-tab">Open in Tab (default)</div>';
-        h += '<div class="myapps-context-menu-item" data-action="open-window">Open in Window</div>';
+        h += '<div class="myapps-context-menu-item" data-action="open-window">Open in Window (default)</div>';
+        h += '<div class="myapps-context-menu-item" data-action="open-tab">Open in Tab</div>';
         h += '<div class="myapps-context-menu-divider"></div>';
         h += '<div class="myapps-context-menu-item" data-action="uninstall">Uninstall</div>';
         h += '</div>';
@@ -365,14 +363,16 @@ const TabApps = {
             $el_window.find('.myapps-sort-dropdown').hide();
         });
 
-        // Handle app tile clicks
+        // Handle app tile clicks — open in window by default
         $el_window.on('click', '.myapps-tile', function (e) {
             e.preventDefault();
             e.stopPropagation();
             if ( self._isDragging ) return;
             const appName = $(this).attr('data-app-name');
-            if ( appName ) {
-                window.open(`/app/${appName}`, '_blank');
+            if ( appName && window.dashboard_open_app_in_window ) {
+                const appIcon = $(this).attr('data-app-icon');
+                const appTitle = $(this).attr('title');
+                window.dashboard_open_app_in_window(appName, appIcon, appTitle);
             }
         });
 
@@ -384,6 +384,8 @@ const TabApps = {
             $menu.css({ top: `${e.clientY }px`, left: `${e.clientX }px` }).show();
             $menu.data('app-name', $(this).attr('data-app-name'));
             $menu.data('app-uid', $(this).attr('data-app-uid'));
+            $menu.data('app-icon', $(this).attr('data-app-icon'));
+            $menu.data('app-title', $(this).attr('title'));
         });
 
         // Context menu item click
@@ -399,15 +401,9 @@ const TabApps = {
             }
             if ( action === 'open-window' ) {
                 $menu.hide();
-                launch_app({
-                    name: appName,
-                    window_options: {
-                        left: 250,
-                        top: 0,
-                        width: window.innerWidth - 250,
-                        height: window.innerHeight,
-                    },
-                });
+                if ( window.dashboard_open_app_in_window ) {
+                    window.dashboard_open_app_in_window(appName, $menu.data('app-icon'), $menu.data('app-title'));
+                }
                 return;
             }
             if ( action === 'uninstall' ) {
