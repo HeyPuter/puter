@@ -757,6 +757,12 @@ body {
     background: var(--dashboard-hover);
 }
 
+.myapps-context-menu-divider {
+    height: 1px;
+    margin: 4px 0;
+    background: var(--dashboard-border);
+}
+
 /* Uninstall confirmation modal */
 .myapps-modal-overlay {
     position: fixed;
