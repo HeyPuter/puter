@@ -363,13 +363,18 @@ const TabApps = {
             $el_window.find('.myapps-sort-dropdown').hide();
         });
 
-        // Handle app tile clicks — open in window by default
+        // Handle app tile clicks — open in window by default, Alt+click opens in new tab
         $el_window.on('click', '.myapps-tile', function (e) {
             e.preventDefault();
             e.stopPropagation();
             if ( self._isDragging ) return;
             const appName = $(this).attr('data-app-name');
-            if ( appName && window.dashboard_open_app_in_window ) {
+            if ( ! appName ) return;
+            if ( e.altKey ) {
+                window.open(`/app/${ appName}`, '_blank');
+                return;
+            }
+            if ( window.dashboard_open_app_in_window ) {
                 const appIcon = $(this).attr('data-app-icon');
                 const appTitle = $(this).attr('title');
                 window.dashboard_open_app_in_window(appName, appIcon, appTitle);
