@@ -25,6 +25,7 @@ import UIAlert from '../UIAlert.js';
 import UIWindowSaveAccount from '../UIWindowSaveAccount.js';
 import UIWindowLogin from '../UIWindowLogin.js';
 import UIWindowFeedback from '../UIWindowFeedback.js';
+import launch_app from '../../helpers/launch_app.js';
 
 /**
  * Creates and displays the Dashboard window.
@@ -166,6 +167,8 @@ async function UIDashboard (options) {
     // =========================================================================
     let pinnedApps = [];
     let reorderDragName = null;
+    // Track apps running in Puter windows: Map<appName, Set<windowElement>>
+    const runningApps = new Map();
 
     function renderPinnedApp (app) {
         const $item = $(`<div class="dashboard-sidebar-item dashboard-pinned-app" draggable="true" data-app-name="${html_encode(app.name)}" title="${html_encode(app.title || app.name)}">`)
@@ -175,12 +178,119 @@ async function UIDashboard (options) {
     }
 
     function updatePinnedSeparator () {
-        $el_window.find('.dashboard-pinned-separator').toggleClass('visible', pinnedApps.length > 0);
+        const hasPinned = pinnedApps.length > 0;
+        const hasRunning = $el_window.find('.dashboard-running-app').length > 0;
+        $el_window.find('.dashboard-pinned-separator').toggleClass('visible', hasPinned || hasRunning);
     }
 
     function savePinnedApps () {
         puter.kv.set('dashboard_pinned_apps', JSON.stringify(pinnedApps));
     }
+
+    function updateSidebarAppStates () {
+        // Update running/active indicators on all sidebar app items
+        $el_window.find('.dashboard-pinned-app, .dashboard-running-app').each(function () {
+            const $el = $(this);
+            const appName = $el.attr('data-app-name');
+            const windows = runningApps.get(appName);
+            const isRunning = !!(windows && windows.size > 0);
+            $el.toggleClass('sidebar-app-running', isRunning);
+
+            // Check if any window of this app has visible focus
+            let isActive = false;
+            if ( isRunning ) {
+                windows.forEach(win => {
+                    if ( $(win).css('visibility') !== 'hidden' ) {
+                        isActive = true;
+                    }
+                });
+            }
+            $el.toggleClass('sidebar-app-active', isActive);
+        });
+    }
+
+    function addRunningApp (appName, windowEl, iconUrl, title) {
+        if ( ! runningApps.has(appName) ) {
+            runningApps.set(appName, new Set());
+        }
+        runningApps.get(appName).add(windowEl);
+
+        // Listen for window removal directly
+        $(windowEl).on('remove', function () {
+            removeRunningApp(appName, windowEl);
+        });
+
+        // If app is not permanently pinned, add a temporary sidebar entry
+        const isPinned = pinnedApps.some(p => p.name === appName);
+        const hasRunningEntry = $el_window.find(`.dashboard-running-app[data-app-name="${appName}"]`).length > 0;
+        if ( !isPinned && !hasRunningEntry ) {
+            const icon = iconUrl || window.icons['app.svg'];
+            const label = title || appName;
+            const $item = $(`<div class="dashboard-sidebar-item dashboard-running-app" data-app-name="${html_encode(appName)}" title="${html_encode(label)}">`)
+                .append(`<img src="${html_encode(icon)}" class="dashboard-pinned-icon" alt="">`)
+                .append(document.createTextNode(label));
+            $el_window.find('.dashboard-pinned-apps').append($item);
+        }
+        updatePinnedSeparator();
+        updateSidebarAppStates();
+    }
+
+    function removeRunningApp (appName, windowEl) {
+        const windows = runningApps.get(appName);
+        if ( windows ) {
+            windows.delete(windowEl);
+            if ( windows.size === 0 ) {
+                runningApps.delete(appName);
+                // Remove temporary sidebar entry (only if not permanently pinned)
+                const isPinned = pinnedApps.some(p => p.name === appName);
+                if ( ! isPinned ) {
+                    $el_window.find(`.dashboard-running-app[data-app-name="${appName}"]`).remove();
+                }
+            }
+        }
+        updatePinnedSeparator();
+        updateSidebarAppStates();
+
+        // If no more running apps, switch to Apps tab
+        if ( runningApps.size === 0 ) {
+            const $appsTab = $el_window.find('.dashboard-sidebar-item[data-section="apps"]');
+            if ( $appsTab.length ) {
+                $appsTab.trigger('click');
+            }
+        }
+    }
+
+    // Expose function for TabApps and others to open an app in a Puter window
+    window.dashboard_open_app_in_window = async function (appName, appIconUrl, appTitle) {
+        // Check if app is already running — reveal and focus it
+        const existingWindows = runningApps.get(appName);
+        if ( existingWindows && existingWindows.size > 0 ) {
+            hideAllAppWindows();
+            showAppWindows(appName);
+            return;
+        }
+
+        // Hide other app windows before launching new one
+        hideAllAppWindows();
+
+        const process = await launch_app({
+            name: appName,
+            update_window_url: false,
+            window_options: {
+                left: 250,
+                top: 0,
+                width: window.innerWidth - 250,
+                height: window.innerHeight,
+            },
+        });
+
+        // Track the running app once the window element is available
+        if ( process && process.references && process.references.el_win ) {
+            let winEl = await process.references.el_win;
+            if ( winEl instanceof $ ) winEl = winEl[0];
+            addRunningApp(appName, winEl, appIconUrl, appTitle);
+        }
+    };
 
     // Load pinned apps
     (async () => {
@@ -246,35 +356,83 @@ async function UIDashboard (options) {
         savePinnedApps();
     });
 
-    // Click pinned app to launch
-    $el_window.on('click', '.dashboard-pinned-app', function (e) {
+    // Click pinned or running app in sidebar
+    $el_window.on('click', '.dashboard-pinned-app, .dashboard-running-app', function (e) {
         e.stopPropagation();
         const appName = $(this).attr('data-app-name');
-        if ( appName ) {
-            window.open(`/app/${appName}`, '_blank');
+        if ( ! appName ) return;
+
+        // If app is running, reveal and focus the existing window
+        const existingWindows = runningApps.get(appName);
+        if ( existingWindows && existingWindows.size > 0 ) {
+            hideAllAppWindows();
+            showAppWindows(appName);
+            return;
         }
+
+        // Otherwise open in window (default behavior)
+        const iconUrl = $(this).find('.dashboard-pinned-icon').attr('src');
+        const title = $(this).attr('title') || appName;
+        window.dashboard_open_app_in_window(appName, iconUrl, title);
     });
 
-    // Right-click pinned app to unpin
-    $el_window.on('contextmenu', '.dashboard-pinned-app', function (e) {
+    // Right-click pinned or running app in sidebar
+    $el_window.on('contextmenu', '.dashboard-pinned-app, .dashboard-running-app', function (e) {
         e.preventDefault();
         e.stopPropagation();
         const $item = $(this);
         const appName = $item.attr('data-app-name');
+        const iconUrl = $item.find('.dashboard-pinned-icon').attr('src');
+        const title = $item.attr('title') || appName;
+        const isPinned = pinnedApps.some(p => p.name === appName);
+        const isRunning = runningApps.has(appName) && runningApps.get(appName).size > 0;
+
+        const items = [
+            {
+                html: 'Open in Window (default)',
+                onClick: () => {
+                    window.dashboard_open_app_in_window(appName, iconUrl, title);
+                },
+            },
+            {
+                html: 'Open in Tab',
+                onClick: () => {
+                    window.open(`/app/${appName}`, '_blank');
+                },
+            },
+        ];
+
+        if ( isRunning || isPinned ) {
+            items.push('-');
+        }
+
+        if ( isRunning ) {
+            items.push({
+                html: 'Close',
+                onClick: () => {
+                    const windows = runningApps.get(appName);
+                    if ( windows ) {
+                        Array.from(windows).forEach(win => $(win).close());
+                    }
+                },
+            });
+        }
+
+        if ( isPinned ) {
+            items.push({
+                html: 'Remove from sidebar',
+                onClick: () => {
+                    pinnedApps = pinnedApps.filter(p => p.name !== appName);
+                    $item.remove();
+                    updatePinnedSeparator();
+                    savePinnedApps();
+                },
+            });
+        }
 
         UIContextMenu({
             position: { top: e.clientY, left: e.clientX },
-            items: [
-                {
-                    html: 'Remove from sidebar',
-                    onClick: () => {
-                        pinnedApps = pinnedApps.filter(p => p.name !== appName);
-                        $item.remove();
-                        updatePinnedSeparator();
-                        savePinnedApps();
-                    },
-                },
-            ],
+            items,
         });
     });
 
@@ -582,10 +740,36 @@ async function UIDashboard (options) {
     window.addEventListener('hashchange', handleRouteChange);
     window.addEventListener('popstate', handleRouteChange);
 
+    // Hide all running app windows (used when switching to dashboard tabs)
+    function hideAllAppWindows () {
+        runningApps.forEach((windows) => {
+            windows.forEach(win => {
+                $(win).css('visibility', 'hidden');
+            });
+        });
+        updateSidebarAppStates();
+    }
+
+    // Show all windows for a specific app
+    function showAppWindows (appName) {
+        const windows = runningApps.get(appName);
+        if ( ! windows ) return;
+        windows.forEach(win => {
+            $(win).css('visibility', 'visible');
+            $(win).focusWindow();
+        });
+        updateSidebarAppStates();
+    }
+
     // Sidebar item click handler
     $el_window.on('click', '.dashboard-sidebar-item', function () {
         const $this = $(this);
         const section = $this.attr('data-section');
+
+        // If this is a tab navigation item (not a pinned/running app), hide app windows
+        if ( section ) {
+            hideAllAppWindows();
+        }
 
         // Update active sidebar item
         $el_window.find('.dashboard-sidebar-item').removeClass('active');
