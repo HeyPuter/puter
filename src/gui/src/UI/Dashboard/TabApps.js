@@ -17,6 +17,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import launch_app from '../../helpers/launch_app.js';
+
 function buildAppsGrid (apps) {
     if ( !apps || apps.length === 0 ) {
         let h = '<div class="myapps-empty">';
@@ -211,6 +213,9 @@ const TabApps = {
         h += '</div>';
         // Context menu (hidden by default)
         h += '<div class="myapps-context-menu" style="display:none">';
+        h += '<div class="myapps-context-menu-item" data-action="open-tab">Open in Tab (default)</div>';
+        h += '<div class="myapps-context-menu-item" data-action="open-window">Open in Window</div>';
+        h += '<div class="myapps-context-menu-divider"></div>';
         h += '<div class="myapps-context-menu-item" data-action="uninstall">Uninstall</div>';
         h += '</div>';
         h += '</div>';
@@ -387,6 +392,24 @@ const TabApps = {
             const $menu = $el_window.find('.myapps-context-menu');
             const appName = $menu.data('app-name');
             const appUid = $menu.data('app-uid');
+            if ( action === 'open-tab' ) {
+                $menu.hide();
+                window.open(`/app/${appName}`, '_blank');
+                return;
+            }
+            if ( action === 'open-window' ) {
+                $menu.hide();
+                launch_app({
+                    name: appName,
+                    window_options: {
+                        left: 250,
+                        top: 0,
+                        width: window.innerWidth - 250,
+                        height: window.innerHeight,
+                    },
+                });
+                return;
+            }
             if ( action === 'uninstall' ) {
                 $menu.hide();
                 showUninstallModal({ appName, appUid, self, $el_window });
