@@ -206,6 +206,15 @@ async function UIDashboard (options) {
                 });
             }
             $el.toggleClass('sidebar-app-active', isActive);
+
+            // Show close button on active (running + visible) apps
+            if ( isActive ) {
+                if ( ! $el.find('.sidebar-app-close-btn').length ) {
+                    $el.append('<span class="sidebar-app-close-btn" title="Close">&times;</span>');
+                }
+            } else {
+                $el.find('.sidebar-app-close-btn').remove();
+            }
         });
     }
 
@@ -356,11 +365,27 @@ async function UIDashboard (options) {
         savePinnedApps();
     });
 
-    // Click pinned or running app in sidebar
+    // Close button on active sidebar app
+    $el_window.on('click', '.sidebar-app-close-btn', function (e) {
+        e.stopPropagation();
+        const appName = $(this).closest('.dashboard-sidebar-item').attr('data-app-name');
+        const windows = runningApps.get(appName);
+        if ( windows ) {
+            Array.from(windows).forEach(win => $(win).close());
+        }
+    });
+
+    // Click pinned or running app in sidebar — Alt+click opens in new tab
     $el_window.on('click', '.dashboard-pinned-app, .dashboard-running-app', function (e) {
         e.stopPropagation();
         const appName = $(this).attr('data-app-name');
         if ( ! appName ) return;
+
+        // Alt+click opens in new browser tab
+        if ( e.altKey ) {
+            window.open(`/app/${ appName}`, '_blank');
+            return;
+        }
 
         // If app is running, reveal and focus the existing window
         const existingWindows = runningApps.get(appName);
