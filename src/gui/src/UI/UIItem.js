@@ -1437,6 +1437,59 @@ async function UIItem (options) {
                         window.empty_trash();
                     },
                 });
+
+                menu_items.push('-'); //divider
+
+                // 🔥 Insert Auto-Delete submenu using async IIFE
+                (async () => {
+                    try {
+                        let stored = await puter.kv.get("auto_delete_days");
+            
+                        if (stored === undefined || stored === null) {
+                            await puter.kv.set("auto_delete_days", "0");
+                            stored = "0";
+                        }
+            
+                        window.auto_delete_days_pref = parseFloat(stored) || 0;
+            
+                        menu_items.push({
+                            html: "Auto-delete Settings",
+                            items: [
+                                { html: "None (disabled)", checked: window.auto_delete_days_pref === 0, onClick: async () => {
+                                    await puter.kv.set("auto_delete_days", "0");
+                                    window.auto_delete_days_pref = 0;
+                                    await UIAlert({ message: "Auto-delete disabled", buttons: [{ label:"OK", type:"primary", value:"ok" }] });
+                                }},
+                                { html: "After 24 hours", checked: window.auto_delete_days_pref === 1, onClick: async () => {
+                                    await puter.kv.set("auto_delete_days", "1");
+                                    window.auto_delete_days_pref = 1;
+                                    await UIAlert({ message: "Auto-delete set to 24 hours", buttons:[{label:"OK",type:"primary",value:"ok"}] });
+                                }},
+                                { html: "After 7 days", checked: window.auto_delete_days_pref === 7, onClick: async () => {
+                                    await puter.kv.set("auto_delete_days", "7");
+                                    window.auto_delete_days_pref = 7;
+                                    await UIAlert({ message: "Auto-delete set to 7 days", buttons:[{label:"OK",type:"primary",value:"ok"}] });
+                                }},
+                                { html: "After 30 days", checked: window.auto_delete_days_pref === 30, onClick: async () => {
+                                    await puter.kv.set("auto_delete_days", "30");
+                                    window.auto_delete_days_pref = 30;
+                                    await UIAlert({ message: "Auto-delete set to 30 days", buttons:[{label:"OK",type:"primary",value:"ok"}] });
+                                }}
+                            ]
+                        });
+            
+                        // IMPORTANT: Render context menu NOW
+                        UIContextMenu({
+                            parent_element: ($(options.appendTo).hasClass('desktop') ? undefined : options.appendTo),
+                            items: menu_items,
+                        });
+            
+                    } catch (err) {
+                        console.error("[UIItem trash] auto-delete error:", err);
+                    }
+                })();
+            
+                return false;     // 🔥 CRITICAL: STOP outer UIContextMenu from running
             }
             // -------------------------------------------
             // Download
