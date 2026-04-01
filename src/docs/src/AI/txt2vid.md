@@ -54,7 +54,7 @@ Available when using a Veo model (`veo-2.0-generate-001`, `veo-3.0-generate-001`
 
 | Option | Type | Description |
 |--------|------|-------------|
-| `model` | `String` | Video model to use. Available: `'veo-2.0-generate-001'`, `'veo-3.0-generate-001'`, `'veo-3.0-fast-generate-001'`, `'veo-3.1-generate-preview'`, `'veo-3.1-fast-generate-preview'` |
+| `model` | `String` | Video model to use. Available: `'veo-2.0-generate-001'`, `'veo-3.0-generate-001'`, `'veo-3.0-fast-generate-001'`, `'veo-3.1-generate-preview'`, `'veo-3.1-fast-generate-preview'`, `'veo-3.1-lite-generate-preview'` |
 | `seconds` | `Number` | Target clip length in seconds. Veo 2.0: `5`, `6`, `8`. Veo 3.x: `4`, `6`, `8`. Note: 1080p and 4K output require `seconds: 8` |
 | `size` | `String` | Output dimensions (e.g., `'1280x720'`, `'1920x1080'`, `'3840x2160'`). `resolution` is an alias. 4K sizes only available on Veo 3.1 models |
 | `negative_prompt` | `String` | Text describing what to avoid in the video |

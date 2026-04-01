@@ -103,4 +103,18 @@ export const GEMINI_VIDEO_GENERATION_MODELS: IGeminiVideoModel[] = [
         supportsImageInput: true,
         supportsReferenceImages: true,
     },
+    {
+        puterId: 'google:google/veo-3.1-lite',
+        id: 'veo-3.1-lite-generate-preview',
+        name: 'Veo 3.1 Lite',
+        costs_currency: 'usd-cents',
+        costs: { 'per-second': 5, 'per-second-1080p': 8 },
+        output_cost_key: 'per-second',
+        durationSeconds: [4, 6, 8],
+        dimensions: STANDARD_DIMENSIONS,
+        aspectRatios: ['16:9', '9:16'],
+        resolutions: ['720p', '1080p'],
+        supportsImageInput: true,
+        supportsReferenceImages: false,
+    },
 ];

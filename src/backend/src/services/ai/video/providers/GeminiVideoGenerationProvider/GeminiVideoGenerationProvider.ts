@@ -109,9 +109,12 @@ export class GeminiVideoGenerationProvider implements IVideoProvider {
         }
 
         const is4K = videoResolution === '4k';
+        const is1080p = videoResolution === '1080p';
         const perSecondCents = is4K
             ? selectedModel.costs?.['per-second-4k'] ?? selectedModel.costs?.['per-second']
-            : selectedModel.costs?.['per-second'];
+            : is1080p
+                ? selectedModel.costs?.['per-second-1080p'] ?? selectedModel.costs?.['per-second']
+                : selectedModel.costs?.['per-second'];
         if ( perSecondCents === undefined ) {
             throw new Error(`No per-second cost configured for video model '${selectedModel.id}'`);
         }
@@ -193,7 +196,8 @@ export class GeminiVideoGenerationProvider implements IVideoProvider {
             throw new Error('Gemini response video entry was empty');
         }
 
-        const usageKey = `gemini:${selectedModel.id}${is4K ? ':4k' : ''}`;
+        const resTier = is4K ? ':4k' : is1080p && selectedModel.costs?.['per-second-1080p'] ? ':1080p' : '';
+        const usageKey = `gemini:${selectedModel.id}${resTier}`;
         await this.#meteringService.incrementUsage(actor, usageKey, durationSeconds, costInMicroCents);
 
         if ( video.uri ) {
