@@ -20,7 +20,7 @@
 // Sort state for the usage table
 let usageTableSortState = {
     column: 'cost', // default sort by cost
-    direction: 'desc' // default descending (highest cost first)
+    direction: 'desc', // default descending (highest cost first)
 };
 let usageTableData = []; // Store raw data for sorting
 let usageTableExpanded = false; // Track if table is showing all rows
@@ -29,7 +29,7 @@ const USAGE_TABLE_INITIAL_ROWS = 10;
 const TabUsage = {
     id: 'usage',
     label: 'Usage',
-    icon: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-speedometer2" viewBox="0 0 16 16"> <path d="M8 4a.5.5 0 0 1 .5.5V6a.5.5 0 0 1-1 0V4.5A.5.5 0 0 1 8 4M3.732 5.732a.5.5 0 0 1 .707 0l.915.914a.5.5 0 1 1-.708.708l-.914-.915a.5.5 0 0 1 0-.707M2 10a.5.5 0 0 1 .5-.5h1.586a.5.5 0 0 1 0 1H2.5A.5.5 0 0 1 2 10m9.5 0a.5.5 0 0 1 .5-.5h1.5a.5.5 0 0 1 0 1H12a.5.5 0 0 1-.5-.5m.754-4.246a.39.39 0 0 0-.527-.02L7.547 9.31a.91.91 0 1 0 1.302 1.258l3.434-4.297a.39.39 0 0 0-.029-.518z"/> <path fill-rule="evenodd" d="M0 10a8 8 0 1 1 15.547 2.661c-.442 1.253-1.845 1.602-2.932 1.25C11.309 13.488 9.475 13 8 13c-1.474 0-3.31.488-4.615.911-1.087.352-2.49.003-2.932-1.25A8 8 0 0 1 0 10m8-7a7 7 0 0 0-6.603 9.329c.203.575.923.876 1.68.63C4.397 12.533 6.358 12 8 12s3.604.532 4.923.96c.757.245 1.477-.056 1.68-.631A7 7 0 0 0 8 3"/> </svg>`,
+    icon: '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-speedometer2" viewBox="0 0 16 16"> <path d="M8 4a.5.5 0 0 1 .5.5V6a.5.5 0 0 1-1 0V4.5A.5.5 0 0 1 8 4M3.732 5.732a.5.5 0 0 1 .707 0l.915.914a.5.5 0 1 1-.708.708l-.914-.915a.5.5 0 0 1 0-.707M2 10a.5.5 0 0 1 .5-.5h1.586a.5.5 0 0 1 0 1H2.5A.5.5 0 0 1 2 10m9.5 0a.5.5 0 0 1 .5-.5h1.5a.5.5 0 0 1 0 1H12a.5.5 0 0 1-.5-.5m.754-4.246a.39.39 0 0 0-.527-.02L7.547 9.31a.91.91 0 1 0 1.302 1.258l3.434-4.297a.39.39 0 0 0-.029-.518z"/> <path fill-rule="evenodd" d="M0 10a8 8 0 1 1 15.547 2.661c-.442 1.253-1.845 1.602-2.932 1.25C11.309 13.488 9.475 13 8 13c-1.474 0-3.31.488-4.615.911-1.087.352-2.49.003-2.932-1.25A8 8 0 0 1 0 10m8-7a7 7 0 0 0-6.603 9.329c.203.575.923.876 1.68.63C4.397 12.533 6.358 12 8 12s3.604.532 4.923.96c.757.245 1.477-.056 1.68-.631A7 7 0 0 0 8 3"/> </svg>',
     html: () => {
         return `
             <h1>${i18n('usage')}<button class="update-usage-details" style="float:right;"><svg class="update-usage-details-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-arrow-clockwise" viewBox="0 0 16 16"> <path fill-rule="evenodd" d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2z"/> <path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466"/> </svg></button></h1>
@@ -47,6 +47,10 @@ const TabUsage = {
                     <span id="storage-used-percent"></span>
                     <div id="storage-bar"></div>
                     <div id="storage-bar-host"></div>
+                </div>
+                <div style="margin-top: 20px;">
+                    <h3 style="margin:0 0 10px 0; font-size: 14px; font-weight: 500;">Storage use / App</h3>
+                    <div class="app-storage-content" style="font-size: 13px;">Loading...</div>
                 </div>
                 <div class="driver-usage-container" style="margin-top: 30px;">
                     <div class="driver-usage-header">
@@ -77,7 +81,6 @@ const TabUsage = {
         // Click handler for sortable table headers
         $($el_window).on('click', '.driver-usage-details-content-table th[data-sort]', function () {
             const column = $(this).data('sort');
-            
             // Toggle direction if same column, otherwise default to descending
             if ( usageTableSortState.column === column ) {
                 usageTableSortState.direction = usageTableSortState.direction === 'asc' ? 'desc' : 'asc';
@@ -103,11 +106,10 @@ const TabUsage = {
     },
 };
 
-function getSortIcon(column) {
+function getSortIcon (column) {
     const isActive = usageTableSortState.column === column;
     const direction = usageTableSortState.direction;
-    
-    if ( !isActive ) {
+    if ( ! isActive ) {
         // Neutral sort icon (both arrows, dimmed)
         return `<span class="sort-icon sort-icon-neutral">
             <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="currentColor" viewBox="0 0 16 16">
@@ -131,11 +133,11 @@ function getSortIcon(column) {
     }
 }
 
-function renderUsageTable() {
+function renderUsageTable () {
     // Sort the data
     const sortedData = [...usageTableData].sort((a, b) => {
         let aVal, bVal;
-        
+
         switch ( usageTableSortState.column ) {
             case 'resource':
                 aVal = a.resource.toLowerCase();
@@ -147,7 +149,7 @@ function renderUsageTable() {
                 bVal = b.rawCost;
                 break;
         }
-        
+
         if ( aVal < bVal ) return usageTableSortState.direction === 'asc' ? -1 : 1;
         if ( aVal > bVal ) return usageTableSortState.direction === 'asc' ? 1 : -1;
         return 0;
@@ -204,6 +206,113 @@ function renderUsageTable() {
     $('.driver-usage-details-content').html(h);
 }
 
+async function scanDirRecursive (path) {
+    let totalSize = 0;
+    let fileCount = 0;
+    try {
+        const contents = await puter.fs.readdir(path);
+        for ( const item of contents ) {
+            if ( item.size !== null && item.size !== undefined ) {
+                totalSize += item.size;
+                fileCount++;
+            }
+            if ( item.is_dir ) {
+                const sub = await scanDirRecursive(`${path}/${item.name}`);
+                totalSize += sub.totalSize;
+                fileCount += sub.fileCount;
+            }
+        }
+    } catch (e) {
+        // Can't read this directory, skip
+    }
+    return { totalSize, fileCount };
+}
+
+async function loadAppStorageUsage () {
+    try {
+        // Fetch app info and AppData dirs in parallel
+        const [appDirs, installedRes, launchRes] = await Promise.all([
+            puter.fs.readdir('~/AppData'),
+            fetch(`${window.api_origin}/installedApps?orderBy=name&limit=100`, {
+                headers: { 'Authorization': `Bearer ${puter.authToken}` },
+                method: 'GET',
+            }),
+            fetch(`${window.api_origin}/get-launch-apps?icon_size=64`, {
+                headers: { 'Authorization': `Bearer ${window.auth_token}` },
+                method: 'GET',
+            }),
+        ]);
+
+        const installedApps = await installedRes.json();
+        const launchData = await launchRes.json();
+
+        // Build lookup map keyed by name, uid, and uuid
+        const appInfo = {};
+        const addApp = (app, icon) => {
+            const info = { title: app.title, icon };
+            if ( app.name ) appInfo[app.name] = info;
+            if ( app.uid ) appInfo[app.uid] = info;
+            if ( app.uuid ) appInfo[app.uuid] = info;
+        };
+        for ( const app of [...(launchData.recommended || []), ...(launchData.recent || [])] ) {
+            addApp(app, app.icon || null);
+        }
+        for ( const app of installedApps ) {
+            addApp(app, app.icon || app.iconUrl || null);
+        }
+
+        const appSizes = [];
+
+        await Promise.all(appDirs.map(async (dir) => {
+            const { totalSize, fileCount } = await scanDirRecursive(`~/AppData/${dir.name}`);
+            if ( totalSize === 0 ) return; // Skip empty apps
+            const info = appInfo[dir.name];
+            appSizes.push({
+                name: dir.name,
+                title: info?.title || dir.name,
+                icon: info?.icon || null,
+                size: totalSize,
+                files: fileCount,
+            });
+        }));
+
+        // Sort by size descending
+        appSizes.sort((a, b) => b.size - a.size);
+
+        if ( appSizes.length === 0 ) {
+            $('.app-storage-content').html('<span style="opacity: 0.6;">No app data found.</span>');
+            return;
+        }
+
+        let h = '<table class="driver-usage-details-content-table">';
+        h += `<thead><tr>
+            <th>App</th>
+            <th>Files</th>
+            <th>Size</th>
+        </tr></thead><tbody>`;
+
+        const defaultIcon = window.icons?.['app.svg'] || '';
+
+        for ( const app of appSizes ) {
+            console.log(app);
+            const iconSrc = html_encode(app.icon || defaultIcon);
+            const iconImg = iconSrc
+                ? `<img src="${iconSrc}" style="width:18px;height:18px;vertical-align:middle;margin-right:8px;border-radius:3px;" draggable="false">`
+                : '';
+            h += `<tr>
+                <td>${iconImg}${html_encode(app.title)}</td>
+                <td>${app.files}</td>
+                <td>${window.byte_format(app.size)}</td>
+            </tr>`;
+        }
+
+        h += '</tbody></table>';
+        $('.app-storage-content').html(h);
+    } catch (e) {
+        $('.app-storage-content').html('<span style="opacity: 0.6;">Could not load app storage data.</span>');
+    }
+}
+
 async function update_usage_details ($el_window) {
     // Add spinning animation and record start time
     const startTime = Date.now();
@@ -244,7 +353,7 @@ async function update_usage_details ($el_window) {
                 rawUnits: rawUnits,
                 formattedUnits: formattedUnits,
                 rawCost: rawCost,
-                formattedCost: window.number_format(rawCost / 100_000_000, { decimals: 2, prefix: '$' })
+                formattedCost: window.number_format(rawCost / 100_000_000, { decimals: 2, prefix: '$' }),
             });
         }
 
@@ -269,9 +378,10 @@ async function update_usage_details ($el_window) {
         $('#storage-used').html(window.byte_format(general_used));
         $('#storage-capacity').html(window.byte_format(res.capacity));
         $('#storage-used-percent').html(
-                        `${usage_percentage }%${
-                            host_usage_percentage > 0
-                                ? ` / ${ host_usage_percentage }%` : ''}`);
+            `${usage_percentage }%${
+                host_usage_percentage > 0
+                    ? ` / ${ host_usage_percentage }%` : ''}`,
+        );
         $('#storage-bar').css('width', `${usage_percentage }%`);
         $('#storage-bar-host').css('width', `${host_usage_percentage }%`);
         if ( usage_percentage >= 100 ) {
@@ -282,8 +392,10 @@ async function update_usage_details ($el_window) {
         }
     });
 
-    // Wait for both promises to complete
-    await Promise.all([monthlyUsagePromise, spacePromise]);
+    const appStoragePromise = loadAppStorageUsage();
+
+    // Wait for all promises to complete
+    await Promise.all([monthlyUsagePromise, spacePromise, appStoragePromise]);
 
     // Ensure spinning continues for at least 1 second
     const elapsed = Date.now() - startTime;
