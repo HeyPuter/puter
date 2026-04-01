@@ -2616,7 +2616,9 @@ body {
 .dashboard .bento-desktop-switch {
     grid-column: 1 / -1;
     min-height: auto;
-    background: var(--dashboard-usage-bar-background);
+    background: radial-gradient(circle at 90% 10%, var(--dashboard-gradient-indigo) 0%, transparent 40%),
+        radial-gradient(circle at 10% 90%, var(--dashboard-gradient-pink) 0%, transparent 35%),
+        linear-gradient(135deg, var(--dashboard-card-gradient-start) 0%, var(--dashboard-card-gradient-end) 100%);
     padding: 16px 24px;
 }
 
