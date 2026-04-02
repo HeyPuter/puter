@@ -1,0 +1,1457 @@
+import type { ACLService } from '@heyputer/backend/src/services/auth/ACLService.js';
+import type { EventService } from '@heyputer/backend/src/services/EventService.js';
+import Busboy from 'busboy';
+import type { Request, Response } from 'express';
+import { posix as pathPosix } from 'node:path';
+import type { FSEntryService } from '../services/FSEntryService.js';
+import type {
+    PreparedBatchWrite,
+    UploadedBatchWriteItem,
+    UploadProgressTrackerLike,
+} from '../services/types.js';
+import type { FSEntry, FSEntryWriteInput } from '../types/FSEntry.js';
+import type {
+    CompleteWriteRequest,
+    CompleteWriteResponse,
+    SignedWriteRequest,
+    SignedWriteResponse,
+    SignMultipartPartsRequest,
+    SignMultipartPartsResponse,
+    WriteGuiMetadata,
+    WriteRequest,
+    WriteResponse,
+} from '../types/requests.js';
+import {
+    runWithConcurrencyLimit,
+    runWithConcurrencyLimitSettled,
+} from '../utils/concurrency.js';
+import type {
+    AbortWriteRequest,
+    BatchWriteManifest,
+    BatchWriteManifestItem,
+    ParsedMultipartBatchManifest,
+    RouteParams,
+    ThumbnailUploadPrepareItem,
+    ThumbnailUploadPreparePayload,
+} from './types.js';
+
+const { Controller, ExtensionController, HttpError, Post } = extension.import('extensionController');
+const { Context } = extension.import('core');
+class UploadProgressTracker implements UploadProgressTrackerLike {
+    total = 0;
+    progress = 0;
+    #listeners: Array<(delta: number) => void> = [];
+
+    setTotal (value: number) {
+        this.total = value;
+    }
+
+    add (amount: number) {
+        this.progress += amount;
+        for ( const listener of this.#listeners ) {
+            listener(amount);
+        }
+    }
+
+    subscribe (callback: (delta: number) => void) {
+        this.#listeners.push(callback);
+        return {
+            detach: () => {
+                const idx = this.#listeners.indexOf(callback);
+                if ( idx !== -1 ) this.#listeners.splice(idx, 1);
+            },
+        };
+    }
+}
+
+const aclService = extension.import('service:acl') as ACLService;
+const MAX_THUMBNAIL_BYTES = 2 * 1024 * 1024;
+const DEFAULT_BATCH_ACL_CHECK_CONCURRENCY = 32;
+
+@Controller('/fs')
+export class FSController extends ExtensionController {
+
+    constructor (
+        private fsEntryService: FSEntryService,
+        private eventService: EventService,
+    ) {
+        super();
+    }
+    @Post('/startWrite', { subdomain: 'api' })
+    async startWrite (req: Request<RouteParams, null, SignedWriteRequest>, res: Response<SignedWriteResponse>) {
+        const userId = this.#getActorUserId(req);
+        const storageAllowanceMax = this.#getStorageAllowanceMaxOverride(req);
+        const requestBody = this.#withGuiMetadata(req.body, req.body);
+        requestBody.fileMetadata = this.#normalizeFileMetadataPath(req, requestBody.fileMetadata, requestBody);
+        await this.#assertWriteAccess(req, requestBody.fileMetadata, {
+            pathAlreadyNormalized: true,
+        });
+
+        const {
+            response,
+            createdDirectoryEntries,
+        } = await this.fsEntryService.startUrlWriteWithCreatedDirectories(userId, requestBody, storageAllowanceMax);
+        await this.#attachSignedThumbnailUploadTargets([requestBody], [response]);
+        if ( ! requestBody.directory ) {
+            await this.#runNonCritical(async () => {
+                await this.#emitGuiPendingWriteEvent(userId, requestBody, response);
+            }, 'emitStartWritePendingEvent');
+        }
+        if ( createdDirectoryEntries.length > 0 ) {
+            void this.#runNonCritical(async () => {
+                for ( const createdDirectoryEntry of createdDirectoryEntries ) {
+                    await this.#emitGuiWriteEvent(
+                        'outer.gui.item.added',
+                        createdDirectoryEntry,
+                        requestBody.guiMetadata,
+                    );
+                }
+            }, 'emitStartWriteDirectoryEvents');
+        }
+        res.json(response);
+    }
+
+    @Post('/startBatchWrite', { subdomain: 'api' })
+    async startBatchWrites (req: Request<RouteParams, null, SignedWriteRequest[]>, res: Response<SignedWriteResponse[]>) {
+        const userId = this.#getActorUserId(req);
+        const storageAllowanceMax = this.#getStorageAllowanceMaxOverride(req);
+        const requests = Array.isArray(req.body)
+            ? req.body.map((requestBody) => {
+                const normalizedRequestBody = this.#withGuiMetadata(requestBody, req.body);
+                normalizedRequestBody.fileMetadata = this.#normalizeFileMetadataPath(
+                    req,
+                    normalizedRequestBody.fileMetadata,
+                    normalizedRequestBody,
+                );
+                return normalizedRequestBody;
+            })
+            : [];
+        await this.#assertBatchWriteAccess(
+            req,
+            requests.map((requestBody) => requestBody.fileMetadata),
+            { pathAlreadyNormalized: true },
+        );
+
+        const {
+            responses,
+            createdDirectoryEntries,
+        } = await this.fsEntryService.batchStartUrlWritesWithCreatedDirectories(userId, requests, storageAllowanceMax);
+        const directoryGuiMetadataByPath = new Map<string, WriteGuiMetadata | undefined>(
+            requests
+                .filter((request) => request.directory)
+                .map((request) => [request.fileMetadata.path, request.guiMetadata]),
+        );
+        const emittedDirectoryPaths = new Set<string>();
+
+        await this.#attachSignedThumbnailUploadTargets(requests, responses);
+        await this.#runNonCritical(async () => {
+            await runWithConcurrencyLimit(
+                responses,
+                32,
+                async (writeResponse, index) => {
+                    const requestBody = requests[index];
+                    if ( requestBody && writeResponse ) {
+                        if ( ! requestBody.directory ) {
+                            await this.#emitGuiPendingWriteEvent(userId, requestBody, writeResponse);
+                        }
+                    }
+                },
+            );
+        }, 'emitStartBatchWritePendingEvents');
+        if ( createdDirectoryEntries.length > 0 ) {
+            void this.#runNonCritical(async () => {
+                for ( const createdDirectoryEntry of createdDirectoryEntries ) {
+                    if ( emittedDirectoryPaths.has(createdDirectoryEntry.path) ) {
+                        continue;
+                    }
+                    emittedDirectoryPaths.add(createdDirectoryEntry.path);
+                    await this.#emitGuiWriteEvent(
+                        'outer.gui.item.added',
+                        createdDirectoryEntry,
+                        directoryGuiMetadataByPath.get(createdDirectoryEntry.path),
+                    );
+                }
+            }, 'emitStartBatchWriteDirectoryEvents');
+        }
+        res.json(responses);
+    }
+
+    @Post('/completeWrite', { subdomain: 'api' })
+    async completeWrite (req: Request<RouteParams, null, CompleteWriteRequest>, res: Response<CompleteWriteResponse>) {
+        const userId = this.#getActorUserId(req);
+        const requestBody = this.#withGuiMetadata(req.body, req.body);
+        this.#assertNoInlineSignedThumbnailData(requestBody.thumbnailData);
+
+        const response = await this.fsEntryService.completeUrlWrite(userId, requestBody);
+        const writeResponse = await this.#applyWriteResponseSideEffects(
+            userId,
+            {
+                fsEntry: response.fsEntry,
+                wasOverwrite: response.wasOverwrite,
+                requestedThumbnail: response.requestedThumbnail,
+                contentHashSha256: null,
+            },
+            requestBody.guiMetadata,
+        );
+        res.json({ ...response, fsEntry: writeResponse.fsEntry });
+    }
+
+    @Post('/completeBatchWrite', { subdomain: 'api' })
+    async completeBatchWrites (
+        req: Request<RouteParams, null, CompleteWriteRequest[]>,
+        res: Response<CompleteWriteResponse[]>,
+    ) {
+        const userId = this.#getActorUserId(req);
+        const requests = Array.isArray(req.body)
+            ? req.body.map((requestBody) => {
+                return this.#withGuiMetadata(requestBody, req.body);
+            })
+            : [];
+        for ( const requestBody of requests ) {
+            this.#assertNoInlineSignedThumbnailData(requestBody.thumbnailData);
+        }
+        const response = await this.fsEntryService.batchCompleteUrlWrite(userId, requests);
+        const updatedResponse = await runWithConcurrencyLimit(
+            response,
+            32,
+            async (writeResponse, index) => {
+                const requestBody = requests[index];
+                const withSideEffects = await this.#applyWriteResponseSideEffects(
+                    userId,
+                    {
+                        fsEntry: writeResponse.fsEntry,
+                        wasOverwrite: writeResponse.wasOverwrite,
+                        requestedThumbnail: writeResponse.requestedThumbnail,
+                        contentHashSha256: null,
+                    },
+                    requestBody?.guiMetadata,
+                );
+                return { ...writeResponse, fsEntry: withSideEffects.fsEntry };
+            },
+        );
+        res.json(updatedResponse);
+    }
+
+    @Post('/abortWrite', { subdomain: 'api' })
+    async abortWrite (req: Request<RouteParams, null, AbortWriteRequest>, res: Response<{ ok: true }>) {
+        const userId = this.#getActorUserId(req);
+        if ( ! req.body?.uploadId ) {
+            throw new HttpError(400, 'Missing uploadId');
+        }
+
+        await this.fsEntryService.abortUrlWrite(userId, req.body.uploadId);
+        res.json({ ok: true });
+    }
+
+    @Post('/signMultipartParts', { subdomain: 'api' })
+    async signMultipartParts (
+        req: Request<RouteParams, null, SignMultipartPartsRequest>,
+        res: Response<SignMultipartPartsResponse>,
+    ) {
+        const userId = this.#getActorUserId(req);
+        const response = await this.fsEntryService.signMultipartParts(userId, req.body);
+        res.json(response);
+    }
+
+    @Post('/write', { subdomain: 'api' })
+    async write (req: Request<RouteParams, null, WriteRequest>, res: Response<WriteResponse>) {
+        const userId = this.#getActorUserId(req);
+        const storageAllowanceMax = this.#getStorageAllowanceMaxOverride(req);
+        const requestBody = this.#withGuiMetadata(req.body, req.body);
+        requestBody.fileMetadata = this.#normalizeFileMetadataPath(req, requestBody.fileMetadata, requestBody);
+        await this.#assertWriteAccess(req, requestBody.fileMetadata, {
+            pathAlreadyNormalized: true,
+        });
+        const normalizedPath = this.#normalizePath(requestBody.fileMetadata.path);
+        const uploadTracker = await this.#createUploadTracker(
+            userId,
+            normalizedPath,
+            normalizedPath,
+            Number(requestBody.fileMetadata.size ?? 0),
+            requestBody.guiMetadata,
+        );
+        const response = await this.fsEntryService.write(userId, requestBody, uploadTracker, storageAllowanceMax);
+        const updatedResponse = await this.#applyWriteResponseSideEffects(
+            userId,
+            response,
+            requestBody.guiMetadata,
+        );
+        res.json(updatedResponse);
+    }
+
+    @Post('/batchWrite', { subdomain: 'api' })
+    async batchWrites (req: Request<RouteParams, null, WriteRequest[]>, res: Response<WriteResponse[]>) {
+        const userId = this.#getActorUserId(req);
+        const storageAllowanceMax = this.#getStorageAllowanceMaxOverride(req);
+        const requestMode = this.#resolveBatchWriteRequestMode(req);
+        if ( requestMode === 'multipart' ) {
+            let parsedManifest: ParsedMultipartBatchManifest | null = null;
+            let preparedBatch: PreparedBatchWrite | null = null;
+            let manifestPreparationPromise: Promise<void> | null = null;
+            let parseFailure: Error | null = null;
+            const uploadPromises: Promise<UploadedBatchWriteItem | null>[] = [];
+            const uploadedIndexes = new Set<number>();
+            let fileOrderIndex = 0;
+
+            const failParse = (error: unknown) => {
+                if ( parseFailure ) {
+                    return;
+                }
+                if ( error instanceof Error ) {
+                    parseFailure = error;
+                    return;
+                }
+                parseFailure = new Error(String(error));
+            };
+
+            const busboy = Busboy({ headers: req.headers });
+
+            busboy.on('field', (fieldName, value, info) => {
+                if ( info.fieldnameTruncated || info.valueTruncated ) {
+                    failParse(new HttpError(400, 'Batch write manifest field is truncated'));
+                    return;
+                }
+                if ( fieldName !== 'manifest' ) {
+                    return;
+                }
+                if ( manifestPreparationPromise ) {
+                    failParse(new HttpError(409, 'Batch write manifest was provided more than once'));
+                    return;
+                }
+
+                try {
+                    parsedManifest = this.#parseBatchWriteManifest(value, undefined);
+                    const ignoredItemIndexes = new Set<number>();
+                    parsedManifest = {
+                        ...parsedManifest,
+                        items: parsedManifest.items.map((item) => ({
+                            ...item,
+                            fileMetadata: this.#normalizeFileMetadataPath(req, item.fileMetadata, item),
+                        })),
+                        ignoredItemIndexes,
+                    };
+                    for ( const item of parsedManifest.items ) {
+                        if ( this.#shouldIgnoreUploadPath(item.fileMetadata.path) ) {
+                            ignoredItemIndexes.add(item.index);
+                        }
+                    }
+                    manifestPreparationPromise = (async () => {
+                        try {
+                            if ( ! parsedManifest ) {
+                                throw new HttpError(400, 'Batch write manifest is missing');
+                            }
+                            const activeManifestItems = parsedManifest.items
+                                .filter((item) => !parsedManifest?.ignoredItemIndexes?.has(item.index));
+
+                            await this.#assertBatchWriteAccess(
+                                req,
+                                activeManifestItems.map((item) => item.fileMetadata),
+                                { pathAlreadyNormalized: true },
+                            );
+
+                            preparedBatch = await this.fsEntryService.prepareBatchWrites(
+                                userId,
+                                activeManifestItems.map((item) => ({
+                                    fileMetadata: item.fileMetadata,
+                                    thumbnailData: item.thumbnailData,
+                                    guiMetadata: item.guiMetadata,
+                                })),
+                                storageAllowanceMax,
+                            );
+                            await this.fsEntryService.assertStorageAllowanceForPreparedBatch(
+                                preparedBatch,
+                                undefined,
+                                storageAllowanceMax,
+                            );
+                        } catch ( error ) {
+                            failParse(error);
+                        }
+                    })();
+                } catch ( error ) {
+                    failParse(error);
+                }
+            });
+
+            busboy.on('file', (fieldName, stream) => {
+                const currentFileOrder = fileOrderIndex;
+                fileOrderIndex++;
+                const uploadPromise = (async () => {
+                    try {
+                        if ( parseFailure ) {
+                            throw parseFailure;
+                        }
+                        if ( ! manifestPreparationPromise ) {
+                            throw new HttpError(400, 'Batch write manifest must come before file content');
+                        }
+
+                        await manifestPreparationPromise;
+                        if ( parseFailure ) {
+                            throw parseFailure;
+                        }
+                        if ( !parsedManifest || !preparedBatch ) {
+                            throw new HttpError(400, 'Batch write manifest is missing');
+                        }
+
+                        const itemIndex = this.#resolveMultipartFileIndex(
+                            fieldName,
+                            currentFileOrder,
+                            parsedManifest,
+                        );
+                        if ( parsedManifest.ignoredItemIndexes.has(itemIndex) ) {
+                            if ( !stream.readableEnded && !stream.destroyed ) {
+                                stream.resume();
+                            }
+                            return null;
+                        }
+                        if ( uploadedIndexes.has(itemIndex) ) {
+                            throw new HttpError(409, `Duplicate file content for batch index ${itemIndex}`);
+                        }
+                        uploadedIndexes.add(itemIndex);
+
+                        const preparedItem = preparedBatch.itemsByIndex.get(itemIndex);
+                        if ( ! preparedItem ) {
+                            throw new HttpError(400, `Batch write metadata was not found for index ${itemIndex}`);
+                        }
+
+                        const uploadTracker = await this.#createUploadTracker(
+                            userId,
+                            preparedItem.objectKey,
+                            preparedItem.normalizedInput.path,
+                            preparedItem.normalizedInput.size,
+                            preparedItem.guiMetadata,
+                        );
+
+                        return await this.fsEntryService.uploadPreparedBatchItem({
+                            preparedBatch,
+                            itemIndex,
+                            fileContent: stream,
+                            uploadTracker,
+                        });
+                    } catch ( error ) {
+                        if ( !stream.readableEnded && !stream.destroyed ) {
+                            stream.resume();
+                        }
+                        throw error;
+                    }
+                })();
+                uploadPromises.push(uploadPromise);
+            });
+
+            const parsingComplete = new Promise<void>((resolve, reject) => {
+                busboy.once('error', reject);
+                busboy.once('close', resolve);
+            });
+
+            req.pipe(busboy);
+            await parsingComplete;
+            if ( ! manifestPreparationPromise ) {
+                await Promise.allSettled(uploadPromises);
+                throw new HttpError(400, 'Batch write manifest is required');
+            }
+            await manifestPreparationPromise;
+            const uploadResults = await Promise.allSettled(uploadPromises);
+            const uploadedItems = uploadResults
+                .filter((result): result is PromiseFulfilledResult<UploadedBatchWriteItem | null> => result.status === 'fulfilled')
+                .map((result) => result.value)
+                .filter((uploadedItem): uploadedItem is UploadedBatchWriteItem => uploadedItem !== null);
+            if ( parseFailure ) {
+                if ( preparedBatch ) {
+                    await this.fsEntryService.cleanupPreparedBatchUploads(preparedBatch, uploadedItems);
+                }
+                throw parseFailure;
+            }
+            if ( ! preparedBatch ) {
+                throw new HttpError(500, 'Failed to prepare batch write operation');
+            }
+            const failedUpload = uploadResults.find((result) => result.status === 'rejected');
+            if ( failedUpload?.status === 'rejected' ) {
+                await this.fsEntryService.cleanupPreparedBatchUploads(preparedBatch, uploadedItems);
+                throw (failedUpload.reason instanceof Error
+                    ? failedUpload.reason
+                    : new Error('Failed to upload multipart batch item'));
+            }
+
+            const writeResponses = await this.fsEntryService.finalizePreparedBatchWrites(preparedBatch, uploadedItems);
+            const updatedResponses = await runWithConcurrencyLimit(
+                writeResponses,
+                32,
+                async (writeResponse, index) => {
+                    const preparedItem = preparedBatch?.items[index];
+                    return this.#applyWriteResponseSideEffects(
+                        userId,
+                        writeResponse,
+                        preparedItem?.guiMetadata,
+                    );
+                },
+            );
+            res.json(updatedResponses);
+            return;
+        }
+
+        const requests = Array.isArray(req.body)
+            ? req.body.map((requestBody) => {
+                const normalizedRequestBody = this.#withGuiMetadata(requestBody, req.body);
+                normalizedRequestBody.fileMetadata = this.#normalizeFileMetadataPath(
+                    req,
+                    normalizedRequestBody.fileMetadata,
+                    normalizedRequestBody,
+                );
+                return normalizedRequestBody;
+            })
+            : [];
+        const filteredRequests = requests.filter((requestBody) => {
+            return !this.#shouldIgnoreUploadPath(requestBody.fileMetadata.path);
+        });
+        if ( filteredRequests.length === 0 ) {
+            res.json([]);
+            return;
+        }
+        await this.#assertBatchWriteAccess(
+            req,
+            filteredRequests.map((requestBody) => requestBody.fileMetadata),
+            { pathAlreadyNormalized: true },
+        );
+
+        const preparedBatch = await this.fsEntryService.prepareBatchWrites(
+            userId,
+            filteredRequests.map((requestBody) => ({
+                fileMetadata: requestBody.fileMetadata,
+                thumbnailData: requestBody.thumbnailData,
+                guiMetadata: requestBody.guiMetadata,
+            })),
+            storageAllowanceMax,
+        );
+        await this.fsEntryService.assertStorageAllowanceForPreparedBatch(
+            preparedBatch,
+            undefined,
+            storageAllowanceMax,
+        );
+
+        const uploadResults = await runWithConcurrencyLimitSettled(
+            filteredRequests,
+            8,
+            async (requestBody, index) => {
+                const preparedItem = preparedBatch.items[index];
+                if ( ! preparedItem ) {
+                    throw new Error(`Failed to resolve prepared batch item for index ${index}`);
+                }
+                const uploadTracker = await this.#createUploadTracker(
+                    userId,
+                    preparedItem.objectKey,
+                    preparedItem.normalizedInput.path,
+                    preparedItem.normalizedInput.size,
+                    requestBody.guiMetadata,
+                );
+                return this.fsEntryService.uploadPreparedBatchItem({
+                    preparedBatch,
+                    itemIndex: preparedItem.index,
+                    fileContent: requestBody.fileContent,
+                    encoding: requestBody.encoding,
+                    uploadTracker,
+                });
+            },
+        );
+        const uploadedItems = uploadResults
+            .filter((result): result is PromiseFulfilledResult<UploadedBatchWriteItem> => result.status === 'fulfilled')
+            .map((result) => result.value);
+        const failedUpload = uploadResults.find((result) => result.status === 'rejected');
+        if ( failedUpload?.status === 'rejected' ) {
+            await this.fsEntryService.cleanupPreparedBatchUploads(preparedBatch, uploadedItems);
+            throw (failedUpload.reason instanceof Error
+                ? failedUpload.reason
+                : new Error('Failed to upload batch write item'));
+        }
+
+        const writeResponses = await this.fsEntryService.finalizePreparedBatchWrites(preparedBatch, uploadedItems);
+        const updatedResponses = await runWithConcurrencyLimit(
+            writeResponses,
+            32,
+            async (writeResponse, index) => {
+                const requestBody = filteredRequests[index];
+                return this.#applyWriteResponseSideEffects(
+                    userId,
+                    writeResponse,
+                    requestBody?.guiMetadata,
+                );
+            },
+        );
+        res.json(updatedResponses);
+    }
+
+    #getActorUserId (
+        req: Request,
+    ): number {
+        const requestUser = (req as Request & {
+            user?: {
+                id?: unknown;
+            };
+        }).user;
+        const actorUser = req.actor?.type?.user;
+        const candidateUserId = requestUser?.id ?? actorUser?.id;
+        if ( candidateUserId === undefined || candidateUserId === null ) {
+            throw new HttpError(401, 'Unauthorized');
+        }
+
+        const userId = Number(candidateUserId);
+        if ( Number.isNaN(userId) ) {
+            throw new HttpError(401, 'Unauthorized');
+        }
+
+        return userId;
+    }
+
+    #getActorUsername (
+        req: Request,
+    ): string {
+        const requestUser = (req as Request & {
+            user?: {
+                username?: unknown;
+            };
+        }).user;
+        const actorUser = req.actor?.type?.user;
+        const actorUsername = requestUser?.username ?? actorUser?.username;
+        if ( typeof actorUsername !== 'string' || actorUsername.trim().length === 0 ) {
+            throw new HttpError(401, 'Unauthorized');
+        }
+        return actorUsername.trim();
+    }
+
+    #toObjectRecord (value: unknown): Record<string, unknown> {
+        if ( !value || typeof value !== 'object' || Array.isArray(value) ) {
+            return {};
+        }
+        return value as Record<string, unknown>;
+    }
+
+    #firstDefined (...values: unknown[]): unknown {
+        for ( const value of values ) {
+            if ( value !== undefined && value !== null ) {
+                return value;
+            }
+        }
+        return undefined;
+    }
+
+    #toBoolean (value: unknown): boolean | undefined {
+        if ( typeof value === 'boolean' ) {
+            return value;
+        }
+        if ( typeof value === 'number' ) {
+            if ( value === 1 ) return true;
+            if ( value === 0 ) return false;
+            return undefined;
+        }
+        if ( typeof value === 'string' ) {
+            const normalizedValue = value.trim().toLowerCase();
+            if ( ['1', 'true', 'yes', 'on'].includes(normalizedValue) ) {
+                return true;
+            }
+            if ( ['0', 'false', 'no', 'off'].includes(normalizedValue) ) {
+                return false;
+            }
+        }
+        return undefined;
+    }
+
+    #toNumber (value: unknown): number | undefined {
+        if ( value === undefined || value === null || value === '' ) {
+            return undefined;
+        }
+        const candidate = Number(value);
+        if ( ! Number.isFinite(candidate) ) {
+            return undefined;
+        }
+        return candidate;
+    }
+
+    #isDedupeEnabled (fileMetadata: FSEntryWriteInput | undefined): boolean {
+        if ( ! fileMetadata ) {
+            return false;
+        }
+        const metadataRecord = fileMetadata as unknown as Record<string, unknown>;
+        const dedupeCandidate = this.#firstDefined(
+            fileMetadata.dedupeName,
+            metadataRecord.dedupe_name,
+        );
+        return this.#toBoolean(dedupeCandidate) ?? false;
+    }
+
+    #resolveWriteFileMetadata (
+        fileMetadata: FSEntryWriteInput | undefined,
+        fallbackSource?: unknown,
+    ): FSEntryWriteInput {
+        const metadataRecord = this.#toObjectRecord(fileMetadata);
+        const fallbackRecord = this.#toObjectRecord(fallbackSource);
+
+        const normalizedFileMetadata: Record<string, unknown> = {
+            ...metadataRecord,
+        };
+
+        const path = this.#firstDefined(metadataRecord.path, fallbackRecord.path);
+        if ( typeof path === 'string' ) {
+            normalizedFileMetadata.path = path;
+        }
+
+        const size = this.#toNumber(this.#firstDefined(metadataRecord.size, fallbackRecord.size));
+        if ( size !== undefined ) {
+            normalizedFileMetadata.size = size;
+        }
+
+        const contentType = this.#firstDefined(
+            metadataRecord.contentType,
+            metadataRecord.content_type,
+            fallbackRecord.contentType,
+            fallbackRecord.content_type,
+        );
+        if ( typeof contentType === 'string' && contentType.length > 0 ) {
+            normalizedFileMetadata.contentType = contentType;
+        }
+
+        const checksumSha256 = this.#firstDefined(
+            metadataRecord.checksumSha256,
+            metadataRecord.checksum_sha256,
+            fallbackRecord.checksumSha256,
+            fallbackRecord.checksum_sha256,
+        );
+        if ( typeof checksumSha256 === 'string' && checksumSha256.length > 0 ) {
+            normalizedFileMetadata.checksumSha256 = checksumSha256;
+        }
+
+        const overwrite = this.#toBoolean(this.#firstDefined(
+            metadataRecord.overwrite,
+            fallbackRecord.overwrite,
+        ));
+        if ( overwrite !== undefined ) {
+            normalizedFileMetadata.overwrite = overwrite;
+        }
+
+        const dedupeName = this.#toBoolean(this.#firstDefined(
+            metadataRecord.dedupeName,
+            metadataRecord.dedupe_name,
+            fallbackRecord.dedupeName,
+            fallbackRecord.dedupe_name,
+            fallbackRecord.rename,
+            fallbackRecord.change_name,
+        ));
+        if ( dedupeName !== undefined ) {
+            normalizedFileMetadata.dedupeName = dedupeName;
+        }
+
+        const createMissingParents = this.#toBoolean(this.#firstDefined(
+            metadataRecord.createMissingParents,
+            metadataRecord.create_missing_parents,
+            metadataRecord.create_missing_ancestors,
+            fallbackRecord.createMissingParents,
+            fallbackRecord.create_missing_parents,
+            fallbackRecord.createMissingAncestors,
+            fallbackRecord.create_missing_ancestors,
+            fallbackRecord.createFileParent,
+            fallbackRecord.create_file_parent,
+        ));
+        if ( createMissingParents !== undefined ) {
+            normalizedFileMetadata.createMissingParents = createMissingParents;
+        }
+
+        const immutable = this.#toBoolean(this.#firstDefined(
+            metadataRecord.immutable,
+            fallbackRecord.immutable,
+        ));
+        if ( immutable !== undefined ) {
+            normalizedFileMetadata.immutable = immutable;
+        }
+
+        const isPublic = this.#toBoolean(this.#firstDefined(
+            metadataRecord.isPublic,
+            metadataRecord.is_public,
+            fallbackRecord.isPublic,
+            fallbackRecord.is_public,
+        ));
+        if ( isPublic !== undefined ) {
+            normalizedFileMetadata.isPublic = isPublic;
+        }
+
+        const multipartPartSize = this.#toNumber(this.#firstDefined(
+            metadataRecord.multipartPartSize,
+            metadataRecord.multipart_part_size,
+            fallbackRecord.multipartPartSize,
+            fallbackRecord.multipart_part_size,
+        ));
+        if ( multipartPartSize !== undefined && multipartPartSize > 0 ) {
+            normalizedFileMetadata.multipartPartSize = multipartPartSize;
+        }
+
+        const bucket = this.#firstDefined(metadataRecord.bucket, fallbackRecord.bucket);
+        if ( typeof bucket === 'string' && bucket.length > 0 ) {
+            normalizedFileMetadata.bucket = bucket;
+        }
+
+        const bucketRegion = this.#firstDefined(
+            metadataRecord.bucketRegion,
+            metadataRecord.bucket_region,
+            fallbackRecord.bucketRegion,
+            fallbackRecord.bucket_region,
+        );
+        if ( typeof bucketRegion === 'string' && bucketRegion.length > 0 ) {
+            normalizedFileMetadata.bucketRegion = bucketRegion;
+        }
+
+        return normalizedFileMetadata as unknown as FSEntryWriteInput;
+    }
+
+    #toStorageCapacityCandidate (value: unknown): number | undefined {
+        const capacity = Number(value);
+        if ( !Number.isFinite(capacity) || capacity < 0 ) {
+            return undefined;
+        }
+        return capacity;
+    }
+
+    #getStorageAllowanceMaxOverride (req: Request): number | undefined {
+        const actorUser = req.actor?.type.user;
+
+        const candidates = [
+            this.#toStorageCapacityCandidate(actorUser?.free_storage),
+            this.#toStorageCapacityCandidate(actorUser?.actual_free_storage),
+        ].filter((candidate): candidate is number => candidate !== undefined);
+
+        if ( candidates.length === 0 ) {
+            return undefined;
+        }
+        return Math.max(...candidates);
+    }
+
+    #normalizePath (path: string, username?: string): string {
+        const trimmedPath = path.trim();
+        if ( trimmedPath.length === 0 ) {
+            throw new HttpError(400, 'Path cannot be empty');
+        }
+
+        let pathToNormalize = trimmedPath;
+        if ( pathToNormalize === '~' || pathToNormalize.startsWith('~/') ) {
+            if ( ! username ) {
+                throw new HttpError(400, 'Unable to resolve home path');
+            }
+
+            pathToNormalize = `/${username}${pathToNormalize.slice(1)}`;
+        }
+
+        let normalizedPath = pathPosix.normalize(pathToNormalize);
+        if ( ! normalizedPath.startsWith('/') ) {
+            normalizedPath = `/${normalizedPath}`;
+        }
+        if ( normalizedPath.length > 1 && normalizedPath.endsWith('/') ) {
+            normalizedPath = normalizedPath.slice(0, -1);
+        }
+        return normalizedPath;
+    }
+
+    #normalizeFileMetadataPath (
+        req: Request,
+        fileMetadata: FSEntryWriteInput | undefined,
+        fallbackSource?: unknown,
+    ): FSEntryWriteInput {
+        const resolvedFileMetadata = this.#resolveWriteFileMetadata(fileMetadata, fallbackSource);
+        if ( typeof resolvedFileMetadata.path !== 'string' ) {
+            throw new HttpError(400, 'Missing path');
+        }
+
+        const username = this.#getActorUsername(req);
+        return {
+            ...resolvedFileMetadata,
+            path: this.#normalizePath(resolvedFileMetadata.path, username),
+        };
+    }
+
+    #extractGuiMetadata (input: unknown, fallback: WriteGuiMetadata | undefined): WriteGuiMetadata | undefined {
+        const source = input && typeof input === 'object'
+            ? input as Record<string, unknown>
+            : {};
+        const guiMetadata: WriteGuiMetadata = {
+            originalClientSocketId: typeof source.originalClientSocketId === 'string'
+                ? source.originalClientSocketId
+                : typeof source.original_client_socket_id === 'string'
+                    ? source.original_client_socket_id
+                    : fallback?.originalClientSocketId,
+            socketId: typeof source.socketId === 'string'
+                ? source.socketId
+                : typeof source.socket_id === 'string'
+                    ? source.socket_id
+                    : fallback?.socketId,
+            operationId: typeof source.operationId === 'string'
+                ? source.operationId
+                : typeof source.operation_id === 'string'
+                    ? source.operation_id
+                    : fallback?.operationId,
+            itemUploadId: typeof source.itemUploadId === 'string'
+                ? source.itemUploadId
+                : typeof source.item_upload_id === 'string'
+                    ? source.item_upload_id
+                    : fallback?.itemUploadId,
+        };
+
+        if (
+            !guiMetadata.originalClientSocketId
+            && !guiMetadata.socketId
+            && !guiMetadata.operationId
+            && !guiMetadata.itemUploadId
+        ) {
+            return undefined;
+        }
+        return guiMetadata;
+    }
+
+    #withGuiMetadata<T extends { guiMetadata?: WriteGuiMetadata }> (value: T, fallbackSource: unknown): T {
+        const guiMetadata = this.#extractGuiMetadata(value, this.#extractGuiMetadata(fallbackSource, undefined));
+        if ( ! guiMetadata ) {
+            return value;
+        }
+        return {
+            ...value,
+            guiMetadata,
+        };
+    }
+
+    async #assertWriteAccess (
+        req: Request,
+        fileMetadata: FSEntryWriteInput | undefined,
+        options?: {
+            pathAlreadyNormalized?: boolean;
+        },
+    ): Promise<void> {
+        const actor = req.actor;
+        if ( ! actor ) {
+            throw new HttpError(401, 'Unauthorized');
+        }
+        const normalizedFileMetadata = options?.pathAlreadyNormalized
+            ? fileMetadata
+            : this.#normalizeFileMetadataPath(req, fileMetadata);
+        if ( ! normalizedFileMetadata ) {
+            throw new HttpError(400, 'Missing path');
+        }
+
+        const targetPath = normalizedFileMetadata.path;
+        if ( targetPath === '/' ) {
+            throw new HttpError(400, 'Cannot write to root path');
+        }
+        const parentPath = pathPosix.dirname(targetPath);
+        if ( parentPath === '/' ) {
+            throw new HttpError(400, 'Cannot write to root path');
+        }
+
+        const dedupeEnabled = this.#isDedupeEnabled(normalizedFileMetadata);
+        let pathToCheck = parentPath;
+        if ( Boolean(normalizedFileMetadata.overwrite) && !dedupeEnabled ) {
+            const destinationExists = await this.fsEntryService.entryExistsByPath(targetPath);
+            if ( destinationExists ) {
+                pathToCheck = targetPath;
+            }
+        }
+
+        const fsEntryService = this.fsEntryService;
+        let ancestorsCache: Promise<Array<{ uid: string; path: string }>> | null = null;
+        const resourceDescriptor = {
+            path: pathToCheck,
+            resolveAncestors () {
+                if ( ! ancestorsCache ) {
+                    ancestorsCache = fsEntryService.getAncestorChain(pathToCheck);
+                }
+                return ancestorsCache;
+            },
+        };
+
+        const canWrite = await aclService.check(actor, resourceDescriptor, 'write');
+        if ( canWrite ) {
+            return;
+        }
+
+        const safeAclError = await aclService.get_safe_acl_error(actor, resourceDescriptor, 'write') as {
+            status?: unknown;
+            message?: unknown;
+            fields?: {
+                code?: unknown;
+            };
+        };
+        const safeAclStatus = Number(safeAclError?.status);
+        const safeAclMessage = typeof safeAclError?.message === 'string' && safeAclError.message.length > 0
+            ? safeAclError.message
+            : 'Write access denied for destination';
+        const safeAclCode = typeof safeAclError?.fields?.code === 'string'
+            ? safeAclError.fields.code
+            : undefined;
+        const legacyCode = safeAclCode === 'forbidden'
+            ? 'access_denied'
+            : safeAclCode;
+
+        if ( safeAclStatus === 404 ) {
+            throw new HttpError(404, safeAclMessage, {
+                ...(legacyCode ? { legacyCode } : {}),
+            });
+        }
+
+        throw new HttpError(403, safeAclMessage, {
+            legacyCode: legacyCode ?? 'access_denied',
+        });
+    }
+
+    async #assertBatchWriteAccess (
+        req: Request,
+        fileMetadataItems: Array<FSEntryWriteInput | undefined>,
+        options?: {
+            pathAlreadyNormalized?: boolean;
+            concurrency?: number;
+        },
+    ): Promise<void> {
+        await runWithConcurrencyLimit(
+            fileMetadataItems,
+            options?.concurrency ?? DEFAULT_BATCH_ACL_CHECK_CONCURRENCY,
+            async (fileMetadata) => {
+                await this.#assertWriteAccess(req, fileMetadata, {
+                    pathAlreadyNormalized: options?.pathAlreadyNormalized,
+                });
+            },
+        );
+    }
+
+    #toEventGuiMetadata (
+        guiMetadata: WriteGuiMetadata | undefined,
+        includeOriginalClientSocketId = true,
+    ): Record<string, unknown> {
+        if ( ! guiMetadata ) {
+            return {};
+        }
+
+        return {
+            ...(includeOriginalClientSocketId && guiMetadata.originalClientSocketId
+                ? { original_client_socket_id: guiMetadata.originalClientSocketId }
+                : {}),
+            ...(guiMetadata.socketId ? { socket_id: guiMetadata.socketId } : {}),
+            ...(guiMetadata.operationId ? { operation_id: guiMetadata.operationId } : {}),
+            ...(guiMetadata.itemUploadId ? { item_upload_id: guiMetadata.itemUploadId } : {}),
+        };
+    }
+
+    async #toGuiFsEntry (entry: FSEntry): Promise<Record<string, unknown>> {
+        const dirpath = pathPosix.dirname(entry.path);
+        const extension = pathPosix.extname(entry.name).slice(1).toLowerCase();
+        const response = {
+            id: entry.uuid,
+            uid: entry.uuid,
+            uuid: entry.uuid,
+            user_id: entry.userId,
+            parent_id: entry.parentUid,
+            parent_uid: entry.parentUid,
+            path: entry.path,
+            dirname: dirpath,
+            dirpath,
+            name: entry.name,
+            is_dir: entry.isDir,
+            is_shortcut: entry.isShortcut ? 1 : 0,
+            shortcut_to: entry.shortcutTo,
+            type: entry.isDir ? 'folder' : extension,
+            writable: true,
+            is_public: entry.isPublic,
+            thumbnail: entry.thumbnail,
+            immutable: entry.immutable,
+            metadata: entry.metadata,
+            modified: entry.modified,
+            created: entry.created,
+            accessed: entry.accessed,
+            size: entry.size,
+            associated_app_id: entry.associatedAppId,
+        };
+
+        if ( typeof response.thumbnail === 'string' && response.thumbnail.length > 0 ) {
+            const thumbnailEntry = {
+                uuid: entry.uuid,
+                thumbnail: response.thumbnail,
+            };
+            await this.eventService.emit('thumbnail.read', thumbnailEntry);
+            response.thumbnail = typeof thumbnailEntry.thumbnail === 'string' && thumbnailEntry.thumbnail.length > 0
+                ? thumbnailEntry.thumbnail
+                : null;
+        }
+
+        return response;
+    }
+
+    async #emitGuiWriteEvent (
+        eventName: 'outer.gui.item.added' | 'outer.gui.item.updated',
+        fsEntry: FSEntry,
+        guiMetadata: WriteGuiMetadata | undefined,
+    ): Promise<void> {
+        const response = {
+            ...await this.#toGuiFsEntry(fsEntry),
+            ...this.#toEventGuiMetadata(guiMetadata, false),
+            from_new_service: true,
+        };
+        await this.eventService.emit(eventName, {
+            user_id_list: [fsEntry.userId],
+            response,
+        });
+    }
+
+    async #emitGuiPendingWriteEvent (
+        userId: number,
+        requestBody: SignedWriteRequest,
+        response: SignedWriteResponse,
+    ): Promise<void> {
+        const normalizedPath = this.#normalizePath(requestBody.fileMetadata.path);
+        const pendingResponse = {
+            id: response.objectKey,
+            uid: response.objectKey,
+            uuid: response.objectKey,
+            user_id: userId,
+            path: normalizedPath,
+            name: pathPosix.basename(normalizedPath),
+            is_dir: false,
+            content_type: response.contentType,
+            size: Number(requestBody.fileMetadata.size),
+            upload_id: response.sessionId,
+            pending_upload: true,
+            status: 'pending',
+            ...this.#toEventGuiMetadata(requestBody.guiMetadata),
+            from_new_service: true,
+        };
+        await this.eventService.emit('outer.gui.item.pending', {
+            user_id_list: [userId],
+            response: pendingResponse,
+        });
+    }
+
+    #isAppDataPath (targetPath: string): boolean {
+        const pathParts = targetPath.split('/').filter(Boolean);
+        return pathParts.length >= 2 && pathParts[1] === 'AppData';
+    }
+
+    #estimateDataUrlSize (dataUrl: string): number {
+        const commaIndex = dataUrl.indexOf(',');
+        const base64 = commaIndex === -1 ? dataUrl : dataUrl.slice(commaIndex + 1);
+        return Math.ceil(base64.length * 3 / 4);
+    }
+
+    #isOversizedThumbnailDataUrl (thumbnail: string): boolean {
+        if ( ! thumbnail.startsWith('data:') ) {
+            return false;
+        }
+        return this.#estimateDataUrlSize(thumbnail) > MAX_THUMBNAIL_BYTES;
+    }
+
+    async #applyThumbnailAfterWrite (
+        userId: number,
+        fsEntry: FSEntry,
+        requestedThumbnail: string | null | undefined,
+    ): Promise<FSEntry> {
+        if ( !requestedThumbnail || this.#isAppDataPath(fsEntry.path) ) {
+            return fsEntry;
+        }
+        if ( this.#isOversizedThumbnailDataUrl(requestedThumbnail) ) {
+            return fsEntry;
+        }
+
+        const thumbnailPayload = { url: requestedThumbnail };
+        await this.eventService.emit('thumbnail.created', thumbnailPayload);
+        const finalThumbnail = typeof thumbnailPayload.url === 'string' && thumbnailPayload.url.length > 0
+            ? thumbnailPayload.url
+            : null;
+
+        if ( finalThumbnail === fsEntry.thumbnail || finalThumbnail === null ) {
+            return fsEntry;
+        }
+
+        return this.fsEntryService.updateEntryThumbnail(userId, fsEntry.uuid, finalThumbnail);
+    }
+
+    #toThumbnailPrepareItem (
+        requestBody: SignedWriteRequest,
+        index: number,
+    ): ThumbnailUploadPrepareItem | null {
+        if ( requestBody.directory ) {
+            return null;
+        }
+
+        const thumbnailMetadata = requestBody.thumbnailMetadata;
+        if ( ! thumbnailMetadata ) {
+            return null;
+        }
+
+        const contentType = typeof thumbnailMetadata.contentType === 'string'
+            ? thumbnailMetadata.contentType.trim()
+            : '';
+        if ( ! contentType ) {
+            throw new HttpError(400, 'thumbnailMetadata.contentType is required for signed thumbnail upload');
+        }
+
+        if ( thumbnailMetadata.size === undefined ) {
+            return null;
+        }
+
+        const size = Number(thumbnailMetadata.size);
+        if ( !Number.isFinite(size) || size < 0 ) {
+            throw new HttpError(400, 'thumbnailMetadata.size must be a non-negative number');
+        }
+        if ( size > MAX_THUMBNAIL_BYTES ) {
+            return null;
+        }
+
+        return { index, contentType, size };
+    }
+
+    async #attachSignedThumbnailUploadTargets (
+        requests: SignedWriteRequest[],
+        responses: SignedWriteResponse[],
+    ): Promise<void> {
+        const prepareItems = requests
+            .map((requestBody, index) => this.#toThumbnailPrepareItem(requestBody, index))
+            .filter((item): item is ThumbnailUploadPrepareItem => Boolean(item));
+        if ( prepareItems.length === 0 ) {
+            return;
+        }
+
+        const payload: ThumbnailUploadPreparePayload = {
+            items: prepareItems.map((item): ThumbnailUploadPrepareItem => ({
+                index: item.index,
+                contentType: item.contentType,
+                ...(item.size !== undefined ? { size: item.size } : {}),
+            })),
+        };
+        await this.eventService.emit('thumbnail.upload.prepare', payload);
+
+        for ( const item of payload.items ) {
+            const response = responses[item.index];
+            if ( ! response ) {
+                throw new HttpError(500, 'Failed to resolve signed thumbnail response target');
+            }
+            if ( typeof item.uploadUrl !== 'string' || item.uploadUrl.length === 0 ) {
+                continue;
+            }
+            if ( typeof item.thumbnailUrl !== 'string' || item.thumbnailUrl.length === 0 ) {
+                continue;
+            }
+
+            response.thumbnailUploadUrl = item.uploadUrl;
+            response.thumbnailUrl = item.thumbnailUrl;
+        }
+    }
+
+    #assertNoInlineSignedThumbnailData (thumbnailData: string | undefined): void {
+        if ( typeof thumbnailData !== 'string' ) {
+            return;
+        }
+        if ( thumbnailData.startsWith('data:') ) {
+            throw new HttpError(
+                400,
+                'Signed write completion does not accept inline thumbnail data. Upload thumbnail to signed URL and provide thumbnail URL.',
+            );
+        }
+    }
+
+    #isMultipartRequest (req: Request): boolean {
+        const contentType = req.headers['content-type'];
+        if ( typeof contentType !== 'string' ) {
+            return false;
+        }
+        return contentType.includes('multipart/form-data');
+    }
+
+    #resolveBatchWriteRequestMode (req: Request): 'multipart' | 'json' {
+        if ( this.#isMultipartRequest(req) ) {
+            return 'multipart';
+        }
+
+        const contentTypeHeader = req.headers['content-type'];
+        const contentType = typeof contentTypeHeader === 'string'
+            ? contentTypeHeader.toLowerCase()
+            : '';
+
+        if (
+            contentType.includes('application/json')
+            || contentType.startsWith('text/plain;actually=json')
+        ) {
+            return 'json';
+        }
+
+        throw new HttpError(
+            415,
+            'Unsupported content type for batchWrite. Use multipart/form-data or application/json.',
+        );
+    }
+
+    async #runNonCritical (work: () => Promise<void>, operationName: string): Promise<void> {
+        try {
+            await work();
+        } catch ( error ) {
+            console.error(`prodfsv2 non-critical operation failed: ${operationName}`, error);
+        }
+    }
+
+    async #createUploadTracker (
+        userId: number,
+        itemUid: string,
+        itemPath: string,
+        expectedSize: number,
+        guiMetadata: WriteGuiMetadata | undefined,
+    ): Promise<UploadProgressTrackerLike> {
+        const uploadTracker = new UploadProgressTracker();
+        uploadTracker.setTotal(Math.max(0, expectedSize));
+
+        const context = Context.get();
+        if ( ! context ) {
+            return uploadTracker;
+        }
+
+        await this.eventService.emit('fs.storage.upload-progress', {
+            upload_tracker: uploadTracker,
+            context,
+            meta: {
+                user_id: userId,
+                userId: userId,
+                item_uid: itemUid,
+                item_path: itemPath,
+                ...this.#toEventGuiMetadata(guiMetadata),
+            },
+        });
+        return uploadTracker;
+    }
+
+    async #emitWriteHashEvent (contentHashSha256: string | null | undefined, entryUuid: string): Promise<void> {
+        if ( ! contentHashSha256 ) {
+            return;
+        }
+        await this.eventService.emit('outer.fs.write-hash', {
+            hash: contentHashSha256,
+            uuid: entryUuid,
+        });
+    }
+
+    async #applyWriteResponseSideEffects (
+        userId: number,
+        response: WriteResponse,
+        guiMetadata: WriteGuiMetadata | undefined,
+    ): Promise<WriteResponse> {
+        let fsEntry = response.fsEntry;
+
+        const hashEventPromise = this.#runNonCritical(async () => {
+            await this.#emitWriteHashEvent(response.contentHashSha256, fsEntry.uuid);
+        }, 'emitWriteHashEvent');
+
+        await this.#runNonCritical(async () => {
+            fsEntry = await this.#applyThumbnailAfterWrite(
+                userId,
+                response.fsEntry,
+                response.requestedThumbnail,
+            );
+        }, 'applyThumbnailAfterWrite');
+
+        await this.#runNonCritical(async () => {
+            await this.#emitGuiWriteEvent(
+                response.wasOverwrite ? 'outer.gui.item.updated' : 'outer.gui.item.added',
+                fsEntry,
+                guiMetadata,
+            );
+        }, 'emitGuiWriteEvent');
+
+        await hashEventPromise;
+
+        return { ...response, fsEntry };
+    }
+
+    #shouldIgnoreUploadPath (targetPath: string): boolean {
+        return pathPosix.basename(targetPath).toLowerCase() === '.ds_store';
+    }
+
+    #parseBatchWriteManifest (
+        manifestRaw: string,
+        fallbackGuiMetadata: WriteGuiMetadata | undefined,
+    ): ParsedMultipartBatchManifest {
+        let parsedManifest: unknown;
+        try {
+            parsedManifest = JSON.parse(manifestRaw);
+        } catch {
+            throw new HttpError(400, 'Batch write manifest is not valid JSON');
+        }
+
+        const manifest: BatchWriteManifest = Array.isArray(parsedManifest)
+            ? { items: parsedManifest as BatchWriteManifestItem[] }
+            : parsedManifest as BatchWriteManifest;
+
+        if ( !manifest || !Array.isArray(manifest.items) || manifest.items.length === 0 ) {
+            throw new HttpError(400, 'Batch write manifest must include a non-empty items array');
+        }
+
+        const manifestGuiMetadata = this.#extractGuiMetadata(manifest, fallbackGuiMetadata);
+        const normalizedItems = manifest.items.map((item, orderIndex) => {
+            if ( !item || typeof item !== 'object' ) {
+                throw new HttpError(400, `Batch write manifest item at position ${orderIndex} is invalid`);
+            }
+
+            const candidateIndex = (item as { index?: number | string }).index ?? orderIndex;
+            const index = Number(candidateIndex);
+            if ( !Number.isInteger(index) || index < 0 ) {
+                throw new HttpError(400, `Batch write manifest item index is invalid at position ${orderIndex}`);
+            }
+
+            if ( !item.fileMetadata || typeof item.fileMetadata !== 'object' ) {
+                throw new HttpError(400, `Batch write manifest item ${index} is missing fileMetadata`);
+            }
+
+            return {
+                index,
+                fileMetadata: item.fileMetadata,
+                thumbnailData: typeof item.thumbnailData === 'string' ? item.thumbnailData : undefined,
+                guiMetadata: this.#extractGuiMetadata(item, manifestGuiMetadata),
+            };
+        });
+
+        const seenIndexes = new Set<number>();
+        const fieldIndexMap = new Map<string, number>();
+        for ( const item of normalizedItems ) {
+            if ( seenIndexes.has(item.index) ) {
+                throw new HttpError(409, `Batch write manifest has duplicate index ${item.index}`);
+            }
+            seenIndexes.add(item.index);
+            fieldIndexMap.set(String(item.index), item.index);
+            fieldIndexMap.set(`file-${item.index}`, item.index);
+            fieldIndexMap.set(`files[${item.index}]`, item.index);
+        }
+
+        return {
+            items: normalizedItems,
+            guiMetadata: manifestGuiMetadata,
+            fieldIndexMap,
+            ignoredItemIndexes: new Set<number>(),
+        };
+    }
+
+    #resolveMultipartFileIndex (
+        fieldName: string,
+        fileOrderIndex: number,
+        manifest: ParsedMultipartBatchManifest,
+    ): number {
+        const directMatch = manifest.fieldIndexMap.get(fieldName);
+        if ( directMatch !== undefined ) {
+            return directMatch;
+        }
+
+        if ( /^\d+$/.test(fieldName) ) {
+            const parsedIndex = Number(fieldName);
+            if ( manifest.fieldIndexMap.get(String(parsedIndex)) !== undefined ) {
+                return parsedIndex;
+            }
+        }
+
+        if ( fieldName === 'file' || fieldName === 'files' ) {
+            const itemAtPosition = manifest.items[fileOrderIndex];
+            if ( itemAtPosition ) {
+                return itemAtPosition.index;
+            }
+        }
+
+        const fallbackItem = manifest.items[fileOrderIndex];
+        if ( fallbackItem ) {
+            return fallbackItem.index;
+        }
+
+        throw new HttpError(400, `Batch write file part "${fieldName}" does not map to manifest metadata`);
+    }
+
+}

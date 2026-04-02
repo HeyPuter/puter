@@ -24,7 +24,7 @@ import { MessageCreateParams as BetaMessageCreateParams } from '@anthropic-ai/sd
 import { MessageCreateParams, Usage } from '@anthropic-ai/sdk/resources/messages.js';
 import mime from 'mime-types';
 import FSNodeParam from '../../../../../api/filesystem/FSNodeParam.js';
-import { LLRead } from '../../../../../filesystem/ll_operations/ll_read.js';
+import { LLRead } from '../../../../../deprecated/filesystem/ll_operations/ll_read.js';
 import { ErrorService } from '../../../../../modules/core/ErrorService.js';
 import { Context } from '../../../../../util/context.js';
 import { MeteringService } from '../../../../MeteringService/MeteringService.js';
@@ -432,7 +432,6 @@ export class ClaudeProvider implements IChatProvider {
     };
 
     #buildThinkingConfig ({
-        modelId,
         reasoningEffort,
         maxTokens,
     }: {

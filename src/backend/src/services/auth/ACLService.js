@@ -19,7 +19,7 @@
 const APIError = require('../../api/APIError');
 const FSNodeParam = require('../../api/filesystem/FSNodeParam');
 const eggspress = require('../../api/eggspress');
-const { NodePathSelector } = require('../../filesystem/node/selectors');
+const { NodePathSelector } = require('../../deprecated/filesystem/node/selectors');
 const { get_user } = require('../../helpers');
 const configurable_auth = require('../../middleware/configurable_auth');
 const { Context } = require('../../util/context');
@@ -67,14 +67,9 @@ class ACLService extends BaseService {
     * @returns {Promise<boolean>} True if access is allowed, false otherwise
     */
     async check (actor, resource, mode) {
-        /**
-        * Checks if an actor has permission for a specific mode on a resource
-        *
-        * @param {Actor} actor - The actor requesting permission
-        * @param {FSNode} resource - The filesystem resource to check permissions for
-        * @param {('see'| 'list'| 'read'| 'write' | 'manage')} mode - The permission mode to check ('see', 'list', 'read', 'write', 'manage')
-        * @returns {Promise<boolean>} True if actor has permission, false otherwise
-        */
+        if ( resource && typeof resource.path === 'string' && !resource.get_selector_of_type ) {
+            return await this.checkResource(actor, resource, mode);
+        }
         return await this._check_fsNode(actor, resource, mode);
     }
 
@@ -453,7 +448,6 @@ class ACLService extends BaseService {
                 await appdata_node.is(fsNode) ||
                 await appdata_node.is_above(fsNode)
             ) {
-                this.log.debug('TRUE BECAUSE APPDATA');
                 return true;
             }
         }
@@ -516,14 +510,105 @@ class ACLService extends BaseService {
         return false;
     }
 
-    /**
-    * Gets a safe error message for ACL check failures
-    * @param {Actor} actor - The actor attempting the operation
-    * @param {FSNode} resource - The filesystem resource being accessed
-    * @param {string} mode - The access mode being checked ('read', 'write', etc)
-    * @returns {APIError} Returns 'subject_does_not_exist' if actor cannot see resource,
-    *                     otherwise returns 'forbidden' error
-    */
+    async checkResource (actor, resource, mode) {
+        const context = Context.get();
+
+        actor = Actor.adapt(actor);
+
+        if ( actor.type instanceof SystemActorType ) {
+            return true;
+        }
+
+        if ( resource.path === '/' ) {
+            return ['list', 'see', 'read'].includes(mode);
+        }
+
+        const components = resource.path.slice(1).split('/');
+
+        if ( actor.type instanceof UserActorType ) {
+            const username = actor.type.user.username;
+            if ( resource.path === `/${username}` || resource.path.startsWith(`/${username}/`) ) {
+                return true;
+            }
+        }
+
+        if ( actor.type instanceof AppUnderUserActorType ) {
+            const username = actor.type.user.username;
+            const appUid = actor.type.app.uid;
+            const appDataPath = `/${username}/AppData/${appUid}`;
+            if ( resource.path === appDataPath || resource.path.startsWith(`${appDataPath}/`) ) {
+                return true;
+            }
+        }
+
+        if ( this.global_config.enable_public_folders ) {
+            const publicModes = ['read', 'list', 'see'];
+            if ( publicModes.includes(mode) && components.length > 1 && components[1] === 'Public' ) {
+                const svcGetUser = this.services.get('get-user');
+                const username = components[0];
+                const user = await svcGetUser.get_user({ username });
+                if ( user && (user.email_confirmed || user.username === 'admin') ) {
+                    return true;
+                }
+            }
+        }
+
+        if ( actor.type instanceof AccessTokenActorType ) {
+            const { authorizer, token } = actor.type;
+            if ( ! (await this.checkResource(authorizer, resource, mode)) ) {
+                return false;
+            }
+
+            const db = this.services.get('database').get(DB_READ, 'auth');
+            const ancestors = await resource.resolveAncestors();
+            for ( const ancestor of ancestors ) {
+                const permission = mode === MANAGE_PERM_PREFIX
+                    ? PermissionUtil.join(MANAGE_PERM_PREFIX, 'fs', ancestor.uid)
+                    : PermissionUtil.join('fs', ancestor.uid, mode);
+                const rows = await db.read(
+                    'SELECT * FROM `access_token_permissions` WHERE `token_uid` = ? AND `permission` = ?',
+                    [token, permission],
+                );
+                if ( rows[0] ) return true;
+            }
+            return false;
+        }
+
+        if ( actor.type instanceof AppUnderUserActorType ) {
+            const userActor = new Actor({
+                type: new UserActorType({ user: actor.type.user }),
+            });
+            if ( ! (await this.checkResource(userActor, resource, mode)) ) {
+                return false;
+            }
+        }
+
+        if ( actor.type instanceof AppUnderUserActorType ) {
+            if ( components[0] !== actor.type.user.username
+                && components[1] === 'AppData'
+                && components[2] === actor.type.app.uid ) {
+                return true;
+            }
+        }
+
+        const svcPermission = context.get('services').get('permission');
+        const ancestors = await resource.resolveAncestors();
+        for ( const ancestor of ancestors ) {
+            const permissionsToCheck = [
+                mode === MANAGE_PERM_PREFIX
+                    ? PermissionUtil.join(MANAGE_PERM_PREFIX, 'fs', ancestor.uid)
+                    : PermissionUtil.join('fs', ancestor.uid, mode),
+            ];
+            const reading = await svcPermission.scan(actor, permissionsToCheck);
+            const options = PermissionUtil.reading_to_options(reading);
+            if ( options.length > 0 ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     async get_safe_acl_error (actor, resource, _mode) {
         const can_see = await this.check(actor, resource, 'see');
         if ( ! can_see ) {

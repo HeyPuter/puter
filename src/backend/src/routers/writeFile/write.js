@@ -17,9 +17,9 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-const { TYPE_DIRECTORY } = require('../../filesystem/FSNodeContext');
-const { HLWrite } = require('../../filesystem/hl_operations/hl_write');
-const { NodePathSelector } = require('../../filesystem/node/selectors');
+const { TYPE_DIRECTORY } = require('../../deprecated/filesystem/FSNodeContext');
+const { HLWrite } = require('../../deprecated/filesystem/hl_operations/hl_write');
+const { NodePathSelector } = require('../../deprecated/filesystem/node/selectors');
 const _path = require('path');
 const { sign_file } = require('../../helpers');
 

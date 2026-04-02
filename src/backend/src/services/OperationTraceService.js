@@ -46,8 +46,9 @@ class OperationFrame {
         this.id = require('uuid').v4();
 
         this.log = (x ?? Context).get('services').get('log-service').create(
-                        `frame:${this.id}`,
-                        { concern: 'filesystem' });
+            `frame:${this.id}`,
+            { concern: 'filesystem' },
+        );
     }
 
     static FRAME_STATUS_PENDING = { label: 'pending' };
@@ -60,14 +61,16 @@ class OperationFrame {
         this.status_ = status;
         this._calc_effective_status();
 
-        this.log.debug(`FRAME STATUS ${status.label} ${
-            status !== this.effective_status_
-                ? `(effective: ${this.effective_status_.label}) `
-                : ''}`,
-        {
-            tags: this.tags,
-            ...this.attributes,
-        });
+        this.log.debug(
+            `FRAME STATUS ${status.label} ${
+                status !== this.effective_status_
+                    ? `(effective: ${this.effective_status_.label}) `
+                    : ''}`,
+            {
+                tags: this.tags,
+                ...this.attributes,
+            },
+        );
 
         if ( this.parent ) {
             this.parent._calc_effective_status();
@@ -324,13 +327,12 @@ class BaseOperation extends AdvancedBase {
         this.frame = frame;
 
         // let's make the logger for it too
-        this.log = x.get('services').get('log-service').create(
-                        this.constructor.name, {
-                            operation: frame.id,
-                            ...(this.constructor.CONCERN ? {
-                                concern: this.constructor.CONCERN,
-                            } : {}),
-                        });
+        this.log = x.get('services').get('log-service').create(this.constructor.name, {
+            operation: frame.id,
+            ...(this.constructor.CONCERN ? {
+                concern: this.constructor.CONCERN,
+            } : {}),
+        });
 
         // Run operation in new context
         try {

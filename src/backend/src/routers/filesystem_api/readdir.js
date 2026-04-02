@@ -21,7 +21,7 @@ const { Context } = require('../../util/context.js');
 const eggspress = require('../../api/eggspress.js');
 const FSNodeParam = require('../../api/filesystem/FSNodeParam.js');
 const FlagParam = require('../../api/filesystem/FlagParam.js');
-const { HLReadDir } = require('../../filesystem/hl_operations/hl_readdir.js');
+const { HLReadDir } = require('../../deprecated/filesystem/hl_operations/hl_readdir.js');
 
 // -----------------------------------------------------------------------//
 // POST /readdir

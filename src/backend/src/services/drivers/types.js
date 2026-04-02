@@ -16,11 +16,10 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { AdvancedBase } = require('../../../../putility');
-const { is_valid_path } = require('../../filesystem/validation');
-const { is_valid_url, is_valid_uuid4 } = require('../../helpers');
+const { is_valid_url, is_valid_uuid4, is_valid_path } = require('../../helpers');
 const { FileFacade } = require('./FileFacade');
 const APIError = require('../../api/APIError');
+const { AdvancedBase } = require('@heyputer/putility');
 
 /**
 * @class BaseType
@@ -143,42 +142,6 @@ class NumberType extends BaseType {
     */
     serialize () {
         return 'number';
-    }
-}
-
-/**
-* @class URL
-* @description A class for validating and handling URL inputs. This class extends BaseType and provides
-* functionality to validate whether a given input is a properly formatted URL. It throws an APIError if
-* the input is invalid. Used within the type system to ensure URL parameters meet the required format
-* specifications.
-*/
-class URL extends BaseType {
-    /**
-    * Validates and consolidates URL inputs
-    * @param {Object} ctx - The context object
-    * @param {string} input - The URL string to validate
-    * @param {Object} options - Options object containing arg_name
-    * @param {string} options.arg_name - Name of the argument being validated
-    * @returns {string} The validated URL string
-    * @throws {APIError} If the input is not a valid URL
-    */
-    async consolidate (ctx, input, { arg_name }) {
-        if ( ! is_valid_url(input) ) {
-            throw APIError.create('field_invalid', null, {
-                key: arg_name,
-                expected: 'URL',
-            });
-        }
-        return input;
-    }
-
-    /**
-    * Serializes the URL type identifier
-    * @returns {string} Returns 'url' as the type identifier for URL validation
-    */
-    serialize () {
-        return 'url';
     }
 }
 

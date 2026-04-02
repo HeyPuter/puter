@@ -23,9 +23,9 @@ const fs = require('node:fs');
 
 const { createWorker, setCloudflareKeys, deleteWorker } = require('./workerUtils/cloudflareDeploy');
 const { getUserInfo } = require('./workerUtils/puterUtils');
-const { LLRead } = require('../../filesystem/ll_operations/ll_read');
+const { LLRead } = require('../../deprecated/filesystem/ll_operations/ll_read');
 const { Context } = require('../../util/context');
-const { NodePathSelector, NodeUIDSelector } = require('../../filesystem/node/selectors');
+const { NodePathSelector, NodeUIDSelector } = require('../../deprecated/filesystem/node/selectors');
 const { calculateWorkerNameNew } = require('./workerUtils/nameUtils');
 const { Entity } = require('../../om/entitystorage/Entity');
 const { SKIP_ES_VALIDATION } = require('../../om/entitystorage/consts');

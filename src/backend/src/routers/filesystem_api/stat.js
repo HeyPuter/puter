@@ -19,7 +19,7 @@
 'use strict';
 const eggspress = require('../../api/eggspress.js');
 const FSNodeParam = require('../../api/filesystem/FSNodeParam');
-const { HLStat } = require('../../filesystem/hl_operations/hl_stat.js');
+const { HLStat } = require('../../deprecated/filesystem/hl_operations/hl_stat.js');
 
 module.exports = eggspress('/stat', {
     subdomain: 'api',

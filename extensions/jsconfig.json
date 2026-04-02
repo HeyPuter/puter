@@ -15,5 +15,5 @@
   "include": [
     "./**/*.js",
     "./**/*.d.ts"
-  ]
+, "../src/backend/src/deprecated/filesystem/PuterS3StorageStrategy.js"  ]
 }

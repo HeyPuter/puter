@@ -1,6 +1,6 @@
 //@extension priority -10000
 
-const { redisClient, kvjs } = extension.import('core');
+const { redisClient, kvjs, s3ClientProvider } = extension.import('core');
 const svc_database = extension.import('service:database');
 const svc_kvstore = extension.import('service:puter-kvstore');
 
@@ -30,4 +30,5 @@ extension.exports = {
     kv: simplified_kv,
     cache: redisClient,
     kvjs: kvjs,
+    s3ClientProvider,
 };

@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { NodeInternalIDSelector, NodeUIDSelector } = require('../filesystem/node/selectors');
+const { NodeInternalIDSelector, NodeUIDSelector } = require('../deprecated/filesystem/node/selectors');
 const { SiteActorType } = require('./auth/Actor');
 const { PermissionUtil, PermissionRewriter, PermissionImplicator } = require('./auth/permissionUtils.mjs');
 const BaseService = require('./BaseService');
@@ -82,8 +82,10 @@ class PuterSiteService extends BaseService {
                     return undefined;
                 }
 
-                const site_node = await svc_fs.node(new NodeInternalIDSelector('mysql',
-                                actor.type.site.root_dir_id));
+                const site_node = await svc_fs.node(new NodeInternalIDSelector(
+                    'mysql',
+                    actor.type.site.root_dir_id,
+                ));
 
                 if ( await site_node.is(node) ) {
                     return {};
@@ -111,10 +113,12 @@ class PuterSiteService extends BaseService {
                 root_dir_id: this.config.devtest_directory,
             };
         }
-        const rows = await this.db.read(`SELECT * FROM subdomains WHERE ${
-            options.is_custom_domain ? 'domain' : 'subdomain'
-        } = ? LIMIT 1`,
-        [subdomain]);
+        const rows = await this.db.read(
+            `SELECT * FROM subdomains WHERE ${
+                options.is_custom_domain ? 'domain' : 'subdomain'
+            } = ? LIMIT 1`,
+            [subdomain],
+        );
         if ( rows.length === 0 ) return null;
         return rows[0];
     }
@@ -126,8 +130,10 @@ class PuterSiteService extends BaseService {
     * @returns {Promise<Object|null>} A promise that resolves to the subdomain object if found, or null if not found.
     */
     async get_subdomain_by_uid (uid) {
-        const rows = await this.db.read('SELECT * FROM subdomains WHERE uuid = ? LIMIT 1',
-                        [uid]);
+        const rows = await this.db.read(
+            'SELECT * FROM subdomains WHERE uuid = ? LIMIT 1',
+            [uid],
+        );
         if ( rows.length === 0 ) return null;
         return rows[0];
     }

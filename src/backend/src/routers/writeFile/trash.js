@@ -17,8 +17,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-const { HLMove } = require('../../filesystem/hl_operations/hl_move');
-const { NodePathSelector } = require('../../filesystem/node/selectors');
+const { HLMove } = require('../../deprecated/filesystem/hl_operations/hl_move');
+const { NodePathSelector } = require('../../deprecated/filesystem/node/selectors');
 
 module.exports = async function writeFile_handle_trash ({
     req, res, actor, node,

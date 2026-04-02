@@ -18,12 +18,12 @@
  */
 const APIError = require('../../api/APIError');
 const config = require('../../config');
-const { NodeUIDSelector, NodeInternalIDSelector, NodePathSelector } = require('../../filesystem/node/selectors');
+const { NodeUIDSelector, NodeInternalIDSelector, NodePathSelector } = require('../../deprecated/filesystem/node/selectors');
 const { is_valid_uuid4, is_valid_uuid } = require('../../helpers');
 const validator = require('validator');
 const { Context } = require('../../util/context');
-const { is_valid_path } = require('../../filesystem/validation');
-const FSNodeContext = require('../../filesystem/FSNodeContext');
+const { is_valid_path } = require('../../deprecated/filesystem/validation');
+const FSNodeContext = require('../../deprecated/filesystem/FSNodeContext').default;
 const { Entity } = require('../entitystorage/Entity');
 const { APP_ICONS_SUBDOMAIN } = require('../../consts/app-icons');
 const NULL = Symbol('NULL');

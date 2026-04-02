@@ -27,7 +27,7 @@ import { setRedisCacheValue } from './clients/redis/cacheUpdate.js';
 import { redisClient } from './clients/redis/redisSingleton.js';
 import config from './config.js';
 import { APP_ICONS_SUBDOMAIN } from './consts/app-icons.js';
-import { NodeUIDSelector } from './filesystem/node/selectors.js';
+import { NodeUIDSelector } from './deprecated/filesystem/node/selectors.js';
 import { AppRedisCacheSpace } from './modules/apps/AppRedisCacheSpace.js';
 import { DB_READ, DB_WRITE } from './services/database/consts.js';
 import { UserRedisCacheSpace } from './services/UserRedisCacheSpace.js';

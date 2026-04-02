@@ -21,7 +21,7 @@ import mime from 'mime-types';
 import { OpenAI } from 'openai';
 import { ChatCompletionCreateParams } from 'openai/resources/index.js';
 import { FSNodeParam } from '../../../../../api/filesystem/FSNodeParam.js';
-import { LLRead } from '../../../../../filesystem/ll_operations/ll_read.js';
+import { LLRead } from '../../../../../deprecated/filesystem/ll_operations/ll_read.js';
 import { Context } from '../../../../../util/context.js';
 import { stream_to_buffer } from '../../../../../util/streamutil.js';
 import { MeteringService } from '../../../../MeteringService/MeteringService.js';
@@ -54,7 +54,8 @@ export class OpenAiChatProvider implements IChatProvider {
 
     constructor (
         meteringService: MeteringService,
-        config: { apiKey?: string, secret_key?: string }) {
+        config: { apiKey?: string, secret_key?: string },
+    ) {
 
         this.#meteringService = meteringService;
         let apiKey = config.apiKey;
