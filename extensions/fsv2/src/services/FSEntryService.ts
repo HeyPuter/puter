@@ -106,7 +106,7 @@ export class FSEntryService {
     }
 
     #resolveBucket (metadata: FSEntryWriteInput): string {
-        const bucket = metadata.bucket ?? global_config.s3_bucket;
+        const bucket = metadata.bucket ?? global_config.s3_bucket ?? 'puter-local';
         if ( typeof bucket !== 'string' || bucket.length === 0 ) {
             throw new HttpError(500, 'Missing S3 bucket configuration');
         }
@@ -116,7 +116,8 @@ export class FSEntryService {
     #resolveBucketRegion (metadata: FSEntryWriteInput): string {
         const bucketRegion = metadata.bucketRegion
             ?? global_config.s3_region
-            ?? global_config.region;
+            ?? global_config.region
+            ?? 'us-west-2';
 
         if ( typeof bucketRegion !== 'string' || bucketRegion.length === 0 ) {
             throw new HttpError(500, 'Missing S3 region configuration');
