@@ -369,7 +369,7 @@ export class DDBClient {
                         },
                     }));
                 }
-            }, 5000); // wait 5 seconds to ensure table is active
+            }, 50); // wait 5 seconds to ensure table is active
 
         }
     }

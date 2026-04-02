@@ -31,6 +31,7 @@ const opentelemetry = require('@opentelemetry/api');
 const query = require('./om/query/query');
 const { redisClient } = require('./clients/redis/redisSingleton');
 const { kv } = require('./util/kvSingleton');
+const BaseService = require('./services/BaseService');
 
 /**
  * @footgun - real install method is defined above
@@ -161,7 +162,6 @@ const install = async ({ context, services, app, useapi, modapi }) => {
     services.registerService('dynamo', DDBClientWrapper);
 
     services.registerService('system-validation', SystemValidationService);
-    services.registerService('commands', CommandService);
     services.registerService('__api-filesystem', FilesystemAPIService);
     services.registerService('__api', PuterAPIService);
     services.registerService('__gui', ServeGUIService);
@@ -389,14 +389,11 @@ const install = async ({ context, services, app, useapi, modapi }) => {
 const install_legacy = async ({ services }) => {
     const { OperationTraceService } = require('./services/OperationTraceService');
     const { ClientOperationService } = require('./services/ClientOperationService');
-    const { EngPortalService } = require('./services/EngPortalService');
 
     // === Services which do not yet extend BaseService ===
     // services.registerService('filesystem', FilesystemService);
     services.registerService('operationTrace', OperationTraceService);
     services.registerService('client-operation', ClientOperationService);
-    services.registerService('engineering-portal', EngPortalService);
-
 };
 
 /**

@@ -104,7 +104,8 @@ class Mig_StorePath extends Job {
         for ( ;; ) {
             const t_0 = performance.now();
             const [fsentries] = await dbrr.promise().execute(
-                            'SELECT id, uuid FROM fsentries WHERE path IS NULL ORDER BY accessed DESC LIMIT 50');
+                'SELECT id, uuid FROM fsentries WHERE path IS NULL ORDER BY accessed DESC LIMIT 50',
+            );
 
             if ( fsentries.length === 0 ) {
                 log.info('No more fsentries to migrate');
@@ -127,8 +128,9 @@ class Mig_StorePath extends Job {
                     log.info(`id=${fsentry.id} uuid=${fsentry.uuid} path=${path}`);
                 }
                 await dbrw.promise().execute(
-                                'UPDATE fsentries SET path=? WHERE id=?',
-                                [path, fsentry.id]);
+                    'UPDATE fsentries SET path=? WHERE id=?',
+                    [path, fsentry.id],
+                );
             }
 
             const t_1 = performance.now();
@@ -173,7 +175,8 @@ class Mig_IndexAccessed extends Job {
             log.info('Running update statement');
             const t_0 = performance.now();
             const [results] = await dbrr.promise().execute(
-                            'UPDATE fsentries SET accessed = COALESCE(accessed, created) WHERE accessed IS NULL LIMIT 10000');
+                'UPDATE fsentries SET accessed = COALESCE(accessed, created) WHERE accessed IS NULL LIMIT 10000',
+            );
             log.info(`Updated ${results.affectedRows} rows`);
 
             if ( results.affectedRows === 0 ) {
@@ -369,43 +372,19 @@ class Mig_AuditInitialStorage extends Job {
 * independently.
 */
 class FSEntryMigrateService {
-    constructor ({ services }) {
-        const mysql = services.get('mysql');
-        const dbrr = mysql.get(DB_MODE_READ, 'fsentry-migrate');
-        const dbrw = mysql.get(DB_MODE_WRITE, 'fsentry-migrate');
-        const log = services.get('log-service').create('fsentry-migrate');
+    constructor (_) {
+        // const mysql = services.get('mysql');
+        // const dbrr = mysql.get(DB_MODE_READ, 'fsentry-migrate');
+        // const dbrw = mysql.get(DB_MODE_WRITE, 'fsentry-migrate');
+        // const log = services.get('log-service').create('fsentry-migrate');
 
-        const migrations = {
-            'store-path': new Mig_StorePath({ dbrr, dbrw, log }),
-            'index-accessed': new Mig_IndexAccessed({ dbrr, dbrw, log }),
-            'fix-trash': new Mig_FixTrash({ dbrr, dbrw, log }),
-            'gen-referral-codes': new Mig_AddReferralCodes({ dbrr, dbrw, log }),
-        };
+        // const migrations = {
+        //     'store-path': new Mig_StorePath({ dbrr, dbrw, log }),
+        //     'index-accessed': new Mig_IndexAccessed({ dbrr, dbrw, log }),
+        //     'fix-trash': new Mig_FixTrash({ dbrr, dbrw, log }),
+        //     'gen-referral-codes': new Mig_AddReferralCodes({ dbrr, dbrw, log }),
+        // };
 
-        services.get('commands').registerCommands('fsentry-migrate', [
-            {
-                id: 'start',
-                description: 'start a migration',
-                handler: async (args, log) => {
-                    const [migration] = args;
-                    if ( ! migrations[migration] ) {
-                        throw new Error(`unknown migration: ${migration}`);
-                    }
-                    migrations[migration].start(args.slice(1));
-                },
-            },
-            {
-                id: 'stop',
-                description: 'stop a migration',
-                handler: async (args, log) => {
-                    const [migration] = args;
-                    if ( ! migrations[migration] ) {
-                        throw new Error(`unknown migration: ${migration}`);
-                    }
-                    migrations[migration].stop();
-                },
-            },
-        ]);
     }
 }
 

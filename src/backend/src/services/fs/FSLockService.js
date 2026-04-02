@@ -44,39 +44,6 @@ class FSLockService extends BaseService {
      * @returns {Promise<void>} A promise that resolves when the initialization is complete.
      */
     async _init () {
-        const svc_commands = this.services.get('commands');
-        svc_commands.registerCommands('fslock', [
-            {
-                id: 'locks',
-                description: 'lists locks',
-                handler: async (args, log) => {
-                    for ( const path in this.locks ) {
-                        let line = `${path }: `;
-                        if ( this.locks[path].effective_mode === MODE_READ ) {
-                            line += `READING (${this.locks[path].readers_})`;
-                            log.log(line);
-                        }
-                        else
-                            if ( this.locks[path].effective_mode === MODE_WRITE ) {
-                                line += 'WRITING';
-                                log.log(line);
-                            }
-                            else {
-                                line += 'UNKNOWN';
-                                log.log(line);
-
-                                // log the lock's internal state
-                                const lines = JSON.stringify(this.locks[path],
-                                                null,
-                                                2).split('\n');
-                                for ( const line of lines ) {
-                                    log.log(` -> ${ line}`);
-                                }
-                            }
-                    }
-                },
-            },
-        ]);
     }
 
     /**

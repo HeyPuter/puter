@@ -23,19 +23,6 @@ class DomainVerificationService extends BaseService {
         return await get_user({ username: 'admin' });
     }
 
-    _register_commands (commands) {
-        const svc_commands = this.services.get('commands');
-        svc_commands.registerCommands('domain', [
-            {
-                id: 'user',
-                description: '',
-                handler: async (args, log) => {
-                    const res = await this.get_controlling_user({ domain: args[0] });
-                    log.log(res);
-                },
-            },
-        ]);
-    }
 }
 
 module.exports = {

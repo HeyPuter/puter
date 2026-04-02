@@ -36,7 +36,6 @@ const DEFAULT_FILES = {};
 
 class DefaultUserService extends BaseService {
     async _init () {
-        this._register_commands(this.services.get('commands'));
     }
     async '__on_ready.webserver' () {
         // check if a user named `admin` exists
@@ -220,19 +219,6 @@ class DefaultUserService extends BaseService {
             );
             return tmp_password;
         });
-    }
-    _register_commands (commands) {
-        commands.registerCommands('default-user', [
-            {
-                id: 'reset-password',
-                handler: async (args, ctx) => {
-                    const [username] = args;
-                    const user = await get_user({ username });
-                    const tmp_pwd = await this.force_tmp_password_(user);
-                    ctx.log(`New password for ${quot(username)} is: ${tmp_pwd}`);
-                },
-            },
-        ]);
     }
 }
 
