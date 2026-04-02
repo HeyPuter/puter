@@ -86,22 +86,7 @@ If the user has no keys, the array will be empty.
 
 <strong class="example-title">Paginate results with a cursor</strong>
 
-```html
-<html>
-<body>
-    <script src="https://js.puter.com/v2/"></script>
-    <script>
-        (async () => {
-            const firstPage = await puter.kv.list({ limit: 2 });
-            puter.print(`First page: ${firstPage.items}<br>`);
-
-            if (firstPage.cursor) {
-                const secondPage = await puter.kv.list({ cursor: firstPage.cursor });
-                puter.print(`Second page: ${secondPage.items}<br>`);
-            }
-        })();
-    </script>
-</body>
+```html;kv-list
 ```
 
 <strong class="example-title">Sort keys lexicographically</strong>
