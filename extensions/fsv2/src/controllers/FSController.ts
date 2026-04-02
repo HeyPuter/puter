@@ -92,18 +92,22 @@ export class FSController extends ExtensionController {
             createdDirectoryEntries,
         } = await this.fsEntryService.startUrlWriteWithCreatedDirectories(userId, requestBody, storageAllowanceMax);
         await this.#attachSignedThumbnailUploadTargets([requestBody], [response]);
-        void this.#runNonCritical(async () => {
-            for ( const createdDirectoryEntry of createdDirectoryEntries ) {
-                await this.#emitGuiWriteEvent(
-                    'outer.gui.item.added',
-                    createdDirectoryEntry,
-                    requestBody.guiMetadata,
-                );
-            }
-            if ( ! requestBody.directory ) {
+        if ( ! requestBody.directory ) {
+            await this.#runNonCritical(async () => {
                 await this.#emitGuiPendingWriteEvent(userId, requestBody, response);
-            }
-        }, 'emitStartWriteEvents');
+            }, 'emitStartWritePendingEvent');
+        }
+        if ( createdDirectoryEntries.length > 0 ) {
+            void this.#runNonCritical(async () => {
+                for ( const createdDirectoryEntry of createdDirectoryEntries ) {
+                    await this.#emitGuiWriteEvent(
+                        'outer.gui.item.added',
+                        createdDirectoryEntry,
+                        requestBody.guiMetadata,
+                    );
+                }
+            }, 'emitStartWriteDirectoryEvents');
+        }
         res.json(response);
     }
 
@@ -140,18 +144,7 @@ export class FSController extends ExtensionController {
         const emittedDirectoryPaths = new Set<string>();
 
         await this.#attachSignedThumbnailUploadTargets(requests, responses);
-        void this.#runNonCritical(async () => {
-            for ( const createdDirectoryEntry of createdDirectoryEntries ) {
-                if ( emittedDirectoryPaths.has(createdDirectoryEntry.path) ) {
-                    continue;
-                }
-                emittedDirectoryPaths.add(createdDirectoryEntry.path);
-                await this.#emitGuiWriteEvent(
-                    'outer.gui.item.added',
-                    createdDirectoryEntry,
-                    directoryGuiMetadataByPath.get(createdDirectoryEntry.path),
-                );
-            }
+        await this.#runNonCritical(async () => {
             await runWithConcurrencyLimit(
                 responses,
                 32,
@@ -164,7 +157,22 @@ export class FSController extends ExtensionController {
                     }
                 },
             );
-        }, 'emitStartBatchWriteEvents');
+        }, 'emitStartBatchWritePendingEvents');
+        if ( createdDirectoryEntries.length > 0 ) {
+            void this.#runNonCritical(async () => {
+                for ( const createdDirectoryEntry of createdDirectoryEntries ) {
+                    if ( emittedDirectoryPaths.has(createdDirectoryEntry.path) ) {
+                        continue;
+                    }
+                    emittedDirectoryPaths.add(createdDirectoryEntry.path);
+                    await this.#emitGuiWriteEvent(
+                        'outer.gui.item.added',
+                        createdDirectoryEntry,
+                        directoryGuiMetadataByPath.get(createdDirectoryEntry.path),
+                    );
+                }
+            }, 'emitStartBatchWriteDirectoryEvents');
+        }
         res.json(responses);
     }
 
