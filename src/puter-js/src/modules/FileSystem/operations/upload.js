@@ -13,16 +13,6 @@ const SIGNED_BATCH_FILE_UPLOAD_CONCURRENCY = 8;
 const SIGNED_MULTIPART_PART_UPLOAD_CONCURRENCY = 8;
 const SIGNED_BATCH_WRITE_UNAVAILABLE_STATUSES = new Set([404, 405, 501]);
 
-// TODO: Remove this api.puter.com gate when signed batch-write is supported in all deployments.
-const isSignedBatchWriteApiOrigin = (apiOrigin) => {
-    try {
-        const hostname = new URL(apiOrigin).hostname.replace(/\.$/, '').toLowerCase();
-        return hostname === 'api.puter.com';
-    } catch (error) {
-        return false;
-    }
-};
-
 const isLikelyImageFile = (file) => {
     if ( ! file ) return false;
     if ( file.type && file.type.startsWith('image/') ) return true;
@@ -597,13 +587,8 @@ const upload = async function (items, dirPath, options = {}) {
         const signedDirectories = dirs.map((dir) => dir.path);
 
         const signedBatchWriteCapability = this[SIGNED_BATCH_WRITE_CAPABILITY_KEY];
-        const signedBatchWriteAllowed = (
-            signedBatchWriteCapability === true ||
-            (
-                signedBatchWriteCapability !== false &&
-                isSignedBatchWriteApiOrigin(this.APIOrigin)
-            )
-        );
+        const signedBatchWriteAllowed = signedBatchWriteCapability !== false;
+
 
         const shouldAttemptSignedBatchWrite = (
             !options.shortcutTo &&
