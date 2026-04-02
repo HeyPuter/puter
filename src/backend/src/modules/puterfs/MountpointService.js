@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { RootNodeSelector, NodeUIDSelector, NodeChildSelector, NodePathSelector, try_infer_attributes } = require('../../filesystem/node/selectors');
+const { RootNodeSelector, NodeUIDSelector, NodeChildSelector, NodePathSelector, try_infer_attributes } = require('../../deprecated/filesystem/node/selectors');
 const BaseService = require('../../services/BaseService');
 
 /**

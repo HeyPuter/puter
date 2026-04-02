@@ -14,6 +14,7 @@ import type FSNodeContext from '../src/backend/src/filesystem/FSNodeContext.js';
 import type helpers from '../src/backend/src/helpers.js';
 import type { ICompleteArguments } from '../src/backend/src/services/ai/chat/providers/types.ts';
 import type * as ExtensionControllerExports from './ExtensionController/src/ExtensionController.ts';
+import type { s3ClientProvider } from '../src/backend/src/clients/s3/s3ClientProvider.js';
 
 declare global {
     namespace Express {
@@ -79,6 +80,7 @@ interface CoreRuntimeModule {
     };
     redisClient: Cluster;
     kvjs: kvjs
+    s3ClientProvider: typeof s3ClientProvider;
     Context: typeof Context;
     APIError: typeof APIError;
 }
@@ -184,6 +186,7 @@ interface Extension extends RouterMethods {
         db: BaseDatabaseAccessService;
         kv: DynamoKVStore;
         cache: Cluster;
+        s3ClientProvider: typeof s3ClientProvider;
     };
     import(module: 'core'): CoreRuntimeModule;
     import(module: 'fs'): FilesystemModule;

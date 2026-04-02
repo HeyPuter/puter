@@ -20,8 +20,8 @@
 const express = require('express');
 const router = express.Router();
 const config = require('../config.js');
-const { NodePathSelector } = require('../filesystem/node/selectors.js');
-const { HLRead } = require('../filesystem/hl_operations/hl_read.js');
+const { NodePathSelector } = require('../deprecated/filesystem/node/selectors.js');
+const { HLRead } = require('../deprecated/filesystem/hl_operations/hl_read.js');
 const { UserActorType } = require('../services/auth/Actor.js');
 const configurable_auth = require('../middleware/configurable_auth.js');
 const { subdomain } = require('../helpers');

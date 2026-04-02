@@ -19,7 +19,7 @@
 'use strict';
 const eggspress = require('../../api/eggspress.js');
 const FSNodeParam = require('../../api/filesystem/FSNodeParam.js');
-const { HLCopy } = require('../../filesystem/hl_operations/hl_copy.js');
+const { HLCopy } = require('../../deprecated/filesystem/hl_operations/hl_copy.js');
 const { Context } = require('../../util/context.js');
 const { getTracer } = require('../../util/otelutil.js');
 
@@ -77,7 +77,7 @@ module.exports = eggspress('/copy', {
 
         span.end();
         frame.done();
-        return res.send([ response ]);
+        return res.send([response]);
     });
 
     // res.send(new_fsentries)

@@ -20,7 +20,7 @@
 const APIError = require('../../api/APIError.js');
 const eggspress = require('../../api/eggspress');
 const FSNodeParam = require('../../api/filesystem/FSNodeParam');
-const { HLRead } = require('../../filesystem/hl_operations/hl_read');
+const { HLRead } = require('../../deprecated/filesystem/hl_operations/hl_read');
 
 module.exports = eggspress('/read', {
     subdomain: 'api',

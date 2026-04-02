@@ -21,8 +21,7 @@ const { Context } = require('../../util/context');
 const { MultiValue } = require('../../util/multivalue');
 const { stream_to_buffer } = require('../../util/streamutil');
 const { PassThrough } = require('stream');
-const { LLRead } = require('../../filesystem/ll_operations/ll_read');
-const APIError = require('../../api/APIError');
+const { LLRead } = require('../../deprecated/filesystem/ll_operations/ll_read');
 const { secureAxiosRequest } = require('../../util/securehttp');
 
 /**
@@ -90,11 +89,13 @@ class FileFacade extends AdvancedBase {
         });
 
         this.values.add_factory('stream', 'web_url', async web_url => {
-            const response = await secureAxiosRequest(FileFacade.MODULES.axios,
-                            web_url,
-                            {
-                                responseType: 'stream',
-                            });
+            const response = await secureAxiosRequest(
+                FileFacade.MODULES.axios,
+                web_url,
+                {
+                    responseType: 'stream',
+                },
+            );
 
             return response.data;
         });

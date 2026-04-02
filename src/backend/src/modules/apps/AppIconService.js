@@ -20,10 +20,10 @@
 import { createRequire } from 'node:module';
 import config from '../../config.js';
 import { APP_ICONS_SUBDOMAIN } from '../../consts/app-icons.js';
-import { HLWrite } from '../../filesystem/hl_operations/hl_write.js';
-import { LLMkdir } from '../../filesystem/ll_operations/ll_mkdir.js';
-import { LLRead } from '../../filesystem/ll_operations/ll_read.js';
-import { NodePathSelector } from '../../filesystem/node/selectors.js';
+import { HLWrite } from '../../deprecated/filesystem/hl_operations/hl_write.js';
+import { LLMkdir } from '../../deprecated/filesystem/ll_operations/ll_mkdir.js';
+import { LLRead } from '../../deprecated/filesystem/ll_operations/ll_read.js';
+import { NodePathSelector } from '../../deprecated/filesystem/node/selectors.js';
 import { get_app } from '../../helpers.js';
 import BaseService from '../../services/BaseService.js';
 import { DB_READ, DB_WRITE } from '../../services/database/consts.js';

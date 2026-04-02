@@ -22,7 +22,7 @@ const eggspress = require('../api/eggspress.js');
 const APIError = require('../api/APIError.js');
 const { Context } = require('../util/context.js');
 const { UserActorType, AppUnderUserActorType } = require('../services/auth/Actor.js');
-const { NodePathSelector } = require('../filesystem/node/selectors.js');
+const { NodePathSelector } = require('../deprecated/filesystem/node/selectors.js');
 
 // -----------------------------------------------------------------------//
 // POST /sign

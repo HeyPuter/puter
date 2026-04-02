@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { NodePathSelector } = require('../../filesystem/node/selectors');
+const { NodePathSelector } = require('../../deprecated/filesystem/node/selectors');
 const eggspress = require('../../api/eggspress');
 const configurable_auth = require('../../middleware/configurable_auth');
 const BaseService = require('../BaseService');

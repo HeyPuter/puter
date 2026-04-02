@@ -19,15 +19,15 @@
 
 import mime from 'mime-types';
 import { OpenAI } from 'openai';
+import { ResponseCreateParams } from 'openai/resources/responses/responses.mjs';
 import { FSNodeParam } from '../../../../../api/filesystem/FSNodeParam.js';
-import { LLRead } from '../../../../../filesystem/ll_operations/ll_read.js';
+import { LLRead } from '../../../../../deprecated/filesystem/ll_operations/ll_read.js';
 import { Context } from '../../../../../util/context.js';
 import { stream_to_buffer } from '../../../../../util/streamutil.js';
 import { MeteringService } from '../../../../MeteringService/MeteringService.js';
 import * as OpenAiUtil from '../../../utils/OpenAIUtil.js';
 import { IChatProvider, ICompleteArguments } from '../types.js';
 import { OPEN_AI_MODELS } from './models.js';
-import { ResponseCreateParams } from 'openai/resources/responses/responses.mjs';
 
 ;
 

@@ -5,7 +5,7 @@
         "checkJs": false,
         "noEmit": true
     },
-    "include": ["./src/backend"],
+    "include": ["./src/backend", "src/backend/src/deprecated/filesystem/PuterS3StorageStrategy.js"],
     "exclude": [
         "**/*.test.ts",
         "**/*.test.mts",

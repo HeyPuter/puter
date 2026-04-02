@@ -1,5 +1,5 @@
 import path from 'path';
-import { NodePathSelector } from '../../../filesystem/node/selectors.js';
+import { NodePathSelector } from '../../../deprecated/filesystem/node/selectors.js';
 import { hasWritePermissionInDAV } from '../lockStore.mjs';
 import { fsOperations } from '../utils.mjs';
 

@@ -43,7 +43,7 @@ const original_cwd = process.cwd();
 // - false: this is not the desired path; skip it
 // - true:  this is the desired path, and it's valid
 // - throw: this is the desired path, but it's invalid
-const path_checks = ({ logger }) => ({ fs, path_ }) => ({
+const path_checks = () => ({ fs, path_ }) => ({
     require_if_not_undefined: ({ path }) => {
         if ( path == undefined ) return false;
 
@@ -111,19 +111,19 @@ const config_paths = ({ path_checks }) => ({ path_ }) => [
     },
     {
         path: '/etc/puter',
-        checks: [ path_checks.skip_if_not_exists ],
+        checks: [path_checks.skip_if_not_exists],
     },
     {
         get path () {
             return path_.join(original_cwd, 'volatile/config');
         },
-        checks: [ path_checks.skip_if_not_in_repo ],
+        checks: [path_checks.skip_if_not_in_repo],
     },
     {
         get path () {
             return path_.join(original_cwd, 'config');
         },
-        checks: [ path_checks.skip_if_not_exists ],
+        checks: [path_checks.skip_if_not_exists],
     },
 ];
 
@@ -155,13 +155,13 @@ const runtime_paths = ({ path_checks }) => ({ path_ }) => [
         get path () {
             return path_.join(original_cwd, 'volatile/runtime');
         },
-        checks: [ path_checks.skip_if_not_in_repo ],
+        checks: [path_checks.skip_if_not_in_repo],
     },
     {
         get path () {
             return path_.join(original_cwd, 'runtime');
         },
-        checks: [ path_checks.skip_if_not_exists ],
+        checks: [path_checks.skip_if_not_exists],
     },
 ];
 
@@ -187,7 +187,7 @@ const mod_paths = ({ path_checks, entry_path }) => ({ path_ }) => [
         get path () {
             return path_.join(path_.dirname(entry_path || require.main.filename), '../mods');
         },
-        checks: [ path_checks.skip_if_not_exists ],
+        checks: [path_checks.skip_if_not_exists],
     },
 ];
 
@@ -199,9 +199,8 @@ class RuntimeEnvironment extends AdvancedBase {
         format: require('string-template'),
     };
 
-    constructor ({ logger, entry_path, boot_parameters }) {
+    constructor ({ entry_path, boot_parameters }) {
         super();
-        this.logger = logger;
         this.entry_path = entry_path;
         this.boot_parameters = boot_parameters;
         this.path_checks = path_checks(this)(this.modules);
@@ -214,7 +213,7 @@ class RuntimeEnvironment extends AdvancedBase {
         try {
             return this.init_();
         } catch (e) {
-            this.logger.error(e);
+            console.error(e);
             print_error_help(e);
             process.exit(1);
         }
@@ -228,18 +227,22 @@ class RuntimeEnvironment extends AdvancedBase {
         environment.source = this.modules.path_.dirname(this.entry_path || require.main.filename);
         environment.repo = this.modules.path_.dirname(environment.source);
 
-        const config_path_entry = this.get_first_suitable_path_({ pathFor: 'configuration' },
-                        this.config_paths,
-                        [
-                            this.path_checks.require_read_permission,
-                            // this.path_checks.contains_config_file,
-                        ]);
+        const config_path_entry = this.get_first_suitable_path_(
+            { pathFor: 'configuration' },
+            this.config_paths,
+            [
+                this.path_checks.require_read_permission,
+                // this.path_checks.contains_config_file,
+            ],
+        );
 
         // Note: there used to be a 'mods_path_entry' here too
         //       but it was never used
-        const pwd_path_entry = this.get_first_suitable_path_({ pathFor: 'working directory' },
-                        this.runtime_paths,
-                        [ this.path_checks.require_write_permission ]);
+        const pwd_path_entry = this.get_first_suitable_path_(
+            { pathFor: 'working directory' },
+            this.runtime_paths,
+            [this.path_checks.require_write_permission],
+        );
 
         process.chdir(pwd_path_entry.path);
 
@@ -264,15 +267,17 @@ class RuntimeEnvironment extends AdvancedBase {
             generated_values.private_uid_secret = crypto.randomBytes(24).toString('hex');
             generated_values.private_uid_namespace = crypto.randomUUID();
             if ( using_config ) {
-                this.logger.debug(`Overwriting ${quot(using_config)} because ` +
-                    `${hl('--overwrite-config')} is set`);
                 // make backup
-                fs.copyFileSync(path_.join(config_path_entry.path, using_config),
-                                path_.join(config_path_entry.path, `${using_config }.bak`));
+                fs.copyFileSync(
+                    path_.join(config_path_entry.path, using_config),
+                    path_.join(config_path_entry.path, `${using_config }.bak`),
+                );
                 // preserve generated values
                 {
-                    const config_raw = fs.readFileSync(path_.join(config_path_entry.path, using_config),
-                                    'utf8');
+                    const config_raw = fs.readFileSync(
+                        path_.join(config_path_entry.path, using_config),
+                        'utf8',
+                    );
                     const config_values = JSON.parse(config_raw);
                     for ( const k in generated_values ) {
                         if ( ! config_values[k] ) continue;
@@ -285,36 +290,36 @@ class RuntimeEnvironment extends AdvancedBase {
                 ...generated_values,
             };
             generated_config[''] = null; // for trailing comma
-            fs.writeFileSync(path_.join(config_path_entry.path, 'config.json'),
-                            `${JSON.stringify(generated_config, null, 4) }\n`);
+            fs.writeFileSync(
+                path_.join(config_path_entry.path, 'config.json'),
+                `${JSON.stringify(generated_config, null, 4) }\n`,
+            );
             using_config = 'config.json';
         }
 
         let config_to_load = 'config.json';
         if ( process.env.PUTER_CONFIG_PROFILE ) {
-            this.logger.debug(`${hl('PROFILE') } ${
-                quot(process.env.PUTER_CONFIG_PROFILE) } ` +
-                'because $PUTER_CONFIG_PROFILE is set');
             config_to_load = `${process.env.PUTER_CONFIG_PROFILE}.json`;
             const exists = fs.existsSync(path_.join(config_path_entry.path, config_to_load));
             if ( ! exists ) {
-                fs.writeFileSync(path_.join(config_path_entry.path, config_to_load),
-                                `${JSON.stringify({
-                                    config_name: process.env.PUTER_CONFIG_PROFILE,
-                                    $imports: ['config.json'],
-                                }, null, 4) }\n`);
+                fs.writeFileSync(
+                    path_.join(config_path_entry.path, config_to_load),
+                    `${JSON.stringify({
+                        config_name: process.env.PUTER_CONFIG_PROFILE,
+                        $imports: ['config.json'],
+                    }, null, 4) }\n`,
+                );
             }
         }
 
         environment.config_path = path_.join(config_path_entry.path, config_to_load);
 
-        const loader = new ConfigLoader(this.logger, config_path_entry.path, config);
+        const loader = new ConfigLoader(config_path_entry.path, config);
         loader.enable(config_to_load);
 
         if ( ! config.config_name ) {
             throw new Error('config_name is required');
         }
-        this.logger.debug(`${hl('config name') } ${quot(config.config_name)}`);
 
         const mod_paths = [];
         environment.mod_paths = mod_paths;
@@ -341,14 +346,11 @@ class RuntimeEnvironment extends AdvancedBase {
     get_first_suitable_path_ (meta, paths, last_checks) {
         for ( const entry of paths ) {
             const checks = [...(entry.checks ?? []), ...last_checks];
-            this.logger.debug(`Checking path ${quot(entry.label ?? entry.path)} for ${meta.pathFor}...`);
 
             let checks_pass = true;
             for ( const check of checks ) {
-                this.logger.debug(`-> doing ${quot(check.name)} on path ${quot(entry.path)}...`);
                 const result = check(entry);
                 if ( result === false ) {
-                    this.logger.debug(`-> ${quot(check.name)} doesn't like this path`);
                     checks_pass = false;
                     break;
                 }
@@ -356,7 +358,7 @@ class RuntimeEnvironment extends AdvancedBase {
 
             if ( ! checks_pass ) continue;
 
-            this.logger.info(`${hl(meta.pathFor)} ${quot(entry.path)}`);
+            console.info(`${hl(meta.pathFor)} ${quot(entry.path)}`);
 
             return entry;
         }

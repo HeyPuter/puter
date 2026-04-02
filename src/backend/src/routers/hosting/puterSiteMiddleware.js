@@ -22,14 +22,14 @@ import { resolve } from 'path';
 import { v5 as uuidv5 } from 'uuid';
 import APIError from '../../api/APIError.js';
 import config from '../../config.js';
-import fsNodeContext from '../../filesystem/FSNodeContext.js';
-import llReadModule from '../../filesystem/ll_operations/ll_read.js';
-import selectors from '../../filesystem/node/selectors.js';
+import fsNodeContext from '../../deprecated/filesystem/FSNodeContext.js';
+import { LLRead } from '../../deprecated/filesystem/ll_operations/ll_read.js';
+import selectors from '../../deprecated/filesystem/node/selectors.js';
 import { get_app, get_user } from '../../helpers.js';
 import api_error_handler from '../../modules/web/lib/api_error_handler.js';
 import { Actor, SiteActorType, UserActorType } from '../../services/auth/Actor.js';
-import { DB_READ } from '../../services/database/consts.js';
 import { PermissionUtil } from '../../services/auth/permissionUtils.mjs';
+import { DB_READ } from '../../services/database/consts.js';
 import { Context } from '../../util/context.js';
 import { stream_to_buffer as streamToBuffer } from '../../util/streamutil.js';
 import {
@@ -48,7 +48,6 @@ const {
     username_regex: usernameRegex,
 } = config;
 const { TYPE_DIRECTORY } = fsNodeContext;
-const { LLRead } = llReadModule;
 const {
     NodeInternalIDSelector,
     NodePathSelector,

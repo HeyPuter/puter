@@ -19,7 +19,7 @@
 'use strict';
 const config = require('../../config.js');
 const eggspress = require('../../api/eggspress.js');
-const { HLRemove } = require('../../filesystem/hl_operations/hl_remove.js');
+const { HLRemove } = require('../../deprecated/filesystem/hl_operations/hl_remove.js');
 const FSNodeParam = require('../../api/filesystem/FSNodeParam.js');
 
 // -----------------------------------------------------------------------//

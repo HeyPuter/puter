@@ -23,8 +23,8 @@ const { subdomain, validate_signature_auth, get_url_from_req, get_descendants, i
 const { DB_WRITE } = require('../services/database/consts');
 const { UserActorType } = require('../services/auth/Actor');
 const { Actor } = require('../services/auth/Actor');
-const { LLRead } = require('../filesystem/ll_operations/ll_read');
-const { NodeRawEntrySelector } = require('../filesystem/node/selectors');
+const { LLRead } = require('../deprecated/filesystem/ll_operations/ll_read');
+const { NodeRawEntrySelector } = require('../deprecated/filesystem/node/selectors');
 
 // -----------------------------------------------------------------------//
 // GET /file
@@ -93,8 +93,10 @@ router.get('/file', async (req, res, next) => {
         if ( children.length > 0 ) {
             for ( const child of children ) {
                 // sign file
-                const signed_child = await sign_file(child,
-                                can_write ? 'write' : 'read');
+                const signed_child = await sign_file(
+                    child,
+                    can_write ? 'write' : 'read',
+                );
                 signed_children.push(signed_child);
             }
         }
@@ -114,8 +116,10 @@ router.get('/file', async (req, res, next) => {
     const contentType = 'application/octet-stream';
 
     // update `accessed`
-    db.write('UPDATE fsentries SET accessed = ? WHERE `id` = ?',
-                    [Date.now() / 1000, fsentry[0].id]);
+    db.write(
+        'UPDATE fsentries SET accessed = ? WHERE `id` = ?',
+        [Date.now() / 1000, fsentry[0].id],
+    );
 
     const range = req.headers.range;
     const ownerActor =  new Actor({
@@ -204,11 +208,11 @@ router.get('/file', async (req, res, next) => {
 
     // stream data from S3
     try {
-        /* eslint-disable */
+
         const fsNode = await svc_filesystem.node(
             new NodeRawEntrySelector(fsentry[0]),
         );
-        /* eslint-enable */
+
         const ll_read = new LLRead();
         const stream = await ll_read.run({
             range,

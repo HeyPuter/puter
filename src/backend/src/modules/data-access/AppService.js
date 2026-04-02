@@ -1,10 +1,9 @@
 import { v4 as uuidv4 } from 'uuid';
-
 import APIError from '../../api/APIError.js';
 import { deleteRedisKeys } from '../../clients/redis/deleteRedisKeys.js';
 import config from '../../config.js';
 import { APP_ICONS_SUBDOMAIN } from '../../consts/app-icons.js';
-import { NodeInternalIDSelector } from '../../filesystem/node/selectors.js';
+import { NodeInternalIDSelector } from '../../deprecated/filesystem/node/selectors.js';
 import { app_name_exists, get_app } from '../../helpers.js';
 import { AppUnderUserActorType, UserActorType } from '../../services/auth/Actor.js';
 import { PERMISSION_FOR_NOTHING_IN_PARTICULAR, PermissionRewriter, PermissionUtil } from '../../services/auth/permissionUtils.mjs';
