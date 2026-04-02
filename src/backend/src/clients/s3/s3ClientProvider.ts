@@ -15,6 +15,7 @@ const useProviderChain = process.env.S3_USE_PROVIDER_CHAIN === 'true';
 let awsClientConfig: Partial<S3ClientConfig>;
 let fauxqsServer: FauxqsServer;
 let configInitialized = false;
+let configInitializationPromise: Promise<void> | null = null;
 
 const s3ClientMap = new Map<string, S3Client>();
 
@@ -47,80 +48,102 @@ export const s3ClientProvider = (region: string = 'us-west-2') => {
         throw new Error(`Failed to initialize S3 client for region ${region}: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
 };
-
 export const initializeS3Config = async (forceLocalInMem = false) => {
+
     if ( configInitialized ) return;
+    if ( configInitializationPromise ) return configInitializationPromise;
 
-    // Check if we should use fauxqs (no endpoint and no credentials configured)
-    const shouldUseS3Endpoint = s3Endpoint && s3Credentials;
+    configInitializationPromise = (async () => {
+        // Check if we should use fauxqs (no endpoint and no credentials configured)
+        const shouldUseS3Endpoint = s3Endpoint && s3Credentials;
 
-    if ( !forceLocalInMem && useProviderChain ) {
-        awsClientConfig = {
-            credentials: fromNodeProviderChain(),
-        };
-    } else if ( !forceLocalInMem && shouldUseS3Endpoint ) {
-        awsClientConfig = {
-            endpoint: s3Endpoint,
-            credentials: s3Credentials,
-        };
-    } else {
-        console.log('No S3 endpoint or credentials configured, starting fauxqs for local S3 dev...');
-        // Development mode - start fauxqs
-        fauxqsServer = await startFauxqs({
-            port: 4566,
-            logger: false,
-            dataDir: forceLocalInMem ? undefined : './fauxqs-data',
-            s3StorageDir: forceLocalInMem ? undefined : './fauxqs-s3-data',
-            init: {
-                region: 'us-west-2',
-                buckets: [
-                    'puter-local',
-                ],
-            },
-        });
+        if ( !forceLocalInMem && useProviderChain ) {
+            awsClientConfig = {
+                credentials: fromNodeProviderChain(),
+            };
+        } else if ( !forceLocalInMem && shouldUseS3Endpoint ) {
+            awsClientConfig = {
+                endpoint: s3Endpoint,
+                credentials: s3Credentials,
+            };
+        } else {
+            console.log('No S3 endpoint or credentials configured, starting fauxqs for local S3 dev...');
 
-        awsClientConfig = {
-            endpoint: fauxqsServer.address,
-            credentials: {
-                accessKeyId: 'fakeAccessKeyId',
-                secretAccessKey: 'fakeSecretAccessKey',
-            },
-        };
+            const configuredFauxqsPort = Number.parseInt(
+                process.env.S3_FAUXQS_PORT ?? '',
+                10,
+            );
+            const fauxqsHost = forceLocalInMem ? '127.0.0.1' : process.env.S3_FAUXQS_HOST;
+            const fauxqsPort = forceLocalInMem
+                ? 0
+                : Number.isFinite(configuredFauxqsPort)
+                    ? configuredFauxqsPort
+                    : 4566;
 
-        // Gracefully stop server on SIGINT, SIGTERM, or SIGABRT
-        const shutdown = async () => {
-            if ( fauxqsServer ) {
-                await fauxqsServer.stop();
-            }
-        };
-        process.on('SIGINT', shutdown);
-        process.on('SIGTERM', shutdown);
-        process.on('SIGABRT', shutdown);
+            fauxqsServer = await startFauxqs({
+                host: fauxqsHost,
+                port: fauxqsPort,
+                logger: false,
+                dataDir: forceLocalInMem ? undefined : './fauxqs-data',
+                s3StorageDir: forceLocalInMem ? undefined : './fauxqs-s3-data',
+                init: {
+                    region: 'us-west-2',
+                    buckets: [
+                        'puter-local',
+                    ],
+                },
+            });
 
-        // migrate to s3 if files exist in old local directory (legacy from before fauxqs)
-        if ( ! forceLocalInMem ) {
-            const legacyPath = path.join(process.cwd(), 'storage');
-            const client = s3ClientProvider();
-            // Read through each file and add to fauxqs S3 bucket in esm
-            if ( existsSync(legacyPath) ) {
-                const files = await fs.readdir(legacyPath);
-                for ( const file of files ) {
-                    const filePath = path.join(legacyPath, file);
-                    const stat = await fs.stat(filePath);
-                    if ( ! stat.isFile() ) continue;
+            awsClientConfig = {
+                endpoint: fauxqsServer.address,
+                credentials: {
+                    accessKeyId: 'fakeAccessKeyId',
+                    secretAccessKey: 'fakeSecretAccessKey',
+                },
+            };
 
-                    const body = await fs.readFile(filePath);
-                    await client.send(new PutObjectCommand({
-                        Bucket: 'puter-local',
-                        Key: file,
-                        Body: body,
-                    }));
+            // Gracefully stop server on SIGINT, SIGTERM, or SIGABRT
+            const shutdown = async () => {
+                if ( fauxqsServer ) {
+                    await fauxqsServer.stop();
                 }
-                await fs.rm(legacyPath, { recursive: true });
-                console.log(`Migrated ${files.length} file(s) from legacy storage to S3.`);
-            }
-        }
+            };
+            process.on('SIGINT', shutdown);
+            process.on('SIGTERM', shutdown);
+            process.on('SIGABRT', shutdown);
 
+            // migrate to s3 if files exist in old local directory (legacy from before fauxqs)
+            if ( ! forceLocalInMem ) {
+                const legacyPath = path.join(process.cwd(), 'storage');
+                const client = s3ClientProvider();
+                // Read through each file and add to fauxqs S3 bucket in esm
+                if ( existsSync(legacyPath) ) {
+                    const files = await fs.readdir(legacyPath);
+                    for ( const file of files ) {
+                        const filePath = path.join(legacyPath, file);
+                        const stat = await fs.stat(filePath);
+                        if ( ! stat.isFile() ) continue;
+
+                        const body = await fs.readFile(filePath);
+                        await client.send(new PutObjectCommand({
+                            Bucket: 'puter-local',
+                            Key: file,
+                            Body: body,
+                        }));
+                    }
+                    await fs.rm(legacyPath, { recursive: true });
+                    console.log(`Migrated ${files.length} file(s) from legacy storage to S3.`);
+                }
+            }
+
+        }
+        configInitialized = true;
+    })();
+
+    try {
+        await configInitializationPromise;
+    } catch ( error ) {
+        configInitializationPromise = null;
+        throw error;
     }
-    configInitialized = true;
 };
