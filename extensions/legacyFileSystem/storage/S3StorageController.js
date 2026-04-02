@@ -233,6 +233,8 @@ export default class S3StorageController {
                 upload_promises.push(upload_promise);
             };
 
+            const part_queue = [];
+
             check_queue = () => {
                 if ( part_queue.length > 0 ) {
                     const part = part_queue.shift();
@@ -246,8 +248,6 @@ export default class S3StorageController {
                     }
                 }
             };
-
-            const part_queue = [];
 
             for await ( const chunk of chunk_iterator ) {
                 await upload_part(chunk);

@@ -76,9 +76,20 @@ def init_client_config(token: str):
     """
     example_config_path = f"{PUTER_ROOT}/tests/example-client-config.yaml"
     config_path = f"{PUTER_ROOT}/tests/client-config.yaml"
+    fallback_config_path = config_path
 
     # load
-    with open(example_config_path, "r") as f:
+    source_config_path = example_config_path
+    if not os.path.exists(source_config_path):
+        source_config_path = fallback_config_path
+
+    if not os.path.exists(source_config_path):
+        raise FileNotFoundError(
+            "No client config template found. Expected one of: "
+            f"{example_config_path}, {fallback_config_path}"
+        )
+
+    with open(source_config_path, "r") as f:
         config = yaml.safe_load(f)
 
     # update
