@@ -781,7 +781,7 @@ export class FSEntryRepository {
         }
 
         const updatedEntry = this.#mapFSEntryRow(refreshedRow);
-        await this.invalidateEntryCacheByUuid(uuid);
+        await this.#invalidateEntryCache(updatedEntry);
         await this.#writeEntryToCache(updatedEntry);
         return updatedEntry;
     }
@@ -1329,15 +1329,18 @@ export class FSEntryRepository {
     }
 
     async getUserStorageAllowance (userId: number): Promise<{ curr: number; max: number }> {
-        const [usageRow] = await this.#db.read(
-            'SELECT COALESCE(SUM(size), 0) AS totalUsage FROM fsentries WHERE user_id = ?',
-            [userId],
-        ) as { totalUsage: number }[];
-
-        const [userRow] = await this.#db.read(
-            'SELECT free_storage AS freeStorage FROM user WHERE id = ? LIMIT 1',
-            [userId],
-        ) as { freeStorage: number | null }[];
+        const [usageRows, userRows] = await Promise.all([
+            this.#db.read(
+                'SELECT COALESCE(SUM(size), 0) AS totalUsage FROM fsentries WHERE user_id = ?',
+                [userId],
+            ) as Promise<{ totalUsage: number }[]>,
+            this.#db.read(
+                'SELECT free_storage AS freeStorage FROM user WHERE id = ? LIMIT 1',
+                [userId],
+            ) as Promise<{ freeStorage: number | null }[]>,
+        ]);
+        const usageRow = usageRows[0];
+        const userRow = userRows[0];
 
         const curr = Number(usageRow?.totalUsage ?? 0);
         let max = Number(userRow?.freeStorage ?? global_config.storage_capacity ?? 0);

@@ -981,19 +981,20 @@ export class FSEntryService {
         const existingEntry = resolvedTarget.existingEntry;
 
         const existingSize = existingEntry?.size ?? 0;
-        await this.#assertStorageAllowance(userId, normalizedInput.size, existingSize, storageAllowanceMax);
-
         const parentPath = pathPosix.dirname(normalizedInput.path);
-        const {
+        const [, {
             parentEntries,
             createdDirectoryEntries,
-        } = await this.#fsEntryRepository.resolveParentDirectoriesBatchWithCreated(
-            userId,
-            [{
-                parentPath,
-                createPaths: normalizedInput.createMissingParents,
-            }],
-        );
+        }] = await Promise.all([
+            this.#assertStorageAllowance(userId, normalizedInput.size, existingSize, storageAllowanceMax),
+            this.#fsEntryRepository.resolveParentDirectoriesBatchWithCreated(
+                userId,
+                [{
+                    parentPath,
+                    createPaths: normalizedInput.createMissingParents,
+                }],
+            ),
+        ]);
         const [parentEntry] = parentEntries;
         if ( ! parentEntry ) {
             throw new Error('Failed to resolve parent directory for signed write');
@@ -1163,18 +1164,19 @@ export class FSEntryService {
                     existingSize: item.existingEntry?.size ?? 0,
                 });
             }
-            await this.#assertStorageAllowanceForBatch(userId, allowanceChecks, storageAllowanceMax);
-
-            const {
+            const [, {
                 parentEntries,
                 createdDirectoryEntries: createdParentDirectoryEntries,
-            } = await this.#fsEntryRepository.resolveParentDirectoriesBatchWithCreated(
-                userId,
-                resolvedFileItems.map((item) => ({
-                    parentPath: pathPosix.dirname(item.normalizedInput.path),
-                    createPaths: item.normalizedInput.createMissingParents,
-                })),
-            );
+            }] = await Promise.all([
+                this.#assertStorageAllowanceForBatch(userId, allowanceChecks, storageAllowanceMax),
+                this.#fsEntryRepository.resolveParentDirectoriesBatchWithCreated(
+                    userId,
+                    resolvedFileItems.map((item) => ({
+                        parentPath: pathPosix.dirname(item.normalizedInput.path),
+                        createPaths: item.normalizedInput.createMissingParents,
+                    })),
+                ),
+            ]);
             for ( const createdParentDirectoryEntry of createdParentDirectoryEntries ) {
                 createdDirectoryEntriesByPath.set(createdParentDirectoryEntry.path, createdParentDirectoryEntry);
             }

@@ -92,16 +92,18 @@ export class FSController extends ExtensionController {
             createdDirectoryEntries,
         } = await this.fsEntryService.startUrlWriteWithCreatedDirectories(userId, requestBody, storageAllowanceMax);
         await this.#attachSignedThumbnailUploadTargets([requestBody], [response]);
-        for ( const createdDirectoryEntry of createdDirectoryEntries ) {
-            await this.#emitGuiWriteEvent(
-                'outer.gui.item.added',
-                createdDirectoryEntry,
-                requestBody.guiMetadata,
-            );
-        }
-        if ( ! requestBody.directory ) {
-            await this.#emitGuiPendingWriteEvent(userId, requestBody, response);
-        }
+        void this.#runNonCritical(async () => {
+            for ( const createdDirectoryEntry of createdDirectoryEntries ) {
+                await this.#emitGuiWriteEvent(
+                    'outer.gui.item.added',
+                    createdDirectoryEntry,
+                    requestBody.guiMetadata,
+                );
+            }
+            if ( ! requestBody.directory ) {
+                await this.#emitGuiPendingWriteEvent(userId, requestBody, response);
+            }
+        }, 'emitStartWriteEvents');
         res.json(response);
     }
 
@@ -130,38 +132,39 @@ export class FSController extends ExtensionController {
             responses,
             createdDirectoryEntries,
         } = await this.fsEntryService.batchStartUrlWritesWithCreatedDirectories(userId, requests, storageAllowanceMax);
-        await this.#attachSignedThumbnailUploadTargets(requests, responses);
-
         const directoryGuiMetadataByPath = new Map<string, WriteGuiMetadata | undefined>(
             requests
                 .filter((request) => request.directory)
                 .map((request) => [request.fileMetadata.path, request.guiMetadata]),
         );
         const emittedDirectoryPaths = new Set<string>();
-        for ( const createdDirectoryEntry of createdDirectoryEntries ) {
-            if ( emittedDirectoryPaths.has(createdDirectoryEntry.path) ) {
-                continue;
-            }
-            emittedDirectoryPaths.add(createdDirectoryEntry.path);
-            await this.#emitGuiWriteEvent(
-                'outer.gui.item.added',
-                createdDirectoryEntry,
-                directoryGuiMetadataByPath.get(createdDirectoryEntry.path),
-            );
-        }
 
-        await runWithConcurrencyLimit(
-            responses,
-            32,
-            async (writeResponse, index) => {
-                const requestBody = requests[index];
-                if ( requestBody && writeResponse ) {
-                    if ( ! requestBody.directory ) {
-                        await this.#emitGuiPendingWriteEvent(userId, requestBody, writeResponse);
-                    }
+        await this.#attachSignedThumbnailUploadTargets(requests, responses);
+        void this.#runNonCritical(async () => {
+            for ( const createdDirectoryEntry of createdDirectoryEntries ) {
+                if ( emittedDirectoryPaths.has(createdDirectoryEntry.path) ) {
+                    continue;
                 }
-            },
-        );
+                emittedDirectoryPaths.add(createdDirectoryEntry.path);
+                await this.#emitGuiWriteEvent(
+                    'outer.gui.item.added',
+                    createdDirectoryEntry,
+                    directoryGuiMetadataByPath.get(createdDirectoryEntry.path),
+                );
+            }
+            await runWithConcurrencyLimit(
+                responses,
+                32,
+                async (writeResponse, index) => {
+                    const requestBody = requests[index];
+                    if ( requestBody && writeResponse ) {
+                        if ( ! requestBody.directory ) {
+                            await this.#emitGuiPendingWriteEvent(userId, requestBody, writeResponse);
+                        }
+                    }
+                },
+            );
+        }, 'emitStartBatchWriteEvents');
         res.json(responses);
     }
 
@@ -927,11 +930,14 @@ export class FSController extends ExtensionController {
             throw new HttpError(400, 'Cannot write to root path');
         }
 
-        const destinationExists = await this.fsEntryService.entryExistsByPath(targetPath);
         const dedupeEnabled = this.#isDedupeEnabled(normalizedFileMetadata);
-        const pathToCheck = destinationExists && Boolean(normalizedFileMetadata.overwrite) && !dedupeEnabled
-            ? targetPath
-            : parentPath;
+        let pathToCheck = parentPath;
+        if ( Boolean(normalizedFileMetadata.overwrite) && !dedupeEnabled ) {
+            const destinationExists = await this.fsEntryService.entryExistsByPath(targetPath);
+            if ( destinationExists ) {
+                pathToCheck = targetPath;
+            }
+        }
 
         const fsEntryService = this.fsEntryService;
         let ancestorsCache: Promise<Array<{ uid: string; path: string }>> | null = null;
@@ -1316,6 +1322,10 @@ export class FSController extends ExtensionController {
     ): Promise<WriteResponse> {
         let fsEntry = response.fsEntry;
 
+        const hashEventPromise = this.#runNonCritical(async () => {
+            await this.#emitWriteHashEvent(response.contentHashSha256, fsEntry.uuid);
+        }, 'emitWriteHashEvent');
+
         await this.#runNonCritical(async () => {
             fsEntry = await this.#applyThumbnailAfterWrite(
                 userId,
@@ -1332,9 +1342,7 @@ export class FSController extends ExtensionController {
             );
         }, 'emitGuiWriteEvent');
 
-        await this.#runNonCritical(async () => {
-            await this.#emitWriteHashEvent(response.contentHashSha256, fsEntry.uuid);
-        }, 'emitWriteHashEvent');
+        await hashEventPromise;
 
         return { ...response, fsEntry };
     }
