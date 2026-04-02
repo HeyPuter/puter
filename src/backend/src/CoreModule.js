@@ -122,7 +122,6 @@ const install = async ({ context, services, app, useapi, modapi }) => {
 
     // TODO: move these to top level imports or await imports and esm this file
 
-    const { CommandService } = require('./services/CommandService');
     const { RateLimitService } = require('./services/sla/RateLimitService');
     const { AuthService } = require('./services/auth/AuthService');
     const { SLAService } = require('./services/sla/SLAService');
