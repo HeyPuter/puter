@@ -60,6 +60,7 @@ export interface IGenerateVideoParams {
     negative_prompt?: string;
     reference_images?: string[];
     frame_images?: object[];
+    last_frame?: string;
     metadata?: object;
     input_reference?: unknown;
     no_extra_params?: boolean;
