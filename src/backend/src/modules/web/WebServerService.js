@@ -341,6 +341,11 @@ class WebServerService extends BaseService {
     }
 
     registerGracefulShutdownHandlers () {
+        if ( ! process.env.PUTER_SERVER_ID ) {
+            // if not set not running in production, so we can skip setting up graceful shutdown handlers
+            console.warn('PUTER_SERVER_ID is not set; graceful shutdown handlers will not be registered');
+            return;
+        }
         if ( this.gracefulShutdownHandlersInstalled ) return;
         this.gracefulShutdownHandlersInstalled = true;
 
