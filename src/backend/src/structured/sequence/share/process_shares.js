@@ -23,7 +23,7 @@ import config from '../../../config.js';
 import { get_user, get_app } from '../../../helpers.js';
 import { PermissionUtil } from '../../../services/auth/permissionUtils.mjs';
 import FSNodeParam from '../../../api/filesystem/FSNodeParam.js';
-import { TYPE_DIRECTORY } from '../../../filesystem/FSNodeContext.js';
+import { TYPE_DIRECTORY } from '../../../deprecated/filesystem/FSNodeContext.js';
 import { MANAGE_PERM_PREFIX } from '../../../services/auth/permissionConts.mjs';
 
 /*
@@ -64,8 +64,10 @@ const to_standard = (type, body = {}, meta = {}) => {
 
 const process_array = (value) => {
     if ( value.length <= 1 || value.length > 3 ) {
-        return error('invalid-array-length',
-                        'tag-typed arrays should have 1-3 elements');
+        return error(
+            'invalid-array-length',
+            'tag-typed arrays should have 1-3 elements',
+        );
     }
 
     const [type, raw_body, raw_meta] = value;
@@ -77,9 +79,11 @@ const process_structured = (value) => {
         return error('missing-type-property', 'missing "type" property');
     }
 
-    return to_standard(value.type,
-                    normalize_body(value.body),
-                    normalize_meta(value.meta));
+    return to_standard(
+        value.type,
+        normalize_body(value.body),
+        normalize_meta(value.meta),
+    );
 };
 
 const process_standard = (value) => {
@@ -291,9 +295,11 @@ export const processSharesSequence = new Sequence({
 
         for ( const item of shares_work.list() ) {
             if ( item.type !== 'app' ) continue;
-            const [subdomain] = await db.read('SELECT * FROM subdomains WHERE associated_app_id = ? ' +
+            const [subdomain] = await db.read(
+                'SELECT * FROM subdomains WHERE associated_app_id = ? ' +
                 'AND user_id = ? LIMIT 1',
-            [item.app.id, actor.type.user.id]);
+                [item.app.id, actor.type.user.id],
+            );
             if ( ! subdomain ) continue;
 
             // The subdomain is also owned by this user, so we'll

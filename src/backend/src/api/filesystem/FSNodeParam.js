@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { is_valid_path } = require('../../filesystem/validation');
+const { is_valid_path } = require('../../deprecated/filesystem/validation');
 const { is_valid_uuid4 } = require('../../helpers');
 const { Context } = require('../../util/context');
 const { PathBuilder } = require('../../util/pathutil');

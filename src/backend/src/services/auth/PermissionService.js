@@ -18,7 +18,7 @@
  */
 const APIError = require('../../api/APIError');
 const { hardcoded_user_group_permissions } = require('../../data/hardcoded-permissions.js');
-const { ECMAP } = require('../../filesystem/ECMAP');
+const { ECMAP } = require('../../deprecated/filesystem/ECMAP');
 const { get_user, get_app } = require('../../helpers');
 const { reading_has_terminal } = require('../../unstructured/permission-scan-lib');
 const { trace } = require('@opentelemetry/api');

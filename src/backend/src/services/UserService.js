@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-const { RootNodeSelector, NodeChildSelector } = require('../filesystem/node/selectors');
+const { RootNodeSelector, NodeChildSelector } = require('../deprecated/filesystem/node/selectors');
 const { invalidate_cached_user, invalidate_cached_user_by_id } = require('../helpers');
 const BaseService = require('./BaseService');
 const { DB_WRITE } = require('./database/consts');

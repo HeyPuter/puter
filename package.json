@@ -14,6 +14,7 @@
     "@eslint/js": "^9.35.0",
     "@playwright/test": "^1.56.1",
     "@stylistic/eslint-plugin": "^5.3.1",
+    "@types/express": "^4.17.21",
     "@types/mime-types": "^3.0.1",
     "@types/uuid": "^10.0.0",
     "@typescript-eslint/eslint-plugin": "^8.46.1",
@@ -25,7 +26,6 @@
     "dotenv": "^16.4.5",
     "eslint": "^9.35.0",
     "eslint-rule-composer": "^0.3.0",
-    "@types/express": "^4.17.21",
     "globals": "^15.15.0",
     "html-entities": "^2.3.3",
     "html-webpack-plugin": "^5.6.0",
@@ -34,7 +34,6 @@
     "mocha": "^7.2.0",
     "nodemon": "^3.1.0",
     "simple-git": "^3.32.3",
-    "ts-proto": "^2.8.0",
     "typescript": "^5.4.5",
     "uglify-js": "^3.17.4",
     "vite-plugin-static-copy": "^3.3.0",
@@ -55,8 +54,7 @@
     "build": "npx eslint --quiet -c eslint/mandatory.eslint.config.js src/backend/src extensions && npm run build:ts && cd src/gui && node ./build.js",
     "check-translations": "node tools/check-translations.js",
     "prepare": "husky",
-    "build:ts": "tsc -p tsconfig.build.json",
-    "gen": "./scripts/gen.sh"
+    "build:ts": "tsc -p tsconfig.build.json"
   },
   "workspaces": [
     "src/*",
@@ -74,8 +72,10 @@
     "@ai-sdk/openai": "^3.0.25",
     "@anthropic-ai/sdk": "^0.68.0",
     "@aws-sdk/client-dynamodb": "^3.490.0",
+    "@aws-sdk/client-s3": "^3.1020.0",
     "@aws-sdk/client-secrets-manager": "^3.879.0",
     "@aws-sdk/client-sns": "^3.907.0",
+    "@aws-sdk/credential-providers": "^3.1021.0",
     "@aws-sdk/lib-dynamodb": "^3.490.0",
     "@google/genai": "^1.19.0",
     "@heyputer/putility": "^1.0.2",
@@ -84,7 +84,9 @@
     "ai": "^6.0.73",
     "dedent": "^1.5.3",
     "dynalite": "^4.0.0",
+    "express": "^4.18.2",
     "express-xml-bodyparser": "^0.4.1",
+    "fauxqs": "^2.4.3",
     "file-type": "21.3.3",
     "javascript-time-ago": "^2.5.11",
     "json-colorizer": "^3.0.1",
@@ -92,8 +94,7 @@
     "open": "^10.1.0",
     "parse-domain": "^8.2.2",
     "string-template": "^1.0.0",
-    "uuid": "^9.0.1",
-    "express": "^4.18.2"
+    "uuid": "^9.0.1"
   },
   "optionalDependencies": {
     "sharp": "^0.34.4",

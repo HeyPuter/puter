@@ -168,4 +168,4 @@ class HostDiskUsageService extends BaseService {
     }
 }
 
-module.exports = HostDiskUsageService;
+module.exports.HostDiskUsageService = HostDiskUsageService;

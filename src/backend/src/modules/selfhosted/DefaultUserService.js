@@ -16,9 +16,9 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { QuickMkdir } = require('../../filesystem/hl_operations/hl_mkdir');
-const { HLWrite } = require('../../filesystem/hl_operations/hl_write');
-const { NodePathSelector } = require('../../filesystem/node/selectors');
+const { QuickMkdir } = require('../../deprecated/filesystem/hl_operations/hl_mkdir');
+const { HLWrite } = require('../../deprecated/filesystem/hl_operations/hl_write');
+const { NodePathSelector } = require('../../deprecated/filesystem/node/selectors');
 const { get_user, invalidate_cached_user } = require('../../helpers');
 const { Context } = require('../../util/context');
 const { buffer_to_stream } = require('../../util/streamutil');

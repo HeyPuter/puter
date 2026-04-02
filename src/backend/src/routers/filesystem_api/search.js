@@ -18,7 +18,7 @@
  */
 
 const eggspress = require('../../api/eggspress');
-const { HLNameSearch } = require('../../filesystem/hl_operations/hl_name_search');
+const { HLNameSearch } = require('../../deprecated/filesystem/hl_operations/hl_name_search');
 
 module.exports = eggspress('/search', {
     subdomain: 'api',

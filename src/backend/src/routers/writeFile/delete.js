@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-const { HLRemove } = require('../../filesystem/hl_operations/hl_remove');
+const { HLRemove } = require('../../deprecated/filesystem/hl_operations/hl_remove');
 
 module.exports = async function writeFile_handle_delete ({
     req, res, actor, node,

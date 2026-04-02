@@ -104,10 +104,12 @@ extension.on('create.drivers', event => {
             }
 
             // Fetch and return users
-            const users: Array<{ username: string, uuid: string }> = await db.read(`SELECT user.username, user.uuid FROM user_to_app_permissions 
+            const users: Array<{ username: string, uuid: string }> = await db.read(
+                `SELECT user.username, user.uuid FROM user_to_app_permissions 
                     INNER JOIN user ON user_to_app_permissions.user_id = user.id  
                     WHERE permission = 'flag:app-is-authenticated' AND app_id=? ORDER BY (dt IS NOT NULL), dt, user_id LIMIT ? OFFSET ?`,
-            [result.private_meta.mysql_id, safeLimit, safeOffset]);
+                [result.private_meta.mysql_id, safeLimit, safeOffset],
+            );
             return users.map(e => {
                 return { user: e.username, user_uuid: e.uuid };
             });
@@ -120,9 +122,11 @@ extension.on('create.drivers', event => {
             }
 
             // Fetch and return authenticated user count
-            const [data] = await db.read(`SELECT count(*) FROM user_to_app_permissions 
+            const [data] = await db.read(
+                `SELECT count(*) FROM user_to_app_permissions 
                     WHERE permission = 'flag:app-is-authenticated' AND app_id=?;`,
-            [result.private_meta.mysql_id]);
+                [result.private_meta.mysql_id],
+            );
             const count = data['count(*)'];
             return count;
         },

@@ -20,7 +20,7 @@ const { AdvancedBase } = require('@heyputer/putility');
 const { WeakConstructorFeature } = require('../../traits/WeakConstructorFeature');
 const { Property } = require('./Property');
 const { Entity } = require('../entitystorage/Entity');
-const FSNodeContext = require('../../filesystem/FSNodeContext');
+const FSNodeContext = require('../../deprecated/filesystem/FSNodeContext').default;
 
 /**
  * An instance of Mapping wraps every definition in ../mappings before

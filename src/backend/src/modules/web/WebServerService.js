@@ -308,9 +308,11 @@ class WebServerService extends BaseService {
                 socket.broadcast.to(socket.user.id).emit('trash.is_empty', msg);
             });
             const svc_event = this.services.get('event');
-            svc_event.emit('web.socket.connected', {
-                socket,
-                user: socket.user,
+            context.arun(async () => {
+                await svc_event.emit('web.socket.connected', {
+                    socket,
+                    user: socket.user,
+                });
             });
             socket.on('puter_is_actually_open', async (_msg) => {
                 await context.sub({
@@ -340,6 +342,11 @@ class WebServerService extends BaseService {
     }
 
     registerGracefulShutdownHandlers () {
+        if ( ! process.env.PUTER_SERVER_ID ) {
+            // if not set not running in production, so we can skip setting up graceful shutdown handlers
+            console.warn('PUTER_SERVER_ID is not set; graceful shutdown handlers will not be registered');
+            return;
+        }
         if ( this.gracefulShutdownHandlersInstalled ) return;
         this.gracefulShutdownHandlersInstalled = true;
 

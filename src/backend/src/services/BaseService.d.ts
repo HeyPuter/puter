@@ -21,6 +21,7 @@ import type { UserService } from './UserService';
 import type { TokenService } from './auth/TokenService';
 import type { SessionService } from './SessionService';
 import type { PermissionService } from './auth/PermissionService';
+import { MountpointService } from '../modules/puterfs/MountpointService';
 
 export interface ServicesMap {
     su: SUService;
@@ -46,6 +47,7 @@ export interface ServicesMap {
     'token': TokenService;
     'session': SessionService;
     'permission': PermissionService;
+    'mountpoint': MountpointService;
 }
 
 export interface ServiceResources {

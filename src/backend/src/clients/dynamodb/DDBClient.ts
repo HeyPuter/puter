@@ -1,5 +1,5 @@
-import { CreateTableCommand, CreateTableCommandInput, DynamoDBClient, UpdateTimeToLiveCommand } from '@aws-sdk/client-dynamodb';
-import { BatchGetCommand, BatchGetCommandInput, BatchWriteCommand, BatchWriteCommandInput, DeleteCommand, DynamoDBDocumentClient, GetCommand, PutCommand, QueryCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import { CreateTableCommand, CreateTableCommandInput, DynamoDBClient } from '@aws-sdk/client-dynamodb';
+import { BatchGetCommand, BatchGetCommandInput, BatchWriteCommand, BatchWriteCommandInput, DeleteCommand, DynamoDBDocumentClient, GetCommand, PutCommand, QueryCommand, ScanCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import { NodeHttpHandler } from '@smithy/node-http-handler';
 import dynalite from 'dynalite';
 import { once } from 'node:events';
@@ -358,19 +358,46 @@ export class DDBClient {
             if ( (e as Error)?.name !== 'ResourceInUseException' ) {
                 throw e;
             }
-            setTimeout(async () => {
-                if ( ttlAttribute ) {
-                // ensure TTL is set
-                    await this.#documentClient.send(new UpdateTimeToLiveCommand({
-                        TableName: params.TableName!,
-                        TimeToLiveSpecification: {
-                            AttributeName: ttlAttribute,
-                            Enabled: true,
-                        },
-                    }));
-                }
-            }, 50); // wait 5 seconds to ensure table is active
-
         }
+        if ( ttlAttribute ) {
+            await this.#deleteExpiredItems(params.TableName!, params.KeySchema!, ttlAttribute);
+        }
+    }
+
+    async #deleteExpiredItems (table: string, keySchema: NonNullable<CreateTableCommandInput['KeySchema']>, ttlAttribute: string) {
+        const now = Math.floor(Date.now() / 1000);
+        const keyNames = keySchema.map(k => k.AttributeName!);
+
+        let lastEvaluatedKey: Record<string, unknown> | undefined;
+        do {
+            const scan = await this.#documentClient.send(new ScanCommand({
+                TableName: table,
+                FilterExpression: '#ttl < :now',
+                ExpressionAttributeNames: {
+                    '#ttl': ttlAttribute,
+                    ...Object.fromEntries(keyNames.map(k => [`#k_${k}`, k])),
+                },
+                ExpressionAttributeValues: { ':now': now },
+                ProjectionExpression: keyNames.map(k => `#k_${k}`).join(', '),
+                ...(lastEvaluatedKey ? { ExclusiveStartKey: lastEvaluatedKey } : {}),
+            }));
+
+            lastEvaluatedKey = scan.LastEvaluatedKey as Record<string, unknown> | undefined;
+            const items = scan.Items;
+            if ( !items || items.length === 0 ) continue;
+
+            const chunks = chunkValues(items, MAX_BATCH_WRITE_ITEMS);
+            for ( const chunk of chunks ) {
+                await this.#documentClient.send(new BatchWriteCommand({
+                    RequestItems: {
+                        [table]: chunk.map(item => ({
+                            DeleteRequest: {
+                                Key: Object.fromEntries(keyNames.map(k => [k, item[k]])),
+                            },
+                        })),
+                    },
+                }));
+            }
+        } while ( lastEvaluatedKey );
     }
 }

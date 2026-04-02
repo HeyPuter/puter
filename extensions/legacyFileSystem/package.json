@@ -1,0 +1,9 @@
+{
+    "main": "main.js",
+    "type": "module",
+    "dependencies": {
+        "teepromise": "^0.1.1",
+        "uuid": "^13.0.0",
+        "@aws-sdk/client-s3": "^3.1021.0"
+    }
+}
