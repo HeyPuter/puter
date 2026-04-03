@@ -41,6 +41,13 @@ export class FSEntryRepository {
         this.#kvStore = kvStore;
     }
 
+    #insertIgnoreIntoFsentriesSql (): string {
+        return this.#db.case({
+            sqlite: 'INSERT OR IGNORE INTO fsentries',
+            otherwise: 'INSERT IGNORE INTO fsentries',
+        });
+    }
+
     #normalizePath (path: string): string {
         const trimmed = path.trim();
         if ( trimmed.length === 0 ) {
@@ -453,7 +460,7 @@ export class FSEntryRepository {
 
                 try {
                     await this.#db.write(
-                        `INSERT IGNORE INTO fsentries (
+                        `${this.#insertIgnoreIntoFsentriesSql()} (
                             uuid,
                             user_id,
                             parent_id,
@@ -560,7 +567,7 @@ export class FSEntryRepository {
 
         try {
             await this.#db.write(
-                `INSERT IGNORE INTO fsentries (
+                `${this.#insertIgnoreIntoFsentriesSql()} (
                     uuid,
                     user_id,
                     parent_id,

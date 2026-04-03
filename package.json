@@ -86,7 +86,7 @@
     "dynalite": "^4.0.0",
     "express": "^4.18.2",
     "express-xml-bodyparser": "^0.4.1",
-    "fauxqs": "^2.4.3",
+    "fauxqs": "^2.5.0",
     "file-type": "21.3.3",
     "javascript-time-ago": "^2.5.11",
     "json-colorizer": "^3.0.1",

@@ -67,6 +67,7 @@ class UploadProgressTracker implements UploadProgressTrackerLike {
 const aclService = extension.import('service:acl') as ACLService;
 const MAX_THUMBNAIL_BYTES = 2 * 1024 * 1024;
 const DEFAULT_BATCH_ACL_CHECK_CONCURRENCY = 32;
+const DEFAULT_BATCH_WRITE_SIDE_EFFECT_CONCURRENCY = 8;
 
 @Controller('/fs')
 export class FSController extends ExtensionController {
@@ -213,7 +214,7 @@ export class FSController extends ExtensionController {
         const response = await this.fsEntryService.batchCompleteUrlWrite(userId, requests);
         const updatedResponse = await runWithConcurrencyLimit(
             response,
-            32,
+            DEFAULT_BATCH_WRITE_SIDE_EFFECT_CONCURRENCY,
             async (writeResponse, index) => {
                 const requestBody = requests[index];
                 const withSideEffects = await this.#applyWriteResponseSideEffects(

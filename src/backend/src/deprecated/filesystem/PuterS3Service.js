@@ -38,7 +38,7 @@ export class PuterS3Service extends BaseService {
     }
 
     _get_client (region) {
-        return s3ClientProvider(region);
+        return s3ClientProvider.get(region);
     }
 
     async create_read_stream ({ bucket_region, bucket, key, version_id, range }) {

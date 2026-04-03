@@ -341,11 +341,6 @@ class WebServerService extends BaseService {
     }
 
     registerGracefulShutdownHandlers () {
-        if ( ! process.env.PUTER_SERVER_ID ) {
-            // if not set not running in production, so we can skip setting up graceful shutdown handlers
-            console.warn('PUTER_SERVER_ID is not set; graceful shutdown handlers will not be registered');
-            return;
-        }
         if ( this.gracefulShutdownHandlersInstalled ) return;
         this.gracefulShutdownHandlersInstalled = true;
 
@@ -355,9 +350,18 @@ class WebServerService extends BaseService {
         process.on('SIGINT', () => {
             this.beginGracefulShutdown('SIGINT');
         });
+        process.on('SIGABRT', () => {
+            this.beginGracefulShutdown('SIGABRT');
+        });
     }
 
     beginGracefulShutdown (signal) {
+        if ( ! process.env.PUTER_SERVER_ID ) {
+            // if not set not running in production, so we can skip setting up graceful shutdown handlers
+            console.warn('PUTER_SERVER_ID is not set; not waiting for graceful shutdown handlers to complete');
+            process.exit(0);
+            return;
+        }
         if ( this.shutdownStarted ) return;
         this.shutdownStarted = true;
         this.isDraining = true;

@@ -9,6 +9,7 @@ import {
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import type { s3ClientProvider } from '@heyputer/backend/src/clients/s3/s3ClientProvider.js';
+import { Readable } from 'node:stream';
 import type {
     MultipartCompleteInput,
     ServerUploadInput,
@@ -17,9 +18,6 @@ import type {
     SignedUploadPart,
     SignedUploadResult,
 } from './s3Types.js';
-
-const MIN_MULTIPART_SIZE = 64 * 1024 * 1024;
-const DEFAULT_MULTIPART_PART_SIZE = 64 * 1024 * 1024;
 
 export class S3StorageProvider {
 
@@ -30,7 +28,22 @@ export class S3StorageProvider {
     }
 
     #getClientForRegion (region: string): S3Client {
-        return this.#s3ClientProvider(region);
+        return this.#s3ClientProvider.get(region);
+    }
+
+    getMaxSingleUploadSize (): number {
+        return this.#s3ClientProvider.maxSingleUploadSize;
+    }
+
+    getMultipartPartSize (): number {
+        return this.#s3ClientProvider.partSize;
+    }
+
+    #resolveMultipartPartSize (requestedPartSize?: number): number {
+        return Math.max(
+            this.getMaxSingleUploadSize(),
+            requestedPartSize ?? this.getMultipartPartSize(),
+        );
     }
 
     async createSignedUploadUrl (fileMetadata: SignedUploadInput, region: string): Promise<SignedUploadResult> {
@@ -47,8 +60,11 @@ export class S3StorageProvider {
         const settledResults = await Promise.allSettled(filesMetadata.map(async (fileMetadata) => {
             const expiresInSeconds = Math.max(60, Math.min(60 * 60, fileMetadata.expiresInSeconds));
             const expiresAt = now + expiresInSeconds * 1000;
+            const maxSingleUploadSize = this.getMaxSingleUploadSize();
+            const shouldUseSingleUpload = fileMetadata.uploadMode === 'single'
+                && fileMetadata.size <= maxSingleUploadSize;
 
-            if ( fileMetadata.uploadMode === 'single' ) {
+            if ( shouldUseSingleUpload ) {
                 const command = new PutObjectCommand({
                     Bucket: fileMetadata.bucket,
                     Key: fileMetadata.objectKey,
@@ -62,10 +78,7 @@ export class S3StorageProvider {
                 };
             }
 
-            const multipartPartSize = Math.max(
-                MIN_MULTIPART_SIZE,
-                fileMetadata.multipartPartSize ?? DEFAULT_MULTIPART_PART_SIZE,
-            );
+            const multipartPartSize = this.#resolveMultipartPartSize(fileMetadata.multipartPartSize);
             const multipartPartCount = Math.max(1, Math.ceil(fileMetadata.size / multipartPartSize));
             let multipartUploadId: string | undefined;
 
@@ -202,13 +215,24 @@ export class S3StorageProvider {
 
     async uploadFromServer (input: ServerUploadInput, region: string): Promise<void> {
         const client = this.#getClientForRegion(region);
-        await client.send(new PutObjectCommand({
-            Bucket: input.bucket,
-            Key: input.objectKey,
-            ContentType: input.contentType,
-            Body: input.body,
-            ...(input.contentLength !== undefined ? { ContentLength: input.contentLength } : {}),
-        }));
+        const maxSingleUploadSize = this.getMaxSingleUploadSize();
+        const resolvedContentLength = this.#resolveContentLength(input);
+        const shouldUseMultipart = input.body instanceof Readable
+            ? resolvedContentLength === undefined || resolvedContentLength > maxSingleUploadSize
+            : resolvedContentLength !== undefined && resolvedContentLength > maxSingleUploadSize;
+
+        if ( ! shouldUseMultipart ) {
+            await client.send(new PutObjectCommand({
+                Bucket: input.bucket,
+                Key: input.objectKey,
+                ContentType: input.contentType,
+                Body: input.body,
+                ...(input.contentLength !== undefined ? { ContentLength: input.contentLength } : {}),
+            }));
+            return;
+        }
+
+        await this.#uploadFromServerMultipart(input, region, this.#resolveMultipartPartSize());
     }
 
     async deleteObject (bucket: string, objectKey: string, region: string): Promise<void> {
@@ -217,5 +241,143 @@ export class S3StorageProvider {
             Bucket: bucket,
             Key: objectKey,
         }));
+    }
+
+    #resolveContentLength (input: ServerUploadInput): number | undefined {
+        if ( Number.isFinite(input.contentLength) && Number(input.contentLength) >= 0 ) {
+            return Number(input.contentLength);
+        }
+        if ( Number.isFinite(input.sizeHint) && Number(input.sizeHint) >= 0 ) {
+            return Number(input.sizeHint);
+        }
+        if ( Buffer.isBuffer(input.body) || input.body instanceof Uint8Array ) {
+            return input.body.byteLength;
+        }
+        if ( typeof input.body === 'string' ) {
+            return Buffer.byteLength(input.body);
+        }
+        return undefined;
+    }
+
+    #toBuffer (chunk: unknown): Buffer {
+        if ( Buffer.isBuffer(chunk) ) {
+            return chunk;
+        }
+        if ( chunk instanceof Uint8Array ) {
+            return Buffer.from(chunk.buffer, chunk.byteOffset, chunk.byteLength);
+        }
+        if ( typeof chunk === 'string' ) {
+            return Buffer.from(chunk);
+        }
+        throw new Error('Unsupported chunk type for multipart upload');
+    }
+
+    async #uploadFromServerMultipart (
+        input: ServerUploadInput,
+        region: string,
+        partSize: number,
+    ): Promise<void> {
+        const client = this.#getClientForRegion(region);
+        const createResult = await client.send(new CreateMultipartUploadCommand({
+            Bucket: input.bucket,
+            Key: input.objectKey,
+            ContentType: input.contentType,
+        }));
+
+        const uploadId = createResult.UploadId;
+        if ( ! uploadId ) {
+            throw new Error('Failed to initialize multipart upload');
+        }
+
+        const completedParts: Array<{ ETag: string; PartNumber: number; }> = [];
+        let partNumber = 1;
+
+        const uploadPart = async (partBody: Buffer) => {
+            const uploadPartResult = await client.send(new UploadPartCommand({
+                Bucket: input.bucket,
+                Key: input.objectKey,
+                UploadId: uploadId,
+                PartNumber: partNumber,
+                Body: partBody,
+                ContentLength: partBody.byteLength,
+            }));
+            if ( ! uploadPartResult.ETag ) {
+                throw new Error(`Multipart upload returned no ETag for part ${partNumber}`);
+            }
+            completedParts.push({
+                ETag: uploadPartResult.ETag,
+                PartNumber: partNumber,
+            });
+            partNumber++;
+        };
+
+        try {
+            if ( Buffer.isBuffer(input.body) || input.body instanceof Uint8Array ) {
+                const bufferBody = this.#toBuffer(input.body);
+                for ( let offset = 0; offset < bufferBody.byteLength; offset += partSize ) {
+                    const partBody = bufferBody.subarray(offset, offset + partSize);
+                    await uploadPart(partBody);
+                }
+            } else if ( typeof input.body === 'string' ) {
+                const bufferBody = Buffer.from(input.body);
+                for ( let offset = 0; offset < bufferBody.byteLength; offset += partSize ) {
+                    const partBody = bufferBody.subarray(offset, offset + partSize);
+                    await uploadPart(partBody);
+                }
+            } else if ( input.body instanceof Readable ) {
+                let pendingChunk: Buffer = Buffer.alloc(0);
+                for await ( const chunk of input.body ) {
+                    const chunkBuffer = this.#toBuffer(chunk);
+                    if ( chunkBuffer.byteLength === 0 ) {
+                        continue;
+                    }
+                    pendingChunk = pendingChunk.byteLength === 0
+                        ? chunkBuffer
+                        : Buffer.concat([pendingChunk, chunkBuffer]);
+                    while ( pendingChunk.byteLength >= partSize ) {
+                        const partBody = pendingChunk.subarray(0, partSize);
+                        await uploadPart(partBody);
+                        pendingChunk = pendingChunk.subarray(partSize);
+                    }
+                }
+                if ( pendingChunk.byteLength > 0 ) {
+                    await uploadPart(pendingChunk);
+                }
+            } else {
+                throw new Error('Unsupported body type for multipart upload');
+            }
+
+            if ( completedParts.length === 0 ) {
+                await client.send(new AbortMultipartUploadCommand({
+                    Bucket: input.bucket,
+                    Key: input.objectKey,
+                    UploadId: uploadId,
+                }));
+                await client.send(new PutObjectCommand({
+                    Bucket: input.bucket,
+                    Key: input.objectKey,
+                    ContentType: input.contentType,
+                    Body: Buffer.alloc(0),
+                    ContentLength: 0,
+                }));
+                return;
+            }
+
+            await client.send(new CompleteMultipartUploadCommand({
+                Bucket: input.bucket,
+                Key: input.objectKey,
+                UploadId: uploadId,
+                MultipartUpload: {
+                    Parts: completedParts,
+                },
+            }));
+        } catch ( error ) {
+            await client.send(new AbortMultipartUploadCommand({
+                Bucket: input.bucket,
+                Key: input.objectKey,
+                UploadId: uploadId,
+            })).catch(() => undefined);
+            throw error;
+        }
     }
 }

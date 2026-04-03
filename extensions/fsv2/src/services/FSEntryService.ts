@@ -43,7 +43,6 @@ const { HttpError } = extension.import('extensionController');
 
 const DEFAULT_CONTENT_TYPE = 'application/octet-stream';
 const DEFAULT_SIGNED_UPLOAD_EXPIRY_SECONDS = 60 * 15;
-const MULTIPART_AUTO_THRESHOLD_BYTES = 128 * 1024 * 1024;
 
 interface WriteTargetResolutionInput {
     index: number;
@@ -287,10 +286,14 @@ export class FSEntryService {
     }
 
     #determineUploadMode (requestUploadMode: UploadMode | 'auto' | undefined, size: number): UploadMode {
-        if ( requestUploadMode === 'single' || requestUploadMode === 'multipart' ) {
-            return requestUploadMode;
+        const maxSingleUploadSize = this.#s3StorageProvider.getMaxSingleUploadSize();
+        if ( requestUploadMode === 'multipart' ) {
+            return 'multipart';
         }
-        return size >= MULTIPART_AUTO_THRESHOLD_BYTES ? 'multipart' : 'single';
+        if ( requestUploadMode === 'single' ) {
+            return size > maxSingleUploadSize ? 'multipart' : 'single';
+        }
+        return size > maxSingleUploadSize ? 'multipart' : 'single';
     }
 
     #resolveStorageMax (
@@ -623,6 +626,10 @@ export class FSEntryService {
         }
     }
 
+    getMaxSingleUploadSize (): number {
+        return this.#s3StorageProvider.getMaxSingleUploadSize();
+    }
+
     async #cleanupSignedMultipartUploads (uploads: SignedMultipartCleanupTarget[]): Promise<void> {
         if ( uploads.length === 0 ) {
             return;
@@ -862,6 +869,9 @@ export class FSEntryService {
             contentType: preparedItem.normalizedInput.contentType,
             body: uploadBody.body,
             ...(uploadBody.contentLength !== undefined ? { contentLength: uploadBody.contentLength } : {}),
+            ...(Number.isFinite(preparedItem.normalizedInput.size)
+                ? { sizeHint: preparedItem.normalizedInput.size }
+                : {}),
         }, preparedItem.normalizedInput.bucketRegion);
 
         const uploadedSize = uploadBody.uploadedSize();
@@ -1659,6 +1669,9 @@ export class FSEntryService {
             contentType: normalizedInput.contentType,
             body: uploadBody.body,
             ...(uploadBody.contentLength !== undefined ? { contentLength: uploadBody.contentLength } : {}),
+            ...(Number.isFinite(normalizedInput.size)
+                ? { sizeHint: normalizedInput.size }
+                : {}),
         }, normalizedInput.bucketRegion);
 
         const uploadedSize = uploadBody.uploadedSize();

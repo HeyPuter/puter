@@ -648,7 +648,7 @@ export default class FSNodeContext {
             return this.path;
         }
 
-        if ( key === 'uid' ) {
+        if ( key === 'uid' || key === 'uuid' ) {
             const uidSelector = this.get_selector_of_type(NodeUIDSelector);
             if ( uidSelector ) {
                 return uidSelector.value;

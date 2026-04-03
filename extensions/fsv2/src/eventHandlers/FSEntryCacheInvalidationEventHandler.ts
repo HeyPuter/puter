@@ -1,6 +1,7 @@
 import type { FSEntryRepository } from '../repositories/FSEntryRepository.js';
 import type {
     FsRemoveNodeEventPayload,
+    FsRemoveNodeTarget,
     OuterGuiItemEventPayload,
 } from './types.js';
 
@@ -58,6 +59,40 @@ export class FSEntryCacheInvalidationEventHandler {
         return trimmed.length > 0 ? trimmed : null;
     }
 
+    #isUnrecognizedTargetKeyError (error: unknown): boolean {
+        if ( ! (error instanceof Error) ) {
+            return false;
+        }
+        return error.message.includes('unrecognize key for FSNodeContext.get:');
+    }
+
+    async #readTargetValue (target: FsRemoveNodeTarget, keys: string[]): Promise<unknown> {
+        if ( typeof target.get !== 'function' ) {
+            return undefined;
+        }
+
+        for ( const key of keys ) {
+            try {
+                return await target.get(key);
+            } catch ( error ) {
+                if ( this.#isUnrecognizedTargetKeyError(error) ) {
+                    continue;
+                }
+                throw error;
+            }
+        }
+
+        return undefined;
+    }
+
+    #extractUidFromEntry (value: unknown): string | null {
+        if ( !value || typeof value !== 'object' ) {
+            return null;
+        }
+        const entry = value as { uid?: unknown; uuid?: unknown };
+        return this.#toNonEmptyString(entry.uid) ?? this.#toNonEmptyString(entry.uuid);
+    }
+
     async #handleOuterGuiItemEvent (event: OuterGuiItemEventPayload): Promise<void> {
         const userIds = this.#toUserIds(event?.user_id_list);
         const response = event?.response ?? {};
@@ -93,13 +128,15 @@ export class FSEntryCacheInvalidationEventHandler {
             return;
         }
 
-        const userIdValue = await target.get('user_id');
-        const pathValue = await target.get('path');
-        const uuidValue = await target.get('uuid');
+        const userIdValue = await this.#readTargetValue(target, ['user_id']);
+        const pathValue = await this.#readTargetValue(target, ['path']);
+        const uidValue =
+            await this.#readTargetValue(target, ['uid', 'uuid'])
+            ?? this.#extractUidFromEntry(await this.#readTargetValue(target, ['entry']));
 
         const userId = Number(userIdValue);
         const path = this.#toNonEmptyString(pathValue);
-        const uuid = this.#toNonEmptyString(uuidValue);
+        const uuid = this.#toNonEmptyString(uidValue);
 
         const tasks: Promise<void>[] = [];
         if ( Number.isInteger(userId) && userId > 0 && path ) {

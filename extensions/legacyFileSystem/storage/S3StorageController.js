@@ -32,7 +32,7 @@ export default class S3StorageController {
 
     #get_client (region) {
 
-        return s3ClientProvider(region);
+        return s3ClientProvider.get(region);
     }
 
     async upload ({ uid, file, storage_meta, storage_api }) {
@@ -349,7 +349,7 @@ export default class S3StorageController {
             Key: dst_key,
         }));
 
-        const part_size = 4 * 1024 * 1024 * 1024; // 1GiB
+        const part_size = 4 * 1024 * 1024 * 1024; // 4GiB
 
         const results = [];
 

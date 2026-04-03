@@ -51,4 +51,5 @@ export interface ServerUploadInput {
     contentType: string;
     body: Buffer | Uint8Array | string | Readable;
     contentLength?: number;
+    sizeHint?: number;
 }
