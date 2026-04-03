@@ -99,23 +99,23 @@ If the user has no keys, the array will be empty.
             puter.print('Created 6 key-value pairs<br><br>');
 
             // Paginate with cursor (2 items per page)
-            let cursor = undefined;
+            let currentCursor = undefined;
             let page = 1;
             do {
                 const result = await puter.kv.list({
                     limit: 2,
                     returnValues: true,
-                    ...(cursor ? { cursor } : {}),
+                    cursor: currentCursor,
                 });
-                const items = result.items || result;
+                const items = result.items;
                 puter.print(`<b>Page ${page}:</b><br>`);
                 for (const item of items) {
                     puter.print(`  ${item.key} => ${item.value}<br>`);
                 }
                 puter.print('<br>');
-                cursor = result.cursor;
+                currentCursor = result.cursor;
                 page++;
-            } while (cursor);
+            } while (currentCursor);
 
             puter.print('Done paginating.<br><br>');
 
@@ -128,6 +128,7 @@ If the user has no keys, the array will be empty.
     </script>
 </body>
 </html>
+
 ```
 
 <strong class="example-title">Sort keys lexicographically</strong>
