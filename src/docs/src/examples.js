@@ -408,6 +408,12 @@ const examples = [
                 source: '/playground/examples/kv-list.html',
             },
             {
+                title: 'List (Pagination)',
+                description: 'Paginate key-value results with a cursor and limit using puter.kv.list(). Run and modify this example in the playground.',
+                slug: 'kv-list-pagination',
+                source: '/playground/examples/kv-list-pagination.html',
+            },
+            {
                 title: 'List (Sorted)',
                 description: 'See how keys are returned in lexicographic order with puter.kv.list(). Run and modify this example in the playground.',
                 slug: 'kv-list-sort',
