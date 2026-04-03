@@ -3,38 +3,28 @@
     <script src="https://js.puter.com/v2/"></script>
     <script>
         (async () => {
-            // Create sample data
-            for (let i = 1; i <= 6; i++) {
-                await puter.kv.set(`item-${i}`, `value-${i}`);
-            }
-            puter.print('Created 6 key-value pairs<br><br>');
+            // (1) Create a number of key-value pairs
+            await puter.kv.set('name', 'Puter Smith');
+            await puter.kv.set('age', 21);
+            await puter.kv.set('isCool', true);
+            puter.print("Key-value pairs created/updated<br><br>");
 
-            // Paginate with cursor (2 items per page)
-            let cursor = undefined;
-            let page = 1;
-            do {
-                const result = await puter.kv.list({
-                    limit: 2,
-                    returnValues: true,
-                    ...(cursor ? { cursor } : {}),
-                });
-                const items = result.items || result;
-                puter.print(`<b>Page ${page}:</b><br>`);
-                for (const item of items) {
-                    puter.print(`  ${item.key} => ${item.value}<br>`);
-                }
-                puter.print('<br>');
-                cursor = result.cursor;
-                page++;
-            } while (cursor);
+            // (2) Retrieve all keys
+            const keys = await puter.kv.list();
+            puter.print(`Keys are: ${keys}<br><br>`);
 
-            puter.print('Done paginating.<br><br>');
+            // (3) Retrieve all keys and values
+            const key_vals = await puter.kv.list(true);
+            puter.print(`Keys and values are: ${(key_vals).map((key_val) => key_val.key + ' => ' + key_val.value)}<br><br>`);
 
-            // Cleanup
-            for (let i = 1; i <= 6; i++) {
-                await puter.kv.del(`item-${i}`);
-            }
-            puter.print('Cleaned up sample data.');
+            // (4) Match keys with a pattern
+            const keys_matching_pattern = await puter.kv.list('is*');
+            puter.print(`Keys matching pattern are: ${keys_matching_pattern}<br>`);
+
+            // (5) Delete all keys (cleanup)
+            await puter.kv.del('name');
+            await puter.kv.del('age');
+            await puter.kv.del('isCool');
         })();
     </script>
 </body>
