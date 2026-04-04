@@ -37,6 +37,9 @@ import type {
 
 const { Controller, ExtensionController, HttpError, Post } = extension.import('extensionController');
 const { Context } = extension.import('core');
+const getApp = extension.import('core').util.helpers.get_app as (
+    query: { uid: string },
+) => Promise<{ id?: unknown } | null>;
 class UploadProgressTracker implements UploadProgressTrackerLike {
     total = 0;
     progress = 0;
@@ -84,6 +87,7 @@ export class FSController extends ExtensionController {
         const storageAllowanceMax = this.#getStorageAllowanceMaxOverride(req);
         const requestBody = this.#withGuiMetadata(req.body, req.body);
         requestBody.fileMetadata = this.#normalizeFileMetadataPath(req, requestBody.fileMetadata, requestBody);
+        requestBody.fileMetadata = await this.#resolveAssociatedAppMetadata(requestBody.fileMetadata, requestBody);
         await this.#assertWriteAccess(req, requestBody.fileMetadata, {
             pathAlreadyNormalized: true,
         });
@@ -116,16 +120,22 @@ export class FSController extends ExtensionController {
     async startBatchWrites (req: Request<RouteParams, null, SignedWriteRequest[]>, res: Response<SignedWriteResponse[]>) {
         const userId = this.#getActorUserId(req);
         const storageAllowanceMax = this.#getStorageAllowanceMaxOverride(req);
+        const appUidLookupCache = new Map<string, Promise<number | null>>();
         const requests = Array.isArray(req.body)
-            ? req.body.map((requestBody) => {
+            ? await Promise.all(req.body.map(async (requestBody) => {
                 const normalizedRequestBody = this.#withGuiMetadata(requestBody, req.body);
                 normalizedRequestBody.fileMetadata = this.#normalizeFileMetadataPath(
                     req,
                     normalizedRequestBody.fileMetadata,
                     normalizedRequestBody,
                 );
+                normalizedRequestBody.fileMetadata = await this.#resolveAssociatedAppMetadata(
+                    normalizedRequestBody.fileMetadata,
+                    normalizedRequestBody,
+                    appUidLookupCache,
+                );
                 return normalizedRequestBody;
-            })
+            }))
             : [];
         await this.#assertBatchWriteAccess(
             req,
@@ -260,6 +270,7 @@ export class FSController extends ExtensionController {
         const storageAllowanceMax = this.#getStorageAllowanceMaxOverride(req);
         const requestBody = this.#withGuiMetadata(req.body, req.body);
         requestBody.fileMetadata = this.#normalizeFileMetadataPath(req, requestBody.fileMetadata, requestBody);
+        requestBody.fileMetadata = await this.#resolveAssociatedAppMetadata(requestBody.fileMetadata, requestBody);
         await this.#assertWriteAccess(req, requestBody.fileMetadata, {
             pathAlreadyNormalized: true,
         });
@@ -285,6 +296,7 @@ export class FSController extends ExtensionController {
         const userId = this.#getActorUserId(req);
         const storageAllowanceMax = this.#getStorageAllowanceMaxOverride(req);
         const requestMode = this.#resolveBatchWriteRequestMode(req);
+        const appUidLookupCache = new Map<string, Promise<number | null>>();
         if ( requestMode === 'multipart' ) {
             let parsedManifest: ParsedMultipartBatchManifest | null = null;
             let preparedBatch: PreparedBatchWrite | null = null;
@@ -341,6 +353,17 @@ export class FSController extends ExtensionController {
                             if ( ! parsedManifest ) {
                                 throw new HttpError(400, 'Batch write manifest is missing');
                             }
+                            parsedManifest = {
+                                ...parsedManifest,
+                                items: await Promise.all(parsedManifest.items.map(async (item) => ({
+                                    ...item,
+                                    fileMetadata: await this.#resolveAssociatedAppMetadata(
+                                        item.fileMetadata,
+                                        item,
+                                        appUidLookupCache,
+                                    ),
+                                }))),
+                            };
                             const activeManifestItems = parsedManifest.items
                                 .filter((item) => !parsedManifest?.ignoredItemIndexes?.has(item.index));
 
@@ -490,15 +513,20 @@ export class FSController extends ExtensionController {
         }
 
         const requests = Array.isArray(req.body)
-            ? req.body.map((requestBody) => {
+            ? await Promise.all(req.body.map(async (requestBody) => {
                 const normalizedRequestBody = this.#withGuiMetadata(requestBody, req.body);
                 normalizedRequestBody.fileMetadata = this.#normalizeFileMetadataPath(
                     req,
                     normalizedRequestBody.fileMetadata,
                     normalizedRequestBody,
                 );
+                normalizedRequestBody.fileMetadata = await this.#resolveAssociatedAppMetadata(
+                    normalizedRequestBody.fileMetadata,
+                    normalizedRequestBody,
+                    appUidLookupCache,
+                );
                 return normalizedRequestBody;
-            })
+            }))
             : [];
         const filteredRequests = requests.filter((requestBody) => {
             return !this.#shouldIgnoreUploadPath(requestBody.fileMetadata.path);
@@ -796,7 +824,75 @@ export class FSController extends ExtensionController {
             normalizedFileMetadata.bucketRegion = bucketRegion;
         }
 
+        const associatedAppId = this.#toNumber(this.#firstDefined(
+            metadataRecord.associatedAppId,
+            metadataRecord.associated_app_id,
+            fallbackRecord.associatedAppId,
+            fallbackRecord.associated_app_id,
+        ));
+        if ( associatedAppId !== undefined ) {
+            normalizedFileMetadata.associatedAppId = associatedAppId;
+        }
+
         return normalizedFileMetadata as unknown as FSEntryWriteInput;
+    }
+
+    async #resolveAssociatedAppMetadata (
+        fileMetadata: FSEntryWriteInput,
+        fallbackSource?: unknown,
+        appUidLookupCache?: Map<string, Promise<number | null>>,
+    ): Promise<FSEntryWriteInput> {
+        const metadataRecord = this.#toObjectRecord(fileMetadata);
+        const fallbackRecord = this.#toObjectRecord(fallbackSource);
+
+        const associatedAppId = this.#toNumber(this.#firstDefined(
+            metadataRecord.associatedAppId,
+            metadataRecord.associated_app_id,
+            fallbackRecord.associatedAppId,
+            fallbackRecord.associated_app_id,
+        ));
+        if ( associatedAppId !== undefined ) {
+            return {
+                ...fileMetadata,
+                associatedAppId,
+            };
+        }
+
+        const appUid = this.#firstDefined(
+            metadataRecord.appUID,
+            metadataRecord.appUid,
+            metadataRecord.app_uid,
+            fallbackRecord.appUID,
+            fallbackRecord.appUid,
+            fallbackRecord.app_uid,
+        );
+        if ( typeof appUid !== 'string' || appUid.trim().length === 0 ) {
+            return fileMetadata;
+        }
+
+        const normalizedAppUid = appUid.trim();
+        const lookupPromise = (() => {
+            const cachedLookup = appUidLookupCache?.get(normalizedAppUid);
+            if ( cachedLookup ) {
+                return cachedLookup;
+            }
+
+            const createdLookupPromise = (async () => {
+                const app = await getApp({ uid: normalizedAppUid });
+                return this.#toNumber(app?.id) ?? null;
+            })();
+            appUidLookupCache?.set(normalizedAppUid, createdLookupPromise);
+            return createdLookupPromise;
+        })();
+
+        const resolvedAppId = await lookupPromise;
+        if ( resolvedAppId === null ) {
+            return fileMetadata;
+        }
+        return {
+            ...fileMetadata,
+            associatedAppId: resolvedAppId,
+        };
     }
 
     #toStorageCapacityCandidate (value: unknown): number | undefined {
