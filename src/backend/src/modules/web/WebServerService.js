@@ -350,9 +350,6 @@ class WebServerService extends BaseService {
         process.on('SIGINT', () => {
             this.beginGracefulShutdown('SIGINT');
         });
-        process.on('SIGABRT', () => {
-            this.beginGracefulShutdown('SIGABRT');
-        });
     }
 
     beginGracefulShutdown (signal) {

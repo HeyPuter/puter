@@ -718,6 +718,7 @@ const upload = async function (items, dirPath, options = {}) {
                         overwrite: overwriteEnabled,
                         dedupeName: options.dedupeName ?? true,
                         createMissingParents: shouldCreateMissingParents,
+                        app_uid: options.appUID,
                     };
 
                     return {
