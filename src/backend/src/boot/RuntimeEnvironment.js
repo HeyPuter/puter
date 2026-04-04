@@ -317,6 +317,31 @@ class RuntimeEnvironment extends AdvancedBase {
         const loader = new ConfigLoader(config_path_entry.path, config);
         loader.enable(config_to_load);
 
+        // Load environment configuration from .env file
+        // This allows simplified configuration via env vars
+        {
+            const EnvConfigParser = require('../config/EnvConfigParser');
+            try {
+                const envParser = new EnvConfigParser();
+                const envConfig = envParser.parse();
+                EnvConfigParser.validate(envConfig);
+                
+                // Only apply env config if PUTER_DOMAIN is explicitly set
+                // This avoids overriding existing config.json files with defaults
+                if ( process.env.PUTER_DOMAIN || process.env.MAIN_DOMAIN ) {
+                    console.log('Applying environment configuration from .env or ENV vars');
+                    config.load_config(envConfig);
+                }
+            } catch (err) {
+                // Only fail if PUTER_DOMAIN was explicitly set
+                if ( process.env.PUTER_DOMAIN || process.env.MAIN_DOMAIN ) {
+                    console.error('Failed to parse environment configuration:', err.message);
+                    throw err;
+                }
+                // Otherwise silently continue with config.json defaults
+            }
+        }
+
         if ( ! config.config_name ) {
             throw new Error('config_name is required');
         }
