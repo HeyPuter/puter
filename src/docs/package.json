@@ -13,8 +13,10 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
+  "optionalDependencies": {
+    "@esbuild/linux-x64": "0.25.11"
+  },
   "dependencies": {
-    "@esbuild/linux-x64": "0.25.11",
     "@fontsource/inter": "^5.2.8",
     "esbuild": "0.25.11",
     "fs-extra": "^11.2.0",
