@@ -62,8 +62,12 @@ const item_icon = async (fsentry) => {
     // --------------------------------------------------
     // app icon
     // --------------------------------------------------
-    else if ( fsentry.associated_app && fsentry.associated_app?.name ) {
-        if ( fsentry.associated_app.icon )
+    else if (
+        fsentry.associated_app
+        || fsentry.associated_app_id
+        || fsentry.associatedAppId
+    ) {
+        if ( fsentry.associated_app?.icon )
         {
             return { image: fsentry.associated_app.icon, type: 'icon' };
         }
