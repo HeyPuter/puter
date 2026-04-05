@@ -343,7 +343,7 @@ function UIWindowSignup (options) {
                     if ( options.reload_on_success ) {
                         window.onbeforeunload = null;
                         // either options.redirect_url or the current page
-                        const redirectUrl = options.redirect_url || window.location.href;
+                        const redirectUrl = options.redirect_url || '/';
                         window.location.replace(redirectUrl);
                     } else if ( options.send_confirmation_code || data.user?.requires_email_confirmation ) {
                         $(el_window).close();
