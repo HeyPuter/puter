@@ -1506,6 +1506,17 @@ const ipc_listener = async (event, handled) => {
             $(`.item-container[data-path="${html_encode(path.dirname(target_path))}" i]`).each(function () {
                 window.sort_items(this, $(this).attr('data-sort_by'), $(this).attr('data-sort_order'));
             });
+            // re-apply group by kind if active
+            $(`.item-container[data-path="${html_encode(path.dirname(target_path))}" i]`).each(function () {
+                if ( $(this).attr('data-sort_by') === 'kind' ) {
+                    window.group_items_by_kind(this);
+                }
+            });
+
+            // sort or group each window
+            $(`.item-container[data-path="${html_encode(path.dirname(target_path))}" i]`).each(function () {
+                window.sort_or_group_items(this);
+            });
             $(el_filedialog_window).close();
             window.show_save_account_notice_if_needed();
         };

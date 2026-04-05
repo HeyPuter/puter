@@ -374,18 +374,20 @@ window.check_fsentry_against_allowed_file_types_string = function (fsentry, allo
         $elem.data('taphold_cancelled', false); // If event has been cancelled.
 
         // Set the timer for the hold event.
-        $elem.data('taphold_timer',
-                        setTimeout(function ()
-                        {
-                            // If event hasn't been cancelled/clicked already, then go ahead and trigger the hold.
-                            if ( !$elem.data('taphold_cancelled')
-                                && !$elem.data('taphold_clicked') )
-                            {
-                                // Trigger the hold event, and set the flag to say it's been triggered.
-                                $elem.trigger(jQuery.extend(event, jQuery.Event('taphold')));
-                                $elem.data('taphold_triggered', true);
-                            }
-                        }, settings.duration));
+        $elem.data(
+            'taphold_timer',
+            setTimeout(function ()
+            {
+                // If event hasn't been cancelled/clicked already, then go ahead and trigger the hold.
+                if ( !$elem.data('taphold_cancelled')
+                    && !$elem.data('taphold_clicked') )
+                {
+                    // Trigger the hold event, and set the flag to say it's been triggered.
+                    $elem.trigger(jQuery.extend(event, jQuery.Event('taphold')));
+                    $elem.data('taphold_triggered', true);
+                }
+            }, settings.duration),
+        );
     }
 
     // When user ends a tap or click, decide what we should do.
@@ -724,8 +726,10 @@ window.get_apps = async (app_names, callback) => {
         })();
 
         for ( const name of uniqueMissing ) {
-            getAppsInflight.set(name,
-                            fetchPromise.then((appMap) => appMap.get(name) ?? null));
+            getAppsInflight.set(
+                name,
+                fetchPromise.then((appMap) => appMap.get(name) ?? null),
+            );
         }
 
         pendingPromises.push(fetchPromise.then((appMap) => {
@@ -880,6 +884,60 @@ window.onpopstate = (event) => {
     }
 };
 
+window.get_item_kind = (item) => {
+
+    if ( item.dataset.is_dir === '1' ) return '0_folders';
+    const ext = path.extname(item.dataset.name.toLowerCase());
+    const images = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.bmp', '.ico'];
+    const videos = ['.mp4', '.mkv', '.avi', '.mov', '.webm'];
+    const audio  = ['.mp3', '.wav', '.ogg', '.flac', '.aac'];
+    const docs   = ['.pdf', '.doc', '.docx', '.odt'];
+    const code   = ['.js', '.ts', '.py', '.html', '.css', '.json', '.sh'];
+    if ( images.includes(ext) ) return '1_images';
+    if ( videos.includes(ext) ) return '2_videos';
+    if ( audio.includes(ext) ) return '3_audio';
+    if ( docs.includes(ext) ) return '4_documents';
+    if ( code.includes(ext) ) return '5_code';
+    return '6_other';
+};
+
+window.get_kind_label = (kind) => {
+    const labels = {
+        '0_folders': 'Folders',
+        '1_images': 'Images',
+        '2_videos': 'Videos',
+        '3_audio': 'Audio',
+        '4_documents': 'Documents',
+        '5_code': 'Code',
+        '6_other': 'Other',
+    };
+    return labels[kind] || 'Other';
+};
+
+window.group_items_by_kind = (item_container) => {
+
+    if ( $(item_container).hasClass('desktop') ) return;
+    // remove existing group headers
+    $(item_container).find('.group-by-kind-header').remove();
+
+    const items = $(item_container).find('.item[data-sortable="true"]').detach();
+
+    // group items by kind
+    const groups = {};
+    items.each(function () {
+        const kind = window.get_item_kind(this);
+        if ( ! groups[kind] ) groups[kind] = [];
+        groups[kind].push(this);
+    });
+
+    // sort groups and append with headers
+    Object.keys(groups).sort().forEach(kind => {
+        const label = window.get_kind_label(kind);
+        $(item_container).append(`<div class="group-by-kind-header">${label}</div>`);
+        groups[kind].forEach(item => $(item_container).append(item));
+    });
+};
+
 window.sort_items = (item_container, sort_by, sort_order) => {
     if ( sort_order !== 'asc' && sort_order !== 'desc' )
     {
@@ -931,6 +989,24 @@ window.sort_items = (item_container, sort_by, sort_order) => {
     }).appendTo(item_container);
 };
 
+window.sort_or_group_items = (item_container) => {
+    const sort_by = $(item_container).attr('data-sort_by');
+    const sort_order = $(item_container).attr('data-sort_order');
+    // don't group desktop items
+    if ( $(item_container).hasClass('desktop') ) {
+        window.sort_items(item_container, sort_by, sort_order);
+        return;
+    }
+    // check group_by_kind on either the container or its parent window
+    const el_window = $(item_container).closest('.window');
+    const is_grouped = sort_by === 'kind' || $(el_window).attr('data-group_by_kind') === 'true' || $(item_container).attr('data-group_by_kind') === 'true';
+    if ( is_grouped ) {
+        window.group_items_by_kind(item_container);
+    } else {
+        window.sort_items(item_container, sort_by, sort_order);
+    }
+};
+
 window.show_or_hide_files = (item_containers) => {
     const show_hidden_files = window.user_preferences.show_hidden_files;
     const class_to_add = show_hidden_files ? 'item-revealed' : 'item-hidden';
@@ -965,6 +1041,13 @@ window.create_folder = async (basedir, appendto_element) => {
                         data: el_created_dir,
 
                     });
+                }
+
+                const item_container = $(appendto_element).find('.item-container')[0] ?? appendto_element;
+                if ( $(item_container).attr('data-sort_by') === 'kind' ) {
+                    setTimeout(() => {
+                        window.group_items_by_kind(item_container);
+                    }, 10);
                 }
             },
         });
@@ -1748,13 +1831,15 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
                     if ( window.is_dashboard_mode && window.UIDashboardFileItem ) {
                         window.UIDashboardFileItem(dir);
                     }
-                    window.sort_items(item_container);
+                    // window.sort_items(item_container);
+                    window.sort_or_group_items(item_container);
                 });
 
                 //sort each container
                 $(`.item-container[data-path="${html_encode(dest_path)}" i]`).each(function () {
                     window.sort_items(this, $(this).attr('data-sort_by'), $(this).attr('data-sort_order'));
                 });
+                window.sort_or_group_items(this);
             } catch ( err ) {
                 // -----------------------------------------------------------------------
                 // if item with same name already exists, ask user if they want to overwrite
@@ -2028,85 +2113,86 @@ window.upload_items = async function (items, dest_path) {
     }
 
     puter.fs.upload(
-                    // what to upload
-                    items,
-                    // where to upload
-                    dest_path,
-                    // options
-                    {
-                        generateThumbnails: true,
-                        // init
-                        init: async (operation_id, xhr) => {
-                            opid = operation_id;
-                            // create upload progress window
-                            upload_progress_window = await UIWindowProgress({
-                                title: i18n('upload'),
-                                icon: window.icons['app-icon-uploader.svg'],
-                                operation_id: operation_id,
-                                show_progress: true,
-                                on_cancel: () => {
-                                    window.show_save_account_notice_if_needed();
-                                    xhr.abort();
-                                },
-                            });
-                            // add to active_uploads
-                            window.active_uploads[opid] = 0;
-                        },
-                        // start
-                        start: async function () {
-                            // change upload progress window message to uploading
-                            upload_progress_window.set_status('Uploading');
-                            upload_progress_window.set_progress(0);
-                        },
-                        // progress
-                        progress: async function (operation_id, op_progress) {
-                            upload_progress_window.set_progress(op_progress);
-                            // update active_uploads
-                            window.active_uploads[opid] = op_progress;
-                            // update title if window is not visible
-                            if ( document.visibilityState !== 'visible' ) {
-                                update_title_based_on_uploads();
-                            }
-                        },
-                        // success
-                        success: async function (items) {
-                            // DONE
-                            // Add action to actions_history for undo ability
-                            const files = [];
-                            if ( typeof items[Symbol.iterator] === 'function' ) {
-                                for ( const item of items ) {
-                                    files.push(item.path);
-                                }
-                            } else {
-                                files.push(items.path);
-                            }
+        // what to upload
+        items,
+        // where to upload
+        dest_path,
+        // options
+        {
+            generateThumbnails: true,
+            // init
+            init: async (operation_id, xhr) => {
+                opid = operation_id;
+                // create upload progress window
+                upload_progress_window = await UIWindowProgress({
+                    title: i18n('upload'),
+                    icon: window.icons['app-icon-uploader.svg'],
+                    operation_id: operation_id,
+                    show_progress: true,
+                    on_cancel: () => {
+                        window.show_save_account_notice_if_needed();
+                        xhr.abort();
+                    },
+                });
+                // add to active_uploads
+                window.active_uploads[opid] = 0;
+            },
+            // start
+            start: async function () {
+                // change upload progress window message to uploading
+                upload_progress_window.set_status('Uploading');
+                upload_progress_window.set_progress(0);
+            },
+            // progress
+            progress: async function (operation_id, op_progress) {
+                upload_progress_window.set_progress(op_progress);
+                // update active_uploads
+                window.active_uploads[opid] = op_progress;
+                // update title if window is not visible
+                if ( document.visibilityState !== 'visible' ) {
+                    update_title_based_on_uploads();
+                }
+            },
+            // success
+            success: async function (items) {
+                // DONE
+                // Add action to actions_history for undo ability
+                const files = [];
+                if ( typeof items[Symbol.iterator] === 'function' ) {
+                    for ( const item of items ) {
+                        files.push(item.path);
+                    }
+                } else {
+                    files.push(items.path);
+                }
 
-                            window.actions_history.push({
-                                operation: 'upload',
-                                data: files,
-                            });
-                            // close progress window after a bit of delay for a better UX
-                            setTimeout(() => {
-                                setTimeout(() => {
-                                    upload_progress_window.close();
-                                    window.show_save_account_notice_if_needed();
-                                }, Math.abs(window.upload_progress_hide_delay));
-                            });
-                            // remove from active_uploads
-                            delete window.active_uploads[opid];
-                        },
-                        // error
-                        error: async function (err) {
-                            upload_progress_window.show_error(i18n('error_uploading_files'), err.message);
-                            // remove from active_uploads
-                            delete window.active_uploads[opid];
-                        },
-                        // abort
-                        abort: async function (operation_id) {
-                            // remove from active_uploads
-                            delete window.active_uploads[opid];
-                        },
-                    });
+                window.actions_history.push({
+                    operation: 'upload',
+                    data: files,
+                });
+                // close progress window after a bit of delay for a better UX
+                setTimeout(() => {
+                    setTimeout(() => {
+                        upload_progress_window.close();
+                        window.show_save_account_notice_if_needed();
+                    }, Math.abs(window.upload_progress_hide_delay));
+                });
+                // remove from active_uploads
+                delete window.active_uploads[opid];
+            },
+            // error
+            error: async function (err) {
+                upload_progress_window.show_error(i18n('error_uploading_files'), err.message);
+                // remove from active_uploads
+                delete window.active_uploads[opid];
+            },
+            // abort
+            abort: async function (operation_id) {
+                // remove from active_uploads
+                delete window.active_uploads[opid];
+            },
+        },
+    );
 };
 
 window.empty_trash = async function () {
@@ -2547,30 +2633,31 @@ window.unzipItem = async function (itemPath) {
                 }
             });
             queuedFileWrites.length && puter.fs.upload(
-                            // what to upload
-                            queuedFileWrites,
-                            // where to upload
-                            `${rootdir.path }/`,
-                            // options
-                            {
-                                createFileParent: true,
-                                generateThumbnails: true,
-                                progress: async function (operation_id, op_progress) {
-                                    progwin.set_progress(op_progress);
-                                    // update title if window is not visible
-                                    if ( document.visibilityState !== 'visible' ) {
-                                        update_title_based_on_uploads();
-                                    }
-                                },
-                                success: async function (items) {
-                                    progwin?.set_progress(window.zippingProgressConfig.TOTAL.toPrecision(2));
-                                    // close progress window
-                                    clearTimeout(progwin_timeout);
-                                    setTimeout(() => {
-                                        progwin?.close();
-                                    }, Math.max(0, window.unzip_progress_hide_delay - (Date.now() - start_ts)));
-                                },
-                            });
+                // what to upload
+                queuedFileWrites,
+                // where to upload
+                `${rootdir.path }/`,
+                // options
+                {
+                    createFileParent: true,
+                    generateThumbnails: true,
+                    progress: async function (operation_id, op_progress) {
+                        progwin.set_progress(op_progress);
+                        // update title if window is not visible
+                        if ( document.visibilityState !== 'visible' ) {
+                            update_title_based_on_uploads();
+                        }
+                    },
+                    success: async function (items) {
+                        progwin?.set_progress(window.zippingProgressConfig.TOTAL.toPrecision(2));
+                        // close progress window
+                        clearTimeout(progwin_timeout);
+                        setTimeout(() => {
+                            progwin?.close();
+                        }, Math.max(0, window.unzip_progress_hide_delay - (Date.now() - start_ts)));
+                    },
+                },
+            );
         }
     });
 };
@@ -2798,25 +2885,27 @@ window.untarItem = async function (itemPath) {
             }
         }
 
-        queuedFileWrites.length && puter.fs.upload(queuedFileWrites,
-                        `${rootdir.path }/`,
-                        {
-                            createFileParent: true,
-                            generateThumbnails: true,
-                            progress: async function (operation_id, op_progress) {
-                                progwin.set_progress(op_progress);
-                                if ( document.visibilityState !== 'visible' ) {
-                                    update_title_based_on_uploads();
-                                }
-                            },
-                            success: async function (items) {
-                                progwin?.set_progress(window.zippingProgressConfig.TOTAL.toPrecision(2));
-                                clearTimeout(progwin_timeout);
-                                setTimeout(() => {
-                                    progwin?.close();
-                                }, Math.max(0, window.unzip_progress_hide_delay - (Date.now() - start_ts)));
-                            },
-                        });
+        queuedFileWrites.length && puter.fs.upload(
+            queuedFileWrites,
+            `${rootdir.path }/`,
+            {
+                createFileParent: true,
+                generateThumbnails: true,
+                progress: async function (operation_id, op_progress) {
+                    progwin.set_progress(op_progress);
+                    if ( document.visibilityState !== 'visible' ) {
+                        update_title_based_on_uploads();
+                    }
+                },
+                success: async function (items) {
+                    progwin?.set_progress(window.zippingProgressConfig.TOTAL.toPrecision(2));
+                    clearTimeout(progwin_timeout);
+                    setTimeout(() => {
+                        progwin?.close();
+                    }, Math.max(0, window.unzip_progress_hide_delay - (Date.now() - start_ts)));
+                },
+            },
+        );
     } catch ( err ) {
         UIAlert(err.message);
         clearTimeout(progwin_timeout);

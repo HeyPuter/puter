@@ -334,6 +334,7 @@ const en = {
         skip: 'Skip',
         something_went_wrong: 'Something went wrong.',
         sort_by: 'Sort by',
+        group_by_kind: 'Group by Kind',
         start: 'Start',
         status: 'Status',
         'Storage': 'Storage',

@@ -57,6 +57,7 @@ import setDesktopBackgroundRouter from '../routers/set-desktop-bg.js';
 import setPassUsingTokenRouter from '../routers/set-pass-using-token.js';
 import setLayoutRouter from '../routers/set_layout.js';
 import setSortByRouter from '../routers/set_sort_by.js';
+import setGroupByKindRouter from '../routers/set_group_by_kind.js';
 import signRouter from '../routers/sign.js';
 import signupRouter from '../routers/signup.js';
 import suggestAppsRouter from '../routers/suggest_apps.js';
@@ -125,6 +126,7 @@ export class PuterAPIService extends BaseService {
         app.use(setPassUsingTokenRouter);
         app.use(setLayoutRouter);
         app.use(setSortByRouter);
+        app.use(setGroupByKindRouter);
         app.use(signRouter);
         app.use(signupRouter);
         app.use(suggestAppsRouter);

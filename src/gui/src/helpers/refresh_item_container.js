@@ -87,6 +87,8 @@ const refresh_item_container = function (el_item_container, options) {
             $(el_window).find('.window-navbar-path-input').attr('data-path', container_path);
         }
         $(el_item_container).attr('data-sort_by', fsentry.sort_by ?? 'name');
+        $(el_window).attr('data-group_by_kind', 'false');
+        $(el_item_container).find('.group-by-kind-header').remove();
         $(el_item_container).attr('data-sort_order', fsentry.sort_order ?? 'asc');
         // update layout
         if ( el_window && el_window.length > 0 )
@@ -122,155 +124,163 @@ const refresh_item_container = function (el_item_container, options) {
             return;
         }
 
-        setTimeout(async function () {
+        setTimeout(
+            async function () {
             // clear loading timeout
-            clearTimeout(loading_timeout);
+                clearTimeout(loading_timeout);
 
-            // hide loading spinner
-            $(loading_spinner).hide();
+                // hide loading spinner
+                $(loading_spinner).hide();
 
-            // if no items, show empty folder message
-            if ( fsentries.length === 0 ) {
-                $(el_item_container).find('.explorer-empty-message').show();
-            }
-
-            // trash icon
-            if ( container_path === window.trash_path && el_window_head_icon ) {
-                if ( fsentries.length > 0 ) {
-                    $(el_window_head_icon).attr('src', window.icons['trash-full.svg']);
-                } else {
-                    $(el_window_head_icon).attr('src', window.icons['trash.svg']);
-                }
-            }
-
-            // add each item to window
-            for ( let index = 0; index < fsentries.length; index++ ) {
-                const fsentry = fsentries[index];
-                let is_disabled = false;
-
-                // disable files if this is a showDirectoryPicker() window
-                if ( is_directoryPicker && !fsentry.is_dir )
-                {
-                    is_disabled = true;
+                // if no items, show empty folder message
+                if ( fsentries.length === 0 ) {
+                    $(el_item_container).find('.explorer-empty-message').show();
                 }
 
-                // if this item is not allowed because of filetype restrictions, disable it
-                if ( ! window.check_fsentry_against_allowed_file_types_string(fsentry, allowed_file_types) )
-                {
-                    is_disabled = true;
-                }
-
-                // set visibility based on user preferences and whether file is hidden by default
-                const is_hidden_file = fsentry.name.startsWith('.');
-                let visible;
-                if ( ! is_hidden_file ) {
-                    visible = 'visible';
-                } else if ( window.user_preferences.show_hidden_files ) {
-                    visible = 'revealed';
-                } else {
-                    visible = 'hidden';
-                }
-
-                // metadata
-                let metadata;
-                if ( fsentry.metadata !== '' ) {
-                    try {
-                        metadata = JSON.parse(fsentry.metadata);
-                    }
-                    catch (e) {
-                        // Ignored
+                // trash icon
+                if ( container_path === window.trash_path && el_window_head_icon ) {
+                    if ( fsentries.length > 0 ) {
+                        $(el_window_head_icon).attr('src', window.icons['trash-full.svg']);
+                    } else {
+                        $(el_window_head_icon).attr('src', window.icons['trash.svg']);
                     }
                 }
 
-                const item_path = fsentry.path ?? path.join($(el_window).attr('data-path'), fsentry.name);
-                // render any item but Trash/AppData
-                if ( item_path !== window.trash_path && item_path !== window.appdata_path ) {
-                    // if this is trash, get original name from item metadata
-                    fsentry.name = (metadata && metadata.original_name !== undefined) ? metadata.original_name : fsentry.name;
-                    const position = window.desktop_item_positions[fsentry.uid] ?? undefined;
-                    UIItem({
-                        appendTo: el_item_container,
-                        uid: fsentry.uid,
-                        immutable: fsentry.immutable || fsentry.writable === false,
-                        associated_app_name: fsentry.associated_app?.name,
-                        path: item_path,
-                        icon: await item_icon(fsentry),
-                        name: (metadata && metadata.original_name !== undefined) ? metadata.original_name : fsentry.name,
-                        is_dir: fsentry.is_dir,
-                        multiselectable: !is_openFileDialog,
-                        has_website: fsentry.has_website,
-                        is_shared: fsentry.is_shared,
-                        metadata: fsentry.metadata,
-                        is_shortcut: fsentry.is_shortcut,
-                        shortcut_to: fsentry.shortcut_to,
-                        shortcut_to_path: fsentry.shortcut_to_path,
-                        workers: fsentry.workers,
-                        size: fsentry.size,
-                        type: fsentry.type,
-                        modified: fsentry.modified,
-                        suggested_apps: fsentry.suggested_apps,
-                        disabled: is_disabled,
-                        visible: visible,
-                        position: position,
-                    });
-                }
-            }
+                // add each item to window
+                for ( let index = 0; index < fsentries.length; index++ ) {
+                    const fsentry = fsentries[index];
+                    let is_disabled = false;
 
-            // if this is desktop, add Trash
-            if ( $(el_item_container).hasClass('desktop') ) {
-                try {
-                    const trash = await puter.fs.stat({ path: window.trash_path, consistency: options.consistency ?? 'eventual' });
-                    UIItem({
-                        appendTo: el_item_container,
-                        uid: trash.id,
-                        immutable: trash.immutable,
-                        path: window.trash_path,
-                        icon: { image: (trash.is_empty ? window.icons['trash.svg'] : window.icons['trash-full.svg']), type: 'icon' },
-                        name: trash.name,
-                        is_dir: trash.is_dir,
-                        sort_by: trash.sort_by,
-                        type: trash.type,
-                        is_trash: true,
-                        sortable: false,
-                    });
-                    window.sort_items(el_item_container, $(el_item_container).attr('data-sort_by'), $(el_item_container).attr('data-sort_order'));
-                } catch (e) {
-                    // Ignored
-                }
-            }
-            // sort items
-            window.sort_items(el_item_container,
-                            $(el_item_container).attr('data-sort_by'),
-                            $(el_item_container).attr('data-sort_order'));
+                    // disable files if this is a showDirectoryPicker() window
+                    if ( is_directoryPicker && !fsentry.is_dir )
+                    {
+                        is_disabled = true;
+                    }
 
-            if ( options.fadeInItems ) {
-                $(el_item_container).animate({ 'opacity': '1' }, {
-                    complete: () => {
-                        // Call onComplete callback when fade-in animation is done
-                        if ( options.onComplete && typeof options.onComplete === 'function' ) {
-                            options.onComplete();
+                    // if this item is not allowed because of filetype restrictions, disable it
+                    if ( ! window.check_fsentry_against_allowed_file_types_string(fsentry, allowed_file_types) )
+                    {
+                        is_disabled = true;
+                    }
+
+                    // set visibility based on user preferences and whether file is hidden by default
+                    const is_hidden_file = fsentry.name.startsWith('.');
+                    let visible;
+                    if ( ! is_hidden_file ) {
+                        visible = 'visible';
+                    } else if ( window.user_preferences.show_hidden_files ) {
+                        visible = 'revealed';
+                    } else {
+                        visible = 'hidden';
+                    }
+
+                    // metadata
+                    let metadata;
+                    if ( fsentry.metadata !== '' ) {
+                        try {
+                            metadata = JSON.parse(fsentry.metadata);
                         }
-                    },
-                });
-            } else {
-                // If no fade-in animation, call onComplete immediately
-                if ( options.onComplete && typeof options.onComplete === 'function' ) {
-                    options.onComplete();
+                        catch (e) {
+                        // Ignored
+                        }
+                    }
+
+                    const item_path = fsentry.path ?? path.join($(el_window).attr('data-path'), fsentry.name);
+                    // render any item but Trash/AppData
+                    if ( item_path !== window.trash_path && item_path !== window.appdata_path ) {
+                    // if this is trash, get original name from item metadata
+                        fsentry.name = (metadata && metadata.original_name !== undefined) ? metadata.original_name : fsentry.name;
+                        const position = window.desktop_item_positions[fsentry.uid] ?? undefined;
+                        UIItem({
+                            appendTo: el_item_container,
+                            uid: fsentry.uid,
+                            immutable: fsentry.immutable || fsentry.writable === false,
+                            associated_app_name: fsentry.associated_app?.name,
+                            path: item_path,
+                            icon: await item_icon(fsentry),
+                            name: (metadata && metadata.original_name !== undefined) ? metadata.original_name : fsentry.name,
+                            is_dir: fsentry.is_dir,
+                            multiselectable: !is_openFileDialog,
+                            has_website: fsentry.has_website,
+                            is_shared: fsentry.is_shared,
+                            metadata: fsentry.metadata,
+                            is_shortcut: fsentry.is_shortcut,
+                            shortcut_to: fsentry.shortcut_to,
+                            shortcut_to_path: fsentry.shortcut_to_path,
+                            workers: fsentry.workers,
+                            size: fsentry.size,
+                            type: fsentry.type,
+                            modified: fsentry.modified,
+                            suggested_apps: fsentry.suggested_apps,
+                            disabled: is_disabled,
+                            visible: visible,
+                            position: position,
+                        });
+                    }
                 }
-            }
 
-            // update footer item count if this is an explorer window
-            if ( el_window )
-            {
-                window.update_explorer_footer_item_count(el_window);
-            }
+                // if this is desktop, add Trash
+                if ( $(el_item_container).hasClass('desktop') ) {
+                    try {
+                        const trash = await puter.fs.stat({ path: window.trash_path, consistency: options.consistency ?? 'eventual' });
+                        UIItem({
+                            appendTo: el_item_container,
+                            uid: trash.id,
+                            immutable: trash.immutable,
+                            path: window.trash_path,
+                            icon: { image: (trash.is_empty ? window.icons['trash.svg'] : window.icons['trash-full.svg']), type: 'icon' },
+                            name: trash.name,
+                            is_dir: trash.is_dir,
+                            sort_by: trash.sort_by,
+                            type: trash.type,
+                            is_trash: true,
+                            sortable: false,
+                        });
+                        window.sort_items(el_item_container, $(el_item_container).attr('data-sort_by'), $(el_item_container).attr('data-sort_order'));
+                    } catch (e) {
+                    // Ignored
+                    }
+                }
+                // sort items
+                window.sort_items(
+                    el_item_container,
+                    $(el_item_container).attr('data-sort_by'),
+                    $(el_item_container).attr('data-sort_order'),
+                );
 
-            // end the transaction
-            transaction.end();
-        },
-        // This makes sure the loading spinner shows up if the request takes longer than 1 second
-        // and stay there for at least 1 second since the flickering is annoying
-        (Date.now() - start_ts) > 1000 ? 1000 : 1);
+                if ( $(el_item_container).attr('data-sort_by') === 'kind' ) {
+                    window.group_items_by_kind(el_item_container);
+                }
+
+                if ( options.fadeInItems ) {
+                    $(el_item_container).animate({ 'opacity': '1' }, {
+                        complete: () => {
+                        // Call onComplete callback when fade-in animation is done
+                            if ( options.onComplete && typeof options.onComplete === 'function' ) {
+                                options.onComplete();
+                            }
+                        },
+                    });
+                } else {
+                // If no fade-in animation, call onComplete immediately
+                    if ( options.onComplete && typeof options.onComplete === 'function' ) {
+                        options.onComplete();
+                    }
+                }
+
+                // update footer item count if this is an explorer window
+                if ( el_window )
+                {
+                    window.update_explorer_footer_item_count(el_window);
+                }
+
+                // end the transaction
+                transaction.end();
+            },
+            // This makes sure the loading spinner shows up if the request takes longer than 1 second
+            // and stay there for at least 1 second since the flickering is annoying
+            (Date.now() - start_ts) > 1000 ? 1000 : 1,
+        );
     }).catch(e => {
         // end the transaction
         transaction.end();
