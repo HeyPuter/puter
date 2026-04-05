@@ -39,24 +39,45 @@ async function getClientInfo () {
             'platform', 'platformVersion', 'model', 'fullVersionList',
         ]);
 
-        const browser = uaData.brands?.[0]?.brand || 'Unknown';
-        const browserVersion = uaData.brands?.[0]?.version || 'Unknown';
+        const knownBrand = uaData.brands?.find((b) => {
+            if (!b?.brand) return false;
+            const normalized = b.brand.toLowerCase();
+            return normalized !== 'not a brand' && normalized !== 'not-a.brand' && normalized !== 'not-a brand';
+        }) || uaData.brands?.[0];
+
+        let browser = knownBrand?.brand || 'Unknown';
+        let browserVersion = knownBrand?.version || '';
+
+        // Fallback for extremely privacy mode responses where the brand is not meaningful
+        if ( browser === 'Not-A.Brand' || browser === 'Not A Brand' || browser === 'Unknown' ) {
+            const ua = navigator.userAgent;
+            if ( /Edg\//.test(ua) ) browser = 'Edge';
+            else if ( /Chrome\//.test(ua) ) browser = 'Chrome';
+            else if ( /Firefox\//.test(ua) ) browser = 'Firefox';
+            else if ( /Safari\//.test(ua) && !/Chrome\//.test(ua) ) browser = 'Safari';
+            else if ( /OPR\//.test(ua) || /Opera\//.test(ua) ) browser = 'Opera';
+            browserVersion = browserVersion || (ua.match(/(Edg|Chrome|Firefox|Safari|Opera|OPR)\/(\d+(?:\.\d+)*)/)?.[2] || '');
+        }
+
         const os = uaData.platform || 'Unknown';
-        const osVersion = uaData.platformVersion || 'Unknown';
+        const osVersion = uaData.platformVersion || '';
+
+        const browserValue = browserVersion ? `${browser} ${browserVersion}` : browser;
+        const osValue = osVersion ? `${os} ${osVersion}` : os;
 
         clientInfo.push ({
             key: 'browser',
             icon: 'system-info-browser.svg',
             i18n_key: 'browser',
             title: i18n('browser'),
-            value: `${browser} ${browserVersion}`,
+            value: browserValue,
         },
         {
             key: 'os',
             icon: 'system-info-os.svg',
             i18n_key: 'system-info-os',
             title: i18n('os'),
-            value: `${os} ${osVersion}`,
+            value: osValue,
         });
     } else {
         // Fallback for older browsers
@@ -79,7 +100,14 @@ async function getClientInfo () {
 
     // Get hardware info
     const cpuCores = navigator.hardwareConcurrency || 'Unknown';
-    const ram = navigator.deviceMemory ? `${navigator.deviceMemory} GB (approx)` : 'Unknown';
+    let ram = 'Unknown';
+
+    if ( navigator.deviceMemory ) {
+        ram = `${navigator.deviceMemory} GB (approx)`;
+    } else if ( window.performance?.memory?.jsHeapSizeLimit ) {
+        const heapGB = (window.performance.memory.jsHeapSizeLimit / (1024 ** 3));
+        ram = `${heapGB.toFixed(2)} GB (approx JS heap limit)`;
+    }
 
     clientInfo.push({
         key: 'cpu_cores',
