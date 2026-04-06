@@ -66,8 +66,8 @@ export interface ICompleteArguments {
     };
     customLimitMessage?: string;
     image_config?: {
-        aspectRatio?: string;
-        imageSize?: string;
+        aspect_ratio?: string;
+        image_size?: string;
     };
 }
 

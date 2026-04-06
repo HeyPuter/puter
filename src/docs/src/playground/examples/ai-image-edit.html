@@ -9,7 +9,7 @@
         puter.print("Step 1: Generating infographic...<br>");
         const r1 = await puter.ai.chat("Create a simple infographic about photosynthesis", {
             model,
-            image_config: { imageSize: "1K" },
+            image_config: { image_size: "1K" },
         });
         const img1 = r1.message.images?.[0]?.image_url?.url;
         if (img1) {
@@ -30,7 +30,7 @@
             { role: "user", content: "Translate all text to Spanish. Keep everything else the same." },
         ], {
             model,
-            image_config: { aspectRatio: "16:9", imageSize: "2K" },
+            image_config: { aspect_ratio: "16:9", image_size: "2K" },
         });
         const img2 = r2.message.images?.[0]?.image_url?.url;
         if (img2) {

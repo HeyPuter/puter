@@ -201,8 +201,8 @@ Pass `image_config` in the options object to control image output:
 
 | Option | Type | Description |
 |--------|------|-------------|
-| `image_config.aspectRatio` | `String` | Aspect ratio (e.g. `"16:9"`, `"1:1"`, `"9:16"`) |
-| `image_config.imageSize` | `String` | Output quality/resolution. Must be one of the model's supported quality levels |
+| `image_config.aspect_ratio` | `String` | Aspect ratio (e.g. `"16:9"`, `"1:1"`, `"9:16"`) |
+| `image_config.image_size` | `String` | Output quality/resolution. Must be one of the model's supported quality levels |
 
 For available aspect ratios and image sizes per model, see the [Gemini Image Generation documentation](https://ai.google.dev/gemini-api/docs/image-generation#aspect_ratios_and_image_size).
 
@@ -239,7 +239,7 @@ const result = await puter.ai.chat([
     { role: "user", content: "Translate all text to Spanish" },
 ], {
     model: "gemini-3.1-flash-image-preview",
-    image_config: { aspectRatio: "16:9", imageSize: "2K" },
+    image_config: { aspect_ratio: "16:9", image_size: "2K" },
 });
 
 const editedImage = result.message.images[0].image_url.url;
@@ -589,7 +589,7 @@ Policy 8 - Account Management: Each Enterprise and Ultimate customer is assigned
         puter.print("Step 1: Generating infographic...<br>");
         const r1 = await puter.ai.chat("Create a simple infographic about photosynthesis", {
             model,
-            image_config: { imageSize: "1K" },
+            image_config: { image_size: "1K" },
         });
         const img1 = r1.message.images?.[0]?.image_url?.url;
         if (img1) {
@@ -610,7 +610,7 @@ Policy 8 - Account Management: Each Enterprise and Ultimate customer is assigned
             { role: "user", content: "Translate all text to Spanish. Keep everything else the same." },
         ], {
             model,
-            image_config: { aspectRatio: "16:9", imageSize: "2K" },
+            image_config: { aspect_ratio: "16:9", image_size: "2K" },
         });
         const img2 = r2.message.images?.[0]?.image_url?.url;
         if (img2) {

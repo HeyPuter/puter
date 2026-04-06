@@ -267,19 +267,19 @@ export class GeminiChatProvider implements IChatProvider {
         messages: PuterMessage[],
         stream: boolean | undefined,
         modelUsed: IChatModel,
-        image_config?: { aspectRatio?: string, imageSize?: string },
+        image_config?: { aspect_ratio?: string, image_size?: string },
         temperature?: number,
     }): ReturnType<IChatProvider['complete']> {
         const actor = Context.get('actor') as Actor;
         const { contents, systemInstruction } = this.translateMessagesToGemini(messages);
 
-        // Resolve and validate imageSize against model's allowed quality levels
-        let imageSize = image_config?.imageSize;
+        // Resolve and validate image_size against model's allowed quality levels
+        let imageSize = image_config?.image_size;
         const allowed = modelUsed.allowedQualityLevels;
         if ( allowed && allowed.length > 0 ) {
             if ( imageSize && !allowed.includes(imageSize) ) {
                 throw APIError.create('field_invalid', null, {
-                    key: 'image_config.imageSize',
+                    key: 'image_config.image_size',
                     expected: allowed.join(', '),
                     got: imageSize,
                 });
@@ -288,7 +288,7 @@ export class GeminiChatProvider implements IChatProvider {
         }
 
         const geminiImageConfig: Record<string, string> = {};
-        if ( image_config?.aspectRatio ) geminiImageConfig.aspectRatio = image_config.aspectRatio;
+        if ( image_config?.aspect_ratio ) geminiImageConfig.aspectRatio = image_config.aspect_ratio;
         if ( imageSize ) geminiImageConfig.imageSize = imageSize;
 
         const config: Record<string, unknown> = {
