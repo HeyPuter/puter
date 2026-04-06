@@ -45,39 +45,6 @@ class LockService extends BaseService {
      * initialization is complete.
      */
     async _init () {
-        const svc_commands = this.services.get('commands');
-        svc_commands.registerCommands('lock', [
-            {
-                id: 'locks',
-                description: 'lists locks',
-                handler: async (args, log) => {
-                    for ( const name in this.locks ) {
-                        let line = `${name }: `;
-                        if ( this.locks[name].effective_mode === RWLock.TYPE_READ ) {
-                            line += `READING (${this.locks[name].readers_})`;
-                            log.log(line);
-                        }
-                        else
-                            if ( this.locks[name].effective_mode === RWLock.TYPE_WRITE ) {
-                                line += 'WRITING';
-                                log.log(line);
-                            }
-                            else {
-                                line += 'UNKNOWN';
-                                log.log(line);
-
-                                // log the lock's internal state
-                                const lines = JSON.stringify(this.locks[name],
-                                                null,
-                                                2).split('\n');
-                                for ( const line of lines ) {
-                                    log.log(` -> ${ line}`);
-                                }
-                            }
-                    }
-                },
-            },
-        ]);
     }
 
     /**

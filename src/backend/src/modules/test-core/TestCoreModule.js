@@ -33,7 +33,6 @@ export class TestCoreModule {
         services.registerService('su', SUService);
         services.registerService('alarm', AlarmService);
         services.registerService('event', EventService);
-        services.registerService('commands', CommandService);
         services.registerService('meteringService', MeteringServiceWrapper);
         services.registerService('puter-kvstore', DynamoKVStoreWrapper);
         services.registerService('permission', PermissionService);

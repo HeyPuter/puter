@@ -410,61 +410,6 @@ class LogService extends BaseService {
      * Registers logging commands with the command service.
      */
     '__on_boot.consolidation' () {
-        const commands = this.services.get('commands');
-        commands.registerCommands('logs', [
-            {
-                id: 'show',
-                description: 'toggle log output',
-                handler: async () => {
-                    this.devlogger && (this.devlogger.off = !this.devlogger.off);
-                },
-            },
-            {
-                id: 'rec',
-                description: 'start recording to a file via dev logger',
-                handler: async (args, ctx) => {
-                    const [name] = args;
-                    const { log } = ctx;
-                    if ( ! this.devlogger ) {
-                        log('no dev logger; what are you doing?');
-                    }
-                    this.devlogger.recto = name;
-                },
-            },
-            {
-                id: 'stop',
-                description: 'stop recording to a file via dev logger',
-                handler: async ([_name], log) => {
-                    if ( ! this.devlogger ) {
-                        log('no dev logger; what are you doing?');
-                    }
-                    this.devlogger.recto = null;
-                },
-            },
-            {
-                id: 'indent',
-                description: 'toggle log indentation',
-                handler: async () => {
-                    globalThis.dev_console_indent_on =
-                        !globalThis.dev_console_indent_on;
-                },
-            },
-            {
-                id: 'get-level',
-                description: 'get the current log level for displayed logs',
-                handler: async (args, log) => {
-                    log.log(`${display_log_level} (${display_log_level_label[display_log_level] ?? '?'})`);
-                },
-            },
-            {
-                id: 'set-level',
-                description: 'set the new log level for displayed logs',
-                handler: async (args, log) => {
-                    display_log_level = Number(args[0]);
-                    log.log(`${display_log_level} (${display_log_level_label[display_log_level] ?? '?'})`);
-                },
-            },
-        ]);
     }
     /**
     * Registers logging commands with the command service.

@@ -33,6 +33,7 @@ const { redisClient } = require('./clients/redis/redisSingleton');
 const { kv } = require('./util/kvSingleton');
 const { s3ClientProvider } = require('./clients/s3/s3ClientProvider');
 const { PuterS3Service } = require('./deprecated/filesystem/PuterS3Service');
+const BaseService = require('./services/BaseService');
 
 /**
  * @footgun - real install method is defined above
@@ -121,7 +122,6 @@ const install = async ({ context, services, app, useapi, modapi }) => {
 
     // TODO: move these to top level imports or await imports and esm this file
 
-    const { CommandService } = require('./services/CommandService');
     const { RateLimitService } = require('./services/sla/RateLimitService');
     const { AuthService } = require('./services/auth/AuthService');
     const { SLAService } = require('./services/sla/SLAService');
@@ -164,7 +164,6 @@ const install = async ({ context, services, app, useapi, modapi }) => {
     services.registerService('dynamo', DDBClientWrapper);
 
     services.registerService('system-validation', SystemValidationService);
-    services.registerService('commands', CommandService);
     services.registerService('__api-filesystem', FilesystemAPIService);
     services.registerService('__api', PuterAPIService);
     services.registerService('__gui', ServeGUIService);
@@ -395,14 +394,11 @@ const install = async ({ context, services, app, useapi, modapi }) => {
 const install_legacy = async ({ services }) => {
     const { OperationTraceService } = require('./services/OperationTraceService');
     const { ClientOperationService } = require('./services/ClientOperationService');
-    const { EngPortalService } = require('./services/EngPortalService');
 
     // === Services which do not yet extend BaseService ===
     // services.registerService('filesystem', FilesystemService);
     services.registerService('operationTrace', OperationTraceService);
     services.registerService('client-operation', ClientOperationService);
-    services.registerService('engineering-portal', EngPortalService);
-
 };
 
 /**
