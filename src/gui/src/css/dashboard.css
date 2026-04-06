@@ -165,6 +165,11 @@ body {
     }
 }
 
+.window-dashboard ~ .window {
+    box-shadow: none;
+    border-radius: 0;
+}
+
 .dashboard {
     display: flex;
     height: 100%;
@@ -184,12 +189,15 @@ body {
 
 .dashboard-sidebar-nav {
     flex: 1;
+    display: flex;
+    flex-direction: column;
 }
 
 .dashboard-sidebar-separator {
     border: none;
     border-top: 1px solid var(--dashboard-border);
     margin: 8px 16px;
+    flex-shrink: 0;
 }
 
 .dashboard-sidebar-item {
@@ -204,6 +212,12 @@ body {
     font-size: 14px;
     color: var(--dashboard-text);
     transition: background-color 0.15s;
+    flex-shrink: 0;
+}
+
+/* Allow pinned apps to shrink within their scrollable container */
+.dashboard-pinned-apps .dashboard-sidebar-item {
+    flex-shrink: 0;
 }
 
 .dashboard-sidebar-item svg {
@@ -230,6 +244,112 @@ body {
     border-radius: 4px;
     position: absolute;
     right: 4px;
+}
+
+/* Pinned apps in sidebar */
+.dashboard-pinned-separator {
+    display: none;
+}
+
+.dashboard-pinned-separator.visible {
+    display: block;
+}
+
+.dashboard-pinned-apps {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    border: 2px solid transparent;
+}
+
+/* Hide scrollbar on pinned apps */
+.dashboard-pinned-apps::-webkit-scrollbar {
+    display: none;
+}
+.dashboard-pinned-apps {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+}
+
+/* Drag reorder indicators */
+.dashboard-pinned-app.drag-reorder-above {
+    box-shadow: 0 -2px 0 0 var(--select-color);
+}
+
+.dashboard-pinned-app.drag-reorder-below {
+    box-shadow: 0 2px 0 0 var(--select-color);
+}
+
+.dashboard-pinned-app.dragging {
+    opacity: 0.4;
+}
+
+.dashboard-pinned-app:focus {
+    outline: none;
+}
+
+.dashboard-pinned-icon {
+    width: 18px;
+    height: 18px;
+    border-radius: 4px;
+    flex-shrink: 0;
+    object-fit: cover;
+}
+
+.dashboard-sidebar.drag-over .dashboard-pinned-separator {
+    display: block;
+}
+
+.dashboard-sidebar.drag-over .dashboard-pinned-apps {
+    border: 2px dashed var(--select-color);
+    border-radius: 6px;
+}
+
+/* Running app indicator — small dot on the left */
+.sidebar-app-running {
+    position: relative;
+}
+
+.sidebar-app-running::before {
+    content: '';
+    position: absolute;
+    left: 2px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--dashboard-text-muted);
+}
+
+/* Active (focused) app in sidebar — highlighted background + brighter dot */
+.sidebar-app-active {
+    background: var(--dashboard-border);
+}
+
+.sidebar-app-active::before {
+    background: var(--select-color);
+}
+
+/* Close button on active sidebar app */
+.sidebar-app-close-btn {
+    position: absolute;
+    right: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 18px;
+    height: 18px;
+    line-height: 18px;
+    text-align: center;
+    font-size: 20px;
+    border-radius: 4px;
+    color: var(--dashboard-text-muted);
+    cursor: pointer;
+    opacity: 0.6;
+}
+.sidebar-app-close-btn:hover {
+    opacity: 1;
+    background: rgba(255, 255, 255, 0.1);
 }
 
 /* User options button at bottom of sidebar */
@@ -315,7 +435,6 @@ body {
 }
 
 .dashboard-section-apps {
-    max-width: 800px;
     margin: 0 auto;
 }
 
@@ -360,6 +479,16 @@ body {
 }
 
 /* Dashboard Apps */
+
+.dashboard-content.apps {
+    padding: 0;
+}
+
+.dashboard-tab-content.myapps-tab {
+    max-width: unset;
+    padding: 0;
+}
+
 .dashboard-apps-container {
     margin-top: 8px;
 }
@@ -442,22 +571,28 @@ body {
 /* My Apps tab */
 
 .myapps-tab {
-    max-width: 900px;
-    padding: 32px 40px;
     width: 100%;
+}
+
+.myapps-toolbar {
+    display: flex;
+    align-items: center;
+    height: 59px;
+    padding: 10px 12px;
+    background: linear-gradient(0deg, var(--dashboard-sidebar-background), var(--dashboard-background));
+    border-bottom: 1px solid var(--dashboard-border);
 }
 
 .myapps-search-wrap {
     position: relative;
-    margin-bottom: 40px;
+    flex: 1;
+    min-width: 0;
     max-width: 360px;
-    margin-left: auto;
-    margin-right: auto;
 }
 
 .myapps-search-icon {
     position: absolute;
-    right: 12px;
+    right: 10px;
     top: 50%;
     transform: translateY(-50%);
     width: 16px;
@@ -467,6 +602,8 @@ body {
 }
 
 .myapps-icon-clear {
+    left: auto;
+    right: 10px;
     pointer-events: auto;
     cursor: pointer;
 }
@@ -477,15 +614,14 @@ body {
 
 .myapps-search {
     width: 100%;
-    padding: 8px 36px 8px 12px;
-    font-size: 14px;
+    padding-right: 33px !important;
+    font-size: 13px;
     border: 1px solid var(--dashboard-border);
-    border-radius: 8px;
+    border-radius: 6px;
     background: var(--dashboard-input-background);
     color: var(--dashboard-text-primary);
     outline: none;
     transition: border-color 0.15s;
-    padding-right: 35px;
 }
 
 .myapps-search:focus {
@@ -496,8 +632,15 @@ body {
     color: var(--dashboard-text-muted);
 }
 
+.myapps-toolbar-actions {
+    display: flex;
+    gap: 10px;
+    margin-left: auto;
+}
+
 .myapps-container {
     min-height: 200px;
+    padding: 32px 40px;
 }
 
 .myapps-empty {
@@ -582,6 +725,191 @@ body {
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
     word-break: break-word;
+}
+
+/* Sort button & dropdown */
+.myapps-sort-wrap {
+    position: relative;
+    flex-shrink: 0;
+}
+
+.myapps-sort-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: transparent;
+    border: none;
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 4px;
+    color: var(--dashboard-icon);
+}
+
+.myapps-sort-btn svg {
+    width: 24px;
+    height: 24px;
+}
+
+.myapps-sort-btn:hover {
+    color: var(--dashboard-background);
+    background-color: var(--select-color);
+}
+
+.myapps-sort-dropdown {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    min-width: 170px;
+    background: var(--dashboard-card-background);
+    border: 1px solid var(--dashboard-border);
+    border-radius: 10px;
+    box-shadow: 0 4px 16px var(--dashboard-shadow-medium);
+    padding: 6px 0;
+    z-index: 100;
+}
+
+.myapps-sort-option {
+    padding: 8px 16px;
+    font-size: 14px;
+    color: var(--dashboard-text-primary);
+    cursor: pointer;
+    transition: background 0.1s;
+}
+
+.myapps-sort-option:hover {
+    background: var(--dashboard-hover);
+}
+
+.myapps-sort-option.active {
+    font-weight: 600;
+    color: var(--select-color);
+}
+
+/* Context menu */
+.myapps-context-menu {
+    position: fixed;
+    min-width: 140px;
+    background: var(--dashboard-card-background);
+    border: 1px solid var(--dashboard-border);
+    border-radius: 8px;
+    box-shadow: 0 4px 16px var(--dashboard-shadow-medium);
+    padding: 4px 0;
+    z-index: 200;
+}
+
+.myapps-context-menu-item {
+    padding: 8px 16px;
+    font-size: 12px;
+    color: var(--dashboard-text-primary);
+    cursor: pointer;
+    transition: background 0.1s;
+}
+
+.myapps-context-menu-item:hover {
+    background: var(--dashboard-hover);
+}
+
+.myapps-context-menu-divider {
+    height: 1px;
+    margin: 4px 0;
+    background: var(--dashboard-border);
+}
+
+/* Uninstall confirmation modal */
+.myapps-modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 300;
+}
+.myapps-modal {
+    background: var(--dashboard-card-background);
+    border: 1px solid var(--dashboard-border);
+    border-radius: 12px;
+    padding: 24px;
+    min-width: 320px;
+    max-width: 400px;
+    box-shadow: 0 8px 32px var(--dashboard-shadow-medium);
+}
+.myapps-modal h3 {
+    margin: 0 0 8px;
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--dashboard-text-primary);
+}
+.myapps-modal p {
+    margin: 0 0 16px;
+    font-size: 14px;
+    color: var(--dashboard-text-secondary);
+}
+.myapps-modal-checkbox {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--dashboard-text-secondary);
+    cursor: pointer;
+    margin-bottom: 20px;
+}
+.myapps-modal-buttons {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+}
+.myapps-modal-btn {
+    padding: 8px 16px;
+    border-radius: 8px;
+    border: 1px solid var(--dashboard-border);
+    font-size: 14px;
+    cursor: pointer;
+    transition: background 0.15s, opacity 0.15s;
+}
+.myapps-modal-cancel {
+    background: var(--dashboard-card-background);
+    color: var(--dashboard-text-primary);
+}
+.myapps-modal-cancel:hover {
+    background: var(--dashboard-hover);
+}
+.myapps-modal-confirm {
+    background: #e53935;
+    color: #fff;
+    border-color: #e53935;
+}
+.myapps-modal-confirm:hover {
+    background: #c62828;
+    border-color: #c62828;
+}
+.myapps-modal-confirm:disabled {
+    opacity: 0.6;
+    cursor: default;
+}
+
+/* Custom sort drag-and-drop */
+.myapps-grid-custom .myapps-tile {
+    cursor: grab;
+}
+
+.myapps-grid-custom .myapps-tile:active {
+    cursor: grabbing;
+}
+
+.myapps-tile-placeholder {
+    width: 80px;
+    border: 2px dashed var(--dashboard-border);
+    border-radius: 12px;
+    background: var(--dashboard-hover);
+    opacity: 0.5;
+}
+
+.ui-sortable-helper.myapps-tile {
+    transform: scale(1.05);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+    z-index: 1000;
+    opacity: 0.9;
 }
 
 /* Dashboard files */
@@ -1619,8 +1947,8 @@ body {
     top: 12px;
     left: 12px;
     z-index: 100;
-    width: 40px;
-    height: 40px;
+    width: 35px;
+    height: 35px;
     background: var(--dashboard-background);
     border: 1px solid var(--dashboard-border);
     border-radius: 6px;
@@ -1700,7 +2028,11 @@ body {
         height: 40px;
     }
 
-    .myapps-tab {
+    .myapps-toolbar {
+        padding: 8px 12px;
+    }
+
+    .myapps-container {
         padding: 20px 16px;
     }
 
@@ -2338,6 +2670,48 @@ body {
     color: var(--dashboard-text-tertiary);
 }
 
+/* Desktop switch bento card */
+.dashboard .bento-desktop-switch {
+    grid-column: 1 / -1;
+    min-height: auto;
+    background: radial-gradient(circle at 90% 10%, var(--dashboard-gradient-indigo) 0%, transparent 40%),
+        radial-gradient(circle at 10% 90%, var(--dashboard-gradient-pink) 0%, transparent 35%),
+        linear-gradient(135deg, var(--dashboard-card-gradient-start) 0%, var(--dashboard-card-gradient-end) 100%);
+    padding: 16px 24px;
+}
+
+.dashboard .bento-desktop-switch-inner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.dashboard .bento-desktop-switch-text {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--dashboard-text-secondary);
+}
+
+.dashboard .bento-desktop-switch-btn {
+    flex-shrink: 0;
+    padding: 8px 16px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--dashboard-background);
+    background: var(--dashboard-icon-blue-start);
+    border: 1px solid var(--dashboard-primary);
+    border-radius: 8px;
+    cursor: pointer;
+    text-decoration: none;
+    transition: background 0.15s, color 0.15s;
+}
+
+.dashboard .bento-desktop-switch-btn:hover {
+    background: var(--dashboard-icon-blue-end);
+    color: white;
+}
+
 /* Usage bento card */
 .dashboard .bento-usage {
     grid-column: 1 / -1;
@@ -2891,6 +3265,11 @@ body {
 
     .dashboard-danger-card .button {
         width: 100%;
+    }
+
+    .myapps-search-wrap {
+        margin-left: 45px;
+        margin-right: 10px;
     }
 }
 

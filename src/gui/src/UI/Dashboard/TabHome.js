@@ -166,6 +166,14 @@ const TabHome = {
         h += '</div>';
         h += '</div>';
 
+        // Desktop switch card (spans full width)
+        h += '<div class="bento-card bento-desktop-switch">';
+        h += '<div class="bento-desktop-switch-inner">';
+        h += '<span class="bento-desktop-switch-text">Looking for Puter\'s desktop interface?</span>';
+        h += '<button class="bento-desktop-switch-btn">Switch to Desktop</button>';
+        h += '</div>';
+        h += '</div>';
+
         // Usage card (spans full width on second row)
         h += '<div class="bento-card bento-usage">';
         h += '<a href="#" class="bento-card-fancy-header" data-target-tab="usage">';
@@ -215,6 +223,11 @@ const TabHome = {
                 // Trigger click on the corresponding sidebar item
                 $el_window.find(`.dashboard-sidebar-item[data-section="${targetTab}"]`).click();
             }
+        });
+
+        // Handle desktop switch button
+        $el_window.on('click', '.bento-desktop-switch-btn', function () {
+            window.location.href = '/';
         });
 
         // Handle "Save Account" warning click
