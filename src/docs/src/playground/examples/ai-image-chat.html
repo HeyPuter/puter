@@ -1,0 +1,20 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+    (async () => {
+        puter.print("Generating image...<br>");
+        const result = await puter.ai.chat("Draw a cute cat wearing a top hat", {
+            model: "gemini-2.5-flash-image",
+        });
+        puter.print(result.message.content + "<br>");
+        if (result.message.images?.length > 0) {
+            const img = document.createElement("img");
+            img.src = result.message.images[0].image_url.url;
+            img.style.maxWidth = "512px";
+            document.body.appendChild(img);
+        }
+    })();
+    </script>
+</body>
+</html>
