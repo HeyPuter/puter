@@ -270,7 +270,6 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
     }
 
     async '__on_boot.consolidation' () {
-        this._register_commands(this.services.get('commands'));
     }
 
     /**
@@ -372,37 +371,6 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
         await vm.runInContext(contents, context);
     }
 
-    _register_commands (commands) {
-        commands.registerCommands('sqlite', [
-            {
-                id: 'execfile',
-                description: 'execute a file',
-                handler: async (args, log) => {
-                    try {
-                        const [filename] = args;
-                        const fs = require('fs');
-                        const contents = fs.readFileSync(filename, 'utf8');
-                        this.db.exec(contents);
-                    } catch ( err ) {
-                        log.error(err.message);
-                    }
-                },
-            },
-            {
-                id: 'read',
-                description: 'read a query',
-                handler: async (args, log) => {
-                    try {
-                        const [query] = args;
-                        const rows = this._read(query, []);
-                        log.log(rows);
-                    } catch ( err ) {
-                        log.error(err.message);
-                    }
-                },
-            },
-        ]);
-    }
 }
 
 module.exports = {

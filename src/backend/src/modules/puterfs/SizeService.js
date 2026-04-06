@@ -42,35 +42,6 @@ class SizeService extends BaseService {
     }
 
     '__on_boot.consolidate' () {
-        const svc_commands = this.services.get('commands');
-        svc_commands.registerCommands('size', [
-            {
-                id: 'get-usage',
-                description: 'get usage for a user',
-                handler: async (args, log) => {
-                    const user = await UserParameter.adapt(args[0]);
-                    const usage = await this.get_usage(user.id);
-                    log.log(`usage: ${usage} bytes`);
-                },
-            },
-            {
-                id: 'get-capacity',
-                description: 'get storage capacity for a user',
-                handler: async (args, log) => {
-                    const user = await UserParameter.adapt(args[0]);
-                    const capacity = await this.get_storage_capacity(user);
-                    log.log(`capacity: ${capacity} bytes`);
-                },
-            },
-            {
-                id: 'get-cache-size',
-                description: 'get the number of cached users',
-                handler: async (args, log) => {
-                    const size = Object.keys(this.usages).length;
-                    log.log(`cache size: ${size}`);
-                },
-            },
-        ]);
     }
 
     async get_usage (user_id) {

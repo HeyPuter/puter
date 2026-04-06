@@ -211,7 +211,17 @@ class Container {
         for ( const k in this.instances_ ) {
             try {
                 if ( PARALLEL ) promises.push(this.instances_[k].init());
-                else await this.instances_[k].init();
+                else {
+                    // Logic to get name of a service, unused but
+                    // if you ever need to log the name
+                    // this will be accurate
+                    let name = this.instances_[k].constructor.name;
+                    if ( name === 'ExtensionService' ) {
+                        name = this.instances_[k].args.state.extension.runtime.name;
+                    }
+
+                    await this.instances_[k].init();
+                }
             } catch (e) {
                 init_failures.push({ k, e });
             }

@@ -213,7 +213,6 @@ class Kernel extends AdvancedBase {
                 deployment_type: globalThis.deployment_type,
             });
         })();
-
         await services.emit('boot.activation');
         await services.emit('boot.ready');
 
