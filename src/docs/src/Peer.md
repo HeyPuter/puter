@@ -3,11 +3,6 @@ title: Peer
 description: Create peer-to-peer connections between Puter.js clients with WebRTC data channels.
 ---
 
-<div class="alpha-notice-banner">
-    <span class="alpha-notice-label">Alpha</span>
-    <span class="alpha-notice-text">The Peer API is in alpha. Expect breaking changes, and please report issues you encounter.</span>
-</div>
-<div class="alpha-notice-spacer"></div>
 
 The Puter.js Peer API gives you WebRTC data channels with built-in signaling and TURN relays, so you can connect clients directly without running your own signaling server.
 
