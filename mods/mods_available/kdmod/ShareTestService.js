@@ -42,36 +42,11 @@ class ShareTestService extends use.Service {
     };
 
     async _init () {
-        const svc_commands = this.services.get('commands');
-        this._register_commands(svc_commands);
 
         this.scenarios = require('./data/sharetest_scenarios');
 
         const svc_db = this.services.get('database');
         this.db = svc_db.get(svc_db.DB_WRITE, 'share-test');
-    }
-
-    _register_commands (commands) {
-        commands.registerCommands('share-test', [
-            {
-                id: 'start',
-                description: '',
-                handler: async (_, log) => {
-                    const results = await this.runit();
-
-                    for ( const result of results ) {
-                        log.log(`=== ${result.title} ===`);
-                        if ( ! result.report ) {
-                            log.log('\x1B[32;1mSUCCESS\x1B[0m');
-                            continue;
-                        }
-                        log.log('\x1B[31;1mSTOPPED\x1B[0m at ' +
-                            `${result.report.step}: ${
-                                result.report.report.message}`);
-                    }
-                },
-            },
-        ]);
     }
 
     async runit () {
@@ -127,17 +102,19 @@ class ShareTestService extends use.Service {
     }
 
     async create_test_user_ (username) {
-        await this.db.write(`
+        await this.db.write(
+            `
                 INSERT INTO user (uuid, username, email, free_storage, password)
                 VALUES (?, ?, ?, ?, ?)
             `,
-        [
-            this.modules.uuidv4(),
-            username,
-            `${username}@example.com`,
-            1024 * 1024 * 500, // 500 MiB
-            this.modules.uuidv4(),
-        ]);
+            [
+                this.modules.uuidv4(),
+                username,
+                `${username}@example.com`,
+                1024 * 1024 * 500, // 500 MiB
+                this.modules.uuidv4(),
+            ],
+        );
         const user = await get_user({ username });
         const svc_user = this.services.get('user');
         await svc_user.generate_default_fsentries({ user });
@@ -152,16 +129,18 @@ class ShareTestService extends use.Service {
     }
 
     // API for scenarios
-    async ['__scenario:create-example-file'] (
+    async '__scenario:create-example-file' (
         { actor, user },
         { name, contents },
     ) {
         const svc_fs = this.services.get('filesystem');
         const parent = await svc_fs.node(new NodePathSelector(`/${user.username}/Desktop`));
-        console.log('test -> create-example-file',
-                        user,
-                        name,
-                        contents);
+        console.log(
+            'test -> create-example-file',
+            user,
+            name,
+            contents,
+        );
         const buffer = Buffer.from(contents);
         const file = {
             size: buffer.length,
@@ -178,7 +157,7 @@ class ShareTestService extends use.Service {
             file,
         });
     }
-    async ['__scenario:assert-no-access'] (
+    async '__scenario:assert-no-access' (
         { actor, user },
         { path },
     ) {
@@ -197,14 +176,14 @@ class ShareTestService extends use.Service {
             return { message: 'expected error, got none' };
         }
     }
-    async ['__scenario:grant'] (
+    async '__scenario:grant' (
         { actor, user },
         { to, permission },
     ) {
         const svc_permission = this.services.get('permission');
         await svc_permission.grant_user_user_permission(actor, to, permission, {}, {});
     }
-    async ['__scenario:assert-access'] (
+    async '__scenario:assert-access' (
         { actor, user },
         { path, level },
     ) {
