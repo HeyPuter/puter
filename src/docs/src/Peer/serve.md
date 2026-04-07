@@ -4,11 +4,6 @@ description: Create a peer server and generate an invite code.
 platforms: [websites, apps]
 ---
 
-<div class="alpha-notice-banner">
-    <span class="alpha-notice-label">Alpha</span>
-    <span class="alpha-notice-text">The Peer API is in alpha. Expect breaking changes, and please report issues you encounter.</span>
-</div>
-<div class="alpha-notice-spacer"></div>
 
 Creates a peer server and returns a `PuterPeerServer` instance. The server will generate an invite code that other clients can use to connect.
 
