@@ -17,11 +17,11 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-const { describe, it, expect, beforeEach, afterEach } = require('vitest');
-const EnvConfigParser = require('./EnvConfigParser');
-const path = require('path');
-const fs = require('fs');
-const os = require('os');
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import EnvConfigParser from './EnvConfigParser.js';
+import path from 'path';
+import fs from 'fs';
+import os from 'os';
 
 describe('EnvConfigParser', () => {
     let tempDir;
