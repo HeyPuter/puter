@@ -2477,9 +2477,16 @@ const TabFiles = {
         // Right-click context menu handler (desktop) and taphold (touch devices)
         $(el_item).on('contextmenu taphold', async (e) => {
             // Dismiss taphold on non-touch devices
-            if ( e.type === 'taphold' && !window.isMobile.phone && !window.isMobile.tablet ) {
+            if ( e.type === 'taphold' && !window.isMobile.phone && !window.isMobile.tablet && !(navigator.maxTouchPoints > 0) ) {
                 return;
             }
+            // On iOS, both contextmenu and taphold can fire for the same long-press.
+            // Debounce to prevent duplicate modals.
+            if ( el_item._contextMenuShownAt && Date.now() - el_item._contextMenuShownAt < 500 ) {
+                e.preventDefault();
+                return;
+            }
+            el_item._contextMenuShownAt = Date.now();
             e.preventDefault();
             e.stopPropagation();
 
@@ -2491,9 +2498,9 @@ const TabFiles = {
                 items = await _this.generateContextMenuItems(el_item, file);
             }
 
-            if ( window.isMobile.phone || window.isMobile.tablet ) {
+            if ( window.isMobile.phone || window.isMobile.tablet || navigator.maxTouchPoints > 0 ) {
                 const modal = new ContextMenuModal();
-                modal.show(items, el_item.getBoundingClientRect());
+                modal.show(items, el_item.getBoundingClientRect(), { title: file.name });
             } else {
                 UIContextMenu({ items: items, position: { left: e.pageX, top: e.pageY } });
             }
@@ -3147,12 +3154,7 @@ const TabFiles = {
      * @returns {void}
      */
     updateDashboardUrl (filePath) {
-        // Use pushState to update URL without firing hashchange.
-        // The popstate listener in UIDashboard handles back/forward navigation.
-        const newHash = `#files${filePath}`;
-        if ( window.location.hash !== newHash ) {
-            history.pushState(null, '', newHash);
-        }
+        // Disabled: don't modify the browser URL when navigating files.
     },
 
     /**
@@ -3176,10 +3178,10 @@ const TabFiles = {
         }
 
         // Use mobile-friendly context menu on touch devices
-        if ( window.isMobile.phone || window.isMobile.tablet ) {
+        if ( window.isMobile.phone || window.isMobile.tablet || navigator.maxTouchPoints > 0 ) {
             const targetRect = targetElement.getBoundingClientRect();
             const modal = new ContextMenuModal();
-            modal.show(items, targetRect);
+            modal.show(items, targetRect, { title: file.name });
         } else {
             UIContextMenu({ items: items });
         }

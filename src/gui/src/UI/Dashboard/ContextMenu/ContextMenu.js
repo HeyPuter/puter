@@ -35,8 +35,10 @@ export default class ContextMenuModal {
      * Show the modal positioned over a specific element
      * @param {Array} menuItems - Array of menu item objects or '-' for separator
      * @param {DOMRect} targetRect - Bounding rectangle of the tapped item
+     * @param {Object} [options] - Optional settings
+     * @param {string} [options.title] - Title displayed at the top of the menu
      */
-    show (menuItems, targetRect) {
+    show (menuItems, targetRect, options = {}) {
         if ( this.backdrop ) return; // Already showing
 
         this.menuItems = menuItems;
@@ -50,7 +52,15 @@ export default class ContextMenuModal {
         this.modal.className = 'context-menu-modal-dialog';
 
         // Build modal content
+        let titleHtml = '';
+        if ( options.title ) {
+            const titleEl = document.createElement('div');
+            titleEl.className = 'context-menu-title';
+            titleEl.textContent = options.title;
+            titleHtml = titleEl.outerHTML;
+        }
         this.modal.innerHTML = `
+            ${titleHtml}
             <div class="context-menu-items">
                 ${this.renderMenuItems(menuItems)}
             </div>

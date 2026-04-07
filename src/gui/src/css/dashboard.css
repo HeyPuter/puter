@@ -3408,10 +3408,24 @@ body {
     opacity: 1;
 }
 
+/* Title shown at top of context menu (e.g. filename) */
+.context-menu-modal-dialog .context-menu-title {
+    padding: 10px 14px 6px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--dashboard-text-muted, #888);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    border-bottom: 1px solid var(--dashboard-border, #e0e0e0);
+    flex-shrink: 0;
+}
+
 /* Menu items container */
 .context-menu-modal-dialog .context-menu-items {
     display: flex;
     flex-direction: column;
+    overflow-y: auto;
     overflow-y: auto;
 }
 
