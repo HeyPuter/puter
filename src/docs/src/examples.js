@@ -408,6 +408,12 @@ const examples = [
                 source: '/playground/examples/kv-list.html',
             },
             {
+                title: 'List (Prefix Patterns)',
+                description: 'Learn how to model SQL-style filtering in Puter.js KV by designing keys for prefix queries. Run and modify this example in the playground.',
+                slug: 'kv-prefix-patterns',
+                source: '/playground/examples/kv-prefix-patterns.html',
+            },
+            {
                 title: 'List (Pagination)',
                 description: 'Paginate key-value results with a cursor and limit using puter.kv.list(). Run and modify this example in the playground.',
                 slug: 'kv-list-pagination',
