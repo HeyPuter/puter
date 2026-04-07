@@ -158,48 +158,47 @@ export class OpenRouterProvider implements IChatProvider {
     }
 
     async models () {
-        return [] as IChatModel[];
-        // let models = kv.get('openrouterChat:models');
-        // if ( ! models ) {
-        //     try {
-        //         const resp = await axios.request({
-        //             method: 'GET',
-        //             url: `${this.#apiBaseUrl}/models`,
-        //         });
+        let models = kv.get('openrouterChat:models');
+        if ( ! models ) {
+            try {
+                const resp = await axios.request({
+                    method: 'GET',
+                    url: `${this.#apiBaseUrl}/models`,
+                });
 
-        //         models = resp.data.data;
-        //         kv.set('openrouterChat:models', models);
-        //     } catch (e) {
-        //         console.log(e);
-        //     }
-        // }
-        // const coerced_models: IChatModel[] = [];
-        // for ( const model of models ) {
-        //     if ( (model.id as string).includes('openrouter/auto') ) {
-        //         continue;
-        //     }
-        //     const overridenModel = OPEN_ROUTER_MODEL_OVERRIDES.find(m => m.id === `openrouter:${model.id}`);
-        //     const microcentCosts = Object.fromEntries(Object.entries(model.pricing).map(([k, v]) => [k, Math.round((v as number < 0 ? 1 : v as number) * 1_000_000 * 100)])) ;
-        //     if ( ! microcentCosts.request ) {
-        //         microcentCosts.request = 0;
-        //     }
-        //     coerced_models.push({
-        //         id: `openrouter:${model.id}`,
-        //         name: `${model.name} (OpenRouter)`,
-        //         aliases: [model.id, model.name, `openrouter/${model.id}`, model.id.split('/').slice(1).join('/')],
-        //         context: model.context_length,
-        //         max_tokens: model.top_provider.max_completion_tokens,
-        //         costs_currency: 'usd-cents',
-        //         input_cost_key: 'prompt',
-        //         output_cost_key: 'completion',
-        //         costs: {
-        //             tokens: 1_000_000,
-        //             ...microcentCosts,
-        //         },
-        //         ...overridenModel,
-        //     });
-        // }
-        // return coerced_models;
+                models = resp.data.data;
+                kv.set('openrouterChat:models', models);
+            } catch (e) {
+                console.log(e);
+            }
+        }
+        const coerced_models: IChatModel[] = [];
+        for ( const model of models ) {
+            if ( (model.id as string).includes('openrouter/auto') ) {
+                continue;
+            }
+            const overridenModel = OPEN_ROUTER_MODEL_OVERRIDES.find(m => m.id === `openrouter:${model.id}`);
+            const microcentCosts = Object.fromEntries(Object.entries(model.pricing).map(([k, v]) => [k, Math.round((v as number < 0 ? 1 : v as number) * 1_000_000 * 100)])) ;
+            if ( ! microcentCosts.request ) {
+                microcentCosts.request = 0;
+            }
+            coerced_models.push({
+                id: `openrouter:${model.id}`,
+                name: `${model.name} (OpenRouter)`,
+                aliases: [model.id, model.name, `openrouter/${model.id}`, model.id.split('/').slice(1).join('/')],
+                context: model.context_length,
+                max_tokens: model.top_provider.max_completion_tokens,
+                costs_currency: 'usd-cents',
+                input_cost_key: 'prompt',
+                output_cost_key: 'completion',
+                costs: {
+                    tokens: 1_000_000,
+                    ...microcentCosts,
+                },
+                ...overridenModel,
+            });
+        }
+        return coerced_models;
     }
     checkModeration (_text: string): ReturnType<IChatProvider['checkModeration']> {
         throw new Error('Method not implemented.');
