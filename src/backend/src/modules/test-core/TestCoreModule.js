@@ -5,7 +5,6 @@ import { AuthService } from '../../services/auth/AuthService.js';
 import { GroupService } from '../../services/auth/GroupService.js';
 import { PermissionService } from '../../services/auth/PermissionService.js';
 import { TokenService } from '../../services/auth/TokenService.js';
-import { CommandService } from '../../services/CommandService.js';
 import { SqliteDatabaseAccessService } from '../../services/database/SqliteDatabaseAccessService.js';
 import { DetailProviderService } from '../../services/DetailProviderService.js';
 import { DynamoKVStoreWrapper } from '../../services/DynamoKVStore/DynamoKVStoreWrapper.js';
