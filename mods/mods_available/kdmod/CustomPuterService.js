@@ -20,9 +20,6 @@ const path = require('path');
 
 class CustomPuterService extends use.Service {
     async _init () {
-        const svc_commands = this.services.get('commands');
-        this._register_commands(svc_commands);
-
         const svc_puterHomepage = this.services.get('puter-homepage');
         svc_puterHomepage.register_script('/custom-gui/main.js');
     }
@@ -35,17 +32,6 @@ class CustomPuterService extends use.Service {
             '/custom-gui',
             express.static(path.join(__dirname, 'gui')),
         );
-    }
-    _register_commands (commands) {
-        commands.registerCommands('o', [
-            {
-                id: 'k',
-                description: '',
-                handler: async (_, log) => {
-                    log.log('kdmod is enabled');
-                },
-            },
-        ]);
     }
 }
 
