@@ -61,6 +61,11 @@ class APIError {
             status: 400,
             message: ({ delegate, message }) => `Error 400 from delegate ${quot(delegate)}: ${message}`,
         },
+        'ai_chat_all_providers_failed': {
+            status: 502,
+            message: ({ attempts }) =>
+                `All AI chat providers failed (${attempts.length} attempt${attempts.length === 1 ? '' : 's'})`,
+        },
         // Things
         'disallowed_thing': {
             status: 400,
