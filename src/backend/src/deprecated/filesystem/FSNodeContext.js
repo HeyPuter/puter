@@ -401,7 +401,8 @@ export default class FSNodeContext {
 
         this.entry.subdomains = [];
         this.entry.workers = [];
-        let subdomains = await db.read(
+        this.entry.has_website = false;
+        const subdomains = await db.read(
             'SELECT * FROM subdomains WHERE root_dir_id = ? AND user_id = ?',
             [this.entry.id, user.id],
         );
@@ -942,6 +943,16 @@ export default class FSNodeContext {
         // Ensure `size` is numeric
         if ( fsentry.size ) {
             fsentry.size = parseInt(fsentry.size);
+        }
+
+        if ( ! Array.isArray(fsentry.subdomains) ) {
+            fsentry.subdomains = [];
+        }
+        if ( ! Array.isArray(fsentry.workers) ) {
+            fsentry.workers = [];
+        }
+        if ( typeof fsentry.has_website !== 'boolean' ) {
+            fsentry.has_website = false;
         }
 
         return fsentry;

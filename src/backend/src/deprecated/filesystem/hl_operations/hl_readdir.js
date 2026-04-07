@@ -125,8 +125,10 @@ class HLReadDir extends HLFilesystemOperation {
         }
 
         if ( ! no_subdomains ) {
-            // await this.#batchFetchSubdomains(children, user);
-            await this.#applySubdomains(children);
+            const usedPrefetchedSubdomains = await this.#applySubdomains(children);
+            if ( ! usedPrefetchedSubdomains ) {
+                await this.#batchFetchSubdomains(children, user);
+            }
         }
 
         return Promise.all(children.map(async child => {
@@ -146,14 +148,29 @@ class HLReadDir extends HLFilesystemOperation {
     }
 
     async #applySubdomains (children) {
+        let usedPrefetchedSubdomains = false;
+
         for ( const child of children ) {
-            if ( ! child.subdomains ) return;
-            if ( child.subdomains.length > 0 ) child.has_website = true;
-            for ( const subdomain of child.subdomains ) {
-                subdomain.address =
-                    `${config.protocol}://${subdomain.subdomain}.puter.site`;
+            const entry = child.entry;
+            if ( ! entry ) continue;
+            this.#initializeSubdomainFields(entry);
+
+            const prefetchedSubdomains = child.subdomains ?? entry.subdomains;
+            if ( prefetchedSubdomains === undefined ) return false;
+
+            usedPrefetchedSubdomains = true;
+            if ( ! Array.isArray(prefetchedSubdomains) ) continue;
+
+            for ( const subdomain of prefetchedSubdomains ) {
+                this.#appendSubdomainToEntry({
+                    entry,
+                    subdomain: subdomain?.subdomain,
+                    uuid: subdomain?.uuid,
+                });
             }
         }
+
+        return usedPrefetchedSubdomains;
     }
 
     async #batchFetchSubdomains (children, user) {
@@ -163,8 +180,7 @@ class HLReadDir extends HLFilesystemOperation {
         for ( const child of children ) {
             const entry = child.entry;
             if ( ! entry ) continue;
-            entry.subdomains = [];
-            entry.workers = [];
+            this.#initializeSubdomainFields(entry);
             if ( entry.id == null ) continue;
             childIds.push(entry.id);
             childById.set(entry.id, child);
@@ -184,24 +200,39 @@ class HLReadDir extends HLFilesystemOperation {
         for ( const row of rows ) {
             const child = childById.get(row.root_dir_id);
             if ( ! child ) continue;
-
-            if ( child.entry.is_dir ) {
-                child.entry.subdomains.push({
-                    subdomain: row.subdomain,
-                    address: `${config.protocol }://${ row.subdomain }.puter.site`,
-                    uuid: row.uuid,
-                });
-            } else {
-                const workerName = row.subdomain.split('.').pop();
-                child.entry.workers.push({
-                    subdomain: workerName,
-                    address: `https://${ workerName }.puter.work`,
-                    uuid: row.uuid,
-                });
-            }
-
-            child.entry.has_website = true;
+            this.#appendSubdomainToEntry({
+                entry: child.entry,
+                subdomain: row.subdomain,
+                uuid: row.uuid,
+            });
         }
+    }
+
+    #initializeSubdomainFields (entry) {
+        entry.subdomains = [];
+        entry.workers = [];
+        entry.has_website = false;
+    }
+
+    #appendSubdomainToEntry ({ entry, subdomain, uuid }) {
+        if ( ! subdomain ) return;
+
+        if ( entry.is_dir ) {
+            entry.subdomains.push({
+                subdomain,
+                address: `${config.protocol}://${subdomain}.puter.site`,
+                uuid,
+            });
+        } else {
+            const workerName = subdomain.split('.').pop();
+            entry.workers.push({
+                subdomain: workerName,
+                address: `https://${workerName}.puter.work`,
+                uuid,
+            });
+        }
+
+        entry.has_website = true;
     }
 
     async #batchFetchSuggestedApps (children, user) {

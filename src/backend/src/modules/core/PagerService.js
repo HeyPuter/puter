@@ -45,7 +45,6 @@ class PagerService extends BaseService {
      * the '_init' method of CommandService may not have been called yet.
      */
     '__on_boot.consolidation' () {
-        this._register_commands(this.services.get('commands'));
     }
 
     /**
@@ -137,24 +136,6 @@ class PagerService extends BaseService {
                 this.log.error(`failed to send pager alert: ${e?.message}`);
             }
         }
-    }
-
-    _register_commands (commands) {
-        commands.registerCommands('pager', [
-            {
-                id: 'test-alert',
-                description: 'create a test alert',
-                handler: async (args, log) => {
-                    const [severity] = args;
-                    await this.alert({
-                        id: 'test-alert',
-                        message: 'test alert',
-                        source: 'test',
-                        severity,
-                    });
-                },
-            },
-        ]);
     }
 
 }
