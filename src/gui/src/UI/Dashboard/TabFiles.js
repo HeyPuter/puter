@@ -2340,6 +2340,13 @@ const TabFiles = {
             // Selection (and context menu) is handled via taphold.
             // Use lastPointerType as primary signal (works even if isMobile misdetects).
             if ( lastPointerType === 'touch' || window.isMobile.phone || window.isMobile.tablet ) {
+                // In select mode, tap toggles selection instead of opening
+                if ( _this.selectModeActive ) {
+                    el_item.classList.toggle('selected');
+                    window.latest_selected_item = el_item;
+                    _this.updateFooterStats();
+                    return;
+                }
                 if ( isFolder === "1" ) {
                     _this.pushNavHistory(file.path);
                     _this.renderDirectory(file.path);
