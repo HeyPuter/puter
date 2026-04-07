@@ -214,7 +214,8 @@ const TabFiles = {
         };
 
         // Add touch-device class for touch devices to show .item-more button
-        if ( window.isMobile.phone || window.isMobile.tablet ) {
+        // Use multiple detection methods since user-agent sniffing can miss devices
+        if ( window.isMobile.phone || window.isMobile.tablet || navigator.maxTouchPoints > 0 ) {
             $el_window.find('.files-tab').addClass('touch-device');
         }
 
@@ -778,18 +779,18 @@ const TabFiles = {
 
                 // Calculate next index based on arrow key
                 switch ( e.which ) {
-                case 37: // Left
-                    nextIndex = Math.max(0, currentIndex - 1);
-                    break;
-                case 38: // Up
-                    nextIndex = Math.max(0, currentIndex - cols);
-                    break;
-                case 39: // Right
-                    nextIndex = Math.min($allRows.length - 1, currentIndex + 1);
-                    break;
-                case 40: // Down
-                    nextIndex = Math.min($allRows.length - 1, currentIndex + cols);
-                    break;
+                    case 37: // Left
+                        nextIndex = Math.max(0, currentIndex - 1);
+                        break;
+                    case 38: // Up
+                        nextIndex = Math.max(0, currentIndex - cols);
+                        break;
+                    case 39: // Right
+                        nextIndex = Math.min($allRows.length - 1, currentIndex + 1);
+                        break;
+                    case 40: // Down
+                        nextIndex = Math.min($allRows.length - 1, currentIndex + cols);
+                        break;
                 }
 
                 if ( nextIndex !== currentIndex ) {
@@ -1630,17 +1631,17 @@ const TabFiles = {
             const bName = getDisplayName(b);
 
             switch ( this.sortColumn ) {
-            case 'name':
-                comparison = aName.localeCompare(bName);
-                break;
-            case 'size':
-                comparison = (a.size || 0) - (b.size || 0);
-                break;
-            case 'modified':
-                comparison = (a.modified || 0) - (b.modified || 0);
-                break;
-            default:
-                comparison = aName.localeCompare(bName);
+                case 'name':
+                    comparison = aName.localeCompare(bName);
+                    break;
+                case 'size':
+                    comparison = (a.size || 0) - (b.size || 0);
+                    break;
+                case 'modified':
+                    comparison = (a.modified || 0) - (b.modified || 0);
+                    break;
+                default:
+                    comparison = aName.localeCompare(bName);
             }
 
             return this.sortDirection === 'asc' ? comparison : -comparison;
@@ -1689,17 +1690,17 @@ const TabFiles = {
             // Same type — compare by sort column
             let comparison = 0;
             switch ( sortColumn ) {
-            case 'name':
-                comparison = newName.localeCompare(($existing.attr('data-name') || '').toLowerCase());
-                break;
-            case 'size':
-                comparison = newSize - (parseInt($existing.attr('data-size')) || 0);
-                break;
-            case 'modified':
-                comparison = newModified - (parseInt($existing.attr('data-modified')) || 0);
-                break;
-            default:
-                comparison = newName.localeCompare(($existing.attr('data-name') || '').toLowerCase());
+                case 'name':
+                    comparison = newName.localeCompare(($existing.attr('data-name') || '').toLowerCase());
+                    break;
+                case 'size':
+                    comparison = newSize - (parseInt($existing.attr('data-size')) || 0);
+                    break;
+                case 'modified':
+                    comparison = newModified - (parseInt($existing.attr('data-modified')) || 0);
+                    break;
+                default:
+                    comparison = newName.localeCompare(($existing.attr('data-name') || '').toLowerCase());
             }
 
             if ( sortDirection !== 'asc' ) comparison = -comparison;
@@ -2047,105 +2048,105 @@ const TabFiles = {
     determineIcon (file) {
         const extension = file.name.split('.').pop().toLowerCase();
         switch ( extension ) {
-        case 'm4a':
-        case 'ogg':
-        case 'aac':
-        case 'flac':
-            return `<img src="${html_encode(window.icons['file-audio.svg'])}"/>`;
-        case 'cpp':
-            return `<img src="${html_encode(window.icons['file-cpp.svg'])}"/>`;
-        case 'css':
-            return `<img src="${html_encode(window.icons['file-css.svg'])}"/>`;
-        case 'csv':
-            return `<img src="${html_encode(window.icons['file-csv.svg'])}"/>`;
-        case 'doc':
-        case 'docx':
-            return `<img src="${html_encode(window.icons['file-word.svg'])}"/>`;
-        case 'exe':
-            return `<img src="${html_encode(window.icons['file-exe.svg'])}"/>`;
-        case 'gzip':
-            return `<img src="${html_encode(window.icons['file-gzip.svg'])}"/>`;
-        case 'html':
-            return `<img src="${html_encode(window.icons['file-html.svg'])}"/>`;
-        case 'jpg':
-        case 'jpeg':
-        case 'png':
-        case 'webp':
-        case 'gif':
-            return `<img src="${html_encode(window.icons['file-image.svg'])}"/>`;
-        case 'jar':
-            return `<img src="${html_encode(window.icons['file-jar.svg'])}"/>`;
-        case 'java':
-            return `<img src="${html_encode(window.icons['file-pdf.svg'])}"/>`;
-        case 'js':
-            return `<img src="${html_encode(window.icons['file-js.svg'])}"/>`;
-        case 'json':
-            return `<img src="${html_encode(window.icons['file-json.svg'])}"/>`;
-        case 'jsp':
-            return `<img src="${html_encode(window.icons['file-jsp.svg'])}"/>`;
-        case 'log':
-            return `<img src="${html_encode(window.icons['file-log.svg'])}"/>`;
-        case 'md':
-            return `<img src="${html_encode(window.icons['file-md.svg'])}"/>`;
-        case 'mp3':
-            return `<img src="${html_encode(window.icons['file-mp3.svg'])}"/>`;
-        case 'otf':
-            return `<img src="${html_encode(window.icons['file-otf.svg'])}"/>`;
-        case 'pdf':
-            return `<img src="${html_encode(window.icons['file-pdf.svg'])}"/>`;
-        case 'php':
-            return `<img src="${html_encode(window.icons['file-php.svg'])}"/>`;
-        case 'pptx':
-            return `<img src="${html_encode(window.icons['file-pptx.svg'])}"/>`;
-        case 'psd':
-            return `<img src="${html_encode(window.icons['file-psd.svg'])}"/>`;
-        case 'py':
-            return `<img src="${html_encode(window.icons['file-py.svg'])}"/>`;
-        case 'rss':
-            return `<img src="${html_encode(window.icons['file-rss.svg'])}"/>`;
-        case 'rtf':
-            return `<img src="${html_encode(window.icons['file-rtf.svg'])}"/>`;
-        case 'ruby':
-            return `<img src="${html_encode(window.icons['file-ruby.svg'])}"/>`;
-        case 'sketch':
-            return `<img src="${html_encode(window.icons['file-sketch.svg'])}"/>`;
-        case 'sql':
-            return `<img src="${html_encode(window.icons['file-sql.svg'])}"/>`;
-        case 'svg':
-            return `<img src="${html_encode(window.icons['file-svg.svg'])}"/>`;
-        case 'tar':
-            return `<img src="${html_encode(window.icons['file-tar.svg'])}"/>`;
-        case 'tpl':
-        case 'xltx':
-        case 'potx':
-        case 'tmpl':
-            return `<img src="${html_encode(window.icons['file-template.svg'])}"/>`;
-        case 'text':
-        case 'txt':
-            return `<img src="${html_encode(window.icons['file-text.svg'])}"/>`;
-        case 'tif':
-            return `<img src="${html_encode(window.icons['file-tif.svg'])}"/>`;
-        case 'tiff':
-            return `<img src="${html_encode(window.icons['file-tiff.svg'])}"/>`;
-        case 'ttf':
-            return `<img src="${html_encode(window.icons['file-ttf.svg'])}"/>`;
-        case 'mp4':
-        case 'avi':
-        case 'mov':
-        case 'wmf':
-        case 'mkv':
-        case 'webm':
-            return `<img src="${html_encode(window.icons['file-video.svg'])}"/>`;
-        case 'wav':
-            return `<img src="${html_encode(window.icons['file-wav.svg'])}"/>`;
-        case 'xlsx':
-            return `<img src="${html_encode(window.icons['file-xlsx.svg'])}"/>`;
-        case 'xml':
-            return `<img src="${html_encode(window.icons['file-xml.svg'])}"/>`;
-        case 'zip':
-            return `<img src="${html_encode(window.icons['file-zip.svg'])}"/>`;
-        default:
-            return `<img src="${html_encode(window.icons['file.svg'])}"/>`;
+            case 'm4a':
+            case 'ogg':
+            case 'aac':
+            case 'flac':
+                return `<img src="${html_encode(window.icons['file-audio.svg'])}"/>`;
+            case 'cpp':
+                return `<img src="${html_encode(window.icons['file-cpp.svg'])}"/>`;
+            case 'css':
+                return `<img src="${html_encode(window.icons['file-css.svg'])}"/>`;
+            case 'csv':
+                return `<img src="${html_encode(window.icons['file-csv.svg'])}"/>`;
+            case 'doc':
+            case 'docx':
+                return `<img src="${html_encode(window.icons['file-word.svg'])}"/>`;
+            case 'exe':
+                return `<img src="${html_encode(window.icons['file-exe.svg'])}"/>`;
+            case 'gzip':
+                return `<img src="${html_encode(window.icons['file-gzip.svg'])}"/>`;
+            case 'html':
+                return `<img src="${html_encode(window.icons['file-html.svg'])}"/>`;
+            case 'jpg':
+            case 'jpeg':
+            case 'png':
+            case 'webp':
+            case 'gif':
+                return `<img src="${html_encode(window.icons['file-image.svg'])}"/>`;
+            case 'jar':
+                return `<img src="${html_encode(window.icons['file-jar.svg'])}"/>`;
+            case 'java':
+                return `<img src="${html_encode(window.icons['file-pdf.svg'])}"/>`;
+            case 'js':
+                return `<img src="${html_encode(window.icons['file-js.svg'])}"/>`;
+            case 'json':
+                return `<img src="${html_encode(window.icons['file-json.svg'])}"/>`;
+            case 'jsp':
+                return `<img src="${html_encode(window.icons['file-jsp.svg'])}"/>`;
+            case 'log':
+                return `<img src="${html_encode(window.icons['file-log.svg'])}"/>`;
+            case 'md':
+                return `<img src="${html_encode(window.icons['file-md.svg'])}"/>`;
+            case 'mp3':
+                return `<img src="${html_encode(window.icons['file-mp3.svg'])}"/>`;
+            case 'otf':
+                return `<img src="${html_encode(window.icons['file-otf.svg'])}"/>`;
+            case 'pdf':
+                return `<img src="${html_encode(window.icons['file-pdf.svg'])}"/>`;
+            case 'php':
+                return `<img src="${html_encode(window.icons['file-php.svg'])}"/>`;
+            case 'pptx':
+                return `<img src="${html_encode(window.icons['file-pptx.svg'])}"/>`;
+            case 'psd':
+                return `<img src="${html_encode(window.icons['file-psd.svg'])}"/>`;
+            case 'py':
+                return `<img src="${html_encode(window.icons['file-py.svg'])}"/>`;
+            case 'rss':
+                return `<img src="${html_encode(window.icons['file-rss.svg'])}"/>`;
+            case 'rtf':
+                return `<img src="${html_encode(window.icons['file-rtf.svg'])}"/>`;
+            case 'ruby':
+                return `<img src="${html_encode(window.icons['file-ruby.svg'])}"/>`;
+            case 'sketch':
+                return `<img src="${html_encode(window.icons['file-sketch.svg'])}"/>`;
+            case 'sql':
+                return `<img src="${html_encode(window.icons['file-sql.svg'])}"/>`;
+            case 'svg':
+                return `<img src="${html_encode(window.icons['file-svg.svg'])}"/>`;
+            case 'tar':
+                return `<img src="${html_encode(window.icons['file-tar.svg'])}"/>`;
+            case 'tpl':
+            case 'xltx':
+            case 'potx':
+            case 'tmpl':
+                return `<img src="${html_encode(window.icons['file-template.svg'])}"/>`;
+            case 'text':
+            case 'txt':
+                return `<img src="${html_encode(window.icons['file-text.svg'])}"/>`;
+            case 'tif':
+                return `<img src="${html_encode(window.icons['file-tif.svg'])}"/>`;
+            case 'tiff':
+                return `<img src="${html_encode(window.icons['file-tiff.svg'])}"/>`;
+            case 'ttf':
+                return `<img src="${html_encode(window.icons['file-ttf.svg'])}"/>`;
+            case 'mp4':
+            case 'avi':
+            case 'mov':
+            case 'wmf':
+            case 'mkv':
+            case 'webm':
+                return `<img src="${html_encode(window.icons['file-video.svg'])}"/>`;
+            case 'wav':
+                return `<img src="${html_encode(window.icons['file-wav.svg'])}"/>`;
+            case 'xlsx':
+                return `<img src="${html_encode(window.icons['file-xlsx.svg'])}"/>`;
+            case 'xml':
+                return `<img src="${html_encode(window.icons['file-xml.svg'])}"/>`;
+            case 'zip':
+                return `<img src="${html_encode(window.icons['file-zip.svg'])}"/>`;
+            default:
+                return `<img src="${html_encode(window.icons['file.svg'])}"/>`;
         }
     },
 
@@ -2169,10 +2170,19 @@ const TabFiles = {
         let rename_cancelled = false;
         let shift_clicked = false;
         let itemWasSelectedOnMousedown = false;
+        let lastPointerType = null;
 
         el_item.onpointerdown = (e) => {
             if ( e.target.classList.contains('item-more') ) return;
             if ( el_item.classList.contains('header') ) return;
+
+            // Track pointer type so onclick can distinguish touch from mouse.
+            lastPointerType = e.pointerType;
+
+            // On touch devices, skip all selection logic here.
+            // Taps are handled by onclick (opens item) and taphold (context menu),
+            // so pointerdown never accidentally selects while the user is scrolling.
+            if ( e.pointerType === 'touch' ) return;
 
             shift_clicked = false;
 
@@ -2221,7 +2231,9 @@ const TabFiles = {
             // In select mode on mobile, treat taps like Ctrl+click (toggle selection)
             const isMobileSelectMode = (window.isMobile.phone || window.isMobile.tablet) && _this.selectModeActive;
 
-            // If clicking on .item-name, .item-icon, or .item-badges, select immediately so item drag works
+            // If clicking on .item-name, .item-icon, or .item-badges, select immediately so item drag works.
+            // On touch devices, these elements have pointer-events:none via CSS so this path
+            // won't be reached — touches land on .row instead, deferring selection to onclick.
             const isDragHandle = e.target.closest('.item-name, .item-icon, .item-badges');
             if ( e.button === 0 && !e.ctrlKey && !e.metaKey && !e.shiftKey && !el_item.classList.contains('selected') && !isMobileSelectMode && isDragHandle ) {
                 el_item.parentElement.querySelectorAll('.row.selected').forEach(r => {
@@ -2294,9 +2306,16 @@ const TabFiles = {
                 return;
             }
 
-            // On mobile in select mode, selection was already handled in pointerdown
-            // Just return early to prevent any further processing
-            if ( (window.isMobile.phone || window.isMobile.tablet) && _this.selectModeActive ) {
+            // On touch/mobile: tap opens the item directly, no selection step needed.
+            // Selection (and context menu) is handled via taphold.
+            // Use lastPointerType as primary signal (works even if isMobile misdetects).
+            if ( lastPointerType === 'touch' || window.isMobile.phone || window.isMobile.tablet ) {
+                if ( isFolder === "1" ) {
+                    _this.pushNavHistory(file.path);
+                    _this.renderDirectory(file.path);
+                } else {
+                    open_item({ item: el_item });
+                }
                 return;
             }
 
@@ -2322,18 +2341,6 @@ const TabFiles = {
                         _this.showImagePreview($newSelected);
                     }
                 }
-            }
-
-            // On mobile, single tap opens folders (no double-tap on touch devices)
-            if ( window.isMobile.phone || window.isMobile.tablet ) {
-                // Normal mode: open the item
-                if ( isFolder === "1" ) {
-                    _this.pushNavHistory(file.path);
-                    _this.renderDirectory(file.path);
-                } else {
-                    open_item({ item: el_item });
-                }
-                el_item.classList.remove('selected');
             }
         };
 
@@ -2910,7 +2917,8 @@ const TabFiles = {
 
         const itemText = totalCount === 1 ? 'item' : 'items';
         $footer.find('.files-footer-item-count').html(
-                        `${totalCount} ${itemText} · ${window.byte_format(totalSize)}`);
+            `${totalCount} ${itemText} · ${window.byte_format(totalSize)}`,
+        );
 
         if ( selectedCount > 0 ) {
             const selectedItemText = selectedCount === 1 ? 'item' : 'items';
