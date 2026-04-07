@@ -226,8 +226,10 @@ body {
     flex-shrink: 0;
 }
 
-.dashboard-sidebar-item:hover {
-    background: var(--dashboard-hover);
+@media (hover: hover) {
+    .dashboard-sidebar-item:hover {
+        background: var(--dashboard-hover);
+    }
 }
 
 .dashboard-sidebar-item.active {
@@ -347,9 +349,11 @@ body {
     cursor: pointer;
     opacity: 0.6;
 }
-.sidebar-app-close-btn:hover {
-    opacity: 1;
-    background: rgba(255, 255, 255, 0.1);
+@media (hover: hover) {
+    .sidebar-app-close-btn:hover {
+        opacity: 1;
+        background: rgba(255, 255, 255, 0.1);
+    }
 }
 
 /* User options button at bottom of sidebar */
@@ -369,8 +373,10 @@ body {
     transition: background-color 0.15s;
 }
 
-.dashboard-user-btn:hover {
-    background: var(--dashboard-hover);
+@media (hover: hover) {
+    .dashboard-user-btn:hover {
+        background: var(--dashboard-hover);
+    }
 }
 
 .dashboard-user-btn.has-open-contextmenu {
@@ -519,12 +525,16 @@ body {
     cursor: pointer;
     width: 90px;
 }
-.dashboard-app-card:hover {
-    background: none !important;
+@media (hover: hover) {
+    .dashboard-app-card:hover {
+        background: none !important;
+    }
 }
 
-.dashboard-app-card:hover .start-app, .dashboard-app-card .start-app:hover {
-    background: none !important;
+@media (hover: hover) {
+    .dashboard-app-card:hover .start-app, .dashboard-app-card .start-app:hover {
+        background: none !important;
+    }
 }
 
 .dashboard-app-card:active {
@@ -548,8 +558,10 @@ body {
 .dashboard-app-card .start-app{
     transition: transform 0.15s ease;
 }
-.dashboard-app-card .start-app:hover {
-    transform: scale(1.05);
+@media (hover: hover) {
+    .dashboard-app-card .start-app:hover {
+        transform: scale(1.05);
+    }
 }
 
 .dashboard-app-title {
@@ -608,8 +620,10 @@ body {
     cursor: pointer;
 }
 
-.myapps-icon-clear:hover {
-    color: var(--dashboard-text-primary);
+@media (hover: hover) {
+    .myapps-icon-clear:hover {
+        color: var(--dashboard-text-primary);
+    }
 }
 
 .myapps-search {
@@ -704,8 +718,10 @@ body {
     object-fit: cover;
 }
 
-.myapps-tile:hover .myapps-tile-icon {
-    transform: scale(1.08);
+@media (hover: hover) {
+    .myapps-tile:hover .myapps-tile-icon {
+        transform: scale(1.08);
+    }
 }
 
 .myapps-tile:active .myapps-tile-icon {
@@ -750,9 +766,11 @@ body {
     height: 24px;
 }
 
-.myapps-sort-btn:hover {
-    color: var(--dashboard-background);
-    background-color: var(--select-color);
+@media (hover: hover) {
+    .myapps-sort-btn:hover {
+        color: var(--dashboard-background);
+        background-color: var(--select-color);
+    }
 }
 
 .myapps-sort-dropdown {
@@ -776,8 +794,10 @@ body {
     transition: background 0.1s;
 }
 
-.myapps-sort-option:hover {
-    background: var(--dashboard-hover);
+@media (hover: hover) {
+    .myapps-sort-option:hover {
+        background: var(--dashboard-hover);
+    }
 }
 
 .myapps-sort-option.active {
@@ -805,8 +825,10 @@ body {
     transition: background 0.1s;
 }
 
-.myapps-context-menu-item:hover {
-    background: var(--dashboard-hover);
+@media (hover: hover) {
+    .myapps-context-menu-item:hover {
+        background: var(--dashboard-hover);
+    }
 }
 
 .myapps-context-menu-divider {
@@ -871,17 +893,21 @@ body {
     background: var(--dashboard-card-background);
     color: var(--dashboard-text-primary);
 }
-.myapps-modal-cancel:hover {
-    background: var(--dashboard-hover);
+@media (hover: hover) {
+    .myapps-modal-cancel:hover {
+        background: var(--dashboard-hover);
+    }
 }
 .myapps-modal-confirm {
     background: #e53935;
     color: #fff;
     border-color: #e53935;
 }
-.myapps-modal-confirm:hover {
-    background: #c62828;
-    border-color: #c62828;
+@media (hover: hover) {
+    .myapps-modal-confirm:hover {
+        background: #c62828;
+        border-color: #c62828;
+    }
 }
 .myapps-modal-confirm:disabled {
     opacity: 0.6;
@@ -964,8 +990,10 @@ body {
     transition: background-color 0.15s;
 }
 
-.dashboard-section-files .directories li:hover {
-    background: var(--dashboard-hover);
+@media (hover: hover) {
+    .dashboard-section-files .directories li:hover {
+        background: var(--dashboard-hover);
+    }
 }
 
 .dashboard-section-files .directories li.context-menu-active {
@@ -1035,20 +1063,24 @@ body {
     background-color: transparent;
 }
 
-.dashboard .path-btn:hover {
-    filter: invert(1) hue-rotate(180deg);
-    background-color: var(--select-color);
-    opacity: 1;
+@media (hover: hover) {
+    .dashboard .path-btn:hover {
+        filter: invert(1) hue-rotate(180deg);
+        background-color: var(--select-color);
+        opacity: 1;
+    }
 }
 
 @media (prefers-color-scheme: dark) {
     .path-btn {
         filter: invert(1) hue-rotate(180deg);
     }
-    .path-btn:hover {
-        filter: invert(0) hue-rotate(0deg);
-        background-color: var(--select-color);
-        opacity: 1;
+    @media (hover: hover) {
+        .path-btn:hover {
+            filter: invert(0) hue-rotate(0deg);
+            background-color: var(--select-color);
+            opacity: 1;
+        }
     }
 }
 
@@ -1080,9 +1112,11 @@ body {
     justify-content: center;
 }
 
-.dashboard-section-files .header .path-action-btn:hover {
-    color: var(--dashboard-background);
-    background-color: var(--select-color);
+@media (hover: hover) {
+    .dashboard-section-files .header .path-action-btn:hover {
+        color: var(--dashboard-background);
+        background-color: var(--select-color);
+    }
 }
 
 .dashboard-section-files .header .path-btn-disabled {
@@ -1108,10 +1142,12 @@ body {
     border-radius: 6px;
 }
 
-.dashboard-section-files .header .path .dirname:hover {
-    color: var(--dashboard-background);
-    background-color: var(--select-color);
-    border: 1px solid var(--select-color);
+@media (hover: hover) {
+    .dashboard-section-files .header .path .dirname:hover {
+        color: var(--dashboard-background);
+        background-color: var(--select-color);
+        border: 1px solid var(--select-color);
+    }
 }
 
 .dashboard-section-files .header .path .dirname.drop-target {
@@ -1161,15 +1197,19 @@ body {
     margin: 1px 2px;
     pointer-events: auto;
     float: unset;
+    -webkit-user-select: none;
+    user-select: none;
 }
 
 .dashboard-section-files .row.folder {
     border: 1px solid transparent;
 }
 
-.dashboard-section-files .row:hover {
-    background: var(--dashboard-hover);
-    border-radius: 3px;
+@media (hover: hover) {
+    .dashboard-section-files .row:hover {
+        background: var(--dashboard-hover);
+        border-radius: 3px;
+    }
 }
 
 .dashboard-section-files .row.selected {
@@ -1224,6 +1264,15 @@ body {
     line-height: 32px;
 }
 
+/* On touch devices, item-name/icon/badges must not be direct event targets
+   so that pointerdown's isDragHandle check can't match them and accidentally
+   select items when the user is scrolling. Events pass through to the .row. */
+.files-tab.touch-device .row:not(.header) .item-name,
+.files-tab.touch-device .row:not(.header) .item-icon,
+.files-tab.touch-device .row:not(.header) .item-badges {
+    pointer-events: none;
+}
+
 .dashboard-section-files .row textarea {
     align-items: center;
     width: 100%;
@@ -1260,8 +1309,10 @@ body {
     pointer-events: none;
 }
 
-.dashboard-section-files .row:hover .item-more {
-    color: var(--dashboard-text);
+@media (hover: hover) {
+    .dashboard-section-files .row:hover .item-more {
+        color: var(--dashboard-text);
+    }
 }
 
 .dashboard-section-files.ui-draggable-dragging {
@@ -1544,8 +1595,10 @@ body {
     transition: background-color 0.15s ease, color 0.15s ease;
 }
 
-.dashboard-section-files .selection-action-btn:hover {
-    background: var(--dashboard-hover);
+@media (hover: hover) {
+    .dashboard-section-files .selection-action-btn:hover {
+        background: var(--dashboard-hover);
+    }
 }
 
 .dashboard-section-files .selection-action-btn:active {
@@ -1562,16 +1615,20 @@ body {
     color: #43a047;
 }
 
-.dashboard-section-files .selection-action-btn.restore-btn:hover {
-    background: rgba(67, 160, 71, 0.1);
+@media (hover: hover) {
+    .dashboard-section-files .selection-action-btn.restore-btn:hover {
+        background: rgba(67, 160, 71, 0.1);
+    }
 }
 
 .dashboard-section-files .selection-action-btn.delete-btn {
     color: #e53935;
 }
 
-.dashboard-section-files .selection-action-btn.delete-btn:hover {
-    background: rgba(229, 57, 53, 0.1);
+@media (hover: hover) {
+    .dashboard-section-files .selection-action-btn.delete-btn:hover {
+        background: rgba(229, 57, 53, 0.1);
+    }
 }
 
 /* Select mode button - hidden on desktop by default */
@@ -1710,9 +1767,11 @@ body {
     box-shadow: 0px 1px 3px rgba(0, 0, 0, 0.1);
 }
 
-.dashboard-section-files .files-tab .files.files-grid-view .row:hover {
-    background: var(--dashboard-sidebar-background);
-    border-color: var(--dashboard-border);
+@media (hover: hover) {
+    .dashboard-section-files .files-tab .files.files-grid-view .row:hover {
+        background: var(--dashboard-sidebar-background);
+        border-color: var(--dashboard-border);
+    }
 }
 
 .dashboard-section-files .files-tab .files.files-grid-view .row.selected {
@@ -1771,26 +1830,30 @@ body {
     display: block;
 }
 
-.dashboard-section-files .files-tab .files.files-grid-view .row:hover .item-more {
-    position: absolute;
-    top: 1px;
-    right: 1px;
-    color: #666;
-    background: var(--dashboard-sidebar-background);
-    width: 24px;
-    height: 24px;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    border-radius: 7px;
+@media (hover: hover) {
+    .dashboard-section-files .files-tab .files.files-grid-view .row:hover .item-more {
+        position: absolute;
+        top: 1px;
+        right: 1px;
+        color: #666;
+        background: var(--dashboard-sidebar-background);
+        width: 24px;
+        height: 24px;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        border-radius: 7px;
+    }
 }
 
 /* Hide .item-more on desktop (non-touch devices) - use right-click context menu instead */
 .dashboard-section-files .files-tab:not(.touch-device) .files.files-list-view .row .item-more,
 .dashboard-section-files .files-tab:not(.touch-device) .files.files-grid-view .row .item-more,
-.dashboard-section-files .files-tab:not(.touch-device) .files.files-grid-view .row:hover .item-more,
-.dashboard-section-files .files-tab:not(.touch-device) .header .columns .item-more {
-    display: none !important;
+@media (hover: hover) {
+    .dashboard-section-files .files-tab:not(.touch-device) .files.files-grid-view .row:hover .item-more,
+    .dashboard-section-files .files-tab:not(.touch-device) .header .columns .item-more {
+        display: none !important;
+    }
 }
 
 .dashboard-section-files .files-tab .files.files-grid-view .row .item-name-editor {
@@ -1813,8 +1876,10 @@ body {
     justify-content: space-between;
 }
 
-.dashboard-section-files .header .columns .sortable:hover {
-    color: var(--dashboard-text-heading);
+@media (hover: hover) {
+    .dashboard-section-files .header .columns .sortable:hover {
+        color: var(--dashboard-text-heading);
+    }
 }
 
 .dashboard-section-files .header .columns .sortable::after {
@@ -1851,8 +1916,10 @@ body {
     background: var(--dashboard-sidebar-background);
 }
 
-.dashboard-section-files .header .columns .col-resize-handle:hover {
-    background: var(--dashboard-border);
+@media (hover: hover) {
+    .dashboard-section-files .header .columns .col-resize-handle:hover {
+        background: var(--dashboard-border);
+    }
 }
 
 .dashboard-section-files .header .columns .col-resize-handle:active {
@@ -1901,8 +1968,10 @@ body {
     text-align: left;
 }
 
-.dashboard-section-files .more-menu .menu-item:hover {
-    background: var(--dashboard-hover);
+@media (hover: hover) {
+    .dashboard-section-files .more-menu .menu-item:hover {
+        background: var(--dashboard-hover);
+    }
 }
 
 .dashboard-section-files .more-menu .menu-item svg {
@@ -1930,8 +1999,10 @@ body {
     color: #ea4335;
 }
 
-.dashboard-section-files .more-menu .menu-item.danger:hover {
-    background: rgba(234, 67, 53, 0.1);
+@media (hover: hover) {
+    .dashboard-section-files .more-menu .menu-item.danger:hover {
+        background: rgba(234, 67, 53, 0.1);
+    }
 }
 
 .dashboard-section-files .more-menu .menu-divider {
@@ -2208,11 +2279,13 @@ body {
         color: var(--dashboard-text-muted);        
     }
 
-    .dashboard-section-files .files-tab .files.files-list-view .row:hover .item-modified,
-    .dashboard-section-files .files-tab .files.files-list-view .row:hover .item-size,
-    .dashboard-section-files .files-tab .files.files-list-view .row.selected .item-modified,
-    .dashboard-section-files .files-tab .files.files-list-view .row.selected .item-size {
-        /* color: var(--primary-color-sidebar-item);         */
+    @media (hover: hover) {
+        .dashboard-section-files .files-tab .files.files-list-view .row:hover .item-modified,
+        .dashboard-section-files .files-tab .files.files-list-view .row:hover .item-size,
+        .dashboard-section-files .files-tab .files.files-list-view .row.selected .item-modified,
+        .dashboard-section-files .files-tab .files.files-list-view .row.selected .item-size {
+            /* color: var(--primary-color-sidebar-item);         */
+        }
     }
 
     /* Bullet separator between size and modified */
@@ -2454,10 +2527,12 @@ body {
     transition: all 0.15s ease;
 }
 
-.dashboard .bento-save-account-warning:hover {
-    background-color: var(--dashboard-warning-hover-bg);
-    border-color: var(--dashboard-warning-hover-border);
-    color: var(--dashboard-warning-hover-text);
+@media (hover: hover) {
+    .dashboard .bento-save-account-warning:hover {
+        background-color: var(--dashboard-warning-hover-bg);
+        border-color: var(--dashboard-warning-hover-border);
+        color: var(--dashboard-warning-hover-text);
+    }
 }
 
 .dashboard .bento-save-account-warning svg {
@@ -2465,8 +2540,10 @@ body {
     color: var(--dashboard-warning-icon);
 }
 
-.dashboard .bento-save-account-warning:hover svg {
-    color: var(--dashboard-warning-hover-border);
+@media (hover: hover) {
+    .dashboard .bento-save-account-warning:hover svg {
+        color: var(--dashboard-warning-hover-border);
+    }
 }
 
 /* Recent Apps Card - Rectangle */
@@ -2569,9 +2646,11 @@ body {
     transition: color 0.15s ease;
 }
 
-.dashboard .bento-view-more:hover {
-    color: var(--dashboard-link-hover);
-    text-decoration: underline;
+@media (hover: hover) {
+    .dashboard .bento-view-more:hover {
+        color: var(--dashboard-link-hover);
+        text-decoration: underline;
+    }
 }
 
 .dashboard .bento-recent-apps-container {
@@ -2612,8 +2691,10 @@ body {
     width: 200px;
 }
 
-.dashboard .bento-recent-app:hover {
-    transform: scale(1.02);
+@media (hover: hover) {
+    .dashboard .bento-recent-app:hover {
+        transform: scale(1.02);
+    }
 }
 
 .dashboard .bento-recent-app:active {
@@ -2707,9 +2788,11 @@ body {
     transition: background 0.15s, color 0.15s;
 }
 
-.dashboard .bento-desktop-switch-btn:hover {
-    background: var(--dashboard-icon-blue-end);
-    color: white;
+@media (hover: hover) {
+    .dashboard .bento-desktop-switch-btn:hover {
+        background: var(--dashboard-icon-blue-end);
+        color: white;
+    }
 }
 
 /* Usage bento card */
@@ -2762,9 +2845,11 @@ body {
     transition: color 0.2s;
 }
 
-.dashboard .bento-plan-upgrade:hover {
-    color: var(--dashboard-link-hover);
-    text-decoration: underline;
+@media (hover: hover) {
+    .dashboard .bento-plan-upgrade:hover {
+        color: var(--dashboard-link-hover);
+        text-decoration: underline;
+    }
 }
 
 .dashboard .bento-usage-section-header {
@@ -2804,8 +2889,10 @@ body {
     transition: opacity 0.2s;
 }
 
-.dashboard .bento-usage-card-header:hover {
-    opacity: 0.7;
+@media (hover: hover) {
+    .dashboard .bento-usage-card-header:hover {
+        opacity: 0.7;
+    }
 }
 
 .dashboard .bento-usage-card-header h3 {
@@ -3039,8 +3126,10 @@ body {
     box-shadow: 0 4px 16px var(--dashboard-shadow-medium);
 }
 
-.dashboard-profile-avatar:hover {
-    transform: scale(1.05);
+@media (hover: hover) {
+    .dashboard-profile-avatar:hover {
+        transform: scale(1.05);
+    }
 }
 
 .dashboard-profile-avatar-overlay {
@@ -3055,8 +3144,10 @@ body {
     transition: opacity 0.2s ease;
 }
 
-.dashboard-profile-avatar:hover .dashboard-profile-avatar-overlay {
-    opacity: 1;
+@media (hover: hover) {
+    .dashboard-profile-avatar:hover .dashboard-profile-avatar-overlay {
+        opacity: 1;
+    }
 }
 
 .dashboard-profile-avatar-overlay svg {
@@ -3341,8 +3432,10 @@ body {
     border-bottom: none;
 }
 
-.context-menu-modal-dialog .context-menu-item:hover {
-    background-color: var(--dashboard-hover, #e8e8e8);
+@media (hover: hover) {
+    .context-menu-modal-dialog .context-menu-item:hover {
+        background-color: var(--dashboard-hover, #e8e8e8);
+    }
 }
 
 .context-menu-modal-dialog .context-menu-item:active {
@@ -3378,9 +3471,11 @@ body {
     }
 }
 
-.context-menu-modal-dialog .context-menu-item:hover .context-menu-item-icon img,
-.context-menu-modal-dialog .context-menu-item:hover .context-menu-item-icon svg {
-    opacity: 1;
+@media (hover: hover) {
+    .context-menu-modal-dialog .context-menu-item:hover .context-menu-item-icon img,
+    .context-menu-modal-dialog .context-menu-item:hover .context-menu-item-icon svg {
+        opacity: 1;
+    }
 }
 
 /* Menu item label */
