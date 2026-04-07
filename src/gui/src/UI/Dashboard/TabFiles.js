@@ -232,7 +232,8 @@ const TabFiles = {
         };
 
         // Add touch-device class for touch devices to show .item-more button
-        if ( window.isMobile.phone || window.isMobile.tablet ) {
+        // Use multiple detection methods since user-agent sniffing can miss devices
+        if ( window.isMobile.phone || window.isMobile.tablet || navigator.maxTouchPoints > 0 ) {
             $el_window.find('.files-tab').addClass('touch-device');
         }
 
@@ -2199,10 +2200,19 @@ const TabFiles = {
         let rename_cancelled = false;
         let shift_clicked = false;
         let itemWasSelectedOnMousedown = false;
+        let lastPointerType = null;
 
         el_item.onpointerdown = (e) => {
             if ( e.target.classList.contains('item-more') ) return;
             if ( el_item.classList.contains('header') ) return;
+
+            // Track pointer type so onclick can distinguish touch from mouse.
+            lastPointerType = e.pointerType;
+
+            // On touch devices, skip all selection logic here.
+            // Taps are handled by onclick (opens item) and taphold (context menu),
+            // so pointerdown never accidentally selects while the user is scrolling.
+            if ( e.pointerType === 'touch' ) return;
 
             shift_clicked = false;
 
@@ -2251,7 +2261,9 @@ const TabFiles = {
             // In select mode on mobile, treat taps like Ctrl+click (toggle selection)
             const isMobileSelectMode = (window.isMobile.phone || window.isMobile.tablet) && _this.selectModeActive;
 
-            // If clicking on .item-name, .item-icon, or .item-badges, select immediately so item drag works
+            // If clicking on .item-name, .item-icon, or .item-badges, select immediately so item drag works.
+            // On touch devices, these elements have pointer-events:none via CSS so this path
+            // won't be reached — touches land on .row instead, deferring selection to onclick.
             const isDragHandle = e.target.closest('.item-name, .item-icon, .item-badges');
             if ( e.button === 0 && !e.ctrlKey && !e.metaKey && !e.shiftKey && !el_item.classList.contains('selected') && !isMobileSelectMode && isDragHandle ) {
                 el_item.parentElement.querySelectorAll('.row.selected').forEach(r => {
@@ -2324,9 +2336,16 @@ const TabFiles = {
                 return;
             }
 
-            // On mobile in select mode, selection was already handled in pointerdown
-            // Just return early to prevent any further processing
-            if ( (window.isMobile.phone || window.isMobile.tablet) && _this.selectModeActive ) {
+            // On touch/mobile: tap opens the item directly, no selection step needed.
+            // Selection (and context menu) is handled via taphold.
+            // Use lastPointerType as primary signal (works even if isMobile misdetects).
+            if ( lastPointerType === 'touch' || window.isMobile.phone || window.isMobile.tablet ) {
+                if ( isFolder === "1" ) {
+                    _this.pushNavHistory(file.path);
+                    _this.renderDirectory(file.path);
+                } else {
+                    open_item({ item: el_item });
+                }
                 return;
             }
 
@@ -2352,18 +2371,6 @@ const TabFiles = {
                         _this.showImagePreview($newSelected);
                     }
                 }
-            }
-
-            // On mobile, single tap opens folders (no double-tap on touch devices)
-            if ( window.isMobile.phone || window.isMobile.tablet ) {
-                // Normal mode: open the item
-                if ( isFolder === "1" ) {
-                    _this.pushNavHistory(file.path);
-                    _this.renderDirectory(file.path);
-                } else {
-                    open_item({ item: el_item });
-                }
-                el_item.classList.remove('selected');
             }
         };
 
