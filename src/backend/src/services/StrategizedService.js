@@ -16,7 +16,6 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { TechnicalError } = require('../errors/TechnicalError');
 const { quot } = require('@heyputer/putility').libs.string;
 
 /**
@@ -30,7 +29,7 @@ class StrategizedService {
 
         const key = args.strategy_key;
         if ( !args.default_strategy && !my_config.hasOwnProperty(key) ) {
-            this.initError = new TechnicalError(`Must specify ${quot(key)} for service ${quot(name)}.`);
+            this.initError = new Error(`Must specify ${quot(key)} for service ${quot(name)}.`);
             return;
         }
 
@@ -40,7 +39,7 @@ class StrategizedService {
 
         const strategy_key = my_config[key] ?? args.default_strategy;
         if ( ! args.strategies.hasOwnProperty(strategy_key) ) {
-            this.initError = new TechnicalError(`Invalid ${key} ${quot(strategy_key)} for service ${quot(name)}.`);
+            this.initError = new Error(`Invalid ${key} ${quot(strategy_key)} for service ${quot(name)}.`);
             return;
         }
         const [cls, cls_args] = args.strategies[strategy_key];
