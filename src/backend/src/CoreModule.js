@@ -40,6 +40,10 @@ const BaseService = require('./services/BaseService');
  */
 const install = async ({ context, services, app, useapi, modapi }) => {
     const config = require('./config');
+    const registerServiceIfMissing = (name, service, options) => {
+        if ( services.has(name) ) return;
+        services.registerService(name, service, options);
+    };
     const { TelemetryService } = require('./modules/perfmon/TelemetryService');
     if ( ! services.has('telemetry') ) {
         services.registerService('telemetry', TelemetryService);
@@ -375,6 +379,39 @@ const install = async ({ context, services, app, useapi, modapi }) => {
 
     const { PeerService } = require('./services/PeerService');
     services.registerService('peer', PeerService);
+
+    const { AIInterfaceService } = await import('./services/ai/AIInterfaceService.js');
+    const { AIChatService } = await import('./services/ai/chat/AIChatService.js');
+    const { AIImageGenerationService } = await import('./services/ai/image/AIImageGenerationService.js');
+    const { AIVideoGenerationService } = await import('./services/ai/video/AIVideoGenerationService.js');
+    registerServiceIfMissing('__ai-interfaces', AIInterfaceService);
+    registerServiceIfMissing('ai-chat', AIChatService);
+    registerServiceIfMissing('ai-image', AIImageGenerationService);
+    registerServiceIfMissing('ai-video', AIVideoGenerationService);
+
+    if ( config?.services?.['aws-textract']?.aws ) {
+        const { AWSTextractService } = await import('./services/ai/ocr/AWSTextractService.js');
+        registerServiceIfMissing('aws-textract', AWSTextractService);
+    }
+
+    if ( config?.services?.['aws-polly']?.aws ) {
+        const { AWSPollyService } = await import('./services/ai/tts/AWSPollyService.js');
+        registerServiceIfMissing('aws-polly', AWSPollyService);
+    }
+
+    if ( config?.services?.['elevenlabs'] || config?.elevenlabs ) {
+        const { ElevenLabsTTSService } = await import('./services/ai/tts/ElevenLabsTTSService.js');
+        const { ElevenLabsVoiceChangerService } = await import('./services/ai/sts/ElevenLabsVoiceChangerService.js');
+        registerServiceIfMissing('elevenlabs-tts', ElevenLabsTTSService);
+        registerServiceIfMissing('elevenlabs-voice-changer', ElevenLabsVoiceChangerService);
+    }
+
+    if ( config?.services?.openai || config?.openai ) {
+        const { OpenAITTSService } = await import('./services/ai/tts/OpenAITTSService.js');
+        const { OpenAISpeechToTextService } = await import('./services/ai/stt/OpenAISpeechToTextService.js');
+        registerServiceIfMissing('openai-tts', OpenAITTSService);
+        registerServiceIfMissing('openai-speech2txt', OpenAISpeechToTextService);
+    }
 
     // === Services which are deprecated and should at most be maintained for legacy support ===
     services.registerService('puter-s3', PuterS3Service);

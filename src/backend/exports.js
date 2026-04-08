@@ -19,7 +19,6 @@
 import CoreModule from './src/CoreModule.js';
 import DatabaseModule from './src/DatabaseModule.js';
 import { Kernel } from './src/Kernel.js';
-import { PuterAIModule } from './src/modules/ai/PuterAIChatModule.js';
 import { AppsModule } from './src/modules/apps/AppsModule.js';
 import { BroadcastModule } from './src/modules/broadcast/BroadcastModule.js';
 import { CaptchaModule } from './src/modules/captcha/CaptchaModule.js';
@@ -66,7 +65,6 @@ export default {
     SelfHostedModule,
     TestDriversModule,
     TestConfigModule,
-    PuterAIModule,
     BroadcastModule,
     InternetModule,
     CaptchaModule,

@@ -42,7 +42,6 @@ const main = async () => {
         BroadcastModule,
         TestDriversModule,
         TestConfigModule,
-        PuterAIModule,
         InternetModule,
     } = (await import('@heyputer/backend')).default;
 
@@ -58,7 +57,6 @@ const main = async () => {
     k.add_module(new BroadcastModule());
     k.add_module(new TestDriversModule());
     k.add_module(new TestConfigModule());
-    k.add_module(new PuterAIModule());
     k.add_module(new InternetModule());
     k.boot();
 };
