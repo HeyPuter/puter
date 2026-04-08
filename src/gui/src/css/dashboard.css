@@ -1437,10 +1437,10 @@ body {
 }
 
 .dashboard-section-files .files-footer {
-    position: fixed;
+    position: absolute;
     bottom: 0;
     right: 0;
-    left: 371px;
+    left: 0;
     background: linear-gradient(180deg, var(--dashboard-sidebar-background), var(--dashboard-background));
     border-top: 1px solid var(--dashboard-border);
     height: 30px;
