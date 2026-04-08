@@ -322,9 +322,6 @@ const install = async ({ context, services, app, useapi, modapi }) => {
     const { SUService } = require('./services/SUService');
     services.registerService('su', SUService);
 
-    const { ShutdownService } = require('./services/ShutdownService');
-    services.registerService('shutdown', ShutdownService);
-
     const { BootScriptService } = require('./services/BootScriptService');
     services.registerService('boot-script', BootScriptService);
 
