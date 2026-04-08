@@ -232,6 +232,7 @@ You can see various Puter.js Key-Value Store features in action from the followi
 - [Decrement](/playground/kv-decr/)
 - [Delete](/playground/kv-del/)
 - [List](/playground/kv-list/)
+- [Querying with Prefix Patterns](/playground/kv-prefix-patterns/)
 - [Flush](/playground/kv-flush/)
 - [Expire](/playground/kv-expire/)
 - [Expire At](/playground/kv-expireAt/)
