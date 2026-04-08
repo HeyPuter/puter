@@ -201,8 +201,10 @@ async function create_app (title, source_path = null, items = null) {
             // ----------------------------------------------------
             // Create app directory in AppData
             // ----------------------------------------------------
-            app_dir = await puter.fs.mkdir(`/${auth_username}/AppData/${dev_center_uid}/${app.uid}`,
-                            { overwrite: true, recursive: true, rename: false });
+            app_dir = await puter.fs.mkdir(
+                `/${auth_username}/AppData/${dev_center_uid}/${app.uid}`,
+                { overwrite: true, recursive: true, rename: false },
+            );
             // ----------------------------------------------------
             // Create a router for the app with a fresh hostname
             // ----------------------------------------------------
@@ -255,14 +257,16 @@ async function create_app (title, source_path = null, items = null) {
             // ----------------------------------------------------
             // Create a "shortcut" on the desktop
             // ----------------------------------------------------
-            puter.fs.upload(new File([], app.title),
-                            `/${auth_username}/Desktop`,
-                            {
-                                name: app.title,
-                                dedupeName: true,
-                                overwrite: false,
-                                appUID: app.uid,
-                            });
+            puter.fs.upload(
+                new File([], app.title),
+                `/${auth_username}/Desktop`,
+                {
+                    name: app.title,
+                    dedupeName: true,
+                    overwrite: false,
+                    appUID: app.uid,
+                },
+            );
             //----------------------------------------------------
             // Increment app count
             //----------------------------------------------------
@@ -1388,28 +1392,32 @@ $(document).on('click', '.delete-app-settings', async function (e) {
     }
 
     // confirm delete
-    const alert_resp = await puter.ui.alert(`Are you sure you want to premanently delete <strong>${html_encode(app_title)}</strong>?`,
-                    [
-                        {
-                            label: 'Yes, delete permanently',
-                            value: 'delete',
-                            type: 'danger',
-                        },
-                        {
-                            label: 'Cancel',
-                        },
-                    ]);
+    const alert_resp = await puter.ui.alert(
+        `Are you sure you want to premanently delete <strong>${html_encode(app_title)}</strong>?`,
+        [
+            {
+                label: 'Yes, delete permanently',
+                value: 'delete',
+                type: 'danger',
+            },
+            {
+                label: 'Cancel',
+            },
+        ],
+    );
 
     if ( alert_resp === 'delete' ) {
         let init_ts = Date.now();
         puter.ui.showSpinner();
         puter.apps.delete(app_name).then(async (app) => {
-            setTimeout(() => {
-                puter.ui.hideSpinner();
-                $('.back-to-main-btn').trigger('click');
-            },
-            // make sure the modal was shown for at least 2 seconds
-            (Date.now() - init_ts) > 2000 ? 1 : 2000 - (Date.now() - init_ts));
+            setTimeout(
+                () => {
+                    puter.ui.hideSpinner();
+                    $('.back-to-main-btn').trigger('click');
+                },
+                // make sure the modal was shown for at least 2 seconds
+                (Date.now() - init_ts) > 2000 ? 1 : 2000 - (Date.now() - init_ts),
+            );
             // get app directory
             puter.fs.stat({
                 path: `/${auth_username}/AppData/${dev_center_uid}/${app_uid}`,
@@ -1418,19 +1426,30 @@ $(document).on('click', '.delete-app-settings', async function (e) {
                 // delete subdomain associated with the app dir
                 puter.hosting.delete(stat.subdomains[0].subdomain);
                 // delete app directory
-                puter.fs.delete(`/${auth_username}/AppData/${dev_center_uid}/${app_uid}`,
-                                { recursive: true });
+                puter.fs.delete(
+                    `/${auth_username}/AppData/${dev_center_uid}/${app_uid}`,
+                    { recursive: true },
+                );
             });
+
+            // Clean up desktop shortcut for this app
+            try {
+                await puter.fs.delete(`/${auth_username}/Desktop/${app_title}.app`);
+            } catch (e) {
+                // Shortcut may not exist if user never added it to desktop
+            }
         }).catch(async (err) => {
-            setTimeout(() => {
-                puter.ui.hideSpinner();
-                puter.ui.alert(err?.message, [
-                    {
-                        label: 'Ok',
-                    },
-                ]);
-            },
-            (Date.now() - init_ts) > 2000 ? 1 : (2000 - (Date.now() - init_ts)));
+            setTimeout(
+                () => {
+                    puter.ui.hideSpinner();
+                    puter.ui.alert(err?.message, [
+                        {
+                            label: 'Ok',
+                        },
+                    ]);
+                },
+                (Date.now() - init_ts) > 2000 ? 1 : (2000 - (Date.now() - init_ts)),
+            );
         });
     }
 });
@@ -1903,10 +1922,11 @@ window.deploy = async function (app, items) {
     // --------------------------------------------------------------------
     try {
         appdata_dir = await puter.fs.mkdir(
-                        // path
-                        `/${auth_username}/AppData/${dev_center_uid}/${app.uid ?? app.uuid}`,
-                        // options
-                        { overwrite: true, recursive: true, rename: false });
+            // path
+            `/${auth_username}/AppData/${dev_center_uid}/${app.uid ?? app.uuid}`,
+            // options
+            { overwrite: true, recursive: true, rename: false },
+        );
     } catch ( err ) {
         console.log(err);
     }
@@ -1930,9 +1950,11 @@ window.deploy = async function (app, items) {
             if ( files.length > 0 ) {
                 for ( let file of files ) {
                     // perform copy
-                    await puter.fs.copy(file.path,
-                                    appdata_dir.path,
-                                    { overwrite: true });
+                    await puter.fs.copy(
+                        file.path,
+                        appdata_dir.path,
+                        { overwrite: true },
+                    );
                     // update progress
                     $('.deploy-percent').text(`(${Math.round((files.indexOf(file) / files.length) * 100)}%)`);
                 }
@@ -1943,9 +1965,11 @@ window.deploy = async function (app, items) {
         // --------------------------------------------------------------------
         else {
             // copy the 'files' to the app directory
-            await puter.fs.copy(items,
-                            appdata_dir.path,
-                            { overwrite: true });
+            await puter.fs.copy(
+                items,
+                appdata_dir.path,
+                { overwrite: true },
+            );
         }
 
         // generate new hostname with a random suffix
@@ -1989,9 +2013,11 @@ window.deploy = async function (app, items) {
         // copy the 'files' to the app directory
         for ( let item of items ) {
             // perform copy
-            await puter.fs.copy(item.fullPath ? item.fullPath : item.path ? item.path : item.filepath,
-                            appdata_dir.path,
-                            { overwrite: true });
+            await puter.fs.copy(
+                item.fullPath ? item.fullPath : item.path ? item.path : item.filepath,
+                appdata_dir.path,
+                { overwrite: true },
+            );
             // update progress
             $('.deploy-percent').text(`(${Math.round((items.indexOf(item) / items.length) * 100)}%)`);
         }
@@ -2028,17 +2054,19 @@ window.deploy = async function (app, items) {
     // (C) Local Items: Upload new deploy
     // --------------------------------------------------------------------
     else {
-        puter.fs.upload(items,
-                        `/${auth_username}/AppData/${dev_center_uid}/${currently_editing_app.uid}`,
-                        {
-                            dedupeName: false,
-                            overwrite: false,
-                            parsedDataTransferItems: true,
-                            createMissingAncestors: true,
-                            progress: function (operation_id, op_progress) {
-                                $('.deploy-percent').text(`(${op_progress}%)`);
-                            },
-                        }).then(async (uploaded) => {
+        puter.fs.upload(
+            items,
+            `/${auth_username}/AppData/${dev_center_uid}/${currently_editing_app.uid}`,
+            {
+                dedupeName: false,
+                overwrite: false,
+                parsedDataTransferItems: true,
+                createMissingAncestors: true,
+                progress: function (operation_id, op_progress) {
+                    $('.deploy-percent').text(`(${op_progress}%)`);
+                },
+            },
+        ).then(async (uploaded) => {
             // new hostname
             let hostname = `${currently_editing_app.name}-${(Math.random() + 1).toString(36).substring(7)}`;
 
@@ -2186,14 +2214,15 @@ $(document).on('click', '.insta-deploy-to-existing-app', function (e) {
             else {
                 for ( let app of apps ) {
                     $('.insta-deploy-existing-app-list').append(
-                                    `<div class="insta-deploy-app-selector" data-uid="${app.uid}" data-name="${html_encode(app.name)}">
+                        `<div class="insta-deploy-app-selector" data-uid="${app.uid}" data-name="${html_encode(app.name)}">
                             <img class="insta-deploy-app-icon" data-uid="${app.uid}" data-name="${html_encode(app.name)}" src="${app.icon ? html_encode(app.icon) : './img/app.svg'}">
                             <span style="display: inline-block; font-weight: 500; overflow: hidden; text-overflow: ellipsis; width: 180px; text-wrap: nowrap;" data-uid="${app.uid}" data-uid="${html_encode(app.name)}">${html_encode(app.title)}</span>
                             <div style="margin-top: 10px; font-size:14px; opacity:0.7; display:inline-block;">
                                 <span title="Users" style="width:90px; display: inline-block;"><img style="width: 15px; margin-right: 5px; margin-bottom: -2px;" src="./img/users.svg">${number_format((app.stats.referral_count ?? 0) + app.stats.user_count)}</span>
                                 <span title="Opens" style="display: inline-block;"><img style="width: 15px; margin-right: 5px; margin-bottom: -2px;" src="./img/views.svg">${number_format(app.stats.open_count)}</span>
                             </div>
-                        </div>`);
+                        </div>`,
+                    );
                 }
             }
         }, 500);
@@ -2511,8 +2540,10 @@ $(document).on('click', '.delete-apps-btn', async function (e) {
                     await puter.hosting.delete(stat.subdomains[0].subdomain);
                 }
                 // delete app directory
-                await puter.fs.delete(`/${auth_username}/AppData/${dev_center_uid}/${app_uid}`,
-                                { recursive: true });
+                await puter.fs.delete(
+                    `/${auth_username}/AppData/${dev_center_uid}/${app_uid}`,
+                    { recursive: true },
+                );
                 count_apps();
             } catch ( err ) {
                 console.log(err);
@@ -2594,8 +2625,10 @@ window.initializeAssetsDirectory = async () => {
             // Create assets directory
             const assetsPath = `/${auth_username}/AppData/${dev_center_uid}/assets`;
             try {
-                await puter.fs.mkdir(assetsPath,
-                                { overwrite: false, recursive: true, rename: false });
+                await puter.fs.mkdir(
+                    assetsPath,
+                    { overwrite: false, recursive: true, rename: false },
+                );
             } catch ( err ) {
                 if ( err.code !== 'item_with_same_name_exists' ) {
                     throw err;
@@ -2854,9 +2887,11 @@ window.handleSocialImageUpload = async (app_name, socialImageData) => {
         const assetsDir = `/${auth_username}/AppData/${dev_center_uid}/assets`;
 
         // Upload new image
-        await puter.fs.upload(new File([blob], `${app_name}.png`, { type: 'image/png' }),
-                        assetsDir,
-                        { overwrite: true });
+        await puter.fs.upload(
+            new File([blob], `${app_name}.png`, { type: 'image/png' }),
+            assetsDir,
+            { overwrite: true },
+        );
 
         return `${assets_url}/${app_name}.png`;
     } catch ( err ) {
@@ -2888,9 +2923,11 @@ window.handlePreviewImagesUpload = async (app_name, previewImagesState) => {
                 const base64Response = await fetch(image.base64);
                 const blob = await base64Response.blob();
                 const filename = `${app_name}-${device.id}-${i + 1}.png`;
-                await puter.fs.upload(new File([blob], filename, { type: 'image/png' }),
-                                assetsDir,
-                                { overwrite: true });
+                await puter.fs.upload(
+                    new File([blob], filename, { type: 'image/png' }),
+                    assetsDir,
+                    { overwrite: true },
+                );
                 result[device.id].push(`${assets_url}/previews/${app_name}/${filename}`);
             } else if ( image.url ) {
                 result[device.id].push(image.url);
@@ -2932,12 +2969,14 @@ async function render_analytics (period) {
         stats_grouping = 'month';
     }
 
-    const app = await puter.apps.get(currently_editing_app.name,
-                    {
-                        icon_size: 16,
-                        stats_period: period,
-                        stats_grouping: stats_grouping,
-                    });
+    const app = await puter.apps.get(
+        currently_editing_app.name,
+        {
+            icon_size: 16,
+            stats_period: period,
+            stats_grouping: stats_grouping,
+        },
+    );
 
     $('#analytics-users .count').html(number_format(app.stats.user_count));
     $('#analytics-opens .count').html(number_format(app.stats.open_count));
@@ -3057,14 +3096,16 @@ function app_context_menu (app_name, app_title, app_uid) {
                 label: 'Add Shortcut to Desktop',
                 type: 'primary',
                 action: () => {
-                    puter.fs.upload(new File([], app_title),
-                                    `/${auth_username}/Desktop`,
-                                    {
-                                        name: app_title,
-                                        dedupeName: true,
-                                        overwrite: false,
-                                        appUID: app_uid,
-                                    }).then(async (uploaded) => {
+                    puter.fs.upload(
+                        new File([], app_title),
+                        `/${auth_username}/Desktop`,
+                        {
+                            name: app_title,
+                            dedupeName: true,
+                            overwrite: false,
+                            appUID: app_uid,
+                        },
+                    ).then(async (uploaded) => {
                         puter.ui.alert(`<strong>${app_title}</strong> shortcut has been added to your desktop.`, [
                             {
                                 label: 'Ok',
@@ -3116,17 +3157,19 @@ async function attempt_delete_app (app_name, app_title, app_uid) {
     }
 
     // confirm delete
-    const alert_resp = await puter.ui.alert(`Are you sure you want to premanently delete <strong>${html_encode(app_title)}</strong>?`,
-                    [
-                        {
-                            label: 'Yes, delete permanently',
-                            value: 'delete',
-                            type: 'danger',
-                        },
-                        {
-                            label: 'Cancel',
-                        },
-                    ]);
+    const alert_resp = await puter.ui.alert(
+        `Are you sure you want to premanently delete <strong>${html_encode(app_title)}</strong>?`,
+        [
+            {
+                label: 'Yes, delete permanently',
+                value: 'delete',
+                type: 'danger',
+            },
+            {
+                label: 'Cancel',
+            },
+        ],
+    );
 
     if ( alert_resp === 'delete' ) {
         remove_app_card(app_uid);
@@ -3141,8 +3184,10 @@ async function attempt_delete_app (app_name, app_title, app_uid) {
                 // delete subdomain associated with the app dir
                 puter.hosting.delete(stat.subdomains[0].subdomain);
                 // delete app directory
-                puter.fs.delete(`/${auth_username}/AppData/${dev_center_uid}/${app_uid}`,
-                                { recursive: true });
+                puter.fs.delete(
+                    `/${auth_username}/AppData/${dev_center_uid}/${app_uid}`,
+                    { recursive: true },
+                );
             });
         }).catch(async (err) => {
             puter.ui.hideSpinner();
