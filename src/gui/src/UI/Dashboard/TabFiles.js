@@ -1819,43 +1819,7 @@ const TabFiles = {
         });
 
         const isTrashFolder = this.currentPath === window.trash_path;
-        const isDesktopFolder = this.currentPath === window.desktop_path;
         this.updateActionButtons(isTrashFolder);
-
-        // Desktop view: apply wallpaper background and grid layout
-        const $filesContainer = this.$el_window.find('.files-tab .files');
-        $filesContainer.toggleClass('desktop-view', isDesktopFolder);
-        if ( isDesktopFolder ) {
-            const bgUrl = window.desktop_bg_url;
-            const bgColor = window.desktop_bg_color;
-            const bgFit = window.desktop_bg_fit || 'cover';
-            if ( bgUrl ) {
-                $filesContainer.css({
-                    'background-image': `url(${bgUrl})`,
-                    'background-size': (bgFit === 'repeat') ? 'auto' : bgFit,
-                    'background-repeat': (bgFit === 'repeat') ? 'repeat' : 'no-repeat',
-                    'background-position': 'center center',
-                    'background-color': '',
-                });
-            } else if ( bgColor ) {
-                $filesContainer.css({
-                    'background-image': 'none',
-                    'background-color': bgColor,
-                });
-            }
-            // Hide column headers and view toggle in desktop view
-            this.$el_window.find('.files-tab .header .columns').hide();
-            this.$el_window.find('.view-toggle-btn').hide();
-        } else {
-            $filesContainer.css({
-                'background-image': '',
-                'background-size': '',
-                'background-position': '',
-                'background-color': '',
-            });
-            this.$el_window.find('.files-tab .header .columns').show();
-            this.$el_window.find('.view-toggle-btn').show();
-        }
 
         $('.path-breadcrumbs').html(this.renderPath(this.currentPath, window.user.username));
         $('.path-breadcrumbs .dirname').each(function () {
