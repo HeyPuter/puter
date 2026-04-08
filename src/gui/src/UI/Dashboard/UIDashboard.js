@@ -84,6 +84,14 @@ async function UIDashboard (options) {
 
         // Sidebar
         h += '<div class="dashboard-sidebar hide-scrollbar">';
+            // Sidebar header with logo and collapse toggle
+            h += '<div class="dashboard-sidebar-header">';
+                h += `<div class="dashboard-sidebar-logo"><img src="${window.icons['logo.svg']}" alt="Puter"><span>Puter</span></div>`;
+                h += '<button class="dashboard-sidebar-collapse-toggle">';
+                    h += `<img class="sidebar-toggle-close" src="${window.icons['sidebar-close.svg']}">`;
+                    h += `<img class="sidebar-toggle-open" src="${window.icons['sidebar-open.svg']}">`;
+                h += '</button>';
+            h += '</div>';
             // Navigation items container
             h += '<div class="dashboard-sidebar-nav">';
             for ( let i = 0; i < tabs.length; i++ ) {
@@ -146,6 +154,11 @@ async function UIDashboard (options) {
     });
 
     const $el_window = $(el_window);
+
+    // Restore sidebar collapsed state
+    if ( localStorage.getItem('dashboard-sidebar-collapsed') === '1' ) {
+        $el_window.find('.dashboard-sidebar').addClass('collapsed');
+    }
 
     // Set initial file path BEFORE tabs are initialized (so TabFiles.init() can use it)
     if ( window.dashboard_initial_route?.tab === 'files' && window.dashboard_initial_route?.path ) {
@@ -364,6 +377,15 @@ async function UIDashboard (options) {
         updatePinnedSeparator();
         savePinnedApps();
     });
+
+    // Expose pin function for use by other tabs (e.g. Apps context menu)
+    window.dashboard_pin_app = function (app) {
+        if ( pinnedApps.some(p => p.name === app.name) ) return;
+        pinnedApps.push({ name: app.name, title: app.title, iconUrl: app.iconUrl });
+        renderPinnedApp(app);
+        updatePinnedSeparator();
+        savePinnedApps();
+    };
 
     // Close button on active sidebar app
     $el_window.on('click', '.sidebar-app-close-btn', function (e) {
@@ -823,6 +845,13 @@ async function UIDashboard (options) {
     $el_window.on('click', '.dashboard-sidebar-toggle', function () {
         $(this).toggleClass('open');
         $el_window.find('.dashboard-sidebar').toggleClass('open');
+    });
+
+    // Desktop sidebar collapse toggle
+    $el_window.on('click', '.dashboard-sidebar-collapse-toggle', function () {
+        const $sidebar = $el_window.find('.dashboard-sidebar');
+        $sidebar.toggleClass('collapsed');
+        localStorage.setItem('dashboard-sidebar-collapsed', $sidebar.hasClass('collapsed') ? '1' : '0');
     });
 
     // Close sidebar when clicking outside

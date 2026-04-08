@@ -185,12 +185,141 @@ body {
     display: flex;
     flex-direction: column;
     box-sizing: border-box;
+    transition: width 0.2s ease, min-width 0.2s ease, padding 0.2s ease;
+}
+
+/* Sidebar header with logo and collapse toggle */
+.dashboard-sidebar-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0px 0px 10px 5px;
+    flex-shrink: 0;
+    border-bottom: 1px solid var(--dashboard-border);
+    margin-bottom: 10px;
+}
+
+.dashboard-sidebar-logo {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    font-size: 14px;
+    color: var(--dashboard-text);
+}
+
+.dashboard-sidebar-logo img {
+    height: 24px;
+    width: auto;
+    opacity: 1;
+    transition: opacity 0.15s ease;
+}
+
+.dashboard-sidebar-collapse-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border: none;
+    background: none;
+    border-radius: 6px;
+    cursor: pointer;
+    color: var(--dashboard-text-muted);
+    transition: background-color 0.15s, color 0.15s;
+    flex-shrink: 0;
+}
+
+.dashboard-sidebar-collapse-toggle img {
+    width: 24px;
+    height: 24px;
+    opacity: 0.6;
+}
+
+.dashboard-sidebar-collapse-toggle .sidebar-toggle-open {
+    display: none;
+}
+
+.dashboard-sidebar-collapse-toggle:hover {
+    background: var(--dashboard-hover);
+    color: var(--dashboard-text);
+}
+
+/* Collapsed sidebar state */
+.dashboard-sidebar.collapsed {
+    width: 50px;
+    min-width: 50px;
+    padding: 16px 6px;
+}
+
+.dashboard-sidebar.collapsed .dashboard-sidebar-header {
+    justify-content: center;
+    padding: 4px 0 12px;
+}
+
+.dashboard-sidebar.collapsed .dashboard-sidebar-logo {
+    display: none;
+}
+
+.dashboard-sidebar.collapsed .dashboard-sidebar-collapse-toggle .sidebar-toggle-close {
+    display: none;
+}
+
+.dashboard-sidebar.collapsed .dashboard-sidebar-collapse-toggle .sidebar-toggle-open {
+    display: block;
+}
+
+.dashboard-sidebar.collapsed .dashboard-sidebar-item {
+    justify-content: center;
+    padding: 10px;
+    gap: 0;
+    overflow: hidden;
+    font-size: 0;
+}
+
+.dashboard-sidebar.collapsed .dashboard-sidebar-item .dashboard-pinned-icon,
+.dashboard-sidebar.collapsed .dashboard-sidebar-item svg {
+    flex-shrink: 0;
+}
+
+.dashboard-sidebar.collapsed .dashboard-sidebar-separator {
+    margin: 8px 4px;
+}
+
+.dashboard-sidebar.collapsed .dashboard-sidebar-item.beta::after {
+    display: none;
+}
+
+.dashboard-sidebar.collapsed .dashboard-user-options {
+    padding-top: 8px;
+}
+
+.dashboard-sidebar.collapsed .dashboard-user-btn {
+    justify-content: center;
+    padding: 10px;
+    gap: 0;
+}
+
+.dashboard-sidebar.collapsed .dashboard-user-name,
+.dashboard-sidebar.collapsed .dashboard-user-chevron {
+    display: none;
+}
+
+.dashboard-sidebar.collapsed .sidebar-app-close-btn {
+    display: none;
+}
+
+/* Hide desktop collapse toggle on mobile */
+@media (max-width: 768px) {
+    .dashboard-sidebar-collapse-toggle {
+        display: none;
+    }
 }
 
 .dashboard-sidebar-nav {
     flex: 1;
     display: flex;
     flex-direction: column;
+    overflow: hidden;
 }
 
 .dashboard-sidebar-separator {
@@ -788,7 +917,7 @@ body {
 
 .myapps-sort-option {
     padding: 8px 16px;
-    font-size: 14px;
+    font-size: 12px;
     color: var(--dashboard-text-primary);
     cursor: pointer;
     transition: background 0.1s;
@@ -1028,7 +1157,6 @@ body {
 .dashboard-section-files .directory-contents .header {
     position: sticky;
     top: 0;
-    height: 94px;
     padding-top: 12px;
     background: var(--dashboard-background);
 }
@@ -1862,6 +1990,90 @@ body {
 
 .dashboard-section-files .files-tab.files-grid-mode .header .columns {
     display: none;
+}
+
+/* Desktop view - renders the Desktop folder like the actual desktop */
+.dashboard-section-files .files-tab .files.desktop-view {
+    display: grid;
+    height: calc(100vh - 89px);
+    grid-template-columns: repeat(auto-fill, 90px);
+    gap: 10px;
+    padding: 20px;
+    align-content: start;
+    background-size: cover;
+    background-repeat: no-repeat;
+    background-position: center center;
+    background-image: url(https://puter-assets.b-cdn.net/wallpaper.webp);
+}
+
+.dashboard-section-files .files-tab .files.desktop-view .row {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    height: auto;
+    padding: 8px 4px;
+    border-radius: 8px;
+    background: transparent;
+    border: 1px solid transparent;
+    color: #fff;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+    cursor: pointer;
+    gap: 4px;
+}
+
+@media (hover: hover) {
+    .dashboard-section-files .files-tab .files.desktop-view .row:hover {
+        background: rgba(255, 255, 255, 0.15);
+    }
+}
+
+.dashboard-section-files .files-tab .files.desktop-view .row.selected {
+    background: rgba(255, 255, 255, 0.25);
+    border-color: rgba(255, 255, 255, 0.4);
+}
+
+.dashboard-section-files .files-tab .files.desktop-view .row .item-icon {
+    width: 48px;
+    height: 48px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+}
+
+.dashboard-section-files .files-tab .files.desktop-view .row .item-icon img {
+    width: 48px;
+    height: 48px;
+    object-fit: contain;
+    filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.4));
+}
+
+.dashboard-section-files .files-tab .files.desktop-view .row .item-name {
+    text-align: center;
+    font-size: 11px;
+    line-height: 1.3;
+    max-width: 82px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    word-break: break-word;
+}
+
+.dashboard-section-files .files-tab .files.desktop-view .row .item-name-wrapper {
+    width: 100%;
+    display: flex;
+    justify-content: center;
+}
+
+.dashboard-section-files .files-tab .files.desktop-view .row .item-checkbox,
+.dashboard-section-files .files-tab .files.desktop-view .row .item-badges,
+.dashboard-section-files .files-tab .files.desktop-view .row .item-metadata,
+.dashboard-section-files .files-tab .files.desktop-view .row .item-more,
+.dashboard-section-files .files-tab .files.desktop-view .row .col-spacer,
+.dashboard-section-files .files-tab .files.desktop-view .row .item-name-editor {
+    display: none !important;
 }
 
 /* Sortable column headers */
