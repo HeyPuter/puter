@@ -160,7 +160,7 @@ export class AIChatService extends BaseService {
         },
     };
 
-    getModel ({ modelId, provider}: { modelId: string, provider?: string }) {
+    getModel ({ modelId, provider }: { modelId: string, provider?: string }) {
         const models = this.#modelIdMap[modelId];
 
         if ( ! models ) {
@@ -541,6 +541,7 @@ export class AIChatService extends BaseService {
             if ( ! provider ) {
                 throw new Error(`no provider found for model ${model.id}`);
             }
+            const attempts: { model: string; provider: string; error: string }[] = [];
             try {
                 res = await provider.complete({
                     ...parameters,
@@ -555,6 +556,11 @@ export class AIChatService extends BaseService {
                 triedProviders.push(model.provider!);
 
                 let error = e as Error;
+                attempts.push({
+                    model: model.id,
+                    provider: model.provider!,
+                    error: error?.message ?? String(e),
+                });
 
                 while ( error ) {
 
@@ -595,7 +601,9 @@ export class AIChatService extends BaseService {
                     const fallback = await this.getFallbackModel(model.id, tried, triedProviders);
 
                     if ( ! fallback ) {
-                        throw new Error('no fallback model available');
+                        throw APIError.create('ai_chat_all_providers_failed', null, {
+                            attempts,
+                        });
                     }
 
                     const {
@@ -642,6 +650,11 @@ export class AIChatService extends BaseService {
                     } catch (e) {
                         console.error('error during fallback selection: ', e);
                         error = e as Error;
+                        attempts.push({
+                            model: fallBackModel.id,
+                            provider: fallBackModel.provider!,
+                            error: error?.message ?? String(e),
+                        });
                     }
                 }
             }
@@ -652,7 +665,9 @@ export class AIChatService extends BaseService {
             const username = actor.type?.user?.username;
 
             if ( ! res! ) {
-                throw new Error('No response from AI chat provider');
+                throw APIError.create('ai_chat_all_providers_failed', null, {
+                    attempts,
+                });
             }
 
             res.via_ai_chat_service = true; // legacy field always true now
