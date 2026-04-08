@@ -188,10 +188,6 @@ class RateLimitService extends BaseService {
                 [dbKey, toSqlTimestamp(windowStart), 0],
             );
 
-            this.log.debug(
-                'create windowStart and count',
-                { windowStart, count: 0 },
-            );
         }
 
         if ( windowStart + period < Date.now() ) {
