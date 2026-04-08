@@ -90,6 +90,7 @@ async function UITaskbar (options) {
             // skip if popover already open
             if ( $(item).hasClass('has-open-popover') )
             {
+                $('.popover-launcher').remove();
                 return;
             }
 
