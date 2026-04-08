@@ -48,10 +48,6 @@ const TabUsage = {
                     <div id="storage-bar"></div>
                     <div id="storage-bar-host"></div>
                 </div>
-                <div style="margin-top: 20px;">
-                    <h3 style="margin:0 0 10px 0; font-size: 14px; font-weight: 500;">Storage use / App</h3>
-                    <div class="app-storage-content" style="font-size: 13px;">Loading...</div>
-                </div>
                 <div class="driver-usage-container" style="margin-top: 30px;">
                     <div class="driver-usage-header">
                         <h3 style="margin:0; font-size: 14px; flex-grow: 1; font-weight: 500;">${i18n('Resources')}</h3>
@@ -81,6 +77,7 @@ const TabUsage = {
         // Click handler for sortable table headers
         $($el_window).on('click', '.driver-usage-details-content-table th[data-sort]', function () {
             const column = $(this).data('sort');
+
             // Toggle direction if same column, otherwise default to descending
             if ( usageTableSortState.column === column ) {
                 usageTableSortState.direction = usageTableSortState.direction === 'asc' ? 'desc' : 'asc';
@@ -109,6 +106,7 @@ const TabUsage = {
 function getSortIcon (column) {
     const isActive = usageTableSortState.column === column;
     const direction = usageTableSortState.direction;
+
     if ( ! isActive ) {
         // Neutral sort icon (both arrows, dimmed)
         return `<span class="sort-icon sort-icon-neutral">
@@ -206,113 +204,6 @@ function renderUsageTable () {
     $('.driver-usage-details-content').html(h);
 }
 
-async function scanDirRecursive (path) {
-    let totalSize = 0;
-    let fileCount = 0;
-    try {
-        const contents = await puter.fs.readdir(path);
-        for ( const item of contents ) {
-            if ( item.size !== null && item.size !== undefined ) {
-                totalSize += item.size;
-                fileCount++;
-            }
-            if ( item.is_dir ) {
-                const sub = await scanDirRecursive(`${path}/${item.name}`);
-                totalSize += sub.totalSize;
-                fileCount += sub.fileCount;
-            }
-        }
-    } catch (e) {
-        // Can't read this directory, skip
-    }
-    return { totalSize, fileCount };
-}
-
-async function loadAppStorageUsage () {
-    try {
-        // Fetch app info and AppData dirs in parallel
-        const [appDirs, installedRes, launchRes] = await Promise.all([
-            puter.fs.readdir('~/AppData'),
-            fetch(`${window.api_origin}/installedApps?orderBy=name&limit=100`, {
-                headers: { 'Authorization': `Bearer ${puter.authToken}` },
-                method: 'GET',
-            }),
-            fetch(`${window.api_origin}/get-launch-apps?icon_size=64`, {
-                headers: { 'Authorization': `Bearer ${window.auth_token}` },
-                method: 'GET',
-            }),
-        ]);
-
-        const installedApps = await installedRes.json();
-        const launchData = await launchRes.json();
-
-        // Build lookup map keyed by name, uid, and uuid
-        const appInfo = {};
-        const addApp = (app, icon) => {
-            const info = { title: app.title, icon };
-            if ( app.name ) appInfo[app.name] = info;
-            if ( app.uid ) appInfo[app.uid] = info;
-            if ( app.uuid ) appInfo[app.uuid] = info;
-        };
-        for ( const app of [...(launchData.recommended || []), ...(launchData.recent || [])] ) {
-            addApp(app, app.icon || null);
-        }
-        for ( const app of installedApps ) {
-            addApp(app, app.icon || app.iconUrl || null);
-        }
-
-        const appSizes = [];
-
-        await Promise.all(appDirs.map(async (dir) => {
-            const { totalSize, fileCount } = await scanDirRecursive(`~/AppData/${dir.name}`);
-            if ( totalSize === 0 ) return; // Skip empty apps
-            const info = appInfo[dir.name];
-            appSizes.push({
-                name: dir.name,
-                title: info?.title || dir.name,
-                icon: info?.icon || null,
-                size: totalSize,
-                files: fileCount,
-            });
-        }));
-
-        // Sort by size descending
-        appSizes.sort((a, b) => b.size - a.size);
-
-        if ( appSizes.length === 0 ) {
-            $('.app-storage-content').html('<span style="opacity: 0.6;">No app data found.</span>');
-            return;
-        }
-
-        let h = '<table class="driver-usage-details-content-table">';
-        h += `<thead><tr>
-            <th>App</th>
-            <th>Files</th>
-            <th>Size</th>
-        </tr></thead><tbody>`;
-
-        const defaultIcon = window.icons?.['app.svg'] || '';
-
-        for ( const app of appSizes ) {
-            console.log(app);
-            const iconSrc = html_encode(app.icon || defaultIcon);
-            const iconImg = iconSrc
-                ? `<img src="${iconSrc}" style="width:18px;height:18px;vertical-align:middle;margin-right:8px;border-radius:3px;" draggable="false">`
-                : '';
-            h += `<tr>
-                <td>${iconImg}${html_encode(app.title)}</td>
-                <td>${app.files}</td>
-                <td>${window.byte_format(app.size)}</td>
-            </tr>`;
-        }
-
-        h += '</tbody></table>';
-        $('.app-storage-content').html(h);
-    } catch (e) {
-        $('.app-storage-content').html('<span style="opacity: 0.6;">Could not load app storage data.</span>');
-    }
-}
-
 async function update_usage_details ($el_window) {
     // Add spinning animation and record start time
     const startTime = Date.now();
@@ -392,10 +283,8 @@ async function update_usage_details ($el_window) {
         }
     });
 
-    const appStoragePromise = loadAppStorageUsage();
-
-    // Wait for all promises to complete
-    await Promise.all([monthlyUsagePromise, spacePromise, appStoragePromise]);
+    // Wait for both promises to complete
+    await Promise.all([monthlyUsagePromise, spacePromise]);
 
     // Ensure spinning continues for at least 1 second
     const elapsed = Date.now() - startTime;
