@@ -27,6 +27,7 @@ import UIAlert from '../UIAlert.js';
 import generate_file_context_menu from '../../helpers/generate_file_context_menu.js';
 import truncate_filename from '../../helpers/truncate_filename.js';
 import update_title_based_on_uploads from '../../helpers/update_title_based_on_uploads.js';
+import item_icon from '../../helpers/item_icon.js';
 import new_context_menu_item from '../../helpers/new_context_menu_item.js';
 import ContextMenuModal from './ContextMenu/ContextMenu.js';
 
@@ -1848,7 +1849,43 @@ const TabFiles = {
         });
 
         const isTrashFolder = this.currentPath === window.trash_path;
+        const isDesktopFolder = this.currentPath === window.desktop_path;
         this.updateActionButtons(isTrashFolder);
+
+        // Desktop view: apply wallpaper background and grid layout
+        const $filesContainer = this.$el_window.find('.files-tab .files');
+        $filesContainer.toggleClass('desktop-view', isDesktopFolder);
+        if ( isDesktopFolder ) {
+            const bgUrl = window.desktop_bg_url;
+            const bgColor = window.desktop_bg_color;
+            const bgFit = window.desktop_bg_fit || 'cover';
+            if ( bgUrl ) {
+                $filesContainer.css({
+                    'background-image': `url(${bgUrl})`,
+                    'background-size': (bgFit === 'repeat') ? 'auto' : bgFit,
+                    'background-repeat': (bgFit === 'repeat') ? 'repeat' : 'no-repeat',
+                    'background-position': 'center center',
+                    'background-color': '',
+                });
+            } else if ( bgColor ) {
+                $filesContainer.css({
+                    'background-image': 'none',
+                    'background-color': bgColor,
+                });
+            }
+            // Hide column headers and view toggle in desktop view
+            this.$el_window.find('.files-tab .header .columns').hide();
+            this.$el_window.find('.view-toggle-btn').hide();
+        } else {
+            $filesContainer.css({
+                'background-image': '',
+                'background-size': '',
+                'background-position': '',
+                'background-color': '',
+            });
+            this.$el_window.find('.files-tab .header .columns').show();
+            this.$el_window.find('.view-toggle-btn').show();
+        }
 
         $('.path-breadcrumbs').html(this.renderPath(this.currentPath, window.user.username));
         $('.path-breadcrumbs .dirname').each(function () {
@@ -1984,7 +2021,8 @@ const TabFiles = {
         const is_shared_with_me = (file.path !== `/${window.user.username}` && !file.path.startsWith(`/${window.user.username}/`));
         const is_worker = file.workers?.length > 0;
         const worker_url = is_worker ? file.workers[0]?.address : '';
-        const icon = file.is_dir ? `<img src="${html_encode(window.icons['folder.svg'])}"/>` : ((file.thumbnail && this.currentView === 'grid') ? `<img src="${file.thumbnail}" alt="${displayName}" />` : this.determineIcon(file));
+        const iconResult = await item_icon(file);
+        const icon = `<img src="${html_encode(iconResult.image)}"/>`;
         const row = document.createElement("div");
         row.setAttribute('class', `item row ${file.is_dir ? 'folder' : 'file'}`);
         row.setAttribute("data-id", item_id);
@@ -2006,7 +2044,7 @@ const TabFiles = {
         row.setAttribute("data-size", file.size);
         row.setAttribute("data-type", html_encode(file.type) ?? '');
         row.setAttribute("data-modified", file.modified);
-        row.setAttribute("data-associated_app_name", html_encode(file.associated_app_name) ?? '');
+        row.setAttribute("data-associated_app_name", html_encode(file.associated_app?.name) ?? '');
         row.setAttribute("data-path", html_encode(file.path));
         row.innerHTML = `
             <div class="item-checkbox"><span class="checkbox-icon"></span></div>
@@ -2067,117 +2105,6 @@ const TabFiles = {
         this.$el_window.find('.files-tab .files').append(row);
 
         this.createItemListeners(row, file);
-    },
-
-    /**
-     * Determines the appropriate icon for a file based on its extension.
-     *
-     * @param {Object} file - The file object containing the filename
-     * @returns {string} HTML string for the icon image element
-     */
-    determineIcon (file) {
-        const extension = file.name.split('.').pop().toLowerCase();
-        switch ( extension ) {
-            case 'm4a':
-            case 'ogg':
-            case 'aac':
-            case 'flac':
-                return `<img src="${html_encode(window.icons['file-audio.svg'])}"/>`;
-            case 'cpp':
-                return `<img src="${html_encode(window.icons['file-cpp.svg'])}"/>`;
-            case 'css':
-                return `<img src="${html_encode(window.icons['file-css.svg'])}"/>`;
-            case 'csv':
-                return `<img src="${html_encode(window.icons['file-csv.svg'])}"/>`;
-            case 'doc':
-            case 'docx':
-                return `<img src="${html_encode(window.icons['file-word.svg'])}"/>`;
-            case 'exe':
-                return `<img src="${html_encode(window.icons['file-exe.svg'])}"/>`;
-            case 'gzip':
-                return `<img src="${html_encode(window.icons['file-gzip.svg'])}"/>`;
-            case 'html':
-                return `<img src="${html_encode(window.icons['file-html.svg'])}"/>`;
-            case 'jpg':
-            case 'jpeg':
-            case 'png':
-            case 'webp':
-            case 'gif':
-                return `<img src="${html_encode(window.icons['file-image.svg'])}"/>`;
-            case 'jar':
-                return `<img src="${html_encode(window.icons['file-jar.svg'])}"/>`;
-            case 'java':
-                return `<img src="${html_encode(window.icons['file-pdf.svg'])}"/>`;
-            case 'js':
-                return `<img src="${html_encode(window.icons['file-js.svg'])}"/>`;
-            case 'json':
-                return `<img src="${html_encode(window.icons['file-json.svg'])}"/>`;
-            case 'jsp':
-                return `<img src="${html_encode(window.icons['file-jsp.svg'])}"/>`;
-            case 'log':
-                return `<img src="${html_encode(window.icons['file-log.svg'])}"/>`;
-            case 'md':
-                return `<img src="${html_encode(window.icons['file-md.svg'])}"/>`;
-            case 'mp3':
-                return `<img src="${html_encode(window.icons['file-mp3.svg'])}"/>`;
-            case 'otf':
-                return `<img src="${html_encode(window.icons['file-otf.svg'])}"/>`;
-            case 'pdf':
-                return `<img src="${html_encode(window.icons['file-pdf.svg'])}"/>`;
-            case 'php':
-                return `<img src="${html_encode(window.icons['file-php.svg'])}"/>`;
-            case 'pptx':
-                return `<img src="${html_encode(window.icons['file-pptx.svg'])}"/>`;
-            case 'psd':
-                return `<img src="${html_encode(window.icons['file-psd.svg'])}"/>`;
-            case 'py':
-                return `<img src="${html_encode(window.icons['file-py.svg'])}"/>`;
-            case 'rss':
-                return `<img src="${html_encode(window.icons['file-rss.svg'])}"/>`;
-            case 'rtf':
-                return `<img src="${html_encode(window.icons['file-rtf.svg'])}"/>`;
-            case 'ruby':
-                return `<img src="${html_encode(window.icons['file-ruby.svg'])}"/>`;
-            case 'sketch':
-                return `<img src="${html_encode(window.icons['file-sketch.svg'])}"/>`;
-            case 'sql':
-                return `<img src="${html_encode(window.icons['file-sql.svg'])}"/>`;
-            case 'svg':
-                return `<img src="${html_encode(window.icons['file-svg.svg'])}"/>`;
-            case 'tar':
-                return `<img src="${html_encode(window.icons['file-tar.svg'])}"/>`;
-            case 'tpl':
-            case 'xltx':
-            case 'potx':
-            case 'tmpl':
-                return `<img src="${html_encode(window.icons['file-template.svg'])}"/>`;
-            case 'text':
-            case 'txt':
-                return `<img src="${html_encode(window.icons['file-text.svg'])}"/>`;
-            case 'tif':
-                return `<img src="${html_encode(window.icons['file-tif.svg'])}"/>`;
-            case 'tiff':
-                return `<img src="${html_encode(window.icons['file-tiff.svg'])}"/>`;
-            case 'ttf':
-                return `<img src="${html_encode(window.icons['file-ttf.svg'])}"/>`;
-            case 'mp4':
-            case 'avi':
-            case 'mov':
-            case 'wmf':
-            case 'mkv':
-            case 'webm':
-                return `<img src="${html_encode(window.icons['file-video.svg'])}"/>`;
-            case 'wav':
-                return `<img src="${html_encode(window.icons['file-wav.svg'])}"/>`;
-            case 'xlsx':
-                return `<img src="${html_encode(window.icons['file-xlsx.svg'])}"/>`;
-            case 'xml':
-                return `<img src="${html_encode(window.icons['file-xml.svg'])}"/>`;
-            case 'zip':
-                return `<img src="${html_encode(window.icons['file-zip.svg'])}"/>`;
-            default:
-                return `<img src="${html_encode(window.icons['file.svg'])}"/>`;
-        }
     },
 
     /**

@@ -214,6 +214,8 @@ const TabApps = {
         h += '<div class="myapps-context-menu-item" data-action="open-window">Open in Window (default)</div>';
         h += '<div class="myapps-context-menu-item" data-action="open-tab">Open in Tab</div>';
         h += '<div class="myapps-context-menu-divider"></div>';
+        h += '<div class="myapps-context-menu-item" data-action="add-to-sidebar">Add to Sidebar</div>';
+        h += '<div class="myapps-context-menu-divider"></div>';
         h += '<div class="myapps-context-menu-item" data-action="uninstall">Uninstall</div>';
         h += '</div>';
         h += '</div>';
@@ -408,6 +410,17 @@ const TabApps = {
                 $menu.hide();
                 if ( window.dashboard_open_app_in_window ) {
                     window.dashboard_open_app_in_window(appName, $menu.data('app-icon'), $menu.data('app-title'));
+                }
+                return;
+            }
+            if ( action === 'add-to-sidebar' ) {
+                $menu.hide();
+                if ( window.dashboard_pin_app ) {
+                    window.dashboard_pin_app({
+                        name: appName,
+                        title: $menu.data('app-title'),
+                        iconUrl: $menu.data('app-icon'),
+                    });
                 }
                 return;
             }
