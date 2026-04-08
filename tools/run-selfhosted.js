@@ -44,8 +44,6 @@ const main = async () => {
         TestConfigModule,
         PuterAIModule,
         InternetModule,
-        DevelopmentModule,
-        DNSModule,
     } = (await import('@heyputer/backend')).default;
 
     const k = new Kernel({
@@ -62,10 +60,6 @@ const main = async () => {
     k.add_module(new TestConfigModule());
     k.add_module(new PuterAIModule());
     k.add_module(new InternetModule());
-    k.add_module(new DNSModule());
-    if ( process.env.UNSAFE_PUTER_DEV ) {
-        k.add_module(new DevelopmentModule());
-    }
     k.boot();
 };
 

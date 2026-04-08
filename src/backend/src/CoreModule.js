@@ -316,9 +316,6 @@ const install = async ({ context, services, app, useapi, modapi }) => {
     const { PermissionAPIService } = require('./services/PermissionAPIService');
     services.registerService('__permission-api', PermissionAPIService);
 
-    const { HelloWorldService } = require('./services/HelloWorldService');
-    services.registerService('hello-world', HelloWorldService);
-
     const { SystemDataService } = require('./services/SystemDataService');
     services.registerService('system-data', SystemDataService);
 

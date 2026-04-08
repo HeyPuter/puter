@@ -25,8 +25,6 @@ import { BroadcastModule } from './src/modules/broadcast/BroadcastModule.js';
 import { CaptchaModule } from './src/modules/captcha/CaptchaModule.js';
 import { Core2Module } from './src/modules/core/Core2Module.js';
 import { DataAccessModule } from './src/modules/data-access/DataAccessModule.js';
-import { DNSModule } from './src/modules/dns/DNSModule.js';
-import { DomainModule } from './src/modules/domain/DomainModule.js';
 import { EntityStoreModule } from './src/modules/entitystore/EntityStoreModule.js';
 import { HostOSModule } from './src/modules/hostos/HostOSModule.js';
 import { InternetModule } from './src/modules/internet/InternetModule.js';
@@ -73,6 +71,4 @@ export default {
     InternetModule,
     CaptchaModule,
     KVStoreModule,
-    DNSModule,
-    DomainModule,
 };
