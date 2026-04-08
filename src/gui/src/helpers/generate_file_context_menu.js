@@ -363,7 +363,7 @@ const generate_file_context_menu = async function (options) {
     // Set as Wallpaper
     // -------------------------------------------
     const mime_type = mime.getType($(el_item).attr('data-name')) ?? 'application/octet-stream';
-    if ( !window.dashboard_object && !is_trashed && !is_trash && !fsentry.is_dir && mime_type.startsWith('image/') ) {
+    if ( !is_trashed && !is_trash && !fsentry.is_dir && mime_type.startsWith('image/') ) {
         menu_items.push({
             html: i18n('set_as_background'),
             onClick: async function () {
@@ -372,6 +372,17 @@ const generate_file_context_menu = async function (options) {
                     url: read_url.items.read_url,
                     fit: window.desktop_bg_fit,
                 });
+                // Update dashboard desktop view background if visible
+                const $desktopView = $('.files.desktop-view');
+                if ( $desktopView.length ) {
+                    $desktopView.css({
+                        'background-image': `url(${read_url.items.read_url})`,
+                        'background-size': (window.desktop_bg_fit === 'repeat') ? 'auto' : (window.desktop_bg_fit || 'cover'),
+                        'background-repeat': (window.desktop_bg_fit === 'repeat') ? 'repeat' : 'no-repeat',
+                        'background-position': 'center center',
+                        'background-color': '',
+                    });
+                }
                 try {
                     $.ajax({
                         url: `${window.api_origin}/set-desktop-bg`,
@@ -534,12 +545,14 @@ const generate_file_context_menu = async function (options) {
 
                 if ( is_shared_with_me ) base_dir = window.desktop_path;
 
-                window.create_shortcut(path.basename($(el_item).attr('data-path')),
-                                fsentry.is_dir,
-                                base_dir,
-                                null, // appendTo - will be determined by create_shortcut
-                                fsentry.shortcut_to === '' ? fsentry.uid : fsentry.shortcut_to,
-                                fsentry.shortcut_to_path === '' ? fsentry.path : fsentry.shortcut_to_path);
+                window.create_shortcut(
+                    path.basename($(el_item).attr('data-path')),
+                    fsentry.is_dir,
+                    base_dir,
+                    null, // appendTo - will be determined by create_shortcut
+                    fsentry.shortcut_to === '' ? fsentry.uid : fsentry.shortcut_to,
+                    fsentry.shortcut_to_path === '' ? fsentry.path : fsentry.shortcut_to_path,
+                );
             },
         });
     }
@@ -626,13 +639,15 @@ const generate_file_context_menu = async function (options) {
             let top = $(el_item).position().top + $(el_item).height();
             top = top > (window.innerHeight - (window_height + window.taskbar_height + window.toolbar_height)) ? (window.innerHeight - (window_height + window.taskbar_height + window.toolbar_height)) : top;
 
-            UIWindowItemProperties($(el_item).attr('data-name'),
-                            $(el_item).attr('data-path'),
-                            $(el_item).attr('data-uid'),
-                            left,
-                            top,
-                            window_width,
-                            window_height);
+            UIWindowItemProperties(
+                $(el_item).attr('data-name'),
+                $(el_item).attr('data-path'),
+                $(el_item).attr('data-uid'),
+                left,
+                top,
+                window_width,
+                window_height,
+            );
         },
     });
 
