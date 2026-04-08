@@ -36,7 +36,6 @@ export class TestCoreModule {
         services.registerService('puter-kvstore', DynamoKVStoreWrapper);
         services.registerService('permission', PermissionService);
         services.registerService('group', GroupService);
-        services.registerService('anomaly', AnomalyService);
         services.registerService('api-error', APIErrorService);
         services.registerService('system-validation', SystemValidationService);
         services.registerService('registry', RegistryService);

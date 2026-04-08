@@ -20,7 +20,6 @@ const APIError = require('../../api/APIError');
 const { redisClient } = require('../../clients/redis/redisSingleton');
 const { setRedisCacheValue } = require('../../clients/redis/cacheUpdate.js');
 const { GroupRedisCacheSpace } = require('./GroupRedisCacheSpace.js');
-const { DENY_SERVICE_INSTRUCTION } = require('../AnomalyService');
 const BaseService = require('../BaseService');
 const { DB_WRITE } = require('../database/consts');
 const { v4: uuidv4 } = require('uuid');
@@ -59,7 +58,6 @@ class GroupService extends BaseService {
 
     /**
     * Initializes the GroupService by setting up the database connection and registering
-    * with the anomaly service for monitoring group creation rates.
     *
     * @memberof GroupService
     * @instance
@@ -67,11 +65,6 @@ class GroupService extends BaseService {
     _init () {
         this.db = this.services.get('database').get(DB_WRITE, 'permissions');
         this.kvkey = uuidv4();
-
-        const svc_anomaly = this.services.get('anomaly');
-        svc_anomaly.register('groups-user-hour', {
-            high: 20,
-        });
     }
 
     /**
@@ -130,13 +123,7 @@ class GroupService extends BaseService {
             [owner_user_id],
         );
 
-        const svc_anomaly = this.services.get('anomaly');
-        const anomaly = await svc_anomaly.note('groups-user-hour', {
-            value: n_groups,
-            user_id: owner_user_id,
-        });
-
-        if ( anomaly && anomaly.has(DENY_SERVICE_INSTRUCTION) ) {
+        if ( Number(n_groups) > 20 ) {
             throw APIError.create('too_many_requests');
         }
 

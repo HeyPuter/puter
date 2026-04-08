@@ -316,9 +316,6 @@ const install = async ({ context, services, app, useapi, modapi }) => {
     const { PermissionAPIService } = require('./services/PermissionAPIService');
     services.registerService('__permission-api', PermissionAPIService);
 
-    const { AnomalyService } = require('./services/AnomalyService');
-    services.registerService('anomaly', AnomalyService);
-
     const { HelloWorldService } = require('./services/HelloWorldService');
     services.registerService('hello-world', HelloWorldService);
 
@@ -360,8 +357,7 @@ const install = async ({ context, services, app, useapi, modapi }) => {
 
     const { WispService } = require('./services/WispService');
     services.registerService('wisp', WispService);
-    // const { AWSSecretsPopulator } = require('./services/AWSSecretsPopulator.js');
-    // services.registerService('awsthing', AWSSecretsPopulator);
+
     const { WebDavFS } = require('./services/WebDAV/WebDAVService.js');
     services.registerService('dav', WebDavFS);
 
