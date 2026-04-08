@@ -25,57 +25,6 @@ class SelfhostedService extends BaseService {
     `;
 
     async _init () {
-        this._register_commands(this.services.get('commands'));
-    }
-
-    _register_commands (commands) {
-        const db = this.services.get('database').get(DB_WRITE, 'selfhosted');
-        commands.registerCommands('app', [
-            {
-                id: 'godmode-on',
-                description: 'Toggle godmode for an app',
-                handler: async (args, _log) => {
-                    const svc_su = this.services.get('su');
-                    await await svc_su.sudo(async () => {
-                        const [app_uid] = args;
-                        const es_app = await this.services.get('es:app');
-                        const app = await es_app.read(app_uid);
-                        if ( ! app ) {
-                            throw new Error(`App ${app_uid} not found`);
-                        }
-                        await db.write('UPDATE apps SET godmode = 1 WHERE uid = ?', [app_uid]);
-                        const svc_event = this.services.get('event');
-                        await svc_event.emit('app.changed', {
-                            app_uid,
-                            action: 'updated',
-                        });
-                    });
-                },
-            },
-        ]);
-        commands.registerCommands('app', [
-            {
-                id: 'godmode-off',
-                description: 'Toggle godmode for an app',
-                handler: async (args, _log) => {
-                    const svc_su = this.services.get('su');
-                    await await svc_su.sudo(async () => {
-                        const [app_uid] = args;
-                        const es_app = await this.services.get('es:app');
-                        const app = await es_app.read(app_uid);
-                        if ( ! app ) {
-                            throw new Error(`App ${app_uid} not found`);
-                        }
-                        await db.write('UPDATE apps SET godmode = 0 WHERE uid = ?', [app_uid]);
-                        const svc_event = this.services.get('event');
-                        await svc_event.emit('app.changed', {
-                            app_uid,
-                            action: 'updated',
-                        });
-                    });
-                },
-            },
-        ]);
     }
 }
 

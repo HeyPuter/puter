@@ -18,7 +18,7 @@
  */
 const APIError = require('../../api/APIError');
 const { hardcoded_user_group_permissions } = require('../../data/hardcoded-permissions.js');
-const { ECMAP } = require('../../filesystem/ECMAP');
+const { ECMAP } = require('../../deprecated/filesystem/ECMAP');
 const { get_user, get_app } = require('../../helpers');
 const { reading_has_terminal } = require('../../unstructured/permission-scan-lib');
 const { trace } = require('@opentelemetry/api');
@@ -71,7 +71,6 @@ class PermissionService extends BaseService {
          */
         this.kvService = this.services.get('puter-kvstore').as('puter-kvstore');
         this.db = this.services.get('database').get(DB_WRITE, 'permissions');
-        this._register_commands(this.services.get('commands'));
         this.kvAvgTimes = { count: 0, avg: 0, max: 0 };
         this.dbAvgTimes = { count: 0, avg: 0, max: 0 };
     }
@@ -1271,62 +1270,6 @@ class PermissionService extends BaseService {
         }
 
         this._permission_exploders.push(exploder);
-    }
-
-    _register_commands (commands) {
-        commands.registerCommands('perms', [
-            {
-                id: 'grant-user-app',
-                handler: async (args, _log) => {
-                    const [username, app_uid, permission, extra] = args;
-
-                    // actor from username
-                    const actor = new Actor({
-                        type: new UserActorType({
-                            user: await get_user({ username }),
-                        }),
-                    });
-
-                    await this.grant_user_app_permission(actor, app_uid, permission, extra);
-                },
-            },
-            {
-                id: 'scan',
-                handler: async (args, ctx) => {
-                    const [username, permission] = args;
-
-                    // actor from username
-                    const actor = new Actor({
-                        type: new UserActorType({
-                            user: await get_user({ username }),
-                        }),
-                    });
-
-                    let reading = await this.scan(actor, permission);
-                    // reading = PermissionUtil.reading_to_options(reading);
-                    ctx.log(JSON.stringify(reading, undefined, '  '));
-                },
-            },
-            {
-                id: 'scan-app',
-                handler: async (args, ctx) => {
-                    const [username, app_name, permission] = args;
-                    const app = await get_app({ name: app_name });
-
-                    // actor from username
-                    const actor = new Actor({
-                        type: new AppUnderUserActorType({
-                            app,
-                            user: await get_user({ username }),
-                        }),
-                    });
-
-                    const reading = await this.scan(actor, permission);
-                    // reading = PermissionUtil.reading_to_options(reading);
-                    ctx.log(JSON.stringify(reading, undefined, '  '));
-                },
-            },
-        ]);
     }
 }
 

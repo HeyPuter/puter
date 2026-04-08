@@ -17,8 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-// Shared validation helpers formerly provided by backend-core-0.
-export { is_valid_path } from './filesystem/validation.js';
+export { is_valid_path } from './deprecated/filesystem/validation.js';
 
 export const is_valid_uuid = (uuid) => {
     let s = `${ uuid }`;

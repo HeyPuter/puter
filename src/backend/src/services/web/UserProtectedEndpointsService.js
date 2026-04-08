@@ -17,11 +17,9 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const { get_user } = require('../../helpers');
-const auth2 = require('../../middleware/auth2');
 const { Context } = require('../../util/context');
 const BaseService = require('../BaseService');
 const { UserActorType } = require('../auth/Actor');
-const { Endpoint } = require('../../util/expressutil');
 const APIError = require('../../api/APIError.js');
 const configurable_auth = require('../../middleware/configurable_auth.js');
 const config = require('../../config');
@@ -167,15 +165,11 @@ class UserProtectedEndpointsService extends BaseService {
             return (APIError.create('password_required')).write(res);
         });
 
-        Endpoint(require('../../routers/user-protected/change-password.js')).attach(router);
-
-        Endpoint(require('../../routers/user-protected/change-email.js')).attach(router);
-
-        Endpoint(require('../../routers/user-protected/change-username.js')).attach(router);
-
-        Endpoint(require('../../routers/user-protected/disable-2fa.js')).attach(router);
-
-        Endpoint(require('../../routers/user-protected/delete-own-user.js')).attach(router);
+        router.use(require('../../routers/user-protected/change-password.js'));
+        router.use(require('../../routers/user-protected/change-email.js'));
+        router.use(require('../../routers/user-protected/change-username.js'));
+        router.use(require('../../routers/user-protected/disable-2fa.js'));
+        router.use(require('../../routers/user-protected/delete-own-user.js'));
     }
 }
 

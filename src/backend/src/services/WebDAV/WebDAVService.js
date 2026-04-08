@@ -16,9 +16,9 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { NodePathSelector } = require('../../filesystem/node/selectors');
+const { NodePathSelector } = require('../../deprecated/filesystem/node/selectors');
+const eggspress = require('../../api/eggspress');
 const configurable_auth = require('../../middleware/configurable_auth');
-const { Endpoint } = require('../../util/expressutil');
 const BaseService = require('../BaseService');
 const bcrypt = require('bcrypt');
 const xmlparser = require('express-xml-bodyparser');
@@ -127,9 +127,11 @@ class WebDAVService extends BaseService {
             const { token } = await svc_auth.create_session_token(user);
             if ( user.otp_enabled ) {
                 const svc_otp = this.services.get('otp');
-                const ok = svc_otp.verify(user.username,
-                                user.otp_secret,
-                                otpToken);
+                const ok = svc_otp.verify(
+                    user.username,
+                    user.otp_secret,
+                    otpToken,
+                );
                 if ( ! ok ) {
                     return null;
                 }
@@ -155,16 +157,20 @@ class WebDAVService extends BaseService {
             try {
                 // Parse Basic auth credentials
                 const base64Credentials = authHeader.split(' ')[1];
-                const credentials = Buffer.from(base64Credentials,
-                                'base64').toString( 'ascii');
+                const credentials = Buffer.from(
+                    base64Credentials,
+                    'base64',
+                ).toString( 'ascii');
                 let [username, ...password] = credentials.split(':');
                 password = password.join(':');
 
                 // Call user's authentication function
-                actor = await this.authenticateWebDavUser(username,
-                                password,
-                                req,
-                                res);
+                actor = await this.authenticateWebDavUser(
+                    username,
+                    password,
+                    req,
+                    res,
+                );
                 if ( ! actor ) {
                     // Authentication failed
                     res.set({
@@ -220,31 +226,32 @@ class WebDAVService extends BaseService {
 
         app.use('/', r_webdav);
 
-        Endpoint({
-            subdomain: 'dav',
-            route: '/*',
-            methods: [
-                'PROPFIND',
-                'PROPPATCH',
-                'MKCOL',
-                'GET',
-                'HEAD',
-                'POST',
-                'PUT',
-                'DELETE',
-                'COPY',
-                'MOVE',
-                'LOCK',
-                'UNLOCK',
-                'OPTIONS',
-            ],
-            mw: [configurable_auth({ optional: true })],
+        r_webdav.use(eggspress(
+            '/*',
+            {
+                subdomain: 'dav',
+                allowedMethods: [
+                    'PROPFIND',
+                    'PROPPATCH',
+                    'MKCOL',
+                    'GET',
+                    'HEAD',
+                    'POST',
+                    'PUT',
+                    'DELETE',
+                    'COPY',
+                    'MOVE',
+                    'LOCK',
+                    'UNLOCK',
+                    'OPTIONS',
+                ],
+                mw: [configurable_auth({ optional: true })],
+            },
             /**
-             *
-             * @param {import("express").Request} req
-             * @param {import("express").Response} res
-             */
-            handler: async ( req, res ) => {
+         *
+         * @param {import("express").Request} req
+         * @param {import("express").Response} res
+         */ async ( req, res ) => {
                 if ( req.method === 'OPTIONS' ) {
                     this.handleWebDavServer('/', req, res);
                     return;
@@ -264,7 +271,7 @@ class WebDAVService extends BaseService {
                     this.handleWebDavServer(filePath, req, res);
                 });
             },
-        }).attach( r_webdav);
+        ));
     }
 }
 

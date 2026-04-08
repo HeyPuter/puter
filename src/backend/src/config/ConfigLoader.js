@@ -25,9 +25,8 @@ class ConfigLoader extends AdvancedBase {
         fs: require('fs'),
     };
 
-    constructor (logger, path, config) {
+    constructor (path, config) {
         super();
-        this.logger = logger;
         this.path = path;
         this.config = config;
     }
@@ -47,7 +46,7 @@ class ConfigLoader extends AdvancedBase {
             delete config_values.$requires;
             this.apply_requires(this.path, config_list, { by: name });
         }
-        this.logger.debug(`Applying config: ${path_.relative(this.path, config_path)}${
+        console.debug(`Applying config: ${path_.relative(this.path, config_path)}${
             meta.by ? ` (required by ${meta.by})` : ''}`);
         this.config.load_config(config_values);
 

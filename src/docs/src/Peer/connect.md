@@ -4,11 +4,6 @@ description: Connect to a peer server using an invite code.
 platforms: [websites, apps]
 ---
 
-<div class="alpha-notice-banner">
-    <span class="alpha-notice-label">Alpha</span>
-    <span class="alpha-notice-text">The Peer API is in alpha. Expect breaking changes, and please report issues you encounter.</span>
-</div>
-<div class="alpha-notice-spacer"></div>
 
 Connects to a peer server and returns a `PuterPeerConnection` instance.
 

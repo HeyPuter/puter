@@ -18,8 +18,8 @@
  */
 
 const { AdvancedBase } = require('@heyputer/putility');
+const eggspress = require('./api/eggspress');
 const BaseService = require('./services/BaseService');
-const { Endpoint } = require('./util/expressutil');
 const configurable_auth = require('./middleware/configurable_auth');
 const { Context } = require('./util/context');
 const { DB_WRITE } = require('./services/database/consts');
@@ -58,16 +58,14 @@ class ExtensionServiceState extends AdvancedBase {
             mw.push(configurable_auth(auth_conf));
         }
 
-        const endpoint = Endpoint({
-            methods: options.methods ?? ['GET'],
+        const router = eggspress(path, {
+            allowedMethods: options.methods ?? ['GET'],
             mw,
-            route: path,
-            handler: handler,
             ...(options.subdomain ? { subdomain: options.subdomain } : {}),
             otherOpts: options.otherOpts || {},
-        });
+        }, handler);
 
-        this.expressThings_.push({ type: 'endpoint', value: endpoint });
+        this.expressThings_.push({ type: 'router', value: [router] });
     }
 }
 
@@ -181,10 +179,6 @@ class ExtensionService extends BaseService {
 
     '__on_install.routes' (_, { app }) {
         for ( const thing of this.state.expressThings_ ) {
-            if ( thing.type === 'endpoint' ) {
-                thing.value.attach(app);
-                continue;
-            }
             if ( thing.type === 'router' ) {
                 app.use(...thing.value);
                 continue;

@@ -16,9 +16,9 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { QuickMkdir } = require('../../filesystem/hl_operations/hl_mkdir');
-const { HLWrite } = require('../../filesystem/hl_operations/hl_write');
-const { NodePathSelector } = require('../../filesystem/node/selectors');
+const { QuickMkdir } = require('../../deprecated/filesystem/hl_operations/hl_mkdir');
+const { HLWrite } = require('../../deprecated/filesystem/hl_operations/hl_write');
+const { NodePathSelector } = require('../../deprecated/filesystem/node/selectors');
 const { get_user, invalidate_cached_user } = require('../../helpers');
 const { Context } = require('../../util/context');
 const { buffer_to_stream } = require('../../util/streamutil');
@@ -36,7 +36,6 @@ const DEFAULT_FILES = {};
 
 class DefaultUserService extends BaseService {
     async _init () {
-        this._register_commands(this.services.get('commands'));
     }
     async '__on_ready.webserver' () {
         // check if a user named `admin` exists
@@ -220,19 +219,6 @@ class DefaultUserService extends BaseService {
             );
             return tmp_password;
         });
-    }
-    _register_commands (commands) {
-        commands.registerCommands('default-user', [
-            {
-                id: 'reset-password',
-                handler: async (args, ctx) => {
-                    const [username] = args;
-                    const user = await get_user({ username });
-                    const tmp_pwd = await this.force_tmp_password_(user);
-                    ctx.log(`New password for ${quot(username)} is: ${tmp_pwd}`);
-                },
-            },
-        ]);
     }
 }
 

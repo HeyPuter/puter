@@ -20,14 +20,14 @@
 import { createRequire } from 'node:module';
 import config from '../../config.js';
 import { APP_ICONS_SUBDOMAIN } from '../../consts/app-icons.js';
-import { HLWrite } from '../../filesystem/hl_operations/hl_write.js';
-import { LLMkdir } from '../../filesystem/ll_operations/ll_mkdir.js';
-import { LLRead } from '../../filesystem/ll_operations/ll_read.js';
-import { NodePathSelector } from '../../filesystem/node/selectors.js';
+import { HLWrite } from '../../deprecated/filesystem/hl_operations/hl_write.js';
+import { LLMkdir } from '../../deprecated/filesystem/ll_operations/ll_mkdir.js';
+import { LLRead } from '../../deprecated/filesystem/ll_operations/ll_read.js';
+import { NodePathSelector } from '../../deprecated/filesystem/node/selectors.js';
 import { get_app } from '../../helpers.js';
 import BaseService from '../../services/BaseService.js';
 import { DB_READ, DB_WRITE } from '../../services/database/consts.js';
-import { Endpoint } from '../../util/expressutil.js';
+import eggspress from '../../api/eggspress.js';
 import { buffer_to_stream, stream_to_buffer } from '../../util/streamutil.js';
 import { AppRedisCacheSpace } from './AppRedisCacheSpace.js';
 import DEFAULT_APP_ICON from './default-app-icon.js';
@@ -106,16 +106,12 @@ export class AppIconService extends BaseService {
             stream.pipe(res);
         };
 
-        Endpoint({
-            route: '/app-icon/:app_uid',
-            methods: ['GET'],
-            handler,
-        }).attach(app);
-        Endpoint({
-            route: '/app-icon/:app_uid/:size',
-            methods: ['GET'],
-            handler,
-        }).attach(app);
+        app.use(eggspress('/app-icon/:app_uid', {
+            allowedMethods: ['GET'],
+        }, handler));
+        app.use(eggspress('/app-icon/:app_uid/:size', {
+            allowedMethods: ['GET'],
+        }, handler));
     }
 
     getSizes () {

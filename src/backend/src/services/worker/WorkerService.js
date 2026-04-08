@@ -18,15 +18,14 @@
  */
 
 const configurable_auth = require('../../middleware/configurable_auth');
-const { Endpoint } = require('../../util/expressutil');
 const BaseService = require('../BaseService');
 const fs = require('node:fs');
 
 const { createWorker, setCloudflareKeys, deleteWorker } = require('./workerUtils/cloudflareDeploy');
 const { getUserInfo } = require('./workerUtils/puterUtils');
-const { LLRead } = require('../../filesystem/ll_operations/ll_read');
+const { LLRead } = require('../../deprecated/filesystem/ll_operations/ll_read');
 const { Context } = require('../../util/context');
-const { NodePathSelector, NodeUIDSelector } = require('../../filesystem/node/selectors');
+const { NodePathSelector, NodeUIDSelector } = require('../../deprecated/filesystem/node/selectors');
 const { calculateWorkerNameNew } = require('./workerUtils/nameUtils');
 const { Entity } = require('../../om/entitystorage/Entity');
 const { SKIP_ES_VALIDATION } = require('../../om/entitystorage/consts');
@@ -147,37 +146,43 @@ class WorkerService extends BaseService {
 
                     // Send user the appropriate notification
                     if ( cfData.success ) {
-                        svc_notification.notify(UsernameNotifSelector(actor.type.user.username),
-                                        {
-                                            source: 'worker',
-                                            title: `Succesfully deployed ${cfData.url}`,
-                                            template: 'user-requesting-share',
-                                            fields: {
-                                                username: actor.type.user.username,
-                                            },
-                                        });
+                        svc_notification.notify(
+                            UsernameNotifSelector(actor.type.user.username),
+                            {
+                                source: 'worker',
+                                title: `Succesfully deployed ${cfData.url}`,
+                                template: 'user-requesting-share',
+                                fields: {
+                                    username: actor.type.user.username,
+                                },
+                            },
+                        );
                     } else {
-                        svc_notification.notify(UsernameNotifSelector(actor.type.user.username),
-                                        {
-                                            source: 'worker',
-                                            title: `Failed to deploy ${workerName}! ${cfData.errors}`,
-                                            template: 'user-requesting-share',
-                                            fields: {
-                                                username: actor.type.user.username,
-                                            },
-                                        });
+                        svc_notification.notify(
+                            UsernameNotifSelector(actor.type.user.username),
+                            {
+                                source: 'worker',
+                                title: `Failed to deploy ${workerName}! ${cfData.errors}`,
+                                template: 'user-requesting-share',
+                                fields: {
+                                    username: actor.type.user.username,
+                                },
+                            },
+                        );
                     }
 
                 } catch (e) {
-                    svc_notification.notify(UsernameNotifSelector(actor.type.user.username),
-                                    {
-                                        source: 'worker',
-                                        title: `Failed to deploy ${workerName}!!\n ${e}`,
-                                        template: 'user-requesting-share',
-                                        fields: {
-                                            username: actor.type.user.username,
-                                        },
-                                    });
+                    svc_notification.notify(
+                        UsernameNotifSelector(actor.type.user.username),
+                        {
+                            source: 'worker',
+                            title: `Failed to deploy ${workerName}!!\n ${e}`,
+                            template: 'user-requesting-share',
+                            fields: {
+                                username: actor.type.user.username,
+                            },
+                        },
+                    );
                 }
             }
         });

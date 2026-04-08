@@ -19,7 +19,7 @@
 'use strict';
 const eggspress = require('../../api/eggspress');
 const FSNodeParam = require('../../api/filesystem/FSNodeParam');
-const { HLMkdir } = require('../../filesystem/hl_operations/hl_mkdir');
+const { HLMkdir } = require('../../deprecated/filesystem/hl_operations/hl_mkdir');
 const { Context } = require('../../util/context');
 const { boolify } = require('../../util/hl_types');
 

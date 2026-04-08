@@ -1,11 +1,11 @@
-import { HLCopy } from '../../filesystem/hl_operations/hl_copy.js';
-import { HLMkdir } from '../../filesystem/hl_operations/hl_mkdir.js';
-import { HLMove } from '../../filesystem/hl_operations/hl_move.js';
-import { HLReadDir } from '../../filesystem/hl_operations/hl_readdir.js';
-import { HLRemove } from '../../filesystem/hl_operations/hl_remove.js';
-import { HLStat } from '../../filesystem/hl_operations/hl_stat.js';
-import { HLWrite } from '../../filesystem/hl_operations/hl_write.js';
-import { LLRead } from '../../filesystem/ll_operations/ll_read.js';
+import { HLCopy } from '../../deprecated/filesystem/hl_operations/hl_copy.js';
+import { HLMkdir } from '../../deprecated/filesystem/hl_operations/hl_mkdir.js';
+import { HLMove } from '../../deprecated/filesystem/hl_operations/hl_move.js';
+import { HLReadDir } from '../../deprecated/filesystem/hl_operations/hl_readdir.js';
+import { HLRemove } from '../../deprecated/filesystem/hl_operations/hl_remove.js';
+import { HLStat } from '../../deprecated/filesystem/hl_operations/hl_stat.js';
+import { HLWrite } from '../../deprecated/filesystem/hl_operations/hl_write.js';
+import { LLRead } from '../../deprecated/filesystem/ll_operations/ll_read.js';
 import { Context } from '../../util/context.js';
 
 /**
@@ -141,31 +141,31 @@ export const getProperMimeType = ( originalType, filename ) => {
     // Otherwise, guess based on file extension
     const ext = filename.split('.').pop()?.toLowerCase();
     switch ( ext ) {
-    case 'js':
-        return 'application/javascript';
-    case 'css':
-        return 'text/css';
-    case 'html':
-    case 'htm':
-        return 'text/html';
-    case 'txt':
-        return 'text/plain';
-    case 'json':
-        return 'application/json';
-    case 'xml':
-        return 'application/xml';
-    case 'pdf':
-        return 'application/pdf';
-    case 'png':
-        return 'image/png';
-    case 'jpg':
-    case 'jpeg':
-        return 'image/jpeg';
-    case 'gif':
-        return 'image/gif';
-    case 'svg':
-        return 'image/svg+xml';
-    default:
-        return 'application/octet-stream';
+        case 'js':
+            return 'application/javascript';
+        case 'css':
+            return 'text/css';
+        case 'html':
+        case 'htm':
+            return 'text/html';
+        case 'txt':
+            return 'text/plain';
+        case 'json':
+            return 'application/json';
+        case 'xml':
+            return 'application/xml';
+        case 'pdf':
+            return 'application/pdf';
+        case 'png':
+            return 'image/png';
+        case 'jpg':
+        case 'jpeg':
+            return 'image/jpeg';
+        case 'gif':
+            return 'image/gif';
+        case 'svg':
+            return 'image/svg+xml';
+        default:
+            return 'application/octet-stream';
     }
 };

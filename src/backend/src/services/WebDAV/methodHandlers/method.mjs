@@ -1,7 +1,7 @@
 /**
  * @typedef {import('express').Request & {services: import('../../BaseService.js')}} Request
  * @typedef {import('express').Response} Response
- * @typedef {import('../../../filesystem/FSNodeContext')} FSNodeContext
+ * @typedef {import('../../../deprecated/filesystem/FSNodeContext')} FSNodeContext
  */
 
 /**
@@ -16,7 +16,8 @@ export const unsupportedMethodHandler = async (
     res,
     _filePath,
     _fileNode,
-    _headerLockToken ) => {
+    _headerLockToken,
+) => {
     res.set({
         Allow:
       'OPTIONS, GET, HEAD, POST, PUT, DELETE, COPY, MOVE, MKCOL, PROPFIND, PROPPATCH, LOCK, UNLOCK',

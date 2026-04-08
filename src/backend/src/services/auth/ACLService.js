@@ -18,11 +18,11 @@
  */
 const APIError = require('../../api/APIError');
 const FSNodeParam = require('../../api/filesystem/FSNodeParam');
-const { NodePathSelector } = require('../../filesystem/node/selectors');
+const eggspress = require('../../api/eggspress');
+const { NodePathSelector } = require('../../deprecated/filesystem/node/selectors');
 const { get_user } = require('../../helpers');
 const configurable_auth = require('../../middleware/configurable_auth');
 const { Context } = require('../../util/context');
-const { Endpoint } = require('../../util/expressutil');
 const { BaseService } = require('../BaseService');
 const { AppUnderUserActorType, UserActorType, Actor, SystemActorType, AccessTokenActorType } = require('./Actor');
 const { DB_READ } = require('../database/consts');
@@ -67,27 +67,10 @@ class ACLService extends BaseService {
     * @returns {Promise<boolean>} True if access is allowed, false otherwise
     */
     async check (actor, resource, mode) {
-        const ld = (Context.get('logdent') ?? 0) + 1;
-        /**
-        * Checks if an actor has permission for a specific mode on a resource
-        *
-        * @param {Actor} actor - The actor requesting permission
-        * @param {FSNode} resource - The filesystem resource to check permissions for
-        * @param {('see'| 'list'| 'read'| 'write' | 'manage')} mode - The permission mode to check ('see', 'list', 'read', 'write', 'manage')
-        * @returns {Promise<boolean>} True if actor has permission, false otherwise
-        */
-        return await Context.get().sub({ logdent: ld }).arun(async () => {
-            const result =  await this._check_fsNode(actor, resource, mode);
-            if ( this.verbose ) {
-                console.log('LOGGING ACL CHECK', {
-                    actor,
-                    mode,
-                    // trace: (new Error()).stack,
-                    result,
-                });
-            }
-            return result;
-        });
+        if ( resource && typeof resource.path === 'string' && !resource.get_selector_of_type ) {
+            return await this.checkResource(actor, resource, mode);
+        }
+        return await this._check_fsNode(actor, resource, mode);
     }
 
     /**
@@ -121,85 +104,81 @@ class ACLService extends BaseService {
 
         app.use('/acl', r_acl);
 
-        Endpoint({
-            route: '/stat-user-user',
-            methods: ['POST'],
+        r_acl.use(eggspress('/stat-user-user', {
+            allowedMethods: ['POST'],
             mw: [configurable_auth()],
-            handler: async (req, res) => {
-                // Only user actor is allowed
-                if ( ! (req.actor.type instanceof UserActorType) ) {
-                    return res.status(403).json({
-                        error: 'forbidden',
-                    });
-                }
+        }, async (req, res) => {
+            // Only user actor is allowed
+            if ( ! (req.actor.type instanceof UserActorType) ) {
+                return res.status(403).json({
+                    error: 'forbidden',
+                });
+            }
 
-                const holder_user = await get_user({
+            const holder_user = await get_user({
+                username: req.body.user,
+            });
+
+            if ( ! holder_user ) {
+                throw APIError.create('user_does_not_exist', null, {
                     username: req.body.user,
                 });
+            }
 
-                if ( ! holder_user ) {
-                    throw APIError.create('user_does_not_exist', null, {
-                        username: req.body.user,
-                    });
-                }
+            const issuer = req.actor;
+            const holder = new Actor({
+                type: new UserActorType({
+                    user: holder_user,
+                }),
+            });
 
-                const issuer = req.actor;
-                const holder = new Actor({
-                    type: new UserActorType({
-                        user: holder_user,
-                    }),
-                });
+            const node = await (new FSNodeParam('path')).consolidate({
+                req,
+                getParam: () => req.body.resource,
+            });
 
-                const node = await (new FSNodeParam('path')).consolidate({
-                    req,
-                    getParam: () => req.body.resource,
-                });
+            const permissions = await this.stat_user_user(issuer, holder, node);
 
-                const permissions = await this.stat_user_user(issuer, holder, node);
+            res.json({ permissions });
+        }));
 
-                res.json({ permissions });
-            },
-        }).attach(r_acl);
-
-        Endpoint({
-            route: '/set-user-user',
-            methods: ['POST'],
+        r_acl.use(eggspress('/set-user-user', {
+            allowedMethods: ['POST'],
             mw: [configurable_auth()],
-            handler: async (req, res) => {
-                // Only user actor is allowed
-                if ( ! (req.actor.type instanceof UserActorType) ) {
-                    return res.status(403).json({
-                        error: 'forbidden',
-                    });
-                }
+        }, async (req, res) => {
+            // Only user actor is allowed
+            if ( ! (req.actor.type instanceof UserActorType) ) {
+                return res.status(403).json({
+                    error: 'forbidden',
+                });
+            }
 
-                const holder_user = await get_user({
+            const holder_user = await get_user({
+                username: req.body.user,
+            });
+
+            if ( ! holder_user ) {
+                throw APIError.create('user_does_not_exist', null, {
                     username: req.body.user,
                 });
+            }
 
-                if ( ! holder_user ) {
-                    throw APIError.create('user_does_not_exist', null, {
-                        username: req.body.user,
-                    });
-                }
+            const issuer = req.actor;
+            const holder = new Actor({
+                type: new UserActorType({
+                    user: holder_user,
+                }),
+            });
 
-                const issuer = req.actor;
-                const holder = new Actor({
-                    type: new UserActorType({
-                        user: holder_user,
-                    }),
-                });
+            const node = await (new FSNodeParam('path')).consolidate({
+                req,
+                getParam: () => req.body.resource,
+            });
 
-                const node = await (new FSNodeParam('path')).consolidate({
-                    req,
-                    getParam: () => req.body.resource,
-                });
+            await this.set_user_user(issuer, holder, node, req.body.mode, req.body.options ?? {});
 
-                await this.set_user_user(issuer, holder, node, req.body.mode, req.body.options ?? {});
-
-                res.json({});
-            },
-        }).attach(r_acl);
+            res.json({});
+        }));
     }
 
     /**
@@ -469,7 +448,6 @@ class ACLService extends BaseService {
                 await appdata_node.is(fsNode) ||
                 await appdata_node.is_above(fsNode)
             ) {
-                this.log.debug('TRUE BECAUSE APPDATA');
                 return true;
             }
         }
@@ -532,14 +510,105 @@ class ACLService extends BaseService {
         return false;
     }
 
-    /**
-    * Gets a safe error message for ACL check failures
-    * @param {Actor} actor - The actor attempting the operation
-    * @param {FSNode} resource - The filesystem resource being accessed
-    * @param {string} mode - The access mode being checked ('read', 'write', etc)
-    * @returns {APIError} Returns 'subject_does_not_exist' if actor cannot see resource,
-    *                     otherwise returns 'forbidden' error
-    */
+    async checkResource (actor, resource, mode) {
+        const context = Context.get();
+
+        actor = Actor.adapt(actor);
+
+        if ( actor.type instanceof SystemActorType ) {
+            return true;
+        }
+
+        if ( resource.path === '/' ) {
+            return ['list', 'see', 'read'].includes(mode);
+        }
+
+        const components = resource.path.slice(1).split('/');
+
+        if ( actor.type instanceof UserActorType ) {
+            const username = actor.type.user.username;
+            if ( resource.path === `/${username}` || resource.path.startsWith(`/${username}/`) ) {
+                return true;
+            }
+        }
+
+        if ( actor.type instanceof AppUnderUserActorType ) {
+            const username = actor.type.user.username;
+            const appUid = actor.type.app.uid;
+            const appDataPath = `/${username}/AppData/${appUid}`;
+            if ( resource.path === appDataPath || resource.path.startsWith(`${appDataPath}/`) ) {
+                return true;
+            }
+        }
+
+        if ( this.global_config.enable_public_folders ) {
+            const publicModes = ['read', 'list', 'see'];
+            if ( publicModes.includes(mode) && components.length > 1 && components[1] === 'Public' ) {
+                const svcGetUser = this.services.get('get-user');
+                const username = components[0];
+                const user = await svcGetUser.get_user({ username });
+                if ( user && (user.email_confirmed || user.username === 'admin') ) {
+                    return true;
+                }
+            }
+        }
+
+        if ( actor.type instanceof AccessTokenActorType ) {
+            const { authorizer, token } = actor.type;
+            if ( ! (await this.checkResource(authorizer, resource, mode)) ) {
+                return false;
+            }
+
+            const db = this.services.get('database').get(DB_READ, 'auth');
+            const ancestors = await resource.resolveAncestors();
+            for ( const ancestor of ancestors ) {
+                const permission = mode === MANAGE_PERM_PREFIX
+                    ? PermissionUtil.join(MANAGE_PERM_PREFIX, 'fs', ancestor.uid)
+                    : PermissionUtil.join('fs', ancestor.uid, mode);
+                const rows = await db.read(
+                    'SELECT * FROM `access_token_permissions` WHERE `token_uid` = ? AND `permission` = ?',
+                    [token, permission],
+                );
+                if ( rows[0] ) return true;
+            }
+            return false;
+        }
+
+        if ( actor.type instanceof AppUnderUserActorType ) {
+            const userActor = new Actor({
+                type: new UserActorType({ user: actor.type.user }),
+            });
+            if ( ! (await this.checkResource(userActor, resource, mode)) ) {
+                return false;
+            }
+        }
+
+        if ( actor.type instanceof AppUnderUserActorType ) {
+            if ( components[0] !== actor.type.user.username
+                && components[1] === 'AppData'
+                && components[2] === actor.type.app.uid ) {
+                return true;
+            }
+        }
+
+        const svcPermission = context.get('services').get('permission');
+        const ancestors = await resource.resolveAncestors();
+        for ( const ancestor of ancestors ) {
+            const permissionsToCheck = [
+                mode === MANAGE_PERM_PREFIX
+                    ? PermissionUtil.join(MANAGE_PERM_PREFIX, 'fs', ancestor.uid)
+                    : PermissionUtil.join('fs', ancestor.uid, mode),
+            ];
+            const reading = await svcPermission.scan(actor, permissionsToCheck);
+            const options = PermissionUtil.reading_to_options(reading);
+            if ( options.length > 0 ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     async get_safe_acl_error (actor, resource, _mode) {
         const can_see = await this.check(actor, resource, 'see');
         if ( ! can_see ) {

@@ -71,7 +71,7 @@ const mockContextInstance = {
     arun: vi.fn().mockImplementation(async (fn) => await fn()),
 };
 
-vi.mock('../../filesystem/node/selectors.js', () => ({
+vi.mock('../../deprecated/filesystem/node/selectors.js', () => ({
     default: {
         NodeInternalIDSelector: class {
         },
@@ -84,14 +84,14 @@ vi.mock('../../filesystem/node/selectors.js', () => ({
     },
 }));
 
-vi.mock('../../filesystem/FSNodeContext.js', () => ({
+vi.mock('../../deprecated/filesystem/FSNodeContext.js', () => ({
     default: {
         TYPE_DIRECTORY: 'directory',
     },
     TYPE_DIRECTORY: 'directory',
 }));
 
-vi.mock('../../filesystem/ll_operations/ll_read.js', () => ({
+vi.mock('../../deprecated/filesystem/ll_operations/ll_read.js', () => ({
     default: {
         LLRead: class {
         },

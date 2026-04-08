@@ -13,9 +13,12 @@ export const process_input_messages = async (messages) => {
         const content = msg.content;
 
         for ( const o of content ) {
-            if ( ! o['image_url'] ) continue;
-            if ( o.type ) continue;
-            o.type = 'image_url';
+            if ( o['image_url'] && !o.type ) {
+                o.type = 'image_url';
+            }
+            if ( o['video_url'] && !o.type ) {
+                o.type = 'video_url';
+            }
         }
 
         // coerce tool calls
@@ -93,9 +96,12 @@ export const process_input_messages_responses_api = async (messages) => {
         const content = msg.content;
 
         for ( const o of content ) {
-            if ( ! o['image_url'] ) continue;
-            if ( o.type ) continue;
-            o.type = 'image_url';
+            if ( o['image_url'] && !o.type ) {
+                o.type = 'image_url';
+            }
+            if ( o['video_url'] && !o.type ) {
+                o.type = 'video_url';
+            }
         }
 
         // coerce tool calls

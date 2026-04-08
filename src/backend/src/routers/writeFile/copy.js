@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-const { HLCopy } = require('../../filesystem/hl_operations/hl_copy');
+const { HLCopy } = require('../../deprecated/filesystem/hl_operations/hl_copy');
 
 module.exports = async function writeFile_handle_copy ({
     api,

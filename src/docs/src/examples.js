@@ -56,6 +56,12 @@ const examples = [
                 source: '/playground/examples/ai-gpt-vision.html',
             },
             {
+                title: 'Video Analysis',
+                description: 'Analyze videos with AI using Puter.js. Run and modify this video analysis example instantly in your browser.',
+                slug: 'ai-video-analysis',
+                source: '/playground/examples/ai-video-analysis.html',
+            },
+            {
                 title: 'Stream the response',
                 description: 'Stream AI chat responses in real-time with Puter.js. Run and experiment with this streaming example in the playground.',
                 slug: 'ai-chat-stream',
@@ -400,6 +406,24 @@ const examples = [
                 description: 'List all keys with Puter.js key-value API. Run and modify this code example instantly in your browser.',
                 slug: 'kv-list',
                 source: '/playground/examples/kv-list.html',
+            },
+            {
+                title: 'List (Pagination)',
+                description: 'Paginate key-value results with a cursor and limit using puter.kv.list(). Run and modify this example in the playground.',
+                slug: 'kv-list-pagination',
+                source: '/playground/examples/kv-list-pagination.html',
+            },
+            {
+                title: 'List (Sorted)',
+                description: 'See how keys are returned in lexicographic order with puter.kv.list(). Run and modify this example in the playground.',
+                slug: 'kv-list-sort',
+                source: '/playground/examples/kv-list-sort.html',
+            },
+            {
+                title: 'List (Zero-Padding)',
+                description: 'Learn how to sort numeric keys correctly by zero-padding. Run and experiment with this example in the playground.',
+                slug: 'kv-list-padding',
+                source: '/playground/examples/kv-list-padding.html',
             },
             {
                 title: 'Flush',

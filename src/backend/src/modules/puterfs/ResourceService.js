@@ -22,7 +22,7 @@ const {
     NodeUIDSelector,
     NodeInternalIDSelector,
     NodeChildSelector,
-} = require('../../filesystem/node/selectors');
+} = require('../../deprecated/filesystem/node/selectors');
 
 const RESOURCE_STATUS_PENDING_CREATE = {};
 const RESOURCE_STATUS_PENDING_UPDATE = {};

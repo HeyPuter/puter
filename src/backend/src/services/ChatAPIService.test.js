@@ -42,13 +42,12 @@ describe('ChatAPIService', () => {
     let chatApiService;
     let mockServices;
     let mockRouter;
-    let mockApp;
     let mockSUService;
     let mockAIChatService;
-    let mockEndpoint;
     let mockWebServer;
     let mockReq;
     let mockRes;
+    let currentContext;
 
     beforeEach(() => {
         // Mock AIChatService
@@ -91,19 +90,11 @@ describe('ChatAPIService', () => {
             get: vi.fn(),
             post: vi.fn(),
         };
-        mockApp = {
-            use: vi.fn(),
-        };
-
-        // Mock Endpoint function
-        mockEndpoint = vi.fn().mockReturnValue({
-            attach: vi.fn(),
-        });
-
         // Mock request and response
         mockReq = {};
         mockRes = {
             json: vi.fn(),
+            locals: {},
         };
 
         // Setup ChatAPIService
@@ -111,13 +102,14 @@ describe('ChatAPIService', () => {
             global_config: {},
             config: {},
         });
-        chatApiService.modules.Endpoint = mockEndpoint;
         chatApiService.services = mockServices;
         chatApiService.log = {
             error: vi.fn(),
         };
 
         Context.root.set('services', mockServices);
+        currentContext = Context.get(undefined, { allow_fallback: true });
+        mockRes.locals.ctx = currentContext;
 
         // Mock the require function
         const oldInstanceRequire_ = chatApiService.require;
@@ -127,54 +119,41 @@ describe('ChatAPIService', () => {
         });
     });
 
+    const getMountedRouteLayer = (router, path) => {
+        const mountedRouters = router.use.mock.calls.map(([mounted]) => mounted);
+        const mountedRouter = mountedRouters.find(candidate =>
+            candidate?.stack?.some(layer => layer.route?.path === path));
+        expect(mountedRouter).toBeTruthy();
+        return mountedRouter.stack.find(layer => layer.route?.path === path);
+    };
+
     describe('install_chat_endpoints_', () => {
         it('should attach models endpoint to router', () => {
-            // Execute
             chatApiService.install_chat_endpoints_({ router: mockRouter });
 
-            // Verify
-            expect(mockEndpoint).toHaveBeenCalledWith(expect.objectContaining({
-                route: '/chat/models',
-                methods: ['GET'],
-            }));
-            expect(mockEndpoint).toHaveBeenCalledWith(expect.objectContaining({
-                route: '/image/models',
-                methods: ['GET'],
-            }));
+            expect(getMountedRouteLayer(mockRouter, '/chat/models').route.methods.get).toBe(true);
+            expect(getMountedRouteLayer(mockRouter, '/image/models').route.methods.get).toBe(true);
         });
 
         it('should attach models/details endpoint to router', () => {
-            // Setup
-            global.Endpoint = mockEndpoint;
-
-            // Execute
             chatApiService.install_chat_endpoints_({ router: mockRouter });
 
-            // Verify
-            expect(mockEndpoint).toHaveBeenCalledWith(expect.objectContaining({
-                route: '/chat/models/details',
-                methods: ['GET'],
-            }));
-            expect(mockEndpoint).toHaveBeenCalledWith(expect.objectContaining({
-                route: '/image/models/details',
-                methods: ['GET'],
-            }));
+            expect(getMountedRouteLayer(mockRouter, '/chat/models/details').route.methods.get).toBe(true);
+            expect(getMountedRouteLayer(mockRouter, '/image/models/details').route.methods.get).toBe(true);
         });
     });
 
     describe('/models endpoint', () => {
         it('should return list of models', async () => {
-            // Setup
-            global.Endpoint = mockEndpoint;
             chatApiService.install_chat_endpoints_({ router: mockRouter });
 
-            // Get the handler function
-            const handler = mockEndpoint.mock.calls[0][0].handler;
+            const layer = getMountedRouteLayer(mockRouter, '/chat/models');
+            const handler = layer.route.stack.at(-1).handle;
 
-            // Execute
-            await handler(mockReq, mockRes);
+            await currentContext.arun(async () => {
+                await handler(mockReq, mockRes, vi.fn());
+            });
 
-            // Verify
             expect(mockSUService.sudo).toHaveBeenCalled();
             expect(mockRes.json).toHaveBeenCalledWith({
                 models: mockAIChatService.list(),
@@ -184,17 +163,15 @@ describe('ChatAPIService', () => {
 
     describe('/models/details endpoint', () => {
         it('should return detailed list of models', async () => {
-            // Setup
-            global.Endpoint = mockEndpoint;
             chatApiService.install_chat_endpoints_({ router: mockRouter });
 
-            // Get the handler function
-            const handler = mockEndpoint.mock.calls[1][0].handler;
+            const layer = getMountedRouteLayer(mockRouter, '/chat/models/details');
+            const handler = layer.route.stack.at(-1).handle;
 
-            // Execute
-            await handler(mockReq, mockRes);
+            await currentContext.arun(async () => {
+                await handler(mockReq, mockRes, vi.fn());
+            });
 
-            // Verify
             expect(mockSUService.sudo).toHaveBeenCalled();
             expect(mockRes.json).toHaveBeenCalledWith({
                 models: mockAIChatService.models(),

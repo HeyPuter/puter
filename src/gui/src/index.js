@@ -55,7 +55,8 @@ window.gui = async (options) => {
     window.api_origin = options.api_origin ?? 'https://api.puter.com';
     window.max_item_name_length = options.max_item_name_length ?? 500;
     window.require_email_verification_to_publish_website = options.require_email_verification_to_publish_website ?? true;
-    window.disable_temp_users = options.disable_temp_users ?? false;
+    // window.disable_temp_users might be set somewhere else, so we need to check if it is already set and if not, use the value from the options
+    window.disable_temp_users = window.disable_temp_users || (options.disable_temp_users ?? false);
     window.co_isolation_enabled = options.co_isolation_enabled;
 
     // DEV: Load the initgui.js file if we are in development mode

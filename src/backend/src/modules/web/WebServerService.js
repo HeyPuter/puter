@@ -136,6 +136,7 @@ class WebServerService extends BaseService {
     * @returns {Promise<void>} A promise that resolves once the server is started.
     */
     async '__on_boot.activation' () {
+        console.log('starting webser');
         const services = this.services;
         await services.emit('start.webserver');
         await services.emit('ready.webserver');
@@ -307,9 +308,11 @@ class WebServerService extends BaseService {
                 socket.broadcast.to(socket.user.id).emit('trash.is_empty', msg);
             });
             const svc_event = this.services.get('event');
-            svc_event.emit('web.socket.connected', {
-                socket,
-                user: socket.user,
+            context.arun(async () => {
+                await svc_event.emit('web.socket.connected', {
+                    socket,
+                    user: socket.user,
+                });
             });
             socket.on('puter_is_actually_open', async (_msg) => {
                 await context.sub({
@@ -351,6 +354,12 @@ class WebServerService extends BaseService {
     }
 
     beginGracefulShutdown (signal) {
+        if ( ! process.env.PUTER_SERVER_ID ) {
+            // if not set not running in production, so we can skip setting up graceful shutdown handlers
+            console.warn('PUTER_SERVER_ID is not set; not waiting for graceful shutdown handlers to complete');
+            process.exit(0);
+            return;
+        }
         if ( this.shutdownStarted ) return;
         this.shutdownStarted = true;
         this.isDraining = true;

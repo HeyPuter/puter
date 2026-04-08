@@ -167,8 +167,26 @@ const TabFiles = {
             const parentDir = path.dirname(file.path);
             if ( _this.currentPath !== parentDir ) return;
 
-            // Don't add if item already exists in the view
-            if ( $(`.files-tab .files .item[data-uid='${file.uid}']`).length > 0 ) return;
+            // If item already exists in view, update in-place.
+            const $existingRow = $(`.files-tab .files .item[data-uid='${file.uid}']`);
+            if ( $existingRow.length > 0 ) {
+                const displayName = file.name || '';
+                $existingRow.attr('data-name', displayName);
+                $existingRow.attr('data-path', file.path || '');
+                $existingRow.attr('data-size', file.size || 0);
+                $existingRow.attr('data-modified', file.modified || 0);
+                $existingRow.attr('data-type', file.type || '');
+                $existingRow.find('.item-name').text(displayName);
+                $existingRow.find('.item-name-editor').val(displayName);
+                if (
+                    _this.currentView === 'grid' &&
+                    typeof file.thumbnail === 'string' &&
+                    file.thumbnail.length > 0
+                ) {
+                    $existingRow.find('.item-icon img').attr('src', file.thumbnail);
+                }
+                return;
+            }
 
             await _this.renderItem(file);
 
@@ -1171,16 +1189,28 @@ const TabFiles = {
                     // remove from active_uploads
                     delete window.active_uploads[opid];
                     // refresh
-                    _this.renderDirectory(_this.currentPath);
+                    _this.renderDirectory(_this.currentPath, { consistency: 'strong' });
                     // Clear the input value to allow uploading the same file again
                     fileInput.value = '';
                     document.querySelector('form').reset();
                 },
                 // error
                 error: async function (err) {
+                    const failedItems = Array.isArray(err?.failedItems) ? err.failedItems : [];
+                    if ( failedItems.length > 0 ) {
+                        const failedSummary = failedItems.map((item) => {
+                            const failedPath = item?.path || item?.name || `item ${item?.requestIndex ?? '?'}`;
+                            const failedMessage = typeof item?.message === 'string' && item.message.length > 0
+                                ? ` (${item.message})`
+                                : '';
+                            return `- ${failedPath}${failedMessage}`;
+                        }).join('\n');
+                        UIAlert(`Some uploads failed:\n${failedSummary}`);
+                    }
                     upload_progress_window.show_error(i18n('error_uploading_files'), err.message);
                     // remove from active_uploads
                     delete window.active_uploads[opid];
+                    _this.renderDirectory(_this.currentPath, { consistency: 'strong' });
                 },
                 // abort
                 // eslint-disable-next-line no-unused-vars
@@ -3719,11 +3749,23 @@ const TabFiles = {
                 window.show_save_account_notice_if_needed();
                 delete window.active_uploads[opid];
                 // Refresh directory to show uploaded files
-                _this.renderDirectory(_this.currentPath);
+                _this.renderDirectory(_this.currentPath, { consistency: 'strong' });
             },
             error: async function (err) {
+                const failedItems = Array.isArray(err?.failedItems) ? err.failedItems : [];
+                if ( failedItems.length > 0 ) {
+                    const failedSummary = failedItems.map((item) => {
+                        const failedPath = item?.path || item?.name || `item ${item?.requestIndex ?? '?'}`;
+                        const failedMessage = typeof item?.message === 'string' && item.message.length > 0
+                            ? ` (${item.message})`
+                            : '';
+                        return `- ${failedPath}${failedMessage}`;
+                    }).join('\n');
+                    UIAlert(`Some uploads failed:\n${failedSummary}`);
+                }
                 upload_progress_window.show_error(i18n('error_uploading_files'), err.message);
                 delete window.active_uploads[opid];
+                _this.renderDirectory(_this.currentPath, { consistency: 'strong' });
             },
             abort: async function (_operation_id) {
                 delete window.active_uploads[opid];

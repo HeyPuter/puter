@@ -20,9 +20,9 @@ import { createHmac, randomUUID, timingSafeEqual } from 'crypto';
 import { Agent as HttpsAgent } from 'https';
 import axios from 'axios';
 import { redisClient } from '../../clients/redis/redisSingleton.js';
+import eggspress from '../../api/eggspress.js';
 import { BaseService } from '../../services/BaseService.js';
 import { Context } from '../../util/context.js';
-import { Endpoint } from '../../util/expressutil.js';
 
 export class BroadcastService extends BaseService {
     #peersByKey = {};
@@ -348,12 +348,9 @@ export class BroadcastService extends BaseService {
         const svc_web = this.services.get('web-server');
         svc_web.allow_undefined_origin('/broadcast/webhook');
 
-        // TODO DS: stop using Endpoint
-        Endpoint({
-            route: '/broadcast/webhook',
-            methods: ['POST'],
-            handler: this.#handleWebhookRequest.bind(this),
-        }).attach(app);
+        app.use(eggspress('/broadcast/webhook', {
+            allowedMethods: ['POST'],
+        }, this.#handleWebhookRequest.bind(this)));
     }
 
     async #handleWebhookRequest (req, res) {

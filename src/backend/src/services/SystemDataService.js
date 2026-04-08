@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-const { LLRead } = require('../filesystem/ll_operations/ll_read');
+const { LLRead } = require('../deprecated/filesystem/ll_operations/ll_read');
 const { Context } = require('../util/context');
 const { stream_to_buffer } = require('../util/streamutil');
 const BaseService = require('./BaseService');

@@ -22,7 +22,7 @@ import APIError from '../../../../../api/APIError.js';
 import { ErrorService } from '../../../../../modules/core/ErrorService.js';
 import { Context } from '../../../../../util/context.js';
 import { MeteringService } from '../../../../MeteringService/MeteringService.js';
-import { GEMINI_DEFAULT_RATIO, GEMINI_ESTIMATED_IMAGE_TOKENS, GEMINI_IMAGE_GENERATION_MODELS } from './models.js';
+import { GEMINI_DEFAULT_RATIO, GEMINI_ESTIMATED_IMAGE_TOKENS, GEMINI_IMAGE_GENERATION_MODELS, IGeminiImageModel } from './models.js';
 import { IGenerateParams, IImageModel, IImageProvider } from '../types.js';
 
 const MIME_SIGNATURES: Record<string, string> = {
@@ -65,7 +65,8 @@ export class GeminiImageGenerationProvider implements IImageProvider {
         const { prompt, test_mode, input_image, input_image_mime_type, model, quality } = params;
         let { ratio, input_images } = params;
 
-        const selectedModel = this.models().find(m => m.id === model) || this.models().find(m => m.id === this.getDefaultModel())!;
+        const selectedModel = (this.models() as IGeminiImageModel[]).find(m => m.id === model)
+            || (this.models() as IGeminiImageModel[]).find(m => m.id === this.getDefaultModel())!;
 
         if ( test_mode ) {
             return 'https://puter-sample-data.puter.site/image_example.png';
@@ -73,6 +74,10 @@ export class GeminiImageGenerationProvider implements IImageProvider {
 
         if ( typeof prompt !== 'string' || prompt.trim().length === 0 ) {
             throw new Error('`prompt` must be a non-empty string');
+        }
+
+        if ( selectedModel.apiType === 'generateImages' ) {
+            return this.#generateWithImagen(prompt, selectedModel, params);
         }
 
         const allowedRatios = selectedModel.allowedRatios ?? [GEMINI_DEFAULT_RATIO];
@@ -195,6 +200,64 @@ export class GeminiImageGenerationProvider implements IImageProvider {
         }
 
         return url;
+    }
+
+    async #generateWithImagen (prompt: string, selectedModel: IGeminiImageModel, params: IGenerateParams): Promise<string> {
+        const actor = Context.get('actor');
+        if ( ! actor ) {
+            throw new Error('actor not found in context');
+        }
+        const costCents = selectedModel.costs?.['per-image'];
+        if ( costCents === undefined ) {
+            throw new Error(`No per-image cost configured for model '${selectedModel.id}'`);
+        }
+        const costInMicroCents = Math.ceil(costCents * 1_000_000);
+
+        const usageAllowed = await this.#meteringService.hasEnoughCredits(actor, costInMicroCents);
+        if ( ! usageAllowed ) {
+            throw APIError.create('insufficient_funds');
+        }
+
+        const allowedRatios = selectedModel.allowedRatios ?? [GEMINI_DEFAULT_RATIO];
+        const ratio = params.ratio && this.#isValidRatio(params.ratio, allowedRatios)
+            ? params.ratio : allowedRatios[0];
+        const aspectRatio = `${ratio.w}:${ratio.h}`;
+
+        const config: Record<string, unknown> = {
+            numberOfImages: 1,
+            aspectRatio,
+        };
+
+        if ( params.quality && selectedModel.allowedQualityLevels?.includes(params.quality) ) {
+            config.imageSize = params.quality;
+        }
+
+        const response = await this.#client.models.generateImages({
+            model: selectedModel.id,
+            prompt,
+            config,
+        });
+
+        const generated = response?.generatedImages;
+        if ( !generated || generated.length === 0 ) {
+            throw new Error('Imagen response did not include an image');
+        }
+
+        const entry = generated[0];
+        if ( entry.raiFilteredReason ) {
+            throw new Error(`Image was filtered: ${entry.raiFilteredReason}`);
+        }
+
+        const image = entry.image;
+        if ( ! image?.imageBytes ) {
+            throw new Error('Imagen response did not include image bytes');
+        }
+
+        const usageKey = `gemini:${selectedModel.id}`;
+        await this.#meteringService.incrementUsage(actor, usageKey, 1, costInMicroCents);
+
+        const mimeType = image.mimeType ?? 'image/png';
+        return `data:${mimeType};base64,${image.imageBytes}`;
     }
 
     #buildContents (prompt: string, input_images?: string[], input_image_mime_type?: string) {

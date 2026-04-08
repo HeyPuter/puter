@@ -35,7 +35,7 @@ const getLockResponse = ( lockToken, lockScope, filePath ) => {
  * @param {import('express').Request} req
  * @param {import('express').Response} res
  * @param {string} filePath
- * @param {import('../../../filesystem/FSNodeContext')} fileNode
+ * @param {import('../../../deprecated/filesystem/FSNodeContext')} fileNode
  * @param {string} headerLockToken
  * @returns
  */

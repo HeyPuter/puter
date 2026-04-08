@@ -19,7 +19,7 @@
 'use strict';
 const eggspress = require('../../api/eggspress.js');
 const FSNodeParam = require('../../api/filesystem/FSNodeParam.js');
-const { HLWrite } = require('../../filesystem/hl_operations/hl_write.js');
+const { HLWrite } = require('../../deprecated/filesystem/hl_operations/hl_write.js');
 const { boolify } = require('../../util/hl_types.js');
 const { Context } = require('../../util/context.js');
 const Busboy = require('busboy');

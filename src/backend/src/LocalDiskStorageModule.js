@@ -16,17 +16,15 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-const { AdvancedBase } = require('@heyputer/putility');
+
+import { AdvancedBase } from '@heyputer/putility';
+import { HostDiskUsageService } from './services/HostDiskUsageService.js';
 
 class LocalDiskStorageModule extends AdvancedBase {
     async install (context) {
         const services = context.get('services');
-        const LocalDiskStorageService = require('./services/LocalDiskStorageService');
-        services.registerService('local-disk-storage', LocalDiskStorageService);
-
-        const HostDiskUsageService = require('./services/HostDiskUsageService');
         services.registerService('host-disk-usage', HostDiskUsageService);
     }
 }
 
-module.exports = LocalDiskStorageModule;
+export default LocalDiskStorageModule;

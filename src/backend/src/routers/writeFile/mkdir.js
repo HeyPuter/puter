@@ -17,8 +17,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-const { HLMkdir } = require('../../filesystem/hl_operations/hl_mkdir');
-const { NodeUIDSelector } = require('../../filesystem/node/selectors');
+const { HLMkdir } = require('../../deprecated/filesystem/hl_operations/hl_mkdir');
+const { NodeUIDSelector } = require('../../deprecated/filesystem/node/selectors');
 const { sign_file } = require('../../helpers');
 
 module.exports = async function writeFile_handle_mkdir ({

@@ -13,8 +13,12 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
+  "optionalDependencies": {
+    "@esbuild/linux-x64": "0.25.11"
+  },
   "dependencies": {
     "@fontsource/inter": "^5.2.8",
+    "esbuild": "0.25.11",
     "fs-extra": "^11.2.0",
     "highlight.js": "^11.11.1",
     "html-entities": "^2.3.3",
@@ -27,7 +31,6 @@
     "@types/highlight.js": "^9.12.4",
     "@types/jquery": "^3.5.33",
     "concurrently": "^8.2.2",
-    "esbuild": "0.25.11",
     "http-server": "^14.1.1",
     "nodemon": "^3.1.4"
   }

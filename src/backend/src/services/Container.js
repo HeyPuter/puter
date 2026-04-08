@@ -33,8 +33,7 @@ const { TeePromise } = require('@heyputer/putility').libs.promise;
 * @class
 */
 class Container {
-    constructor ({ logger }) {
-        this.logger = logger;
+    constructor () {
         this.instances_ = {};
         this.implementors_ = {};
         this.ready = new TeePromise();
@@ -212,7 +211,17 @@ class Container {
         for ( const k in this.instances_ ) {
             try {
                 if ( PARALLEL ) promises.push(this.instances_[k].init());
-                else await this.instances_[k].init();
+                else {
+                    // Logic to get name of a service, unused but
+                    // if you ever need to log the name
+                    // this will be accurate
+                    let name = this.instances_[k].constructor.name;
+                    if ( name === 'ExtensionService' ) {
+                        name = this.instances_[k].args.state.extension.runtime.name;
+                    }
+
+                    await this.instances_[k].init();
+                }
             } catch (e) {
                 init_failures.push({ k, e });
             }
@@ -221,9 +230,11 @@ class Container {
 
         if ( init_failures.length ) {
             console.error('init failures', init_failures);
-            throw new CompositeError(`failed to initialize these services: ${
-                init_failures.map(({ k }) => k).join(', ')}`,
-            init_failures.map(({ k, e }) => e));
+            throw new CompositeError(
+                `failed to initialize these services: ${
+                    init_failures.map(({ k }) => k).join(', ')}`,
+                init_failures.map(({ k, e }) => e),
+            );
         }
     }
 
@@ -238,9 +249,7 @@ class Container {
     * @returns {Promise<void>} A promise that resolves when all event handlers have completed.
     */
     async emit (id, ...args) {
-        if ( this.logger ) {
-            this.logger.debug(`services:event ${id}`, { args });
-        }
+        console.debug(`services:event ${id}`, { args });
 
         const promises = [];
         for ( const k in this.instances_ ) {

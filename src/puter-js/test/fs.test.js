@@ -96,6 +96,51 @@ naughtyStrings = [
     "vietnameseTiếng Việt.txt",
 ]
 
+const runWithUploadFlowMode = async (mode, work) => {
+    const fs = puter.fs;
+    const hadCapabilityFlag = Object.prototype.hasOwnProperty.call(fs, 'signedBatchWriteSupported');
+    const previousCapabilityFlag = fs.signedBatchWriteSupported;
+
+    if ( mode === 'legacy' ) {
+        fs.signedBatchWriteSupported = false;
+    } else if ( mode === 'signed' ) {
+        fs.signedBatchWriteSupported = true;
+    }
+
+    try {
+        return await work();
+    } finally {
+        if ( hadCapabilityFlag ) {
+            fs.signedBatchWriteSupported = previousCapabilityFlag;
+        } else {
+            delete fs.signedBatchWriteSupported;
+        }
+    }
+};
+
+const toItemsArray = (value) => {
+    if ( Array.isArray(value) ) {
+        return value;
+    }
+    if ( value === undefined || value === null ) {
+        return [];
+    }
+    return [value];
+};
+
+const isApiPuterComOrigin = () => {
+    try {
+        const apiOrigin = puter?.fs?.APIOrigin ?? puter?.APIOrigin;
+        if ( typeof apiOrigin !== 'string' || apiOrigin.length === 0 ) {
+            return false;
+        }
+        const hostname = new URL(apiOrigin).hostname.replace(/\.$/, '').toLowerCase();
+        return hostname === 'api.puter.com';
+    } catch (error) {
+        return false;
+    }
+};
+
 window.fsTests = [
     {
         name: "testFSWrite",
@@ -792,6 +837,119 @@ window.fsTests = [
                 pass("testFSAppDirectoryIsolation passed");
             } catch (error) {
                 fail("testFSAppDirectoryIsolation failed:", error);
+            }
+        }
+    },
+    {
+        name: "testFSWriteParityBetweenSignedAndLegacyFlow",
+        description: "Test write() parity between default upload flow (signed when available) and forced legacy fallback flow",
+        test: async function() {
+            const rootDir = puter.randName();
+            const defaultPath = `${rootDir}/default-parity-write.txt`;
+            const legacyPath = `${rootDir}/legacy-parity-write.txt`;
+            const defaultContent = `default-flow-content-${Date.now()}`;
+            const legacyContent = `legacy-flow-content-${Date.now()}`;
+            const defaultFlowLabel = isApiPuterComOrigin() ? 'signed-preferred' : 'legacy-default';
+
+            try {
+                await puter.fs.mkdir(rootDir);
+
+                const defaultResult = await puter.fs.write(defaultPath, defaultContent, {
+                    overwrite: true,
+                    dedupeName: false,
+                });
+                const legacyResult = await runWithUploadFlowMode('legacy', async () => {
+                    return await puter.fs.write(legacyPath, legacyContent, {
+                        overwrite: true,
+                        dedupeName: false,
+                    });
+                });
+
+                assert(defaultResult && defaultResult.uid, "Default flow write failed");
+                assert(legacyResult && legacyResult.uid, "Legacy flow write failed");
+
+                const defaultRead = await (await puter.fs.read(defaultPath)).text();
+                const legacyRead = await (await puter.fs.read(legacyPath)).text();
+
+                assert(defaultRead === defaultContent, "Default flow wrote unexpected content");
+                assert(legacyRead === legacyContent, "Legacy flow wrote unexpected content");
+                assert(typeof defaultResult.name === 'string' && defaultResult.name.length > 0, "Default flow write returned invalid name");
+                assert(typeof legacyResult.name === 'string' && legacyResult.name.length > 0, "Legacy flow write returned invalid name");
+
+                pass(`testFSWriteParityBetweenSignedAndLegacyFlow passed (${defaultFlowLabel})`);
+            } catch (error) {
+                fail("testFSWriteParityBetweenSignedAndLegacyFlow failed:", error);
+            } finally {
+                try {
+                    await puter.fs.delete(rootDir, { recursive: true });
+                } catch (cleanupError) {
+                }
+            }
+        }
+    },
+    {
+        name: "testFSBatchUploadParityBetweenSignedAndLegacyFlow",
+        description: "Test upload() parity for batched files between default upload flow (signed when available) and forced legacy fallback flow",
+        test: async function() {
+            const rootDir = puter.randName();
+            const defaultDir = `${rootDir}/default-batch`;
+            const legacyDir = `${rootDir}/legacy-batch`;
+            const defaultFlowLabel = isApiPuterComOrigin() ? 'signed-preferred' : 'legacy-default';
+            const defaultFiles = [
+                new File([`alpha-default-${Date.now()}`], 'alpha.txt', { type: 'text/plain' }),
+                new File([`beta-default-${Date.now()}`], 'beta.txt', { type: 'text/plain' }),
+            ];
+            const legacyFiles = [
+                new File([`alpha-legacy-${Date.now()}`], 'alpha.txt', { type: 'text/plain' }),
+                new File([`beta-legacy-${Date.now()}`], 'beta.txt', { type: 'text/plain' }),
+            ];
+
+            try {
+                await puter.fs.mkdir(rootDir);
+                await puter.fs.mkdir(defaultDir, { createMissingParents: true });
+                await puter.fs.mkdir(legacyDir, { createMissingParents: true });
+
+                const defaultUploadResult = await puter.fs.upload(defaultFiles, defaultDir, {
+                    overwrite: true,
+                    dedupeName: false,
+                    strict: true,
+                });
+
+                const legacyUploadResult = await runWithUploadFlowMode('legacy', async () => {
+                    return await puter.fs.upload(legacyFiles, legacyDir, {
+                        overwrite: true,
+                        dedupeName: false,
+                        strict: true,
+                    });
+                });
+
+                const defaultItems = toItemsArray(defaultUploadResult);
+                const legacyItems = toItemsArray(legacyUploadResult);
+
+                assert(defaultItems.length === defaultFiles.length, "Default flow batch upload returned unexpected number of items");
+                assert(legacyItems.length === legacyFiles.length, "Legacy flow batch upload returned unexpected number of items");
+
+                for ( let i = 0; i < defaultFiles.length; i++ ) {
+                    const defaultItem = defaultItems[i];
+                    const legacyItem = legacyItems[i];
+                    const expectedName = defaultFiles[i].name;
+                    const defaultContent = await (await puter.fs.read(`${defaultDir}/${expectedName}`)).text();
+                    const legacyContent = await (await puter.fs.read(`${legacyDir}/${expectedName}`)).text();
+
+                    assert(defaultItem && defaultItem.uid, `Default flow item ${i} missing uid`);
+                    assert(legacyItem && legacyItem.uid, `Legacy flow item ${i} missing uid`);
+                    assert(defaultContent === await defaultFiles[i].text(), `Default flow content mismatch for ${expectedName}`);
+                    assert(legacyContent === await legacyFiles[i].text(), `Legacy flow content mismatch for ${expectedName}`);
+                }
+
+                pass(`testFSBatchUploadParityBetweenSignedAndLegacyFlow passed (${defaultFlowLabel})`);
+            } catch (error) {
+                fail("testFSBatchUploadParityBetweenSignedAndLegacyFlow failed:", error);
+            } finally {
+                try {
+                    await puter.fs.delete(rootDir, { recursive: true });
+                } catch (cleanupError) {
+                }
             }
         }
     },

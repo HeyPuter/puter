@@ -94,7 +94,7 @@ export class DynamoKVStore {
                 const key_hash = murmurhash.v3(key);
                 const kv_row = await this.#sqlClient.read(
                     'SELECT * FROM kv WHERE user_id=? AND app=? AND kkey_hash=? LIMIT 1',
-                    [user.id, appUuid ?? DynamoKVStore.LEGACY_GLOBAL_APP_KEY, key_hash],
+                    [user?.id, appUuid ?? DynamoKVStore.LEGACY_GLOBAL_APP_KEY, key_hash],
                 );
 
                 if ( kv_row[0]?.value ) {
@@ -103,7 +103,7 @@ export class DynamoKVStore {
                         await this.set({ key: kv_row[0].key, value: kv_row[0].value });
                         await this.#sqlClient.write(
                             'DELETE FROM kv WHERE user_id=? AND app=? AND kkey_hash=?',
-                            [user.id, appUuid ?? DynamoKVStore.LEGACY_GLOBAL_APP_KEY, key_hash],
+                            [user?.id, appUuid ?? DynamoKVStore.LEGACY_GLOBAL_APP_KEY, key_hash],
                         );
                     })();
                     values.push(kv_row[0]?.value);
@@ -146,7 +146,6 @@ export class DynamoKVStore {
 
     @Span('kv:set')
     async set ({ key, value, expireAt, optConfig }: { key: string; value: unknown; expireAt?: number; optConfig?: { appUuid?: string } }): Promise<boolean> {
-
         const context = Context.get();
         const actor = context.get('actor');
 
@@ -175,6 +174,66 @@ export class DynamoKVStore {
         });
 
         this.#meteringService.incrementUsage(actor, 'kv:write', res?.ConsumedCapacity?.CapacityUnits ?? 1);
+        return true;
+    }
+
+    @Span('kv:batchPut')
+    async batchPut ({
+        items,
+        optConfig,
+    }: {
+        items: Array<{ key: string; value: unknown; expireAt?: number }>;
+        optConfig?: { appUuid?: string };
+    }): Promise<boolean> {
+        const context = Context.get();
+        const actor = context.get('actor');
+
+        if ( !Array.isArray(items) || items.length === 0 ) {
+            return true;
+        }
+
+        const normalizedByKey = new Map<string, { key: string; value: unknown; expireAt?: number }>();
+        for ( const item of items ) {
+            const normalizedKey = String(item.key);
+            if ( normalizedKey === '' ) {
+                throw APIError.create('field_empty', undefined, {
+                    key: 'key',
+                });
+            }
+
+            if ( Buffer.byteLength(normalizedKey, 'utf8') > 1024 ) {
+                throw new Error(`key is too large. Max size is ${1024}.`);
+            }
+
+            normalizedByKey.set(normalizedKey, {
+                key: normalizedKey,
+                value: item.value,
+                expireAt: item.expireAt,
+            });
+        }
+
+        if ( this.#enableMigrationFromSQL ) {
+            for ( const key of normalizedByKey.keys() ) {
+                this.get({ key });
+            }
+        }
+
+        const namespace = this.#getNameSpace(actor, optConfig?.appUuid);
+        const putParams = Array.from(normalizedByKey.values()).map((item) => ({
+            table: this.#tableName,
+            item: {
+                namespace,
+                key: item.key,
+                value: item.value,
+                ttl: item.expireAt,
+            },
+        }));
+        const response = await this.#ddbClient.batchPut(putParams);
+        const usage = response.ConsumedCapacity?.reduce((acc, curr) => {
+            return acc + Number(curr.CapacityUnits ?? 0);
+        }, 0) ?? normalizedByKey.size;
+
+        this.#meteringService.incrementUsage(actor, 'kv:write', usage || normalizedByKey.size);
         return true;
     }
 

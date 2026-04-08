@@ -60,6 +60,22 @@ describe('DynamoKVStore', async () => {
         expect(stored).toEqual(value);
     });
 
+    it('batchPut writes multiple values and honors expiration timestamps', async () => {
+        const actor = makeActor(101);
+        const nowInSeconds = Math.floor(Date.now() / 1000);
+
+        await su.sudo(actor, () => kvStore.batchPut({
+            items: [
+                { key: 'batch-a', value: 'first' },
+                { key: 'batch-b', value: 'expired', expireAt: nowInSeconds - 1 },
+                { key: 'batch-a', value: 'overridden' },
+            ],
+        }));
+
+        const values = await su.sudo(actor, () => kvStore.get({ key: ['batch-a', 'batch-b'] }));
+        expect(values).toEqual(['overridden', null]);
+    });
+
     it('scopes data to the app when provided', async () => {
         const userId = 2;
         const actorAppOne = makeActor(userId, 'app-one');

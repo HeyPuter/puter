@@ -17,9 +17,9 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const APIError = require('../api/APIError');
+const eggspress = require('../api/eggspress');
 const { get_user } = require('../helpers');
 const configurable_auth = require('../middleware/configurable_auth');
-const { Endpoint } = require('../util/expressutil');
 const { Actor, UserActorType } = require('./auth/Actor');
 const BaseService = require('./BaseService');
 const { DB_WRITE } = require('./database/consts');
@@ -52,8 +52,10 @@ class ShareService extends BaseService {
         const svc_event = this.services.get('event');
         svc_event.on('user.email-confirmed', async (_, { user_uid, email }) => {
             const user = await get_user({ uuid: user_uid });
-            const relevant_shares = await this.db.read('SELECT * FROM share WHERE recipient_email = ?',
-                            [email]);
+            const relevant_shares = await this.db.read(
+                'SELECT * FROM share WHERE recipient_email = ?',
+                [email],
+            );
 
             for ( const share of relevant_shares ) {
                 share.data = this.db.case({
@@ -80,8 +82,10 @@ class ShareService extends BaseService {
                     await svc_acl.set_user_user(issuer_actor, user.username, permission, undefined, { only_if_higher: true });
                 }
 
-                await this.db.write('DELETE FROM share WHERE uid = ?',
-                                [share.uid]);
+                await this.db.write(
+                    'DELETE FROM share WHERE uid = ?',
+                    [share.uid],
+                );
             }
         });
     }
@@ -113,179 +117,179 @@ class ShareService extends BaseService {
         const svc_share = this.services.get('share');
         const svc_token = this.services.get('token');
 
-        Endpoint({
-            route: '/check',
-            methods: ['POST'],
-            handler: async (req, res) => {
-                // Potentially confusing:
-                //   The "share token" and "share cookie token" are different!
-                //   -> "share token" is from the email link;
-                //      it has a longer expiry time and can be used again
-                //      if the share session expires.
-                //   -> "share cookie token" lets the backend know it
-                //      should grant permissions when the correct user
-                //      is logged in.
+        router.use(eggspress('/check', {
+            allowedMethods: ['POST'],
+        }, async (req, res) => {
+            // Potentially confusing:
+            //   The "share token" and "share cookie token" are different!
+            //   -> "share token" is from the email link;
+            //      it has a longer expiry time and can be used again
+            //      if the share session expires.
+            //   -> "share cookie token" lets the backend know it
+            //      should grant permissions when the correct user
+            //      is logged in.
 
-                const share_token = req.body.token;
+            const share_token = req.body.token;
 
-                if ( ! share_token ) {
-                    throw APIError.create('field_missing', null, {
-                        key: 'token',
-                    });
-                }
-
-                const decoded = await svc_token.verify('share', share_token);
-                console.log('decoded?', decoded);
-                if ( decoded.$ !== 'token:share' ) {
-                    throw APIError.create('invalid_token');
-                }
-
-                const share = await svc_share.get_share({
-                    uid: decoded.uid,
+            if ( ! share_token ) {
+                throw APIError.create('field_missing', null, {
+                    key: 'token',
                 });
+            }
 
-                if ( ! share ) {
-                    throw APIError.create('invalid_token');
-                }
+            const decoded = await svc_token.verify('share', share_token);
+            console.log('decoded?', decoded);
+            if ( decoded.$ !== 'token:share' ) {
+                throw APIError.create('invalid_token');
+            }
 
-                res.json({
-                    $: 'api:share',
-                    uid: share.uid,
-                    email: share.recipient_email,
-                });
-            },
-        }).attach(router);
+            const share = await svc_share.get_share({
+                uid: decoded.uid,
+            });
 
-        Endpoint({
-            route: '/apply',
-            methods: ['POST'],
+            if ( ! share ) {
+                throw APIError.create('invalid_token');
+            }
+
+            res.json({
+                $: 'api:share',
+                uid: share.uid,
+                email: share.recipient_email,
+            });
+        }));
+
+        router.use(eggspress('/apply', {
+            allowedMethods: ['POST'],
             mw: [configurable_auth()],
-            handler: async (req, res) => {
-                const share_uid = req.body.uid;
+        }, async (req, res) => {
+            const share_uid = req.body.uid;
 
-                const share = await svc_share.get_share({
-                    uid: share_uid,
-                });
+            const share = await svc_share.get_share({
+                uid: share_uid,
+            });
 
-                if ( ! share ) {
-                    throw APIError.create('share_expired');
-                }
+            if ( ! share ) {
+                throw APIError.create('share_expired');
+            }
 
-                share.data = this.db.case({
-                    mysql: () => share.data,
-                    otherwise: () =>
-                        JSON.parse(share.data ?? '{}'),
-                })();
+            share.data = this.db.case({
+                mysql: () => share.data,
+                otherwise: () =>
+                    JSON.parse(share.data ?? '{}'),
+            })();
 
-                const actor = Actor.adapt(req.actor ?? req.user);
-                if ( ! actor ) {
-                    // this shouldn't happen; auth should catch it
-                    throw new Error('actor missing');
-                }
+            const actor = Actor.adapt(req.actor ?? req.user);
+            if ( ! actor ) {
+                // this shouldn't happen; auth should catch it
+                throw new Error('actor missing');
+            }
 
-                if ( ! actor.type.user.email_confirmed ) {
-                    throw APIError.create('email_must_be_confirmed');
-                }
+            if ( ! actor.type.user.email_confirmed ) {
+                throw APIError.create('email_must_be_confirmed');
+            }
 
-                if ( actor.type.user.email !== share.recipient_email ) {
-                    throw APIError.create('can_not_apply_to_this_user');
-                }
+            if ( actor.type.user.email !== share.recipient_email ) {
+                throw APIError.create('can_not_apply_to_this_user');
+            }
 
-                const issuer_user = await get_user({
-                    id: share.issuer_user_id,
-                });
+            const issuer_user = await get_user({
+                id: share.issuer_user_id,
+            });
 
-                if ( ! issuer_user ) {
-                    throw APIError.create('share_expired');
-                }
+            if ( ! issuer_user ) {
+                throw APIError.create('share_expired');
+            }
 
-                const issuer_actor = await Actor.create(UserActorType, {
-                    user: issuer_user,
-                });
+            const issuer_actor = await Actor.create(UserActorType, {
+                user: issuer_user,
+            });
 
-                const svc_permission = this.services.get('permission');
+            const svc_permission = this.services.get('permission');
 
-                for ( const permission of share.data.permissions ) {
-                    await svc_permission.grant_user_user_permission(issuer_actor,
-                                    actor.type.user.username,
-                                    permission);
-                }
+            for ( const permission of share.data.permissions ) {
+                await svc_permission.grant_user_user_permission(
+                    issuer_actor,
+                    actor.type.user.username,
+                    permission,
+                );
+            }
 
-                await this.db.write('DELETE FROM share WHERE uid = ?',
-                                [share.uid]);
+            await this.db.write(
+                'DELETE FROM share WHERE uid = ?',
+                [share.uid],
+            );
 
-                res.json({
-                    $: 'api:status-report',
-                    status: 'success',
-                });
-            },
-        }).attach(router);
+            res.json({
+                $: 'api:status-report',
+                status: 'success',
+            });
+        }));
 
-        Endpoint({
-            route: '/request',
-            methods: ['POST'],
+        router.use(eggspress('/request', {
+            allowedMethods: ['POST'],
             mw: [configurable_auth()],
-            handler: async (req, res) => {
-                const share_uid = req.body.uid;
+        }, async (req, res) => {
+            const share_uid = req.body.uid;
 
-                const share = await svc_share.get_share({
-                    uid: share_uid,
-                });
+            const share = await svc_share.get_share({
+                uid: share_uid,
+            });
 
-                // track: null check before processing
-                if ( ! share ) {
-                    throw APIError.create('share_expired');
-                }
+            // track: null check before processing
+            if ( ! share ) {
+                throw APIError.create('share_expired');
+            }
 
-                share.data = this.db.case({
-                    mysql: () => share.data,
-                    otherwise: () =>
-                        JSON.parse(share.data ?? '{}'),
-                })();
+            share.data = this.db.case({
+                mysql: () => share.data,
+                otherwise: () =>
+                    JSON.parse(share.data ?? '{}'),
+            })();
 
-                const actor = Actor.adapt(req.actor ?? req.user);
-                if ( ! actor ) {
-                    // this shouldn't happen; auth should catch it
-                    throw new Error('actor missing');
-                }
+            const actor = Actor.adapt(req.actor ?? req.user);
+            if ( ! actor ) {
+                // this shouldn't happen; auth should catch it
+                throw new Error('actor missing');
+            }
 
-                // track: opposite condition of sibling
-                // :: sibling: /apply endpoint
-                if (
-                    actor.type.user.email_confirmed &&
-                    actor.type.user.email === share.recipient_email
-                ) {
-                    throw APIError.create('no_need_to_request');
-                }
+            // track: opposite condition of sibling
+            // :: sibling: /apply endpoint
+            if (
+                actor.type.user.email_confirmed &&
+                actor.type.user.email === share.recipient_email
+            ) {
+                throw APIError.create('no_need_to_request');
+            }
 
-                const issuer_user = await get_user({
-                    id: share.issuer_user_id,
-                });
+            const issuer_user = await get_user({
+                id: share.issuer_user_id,
+            });
 
-                if ( ! issuer_user ) {
-                    throw APIError.create('share_expired');
-                }
+            if ( ! issuer_user ) {
+                throw APIError.create('share_expired');
+            }
 
-                const svc_notification = this.services.get('notification');
-                svc_notification.notify(UsernameNotifSelector(issuer_user.username),
-                                {
-                                    source: 'sharing',
-                                    title: `User ${actor.type.user.username} is ` +
-                                        `trying to open a share you sent to ${
-                                            share.recipient_email}`,
-                                    template: 'user-requesting-share',
-                                    fields: {
-                                        username: actor.type.user.username,
-                                        intended_recipient: share.recipient_email,
-                                        permissions: share.data.permissions,
-                                    },
-                                });
-                res.json({
-                    $: 'api:status-report',
-                    status: 'success',
-                });
-            },
-        }).attach(router);
+            const svc_notification = this.services.get('notification');
+            svc_notification.notify(
+                UsernameNotifSelector(issuer_user.username),
+                {
+                    source: 'sharing',
+                    title: `User ${actor.type.user.username} is ` +
+                        `trying to open a share you sent to ${
+                            share.recipient_email}`,
+                    template: 'user-requesting-share',
+                    fields: {
+                        username: actor.type.user.username,
+                        intended_recipient: share.recipient_email,
+                        permissions: share.data.permissions,
+                    },
+                },
+            );
+            res.json({
+                $: 'api:status-report',
+                status: 'success',
+            });
+        }));
     }
 
     install_share_endpoint ({ app }) {
@@ -299,40 +303,40 @@ class ShareService extends BaseService {
         app.use('/share', router);
 
         const share_sequence = require('../structured/sequence/share.js');
-        Endpoint({
-            route: '/',
-            methods: ['POST'],
+        router.use(eggspress('/', {
+            allowedMethods: ['POST'],
             mw: [
                 configurable_auth(),
                 // featureflag({ feature: 'share' }),
             ],
-            handler: async (req, res) => {
-                const svc_edgeRateLimit = req.services.get('edge-rate-limit');
-                if ( ! svc_edgeRateLimit.check('verify-pass-recovery-token') ) {
-                    return res.status(429).send('Too many requests.');
-                }
+        }, async (req, res) => {
+            const svc_edgeRateLimit = req.services.get('edge-rate-limit');
+            if ( ! svc_edgeRateLimit.check('verify-pass-recovery-token') ) {
+                return res.status(429).send('Too many requests.');
+            }
 
-                const actor = req.actor;
-                if ( ! (actor.type instanceof UserActorType) ) {
-                    throw APIError.create('forbidden');
-                }
+            const actor = req.actor;
+            if ( ! (actor.type instanceof UserActorType) ) {
+                throw APIError.create('forbidden');
+            }
 
-                if ( ! actor.type.user.email_confirmed ) {
-                    throw APIError.create('email_must_be_confirmed', null, {
-                        action: 'share something',
-                    });
-                }
-
-                return await share_sequence.call(this, {
-                    actor, req, res,
+            if ( ! actor.type.user.email_confirmed ) {
+                throw APIError.create('email_must_be_confirmed', null, {
+                    action: 'share something',
                 });
-            },
-        }).attach(router);
+            }
+
+            return await share_sequence.call(this, {
+                actor, req, res,
+            });
+        }));
     }
 
     async get_share ({ uid }) {
-        const [share] = await this.db.read('SELECT * FROM share WHERE uid = ?',
-                        [uid]);
+        const [share] = await this.db.read(
+            'SELECT * FROM share WHERE uid = ?',
+            [uid],
+        );
 
         return share;
     }
@@ -384,10 +388,12 @@ class ShareService extends BaseService {
 
         const uuid = this.modules.uuidv4();
 
-        await this.db.write('INSERT INTO `share` ' +
+        await this.db.write(
+            'INSERT INTO `share` ' +
             '(`uid`, `issuer_user_id`, `recipient_email`, `data`) ' +
             'VALUES (?, ?, ?, ?)',
-        [uuid, issuer.type.user.id, email, JSON.stringify(data)]);
+            [uuid, issuer.type.user.id, email, JSON.stringify(data)],
+        );
 
         return uuid;
     }

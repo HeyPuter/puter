@@ -19,7 +19,7 @@
 'use strict';
 const eggspress = require('../../api/eggspress.js');
 const FSNodeParam = require('../../api/filesystem/FSNodeParam.js');
-const { HLMove } = require('../../filesystem/hl_operations/hl_move.js');
+const { HLMove } = require('../../deprecated/filesystem/hl_operations/hl_move.js');
 const { Context } = require('../../util/context.js');
 const { getTracer } = require('../../util/otelutil.js');
 

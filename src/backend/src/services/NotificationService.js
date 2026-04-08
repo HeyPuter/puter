@@ -17,8 +17,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const APIError = require('../api/APIError');
+const eggspress = require('../api/eggspress');
 const auth2 = require('../middleware/auth2');
-const { Endpoint } = require('../util/expressutil');
 const { TeePromise } = require('@heyputer/putility').libs.promise;
 const BaseService = require('./BaseService');
 const { DB_WRITE } = require('./database/consts');
@@ -125,35 +125,35 @@ class NotificationService extends BaseService {
         const svc_event = this.services.get('event');
 
         [['ack', 'acknowledged'], ['read', 'read']].forEach(([ep_name, col_name]) => {
-            Endpoint({
-                route: `/mark-${ ep_name}`,
-                methods: ['POST'],
-                handler: async (req, res) => {
-                    // TODO: validate uid
-                    if ( typeof req.body.uid !== 'string' ) {
-                        throw APIError.create('field_invalid', null, {
-                            key: 'uid',
-                            expected: 'a valid UUID',
-                            got: 'non-string value',
-                        });
-                    }
-
-                    const ack_ts = Math.floor(Date.now() / 1000);
-                    await this.db.write(`UPDATE \`notification\` SET ${ col_name } = ? ` +
-                        'WHERE uid = ? AND user_id = ? ' +
-                        'LIMIT 1',
-                    [ack_ts, req.body.uid, req.user.id]);
-
-                    svc_event.emit('outer.gui.notif.ack', {
-                        user_id_list: [req.user.id],
-                        response: {
-                            uid: req.body.uid,
-                        },
+            router.use(eggspress(`/mark-${ ep_name}`, {
+                allowedMethods: ['POST'],
+            }, async (req, res) => {
+                // TODO: validate uid
+                if ( typeof req.body.uid !== 'string' ) {
+                    throw APIError.create('field_invalid', null, {
+                        key: 'uid',
+                        expected: 'a valid UUID',
+                        got: 'non-string value',
                     });
+                }
 
-                    res.json({});
-                },
-            }).attach(router);
+                const ack_ts = Math.floor(Date.now() / 1000);
+                await this.db.write(
+                    `UPDATE \`notification\` SET ${ col_name } = ? ` +
+                    'WHERE uid = ? AND user_id = ? ' +
+                    'LIMIT 1',
+                    [ack_ts, req.body.uid, req.user.id],
+                );
+
+                svc_event.emit('outer.gui.notif.ack', {
+                    user_id_list: [req.user.id],
+                    response: {
+                        uid: req.body.uid,
+                    },
+                });
+
+                res.json({});
+            }));
         });
     }
 
@@ -192,17 +192,21 @@ class NotificationService extends BaseService {
     */
     async do_on_user_connected ({ user }) {
         // query the users unread notifications
-        const notifications = await this.db.read('SELECT * FROM `notification` ' +
+        const notifications = await this.db.read(
+            'SELECT * FROM `notification` ' +
             'WHERE user_id=? AND shown IS NULL AND acknowledged IS NULL ' +
             'ORDER BY created_at ASC',
-        [user.id]);
+            [user.id],
+        );
 
         // set all the notifications to "shown"
         const shown_ts = Math.floor(Date.now() / 1000);
-        await this.db.write('UPDATE `notification` ' +
+        await this.db.write(
+            'UPDATE `notification` ' +
             'SET shown = ? ' +
             'WHERE user_id=? AND shown IS NULL AND acknowledged IS NULL ',
-        [shown_ts, user.id]);
+            [shown_ts, user.id],
+        );
 
         for ( const n of notifications ) {
             n.value = this.db.case({
@@ -288,10 +292,12 @@ class NotificationService extends BaseService {
 
         (async () => {
             for ( const user_id of user_id_list ) {
-                await this.db.write('INSERT INTO `notification` ' +
+                await this.db.write(
+                    'INSERT INTO `notification` ' +
                     '(`user_id`, `uid`, `value`) ' +
                     'VALUES (?, ?, ?)',
-                [user_id, uid, JSON.stringify(notification)]);
+                    [user_id, uid, JSON.stringify(notification)],
+                );
             }
             const p = this.notifs_pending_write[uid];
             delete this.notifs_pending_write[uid];

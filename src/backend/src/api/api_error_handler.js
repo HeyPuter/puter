@@ -17,6 +17,46 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const APIError = require('./APIError');
+const REDACTED_BODY_KEYS = new Set(['thumbnail', 'thumbnailData', 'base64']);
+const MAX_LOG_STRING_LENGTH = 2048;
+
+const sanitizeAlarmBody = (value, key, seen = new WeakSet()) => {
+    if ( value === null || value === undefined ) {
+        return value;
+    }
+
+    if ( typeof value === 'string' ) {
+        const isRedactedKey = typeof key === 'string' && REDACTED_BODY_KEYS.has(key);
+        const isDataUrl = value.startsWith('data:');
+        if ( isRedactedKey || isDataUrl ) {
+            return `[redacted:${value.length}]`;
+        }
+
+        if ( value.length > MAX_LOG_STRING_LENGTH ) {
+            return `${value.slice(0, MAX_LOG_STRING_LENGTH)}...[truncated:${value.length}]`;
+        }
+        return value;
+    }
+
+    if ( typeof value !== 'object' ) {
+        return value;
+    }
+
+    if ( seen.has(value) ) {
+        return '[circular]';
+    }
+    seen.add(value);
+
+    if ( Array.isArray(value) ) {
+        return value.map((item) => sanitizeAlarmBody(item, key, seen));
+    }
+
+    const output = {};
+    for ( const [entryKey, entryValue] of Object.entries(value) ) {
+        output[entryKey] = sanitizeAlarmBody(entryValue, entryKey, seen);
+    }
+    return output;
+};
 
 /**
  * api_error_handler() is an express error handler for API errors.
@@ -50,7 +90,7 @@ module.exports = function (err, req, res, next) {
     if (
         typeof err === 'object' &&
         !(err instanceof Error) &&
-        err.hasOwnProperty('message')
+        Object.prototype.hasOwnProperty.call(err, 'message')
     ) {
         const apiError = APIError.create(400, err);
         return apiError.write(res);
@@ -65,7 +105,7 @@ module.exports = function (err, req, res, next) {
             error: err,
             url: req.url,
             method: req.method,
-            body: req.body,
+            body: sanitizeAlarmBody(req.body, undefined),
             headers: req.headers,
         });
     }

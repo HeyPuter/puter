@@ -23,6 +23,7 @@ const BaseService = require('../../services/BaseService');
  * @typedef {Object} KVStoreInterface
  * @property {function(KVStoreGetParams): Promise<unknown>} get - Retrieve the value(s) for the given key(s).
  * @property {function(KVStoreSetParams): Promise<void>} set - Set a value for a key, with optional expiration.
+ * @property {function(KVStoreBatchPutParams): Promise<void>} batchPut - Set many key-value entries in one call.
  * @property {function(KVStoreDelParams): Promise<void>} del - Delete a value by key.
  * @property {function(KVStoreListParams): Promise<KVStoreListResult|Array>} list - List key-value pairs, optionally with pagination.
  * @property {function(): Promise<void>} flush - Delete all key-value pairs in the store.
@@ -41,6 +42,9 @@ const BaseService = require('../../services/BaseService');
  * @property {string} key - The key to set.
  * @property {*} value - The value to store.
  * @property {number} [expireAt] - Optional UNIX timestamp (seconds) when the key should expire.
+ *
+ * @typedef {Object} KVStoreBatchPutParams
+ * @property {{key: string, value: *, expireAt?: number}[]} items - Key/value pairs to store.
  *
  * @typedef {Object} KVStoreDelParams
  * @property {string} key - The key to delete.
@@ -111,6 +115,14 @@ class KVStoreInterfaceService extends BaseService {
                         expireAt: { type: 'number' },
                         optConfig: { type: 'json', description: 'additional options for get, e.g. { appUuid: "someId" }' },
 
+                    },
+                    result: { type: 'void' },
+                },
+                batchPut: {
+                    description: 'Set many values by key in a single call.',
+                    parameters: {
+                        items: { type: 'json', required: true },
+                        optConfig: { type: 'json', description: 'additional options for get, e.g. { appUuid: "someId" }' },
                     },
                     result: { type: 'void' },
                 },

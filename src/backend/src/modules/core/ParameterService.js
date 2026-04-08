@@ -98,7 +98,6 @@ class ParameterService extends BaseService {
     * @private
     */
     '__on_boot.consolidation' () {
-        this._registerCommands(this.services.get('commands'));
     }
 
     createParameters (serviceName, parameters, opt_instance) {
@@ -109,9 +108,11 @@ class ParameterService extends BaseService {
                 id: `${serviceName}:${parameter.id}`,
             }));
             if ( opt_instance ) {
-                this.bindToInstance(`${serviceName}:${parameter.id}`,
-                                opt_instance,
-                                parameter.id);
+                this.bindToInstance(
+                    `${serviceName}:${parameter.id}`,
+                    opt_instance,
+                    parameter.id,
+                );
             }
         }
     }
@@ -143,71 +144,6 @@ class ParameterService extends BaseService {
             throw new Error(`unknown parameter: ${id}`);
         }
         return parameter;
-    }
-
-    /**
-    * Registers parameter-related commands with the command service
-    * @param {Object} commands - The command service instance to register with
-    */
-    _registerCommands (commands) {
-        const completeParameterName = (args) => {
-            // The parameter name is the first argument, so return no results if we're on the second or later.
-            if ( args.length > 1 )
-            {
-                return;
-            }
-            const lastArg = args[args.length - 1];
-
-            return this.parameters_
-                .map(parameter => parameter.spec_.id)
-                .filter(parameterName => parameterName.startsWith(lastArg));
-        };
-
-        commands.registerCommands('params', [
-            {
-                id: 'get',
-                description: 'get a parameter',
-                handler: async (args, log) => {
-                    const [name] = args;
-                    const value = await this.get(name);
-                    log.log(value);
-                },
-                completer: completeParameterName,
-            },
-            {
-                id: 'set',
-                description: 'set a parameter',
-                handler: async (args, log) => {
-                    const [name, value] = args;
-                    const parameter = this._get_param(name);
-                    parameter.set(value);
-                    log.log(value);
-                },
-                completer: completeParameterName,
-            },
-            {
-                id: 'list',
-                description: 'list parameters',
-                handler: async (args, log) => {
-                    const [prefix] = args;
-                    let parameters = this.parameters_;
-                    if ( prefix ) {
-                        parameters = parameters
-                            .filter(p => p.spec_.id.startsWith(prefix));
-                    }
-                    log.log(`available parameters${
-                        prefix ? ` (starting with: ${prefix})` : ''
-                    }:`);
-                    for ( const parameter of parameters ) {
-                        // log.log(`- ${parameter.spec_.id}: ${parameter.spec_.description}`);
-                        // Log parameter description and value
-                        const value = await parameter.get();
-                        log.log(`- ${parameter.spec_.id} = ${value}`);
-                        log.log(`  ${parameter.spec_.description}`);
-                    }
-                },
-            },
-        ]);
     }
 }
 

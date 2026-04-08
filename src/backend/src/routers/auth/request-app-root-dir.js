@@ -22,8 +22,8 @@ const { AppUnderUserActorType } = require('../../services/auth/Actor');
 const { Context } = require('../../util/context');
 const { validate_fields } = require('../../util/validutil');
 const { get_app } = require('../../helpers');
-const { NodeInternalIDSelector } = require('../../filesystem/node/selectors');
-const { HLStat } = require('../../filesystem/hl_operations/hl_stat');
+const { NodeInternalIDSelector } = require('../../deprecated/filesystem/node/selectors');
+const { HLStat } = require('../../deprecated/filesystem/hl_operations/hl_stat');
 const { PermissionUtil } = require('../../services/auth/permissionUtils.mjs');
 const { quot } = require('@heyputer/putility').libs.string;
 

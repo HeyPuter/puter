@@ -18,7 +18,7 @@
  */
 
 const BaseService = require('../../../services/BaseService');
-const { Endpoint } = require('../../../util/expressutil');
+const eggspress = require('../../../api/eggspress');
 const { checkCaptcha } = require('../middleware/captcha-middleware');
 
 /**
@@ -129,36 +129,32 @@ class CaptchaService extends BaseService {
             app.use('/api/captcha', api);
 
             // Generate captcha endpoint
-            Endpoint({
-                route: '/generate',
-                methods: ['GET'],
-                handler: async (req, res) => {
-                    const captcha = this.generateCaptcha();
-                    res.json({
-                        token: captcha.token,
-                        image: captcha.data,
-                    });
-                },
-            }).attach(api);
+            api.use(eggspress('/generate', {
+                allowedMethods: ['GET'],
+            }, async (req, res) => {
+                const captcha = this.generateCaptcha();
+                res.json({
+                    token: captcha.token,
+                    image: captcha.data,
+                });
+            }));
 
             // Verify captcha endpoint
-            Endpoint({
-                route: '/verify',
-                methods: ['POST'],
-                handler: (req, res) => {
-                    const { token, answer } = req.body;
+            api.use(eggspress('/verify', {
+                allowedMethods: ['POST'],
+            }, (req, res) => {
+                const { token, answer } = req.body;
 
-                    if ( !token || !answer ) {
-                        return res.status(400).json({
-                            valid: false,
-                            error: 'Missing token or answer',
-                        });
-                    }
+                if ( !token || !answer ) {
+                    return res.status(400).json({
+                        valid: false,
+                        error: 'Missing token or answer',
+                    });
+                }
 
-                    const isValid = this.verifyCaptcha(token, answer);
-                    res.json({ valid: isValid });
-                },
-            }).attach(api);
+                const isValid = this.verifyCaptcha(token, answer);
+                res.json({ valid: isValid });
+            }));
 
             // Special endpoint for automated testing
             // This should be disabled in production
@@ -430,8 +426,10 @@ class CaptchaService extends BaseService {
         // Invalid token or expired
         if ( ! captchaData ) {
             console.log('Verification FAILED: No data found for this token');
-            console.log('TOKENS_TRACKING: Available tokens (first 8 chars):',
-                            Array.from(this.captchaTokens.keys()).map(t => t.substring(0, 8)));
+            console.log(
+                'TOKENS_TRACKING: Available tokens (first 8 chars):',
+                Array.from(this.captchaTokens.keys()).map(t => t.substring(0, 8)),
+            );
             this.log.debug(`Invalid captcha token: ${token}`);
             return false;
         }
@@ -542,29 +540,29 @@ class CaptchaService extends BaseService {
         };
 
         switch ( this.difficulty ) {
-        case 'easy':
-            return {
-                ...baseOptions,
-                size: 4,
-                width: 150,
-                height: 50,
-                noise: 1,
-            };
-        case 'hard':
-            return {
-                ...baseOptions,
-                size: 7,
-                width: 200,
-                height: 60,
-                noise: 3,
-            };
-        case 'medium':
-        default:
-            return {
-                ...baseOptions,
-                width: 180,
-                height: 50,
-            };
+            case 'easy':
+                return {
+                    ...baseOptions,
+                    size: 4,
+                    width: 150,
+                    height: 50,
+                    noise: 1,
+                };
+            case 'hard':
+                return {
+                    ...baseOptions,
+                    size: 7,
+                    width: 200,
+                    height: 60,
+                    noise: 3,
+                };
+            case 'medium':
+            default:
+                return {
+                    ...baseOptions,
+                    width: 180,
+                    height: 50,
+                };
         }
     }
 

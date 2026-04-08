@@ -18,13 +18,13 @@
  */
 
 const { AdvancedBase } = require('@heyputer/putility');
-const FSNodeContext = require('../../filesystem/FSNodeContext');
-const capabilities = require('../../filesystem/definitions/capabilities');
-const selectors = require('../../filesystem/node/selectors');
+const FSNodeContext = require('../../deprecated/filesystem/FSNodeContext').default;
+const capabilities = require('../../deprecated/filesystem/definitions/capabilities');
+const selectors = require('../../deprecated/filesystem/node/selectors');
 const { RuntimeModule } = require('../../extension/RuntimeModule');
 const { MODE_READ, MODE_WRITE } = require('../../services/fs/FSLockService');
-const { UploadProgressTracker } = require('../../filesystem/storage/UploadProgressTracker');
-const { PuterPath } = require('../../filesystem/lib/PuterPath');
+const { UploadProgressTracker } = require('../../deprecated/filesystem/storage/UploadProgressTracker');
+const { PuterPath } = require('../../deprecated/filesystem/lib/PuterPath');
 
 class PuterFSModule extends AdvancedBase {
     async install (context) {
@@ -33,26 +33,24 @@ class PuterFSModule extends AdvancedBase {
         const { RESOURCE_STATUS_PENDING_CREATE } = require('./ResourceService');
 
         // Expose filesystem declarations to extensions
-        {
-            const runtimeModule = new RuntimeModule({ name: 'fs' });
-            runtimeModule.exports = {
-                capabilities,
-                selectors,
-                FSNodeContext,
-                PuterPath,
-                lock: {
-                    MODE_READ,
-                    MODE_WRITE,
-                },
-                resource: {
-                    RESOURCE_STATUS_PENDING_CREATE,
-                },
-                util: {
-                    UploadProgressTracker,
-                },
-            };
-            context.get('runtime-modules').register(runtimeModule);
-        }
+        const runtimeModule = new RuntimeModule({ name: 'fs' });
+        runtimeModule.exports = {
+            capabilities,
+            selectors,
+            FSNodeContext,
+            PuterPath,
+            lock: {
+                MODE_READ,
+                MODE_WRITE,
+            },
+            resource: {
+                RESOURCE_STATUS_PENDING_CREATE,
+            },
+            util: {
+                UploadProgressTracker,
+            },
+        };
+        context.get('runtime-modules').register(runtimeModule);
 
         const { ResourceService } = require('./ResourceService');
         services.registerService('resourceService', ResourceService);
@@ -62,9 +60,6 @@ class PuterFSModule extends AdvancedBase {
 
         const { MountpointService } = require('./MountpointService');
         services.registerService('mountpoint', MountpointService);
-
-        const { MemoryFSService } = require('./customfs/MemoryFSService');
-        services.registerService('memoryfs', MemoryFSService);
     }
 }
 

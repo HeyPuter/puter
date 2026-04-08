@@ -1,5 +1,5 @@
 import { DDBClientWrapper } from '../../clients/dynamodb/DDBClientWrapper.js';
-import { FilesystemService } from '../../filesystem/FilesystemService.js';
+import { FilesystemService } from '../../deprecated/filesystem/FilesystemService.js';
 import { AnomalyService } from '../../services/AnomalyService.js';
 import { AuthService } from '../../services/auth/AuthService.js';
 import { GroupService } from '../../services/auth/GroupService.js';
@@ -33,7 +33,6 @@ export class TestCoreModule {
         services.registerService('su', SUService);
         services.registerService('alarm', AlarmService);
         services.registerService('event', EventService);
-        services.registerService('commands', CommandService);
         services.registerService('meteringService', MeteringServiceWrapper);
         services.registerService('puter-kvstore', DynamoKVStoreWrapper);
         services.registerService('permission', PermissionService);

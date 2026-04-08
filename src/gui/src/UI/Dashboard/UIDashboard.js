@@ -290,8 +290,6 @@ async function UIDashboard (options) {
     });
 
     window.socket.on('item.updated', async (item) => {
-        if ( item.original_client_socket_id === window.socket.id ) return;
-
         const $el = $(`.item[data-uid='${item.uid}']`);
         if ( $el.length === 0 ) return;
 
@@ -305,6 +303,14 @@ async function UIDashboard (options) {
         // Update displayed name
         $el.find('.item-name').text(item.name);
         $el.find('.item-name-editor').val(item.name);
+
+        if (
+            window.dashboard_object?.currentView === 'grid'
+            && typeof item.thumbnail === 'string'
+            && item.thumbnail.length > 0
+        ) {
+            $el.find('.item-icon img').attr('src', item.thumbnail);
+        }
     });
 
     window.socket.on('item.added', async (item) => {

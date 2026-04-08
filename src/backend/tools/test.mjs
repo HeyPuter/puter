@@ -27,6 +27,7 @@ import { consoleLogManager } from '../src/util/consolelog.js';
 import { Context } from '../src/util/context.js';
 import { TestCoreModule } from '../src/modules/test-core/TestCoreModule.js';
 import { config } from '../src/loadTestConfig.js';
+import { initializeS3Config } from '../src/clients/s3/s3ClientProvider.js';
 const { BaseService, EssentialModules } = why;
 
 /**
@@ -37,12 +38,16 @@ class TestLogger {
         console.log('\x1B[36;1mBoot logger started :)\x1B[0m');
     }
     info (...args) {
-        console.log('\x1B[36;1m[TESTKERNEL/INFO]\x1B[0m',
-                        ...args);
+        console.log(
+            '\x1B[36;1m[TESTKERNEL/INFO]\x1B[0m',
+            ...args,
+        );
     }
     error (...args) {
-        console.log('\x1B[31;1m[TESTKERNEL/ERROR]\x1B[0m',
-                        ...args);
+        console.log(
+            '\x1B[31;1m[TESTKERNEL/ERROR]\x1B[0m',
+            ...args,
+        );
     }
 }
 
@@ -132,12 +137,14 @@ export class TestKernel extends AdvancedBase {
 
         for ( const module of this.modules ) {
             try {
-                const mod_context = this._create_mod_context(mod_install_root_context,
-                                {
-                                    name: module.constructor.name,
-                                    'module': module,
-                                    external: false,
-                                });
+                const mod_context = this._create_mod_context(
+                    mod_install_root_context,
+                    {
+                        name: module.constructor.name,
+                        'module': module,
+                        external: false,
+                    },
+                );
                 await this.root_context.arun(async () => {
                     await module.install(mod_context);
                 });
@@ -295,6 +302,7 @@ export const createTestKernel = async ({
             },
         },
     });
+
     const testKernel = new TestKernel();
     testKernel.add_module(new Core2Module());
     if ( testCore ) testKernel.add_module(new TestCoreModule());
@@ -306,6 +314,7 @@ export const createTestKernel = async ({
             },
         });
     }
+    await initializeS3Config(true);
     testKernel.boot();
     await testKernel.services.ready;
     const service_names = Object.keys(testKernel.services.instances_);

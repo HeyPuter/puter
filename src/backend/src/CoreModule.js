@@ -20,10 +20,10 @@ const { AdvancedBase } = require('@heyputer/putility');
 const { NotificationES } = require('./om/entitystorage/NotificationES');
 const { ProtectedAppES } = require('./om/entitystorage/ProtectedAppES');
 const { Context } = require('./util/context');
-const { LLOWrite } = require('./filesystem/ll_operations/ll_write');
-const { LLRead } = require('./filesystem/ll_operations/ll_read');
+const { LLOWrite } = require('./deprecated/filesystem/ll_operations/ll_write');
+const { LLRead } = require('./deprecated/filesystem/ll_operations/ll_read');
 const { RuntimeModule } = require('./extension/RuntimeModule.js');
-const { TYPE_DIRECTORY, TYPE_FILE } = require('./filesystem/FSNodeContext.js');
+const { TYPE_DIRECTORY, TYPE_FILE } = require('./deprecated/filesystem/FSNodeContext.js');
 const { TDetachable } = require('@heyputer/putility/src/traits/traits.js');
 const { MultiDetachable } = require('@heyputer/putility/src/libs/listener.js');
 const { OperationFrame } = require('./services/OperationTraceService');
@@ -31,6 +31,9 @@ const opentelemetry = require('@opentelemetry/api');
 const query = require('./om/query/query');
 const { redisClient } = require('./clients/redis/redisSingleton');
 const { kv } = require('./util/kvSingleton');
+const { s3ClientProvider } = require('./clients/s3/s3ClientProvider');
+const { PuterS3Service } = require('./deprecated/filesystem/PuterS3Service');
+const BaseService = require('./services/BaseService');
 
 /**
  * @footgun - real install method is defined above
@@ -76,7 +79,7 @@ const install = async ({ context, services, app, useapi, modapi }) => {
             TYPE_FILE,
             OperationFrame,
         });
-        def('core.fs.selectors', require('./filesystem/node/selectors'));
+        def('core.fs.selectors', require('./deprecated/filesystem/node/selectors'));
         def('core.util.stream', require('./util/streamutil'));
         def('web', require('./util/expressutil'));
         def('core.validation', require('./validation'));
@@ -84,6 +87,7 @@ const install = async ({ context, services, app, useapi, modapi }) => {
         def('core.database', require('./services/database/consts.js'));
 
         def('core.redisClient', redisClient);
+        def('core.s3ClientProvider', s3ClientProvider);
         def('core.kvjs', kv);
 
         // Add otelutil functions to `core.`
@@ -118,7 +122,6 @@ const install = async ({ context, services, app, useapi, modapi }) => {
 
     // TODO: move these to top level imports or await imports and esm this file
 
-    const { CommandService } = require('./services/CommandService');
     const { RateLimitService } = require('./services/sla/RateLimitService');
     const { AuthService } = require('./services/auth/AuthService');
     const { SLAService } = require('./services/sla/SLAService');
@@ -161,7 +164,6 @@ const install = async ({ context, services, app, useapi, modapi }) => {
     services.registerService('dynamo', DDBClientWrapper);
 
     services.registerService('system-validation', SystemValidationService);
-    services.registerService('commands', CommandService);
     services.registerService('__api-filesystem', FilesystemAPIService);
     services.registerService('__api', PuterAPIService);
     services.registerService('__gui', ServeGUIService);
@@ -205,7 +207,7 @@ const install = async ({ context, services, app, useapi, modapi }) => {
     const { EntriService } = require('./services/EntriService.js');
     services.registerService('entri-service', EntriService);
 
-    const { FilesystemService } = require('./filesystem/FilesystemService');
+    const { FilesystemService } = require('./deprecated/filesystem/FilesystemService');
     services.registerService('filesystem', FilesystemService);
 
     services.registerService('es:subdomain', EntityStoreService, {
@@ -384,19 +386,19 @@ const install = async ({ context, services, app, useapi, modapi }) => {
     const { PeerService } = require('./services/PeerService');
     services.registerService('peer', PeerService);
 
+    // === Services which are deprecated and should at most be maintained for legacy support ===
+    services.registerService('puter-s3', PuterS3Service);
+
 };
 
 const install_legacy = async ({ services }) => {
     const { OperationTraceService } = require('./services/OperationTraceService');
     const { ClientOperationService } = require('./services/ClientOperationService');
-    const { EngPortalService } = require('./services/EngPortalService');
 
     // === Services which do not yet extend BaseService ===
     // services.registerService('filesystem', FilesystemService);
     services.registerService('operationTrace', OperationTraceService);
     services.registerService('client-operation', ClientOperationService);
-    services.registerService('engineering-portal', EngPortalService);
-
 };
 
 /**

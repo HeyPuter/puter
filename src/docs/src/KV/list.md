@@ -6,6 +6,8 @@ platforms: [websites, apps, nodejs, workers]
 
 Returns an array of all keys in the user's key-value store for the current app. If the user has no keys, the array will be empty.
 
+Results are sorted lexicographically (string order) by key.
+
 ## Syntax
 
 ```js
@@ -84,20 +86,110 @@ If the user has no keys, the array will be empty.
 
 <strong class="example-title">Paginate results with a cursor</strong>
 
-```html
+```html;kv-list-pagination
 <html>
 <body>
     <script src="https://js.puter.com/v2/"></script>
     <script>
         (async () => {
-            const firstPage = await puter.kv.list({ limit: 2 });
-            puter.print(`First page: ${firstPage.items}<br>`);
-
-            if (firstPage.cursor) {
-                const secondPage = await puter.kv.list({ cursor: firstPage.cursor });
-                puter.print(`Second page: ${secondPage.items}<br>`);
+            // Create sample data
+            for (let i = 1; i <= 6; i++) {
+                await puter.kv.set(`item-${i}`, `value-${i}`);
             }
+            puter.print('Created 6 key-value pairs<br><br>');
+
+            // Paginate with cursor (2 items per page)
+            let currentCursor = undefined;
+            let page = 1;
+            do {
+                const result = await puter.kv.list({
+                    limit: 2,
+                    returnValues: true,
+                    cursor: currentCursor,
+                });
+                const items = result.items;
+                puter.print(`<b>Page ${page}:</b><br>`);
+                for (const item of items) {
+                    puter.print(`  ${item.key} => ${item.value}<br>`);
+                }
+                puter.print('<br>');
+                currentCursor = result.cursor;
+                page++;
+            } while (currentCursor);
+
+            puter.print('Done paginating.<br><br>');
+
+            // Cleanup
+            for (let i = 1; i <= 6; i++) {
+                await puter.kv.del(`item-${i}`);
+            }
+            puter.print('Cleaned up sample data.');
         })();
     </script>
 </body>
+</html>
+
+```
+
+<strong class="example-title">Sort keys lexicographically</strong>
+
+```html;kv-list-sort
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        (async () => {
+            await puter.kv.set('log:2025-03-15T10:00:00Z', { msg: 'third' });
+            await puter.kv.set('log:2025-01-01T00:00:00Z', { msg: 'first' });
+            await puter.kv.set('log:2025-02-14T08:00:00Z', { msg: 'second' });
+
+            const logs = await puter.kv.list('log:*');
+            puter.print('Sorted keys: <br/>');
+            puter.print(logs.join('<br/>'));
+
+            // Cleanup
+            await puter.kv.del('log:2025-03-15T10:00:00Z');
+            await puter.kv.del('log:2025-01-01T00:00:00Z');
+            await puter.kv.del('log:2025-02-14T08:00:00Z');
+        })();
+    </script>
+</body>
+</html>
+```
+
+<strong class="example-title">Sort numeric keys with zero-padding</strong>
+
+```html;kv-list-padding
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        (async () => {
+            // Wrong — will sort as 1, 10, 100, 2, 20
+            await puter.kv.set('item:1', '...');
+            await puter.kv.set('item:10', '...');
+            await puter.kv.set('item:2', '...');
+
+            // Correct — zero-pad to a fixed width
+            await puter.kv.set('item:001', '...');
+            await puter.kv.set('item:002', '...');
+            await puter.kv.set('item:010', '...');
+            await puter.kv.set('item:100', '...');
+
+            const items = await puter.kv.list('item:*');
+            puter.print('Items with zero-padding: <br/>');
+            puter.print(items.join('<br/>'));
+
+            // Cleanup
+            await puter.kv.del('item:1');
+            await puter.kv.del('item:10');
+            await puter.kv.del('item:2');
+            await puter.kv.del('item:001');
+            await puter.kv.del('item:002');
+            await puter.kv.del('item:010');
+            await puter.kv.del('item:100');
+        })();
+    </script>
+</body>
+</html>
 ```

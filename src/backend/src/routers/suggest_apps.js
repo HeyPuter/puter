@@ -22,7 +22,7 @@ const router = new express.Router();
 const auth = require('../middleware/auth.js');
 const config = require('../config');
 const { Context } = require('../util/context.js');
-const { NodeInternalIDSelector } = require('../filesystem/node/selectors.js');
+const { NodeInternalIDSelector } = require('../deprecated/filesystem/node/selectors.js');
 const { convert_path_to_fsentry, uuid2fsentry, suggestedAppForFsEntry }  = require('../helpers');
 
 // -----------------------------------------------------------------------//
