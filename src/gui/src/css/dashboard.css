@@ -308,6 +308,27 @@ body {
     display: none;
 }
 
+/* Tooltip for collapsed sidebar */
+.dashboard-sidebar-tooltip {
+    position: fixed;
+    padding: 4px 10px;
+    background: var(--dashboard-sidebar-background);
+    border: 1px solid var(--dashboard-border);
+    border-radius: 6px;
+    font-size: 13px;
+    color: var(--dashboard-text);
+    white-space: nowrap;
+    pointer-events: none;
+    z-index: 1000;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    opacity: 0;
+    transition: opacity 0.15s ease;
+}
+
+.dashboard-sidebar-tooltip.visible {
+    opacity: 1;
+}
+
 /* Hide desktop collapse toggle on mobile */
 @media (max-width: 768px) {
     .dashboard-sidebar-collapse-toggle {
