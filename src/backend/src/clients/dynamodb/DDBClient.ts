@@ -87,8 +87,9 @@ export class DDBClient {
     }
 
     async recreateClient () {
-        this.ddbClientPromise = this.#getClient();
-        this.#documentClient = DynamoDBDocumentClient.from(await this.ddbClientPromise, {
+        const client = await this.#getClient();
+        this.ddbClientPromise = Promise.resolve(client);
+        this.#documentClient = DynamoDBDocumentClient.from(client, {
             marshallOptions: {
                 removeUndefinedValues: true,
             } });
