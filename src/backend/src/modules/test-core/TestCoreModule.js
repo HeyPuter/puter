@@ -1,6 +1,5 @@
 import { DDBClientWrapper } from '../../clients/dynamodb/DDBClientWrapper.js';
 import { FilesystemService } from '../../deprecated/filesystem/FilesystemService.js';
-import { AnomalyService } from '../../services/AnomalyService.js';
 import { AuthService } from '../../services/auth/AuthService.js';
 import { GroupService } from '../../services/auth/GroupService.js';
 import { PermissionService } from '../../services/auth/PermissionService.js';
