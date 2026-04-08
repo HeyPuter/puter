@@ -1,0 +1,62 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        (async () => {
+            const orders = [
+                { id: '0001', status: 'pending', customer: 'alice', total: 48 },
+                { id: '0002', status: 'shipped', customer: 'alice', total: 72 },
+                { id: '0003', status: 'pending', customer: 'bob', total: 15 },
+            ];
+
+            // In KV, key design is your query plan.
+            // We store the same order under multiple prefixes so each read path
+            // becomes a simple prefix query with puter.kv.list().
+            for (const order of orders) {
+                await puter.kv.set(`demo:order:by-id:${order.id}`, order);
+                await puter.kv.set(`demo:order:by-status:${order.status}:${order.id}`, order);
+                await puter.kv.set(`demo:order:by-customer:${order.customer}:${order.id}`, order);
+                await puter.kv.set(`demo:order:by-status-customer:${order.status}:${order.customer}:${order.id}`, order);
+            }
+
+            puter.print('<b>Stored read paths</b><br>');
+            puter.print('demo:order:by-status:pending:*<br>');
+            puter.print('demo:order:by-customer:alice:*<br>');
+            puter.print('demo:order:by-status-customer:pending:alice:*<br><br>');
+
+            const pendingOrders = await puter.kv.list('demo:order:by-status:pending:*', true);
+            puter.print('<b>Query: status = pending</b><br>');
+            pendingOrders.forEach(({ key, value }) => {
+                puter.print(`${key} => ${value.customer} ($${value.total})<br>`);
+            });
+            puter.print('<br>');
+
+            const aliceOrders = await puter.kv.list('demo:order:by-customer:alice:*', true);
+            puter.print('<b>Query: customer = alice</b><br>');
+            aliceOrders.forEach(({ key, value }) => {
+                puter.print(`${key} => ${value.status} ($${value.total})<br>`);
+            });
+            puter.print('<br>');
+
+            const alicePendingOrders = await puter.kv.list('demo:order:by-status-customer:pending:alice:*', true);
+            puter.print('<b>Query: status = pending AND customer = alice</b><br>');
+            alicePendingOrders.forEach(({ key, value }) => {
+                puter.print(`${key} => order ${value.id} ($${value.total})<br>`);
+            });
+            puter.print('<br>');
+
+            puter.print('<b>Takeaway</b><br>');
+            puter.print('With puter.kv.list(), filtering comes from key prefixes.<br>');
+            puter.print('If you need another query path, add another prefix-friendly key.<br><br>');
+
+            // Cleanup
+            for (const order of orders) {
+                await puter.kv.del(`demo:order:by-id:${order.id}`);
+                await puter.kv.del(`demo:order:by-status:${order.status}:${order.id}`);
+                await puter.kv.del(`demo:order:by-customer:${order.customer}:${order.id}`);
+                await puter.kv.del(`demo:order:by-status-customer:${order.status}:${order.customer}:${order.id}`);
+            }
+        })();
+    </script>
+</body>
+</html>
