@@ -134,9 +134,9 @@ async function update_usage_details ($el_window) {
 
             h += `
             <tr>
-                <td>${key}</td>
-                <td>${units}</td>
-                <td>${window.number_format(res.usage[key].cost / 100_000_000, { decimals: 2, prefix: '$' })}</td>
+                <td title="${html_encode(key)}">${key}</td>
+                <td title="${html_encode(units)}">${units}</td>
+                <td title="${html_encode(window.number_format(res.usage[key].cost / 100_000_000, { decimals: 2, prefix: '$' }))}">${window.number_format(res.usage[key].cost / 100_000_000, { decimals: 2, prefix: '$' })}</td>
             </tr>`;
         }
         h += '</tbody>';
@@ -163,9 +163,10 @@ async function update_usage_details ($el_window) {
         $('#storage-used').html(window.byte_format(general_used));
         $('#storage-capacity').html(window.byte_format(res.capacity));
         $('#storage-used-percent').html(
-                        `${usage_percentage }%${
-                            host_usage_percentage > 0
-                                ? ` / ${ host_usage_percentage }%` : ''}`);
+            `${usage_percentage }%${
+                host_usage_percentage > 0
+                    ? ` / ${ host_usage_percentage }%` : ''}`,
+        );
         $('#storage-bar').css('width', `${usage_percentage }%`);
         $('#storage-bar-host').css('width', `${host_usage_percentage }%`);
         if ( usage_percentage >= 100 ) {
