@@ -41,7 +41,6 @@ module.exports = eggspress('/batch', {
     const errors = req.services.get('error-service').create(log);
 
     const x = Context.get();
-    x.set('dbrr_channel', 'batch');
 
     let app;
     if ( req.body.app_uid ) {
