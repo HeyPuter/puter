@@ -24,7 +24,7 @@ const { reading_has_terminal } = require('../../unstructured/permission-scan-lib
 const { trace } = require('@opentelemetry/api');
 const BaseService = require('../BaseService');
 const { DB_WRITE } = require('../database/consts');
-const { UserActorType, Actor, AppUnderUserActorType } = require('./Actor');
+const { UserActorType, Actor } = require('./Actor');
 const { PERM_KEY_PREFIX, MANAGE_PERM_PREFIX } = require('./permissionConts.mjs');
 const { PermissionUtil, PermissionExploder, PermissionImplicator, PermissionRewriter } = require('./permissionUtils.mjs');
 const { spanify } = require('../../util/otelutil');
@@ -33,6 +33,24 @@ const { setRedisCacheValue } = require('../../clients/redis/cacheUpdate.js');
 const { redisClient } = require('../../clients/redis/redisSingleton');
 const { PermissionScanRedisCacheSpace } = require('./PermissionScanRedisCacheSpace.js');
 const { Context } = require('../../util/context');
+
+const defaultPermissionRedisTimeoutMs = 200;
+const formatErrorMessage = (error) => error instanceof Error ? error.message : String(error);
+const withTimeout = async (operationPromise, timeoutMs, timeoutMessage) => {
+    let timeout;
+    try {
+        return await Promise.race([
+            operationPromise,
+            new Promise((_, reject) => {
+                timeout = setTimeout(() => {
+                    reject(new Error(timeoutMessage));
+                }, timeoutMs);
+            }),
+        ]);
+    } finally {
+        if ( timeout ) clearTimeout(timeout);
+    }
+};
 
 /**
 * @class PermissionService
@@ -206,7 +224,24 @@ class PermissionService extends BaseService {
             joinPermissionParts: PermissionUtil.join,
         });
 
-        const cached = await redisClient.get(cacheKey);
+        const permissionRedisTimeoutMs = Number(this.global_config?.services?.permission?.redis_timeout_ms)
+            || defaultPermissionRedisTimeoutMs;
+        let cached;
+        if ( ! scan_options.no_cache ) {
+            try {
+                cached = await withTimeout(
+                    redisClient.get(cacheKey),
+                    permissionRedisTimeoutMs,
+                    `permission scan cache read timed out after ${permissionRedisTimeoutMs}ms`,
+                );
+            } catch ( error ) {
+                this.log.warn('permission scan cache read failed; continuing without cache', {
+                    actorUid: actor.uid,
+                    cacheKey,
+                    error: formatErrorMessage(error),
+                });
+            }
+        }
         if ( cached && !scan_options.no_cache ) {
             try {
                 return JSON.parse(cached);
@@ -237,10 +272,22 @@ class PermissionService extends BaseService {
             value: end_ts - start_ts,
         });
 
-        await setRedisCacheValue(cacheKey, JSON.stringify(reading), {
-            ttlSeconds: this._PERMISSION_SCAN_CACHE_TTL_SECONDS,
-            eventData: reading,
-        });
+        try {
+            await withTimeout(
+                setRedisCacheValue(cacheKey, JSON.stringify(reading), {
+                    ttlSeconds: this._PERMISSION_SCAN_CACHE_TTL_SECONDS,
+                    eventData: reading,
+                }),
+                permissionRedisTimeoutMs,
+                `permission scan cache write timed out after ${permissionRedisTimeoutMs}ms`,
+            );
+        } catch ( error ) {
+            this.log.warn('permission scan cache write failed; continuing without cache', {
+                actorUid: actor.uid,
+                cacheKey,
+                error: formatErrorMessage(error),
+            });
+        }
 
         return reading;
     }

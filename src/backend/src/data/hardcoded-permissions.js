@@ -92,8 +92,8 @@ const driverPolicies = {
     temp: {
         kv: {
             'rate-limit': {
-                max: 10,
-                period: 1000,
+                max: 100,
+                period: 10000,
             },
         },
         es: {
@@ -106,8 +106,8 @@ const driverPolicies = {
     user: {
         kv: {
             'rate-limit': {
-                max: 20,
-                period: 1000,
+                max: 200,
+                period: 10000,
             },
         },
         es: {

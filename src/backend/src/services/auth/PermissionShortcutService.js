@@ -15,8 +15,8 @@ class PermissionShortcutService extends BaseService {
                 return {
                     policy: {
                         'rate-limit': {
-                            max: 20,
-                            period: 1000,
+                            max: 200,
+                            period: 10000,
                         },
                     },
                 };
