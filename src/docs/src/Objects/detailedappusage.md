@@ -21,6 +21,6 @@ Usage information per API. Each key is an API name, and the value is an object w
 
 <div class="info">
 
-Resources in Puter are measured in microcents (e.g., $0.50 = 50,000,000).
+Resources in Puter are measured in microcents (e.g., $0.10 = 10,000,000).
 
 </div>
