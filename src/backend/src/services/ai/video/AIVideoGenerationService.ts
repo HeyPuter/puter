@@ -163,6 +163,21 @@ export class AIVideoGenerationService extends BaseService {
                     } else {
                         model.aliases = [model.puterId];
                     }
+
+                    // Derive standard alias forms from puterId for model singularity:
+                    // puterId "service:org/model" -> "org/model" and "model"
+                    const withoutService = model.puterId.includes(':')
+                        ? model.puterId.slice(model.puterId.indexOf(':') + 1)
+                        : model.puterId;
+                    if ( ! model.aliases.includes(withoutService) ) {
+                        model.aliases.push(withoutService);
+                    }
+                    const shortName = withoutService.includes('/')
+                        ? withoutService.slice(withoutService.indexOf('/') + 1)
+                        : withoutService;
+                    if ( shortName !== withoutService && !model.aliases.includes(shortName) ) {
+                        model.aliases.push(shortName);
+                    }
                 }
 
                 if ( model.aliases ) {

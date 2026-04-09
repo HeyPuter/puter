@@ -41,13 +41,6 @@ class PagerService extends BaseService {
     }
 
     /**
-     * PagerService registers its commands at the consolidation phase because
-     * the '_init' method of CommandService may not have been called yet.
-     */
-    '__on_boot.consolidation' () {
-    }
-
-    /**
     * Initializes the PagerService instance by setting the configuration and
     * initializing an empty alert handler array.
     *

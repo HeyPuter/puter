@@ -95,8 +95,10 @@ class DriverUsagePolicyService extends BaseService {
     */
     async get_effective_policy ({ actor, service_name, trait_name }) {
         const svc_permission = this.services.get('permission');
-        const reading = await svc_permission.scan(actor,
-                        PermissionUtil.join('service', service_name, 'ii', trait_name));
+        const reading = await svc_permission.scan(
+            actor,
+            PermissionUtil.join('service', service_name, 'ii', trait_name),
+        );
         const options = PermissionUtil.reading_to_options(reading);
         if ( options.length <= 0 ) {
             return undefined;

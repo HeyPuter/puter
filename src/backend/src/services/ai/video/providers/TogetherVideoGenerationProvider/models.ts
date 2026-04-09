@@ -33,6 +33,7 @@ interface ITogetherVideoModel extends IVideoModel {
 export const TOGETHER_VIDEO_GENERATION_MODELS: ITogetherVideoModel[] = [
     {
         id: 'togetherai:minimax/video-01-director',
+        puterId: 'togetherai:minimax/video-01-director',
         organization: 'MiniMax',
         name: 'MiniMax 01 Director',
         model: 'minimax/video-01-director',
@@ -48,6 +49,7 @@ export const TOGETHER_VIDEO_GENERATION_MODELS: ITogetherVideoModel[] = [
     },
     {
         id: 'togetherai:minimax/hailuo-02',
+        puterId: 'togetherai:minimax/hailuo-02',
         organization: 'MiniMax',
         name: 'MiniMax Hailuo 02',
         model: 'minimax/hailuo-02',
@@ -63,6 +65,7 @@ export const TOGETHER_VIDEO_GENERATION_MODELS: ITogetherVideoModel[] = [
     },
     {
         id: 'togetherai:google/veo-2.0',
+        puterId: 'togetherai:google/veo-2.0',
         organization: 'Google',
         name: 'Veo 2.0',
         model: 'google/veo-2.0',
@@ -78,6 +81,7 @@ export const TOGETHER_VIDEO_GENERATION_MODELS: ITogetherVideoModel[] = [
     },
     {
         id: 'togetherai:google/veo-3.0',
+        puterId: 'togetherai:google/veo-3.0',
         organization: 'Google',
         name: 'Veo 3.0',
         model: 'google/veo-3.0',
@@ -93,6 +97,7 @@ export const TOGETHER_VIDEO_GENERATION_MODELS: ITogetherVideoModel[] = [
     },
     {
         id: 'togetherai:google/veo-3.0-audio',
+        puterId: 'togetherai:google/veo-3.0-audio',
         organization: 'Google',
         name: 'Veo 3.0 + Audio',
         model: 'google/veo-3.0-audio',
@@ -108,6 +113,7 @@ export const TOGETHER_VIDEO_GENERATION_MODELS: ITogetherVideoModel[] = [
     },
     {
         id: 'togetherai:google/veo-3.0-fast',
+        puterId: 'togetherai:google/veo-3.0-fast',
         organization: 'Google',
         name: 'Veo 3.0 Fast',
         model: 'google/veo-3.0-fast',
@@ -123,6 +129,7 @@ export const TOGETHER_VIDEO_GENERATION_MODELS: ITogetherVideoModel[] = [
     },
     {
         id: 'togetherai:google/veo-3.0-fast-audio',
+        puterId: 'togetherai:google/veo-3.0-fast-audio',
         organization: 'Google',
         name: 'Veo 3.0 Fast + Audio',
         model: 'google/veo-3.0-fast-audio',
@@ -138,6 +145,7 @@ export const TOGETHER_VIDEO_GENERATION_MODELS: ITogetherVideoModel[] = [
     },
     {
         id: 'togetherai:ByteDance/Seedance-1.0-lite',
+        puterId: 'togetherai:bytedance/seedance-1.0-lite',
         organization: 'ByteDance',
         name: 'Seedance 1.0 Lite',
         model: 'ByteDance/Seedance-1.0-lite',
@@ -164,6 +172,7 @@ export const TOGETHER_VIDEO_GENERATION_MODELS: ITogetherVideoModel[] = [
     },
     {
         id: 'togetherai:ByteDance/Seedance-1.0-pro',
+        puterId: 'togetherai:bytedance/seedance-1.0-pro',
         organization: 'ByteDance',
         name: 'Seedance 1.0 Pro',
         model: 'ByteDance/Seedance-1.0-pro',
@@ -190,6 +199,7 @@ export const TOGETHER_VIDEO_GENERATION_MODELS: ITogetherVideoModel[] = [
     },
     {
         id: 'togetherai:pixverse/pixverse-v5',
+        puterId: 'togetherai:pixverse/pixverse-v5',
         organization: 'PixVerse',
         name: 'PixVerse v5',
         model: 'pixverse/pixverse-v5',
@@ -226,6 +236,7 @@ export const TOGETHER_VIDEO_GENERATION_MODELS: ITogetherVideoModel[] = [
     },
     {
         id: 'togetherai:kwaivgI/kling-2.1-master',
+        puterId: 'togetherai:kwaivgi/kling-2.1-master',
         organization: 'Kuaishou',
         name: 'Kling 2.1 Master',
         model: 'kwaivgI/kling-2.1-master',
@@ -241,6 +252,7 @@ export const TOGETHER_VIDEO_GENERATION_MODELS: ITogetherVideoModel[] = [
     },
     {
         id: 'togetherai:kwaivgI/kling-2.1-standard',
+        puterId: 'togetherai:kwaivgi/kling-2.1-standard',
         organization: 'Kuaishou',
         name: 'Kling 2.1 Standard',
         model: 'kwaivgI/kling-2.1-standard',
@@ -256,6 +268,7 @@ export const TOGETHER_VIDEO_GENERATION_MODELS: ITogetherVideoModel[] = [
     },
     {
         id: 'togetherai:kwaivgI/kling-2.1-pro',
+        puterId: 'togetherai:kwaivgi/kling-2.1-pro',
         organization: 'Kuaishou',
         name: 'Kling 2.1 Pro',
         model: 'kwaivgI/kling-2.1-pro',
@@ -271,6 +284,7 @@ export const TOGETHER_VIDEO_GENERATION_MODELS: ITogetherVideoModel[] = [
     },
     {
         id: 'togetherai:kwaivgI/kling-2.0-master',
+        puterId: 'togetherai:kwaivgi/kling-2.0-master',
         organization: 'Kuaishou',
         name: 'Kling 2.0 Master',
         model: 'kwaivgI/kling-2.0-master',
@@ -286,6 +300,7 @@ export const TOGETHER_VIDEO_GENERATION_MODELS: ITogetherVideoModel[] = [
     },
     {
         id: 'togetherai:kwaivgI/kling-1.6-standard',
+        puterId: 'togetherai:kwaivgi/kling-1.6-standard',
         organization: 'Kuaishou',
         name: 'Kling 1.6 Standard',
         model: 'kwaivgI/kling-1.6-standard',
@@ -301,6 +316,7 @@ export const TOGETHER_VIDEO_GENERATION_MODELS: ITogetherVideoModel[] = [
     },
     {
         id: 'togetherai:kwaivgI/kling-1.6-pro',
+        puterId: 'togetherai:kwaivgi/kling-1.6-pro',
         organization: 'Kuaishou',
         name: 'Kling 1.6 Pro',
         model: 'kwaivgI/kling-1.6-pro',
@@ -316,6 +332,7 @@ export const TOGETHER_VIDEO_GENERATION_MODELS: ITogetherVideoModel[] = [
     },
     {
         id: 'togetherai:Wan-AI/Wan2.2-I2V-A14B',
+        puterId: 'togetherai:wan-ai/wan2.2-i2v-a14b',
         organization: 'Wan-AI',
         name: 'Wan 2.2 I2V',
         model: 'Wan-AI/Wan2.2-I2V-A14B',
@@ -331,6 +348,7 @@ export const TOGETHER_VIDEO_GENERATION_MODELS: ITogetherVideoModel[] = [
     },
     {
         id: 'togetherai:Wan-AI/Wan2.2-T2V-A14B',
+        puterId: 'togetherai:wan-ai/wan2.2-t2v-a14b',
         organization: 'Wan-AI',
         name: 'Wan 2.2 T2V',
         model: 'Wan-AI/Wan2.2-T2V-A14B',
@@ -346,6 +364,7 @@ export const TOGETHER_VIDEO_GENERATION_MODELS: ITogetherVideoModel[] = [
     },
     {
         id: 'togetherai:vidu/vidu-2.0',
+        puterId: 'togetherai:vidu/vidu-2.0',
         organization: 'Vidu',
         name: 'Vidu 2.0',
         model: 'vidu/vidu-2.0',
@@ -371,6 +390,7 @@ export const TOGETHER_VIDEO_GENERATION_MODELS: ITogetherVideoModel[] = [
     },
     {
         id: 'togetherai:vidu/vidu-q1',
+        puterId: 'togetherai:vidu/vidu-q1',
         organization: 'Vidu',
         name: 'Vidu Q1',
         model: 'vidu/vidu-q1',
@@ -386,6 +406,7 @@ export const TOGETHER_VIDEO_GENERATION_MODELS: ITogetherVideoModel[] = [
     },
     {
         id: 'togetherai:openai/sora-2',
+        puterId: 'togetherai:openai/sora-2',
         organization: 'OpenAI',
         name: 'Sora 2',
         model: 'openai/sora-2',
@@ -401,6 +422,7 @@ export const TOGETHER_VIDEO_GENERATION_MODELS: ITogetherVideoModel[] = [
     },
     {
         id: 'togetherai:openai/sora-2-pro',
+        puterId: 'togetherai:openai/sora-2-pro',
         organization: 'OpenAI',
         name: 'Sora 2 Pro',
         model: 'openai/sora-2-pro',
