@@ -6,8 +6,6 @@ platforms: [websites, apps, nodejs, workers]
 
 Returns an array of all keys in the user's key-value store for the current app. If the user has no keys, the array will be empty.
 
-Because filtering is prefix-based, `list()` works best when you design keys around the read patterns your app needs. In practice, that means your key naming convention becomes your query plan.
-
 Results are sorted lexicographically (string order) by key.
 
 ## Syntax

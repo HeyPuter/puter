@@ -33,7 +33,6 @@ const { redisClient } = require('./clients/redis/redisSingleton');
 const { kv } = require('./util/kvSingleton');
 const { s3ClientProvider } = require('./clients/s3/s3ClientProvider');
 const { PuterS3Service } = require('./deprecated/filesystem/PuterS3Service');
-const BaseService = require('./services/BaseService');
 
 /**
  * @footgun - real install method is defined above
@@ -354,9 +353,6 @@ const install = async ({ context, services, app, useapi, modapi }) => {
 
     const { WSPushService } = require('./services/WSPushService');
     services.registerService('__event-push-ws', WSPushService);
-
-    const { SNSService } = require('./services/SNSService');
-    services.registerService('sns', SNSService);
 
     const { WispService } = require('./services/WispService');
     services.registerService('wisp', WispService);

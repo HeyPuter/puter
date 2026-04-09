@@ -74,8 +74,10 @@ class RateLimitService extends BaseService {
         let window_start = Number.isFinite(Number(window_start_raw)) ? Number(window_start_raw) : 0;
         if ( window_start === 0 ) {
             // Try database
-            const rows = await this.db.read('SELECT * FROM `rl_usage_fixed_window` WHERE `key` = ?',
-                            [dbkey]);
+            const rows = await this.db.read(
+                'SELECT * FROM `rl_usage_fixed_window` WHERE `key` = ?',
+                [dbkey],
+            );
 
             if ( rows.length !== 0 ) {
                 const row = rows[0];
@@ -96,11 +98,15 @@ class RateLimitService extends BaseService {
                 redisClient.set(countKey, 0),
             ]);
 
-            this.db.write('INSERT INTO `rl_usage_fixed_window` (`key`, `window_start`, `count`) VALUES (?, ?, ?)',
-                            [dbkey, ts_to_sql(window_start), 0]);
+            this.db.write(
+                'INSERT INTO `rl_usage_fixed_window` (`key`, `window_start`, `count`) VALUES (?, ?, ?)',
+                [dbkey, ts_to_sql(window_start), 0],
+            );
 
-            this.log.debug('CREATE window_start and count',
-                            { window_start, count: 0 });
+            this.log.debug(
+                'CREATE window_start and count',
+                { window_start, count: 0 },
+            );
         }
 
         if ( window_start + period < Date.now() ) {
@@ -110,8 +116,10 @@ class RateLimitService extends BaseService {
                 redisClient.set(countKey, 0),
             ]);
 
-            this.db.write('UPDATE `rl_usage_fixed_window` SET `window_start` = ?, `count` = ? WHERE `key` = ?',
-                            [ts_to_sql(window_start), 0, dbkey]);
+            this.db.write(
+                'UPDATE `rl_usage_fixed_window` SET `window_start` = ?, `count` = ? WHERE `key` = ?',
+                [ts_to_sql(window_start), 0, dbkey],
+            );
         }
 
         const current_raw = await redisClient.get(countKey);
@@ -124,8 +132,10 @@ class RateLimitService extends BaseService {
         }
 
         await redisClient.incr(countKey);
-        this.db.write('UPDATE `rl_usage_fixed_window` SET `count` = `count` + 1 WHERE `key` = ?',
-                        [dbkey]);
+        this.db.write(
+            'UPDATE `rl_usage_fixed_window` SET `count` = `count` + 1 WHERE `key` = ?',
+            [dbkey],
+        );
     }
 
     /**
