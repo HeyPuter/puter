@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.1](https://github.com/FixleCH/puter/compare/v1.0.0...v1.0.1) (2026-04-09)
+
+
+### Bug Fixes
+
+* redis max retries and fail fast timeouts ([#2793](https://github.com/FixleCH/puter/issues/2793)) ([1cfe69f](https://github.com/FixleCH/puter/commit/1cfe69faa1f524278c7864b306833c19f089d4b9))
+
 ## 1.0.0 (2026-04-08)
 
 
