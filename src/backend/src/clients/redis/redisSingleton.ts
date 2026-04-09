@@ -4,6 +4,7 @@ import MockRedis from 'ioredis-mock';
 const redisStartupRetryMaxDelayMs = 2000;
 const redisSlotsRefreshTimeoutMs = 5000;
 const redisConnectTimeoutMs = 10000;
+const redisMaxRetriesPerRequest = 2;
 const redisBootRetryRegex = /Cluster(All)?FailedError|None of startup nodes is available/i;
 
 const formatRedisError = (error: unknown): string => {
@@ -56,7 +57,7 @@ if ( process.env.REDIS_CONFIG ) {
         redisOptions: {
             tls: {},
             connectTimeout: redisConnectTimeoutMs,
-            maxRetriesPerRequest: null,
+            maxRetriesPerRequest: redisMaxRetriesPerRequest,
         },
     });
     attachClusterEventHandlers(redisOpt);
