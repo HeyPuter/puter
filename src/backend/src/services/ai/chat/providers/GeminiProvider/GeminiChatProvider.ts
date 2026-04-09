@@ -131,26 +131,54 @@ export class GeminiChatProvider implements IChatProvider {
             const role = msg.role === 'assistant' ? 'model' : 'user';
             const parts: Record<string, unknown>[] = [];
 
+            // First pass: collect parts and find if any has thoughtSignature
+            let sharedThoughtSignature: string | undefined;
+            if ( Array.isArray(msg.content) ) {
+                for ( const part of msg.content ) {
+                    if ( part.type === 'image_url' && part.thoughtSignature ) {
+                        sharedThoughtSignature = part.thoughtSignature;
+                        break;
+                    }
+                }
+            }
+
             if ( typeof msg.content === 'string' ) {
                 parts.push({ text: msg.content });
             } else if ( Array.isArray(msg.content) ) {
                 for ( const part of msg.content ) {
                     if ( typeof part === 'string' ) {
-                        parts.push({ text: part });
+                        const textPart: Record<string, unknown> = { text: part };
+                        if ( sharedThoughtSignature ) {
+                            textPart.thoughtSignature = sharedThoughtSignature;
+                        }
+                        parts.push(textPart);
                     } else if ( part.type === 'text' ) {
-                        parts.push({ text: part.text });
+                        const textPart: Record<string, unknown> = { text: part.text };
+                        if ( sharedThoughtSignature ) {
+                            textPart.thoughtSignature = sharedThoughtSignature;
+                        }
+                        parts.push(textPart);
                     } else if ( part.type === 'image_url' && part.image_url?.url ) {
                         const url: string = part.image_url.url;
+                        const thoughtSignature = part.thoughtSignature;
                         if ( url.startsWith('data:') ) {
                             const commaIdx = url.indexOf(',');
                             if ( commaIdx !== -1 ) {
                                 const header = url.substring(5, commaIdx);
                                 const mimeType = header.replace(';base64', '');
                                 const data = url.substring(commaIdx + 1);
-                                parts.push({ inlineData: { mimeType, data } });
+                                const imagePart: Record<string, unknown> = { inlineData: { mimeType, data } };
+                                if ( thoughtSignature ) {
+                                    imagePart.thoughtSignature = thoughtSignature;
+                                }
+                                parts.push(imagePart);
                             }
                         } else {
-                            parts.push({ fileData: { fileUri: url } });
+                            const imagePart: Record<string, unknown> = { fileData: { fileUri: url } };
+                            if ( thoughtSignature ) {
+                                imagePart.thoughtSignature = thoughtSignature;
+                            }
+                            parts.push(imagePart);
                         }
                     }
                 }
@@ -236,23 +264,28 @@ export class GeminiChatProvider implements IChatProvider {
 
     private static parseGeminiImageResponse (response: GenerateContentResponse): {
         content: string,
-        images: { type: string, image_url: { url: string } }[],
+        images: { type: string, image_url: { url: string }, thoughtSignature?: string }[],
     } {
         const parts = response?.candidates?.[0]?.content?.parts ?? [];
         let content = '';
-        const images: { type: string, image_url: { url: string } }[] = [];
+        const images: { type: string, image_url: { url: string }, thoughtSignature?: string }[] = [];
 
         for ( const part of parts ) {
             if ( part.text ) {
                 content += part.text;
             } else if ( part.inlineData?.data ) {
                 const mimeType = part.inlineData.mimeType ?? 'image/png';
-                images.push({
+                const image: { type: string, image_url: { url: string }, thoughtSignature?: string } = {
                     type: 'image_url',
                     image_url: {
                         url: `data:${mimeType};base64,${part.inlineData.data}`,
                     },
-                });
+                };
+                // Preserve thoughtSignature from Gemini for multi-turn image editing
+                if ( (part as Record<string, unknown>).thoughtSignature ) {
+                    image.thoughtSignature = (part as Record<string, unknown>).thoughtSignature as string;
+                }
+                images.push(image);
             }
         }
 
@@ -345,12 +378,16 @@ export class GeminiChatProvider implements IChatProvider {
                             textblock.addText(part.text);
                         } else if ( part.inlineData?.data ) {
                             const mimeType = part.inlineData.mimeType ?? 'image/png';
-                            textblock.addImage({
+                            const image: Record<string, unknown> = {
                                 type: 'image_url',
                                 image_url: {
                                     url: `data:${mimeType};base64,${part.inlineData.data}`,
                                 },
-                            });
+                            };
+                            if ( (part as Record<string, unknown>).thoughtSignature ) {
+                                image.thoughtSignature = (part as Record<string, unknown>).thoughtSignature;
+                            }
+                            textblock.addImage(image);
                         }
                     }
                 }

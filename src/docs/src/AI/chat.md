@@ -227,14 +227,17 @@ The response includes an `images` array on the message when the model generates 
 
 #### Multi-Turn Image Editing
 
-You can send generated images back in the conversation to iteratively edit them. Include the image in an `assistant` message using the `image_url` content type:
+You can send generated images back in the conversation to iteratively edit them. Include the image in an `assistant` message using the `image_url` content type, and pass the `thoughtSignature` from the previous response to maintain editing context:
 
 ```js
-const result = await puter.ai.chat([
+const previousImage = result.message.images[0].image_url.url;
+const thoughtSignature = result.message.images[0].thoughtSignature;
+
+const result2 = await puter.ai.chat([
     { role: "user", content: "Create an infographic about photosynthesis" },
     { role: "assistant", content: [
         { type: "text", text: "Here is the infographic." },
-        { type: "image_url", image_url: { url: previousImage } },
+        { type: "image_url", image_url: { url: previousImage }, thoughtSignature },
     ]},
     { role: "user", content: "Translate all text to Spanish" },
 ], {
@@ -242,7 +245,7 @@ const result = await puter.ai.chat([
     image_config: { aspect_ratio: "16:9", image_size: "2K" },
 });
 
-const editedImage = result.message.images[0].image_url.url;
+const editedImage = result2.message.images[0].image_url.url;
 ```
 
 The code implementation is available in our [image generation example](/playground/ai-image-chat/) and [multi-turn image editing example](/playground/ai-image-edit/).
@@ -592,6 +595,7 @@ Policy 8 - Account Management: Each Enterprise and Ultimate customer is assigned
             image_config: { image_size: "1K" },
         });
         const img1 = r1.message.images?.[0]?.image_url?.url;
+        const thoughtSignature1 = r1.message.images?.[0]?.thoughtSignature;
         if (img1) {
             const el = document.createElement("img");
             el.src = img1;
@@ -605,7 +609,7 @@ Policy 8 - Account Management: Each Enterprise and Ultimate customer is assigned
             { role: "user", content: "Create a simple infographic about photosynthesis" },
             { role: "assistant", content: [
                 { type: "text", text: r1.message.content },
-                { type: "image_url", image_url: { url: img1 } },
+                { type: "image_url", image_url: { url: img1 }, thoughtSignature: thoughtSignature1 },
             ]},
             { role: "user", content: "Translate all text to Spanish. Keep everything else the same." },
         ], {

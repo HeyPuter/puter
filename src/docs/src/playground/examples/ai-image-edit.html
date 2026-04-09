@@ -12,6 +12,7 @@
             image_config: { image_size: "1K" },
         });
         const img1 = r1.message.images?.[0]?.image_url?.url;
+        const thoughtSignature1 = r1.message.images?.[0]?.thoughtSignature;
         if (img1) {
             const el = document.createElement("img");
             el.src = img1;
@@ -25,7 +26,7 @@
             { role: "user", content: "Create a simple infographic about photosynthesis" },
             { role: "assistant", content: [
                 { type: "text", text: r1.message.content },
-                { type: "image_url", image_url: { url: img1 } },
+                { type: "image_url", image_url: { url: img1 }, thoughtSignature: thoughtSignature1 },
             ]},
             { role: "user", content: "Translate all text to Spanish. Keep everything else the same." },
         ], {
