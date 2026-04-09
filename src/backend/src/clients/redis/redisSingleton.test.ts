@@ -85,7 +85,7 @@ describe('redisSingleton', () => {
             dnsLookup: expect.any(Function),
             redisOptions: expect.objectContaining({
                 connectTimeout: 10000,
-                maxRetriesPerRequest: null,
+                maxRetriesPerRequest: 2,
                 tls: {},
             }),
         }));
