@@ -458,7 +458,39 @@ describe('AuthService private asset token helpers', () => {
             uid: canonicalUid,
             name: `music-player-${subdomain}`,
             title: `music-player-${subdomain}`,
-            indexUrl: `https://${subdomain}.puter.site/`,
+            indexUrl: `https://${subdomain}.puter.com/index.html`,
+            ownerUserId: owner.id,
+        });
+
+        const appUid = await authService.app_uid_from_origin(`https://${subdomain}.puter.com`);
+
+        expect(appUid).toBe(canonicalUid);
+    });
+
+    it('prefers canonical first-party app for hosted subdomain without subdomain owner record', async () => {
+        const authService = createAuthService();
+        authService.global_config.domain = 'puter.com';
+        const owner = await insertUser();
+        const subdomain = `music${Math.random().toString(36).slice(2, 9)}`;
+        const bootstrapUid = `app-bootstrap-${randomUUID()}`;
+        const canonicalUid = `app-canonical-${randomUUID()}`;
+
+        await db.write(
+            'INSERT INTO `apps` (`uid`, `name`, `title`, `description`, `index_url`, `owner_user_id`) VALUES (?, ?, ?, ?, ?, ?)',
+            [
+                bootstrapUid,
+                bootstrapUid,
+                bootstrapUid,
+                `App created from origin https://${subdomain}.puter.com`,
+                `https://${subdomain}.puter.com`,
+                null,
+            ],
+        );
+        await insertApp({
+            uid: canonicalUid,
+            name: `music-player-${subdomain}`,
+            title: `music-player-${subdomain}`,
+            indexUrl: `https://${subdomain}.puter.com/`,
             ownerUserId: owner.id,
         });
 
@@ -521,7 +553,7 @@ describe('AuthService private asset token helpers', () => {
         expect(canonicalOrigins.filter(origin => origin === 'https://beans.puter.site')).toHaveLength(1);
     });
 
-    it('derives same app uid for hosted app domain aliases', async () => {
+    it('keeps puter.com distinct while deriving same uid for non-domain hosted aliases', async () => {
         const authService = createAuthService();
         authService.global_config.static_hosting_domain = 'puter.site';
         authService.global_config.static_hosting_domain_alt = 'puter.host';
@@ -538,7 +570,7 @@ describe('AuthService private asset token helpers', () => {
         expect(uidSite).toBe(uidStaticAlt);
         expect(uidSite).toBe(uidPrivatePrimary);
         expect(uidSite).toBe(uidPrivateAlt);
-        expect(uidSite).toBe(uidMainDomain);
+        expect(uidMainDomain).not.toBe(uidSite);
     });
 
     it('keeps distinct app uid per subdomain under hosted alias canonicalization', async () => {
