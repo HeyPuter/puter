@@ -34,7 +34,7 @@ const TabUsage = {
         return `
             <div class="dashboard-section-header">
                 <h2>${i18n('usage')}</h2>
-                <p>Puter storage and AI credits usage</p>
+                <p>Puter resources and AI usage</p>
             </div>
             <div class="driver-usage">
                 <div class="driver-usage-header">
