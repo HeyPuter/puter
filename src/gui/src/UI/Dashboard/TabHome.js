@@ -167,12 +167,12 @@ const TabHome = {
         h += '</div>';
 
         // Desktop switch card (spans full width)
-        h += '<div class="bento-card bento-desktop-switch">';
-        h += '<div class="bento-desktop-switch-inner">';
-        h += '<span class="bento-desktop-switch-text">Looking for Puter\'s desktop interface?</span>';
-        h += '<button class="bento-desktop-switch-btn">Switch to Desktop</button>';
-        h += '</div>';
-        h += '</div>';
+        // h += '<div class="bento-card bento-desktop-switch">';
+        // h += '<div class="bento-desktop-switch-inner">';
+        // h += '<span class="bento-desktop-switch-text">Looking for Puter\'s desktop interface?</span>';
+        // h += '<button class="bento-desktop-switch-btn">Switch to Desktop</button>';
+        // h += '</div>';
+        // h += '</div>';
 
         // Usage card (spans full width on second row)
         h += '<div class="bento-card bento-usage">';
