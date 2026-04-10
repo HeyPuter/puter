@@ -28,6 +28,7 @@ export interface IChatModel<T extends ModelCost = ModelCost> extends Record<stri
     tool_call?: boolean,
     knowledge?: string,
     release_date?: string,
+    allowedQualityLevels?: string[],
 }
 
 export type PuterMessage = Message | any; // TODO DS: type this more strictly
@@ -64,6 +65,10 @@ export interface ICompleteArguments {
         normalize?: boolean;
     };
     customLimitMessage?: string;
+    image_config?: {
+        aspect_ratio?: string;
+        image_size?: string;
+    };
 }
 
 export interface IChatProvider {

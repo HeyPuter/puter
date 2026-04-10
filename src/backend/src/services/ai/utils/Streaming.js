@@ -24,6 +24,14 @@ export class AIChatTextStream extends AIChatConstructStream {
         this.chatStream.stream.write(`${json }\n`);
     }
 
+    addImage (image) {
+        const json = JSON.stringify({
+            type: 'image',
+            image,
+        });
+        this.chatStream.stream.write(`${json }\n`);
+    }
+
     addExtraContent (extra_content) {
         const json = JSON.stringify({
             type: 'extra_content',

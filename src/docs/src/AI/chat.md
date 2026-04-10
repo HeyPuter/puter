@@ -183,6 +183,94 @@ Pass in the `cache_control` parameter inside the object in the `messages` array.
 
 You can find the implementation in our [prompt caching example](/playground/ai-claude-cache-control/). Find more details about cache control in [Anthropic documentation](https://platform.claude.com/docs/en/build-with-claude/prompt-caching).
 
+## Image Generation (Gemini Image Models)
+
+Certain Gemini models can generate and edit images as part of a chat conversation. These models accept text and image inputs, and return text and images in the response.
+
+#### Supported Models
+
+| Model | Quality Levels |
+|-------|---------------|
+| `gemini-2.5-flash-image` | — |
+| `gemini-3-pro-image-preview` | `1K`, `2K`, `4K` |
+| `gemini-3.1-flash-image-preview` | `512`, `1K`, `2K`, `4K` |
+
+#### Options
+
+Pass `image_config` in the options object to control image output:
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `image_config.aspect_ratio` | `String` | Aspect ratio (e.g. `"16:9"`, `"1:1"`, `"9:16"`) |
+| `image_config.image_size` | `String` | Output quality/resolution. Must be one of the model's supported quality levels |
+
+For available aspect ratios and image sizes per model, see the [Gemini Image Generation documentation](https://ai.google.dev/gemini-api/docs/image-generation#aspect_ratios_and_image_size).
+
+#### Response Format
+
+The response includes an `images` array on the message when the model generates images:
+
+```js
+{
+    message: {
+        role: "assistant",
+        content: "Here is your image.",
+        images: [
+            {
+                type: "image_url",
+                image_url: { url: "data:image/png;base64,..." }
+            }
+        ]
+    }
+}
+```
+
+#### Multi-Turn Image Editing
+
+You can send generated images back in the conversation to iteratively edit them. Include the image in an `assistant` message using the `image_url` content type, and pass the `thoughtSignature` from the previous response to maintain editing context:
+
+```js
+const previousImage = result.message.images[0].image_url.url;
+const thoughtSignature = result.message.images[0].thoughtSignature;
+
+const result2 = await puter.ai.chat([
+    { role: "user", content: "Create an infographic about photosynthesis" },
+    { role: "assistant", content: [
+        { type: "text", text: "Here is the infographic." },
+        { type: "image_url", image_url: { url: previousImage }, thoughtSignature },
+    ]},
+    { role: "user", content: "Translate all text to Spanish" },
+], {
+    model: "gemini-3.1-flash-image-preview",
+    image_config: { aspect_ratio: "16:9", image_size: "2K" },
+});
+
+const editedImage = result2.message.images[0].image_url.url;
+```
+
+The code implementation is available in our [image generation example](/playground/ai-image-chat/) and [multi-turn image editing example](/playground/ai-image-edit/).
+
+#### Streaming
+
+Image generation works with `stream: true`. Image chunks arrive as `image` events:
+
+```js
+const resp = await puter.ai.chat("Draw a cat", {
+    model: "gemini-2.5-flash-image",
+    stream: true,
+});
+
+for await (const part of resp) {
+    if (part.text) console.log(part.text);
+    if (part.image) {
+        // part.image is { type: "image_url", image_url: { url: "data:..." } }
+        const img = document.createElement("img");
+        img.src = part.image.image_url.url;
+        document.body.appendChild(img);
+    }
+}
+```
+
 ## Examples
 
 <strong class="example-title">Ask GPT-5.4 nano a question</strong>
@@ -460,6 +548,83 @@ Policy 8 - Account Management: Each Enterprise and Ultimate customer is assigned
             const r3 = await askQuestion("What is your data retention policy?");
             puter.print(r3 + "<br><br>");
         })();
+    </script>
+</body>
+</html>
+```
+
+<strong class="example-title">Image Generation</strong>
+
+```html;ai-image-chat
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+    (async () => {
+        puter.print("Generating image...<br>");
+        const result = await puter.ai.chat("Draw a cute cat wearing a top hat", {
+            model: "gemini-2.5-flash-image",
+        });
+        puter.print(result.message.content + "<br>");
+        if (result.message.images?.length > 0) {
+            const img = document.createElement("img");
+            img.src = result.message.images[0].image_url.url;
+            img.style.maxWidth = "512px";
+            document.body.appendChild(img);
+        }
+    })();
+    </script>
+</body>
+</html>
+```
+
+<strong class="example-title">Multi-Turn Image Editing</strong>
+
+```html;ai-image-edit
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+    (async () => {
+        const model = "gemini-3.1-flash-image-preview";
+
+        // Step 1: Generate initial image
+        puter.print("Step 1: Generating infographic...<br>");
+        const r1 = await puter.ai.chat("Create a simple infographic about photosynthesis", {
+            model,
+            image_config: { image_size: "1K" },
+        });
+        const img1 = r1.message.images?.[0]?.image_url?.url;
+        const thoughtSignature1 = r1.message.images?.[0]?.thoughtSignature;
+        if (img1) {
+            const el = document.createElement("img");
+            el.src = img1;
+            el.style.maxWidth = "512px";
+            document.body.appendChild(el);
+        }
+
+        // Step 2: Edit the image in a follow-up turn
+        puter.print("<br>Step 2: Translating to Spanish...<br>");
+        const r2 = await puter.ai.chat([
+            { role: "user", content: "Create a simple infographic about photosynthesis" },
+            { role: "assistant", content: [
+                { type: "text", text: r1.message.content },
+                { type: "image_url", image_url: { url: img1 }, thoughtSignature: thoughtSignature1 },
+            ]},
+            { role: "user", content: "Translate all text to Spanish. Keep everything else the same." },
+        ], {
+            model,
+            image_config: { aspect_ratio: "16:9", image_size: "2K" },
+        });
+        const img2 = r2.message.images?.[0]?.image_url?.url;
+        if (img2) {
+            const el = document.createElement("img");
+            el.src = img2;
+            el.style.maxWidth = "512px";
+            document.body.appendChild(el);
+        }
+        puter.print("<br>Done!");
+    })();
     </script>
 </body>
 </html>

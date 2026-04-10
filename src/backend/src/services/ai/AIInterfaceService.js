@@ -114,6 +114,7 @@ class AIInterfaceService extends BaseService {
                         provider: { type: 'string', optional: true },
                         temperature: { type: 'number' },
                         max_tokens: { type: 'number' },
+                        image_config: { type: 'json', optional: true },
                     },
                     result: { type: 'json' },
                 },
