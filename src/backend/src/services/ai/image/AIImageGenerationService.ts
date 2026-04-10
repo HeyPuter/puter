@@ -31,6 +31,7 @@ import { GeminiImageGenerationProvider } from './providers/GeminiImageGeneration
 import { OpenAiImageGenerationProvider } from './providers/OpenAiImageGenerationProvider/OpenAiImageGenerationProvider.js';
 import { TogetherImageGenerationProvider } from './providers/TogetherImageGenerationProvider/TogetherImageGenerationProvider.js';
 import { IGenerateParams, IImageModel, IImageProvider } from './providers/types.js';
+import { ReplicateImageGenerationProvider } from './providers/ReplicateImageGenerationProvider/ReplicateImageGenerationProvider.js';
 import { XAIImageGenerationProvider } from './providers/XAIImageGenerationProvider/XAIImageGenerationProvider.js';
 
 export class AIImageGenerationService extends BaseService {
@@ -135,6 +136,15 @@ export class AIImageGenerationService extends BaseService {
                 accountId: cloudflareImageConfig.accountId || cloudflareImageConfig.account_id,
                 apiBaseUrl: cloudflareImageConfig.apiBaseUrl,
             }, this.meteringService, this.errorService, this.eventService);
+        }
+
+        const replicateConfig = this.config.providers?.['replicate-image-generation'] || this.global_config?.services?.['replicate'];
+        if ( replicateConfig && (replicateConfig.apiKey || replicateConfig.secret_key) ) {
+            this.#providers['replicate-image-generation'] = new ReplicateImageGenerationProvider(
+                { apiKey: replicateConfig.apiKey || replicateConfig.secret_key },
+                this.meteringService,
+                this.errorService,
+            );
         }
 
         // emit event for extensions to add providers
