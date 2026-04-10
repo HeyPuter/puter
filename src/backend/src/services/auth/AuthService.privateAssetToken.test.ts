@@ -17,6 +17,7 @@ type AuthServiceForPrivateTokenTests = AuthService & {
         static_hosting_domain_alt?: string;
         private_app_hosting_domain: string;
         private_app_hosting_domain_alt?: string;
+        domain?: string;
     };
     tokenService: {
         sign: (scope: string, payload: unknown, options?: jwt.SignOptions) => string;
@@ -61,6 +62,7 @@ const applyDefaultAuthConfig = () => {
     authService.global_config.static_hosting_domain_alt = 'puter.host';
     authService.global_config.private_app_hosting_domain = 'app.puter.localhost';
     authService.global_config.private_app_hosting_domain_alt = 'puter.dev';
+    authService.global_config.domain = 'puter.com';
     (authService.tokenService as { secret: string }).secret = authService.global_config.jwt_secret;
     authService.appOriginCanonicalizationLocalCacheNamespace =
         authService.createAppOriginLocalCacheNamespace();
@@ -428,6 +430,43 @@ describe('AuthService private asset token helpers', () => {
         expect(appUid).toBe('app-oldest-owner-match');
     });
 
+    it('prefers non-bootstrap app for hosted subdomain origins when both exist', async () => {
+        const authService = createAuthService();
+        authService.global_config.domain = 'puter.com';
+        const owner = await insertUser();
+        const subdomain = `music${Math.random().toString(36).slice(2, 9)}`;
+        const bootstrapUid = `app-bootstrap-${randomUUID()}`;
+        const canonicalUid = `app-canonical-${randomUUID()}`;
+
+        await db.write(
+            'INSERT INTO `subdomains` (`uuid`, `subdomain`, `user_id`) VALUES (?, ?, ?)',
+            [randomUUID(), subdomain, owner.id],
+        );
+
+        await db.write(
+            'INSERT INTO `apps` (`uid`, `name`, `title`, `description`, `index_url`, `owner_user_id`) VALUES (?, ?, ?, ?, ?, ?)',
+            [
+                bootstrapUid,
+                bootstrapUid,
+                bootstrapUid,
+                `App created from origin https://${subdomain}.puter.com`,
+                `https://${subdomain}.puter.com`,
+                owner.id,
+            ],
+        );
+        await insertApp({
+            uid: canonicalUid,
+            name: `music-player-${subdomain}`,
+            title: `music-player-${subdomain}`,
+            indexUrl: `https://${subdomain}.puter.site/`,
+            ownerUserId: owner.id,
+        });
+
+        const appUid = await authService.app_uid_from_origin(`https://${subdomain}.puter.com`);
+
+        expect(appUid).toBe(canonicalUid);
+    });
+
     it('falls back to deterministic origin uid when hosted subdomain owner cannot be resolved', async () => {
         const authService = createAuthService();
         const subdomain = `beans${Math.random().toString(36).slice(2, 9)}`;
@@ -488,15 +527,18 @@ describe('AuthService private asset token helpers', () => {
         authService.global_config.static_hosting_domain_alt = 'puter.host';
         authService.global_config.private_app_hosting_domain = 'puter.app';
         authService.global_config.private_app_hosting_domain_alt = 'puter.dev';
+        authService.global_config.domain = 'puter.com';
 
         const uidSite = await authService.app_uid_from_origin('https://beans.puter.site');
         const uidStaticAlt = await authService.app_uid_from_origin('https://beans.puter.host');
         const uidPrivatePrimary = await authService.app_uid_from_origin('https://beans.puter.app');
         const uidPrivateAlt = await authService.app_uid_from_origin('https://beans.puter.dev');
+        const uidMainDomain = await authService.app_uid_from_origin('https://beans.puter.com');
 
         expect(uidSite).toBe(uidStaticAlt);
         expect(uidSite).toBe(uidPrivatePrimary);
         expect(uidSite).toBe(uidPrivateAlt);
+        expect(uidSite).toBe(uidMainDomain);
     });
 
     it('keeps distinct app uid per subdomain under hosted alias canonicalization', async () => {

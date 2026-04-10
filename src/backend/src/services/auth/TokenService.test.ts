@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import * as jwt from 'jsonwebtoken';
 import { createTestKernel } from '../../../tools/test.mjs';
 import { TokenService } from './TokenService.js';
 
@@ -36,6 +37,63 @@ const uuid_compression = (prefix?: string) => ({
 });
 
 describe('TokenService', () => {
+    it('signs auth tokens using uncompressed claim names', async () => {
+        const testKernel = await createTestKernel({
+            serviceMap: {
+                'token': TokenService,
+            },
+        });
+
+        const tokenService = testKernel.services!.get('token') as TokenService;
+        tokenService.secret = 'test-token-service-secret';
+        const payload = {
+            type: 'session',
+            version: '0.0.0',
+            uuid: '843f1d83-3c30-48c7-8964-62aff1a912d0',
+            user_uid: '42e9c36b-8a53-4c3e-8e18-fe549b10a44d',
+            app_uid: 'app-c22ef816-edb6-47c5-8c41-31c6520fa9e6',
+        };
+
+        const token = tokenService.sign('auth', payload);
+        const decoded = jwt.verify(token, tokenService.secret as string) as jwt.JwtPayload & Record<string, unknown>;
+
+        expect(decoded.type).toBe(payload.type);
+        expect(decoded.version).toBe(payload.version);
+        expect(decoded.uuid).toBe(payload.uuid);
+        expect(decoded.user_uid).toBe(payload.user_uid);
+        expect(decoded.app_uid).toBe(payload.app_uid);
+        expect(decoded.t).toBeUndefined();
+        expect(decoded.u).toBeUndefined();
+        expect(decoded.uu).toBeUndefined();
+        expect(decoded.au).toBeUndefined();
+    });
+
+    it('verifies legacy compressed auth tokens', async () => {
+        const testKernel = await createTestKernel({
+            serviceMap: {
+                'token': TokenService,
+            },
+        });
+
+        const tokenService = testKernel.services!.get('token') as TokenService;
+        tokenService.secret = 'test-token-service-secret';
+        const payload = {
+            uuid: '843f1d83-3c30-48c7-8964-62aff1a912d0',
+            type: 'session',
+            user_uid: '42e9c36b-8a53-4c3e-8e18-fe549b10a44d',
+            app_uid: 'app-c22ef816-edb6-47c5-8c41-31c6520fa9e6',
+        };
+
+        const compressedPayload = tokenService._compress_payload(tokenService.compression!.auth, payload);
+        const token = jwt.sign(compressedPayload, tokenService.secret as string);
+        const decoded = tokenService.verify('auth', token);
+
+        expect(decoded.uuid).toBe(payload.uuid);
+        expect(decoded.type).toBe(payload.type);
+        expect(decoded.user_uid).toBe(payload.user_uid);
+        expect(decoded.app_uid).toBe(payload.app_uid);
+    });
+
     it('should compress and decompress payloads correctly', async () => {
         const testKernel = await createTestKernel({
             serviceMap: {
@@ -44,6 +102,7 @@ describe('TokenService', () => {
         });
 
         const tokenService = testKernel.services!.get('token') as TokenService;
+        tokenService.secret = 'test-token-service-secret';
 
         const U1 = '843f1d83-3c30-48c7-8964-62aff1a912d0';
         const U2 = '42e9c36b-8a53-4c3e-8e18-fe549b10a44d';
