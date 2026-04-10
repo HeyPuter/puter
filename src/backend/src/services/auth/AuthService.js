@@ -1459,9 +1459,22 @@ class AuthService extends BaseService {
         }
     }
 
-    async queryOldestAppUidForIndexUrlCandidates ({
+    isOriginBootstrapAppRow (appRow) {
+        if ( !appRow || typeof appRow !== 'object' ) return false;
+        const appUid = typeof appRow.uid === 'string' ? appRow.uid : '';
+        if ( ! appUid ) return false;
+        if ( appRow.name !== appUid ) return false;
+        if ( appRow.title !== appUid ) return false;
+        const appDescription = typeof appRow.description === 'string'
+            ? appRow.description
+            : '';
+        return appDescription.startsWith('App created from origin ');
+    }
+
+    async queryCanonicalAppUidForIndexUrlCandidates ({
         indexUrlCandidates,
         ownerUserId,
+        preferNonBootstrap = false,
     }) {
         if ( !Array.isArray(indexUrlCandidates) || indexUrlCandidates.length === 0 ) {
             return null;
@@ -1480,18 +1493,30 @@ class AuthService extends BaseService {
         try {
             const dbReadApps = this.services.get('database').get(DB_READ, 'apps');
             const rows = await dbReadApps.read(
-                `SELECT uid FROM apps WHERE ${whereClause} ORDER BY timestamp ASC, id ASC LIMIT 1`,
+                `SELECT uid, name, title, description
+                 FROM apps
+                 WHERE ${whereClause}
+                 ORDER BY timestamp ASC, id ASC`,
                 parameters,
             );
+
             const oldestAppUid = rows?.[0]?.uid;
-            if ( typeof oldestAppUid === 'string' && oldestAppUid ) {
-                return oldestAppUid;
+            if ( typeof oldestAppUid !== 'string' || !oldestAppUid ) {
+                return null;
             }
+
+            if ( ! preferNonBootstrap ) return oldestAppUid;
+
+            const preferredAppRow = rows.find(appRow => !this.isOriginBootstrapAppRow(appRow));
+            const preferredAppUid = preferredAppRow?.uid;
+            if ( typeof preferredAppUid === 'string' && preferredAppUid ) {
+                return preferredAppUid;
+            }
+
+            return oldestAppUid;
         } catch {
             return null;
         }
-
-        return null;
     }
 
     async lookupCanonicalAppUidFromOrigin (origin) {
@@ -1507,13 +1532,16 @@ class AuthService extends BaseService {
                 if ( ! hostedSubdomainOwnerUserId ) {
                     return null;
                 }
-                return await this.queryOldestAppUidForIndexUrlCandidates({
+                return await this.queryCanonicalAppUidForIndexUrlCandidates({
                     ownerUserId: hostedSubdomainOwnerUserId,
                     indexUrlCandidates,
+                    preferNonBootstrap: true,
                 });
             }
 
-            return await this.queryOldestAppUidForIndexUrlCandidates({ indexUrlCandidates });
+            return await this.queryCanonicalAppUidForIndexUrlCandidates({
+                indexUrlCandidates,
+            });
         } catch {
             return null;
         }
@@ -1550,6 +1578,7 @@ class AuthService extends BaseService {
             this.global_config.static_hosting_domain_alt,
             this.global_config.private_app_hosting_domain,
             this.global_config.private_app_hosting_domain_alt,
+            this.global_config.domain,
         ] ) {
             const normalizedDomainCandidate = this.normalizeHostedDomainCandidate(domainCandidate);
             if ( ! normalizedDomainCandidate ) continue;
