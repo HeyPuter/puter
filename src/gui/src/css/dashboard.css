@@ -1977,9 +1977,17 @@ body {
 
 /* Responsive: tablet and below */
 @media (max-width: 768px) {
-    .dashboard-sidebar-nav {
-        padding-top: 45px;
+    .dashboard-sidebar-header {
+        padding-left: 45px;
+        border-bottom: 0;
+        margin-bottom: 2px;
+        margin-top: 3px;
     }
+
+    .dashboard-sidebar-header .dashboard-sidebar-logo {
+        margin-left: auto;
+    }
+
     .dashboard-sidebar-toggle {
         display: flex;
     }
@@ -2001,6 +2009,10 @@ body {
 
     .dashboard-content {
         padding: 64px 16px 24px;
+    }
+
+    .myapps-search-wrap {
+        margin-top: 60px;
     }
 
     .dashboard-apps-grid {
