@@ -112,7 +112,11 @@ export class AIVideoGenerationService extends BaseService {
         const geminiVideoConfig = this.config.providers?.['gemini-video-generation'] || this.global_config?.services?.gemini;
         if ( geminiVideoConfig && (geminiVideoConfig.apiKey || geminiVideoConfig.secret_key) ) {
             this.#providers['gemini-video-generation'] = new GeminiVideoGenerationProvider(
-                { apiKey: geminiVideoConfig.apiKey || geminiVideoConfig.secret_key },
+                {
+                    apiKey: geminiVideoConfig.apiKey || geminiVideoConfig.secret_key,
+                    origin: this.global_config?.api_base_url,
+                    urlSignatureSecret: this.global_config?.url_signature_secret,
+                },
                 this.meteringService,
             );
         }

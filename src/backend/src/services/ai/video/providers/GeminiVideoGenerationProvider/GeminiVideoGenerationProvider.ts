@@ -18,6 +18,7 @@
  */
 
 import { GoogleGenAI, GenerateVideosOperation, GenerateVideosParameters } from '@google/genai';
+import { sha256 } from 'js-sha256';
 import APIError from '../../../../../api/APIError.js';
 import { Context } from '../../../../../util/context.js';
 import { MeteringService } from '../../../../MeteringService/MeteringService.js';
@@ -41,13 +42,17 @@ const DIMENSION_MAP: Record<string, { aspectRatio: string; resolution: string }>
 export class GeminiVideoGenerationProvider implements IVideoProvider {
     #client: GoogleGenAI;
     #meteringService: MeteringService;
+    #origin: string;
+    #urlSignatureSecret: string;
 
-    constructor (config: { apiKey: string }, meteringService: MeteringService) {
+    constructor (config: { apiKey: string, origin?: string, urlSignatureSecret?: string }, meteringService: MeteringService) {
         if ( ! config.apiKey ) {
             throw new Error('Gemini video generation requires an API key');
         }
         this.#client = new GoogleGenAI({ apiKey: config.apiKey });
         this.#meteringService = meteringService;
+        this.#origin = config.origin || 'https://api.puter.com';
+        this.#urlSignatureSecret = config.urlSignatureSecret || '';
     }
 
     getDefaultModel (): string {
@@ -201,10 +206,18 @@ export class GeminiVideoGenerationProvider implements IVideoProvider {
         await this.#meteringService.incrementUsage(actor, usageKey, durationSeconds, costInMicroCents);
 
         if ( video.uri ) {
+            const fileIdMatch = video.uri.match(/\/files\/([^/:]+)/);
+            if ( ! fileIdMatch ) {
+                throw new Error('Could not extract file ID from Gemini video URI');
+            }
+            const fileId = fileIdMatch[1];
+            const expires = Math.ceil(Date.now() / 1000) + 48 * 3600; // from google docs: Generated videos are stored on the server for 2 days
+            const signature = sha256(`${fileId}/video-proxy/${this.#urlSignatureSecret}/${expires}`);
+            const proxyUrl = `${this.#origin}/puterai/video/proxy?fileId=${encodeURIComponent(fileId)}&provider=gemini&expires=${expires}&signature=${signature}`;
             return new TypedValue({
                 $: 'string:url:web',
                 content_type: 'video',
-            }, video.uri);
+            }, proxyUrl);
         }
 
         if ( video.videoBytes ) {
