@@ -754,6 +754,7 @@ body {
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
     word-break: break-word;
+    white-space: nowrap;
 }
 
 /* Uninstall confirmation modal */
@@ -2030,7 +2031,7 @@ body {
     }
 
     .myapps-container {
-        padding: 20px 16px;
+        padding: 20px 10px;
     }
 
     .myapps-tab h2 {
@@ -2933,6 +2934,10 @@ body {
 
     .dashboard .bento-recent-app-title {
         font-size: 12px;
+    }
+
+    .driver-usage-header {
+        flex-direction: column;
     }
 
     .dashboard .bento-usage-grid {
