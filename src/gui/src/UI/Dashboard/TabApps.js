@@ -267,6 +267,7 @@ const TabApps = {
             ].map(app => ({
                 name: app.name,
                 title: app.title,
+                uid: app.uuid || app.uid || null,
                 iconUrl: app.icon || null,
             }));
 
