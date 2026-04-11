@@ -690,6 +690,7 @@ async function UIDesktop (options) {
             <input type="hidden" name="name" id="upload-filename" value="">
             <input type="hidden" name="path" id="upload-target-path" value="">
             <input type="file" name="file" id="upload-file-dialog" style="display: none;" multiple="multiple">
+            <input type="file" name="folder" id="upload-folder-dialog" style="display: none;" webkitdirectory directory>
         </form>`;
 
     h += '<div class="window-container"></div>';

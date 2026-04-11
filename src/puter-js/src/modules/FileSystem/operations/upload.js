@@ -452,8 +452,11 @@ const upload = async function (items, dirPath, options = {}) {
             });
             // add FullPath property to each entry
             for ( let i = 0; i < entries.length; i++ ) {
-                entries[i].filepath = entries[i].name;
-                entries[i].fullPath = entries[i].name;
+                // Directory picks (<input webkitdirectory>) set webkitRelativePath on each File; leaf .name is not enough.
+                const rel = entries[i].webkitRelativePath;
+                const relPath = (typeof rel === 'string' && rel.length > 0) ? rel : entries[i].name;
+                entries[i].filepath = relPath;
+                entries[i].fullPath = relPath;
             }
         }
         // blob

@@ -81,6 +81,7 @@ const TabFiles = {
             <div class="dashboard-tab-content files-tab">
                 <form>
                     <input type="file" name="file" id="upload-file-dialog" style="display: none;" multiple="multiple">
+                    <input type="file" name="folder" id="upload-folder-dialog" style="display: none;" webkitdirectory directory>
                 </form>
                 <div class="directories">
                     <ul>
@@ -1006,6 +1007,7 @@ const TabFiles = {
     createHeaderEventListeners () {
         const _this = this;
         const fileInput = document.querySelector('#upload-file-dialog');
+        const folderInput = document.querySelector('#upload-folder-dialog');
 
         const el_window_navbar_back_btn = document.querySelector(`.path-btn-back`);
         const el_window_navbar_forward_btn = document.querySelector(`.path-btn-forward`);
@@ -1123,16 +1125,18 @@ const TabFiles = {
             }
         };
 
-        // Upload input element
-        fileInput.onchange = async (e) => {
+        const onUploadInputChange = async (e) => {
             const files = e.target.files;
             if ( !files || files.length === 0 ) return;
+
+            const createMissingParents = e.target.id === 'upload-folder-dialog';
 
             let upload_progress_window;
             let opid;
 
             puter.fs.upload(files, _this.currentPath, {
                 generateThumbnails: true,
+                ...(createMissingParents ? { createMissingParents: true } : {}),
                 init: async (operation_id, xhr) => {
                     opid = operation_id;
                     // create upload progress window
@@ -1189,7 +1193,7 @@ const TabFiles = {
                     // refresh
                     _this.renderDirectory(_this.currentPath, { consistency: 'strong' });
                     // Clear the input value to allow uploading the same file again
-                    fileInput.value = '';
+                    e.target.value = '';
                     document.querySelector('form').reset();
                 },
                 // error
@@ -1219,10 +1223,13 @@ const TabFiles = {
             });
         };
 
+        fileInput.onchange = onUploadInputChange;
+        folderInput.onchange = onUploadInputChange;
+
         // Upload button
         document.querySelector('.upload-btn').onclick = async () => {
-            if ( ! this.currentPath ) return;
-            fileInput.click();
+            if ( ! _this.currentPath ) return;
+            window.init_upload_using_dialog(null, _this.currentPath);
         };
 
         // View toggle button
@@ -3488,10 +3495,7 @@ const TabFiles = {
             items.push({
                 html: i18n('upload'),
                 onClick: function () {
-                    const fileInput = document.querySelector('#upload-file-dialog');
-                    if ( fileInput ) {
-                        fileInput.click();
-                    }
+                    window.init_upload_using_dialog(null, _this.currentPath);
                 },
             });
         }
