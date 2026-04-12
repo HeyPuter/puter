@@ -1,5 +1,29 @@
 import type { Application } from 'express';
 
+export interface IDynamoConfig {
+    aws?: {
+        accessKeyId?: string;
+        secretAccessKey?: string;
+        region?: string;
+        access_key?: string;
+        secret_key?: string;
+    };
+    endpoint?: string;
+    path?: string;
+}
+
+export interface IRedisConfig {
+    startupNodes?: Array<{
+        host: string;
+        port: number;
+    }>;
+    clusterNodes?: Array<{
+        host: string;
+        port: number;
+    }>;
+    useMock?: boolean;
+}
+
 export interface IConfig extends Partial<{
     s3: {
         localConfig: {
@@ -16,7 +40,33 @@ export interface IConfig extends Partial<{
             secretAccessKey: string;
             region?: string;
         }
-    }
+    };
+    database: {
+        engine: 'sqlite' | 'mysql';
+        // sqlite
+        path?: string;
+        targetVersion?: number;
+        // mysql
+        host?: string;
+        port?: number;
+        user?: string;
+        password?: string;
+        database?: string;
+        replica?: {
+            host?: string;
+            port?: number;
+            user?: string;
+            password?: string;
+            database?: string;
+        };
+    };
+    dynamo: IDynamoConfig;
+    dynamoDb: IDynamoConfig;
+    redis: IRedisConfig;
+    services: {
+        dynamo?: IDynamoConfig;
+        redis?: IRedisConfig;
+    };
 }> {
     extensions: string[];
     port: number;
