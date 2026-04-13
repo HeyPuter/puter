@@ -1,14 +1,28 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import express from 'express';
+import type { Application, RequestHandler } from 'express';
 import { readdirSync, readFileSync } from 'node:fs';
 import { puterClients } from './clients';
 import { puterControllers } from './controllers';
+import { createAuthProbe } from './core/http/middleware/authProbe';
+import { createErrorHandler } from './core/http/middleware/errorHandler';
+import {
+    adminOnlyGate,
+    allowedAppIdsGate,
+    requireAuthGate,
+    requireUserActorGate,
+    subdomainGate,
+} from './core/http/middleware/gates';
+import { createNotFoundHandler } from './core/http/middleware/notFoundHandler';
+import { PuterRouter } from './core/http/PuterRouter';
+import { PREFIX_METADATA_KEY, type RouteDescriptor } from './core/http/types';
+import type { AuthService } from './services/auth/AuthService';
 import { puterDrivers } from './drivers';
 import { clientsContainers, controllersContainers, driversContainers, servicesContainers, storesContainers } from './exports';
 import { extensionStore } from './extensions';
 import { puterServices } from './services';
 import { puterStores } from './stores';
-import type { IConfig, LayerInstances, WithLifecycle } from './types';
+import type { IConfig, LayerInstances, WithControllerRegistration, WithLifecycle } from './types';
 
 export class PuterServer {
 
@@ -66,29 +80,21 @@ export class PuterServer {
 
         // init express server here
         this.#app = express();
-        // TODO DS: configure all the top level middleware and what not here
+        this.#installGlobalMiddleware();
 
         this.controllers = {} as typeof this.controllers;
         for ( const [controllerName, ControllerClass] of Object.entries(controllers) ) {
             this.controllers[controllerName] = (typeof ControllerClass === 'object'
                 ? ControllerClass
                 : (new (ControllerClass as any)(this.#config, this.clients, this.stores, this.services)) as any);
-            if ( ! controllersContainers[controllerName].registerRoutes ) {
-                throw new Error(`Controller ${controllerName} does not have registerRoutes method`);
-            } else {
-                controllersContainers[controllerName].registerRoutes(this.#app);
-            }
+            this.#registerControllerRoutes(controllerName, this.controllers[controllerName]);
             controllersContainers[controllerName] = this.controllers[controllerName];
         }
         for ( const [controllerName, ControllerClass] of Object.entries(extensionStore.controllers) ) {
             this.controllers[controllerName] = (typeof ControllerClass === 'object'
                 ? ControllerClass
                 : (new (ControllerClass as any)(this.#config, this.clients, this.stores, this.services)) as any);
-            if ( ! controllersContainers[controllerName].registerRoutes ) {
-                throw new Error(`Controller ${controllerName} does not have registerRoutes method`);
-            } else {
-                controllersContainers[controllerName].registerRoutes(this.#app);
-            }
+            this.#registerControllerRoutes(controllerName, this.controllers[controllerName]);
             controllersContainers[controllerName] = this.controllers[controllerName];
         }
 
@@ -118,7 +124,149 @@ export class PuterServer {
             (this.#app)[method](path, handler);
         });
 
+        // Terminal middleware MUST install last — after every route + extension
+        // route is registered, so the catch-all 404 only fires for genuinely
+        // unmatched requests, and the error handler is reachable from any
+        // thrown error in the stack above it.
+        this.#installTerminalMiddleware();
+
         return true;
+    }
+
+    /**
+     * Install always-on middleware on the express app, in the order they
+     * must run at request time. Ordering note:
+     *   - `express.json` must run before `authProbe` so `req.body.auth_token`
+     *     is readable.
+     *   - `authProbe` never rejects; it only populates `req.actor` if a valid
+     *     token is present.
+     *   - Per-route gate middleware (requireAuth, adminOnly, ...) lands in
+     *     `#materializeRoute` as those options ship.
+     */
+    #installGlobalMiddleware () {
+        this.#app.use(express.json({ limit: '50mb' }));
+
+        const authService = this.services.auth as AuthService | undefined;
+        if ( authService ) {
+            this.#app.use(createAuthProbe({
+                authService,
+                cookieName: this.#config.cookie_name,
+            }));
+        }
+    }
+
+    /**
+     * Install end-of-pipeline middleware. Order matters:
+     *   1. The 404 catch-all runs only when no earlier route matched, so it
+     *      must be installed *after* every controller + extension route.
+     *   2. The error handler is the express terminal — it catches everything
+     *      thrown by routes, gates, and the 404 above. Express 5 auto-forwards
+     *      thrown errors (sync and async), so handlers can `throw new HttpError(...)`
+     *      without `next(err)` ceremony.
+     */
+    #installTerminalMiddleware () {
+        this.#app.use(createNotFoundHandler());
+        this.#app.use(createErrorHandler());
+    }
+
+    /**
+     * Walk a controller's declared routes (via `PuterRouter`) and register
+     * each one against the underlying express app. Per-route option → middleware
+     * translation lives here — when we add auth/subdomain/body-parsing
+     * options, they get wired in at this single point without touching any
+     * controller call site.
+     */
+    #registerControllerRoutes (controllerName: string, controller: WithControllerRegistration) {
+        if ( ! controller.registerRoutes ) {
+            throw new Error(`Controller ${controllerName} does not have registerRoutes method`);
+        }
+
+        // Controllers annotated with `@Controller('/prefix')` carry the prefix
+        // on their prototype; bare (imperative) controllers default to ''.
+        const prefix = (controller as unknown as Record<string, unknown>)[PREFIX_METADATA_KEY] as string | undefined;
+        const router = new PuterRouter(prefix ?? '');
+        controller.registerRoutes(router);
+
+        for ( const route of router.routes ) {
+            this.#materializeRoute(this.#app, router.prefix, route);
+        }
+    }
+
+    #materializeRoute (app: Application, routerPrefix: string, route: RouteDescriptor) {
+        const mwChain: RequestHandler[] = [];
+        const opts = route.options;
+
+        // Built-in gates, in execution order. Implication graph:
+        //   adminOnly       => requireUserActor => requireAuth
+        //   allowedAppIds   => requireAuth
+        //   requireUserActor => requireAuth
+        // We dedupe by only pushing requireAuthGate once when *any* of these
+        // are set.
+
+        // 1. Subdomain check first — wrong subdomain calls next('route')
+        // and skips the rest of the chain cheaply.
+        if ( opts.subdomain !== undefined ) {
+            mwChain.push(subdomainGate(opts.subdomain));
+        }
+
+        const needsAuth = Boolean(
+            opts.requireAuth
+            || opts.requireUserActor
+            || opts.adminOnly
+            || opts.allowedAppIds,
+        );
+        if ( needsAuth ) mwChain.push(requireAuthGate());
+
+        const needsUserActor = Boolean(opts.requireUserActor || opts.adminOnly);
+        if ( needsUserActor ) mwChain.push(requireUserActorGate());
+
+        if ( opts.adminOnly ) {
+            const extras = Array.isArray(opts.adminOnly) ? opts.adminOnly : [];
+            mwChain.push(adminOnlyGate(extras));
+        }
+
+        if ( opts.allowedAppIds ) {
+            mwChain.push(allowedAppIdsGate(opts.allowedAppIds));
+        }
+
+        // Caller-supplied middleware runs after gates, before the handler.
+        if ( opts.middleware ) mwChain.push(...opts.middleware);
+
+        const fullPath = route.path !== undefined
+            ? PuterServer.#joinPath(routerPrefix, route.path)
+            : undefined;
+
+        if ( route.method === 'use' ) {
+            if ( fullPath !== undefined ) {
+                app.use(fullPath as any, ...mwChain, route.handler);
+            } else {
+                app.use(...mwChain, route.handler);
+            }
+            return;
+        }
+
+        if ( fullPath === undefined ) {
+            throw new Error(`Route method '${route.method}' requires a path`);
+        }
+
+        // All express + WebDAV verbs accept the same (path, ...handlers) shape.
+        // The `RouteMethod` union is the allowlist of method names we expose.
+        const method = app[route.method as keyof Application] as unknown;
+        if ( typeof method !== 'function' ) {
+            throw new Error(`Express app does not support method: ${route.method}`);
+        }
+        (method as (...args: unknown[]) => unknown).call(app, fullPath, ...mwChain, route.handler);
+    }
+
+    /**
+     * Join a controller's prefix with a route path. RegExp / array paths are
+     * passed through unprefixed (consistent with express's behavior and with
+     * the v1 extensionController's assumption that decorator paths are strings).
+     */
+    static #joinPath (prefix: string, path: NonNullable<RouteDescriptor['path']>): string | RegExp | Array<string | RegExp> {
+        if ( typeof path !== 'string' ) return path;
+        if ( ! prefix ) return path;
+        return `${prefix}/${path}`.replace(/\/+/g, '/');
     }
 
     async #importExtensions (extensionDirs: string[]) {

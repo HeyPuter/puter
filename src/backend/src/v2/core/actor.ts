@@ -11,6 +11,12 @@ export interface ActorUser {
     id?: number;
     username?: string;
     email?: string | null;
+    /** True when the account has been suspended by an admin. */
+    suspended?: boolean;
+    /** True when the user has confirmed the email on file. */
+    email_confirmed?: boolean;
+    /** True for accounts that must confirm email before most actions (non-temp users). */
+    requires_email_confirmation?: boolean;
 }
 
 export interface ActorApp {
@@ -35,6 +41,13 @@ export interface Actor {
     /** True for the system actor; skips metering / quota tracking. */
     system?: boolean;
     accessToken?: ActorAccessToken | null;
+    /**
+     * Session reference when authenticated via a session token (user actors)
+     * or an app-under-user token that carries a session. Absent for system,
+     * raw-app, and pure access-token actors. Used for session introspection
+     * and targeted logout.
+     */
+    session?: { uid: string } | null;
 }
 
 /** UUID of the baked-in system user (see 0025 seed migration). */

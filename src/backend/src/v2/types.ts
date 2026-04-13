@@ -1,4 +1,4 @@
-import type { Application } from 'express';
+import type { PuterRouter } from './core/http/PuterRouter';
 
 export interface IDynamoConfig {
     aws?: {
@@ -94,6 +94,12 @@ export interface IConfig extends Partial<{
     default_user_group: string;
     /** UID of the persistent group that temporary users are enrolled in at signup. */
     default_temp_group: string;
+    /** When true, ACL grants read/list/see on `/<user>/Public` to any actor (owner must have confirmed email, or be admin). */
+    enable_public_folders: boolean;
+    /** HMAC secret used to sign auth JWTs. Must match v1 during transition. */
+    jwt_secret: string;
+    /** Name of the session cookie the auth probe reads. */
+    cookie_name: string;
     services: {
         dynamo?: IDynamoConfig;
         redis?: IRedisConfig;
@@ -111,7 +117,7 @@ export interface WithLifecycle extends Object {
 }
 
 export interface WithControllerRegistration extends WithLifecycle {
-    registerRoutes: (app: Omit<Application, 'listen'>) => void;
+    registerRoutes: (router: PuterRouter) => void;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

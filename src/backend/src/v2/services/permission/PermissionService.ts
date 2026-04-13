@@ -4,6 +4,7 @@ import type { puterClients } from '../../clients';
 import type { puterStores } from '../../stores';
 import type { PermissionStore } from '../../stores/permission/PermissionStore';
 import type { GroupStore } from '../../stores/group/GroupStore';
+import type { UserStore } from '../../stores/user/UserStore';
 import type { Actor, ActorUser } from '../../core/actor';
 import { actorUid, isSystemActor, userRelatedActor } from '../../core/actor';
 import {
@@ -42,6 +43,7 @@ export interface GrantMeta {
 type Stores = LayerInstances<typeof puterStores> & {
     permission?: PermissionStore;
     group?: GroupStore;
+    user?: UserStore;
 };
 
 /**
@@ -86,6 +88,12 @@ export class PermissionService extends PuterService {
     private get groupStore (): GroupStore {
         const s = this.stores.group;
         if ( ! s ) throw new Error('PermissionService requires the `group` store to be registered');
+        return s;
+    }
+
+    private get userStore (): UserStore {
+        const s = this.stores.user;
+        if ( ! s ) throw new Error('PermissionService requires the `user` store to be registered');
         return s;
     }
 
@@ -377,7 +385,7 @@ export class PermissionService extends PuterService {
         }
 
         for ( const issuerUsername of Object.keys(byIssuer) ) {
-            const issuerUser = await this.permStore.getUserByUsername(issuerUsername);
+            const issuerUser = await this.userStore.getByUsername(issuerUsername);
             if ( ! issuerUser ) continue;
             const issuerActor = this.#userToActor(issuerUser);
             const issuerGroups = byIssuer[issuerUsername];
@@ -411,7 +419,7 @@ export class PermissionService extends PuterService {
 
         const rows = await this.permStore.readUserGroupPerms(actor.user.id, options);
         for ( const row of rows ) {
-            const issuerUser = await this.permStore.getUserById(row.user_id);
+            const issuerUser = await this.userStore.getById(row.user_id);
             if ( ! issuerUser ) continue;
             const issuerActor = this.#userToActor(issuerUser);
             const issuerReading = await this.scan(issuerActor, row.permission);
@@ -498,7 +506,7 @@ export class PermissionService extends PuterService {
         const row = rows[0];
         if ( ! row ) return;
 
-        const issuerUser = await this.permStore.getUserById(row.user_id);
+        const issuerUser = await this.userStore.getById(row.user_id);
         if ( ! issuerUser ) return;
         const issuerActor = this.#userToActor(issuerUser);
         const issuerReading = await this.scan(issuerActor, row.permission);
@@ -571,7 +579,7 @@ export class PermissionService extends PuterService {
             }
             const { permission, issuer_user_id, ...extra } = v;
             if ( ! permission ) continue;
-            const issuer = issuer_user_id ? await this.permStore.getUserById(issuer_user_id) : null;
+            const issuer = issuer_user_id ? await this.userStore.getById(issuer_user_id) : null;
             return [{
                 $: 'option',
                 via: 'user',
@@ -593,7 +601,7 @@ export class PermissionService extends PuterService {
 
         const out: ReadingNode[] = [];
         for ( const row of rows ) {
-            const issuerUser = await this.permStore.getUserById(row.issuer_user_id);
+            const issuerUser = await this.userStore.getById(row.issuer_user_id);
             if ( ! issuerUser ) continue;
             const issuerActor = this.#userToActor(issuerUser);
 
@@ -629,7 +637,7 @@ export class PermissionService extends PuterService {
 
     async grantUserUserPermission (actor: Actor, username: string, permission: string, extra: Record<string, unknown> = {}, meta: GrantMeta = {}): Promise<void> {
         permission = await this.rewritePermission(permission);
-        const user = await this.permStore.getUserByUsername(username);
+        const user = await this.userStore.getByUsername(username);
         if ( ! user ) throw new Error(`user_does_not_exist: ${username}`);
         if ( user.id === actor.user?.id ) throw new Error('cannot grant permissions to yourself');
 
@@ -662,7 +670,7 @@ export class PermissionService extends PuterService {
 
     async revokeUserUserPermission (actor: Actor, username: string, permission: string, meta: GrantMeta = {}): Promise<void> {
         permission = await this.rewritePermission(permission);
-        const user = await this.permStore.getUserByUsername(username);
+        const user = await this.userStore.getByUsername(username);
         if ( ! user ) throw new Error(`user_does_not_exist: ${username}`);
 
         if ( ! (await this.canManagePermission(actor, permission)) ) {
@@ -832,7 +840,7 @@ export class PermissionService extends PuterService {
         const ids = await this.permStore.listUserPermissionIssuerIds(user.id);
         const users: Array<UserRowSummary | null> = [];
         for ( const id of ids ) {
-            const u = await this.permStore.getUserById(id);
+            const u = await this.userStore.getById(id);
             users.push(u ? { id: u.id, uuid: u.uuid, username: u.username, email: u.email } : null);
         }
         return users;
@@ -847,7 +855,7 @@ export class PermissionService extends PuterService {
             this.permStore.queryIssuerAppPermsByPrefix(issuer.id, prefix),
         ]);
         const users = await Promise.all(userRows.map(async r => {
-            const u = await this.permStore.getUserById(r.holder_user_id);
+            const u = await this.userStore.getById(r.holder_user_id);
             return { user: u ? { id: u.id, uuid: u.uuid, username: u.username, email: u.email } : null, permission: r.permission };
         }));
         const apps = await Promise.all(appRows.map(async r => {

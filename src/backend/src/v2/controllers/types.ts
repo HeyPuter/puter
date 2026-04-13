@@ -1,11 +1,18 @@
-import type { Application } from 'express';
 import type { puterClients } from '../clients';
+import type { PuterRouter } from '../core/http/PuterRouter';
 import type { puterServices } from '../services';
 import type { puterStores } from '../stores';
 import type { IConfig, LayerInstances, WithControllerRegistration } from '../types';
 
 export type IPuterController<T extends WithControllerRegistration = WithControllerRegistration> = new (config: IConfig, clients: LayerInstances<typeof puterClients>, stores: LayerInstances<typeof puterStores>, services: LayerInstances<typeof puterServices> ) => T;
 
+/**
+ * Base class for v2 controllers. `registerRoutes(router)` receives a
+ * `PuterRouter` (not an express app) — see `v2/core/http/PuterRouter.ts`.
+ * Controllers either override `registerRoutes` imperatively or lean on the
+ * `@Controller` / `@Post` / etc. decorators, which install a default
+ * `registerRoutes` walker on the prototype.
+ */
 export const PuterController = class PuterController implements WithControllerRegistration {
     constructor (protected config: IConfig, protected clients: LayerInstances<typeof puterClients>, protected stores: LayerInstances<typeof puterStores>, protected services: LayerInstances<typeof puterServices>) {
     }
@@ -18,7 +25,7 @@ export const PuterController = class PuterController implements WithControllerRe
     public onServerShutdown () {
         return;
     }
-    public registerRoutes (_app: Omit<Application, 'listen'>) {
+    public registerRoutes (_router: PuterRouter) {
     }
 
 } satisfies IPuterController<WithControllerRegistration>;

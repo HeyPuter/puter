@@ -1,0 +1,97 @@
+import type { ErrorRequestHandler, RequestHandler } from 'express';
+import { HttpError, isHttpError } from '../HttpError';
+
+interface ErrorHandlerOptions {
+    /**
+     * Optional logger for non-HttpError failures. Receives `(err, req)`.
+     * Defaults to `console.error` with the request method/url.
+     */
+    onUnhandled?: (err: unknown, req: Parameters<RequestHandler>[0]) => void;
+    /**
+     * Optional hook fired for every error caught (HttpError and otherwise).
+     * Use for alarm wiring (e.g., page on 500s) without coupling the
+     * middleware to a specific service.
+     */
+    onError?: (err: unknown, req: Parameters<RequestHandler>[0]) => void;
+}
+
+/**
+ * Terminal express error middleware. Install last, after all routes and
+ * controllers have been registered.
+ *
+ * Express 5 forwards thrown errors (sync and async) here automatically, so
+ * controllers and gate middlewares can simply `throw new HttpError(...)`.
+ *
+ * Response shape mirrors v1's `extensionController` and `api_error_handler`
+ * for wire-compat with existing clients:
+ * ```json
+ * {
+ *   "error": "<message>",
+ *   "code": "<legacyCode || code>",
+ *   "errorCode": "<code, only when both legacyCode and code are set>",
+ *   ...fields
+ * }
+ * ```
+ *
+ * Non-HttpError failures (programming bugs, unexpected exceptions) become
+ * a generic 500 response — no internal details leak. The full error is
+ * passed to `onUnhandled` for logging/alerting.
+ */
+export const createErrorHandler = (opts: ErrorHandlerOptions = {}): ErrorRequestHandler => {
+    const onUnhandled = opts.onUnhandled ?? ((err, req) => {
+        // eslint-disable-next-line no-console
+        console.error(`[v2] unhandled error on ${req.method} ${req.url}:`, err);
+    });
+
+    return (err, req, res, next): void => {
+        // If the response already started streaming, we can't send a JSON
+        // error. Defer to express's default handler to abort the connection.
+        if ( res.headersSent ) {
+            opts.onError?.(err, req);
+            next(err);
+            return;
+        }
+
+        if ( isHttpError(err) ) {
+            opts.onError?.(err, req);
+            res.status(err.statusCode).json(serializeHttpError(err));
+            return;
+        }
+
+        // Anything else is treated as an unexpected 500. We never serialize
+        // it back to the client to avoid leaking stack traces, internal
+        // error messages, etc.
+        opts.onError?.(err, req);
+        onUnhandled(err, req);
+        res.status(500).json({
+            error: 'Internal Server Error',
+            code: 'internal_error',
+        });
+    };
+};
+
+const serializeHttpError = (err: HttpError): Record<string, unknown> => {
+    const payload: Record<string, unknown> = {
+        error: err.message,
+    };
+
+    // `code` slot precedence: legacyCode wins for back-compat. If both are
+    // set, the modern code goes to `errorCode` so clients that key on either
+    // field find what they expect.
+    if ( err.legacyCode ) {
+        payload.code = err.legacyCode;
+        if ( err.code ) payload.errorCode = err.code;
+    } else if ( err.code ) {
+        payload.code = err.code;
+    }
+
+    if ( err.fields ) {
+        for ( const [k, v] of Object.entries(err.fields) ) {
+            // Don't let `fields` clobber the canonical `error` / `code` slots.
+            if ( k === 'error' || k === 'code' || k === 'errorCode' ) continue;
+            payload[k] = v;
+        }
+    }
+
+    return payload;
+};

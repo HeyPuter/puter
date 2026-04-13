@@ -4,16 +4,13 @@ import type { puterClients } from '../../clients';
 import type { SystemKVStore } from '../systemKv/SystemKVStore';
 import { PermissionUtil } from '../../services/permission/permissionUtil';
 import { PERM_KEY_PREFIX, PERMISSION_SCAN_CACHE_TTL_SECONDS } from '../../services/permission/consts';
+import type { UserRow } from '../user/UserStore';
+
+// Re-export for back-compat — PermissionService et al. import `UserRow` from here.
+// The canonical definition lives in `UserStore`, which owns the user table.
+export type { UserRow };
 
 // ── Types ────────────────────────────────────────────────────────────
-
-export interface UserRow {
-    id: number;
-    uuid: string;
-    username: string;
-    email?: string | null;
-    [k: string]: unknown;
-}
 
 export interface AppRow {
     id: number;
@@ -398,22 +395,7 @@ export class PermissionStore extends PuterStore {
         return rows.map(r => String(r.permission));
     }
 
-    // ── User/app lookups (minimal; move to dedicated stores later) ──
-
-    async getUserById (id: number): Promise<UserRow | null> {
-        const rows = await this.clients.db.read('SELECT * FROM `user` WHERE `id` = ? LIMIT 1', [id]);
-        return (rows[0] as UserRow | undefined) ?? null;
-    }
-
-    async getUserByUsername (username: string): Promise<UserRow | null> {
-        const rows = await this.clients.db.read('SELECT * FROM `user` WHERE `username` = ? LIMIT 1', [username]);
-        return (rows[0] as UserRow | undefined) ?? null;
-    }
-
-    async getUserByUuid (uuid: string): Promise<UserRow | null> {
-        const rows = await this.clients.db.read('SELECT * FROM `user` WHERE `uuid` = ? LIMIT 1', [uuid]);
-        return (rows[0] as UserRow | undefined) ?? null;
-    }
+    // ── App lookups (user lookups live on `stores.user`) ────────────
 
     async getAppByUid (uid: string): Promise<AppRow | null> {
         const rows = await this.clients.db.read('SELECT * FROM `app` WHERE `uid` = ? LIMIT 1', [uid]);
