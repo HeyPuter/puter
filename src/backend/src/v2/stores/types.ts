@@ -1,10 +1,23 @@
 import type { puterClients } from '../clients';
 import type { IConfig, LayerInstances, WithLifecycle } from '../types';
 
-export type IPuterStore<T extends WithLifecycle = WithLifecycle> = new (config: IConfig, clients: LayerInstances<typeof puterClients>) => T;
+/**
+ * Stores may depend on clients and on *prior* stores (those declared earlier
+ * in the registry). The `stores` argument is the accumulating registry — it
+ * only contains peers constructed before this one.
+ */
+export type IPuterStore<T extends WithLifecycle = WithLifecycle> = new (
+    config: IConfig,
+    clients: LayerInstances<typeof puterClients>,
+    stores: Partial<Record<string, WithLifecycle>>,
+) => T;
 
 export const PuterStore = class PuterStore implements WithLifecycle {
-    constructor (protected config: IConfig, protected clients: LayerInstances<typeof puterClients>) {
+    constructor (
+        protected config: IConfig,
+        protected clients: LayerInstances<typeof puterClients>,
+        protected stores: Partial<Record<string, WithLifecycle>> = {},
+    ) {
     }
     public onServerStart () {
         return;

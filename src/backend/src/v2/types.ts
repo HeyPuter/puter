@@ -24,6 +24,28 @@ export interface IRedisConfig {
     useMock?: boolean;
 }
 
+export interface IPagerConfig {
+    pagerduty?: {
+        enabled?: boolean;
+        routingKey?: string;
+    };
+}
+
+export interface IEmailConfig {
+    /** "From" address used when callers don't override. */
+    from?: string;
+    // nodemailer transport options (passed through as-is)
+    host?: string;
+    port?: number;
+    secure?: boolean;
+    auth?: {
+        user?: string;
+        pass?: string;
+    };
+    service?: string;
+    [key: string]: unknown;
+}
+
 export interface IConfig extends Partial<{
     s3: {
         localConfig: {
@@ -63,6 +85,15 @@ export interface IConfig extends Partial<{
     dynamo: IDynamoConfig;
     dynamoDb: IDynamoConfig;
     redis: IRedisConfig;
+    pager: IPagerConfig;
+    email: IEmailConfig;
+    serverId: string;
+    env: 'dev' | 'prod';
+    blockedEmailDomains: string[];
+    /** UID of the persistent group that non-temp users are enrolled in at signup. */
+    default_user_group: string;
+    /** UID of the persistent group that temporary users are enrolled in at signup. */
+    default_temp_group: string;
     services: {
         dynamo?: IDynamoConfig;
         redis?: IRedisConfig;

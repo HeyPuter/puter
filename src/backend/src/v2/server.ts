@@ -44,23 +44,23 @@ export class PuterServer {
             clientsContainers[clientName] = this.clients[clientName];
         }
 
-        this.stores = {} as typeof this.clients;
+        this.stores = {} as typeof this.stores;
         for ( const [storeName, StoreClass] of Object.entries(stores) ) {
-            this.stores[storeName] = (typeof StoreClass === 'object' ? StoreClass : (new (StoreClass as any)(this.#config, this.clients)) as any);
+            this.stores[storeName] = (typeof StoreClass === 'object' ? StoreClass : (new (StoreClass as any)(this.#config, this.clients, this.stores)) as any);
             storesContainers[storeName] = this.stores[storeName];
         }
         for ( const [storeName, StoreClass] of Object.entries(extensionStore.stores) ) {
-            this.stores[storeName] = (typeof StoreClass === 'object' ? StoreClass : (new (StoreClass as any)(this.#config, this.clients)) as any);
+            this.stores[storeName] = (typeof StoreClass === 'object' ? StoreClass : (new (StoreClass as any)(this.#config, this.clients, this.stores)) as any);
             storesContainers[storeName] = this.stores[storeName];
         }
 
         this.services = {} as typeof this.services;
         for ( const [serviceName, ServiceClass] of Object.entries(services) ) {
-            this.services[serviceName] = (typeof ServiceClass === 'object' ? ServiceClass : (new (ServiceClass as any)(this.#config, this.clients, this.stores)) as any);
+            this.services[serviceName] = (typeof ServiceClass === 'object' ? ServiceClass : (new (ServiceClass as any)(this.#config, this.clients, this.stores, this.services)) as any);
             servicesContainers[serviceName] = this.services[serviceName];
         }
         for ( const [serviceName, ServiceClass] of Object.entries(extensionStore.services) ) {
-            this.services[serviceName] = (typeof ServiceClass === 'object' ? ServiceClass : (new (ServiceClass as any)(this.#config, this.clients, this.stores)) as any);
+            this.services[serviceName] = (typeof ServiceClass === 'object' ? ServiceClass : (new (ServiceClass as any)(this.#config, this.clients, this.stores, this.services)) as any);
             servicesContainers[serviceName] = this.services[serviceName];
         }
 
