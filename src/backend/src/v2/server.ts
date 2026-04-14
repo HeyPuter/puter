@@ -22,7 +22,7 @@ import { createNotFoundHandler } from './core/http/middleware/notFoundHandler';
 import { PuterRouter } from './core/http/PuterRouter';
 import { PREFIX_METADATA_KEY, type RouteDescriptor } from './core/http/types';
 import type { AuthService } from './services/auth/AuthService';
-import { puterDrivers } from './drivers';
+import { puterDrivers, DriverRegistry, resolveDriverMeta } from './drivers';
 import { clientsContainers, controllersContainers, driversContainers, servicesContainers, storesContainers } from './exports';
 import { extensionStore } from './extensions';
 import { puterServices } from './services';
@@ -103,19 +103,33 @@ export class PuterServer {
             controllersContainers[controllerName] = this.controllers[controllerName];
         }
 
+        // Build the driver registry: instantiate each driver class, extract
+        // its interface/name metadata (from @Driver decorator or imperative
+        // properties), and register it. The registry is then made available
+        // to controllers via services.__driverRegistry.
+        const driverRegistry = new DriverRegistry();
+
         this.drivers = {} as typeof this.drivers;
-        for ( const [driverName, DriverClass] of Object.entries(drivers) ) {
-            this.drivers[driverName] = (typeof DriverClass === 'object'
+        const allDriverSources = [
+            ...Object.entries(drivers),
+            ...Object.entries(extensionStore.drivers),
+        ];
+        for ( const [driverKey, DriverClass] of allDriverSources ) {
+            const instance = (typeof DriverClass === 'object'
                 ? DriverClass
                 : (new (DriverClass as any)(this.#config, this.clients, this.stores, this.services)) as any);
-            driversContainers[driverName] = this.drivers[driverName];
+            this.drivers[driverKey] = instance;
+            driversContainers[driverKey] = instance;
+
+            // Register in the typed driver registry if metadata is present
+            const meta = resolveDriverMeta(instance);
+            if ( meta ) {
+                driverRegistry.register(meta, instance);
+            }
         }
-        for ( const [driverName, DriverClass] of Object.entries(extensionStore.drivers) ) {
-            this.drivers[driverName] = (typeof DriverClass === 'object'
-                ? DriverClass
-                : (new (DriverClass as any)(this.#config, this.clients, this.stores, this.services)) as any);
-            driversContainers[driverName] = this.drivers[driverName];
-        }
+
+        // Make the registry accessible to controllers (DriverController reads it)
+        (this.services as any).__driverRegistry = driverRegistry;
 
         // Register extension event listeners
         Object.entries(extensionStore.events).forEach(([event, handlers]) => {
