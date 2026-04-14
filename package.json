@@ -97,6 +97,8 @@
     "uuid": "^9.0.1"
   },
   "optionalDependencies": {
+    "@emnapi/core": "^1.9.2",
+    "@emnapi/runtime": "^1.9.2",
     "sharp": "^0.34.4",
     "sharp-bmp": "^0.1.5",
     "sharp-ico": "^0.1.5"
