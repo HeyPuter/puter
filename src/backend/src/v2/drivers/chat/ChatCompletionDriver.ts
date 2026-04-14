@@ -1,9 +1,12 @@
+import { PassThrough } from 'node:stream';
 import { HttpError } from '../../core/http/HttpError.js';
 import { Context } from '../../core/context.js';
 import { PuterDriver } from '../types.js';
+import type { DriverStreamResult } from '../DriverRegistry.js';
 import type { IChatProvider, IChatModel, ICompleteArguments, IChatCompleteResult } from './types.js';
-import { normalize_messages, normalize_single_message, extract_text } from './utils/Messages.js';
+import { normalize_messages, normalize_single_message } from './utils/Messages.js';
 import { normalize_tools_object } from './utils/FunctionCalling.js';
+import { AIChatStream } from './utils/Streaming.js';
 import { ClaudeProvider } from './providers/claude/ClaudeProvider.js';
 
 const MAX_FALLBACKS = 4; // includes first attempt
@@ -110,7 +113,7 @@ export class ChatCompletionDriver extends PuterDriver {
                     res = await fbProvider.complete({ ...args, model: fallback.id, provider: fallback.provider });
                     model = fallback;
                     lastError = null;
-                } catch (fbErr) {
+                } catch ( fbErr ) {
                     lastError = fbErr as Error;
                     attempts.push({ model: fallback.id, provider: fallback.provider!, error: lastError?.message ?? String(fbErr) });
                 }
@@ -118,7 +121,41 @@ export class ChatCompletionDriver extends PuterDriver {
         }
 
         if ( ! res ) {
-            throw new HttpError(502, 'All providers failed', { attempts });
+            throw new HttpError(502, 'All providers failed', { fields: { attempts } });
+        }
+
+        // Streaming result — create a PassThrough, kick off the provider's
+        // stream populator, and return a DriverStreamResult so the route
+        // handler pipes it to the HTTP response as chunked NDJSON.
+        if ( 'init_chat_stream' in res && res.init_chat_stream ) {
+            const passthrough = new PassThrough();
+            const chatStream = new AIChatStream({ stream: passthrough });
+            const init = res.init_chat_stream;
+            const cleanup = res.finally_fn;
+
+            // Fire-and-forget — the stream writes happen async while the
+            // response is being piped to the client.
+            (async () => {
+                try {
+                    await init({ chatStream });
+                } catch (e) {
+                    passthrough.write(`${JSON.stringify({
+                        type: 'error',
+                        message: (e as Error).message,
+                    })}\n`);
+                    passthrough.end();
+                } finally {
+                    if ( cleanup ) await cleanup();
+                }
+            })();
+
+            const streamResult: DriverStreamResult = {
+                dataType: 'stream',
+                content_type: 'application/x-ndjson',
+                chunked: true,
+                stream: passthrough,
+            };
+            return streamResult as unknown as IChatCompleteResult;
         }
 
         if ( args.response?.normalize && 'message' in res && res.message ) {
@@ -189,7 +226,7 @@ export class ChatCompletionDriver extends PuterDriver {
 
     #resolveModel (modelId: string, provider?: string): IChatModel | null {
         const models = this.#modelIdMap[modelId?.trim().toLowerCase()];
-        if ( ! models || models.length === 0 ) return null;
+        if ( !models || models.length === 0 ) return null;
         if ( ! provider ) return models[0];
         return models.find(m => m.provider === provider) ?? models[0];
     }

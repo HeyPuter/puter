@@ -1,8 +1,31 @@
+import type { Readable } from 'node:stream';
 import type { Request, Response } from 'express';
 import { HttpError } from '../core/http/HttpError.js';
 import type { PuterRouter } from '../core/http/PuterRouter.js';
 import type { PermissionService } from '../services/permission/PermissionService.js';
 import type { WithLifecycle } from '../types';
+
+// ── Stream result convention ────────────────────────────────────────
+//
+// Driver methods that return a stream instead of JSON wrap the readable
+// in this shape. The `/call` handler detects it and pipes to the HTTP
+// response instead of calling `res.json()`.
+
+export interface DriverStreamResult {
+    /** Discriminant — must be `'stream'`. */
+    dataType: 'stream';
+    /** MIME type sent as Content-Type (e.g. `'application/x-ndjson'`). */
+    content_type: string;
+    /** When true, sets `Transfer-Encoding: chunked`. */
+    chunked?: boolean;
+    /** The readable stream to pipe to the response. */
+    stream: Readable;
+}
+
+export function isDriverStreamResult (v: unknown): v is DriverStreamResult {
+    return !!v && typeof v === 'object' && (v as Record<string, unknown>).dataType === 'stream'
+        && 'stream' in v;
+}
 
 /**
  * Metadata keys stored on driver prototypes by the `@Driver` decorator.
@@ -170,6 +193,16 @@ export class DriverRegistry {
 
             // Invoke — driver reads actor/context via Context API, no drilled params
             const result = await (fn as Function).call(driver, args);
+
+            // Stream result — pipe directly to the HTTP response
+            if ( isDriverStreamResult(result) ) {
+                res.setHeader('Content-Type', result.content_type);
+                if ( result.chunked ) {
+                    res.setHeader('Transfer-Encoding', 'chunked');
+                }
+                result.stream.pipe(res);
+                return;
+            }
 
             res.json({
                 success: true,
