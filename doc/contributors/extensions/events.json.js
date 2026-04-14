@@ -710,20 +710,6 @@ export default [
         },
     },
     {
-        id: 'sns',
-        description: `
-            This event is emitted for sns operations.
-        `,
-        properties: {
-            message: {
-                type: 'any',
-                mutability: 'no-effect',
-                summary: 'message',
-                notes: [],
-            },
-        },
-    },
-    {
         id: 'template-service.hello',
         description: `
             This event is emitted for template-service hello operations.

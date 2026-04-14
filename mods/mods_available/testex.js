@@ -112,10 +112,6 @@ extension.on('request.measured', event => {
     console.log('GOT REQUEST.MEASURED EVENT', event);
 });
 
-extension.on('sns', event => {
-    console.log('GOT SNS EVENT', event);
-});
-
 extension.on('template-service.hello', event => {
     console.log('GOT TEMPLATE-SERVICE.HELLO EVENT', event);
 });

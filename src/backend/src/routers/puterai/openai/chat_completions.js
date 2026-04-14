@@ -119,6 +119,7 @@ module.exports = eggspress('/openai/v1/chat/completions', {
         ...(body.temperature !== undefined ? { temperature: body.temperature } : {}),
         ...(body.max_tokens !== undefined ? { max_tokens: body.max_tokens } : {}),
         ...(body.provider ? { provider: body.provider } : {}),
+        ...(body.image_config ? { image_config: body.image_config } : {}),
     };
 
     const completionId = `chatcmpl-${crypto.randomUUID().replace(/-/g, '')}`;
@@ -175,6 +176,9 @@ module.exports = eggspress('/openai/v1/chat/completions', {
                 }
                 if ( event.type === 'text' && typeof event.text === 'string' ) {
                     sendChunk({ content: event.text });
+                }
+                if ( event.type === 'image' && event.image ) {
+                    sendChunk({ images: [event.image] });
                 }
                 if ( event.type === 'tool_use' ) {
                     sawToolCalls = true;
@@ -235,6 +239,7 @@ module.exports = eggspress('/openai/v1/chat/completions', {
                     role: message.role || 'assistant',
                     content: contentText,
                     ...(toolCalls ? { tool_calls: toolCalls } : {}),
+                    ...(message.images ? { images: message.images } : {}),
                 },
                 logprobs: null,
                 finish_reason: result.finish_reason ?? 'stop',

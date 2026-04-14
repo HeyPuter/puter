@@ -179,6 +179,123 @@ const puterInit = (function () {
             this.path = path;
         };
 
+        normalizeAuthTokenCandidate = function (tokenCandidate) {
+            if ( typeof tokenCandidate !== 'string' ) return null;
+            const trimmedTokenCandidate = tokenCandidate.trim();
+            if (
+                !trimmedTokenCandidate ||
+                trimmedTokenCandidate === 'null' ||
+                trimmedTokenCandidate === 'undefined'
+            ) {
+                return null;
+            }
+            return trimmedTokenCandidate;
+        };
+
+        decodeJwtPayload = function (tokenCandidate) {
+            if ( typeof tokenCandidate !== 'string' ) return null;
+            const tokenParts = tokenCandidate.split('.');
+            if ( tokenParts.length < 2 ) return null;
+
+            let payloadPart = tokenParts[1];
+            payloadPart = payloadPart.replace(/-/g, '+').replace(/_/g, '/');
+            const missingPaddingLength = payloadPart.length % 4;
+            if ( missingPaddingLength ) {
+                payloadPart += '='.repeat(4 - missingPaddingLength);
+            }
+
+            try {
+                let decodedPayloadText;
+                if ( typeof globalThis.atob === 'function' ) {
+                    decodedPayloadText = decodeURIComponent(
+                        Array.prototype.map.call(
+                            globalThis.atob(payloadPart),
+                            character => `%${`00${character.charCodeAt(0).toString(16)}`.slice(-2)}`,
+                        ).join(''),
+                    );
+                } else if ( typeof globalThis.Buffer !== 'undefined' ) {
+                    decodedPayloadText = globalThis.Buffer
+                        .from(payloadPart, 'base64')
+                        .toString('utf8');
+                } else {
+                    return null;
+                }
+                const parsedPayload = JSON.parse(decodedPayloadText);
+                return parsedPayload && typeof parsedPayload === 'object'
+                    ? parsedPayload
+                    : null;
+            } catch {
+                return null;
+            }
+        };
+
+        normalizeStringCandidate = function (valueCandidate) {
+            if ( typeof valueCandidate !== 'string' ) return null;
+            const trimmedValueCandidate = valueCandidate.trim();
+            return trimmedValueCandidate || null;
+        };
+
+        decodeCompressedAppID = function (compressedAppIDCandidate) {
+            const normalizedCompressedAppID = this.normalizeStringCandidate(compressedAppIDCandidate);
+            if ( ! normalizedCompressedAppID ) return null;
+
+            // TokenService may already provide an expanded UID value.
+            if ( normalizedCompressedAppID.includes('-') ) {
+                return normalizedCompressedAppID;
+            }
+
+            try {
+                let decodedBytes;
+                if ( typeof globalThis.Buffer !== 'undefined' ) {
+                    decodedBytes = globalThis.Buffer.from(normalizedCompressedAppID, 'base64');
+                } else if ( typeof globalThis.atob === 'function' ) {
+                    const decodedBinary = globalThis.atob(normalizedCompressedAppID);
+                    decodedBytes = Uint8Array.from(
+                        decodedBinary,
+                        character => character.charCodeAt(0),
+                    );
+                } else {
+                    return null;
+                }
+
+                if ( !decodedBytes || decodedBytes.length !== 16 ) return null;
+
+                const decodedHex = (
+                    typeof globalThis.Buffer !== 'undefined' &&
+                    typeof globalThis.Buffer.isBuffer === 'function' &&
+                    globalThis.Buffer.isBuffer(decodedBytes)
+                )
+                    ? decodedBytes.toString('hex')
+                    : Array.from(decodedBytes)
+                        .map(byte => byte.toString(16).padStart(2, '0'))
+                        .join('');
+                if ( decodedHex.length !== 32 ) return null;
+
+                return `app-${
+                    [
+                        decodedHex.slice(0, 8),
+                        decodedHex.slice(8, 12),
+                        decodedHex.slice(12, 16),
+                        decodedHex.slice(16, 20),
+                        decodedHex.slice(20),
+                    ].join('-')
+                }`;
+            } catch {
+                return null;
+            }
+        };
+
+        getAppIDFromAuthToken = function (tokenCandidate) {
+            const payload = this.decodeJwtPayload(tokenCandidate);
+            if ( ! payload ) return null;
+
+            const uncompressedAppUid = this.normalizeStringCandidate(payload.app_uid);
+            if ( uncompressedAppUid ) return uncompressedAppUid;
+
+            // `auth` JWT scope may compress `app_uid` to `au`.
+            return this.decodeCompressedAppID(payload.au);
+        };
+
         // --------------------------------------------
         // Constructor
         // --------------------------------------------
@@ -193,18 +310,6 @@ const puterInit = (function () {
 
             // Holds the query parameters found in the current URL
             let URLParams = new URLSearchParams(globalThis.location?.search);
-            const normalizeAuthTokenCandidate = (tokenCandidate) => {
-                if ( typeof tokenCandidate !== 'string' ) return null;
-                const trimmedTokenCandidate = tokenCandidate.trim();
-                if (
-                    !trimmedTokenCandidate ||
-                    trimmedTokenCandidate === 'null' ||
-                    trimmedTokenCandidate === 'undefined'
-                ) {
-                    return null;
-                }
-                return trimmedTokenCandidate;
-            };
 
             // Figure out the environment in which the SDK is running
             if ( URLParams.has('puter.app_instance_id') ) {
@@ -339,25 +444,30 @@ const puterInit = (function () {
             // Loaded in an iframe in the Puter GUI (i.e. 'app')
             // When SDK is loaded in App mode the initiation process should start when the DOM is ready
             else if ( this.env === 'app' ) {
-                const bootstrapAuthToken = normalizeAuthTokenCandidate(
+                const bootstrapAuthToken = this.normalizeAuthTokenCandidate(
                     URLParams.get('puter.auth.token') ?? URLParams.get('auth_token'),
                 );
                 try {
+                    let selectedAuthToken = bootstrapAuthToken;
                     if ( bootstrapAuthToken ) {
                         this.setAuthToken(bootstrapAuthToken);
                     } else {
-                        const storedAuthToken = normalizeAuthTokenCandidate(
+                        const storedAuthToken = this.normalizeAuthTokenCandidate(
                             localStorage.getItem('puter.auth.token'),
                         );
                         // If the authToken is already set in localStorage, then we don't need to show the dialog
                         if ( storedAuthToken ) {
                             this.setAuthToken(storedAuthToken);
+                            selectedAuthToken = storedAuthToken;
                         }
                     }
-                    // if appID is already set in localStorage, then we don't need to show the dialog
-                    const storedAppID = localStorage.getItem('puter.app.id');
-                    if ( storedAppID ) {
-                        this.setAppID(storedAppID);
+                    const tokenAppID = this.getAppIDFromAuthToken(selectedAuthToken);
+                    if ( !tokenAppID && !this.appID ) {
+                        // if appID is already set in localStorage, then we don't need to show the dialog
+                        const storedAppID = localStorage.getItem('puter.app.id');
+                        if ( storedAppID ) {
+                            this.setAppID(storedAppID);
+                        }
                     }
                 } catch ( error ) {
                     // Handle the error here
@@ -373,11 +483,12 @@ const puterInit = (function () {
                 this.initSubmodules();
                 try {
                     // If the authToken is already set in localStorage, then we don't need to show the dialog
-                    if ( localStorage.getItem('puter.auth.token') ) {
-                        this.setAuthToken(localStorage.getItem('puter.auth.token'));
+                    const storedAuthToken = this.normalizeAuthTokenCandidate(localStorage.getItem('puter.auth.token'));
+                    if ( storedAuthToken ) {
+                        this.setAuthToken(storedAuthToken);
                     }
                     // if appID is already set in localStorage, then we don't need to show the dialog
-                    if ( localStorage.getItem('puter.app.id') ) {
+                    if ( !this.appID && localStorage.getItem('puter.app.id') ) {
                         this.setAppID(localStorage.getItem('puter.app.id'));
                     }
                 } catch ( error ) {
@@ -503,14 +614,27 @@ const puterInit = (function () {
                 console.error('Error accessing localStorage:', error);
             }
             this.appID = appID;
+            this.appDataPath = appID ? `~/AppData/${appID}` : undefined;
         };
 
         setAuthToken = function (authToken) {
-            this.authToken = authToken;
+            const normalizedAuthToken = this.normalizeAuthTokenCandidate(authToken);
+            this.authToken = normalizedAuthToken;
+
+            // Keep app identity consistent with token claims whenever available.
+            const tokenAppID = this.getAppIDFromAuthToken(normalizedAuthToken);
+            if ( tokenAppID ) {
+                this.setAppID(tokenAppID);
+            }
+
             // If the SDK is running on a 3rd-party site or an app, then save the authToken in localStorage
             if ( this.env === 'web' || this.env === 'app' ) {
                 try {
-                    localStorage.setItem('puter.auth.token', authToken);
+                    if ( normalizedAuthToken ) {
+                        localStorage.setItem('puter.auth.token', normalizedAuthToken);
+                    } else {
+                        localStorage.removeItem('puter.auth.token');
+                    }
                 } catch ( error ) {
                     // Handle the error here
                     console.error('Error accessing localStorage:', error);
@@ -880,8 +1004,14 @@ globalThis.addEventListener && globalThis.addEventListener('message', async (eve
         // puterDialog.close();
         // Set the authToken property
         puter.setAuthToken(event.data.token);
-        // update appID
-        puter.setAppID(event.data.app_uid);
+        // update appID only when token does not include app identity
+        const tokenAppID = puter.getAppIDFromAuthToken(event.data.token);
+        if ( !tokenAppID && !puter.appID ) {
+            const fallbackAppID = puter.normalizeStringCandidate(event.data.app_uid);
+            if ( fallbackAppID ) {
+                puter.setAppID(fallbackAppID);
+            }
+        }
         // Remove the event listener to avoid memory leaks
         // window.removeEventListener('message', messageListener);
 

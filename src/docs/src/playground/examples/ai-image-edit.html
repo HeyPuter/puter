@@ -1,0 +1,47 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+    (async () => {
+        const model = "gemini-3.1-flash-image-preview";
+
+        // Step 1: Generate initial image
+        puter.print("Step 1: Generating infographic...<br>");
+        const r1 = await puter.ai.chat("Create a simple infographic about photosynthesis", {
+            model,
+            image_config: { image_size: "1K" },
+        });
+        const img1 = r1.message.images?.[0]?.image_url?.url;
+        const thoughtSignature1 = r1.message.images?.[0]?.thoughtSignature;
+        if (img1) {
+            const el = document.createElement("img");
+            el.src = img1;
+            el.style.maxWidth = "512px";
+            document.body.appendChild(el);
+        }
+
+        // Step 2: Edit the image in a follow-up turn
+        puter.print("<br>Step 2: Translating to Spanish...<br>");
+        const r2 = await puter.ai.chat([
+            { role: "user", content: "Create a simple infographic about photosynthesis" },
+            { role: "assistant", content: [
+                { type: "text", text: r1.message.content },
+                { type: "image_url", image_url: { url: img1 }, thoughtSignature: thoughtSignature1 },
+            ]},
+            { role: "user", content: "Translate all text to Spanish. Keep everything else the same." },
+        ], {
+            model,
+            image_config: { aspect_ratio: "16:9", image_size: "2K" },
+        });
+        const img2 = r2.message.images?.[0]?.image_url?.url;
+        if (img2) {
+            const el = document.createElement("img");
+            el.src = img2;
+            el.style.maxWidth = "512px";
+            document.body.appendChild(el);
+        }
+        puter.print("<br>Done!");
+    })();
+    </script>
+</body>
+</html>

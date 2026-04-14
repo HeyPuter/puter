@@ -144,11 +144,7 @@ class TokenService extends BaseService {
 
         const jwt = require('jwt');
         const secret = this.secret;
-
-        const context = this.compression[scope];
-        const compressed_payload = this._compress_payload(context, payload);
-
-        return jwt.sign(compressed_payload, secret, options);
+        return jwt.sign(payload, secret, options);
     }
 
     verify (scope, token) {

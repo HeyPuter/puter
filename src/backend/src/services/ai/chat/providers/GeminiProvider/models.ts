@@ -1,5 +1,11 @@
 import { IChatModel } from '../types';
 
+export const GEMINI_IMAGE_CHAT_MODELS = [
+    'gemini-2.5-flash-image',
+    'gemini-3-pro-image-preview',
+    'gemini-3.1-flash-image-preview',
+];
+
 // Hardcoded from https://models.dev/api.json
 export const GEMINI_MODELS: IChatModel[] = [
     {
@@ -177,5 +183,73 @@ export const GEMINI_MODELS: IChatModel[] = [
             cached_tokens: 2.5,
         },
         max_tokens: 65536,
+    },
+    {
+        puterId: 'google:google/gemini-2.5-flash-image',
+        id: 'gemini-2.5-flash-image',
+        modalities: { 'input': ['text', 'image'], 'output': ['text', 'image'] },
+        open_weights: false,
+        tool_call: false,
+        knowledge: '2025-01',
+        release_date: '2025-03-20',
+        name: 'Gemini 2.5 Flash Image',
+        aliases: ['google/gemini-2.5-flash-image', 'gemini-2.5-flash-image-preview', 'google/gemini-2.5-flash-image-preview'],
+        context: 65_536,
+        costs_currency: 'usd-cents',
+        input_cost_key: 'prompt_tokens',
+        output_cost_key: 'completion_tokens',
+        costs: {
+            tokens: 1_000_000,
+            prompt_tokens: 30,
+            completion_tokens: 250,
+            output_image: 3_000,
+        },
+        max_tokens: 32_768,
+    },
+    {
+        puterId: 'google:google/gemini-3-pro-image-preview',
+        id: 'gemini-3-pro-image-preview',
+        modalities: { 'input': ['text', 'image'], 'output': ['text', 'image'] },
+        open_weights: false,
+        tool_call: false,
+        knowledge: '2025-01',
+        release_date: '2025-11-18',
+        name: 'Gemini 3 Pro Image',
+        aliases: ['google/gemini-3-pro-image-preview', 'gemini-3-pro-image', 'google/gemini-3-pro-image'],
+        context: 65_536,
+        costs_currency: 'usd-cents',
+        input_cost_key: 'prompt_tokens',
+        output_cost_key: 'completion_tokens',
+        allowedQualityLevels: ['1K', '2K', '4K'],
+        costs: {
+            tokens: 1_000_000,
+            prompt_tokens: 200,
+            completion_tokens: 1200,
+            output_image: 12_000,
+        },
+        max_tokens: 32_768,
+    },
+    {
+        puterId: 'google:google/gemini-3.1-flash-image-preview',
+        id: 'gemini-3.1-flash-image-preview',
+        modalities: { 'input': ['text', 'image'], 'output': ['text', 'image'] },
+        open_weights: false,
+        tool_call: false,
+        knowledge: '2025-01',
+        release_date: '2026-02-19',
+        name: 'Gemini 3.1 Flash Image',
+        aliases: ['google/gemini-3.1-flash-image-preview', 'gemini-3.1-flash-image', 'google/gemini-3.1-flash-image'],
+        context: 65_536,
+        costs_currency: 'usd-cents',
+        input_cost_key: 'prompt_tokens',
+        output_cost_key: 'completion_tokens',
+        allowedQualityLevels: ['512', '1K', '2K', '4K'],
+        costs: {
+            tokens: 1_000_000,
+            prompt_tokens: 25,
+            completion_tokens: 150,
+            output_image: 6_000,
+        },
+        max_tokens: 32_768,
     },
 ];

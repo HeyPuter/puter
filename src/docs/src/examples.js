@@ -86,6 +86,18 @@ const examples = [
                 source: '/playground/examples/ai-web-search.html',
             },
             {
+                title: 'Image Generation',
+                description: 'Generate images using Gemini image models with Puter.js AI API. Run and experiment with this example directly in the playground.',
+                slug: 'ai-image-chat',
+                source: '/playground/examples/ai-image-chat.html',
+            },
+            {
+                title: 'Multi-Turn Image Editing',
+                description: 'Edit images iteratively using multi-turn conversations with Gemini image models. Run and experiment with this example directly in the playground.',
+                slug: 'ai-image-edit',
+                source: '/playground/examples/ai-image-edit.html',
+            },
+            {
                 title: 'AI Resume Analyzer (File handling)',
                 description: 'Try an AI resume analyzer with file handling and GPT integration. Run and experiment with this Puter.js example directly in your browser.',
                 slug: 'ai-resume-analyzer',

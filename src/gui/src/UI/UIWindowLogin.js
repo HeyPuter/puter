@@ -39,7 +39,14 @@ async function UIWindowLogin (options) {
 
     if ( options.redirect_url === undefined )
     {
-        options.redirect_url = window.location.href;
+        if ( window.location?.href?.toLowerCase().endsWith('/action/login') )
+        {
+            options.redirect_url = '/';
+        }
+        else
+        {
+            options.redirect_url = window.location.href;
+        }
     }
 
     return new Promise(async (resolve) => {

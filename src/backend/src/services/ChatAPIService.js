@@ -64,6 +64,7 @@ class ChatAPIService extends BaseService {
         router.use(require('../routers/puterai/openai/chat_completions'));
         router.use(require('../routers/puterai/openai/responses'));
         router.use(require('../routers/puterai/anthropic/messages'));
+        router.use(require('../routers/puterai/video/proxy'));
         // Endpoint to list available AI chat models
         router.use(eggspress('/chat/models', {
             allowedMethods: ['GET'],
