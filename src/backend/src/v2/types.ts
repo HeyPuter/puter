@@ -100,6 +100,26 @@ export interface IConfig extends Partial<{
     jwt_secret: string;
     /** Name of the session cookie the auth probe reads. */
     cookie_name: string;
+    /** Primary domain for Puter (e.g., `puter.localhost`, `puter.com`). Used for host validation, CORS, and root-origin gating. */
+    domain: string;
+    /** Static hosting domain for user sites (e.g., `puter.site`). */
+    static_hosting_domain: string;
+    /** Alt static hosting domain. */
+    static_hosting_domain_alt: string;
+    /** Private app hosting domain (e.g., `app.puter.localhost`). */
+    private_app_hosting_domain: string;
+    /** Alt private app hosting domain. */
+    private_app_hosting_domain_alt: string;
+    /** When true, accept any Host header value. Dev/testing only. */
+    allow_all_host_values: boolean;
+    /** When true, accept requests without a Host header. */
+    allow_no_host_header: boolean;
+    /** When true, allow nip.io wildcard domains. */
+    allow_nipio_domains: boolean;
+    /** When true, support custom domain resolution for hosted sites. */
+    custom_domains_enabled: boolean;
+    /** When true, enable IP validation via event bus. */
+    enable_ip_validation: boolean;
     services: {
         dynamo?: IDynamoConfig;
         redis?: IRedisConfig;

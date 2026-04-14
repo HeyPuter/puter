@@ -3,7 +3,7 @@ import type { AuthService } from '../../../services/auth/AuthService';
 
 // Ensure the `Request.actor` / `Request.token` augmentation is in scope
 // wherever this middleware is imported.
-import '../../../services/auth/types';
+import '../expressAugmentation';
 
 interface AuthProbeOptions {
     authService: AuthService;

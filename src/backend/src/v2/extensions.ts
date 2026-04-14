@@ -1,11 +1,22 @@
 import type { RequestHandler } from 'express';
 import type { IPuterClientRegistry } from './clients/types';
 import type { IPuterControllerRegistry } from './controllers/types';
+import type {
+    RouteDescriptor,
+    RouteMethod,
+    RouteOptions,
+    RoutePath,
+} from './core/http/types';
 import type { IPuterDriverRegistry } from './drivers/types';
 import { clientsContainers, controllersContainers, driversContainers, servicesContainers, storesContainers } from './exports';
 import type { IPuterServiceRegistry } from './services/types';
 import type { IPuterStoreRegistry } from './stores/types';
 
+/**
+ * The in-memory registry an extension's module-scope code writes into, and
+ * that `PuterServer` drains during boot. Every field is optional at write
+ * time — an extension that only needs routes never touches the registries.
+ */
 export const extensionStore = {
     clients: {} as IPuterClientRegistry,
     stores: {} as IPuterStoreRegistry,
@@ -13,16 +24,78 @@ export const extensionStore = {
     controllers: {} as IPuterControllerRegistry,
     drivers: {} as IPuterDriverRegistry,
     events: {} as Record<string, ((eventData: unknown, metadata: object) => void)[]>,
-    routeHandlers: [] as { method: string; path: string; handler: RequestHandler, options: unknown, middleware: unknown }[],
+    /**
+     * Extension-declared routes. Shape matches the controller-layer
+     * `RouteDescriptor`, so both flow through the same materializer
+     * (`PuterServer#materializeRoute`) and inherit the same options →
+     * middleware translation (subdomain, auth, body parsers, ...).
+     */
+    routeHandlers: [] as RouteDescriptor[],
 };
+
+/**
+ * Internal: normalize `(path, handler)` or `(path, options, handler)` into
+ * a single `RouteDescriptor` the server can materialize. Matches the
+ * convention used by v1's extensionController decorators so existing
+ * extensions that pass `(path, options, handler)` keep working.
+ */
+const pushRoute = (
+    method: RouteMethod,
+    path: RoutePath,
+    optionsOrHandler: RouteOptions | RequestHandler,
+    maybeHandler?: RequestHandler,
+): void => {
+    const handler = typeof optionsOrHandler === 'function'
+        ? optionsOrHandler
+        : maybeHandler;
+    const options = typeof optionsOrHandler === 'function'
+        ? {}
+        : optionsOrHandler;
+    if ( ! handler ) {
+        throw new Error(`extension.${method}('${String(path)}', ...) missing handler`);
+    }
+    extensionStore.routeHandlers.push({ method, path, options, handler });
+};
+
+interface ExtensionRouteFn {
+    (path: RoutePath, handler: RequestHandler): void;
+    (path: RoutePath, options: RouteOptions, handler: RequestHandler): void;
+}
+
+const makeRouteFn = (method: RouteMethod): ExtensionRouteFn => {
+    return ((path: RoutePath, optionsOrHandler: RouteOptions | RequestHandler, maybeHandler?: RequestHandler) => {
+        pushRoute(method, path, optionsOrHandler, maybeHandler);
+    }) as ExtensionRouteFn;
+};
+
+/**
+ * Global `extension` API available inside every dynamically-loaded extension
+ * module. Exposes:
+ *
+ *   - Registry writers: `registerClient`, `registerStore`, `registerService`,
+ *     `registerController`, `registerDriver`.
+ *   - Event subscription: `on(event, handler)`.
+ *   - Imperative route registration: `get`, `post`, `put`, `delete`, `patch`,
+ *     `head`, `options`, `all`, `use`. Each accepts the same `RouteOptions`
+ *     vocabulary used by controllers (subdomain, requireAuth, bodyJson, …)
+ *     so extension routes get identical gate + parser treatment.
+ *   - Back-reference lookup: `import('service:foo')` / `'client:bar'` /
+ *     `'store:baz'` / `'controller:qux'` / `'driver:fred'` — returns a lazy
+ *     proxy to the registered instance (thrown on use-before-init).
+ */
 export const extension = {
+    // ── Event subscription ───────────────────────────────────────────
+
     // TODO DS: type eventData somehow
-    on: (event: string, handler: (eventData: unknown, metadata: object) => void ) => {
+    on: (event: string, handler: (eventData: unknown, metadata: object) => void) => {
         if ( ! extensionStore.events[event] ) {
             extensionStore.events[event] = [];
         }
         extensionStore.events[event].push(handler);
     },
+
+    // ── Registry writers ─────────────────────────────────────────────
+
     registerClient: (name: string, client: IPuterClientRegistry[keyof IPuterClientRegistry]) => {
         extensionStore.clients[name] = client;
     },
@@ -39,80 +112,90 @@ export const extension = {
         extensionStore.drivers[name] = driver;
     },
 
-    get: (path: string, handler: RequestHandler, options: unknown, middleware: unknown) => {
-        extensionStore.routeHandlers.push({ method: 'get', path, handler, options, middleware });
-    },
-    post: (path: string, handler: RequestHandler, options: unknown, middleware: unknown) => {
-        extensionStore.routeHandlers.push({ method: 'post', path, handler, options, middleware });
-    },
-    put: (path: string, handler: RequestHandler, options: unknown, middleware: unknown) => {
-        extensionStore.routeHandlers.push({ method: 'put', path, handler, options, middleware });
-    },
-    delete: (path: string, handler: RequestHandler, options: unknown, middleware: unknown) => {
-        extensionStore.routeHandlers.push({ method: 'delete', path, handler, options, middleware });
-    },
-    patch: (path: string, handler: RequestHandler, options: unknown, middleware: unknown) => {
-        extensionStore.routeHandlers.push({ method: 'patch', path, handler, options, middleware });
-    },
-    use: (path: string, handler: RequestHandler, options: unknown, middleware: unknown) => {
-        extensionStore.routeHandlers.push({ method: 'use', path, handler, options, middleware });
-    },
+    // ── Route registration ───────────────────────────────────────────
+    //
+    // Supports two call shapes per verb:
+    //   extension.get('/path', handler)
+    //   extension.get('/path', options, handler)
+    //
+    // The `options` object is the same `RouteOptions` shape controllers use,
+    // so everything that works on a controller route (subdomain, requireAuth,
+    // requireUserActor, adminOnly, allowedAppIds, middleware, bodyJson,
+    // bodyRaw, bodyText, bodyUrlencoded) works here identically.
+
+    get: makeRouteFn('get'),
+    post: makeRouteFn('post'),
+    put: makeRouteFn('put'),
+    delete: makeRouteFn('delete'),
+    patch: makeRouteFn('patch'),
+    head: makeRouteFn('head'),
+    options: makeRouteFn('options'),
+    all: makeRouteFn('all'),
+    use: makeRouteFn('use'),
+
+    // ── Import proxy ─────────────────────────────────────────────────
+
     import: (name: string) => {
         const container = name.split(':')[0];
         switch ( container ) {
             case 'client':{
                 const proxyHandler = {
-                    get: (_target, prop: string) => {
-                        const proxiedObj =  clientsContainers[prop];
+                    get: (_target: object, prop: string) => {
+                        const proxiedObj = clientsContainers[prop];
                         if ( ! proxiedObj ) {
                             throw new Error(`Called before initialization: ${name}.${prop}`);
                         }
                         return proxiedObj;
-                    } };
+                    },
+                };
                 return new Proxy({}, proxyHandler);
             }
             case 'store':{
                 const proxyHandler = {
-                    get: (_target, prop: string) => {
-                        const proxiedObj =  storesContainers[prop];
+                    get: (_target: object, prop: string) => {
+                        const proxiedObj = storesContainers[prop];
                         if ( ! proxiedObj ) {
                             throw new Error(`Called before initialization: ${name}.${prop}`);
                         }
                         return proxiedObj;
-                    } };
+                    },
+                };
                 return new Proxy({}, proxyHandler);
             }
             case 'service':{
                 const proxyHandler = {
-                    get: (_target, prop: string) => {
-                        const proxiedObj =  servicesContainers[prop];
+                    get: (_target: object, prop: string) => {
+                        const proxiedObj = servicesContainers[prop];
                         if ( ! proxiedObj ) {
                             throw new Error(`Called before initialization: ${name}.${prop}`);
                         }
                         return proxiedObj;
-                    } };
+                    },
+                };
                 return new Proxy({}, proxyHandler);
             }
             case 'controller':{
                 const proxyHandler = {
-                    get: (_target, prop: string) => {
-                        const proxiedObj =  controllersContainers[prop];
+                    get: (_target: object, prop: string) => {
+                        const proxiedObj = controllersContainers[prop];
                         if ( ! proxiedObj ) {
                             throw new Error(`Called before initialization: ${name}.${prop}`);
                         }
                         return proxiedObj;
-                    } };
+                    },
+                };
                 return new Proxy({}, proxyHandler);
             }
             case 'driver':{
                 const proxyHandler = {
-                    get: (_target, prop: string) => {
-                        const proxiedObj =  driversContainers[prop];
+                    get: (_target: object, prop: string) => {
+                        const proxiedObj = driversContainers[prop];
                         if ( ! proxiedObj ) {
                             throw new Error(`Called before initialization: ${name}.${prop}`);
                         }
                         return proxiedObj;
-                    } };
+                    },
+                };
                 return new Proxy({}, proxyHandler);
             }
             default:
@@ -121,4 +204,5 @@ export const extension = {
     },
 };
 
-globalThis.extension = extension;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+(globalThis as any).extension = extension;

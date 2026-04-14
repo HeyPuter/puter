@@ -50,7 +50,14 @@ export interface RouteOptions {
     /** Extra per-route middleware. Applied after built-in gates, before the handler. */
     middleware?: RequestHandler[];
 
-    /** Skip this route (via `next('route')`) when the request's leftmost subdomain doesn't match. */
+    /**
+     * Subdomain routing. If set, the route only matches requests whose
+     * leftmost subdomain is in this list (via `next('route')` skip).
+     *
+     * If omitted, verb-routes (get/post/etc.) are restricted to the root
+     * origin only (no subdomain). Pass `'*'` to explicitly match ANY
+     * subdomain/root. `use()` middleware is not gated by default.
+     */
     subdomain?: string | string[];
 
     /** Reject anonymous + suspended-user requests with 401/403. */
@@ -70,9 +77,45 @@ export interface RouteOptions {
     /** Reject unless the actor is acting through one of these apps. Implies `requireAuth`. */
     allowedAppIds?: string[];
 
+    /**
+     * Per-route JSON body parsing override. By default the global parser
+     * handles every `application/json` request with a 50mb limit and stashes
+     * the raw bytes on `req.rawBody` for signature-verification use cases.
+     *
+     * Use this option only when a route needs different parser settings:
+     *   - `false` — opt out of parsing entirely (rare; the route reads the
+     *     raw stream itself, e.g. some webhook proxies). The global parser
+     *     will still have already run if the content-type was JSON, so this
+     *     is mostly useful for routes that accept *non*-JSON body shapes
+     *     and want to ensure no further parsers attach.
+     *   - `{ limit, type }` — override the limit (e.g., for ML endpoints
+     *     that legitimately need 100mb) or the matched content-type list
+     *     (e.g., to ALSO accept `application/x-ndjson`).
+     */
+    bodyJson?: false | { limit?: string; type?: string | string[] };
+
+    /**
+     * Per-route raw (Buffer) body parser. Use for binary uploads where the
+     * route handler wants `req.body: Buffer` directly. Default content-type
+     * match is `application/octet-stream`; pass `type` to override.
+     */
+    bodyRaw?: boolean | { limit?: string; type?: string | string[] };
+
+    /**
+     * Per-route text body parser. `req.body` becomes a string. Default
+     * content-type match is `text/plain`.
+     */
+    bodyText?: boolean | { limit?: string; type?: string | string[] };
+
+    /**
+     * Per-route urlencoded form parser. `req.body` becomes a parsed object.
+     * Default `extended: true` (uses `qs`); pass `extended: false` for the
+     * built-in `querystring` parser.
+     */
+    bodyUrlencoded?: boolean | { limit?: string; extended?: boolean };
+
     // Reserved — wire as the corresponding features/services land:
-    // bodyJson?: boolean | { limit?: string };
-    // bodyFiles?: string[];
+    // bodyFiles?: string[];      // multer-style multipart fields
     // responseTimeout?: number;
     // requireVerified?: boolean;
     // antiCsrf?: boolean;

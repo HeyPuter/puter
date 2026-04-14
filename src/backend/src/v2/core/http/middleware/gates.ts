@@ -2,7 +2,7 @@ import type { RequestHandler } from 'express';
 import { HttpError } from '../HttpError';
 
 // Make sure the `Express.Request.actor` augmentation is in scope.
-import '../../../services/auth/types';
+import '../expressAugmentation';
 
 /**
  * Per-route gate middlewares.

@@ -1,4 +1,6 @@
-import type { Actor } from '../../core/actor';
+// Express `Request` augmentations live in `v2/core/http/expressAugmentation.ts`
+// — auth-related fields (`actor`, `token`) are declared there alongside the
+// other request-level fields populated by global middleware.
 
 // ── Token payload shapes (after `TokenService.verify` decompression) ──
 
@@ -70,29 +72,6 @@ export interface SessionRow {
     user_id: number;
     created_at?: string | number | null;
     [k: string]: unknown;
-}
-
-// ── Express Request augmentation ────────────────────────────────────
-//
-// The auth probe populates `req.actor` when a valid token is present.
-// Declared here (rather than next to the middleware) so it's picked up
-// globally by any file that imports express types.
-
-declare global {
-    // eslint-disable-next-line @typescript-eslint/no-namespace
-    namespace Express {
-        interface Request {
-            /**
-             * Populated by the global auth probe when a valid token is
-             * attached to the request (Bearer header, auth_token body/query,
-             * session cookie, or socket handshake). Absent for anonymous
-             * requests — route-level gates decide whether to reject.
-             */
-            actor?: Actor;
-            /** The raw token string, if one was presented and parsed. */
-            token?: string;
-        }
-    }
 }
 
 export {};

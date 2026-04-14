@@ -1,10 +1,15 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
+import compression from 'compression';
+import cookieParser from 'cookie-parser';
 import express from 'express';
 import type { Application, RequestHandler } from 'express';
+import helmet from 'helmet';
+import uaParser from 'ua-parser-js';
 import { readdirSync, readFileSync } from 'node:fs';
 import { puterClients } from './clients';
 import { puterControllers } from './controllers';
 import { createAuthProbe } from './core/http/middleware/authProbe';
+import { createRequestContextMiddleware } from './core/http/middleware/requestContext';
 import { createErrorHandler } from './core/http/middleware/errorHandler';
 import {
     adminOnlyGate,
@@ -119,10 +124,14 @@ export class PuterServer {
             });
         });
 
-        // TODO DS: register routes properly with options and middleware
-        extensionStore.routeHandlers.forEach(({ method, path, handler }) => {
-            (this.#app)[method](path, handler);
-        });
+        // Extension routes are shaped as `RouteDescriptor`s too, so they
+        // flow through the same materializer as controller routes — same
+        // option → middleware translation (subdomain, auth, body parsers, …).
+        // The extension-layer "prefix" is always empty; extensions compose
+        // their own path strings.
+        for ( const route of extensionStore.routeHandlers ) {
+            this.#materializeRoute(this.#app, '', route);
+        }
 
         // Terminal middleware MUST install last — after every route + extension
         // route is registered, so the catch-all 404 only fires for genuinely
@@ -144,8 +153,82 @@ export class PuterServer {
      *     `#materializeRoute` as those options ship.
      */
     #installGlobalMiddleware () {
-        this.#app.use(express.json({ limit: '50mb' }));
+        // ── Cookie parsing ──────────────────────────────────────────
+        this.#app.use(cookieParser());
 
+        // ── Compression ─────────────────────────────────────────────
+        this.#app.use(compression());
+
+        // ── Security headers (helmet) ───────────────────────────────
+        this.#app.use(helmet.noSniff());
+        this.#app.use(helmet.hsts());
+        this.#app.use(helmet.ieNoOpen());
+        this.#app.use(helmet.permittedCrossDomainPolicies());
+        this.#app.use(helmet.xssFilter());
+        this.#app.disable('x-powered-by');
+
+        // Cross-Origin-Resource-Policy: always allow cross-origin reads.
+        // The stricter COOP+COEP pair (for SharedArrayBuffer) is deferred
+        // until the hosting layer lands — it requires UA + context gating.
+        this.#app.use((_req, res, next) => {
+            res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+            next();
+        });
+
+        // ── Query param sanitization ────────────────────────────────
+        // Strip non-primitive query values. Express 5's default simple
+        // parser mostly avoids these, but when `extended` qs is enabled
+        // (or a client tricks the parser) arrays/objects can sneak in.
+        this.#app.use((req, _res, next) => {
+            if ( req.query ) {
+                const allowed = ['string', 'number', 'boolean'];
+                for ( const k of Object.keys(req.query) ) {
+                    const v = req.query[k];
+                    if ( v != null && !allowed.includes(typeof v) ) {
+                        delete req.query[k];
+                    }
+                }
+            }
+            next();
+        });
+
+        // ── UA parsing ──────────────────────────────────────────────
+        this.#app.use((req, _res, next) => {
+            const header = req.headers['user-agent'];
+            if ( header ) {
+                req.ua = uaParser(header);
+            }
+            next();
+        });
+
+        // ── Host header validation ──────────────────────────────────
+        this.#installHostValidation();
+
+        // ── CORS headers ────────────────────────────────────────────
+        this.#installCors();
+
+        // ── IP validation ───────────────────────────────────────────
+        if ( this.#config.enable_ip_validation ) {
+            this.#installIpValidation();
+        }
+
+        // ── OPTIONS preflight ───────────────────────────────────────
+        this.#app.options('/*splat', (_req, res) => {
+            res.sendStatus(200);
+        });
+
+        // ── Body parsing (JSON + text-as-json shim) ─────────────────
+        const captureRawBody: NonNullable<Parameters<typeof express.json>[0]>['verify'] = (req, _res, buf) => {
+            (req as { rawBody?: Buffer }).rawBody = Buffer.from(buf);
+        };
+        this.#app.use(express.json({ limit: '50mb', verify: captureRawBody }));
+        this.#app.use(express.json({
+            limit: '50mb',
+            type: (req) => req.headers['content-type'] === 'text/plain;actually=json',
+            verify: captureRawBody,
+        }));
+
+        // ── Auth probe ──────────────────────────────────────────────
         const authService = this.services.auth as AuthService | undefined;
         if ( authService ) {
             this.#app.use(createAuthProbe({
@@ -153,6 +236,153 @@ export class PuterServer {
                 cookieName: this.#config.cookie_name,
             }));
         }
+
+        // ── Per-request ALS context ─────────────────────────────────
+        // Runs AFTER auth probe so `req.actor` is already populated when
+        // we snapshot it into the context.
+        this.#app.use(createRequestContextMiddleware());
+    }
+
+    // ── Host header validation ──────────────────────────────────────
+
+    #installHostValidation () {
+        const config = this.#config;
+
+        // Hostname missing — malformed request from a broken client.
+        this.#app.use((req, res, next) => {
+            if ( req.hostname === undefined ) {
+                res.status(400).send('Please verify your browser is up-to-date.');
+                return;
+            }
+            next();
+        });
+
+        // Build the allowed-domain set from config.
+        this.#app.use((req, res, next) => {
+            if ( config.allow_all_host_values ) {
+                next();
+                return;
+            }
+
+            if ( !config.allow_no_host_header && !req.headers.host ) {
+                res.status(400).send('Missing Host header.');
+                return;
+            }
+
+            // /healthcheck is always reachable regardless of host.
+            if ( req.path === '/healthcheck' ) {
+                next();
+                return;
+            }
+
+            const hostName = (req.headers.host ?? '').split(':')[0].trim().toLowerCase();
+            const allowed = this.#getAllowedDomains();
+
+            if ( allowed.some(d => PuterServer.#hostMatchesDomain(hostName, d)) ) {
+                next();
+                return;
+            }
+
+            if ( config.custom_domains_enabled ) {
+                req.is_custom_domain = true;
+                next();
+                return;
+            }
+
+            res.status(400).send('Invalid Host header.');
+        });
+    }
+
+    #allowedDomainsCache: string[] | null = null;
+
+    #getAllowedDomains (): string[] {
+        if ( this.#allowedDomainsCache ) return this.#allowedDomainsCache;
+        const cfg = this.#config;
+        const raw = [
+            cfg.domain,
+            cfg.static_hosting_domain,
+            cfg.static_hosting_domain_alt,
+            cfg.private_app_hosting_domain,
+            cfg.private_app_hosting_domain_alt,
+        ];
+        const staticDomain = PuterServer.#normalizeDomain(cfg.static_hosting_domain);
+        if ( staticDomain ) raw.push(`at.${staticDomain}`);
+        if ( cfg.allow_nipio_domains ) raw.push('nip.io');
+
+        this.#allowedDomainsCache = raw
+            .map(PuterServer.#normalizeDomain)
+            .filter((d): d is string => d !== null);
+        return this.#allowedDomainsCache;
+    }
+
+    static #normalizeDomain (d: string | undefined | null): string | null {
+        if ( !d || typeof d !== 'string' ) return null;
+        const trimmed = d.trim().toLowerCase();
+        return trimmed.length > 0 ? trimmed : null;
+    }
+
+    static #hostMatchesDomain (hostname: string, domain: string): boolean {
+        return hostname === domain || hostname.endsWith(`.${domain}`);
+    }
+
+    // ── CORS headers ─────────────────────────────────────────────────
+
+    #installCors () {
+        const config = this.#config;
+        const allowedMethods = 'GET, POST, OPTIONS, PUT, PATCH, DELETE, PROPFIND, PROPPATCH, MKCOL, COPY, MOVE, LOCK, UNLOCK';
+        const allowedHeaders = [
+            'Origin', 'X-Requested-With', 'Content-Type', 'Accept',
+            'Authorization', 'sentry-trace', 'baggage',
+            'Depth', 'Destination', 'Overwrite', 'If', 'Lock-Token', 'DAV',
+            'stripe-signature',
+        ].join(', ');
+
+        this.#app.use((req, res, next) => {
+            const origin = req.headers.origin;
+            const subdomain = req.subdomains?.[req.subdomains.length - 1];
+            const isApiOrDav = subdomain === 'api' || subdomain === 'dav';
+            const isCrossOriginAuthRoute =
+                req.path === '/signup'
+                || req.path === '/login'
+                || req.path.startsWith('/extensions/')
+                || req.path.startsWith('/auth/oidc');
+
+            // Allow-Origin for API/DAV + auth routes
+            if ( isCrossOriginAuthRoute || isApiOrDav ) {
+                res.setHeader('Access-Control-Allow-Origin', origin ?? '*');
+                if ( origin ) res.vary('Origin');
+            }
+
+            // Credentials on API/DAV cross-origin
+            if ( isApiOrDav && origin ) {
+                res.setHeader('Access-Control-Allow-Credentials', 'true');
+            }
+
+            res.setHeader('Access-Control-Allow-Methods', allowedMethods);
+            res.setHeader('Access-Control-Allow-Headers', allowedHeaders);
+
+            // Disable iframes on the main domain
+            if ( req.hostname === config.domain ) {
+                res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+            }
+
+            next();
+        });
+    }
+
+    // ── IP validation ───────────────────────────────────────────────
+
+    #installIpValidation () {
+        this.#app.use(async (req, res, next) => {
+            const ip = req.headers?.['x-forwarded-for'] ?? req.socket?.remoteAddress;
+            const event = { allow: true, ip };
+            this.clients.event.emit('ip.validate', event, {});
+            if ( ! event.allow ) {
+                res.status(403).send('Forbidden');
+                return;
+            }
+            next();
+        });
     }
 
     /**
@@ -196,19 +426,33 @@ export class PuterServer {
         const mwChain: RequestHandler[] = [];
         const opts = route.options;
 
-        // Built-in gates, in execution order. Implication graph:
-        //   adminOnly       => requireUserActor => requireAuth
-        //   allowedAppIds   => requireAuth
-        //   requireUserActor => requireAuth
-        // We dedupe by only pushing requireAuthGate once when *any* of these
-        // are set.
-
-        // 1. Subdomain check first — wrong subdomain calls next('route')
-        // and skips the rest of the chain cheaply.
+        // 1. Subdomain routing. Routes that specify `subdomain` only match
+        // that subdomain(s). Routes WITHOUT a `subdomain` option (and that
+        // aren't `use` middleware) are restricted to the root origin — this
+        // prevents API-subdomain requests from accidentally hitting a root-
+        // only route. Explicit `subdomain: '*'` disables the gate entirely.
         if ( opts.subdomain !== undefined ) {
-            mwChain.push(subdomainGate(opts.subdomain));
+            if ( opts.subdomain !== '*' ) {
+                mwChain.push(subdomainGate(opts.subdomain));
+            }
+            // subdomain: '*' → no gate, match any subdomain
+        } else if ( route.method !== 'use' ) {
+            // No subdomain specified + not a `use()` middleware → root only.
+            // Root = no subdomain present (req.subdomains is empty).
+            mwChain.push((req, _res, next) => {
+                if ( req.subdomains && req.subdomains.length > 0 ) {
+                    next('route');
+                    return;
+                }
+                next();
+            });
         }
 
+        // 2. Auth gates. Implication graph:
+        //   adminOnly        => requireUserActor => requireAuth
+        //   allowedAppIds    => requireAuth
+        //   requireUserActor => requireAuth
+        // Dedupe: only push requireAuthGate once when *any* of these are set.
         const needsAuth = Boolean(
             opts.requireAuth
             || opts.requireUserActor
@@ -229,7 +473,46 @@ export class PuterServer {
             mwChain.push(allowedAppIdsGate(opts.allowedAppIds));
         }
 
-        // Caller-supplied middleware runs after gates, before the handler.
+        // 3. Per-route body parsers. Each is a no-op when the request's
+        // content-type doesn't match — multiple can coexist. The global
+        // `application/json` parser already ran in `#installGlobalMiddleware`,
+        // so by default the only reason to opt into one of these is to handle
+        // a non-JSON body shape (raw bytes, plain text, urlencoded form) or
+        // to override JSON limits on a hot path.
+        // bodyJson is `false | { limit?, type? }`. Truthiness check excludes
+        // both `undefined` (no opt) and `false` (explicit opt-out).
+        if ( opts.bodyJson ) {
+            mwChain.push(express.json({
+                limit: opts.bodyJson.limit,
+                type: opts.bodyJson.type,
+            }));
+        }
+
+        if ( opts.bodyRaw ) {
+            const raw = opts.bodyRaw === true ? {} : opts.bodyRaw;
+            mwChain.push(express.raw({
+                limit: raw.limit,
+                type: raw.type,
+            }));
+        }
+
+        if ( opts.bodyText ) {
+            const text = opts.bodyText === true ? {} : opts.bodyText;
+            mwChain.push(express.text({
+                limit: text.limit,
+                type: text.type,
+            }));
+        }
+
+        if ( opts.bodyUrlencoded ) {
+            const ue = opts.bodyUrlencoded === true ? {} : opts.bodyUrlencoded;
+            mwChain.push(express.urlencoded({
+                limit: ue.limit,
+                extended: ue.extended ?? true,
+            }));
+        }
+
+        // 4. Caller-supplied middleware runs after gates + parsers, before the handler.
         if ( opts.middleware ) mwChain.push(...opts.middleware);
 
         const fullPath = route.path !== undefined
