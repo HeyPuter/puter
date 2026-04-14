@@ -18,6 +18,7 @@
         "dist",
         "volatile",
         "extensions",
-        "src/backend/src/services/worker/template/puter-portable.js"
+        "src/backend/src/services/worker/template/puter-portable.js",
+        "src/backend/src/services/DynamoKVStore/DynamoKVStore.ts"
     ]
 }

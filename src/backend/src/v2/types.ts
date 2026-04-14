@@ -120,6 +120,18 @@ export interface IConfig extends Partial<{
     custom_domains_enabled: boolean;
     /** When true, enable IP validation via event bus. */
     enable_ip_validation: boolean;
+    /** Default S3 bucket for file storage. */
+    s3_bucket: string;
+    /** Default S3 region. */
+    s3_region: string;
+    /** Fallback AWS region. */
+    region: string;
+    /** Default storage capacity per user (bytes). */
+    storage_capacity: number;
+    /** When false, storage is effectively unlimited (bounded by device space). */
+    is_storage_limited: boolean;
+    /** Bytes of device storage available (used when is_storage_limited=false). */
+    available_device_storage: number;
     services: {
         dynamo?: IDynamoConfig;
         redis?: IRedisConfig;

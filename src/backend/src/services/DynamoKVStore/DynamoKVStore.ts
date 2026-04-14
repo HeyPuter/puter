@@ -238,7 +238,7 @@ export class DynamoKVStore {
     }
 
     @Span('kv:del')
-    async del ({ key, optConfig}: { key: string;optConfig?: { appUuid?: string } }): Promise<boolean> {
+    async del ({ key, optConfig }: { key: string;optConfig?: { appUuid?: string } }): Promise<boolean> {
         const actor = Context.get('actor');
 
         const app = actor.type?.app ?? undefined;
@@ -489,7 +489,7 @@ export class DynamoKVStore {
     }
 
     @Span('kv:expireAt')
-    async expireAt ({ key, timestamp, optConfig}: { key: string; timestamp: number;optConfig?: { appUuid?: string } }): Promise<void> {
+    async expireAt ({ key, timestamp, optConfig }: { key: string; timestamp: number;optConfig?: { appUuid?: string } }): Promise<void> {
         if ( key === '' ) {
             throw APIError.create('field_empty', null, {
                 key: 'key',
@@ -502,7 +502,7 @@ export class DynamoKVStore {
     }
 
     @Span('kv:expire')
-    async expire ({ key, ttl, optConfig}: { key: string; ttl: number; optConfig?: { appUuid?: string } }): Promise<void> {
+    async expire ({ key, ttl, optConfig }: { key: string; ttl: number; optConfig?: { appUuid?: string } }): Promise<void> {
         if ( key === '' ) {
             throw APIError.create('field_empty', null, {
                 key: 'key',
@@ -606,6 +606,7 @@ export class DynamoKVStore {
     }
 
     // Ideally the paths support syntax like "a.b[2].c"
+    // @ts-expect-error — generic return type doesn't survive the Span decorator signature
     @Span('kv:incr')
     async incr<T extends Record<string, number>>({ key, pathAndAmountMap, optConfig }: { key: string; pathAndAmountMap: T;optConfig?: { appUuid?: string } }): Promise<T extends { '': number; } ? number : RecursiveRecord<number>> {
         if ( Object.values(pathAndAmountMap).find((v) => typeof v !== 'number') ) {
@@ -674,7 +675,7 @@ export class DynamoKVStore {
     }
 
     @Span('kv:add')
-    async add ({ key, pathAndValueMap, optConfig}: { key: string; pathAndValueMap: Record<string, unknown>; optConfig?: { appUuid?: string } }): Promise<unknown> {
+    async add ({ key, pathAndValueMap, optConfig }: { key: string; pathAndValueMap: Record<string, unknown>; optConfig?: { appUuid?: string } }): Promise<unknown> {
         if ( !pathAndValueMap || Object.keys(pathAndValueMap).length === 0 ) {
             throw new Error('invalid use of #add: no pathAndValueMap');
         }

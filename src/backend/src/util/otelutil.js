@@ -84,10 +84,9 @@ export const span = async (label, fn, options, tracer) =>
     await spanify(label, fn, options, tracer)();
 
 /** @type {(label: string, options?: object | unknown, tracer?: unknown) => MethodDecorator} */
-export const Span = (label, options, tracer) => (_target, _propertyKey, descriptor) => {
-    if ( !descriptor || typeof descriptor.value !== 'function' ) return descriptor;
-    descriptor.value = spanify(label, descriptor.value, options, tracer);
-    return descriptor;
+export const Span = (label, options, tracer) => (value, _context) => {
+    if ( typeof value !== 'function' ) return value;
+    return spanify(label, value, options, tracer);
 };
 
 export const abtest = async (label, impls) => {

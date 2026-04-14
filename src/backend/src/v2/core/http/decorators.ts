@@ -100,12 +100,13 @@ export function Controller (prefix: string = '') {
 
 // ── Method decorators (@Get, @Post, ...) ───────────────────────────
 
-type MethodTarget = (...args: unknown[]) => unknown;
+// eslint-disable-next-line @typescript-eslint/no-unsafe-function-type
+type AnyMethod = Function;
 
 const createMethodDecorator = (method: Exclude<RouteMethod, 'use'>) => {
     return (path: RoutePath, options: RouteOptions = {}) => {
         return (
-            target: MethodTarget,
+            target: AnyMethod,
             context: ClassMethodDecoratorContext,
         ): void => {
             context.addInitializer(function () {
