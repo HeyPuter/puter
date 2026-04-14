@@ -1,6 +1,6 @@
 import { AbortMultipartUploadCommand, CompleteMultipartUploadCommand, CopyObjectCommand, CreateMultipartUploadCommand, DeleteObjectCommand, GetObjectCommand, PutObjectCommand, UploadPartCommand, UploadPartCopyCommand } from '@aws-sdk/client-s3';
-import BaseService from '@heyputer/backend/src/services/BaseService.js';
-import { Context } from '@heyputer/backend/src/util/context.js';
+import BaseService from '../../services/BaseService.js';
+import { Context } from '../../util/context.js';
 import { TeePromise } from '@heyputer/putility/src/libs/promise.js';
 import { Readable } from 'stream';
 import { s3ClientProvider } from '../../clients/s3/s3ClientProvider.js';

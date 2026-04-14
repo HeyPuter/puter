@@ -22,6 +22,7 @@ import { createNotFoundHandler } from './core/http/middleware/notFoundHandler';
 import { PuterRouter } from './core/http/PuterRouter';
 import { PREFIX_METADATA_KEY, type RouteDescriptor } from './core/http/types';
 import type { AuthService } from './services/auth/AuthService';
+import type { PermissionService } from './services/permission/PermissionService';
 import { puterDrivers, DriverRegistry, resolveDriverMeta } from './drivers';
 import { clientsContainers, controllersContainers, driversContainers, servicesContainers, storesContainers } from './exports';
 import { extensionStore } from './extensions';
@@ -105,9 +106,10 @@ export class PuterServer {
 
         // Build the driver registry: instantiate each driver class, extract
         // its interface/name metadata (from @Driver decorator or imperative
-        // properties), and register it. The registry is then made available
-        // to controllers via services.__driverRegistry.
+        // properties), and register it. The registry owns its own HTTP
+        // endpoints — no separate controller needed.
         const driverRegistry = new DriverRegistry();
+        driverRegistry.setPermissionService(this.services.permission as unknown as PermissionService);
 
         this.drivers = {} as typeof this.drivers;
         const allDriverSources = [
@@ -128,8 +130,13 @@ export class PuterServer {
             }
         }
 
-        // Make the registry accessible to controllers (DriverController reads it)
-        (this.services as any).__driverRegistry = driverRegistry;
+        // Materialize driver routes — the registry registers them on a
+        // PuterRouter and we materialize just like controller routes.
+        const driverRouter = new PuterRouter('/drivers');
+        driverRegistry.registerRoutes(driverRouter);
+        for ( const route of driverRouter.routes ) {
+            this.#materializeRoute(this.#app, driverRouter.prefix, route);
+        }
 
         // Register extension event listeners
         Object.entries(extensionStore.events).forEach(([event, handlers]) => {

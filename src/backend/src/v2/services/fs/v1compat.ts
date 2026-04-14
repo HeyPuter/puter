@@ -24,7 +24,7 @@ let v1ContextLoaded = false;
 async function loadV1Context (): Promise<void> {
     if ( v1ContextLoaded ) return;
     try {
-        const mod = await import('../../../util/context.js');
+        const mod = await import('../../legacy/util/context.js');
         V1Context = mod.Context ?? (mod as { default?: { Context?: unknown } }).default?.Context ?? null;
     } catch {
         // v1 context module not available — legacy routes won't work
@@ -67,7 +67,7 @@ export const createV1ContextShim = (): RequestHandler => {
             await ctx.arun(async () => {
                 // Some v1 code also expects these on the context
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                const v1Ctx = await import('../../../util/context.js') as any;
+                const v1Ctx = await import('../../legacy/util/context.js') as any;
                 const currentCtx = v1Ctx.Context.get(undefined, { allow_fallback: true });
                 if ( currentCtx?.set && req.actor ) {
                     // Bridge v2 actor to v1 actor shape if v1 auth hasn't run yet

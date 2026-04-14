@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 const APIError = require('../../../api/APIError.js');
+const { Context } = require('../../../util/context.js');
 const { relativeSelector } = require('../../../deprecated/filesystem/node/selectors.js');
 const ERR_INVALID_PATHREF = 'Invalid path reference in path: ';
 const ERR_UNKNOWN_PATHREF = 'Unknown path reference in path: ';
@@ -41,7 +42,10 @@ module.exports = class PathResolver {
 
         this.listeners = {};
 
-        this.log = globalThis.services.get('log-service').create('path-resolver');
+        const services = Context.get('services');
+        this.log = services
+            ? services.get('log-service').create('path-resolver')
+            : { info () {}, warn () {}, error () {} };
     }
 
     /**

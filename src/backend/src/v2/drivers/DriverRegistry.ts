@@ -1,3 +1,7 @@
+import type { Request, Response } from 'express';
+import { HttpError } from '../core/http/HttpError.js';
+import type { PuterRouter } from '../core/http/PuterRouter.js';
+import type { PermissionService } from '../services/permission/PermissionService.js';
 import type { WithLifecycle } from '../types';
 
 /**
@@ -40,19 +44,9 @@ export function resolveDriverMeta (driver: WithLifecycle & Record<string, unknow
         ?? (driver.isDefault as boolean | undefined)
         ?? false;
 
-    if ( ! interfaceName || ! driverName ) return null;
+    if ( !interfaceName || !driverName ) return null;
 
     return { interfaceName, driverName, isDefault };
-}
-
-// ── Driver method type ──────────────────────────────────────────────
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type DriverMethod = (args: any, context?: DriverCallContext) => Promise<unknown>;
-
-export interface DriverCallContext {
-    actor?: unknown;
-    test_mode?: boolean;
 }
 
 // ── Registry ────────────────────────────────────────────────────────
@@ -62,14 +56,19 @@ export interface DriverCallContext {
  * named implementations.
  *
  * Populated by `PuterServer` during boot from both the built-in driver
- * registry and extension-registered drivers. Consumed by `DriverController`
- * to resolve `/drivers/call` requests.
+ * registry and extension-registered drivers. The registry owns the
+ * `/drivers/*` HTTP endpoints directly — no separate controller needed.
  */
 export class DriverRegistry {
     /** iface → Map<driverName, driverInstance> */
     #drivers = new Map<string, Map<string, WithLifecycle & Record<string, unknown>>>();
     /** iface → default driver name */
     #defaults = new Map<string, string>();
+    #permService: PermissionService | undefined;
+
+    setPermissionService (svc: PermissionService): void {
+        this.#permService = svc;
+    }
 
     register (meta: DriverMeta, instance: WithLifecycle & Record<string, unknown>): void {
         let ifaceMap = this.#drivers.get(meta.interfaceName);
@@ -82,7 +81,7 @@ export class DriverRegistry {
         }
         ifaceMap.set(meta.driverName, instance);
 
-        if ( meta.isDefault || ! this.#defaults.has(meta.interfaceName) ) {
+        if ( meta.isDefault || !this.#defaults.has(meta.interfaceName) ) {
             this.#defaults.set(meta.interfaceName, meta.driverName);
         }
     }
@@ -115,5 +114,82 @@ export class DriverRegistry {
     /** Get the default driver name for an interface. */
     getDefault (interfaceName: string): string | undefined {
         return this.#defaults.get(interfaceName);
+    }
+
+    // ── HTTP endpoints ──────────────────────────────────────────────
+
+    /**
+     * Register the `/drivers/*` routes on the given router.
+     * Called by PuterServer after all drivers have been registered.
+     */
+    registerRoutes (router: PuterRouter): void {
+        router.post('/call', { subdomain: 'api', requireAuth: true }, async (req: Request, res: Response) => {
+            const {
+                interface: ifaceName,
+                method,
+                driver: driverName,
+                args = {},
+            } = req.body ?? {};
+
+            if ( !ifaceName || typeof ifaceName !== 'string' ) {
+                throw new HttpError(400, 'Missing or invalid `interface`');
+            }
+            if ( !method || typeof method !== 'string' ) {
+                throw new HttpError(400, 'Missing or invalid `method`');
+            }
+
+            // Resolve driver
+            const driver = this.resolve(ifaceName, driverName);
+            if ( ! driver ) {
+                const resolvedName = driverName ?? this.getDefault(ifaceName);
+                throw new HttpError(404, `Driver not found: ${ifaceName}:${resolvedName ?? '(no default)'}`);
+            }
+
+            // Check method exists
+            const fn = driver[method];
+            if ( typeof fn !== 'function' ) {
+                throw new HttpError(404, `Method '${method}' not found on driver '${ifaceName}'`);
+            }
+
+            // Resolve the driver name for permission keys
+            const resolvedDriverName = (driver as Record<string, unknown>).driverName
+                ?? (Object.getPrototypeOf(driver) as Record<string, unknown>).__driverName
+                ?? driverName
+                ?? 'unknown';
+
+            // Permission check
+            if ( req.actor && this.#permService ) {
+                const permKey = `service:${resolvedDriverName}:ii:${ifaceName}`;
+                const hasPermission = await this.#permService.check(req.actor, permKey);
+                if ( ! hasPermission ) {
+                    throw new HttpError(403, `Permission denied for ${ifaceName}:${method}`, {
+                        legacyCode: 'forbidden',
+                    });
+                }
+            }
+
+            // Invoke — driver reads actor/context via Context API, no drilled params
+            const result = await (fn as Function).call(driver, args);
+
+            res.json({
+                success: true,
+                result,
+                service: { name: resolvedDriverName },
+            });
+        });
+
+        router.get('/list-interfaces', { subdomain: 'api', requireAuth: true }, async (_req: Request, res: Response) => {
+            const interfaces = this.listInterfaces();
+            const result: Record<string, { drivers: string[]; default: string | undefined }> = {};
+
+            for ( const iface of interfaces ) {
+                result[iface] = {
+                    drivers: this.listDrivers(iface),
+                    default: this.getDefault(iface),
+                };
+            }
+
+            res.json(result);
+        });
     }
 }
