@@ -1,5 +1,5 @@
 import type { IPuterDriverRegistry } from './types';
-import { ChatCompletionDriver } from './chat/ChatCompletionDriver';
+import { ChatCompletionDriver } from './ai-chat/ChatCompletionDriver';
 import { KVStoreDriver } from './kv/KVStoreDriver';
 
 export { DriverRegistry, resolveDriverMeta } from './DriverRegistry';

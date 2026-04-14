@@ -3,6 +3,7 @@ import type { Message } from '@anthropic-ai/sdk/resources';
 import type { BetaUsage } from '@anthropic-ai/sdk/resources/beta.js';
 import type { MessageCreateParams, Usage } from '@anthropic-ai/sdk/resources/messages.js';
 import { Context } from '../../../../core/context.js';
+import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import type { IChatProvider, ICompleteArguments, IChatCompleteResult } from '../../types.js';
 import { make_claude_tools } from '../../utils/FunctionCalling.js';
 import { extract_and_remove_system_messages } from '../../utils/Messages.js';
@@ -12,7 +13,10 @@ import { CLAUDE_MODELS } from './models.js';
 export class ClaudeProvider implements IChatProvider {
     anthropic: Anthropic;
 
-    constructor (config: { apiKey: string }) {
+    #meteringService: MeteringService;
+
+    constructor (meteringService: MeteringService, config: { apiKey: string }) {
+        this.#meteringService = meteringService;
         this.anthropic = new Anthropic({
             apiKey: config.apiKey,
             timeout: 10 * 60 * 1001,
@@ -89,7 +93,7 @@ export class ClaudeProvider implements IChatProvider {
             if ( message.role !== 'tool' ) return message;
 
             const toolUseId = message.tool_call_id || message.tool_use_id;
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
             const contentValue = (() => {
                 if ( Array.isArray(message.content) ) {
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -125,7 +129,11 @@ export class ClaudeProvider implements IChatProvider {
             message.content = message.content.map((part: any) => {
                 if ( part?.type !== 'tool_use' ) return part;
                 if ( typeof part.input === 'string' ) {
-                    try { part.input = JSON.parse(part.input); } catch { part.input = {}; }
+                    try {
+                        part.input = JSON.parse(part.input);
+                    } catch {
+                        part.input = {};
+                    }
                 } else if ( part.input === undefined || part.input === null ) {
                     part.input = {};
                 }
@@ -180,8 +188,12 @@ export class ClaudeProvider implements IChatProvider {
                             usageSum[key] = Math.max(usageSum[key] ?? 0, meteredData[key as keyof typeof meteredData]);
                         }
                     }
-                    if ( event.type === 'message_start' ) { message = chatStream.message(); continue; }
-                    if ( event.type === 'message_stop' ) { message!.end(); message = null; continue; }
+                    if ( event.type === 'message_start' ) {
+                        message = chatStream.message(); continue;
+                    }
+                    if ( event.type === 'message_stop' ) {
+                        message!.end(); message = null; continue;
+                    }
                     if ( event.type === 'content_block_start' ) {
                         currentContentBlockType = event.content_block.type;
                         if ( event.content_block.type === 'tool_use' ) {
@@ -227,19 +239,21 @@ export class ClaudeProvider implements IChatProvider {
                     }
                 }
                 chatStream.end(usageSum);
-
-                // TODO: metering — record usage with actor + model
-                void actor; // suppress unused warning until metering lands
+                const costsOverrideFromModel = this.#buildCostsOverrideFromModel(usageSum, modelUsed);
+                this.#meteringService.utilRecordUsageObject(usageSum, actor, `claude:${modelUsed.id}`, costsOverrideFromModel);
             };
 
-            return { init_chat_stream, stream: true, finally_fn: async () => {} };
+            return {
+                init_chat_stream,
+                stream: true,
+                finally_fn: async () => {
+                } };
         }
 
         const msg = await this.anthropic.messages.create(sdkParams);
         const usage = this.#usageFormatterUtil((msg as Message).usage as Usage | BetaUsage);
-
-        // TODO: metering — record usage with actor + model
-        void actor;
+        const costsOverrideFromModel = this.#buildCostsOverrideFromModel(usage, modelUsed);
+        this.#meteringService.utilRecordUsageObject(usage, actor, `claude:${modelUsed.id}`, costsOverrideFromModel);
 
         return { message: msg, usage, finish_reason: 'stop' };
     }
@@ -254,6 +268,13 @@ export class ClaudeProvider implements IChatProvider {
             output_tokens: usage?.output_tokens || 0,
             thinking_tokens: usage?.thinking_tokens || usage?.output_tokens_details?.thinking_tokens || 0,
         };
+    }
+
+    #buildCostsOverrideFromModel (usage: Record<string, number>, modelUsed: { costs: Record<string, number> }) {
+        return Object.fromEntries(Object.entries(usage).map(([k, v]) => {
+            const modelCost = modelUsed.costs[k] ?? (k === 'thinking_tokens' ? modelUsed.costs.output_tokens : 0);
+            return [k, v * modelCost];
+        }));
     }
 
     #buildThinkingConfig ({ reasoningEffort, maxTokens }: {
@@ -276,7 +297,6 @@ export class ClaudeProvider implements IChatProvider {
         return { type: 'enabled' as const, budget_tokens };
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     checkModeration (_text: string): never {
         throw new Error('CheckModeration not provided by Claude provider.');
     }

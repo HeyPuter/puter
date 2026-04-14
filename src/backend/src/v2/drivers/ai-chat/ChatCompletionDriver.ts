@@ -6,8 +6,20 @@ import type { DriverStreamResult } from '../DriverRegistry.js';
 import type { IChatProvider, IChatModel, ICompleteArguments, IChatCompleteResult } from './types.js';
 import { normalize_messages, normalize_single_message } from './utils/Messages.js';
 import { normalize_tools_object } from './utils/FunctionCalling.js';
+import type { MeteringService } from '../../services/metering/MeteringService.js';
 import { AIChatStream } from './utils/Streaming.js';
 import { ClaudeProvider } from './providers/claude/ClaudeProvider.js';
+import { OpenAiChatProvider } from './providers/openai/OpenAiChatCompletionsProvider.js';
+import { OpenAiResponsesChatProvider } from './providers/openai/OpenAiChatResponsesProvider.js';
+import { GeminiChatProvider } from './providers/gemini/GeminiChatProvider.js';
+import { GroqAIProvider } from './providers/groq/GroqAIProvider.js';
+import { DeepSeekProvider } from './providers/deepseek/DeepSeekProvider.js';
+import { MistralAIProvider } from './providers/mistral/MistralAiProvider.js';
+import { XAIProvider } from './providers/xai/XAIProvider.js';
+import { OpenRouterProvider } from './providers/openrouter/OpenRouterProvider.js';
+import { TogetherAIProvider } from './providers/together/TogetherAIProvider.js';
+import { OllamaChatProvider } from './providers/ollama/OllamaProvider.js';
+import { FakeChatProvider } from './providers/FakeChatProvider.js';
 
 const MAX_FALLBACKS = 4; // includes first attempt
 
@@ -28,6 +40,10 @@ export class ChatCompletionDriver extends PuterDriver {
 
     #providers: Record<string, IChatProvider> = {};
     #modelIdMap: Record<string, IChatModel[]> = {};
+
+    private get metering (): MeteringService {
+        return this.services.metering as unknown as MeteringService;
+    }
 
     override onServerStart () {
         this.#registerProviders();
@@ -172,15 +188,62 @@ export class ChatCompletionDriver extends PuterDriver {
         const cfg = this.config as any;
         const providers = cfg?.providers ?? cfg?.services ?? {};
 
+        const m = this.metering;
+
         const claudeConfig = providers['claude'];
         if ( claudeConfig?.apiKey ) {
-            this.#providers['claude'] = new ClaudeProvider(claudeConfig);
+            this.#providers['claude'] = new ClaudeProvider(m, claudeConfig);
         }
 
-        // TODO: register additional providers (OpenAI, Gemini, Groq, etc.)
-        // Each follows the same pattern:
-        //   const config = providers['openai-completion'];
-        //   if ( config?.apiKey ) this.#providers['openai-completion'] = new OpenAiChatProvider(config);
+        const openAiConfig = providers['openai-completion'] ?? cfg?.openai;
+        if ( openAiConfig?.apiKey || openAiConfig?.secret_key ) {
+            this.#providers['openai-completion'] = new OpenAiChatProvider(m, openAiConfig);
+            this.#providers['openai-responses'] = new OpenAiResponsesChatProvider(m, openAiConfig);
+        }
+
+        const geminiConfig = providers['gemini'];
+        if ( geminiConfig?.apiKey ) {
+            this.#providers['gemini'] = new GeminiChatProvider(m, geminiConfig);
+        }
+
+        const groqConfig = providers['groq'];
+        if ( groqConfig?.apiKey ) {
+            this.#providers['groq'] = new GroqAIProvider(groqConfig, m);
+        }
+
+        const deepSeekConfig = providers['deepseek'];
+        if ( deepSeekConfig?.apiKey ) {
+            this.#providers['deepseek'] = new DeepSeekProvider(deepSeekConfig, m);
+        }
+
+        const mistralConfig = providers['mistral'];
+        if ( mistralConfig?.apiKey ) {
+            this.#providers['mistral'] = new MistralAIProvider(mistralConfig, m);
+        }
+
+        const xaiConfig = providers['xai'];
+        if ( xaiConfig?.apiKey ) {
+            this.#providers['xai'] = new XAIProvider(xaiConfig, m);
+        }
+
+        const openrouterConfig = providers['openrouter'];
+        if ( openrouterConfig?.apiKey ) {
+            this.#providers['openrouter'] = new OpenRouterProvider(openrouterConfig, m);
+        }
+
+        const togetherConfig = providers['together-ai'];
+        if ( togetherConfig?.apiKey ) {
+            this.#providers['together-ai'] = new TogetherAIProvider(togetherConfig, m);
+        }
+
+        // Ollama — auto-discover local instance
+        const ollamaConfig = providers['ollama'];
+        if ( ollamaConfig?.enabled !== false ) {
+            this.#providers['ollama'] = new OllamaChatProvider(ollamaConfig, m);
+        }
+
+        // Fake provider — always available for testing
+        this.#providers['fake-chat'] = new FakeChatProvider();
     }
 
     // ── Model map ───────────────────────────────────────────────────
