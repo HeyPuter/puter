@@ -262,8 +262,14 @@ export const initializeS3Config = async (forceLocalInMem = false) => {
                 },
             });
 
+            let s3Endpoint = fauxqsServer.address;
+            // WSL Quirk!
+            if ( s3Endpoint.includes('10.255.255.254') ) {
+                s3Endpoint = s3Endpoint.replace('10.255.255.254', '127.0.0.1');
+            }
+
             awsClientConfig = {
-                endpoint: fauxqsServer.address,
+                endpoint: s3Endpoint,
                 credentials: {
                     accessKeyId: 'fakeAccessKeyId',
                     secretAccessKey: 'fakeSecretAccessKey',
