@@ -374,18 +374,20 @@ window.check_fsentry_against_allowed_file_types_string = function (fsentry, allo
         $elem.data('taphold_cancelled', false); // If event has been cancelled.
 
         // Set the timer for the hold event.
-        $elem.data('taphold_timer',
-                        setTimeout(function ()
-                        {
-                            // If event hasn't been cancelled/clicked already, then go ahead and trigger the hold.
-                            if ( !$elem.data('taphold_cancelled')
-                                && !$elem.data('taphold_clicked') )
-                            {
-                                // Trigger the hold event, and set the flag to say it's been triggered.
-                                $elem.trigger(jQuery.extend(event, jQuery.Event('taphold')));
-                                $elem.data('taphold_triggered', true);
-                            }
-                        }, settings.duration));
+        $elem.data(
+            'taphold_timer',
+            setTimeout(function ()
+            {
+                // If event hasn't been cancelled/clicked already, then go ahead and trigger the hold.
+                if ( !$elem.data('taphold_cancelled')
+                    && !$elem.data('taphold_clicked') )
+                {
+                    // Trigger the hold event, and set the flag to say it's been triggered.
+                    $elem.trigger(jQuery.extend(event, jQuery.Event('taphold')));
+                    $elem.data('taphold_triggered', true);
+                }
+            }, settings.duration),
+        );
     }
 
     // When user ends a tap or click, decide what we should do.
@@ -724,8 +726,10 @@ window.get_apps = async (app_names, callback) => {
         })();
 
         for ( const name of uniqueMissing ) {
-            getAppsInflight.set(name,
-                            fetchPromise.then((appMap) => appMap.get(name) ?? null));
+            getAppsInflight.set(
+                name,
+                fetchPromise.then((appMap) => appMap.get(name) ?? null),
+            );
         }
 
         pendingPromises.push(fetchPromise.then((appMap) => {
@@ -2028,85 +2032,86 @@ window.upload_items = async function (items, dest_path) {
     }
 
     puter.fs.upload(
-                    // what to upload
-                    items,
-                    // where to upload
-                    dest_path,
-                    // options
-                    {
-                        generateThumbnails: true,
-                        // init
-                        init: async (operation_id, xhr) => {
-                            opid = operation_id;
-                            // create upload progress window
-                            upload_progress_window = await UIWindowProgress({
-                                title: i18n('upload'),
-                                icon: window.icons['app-icon-uploader.svg'],
-                                operation_id: operation_id,
-                                show_progress: true,
-                                on_cancel: () => {
-                                    window.show_save_account_notice_if_needed();
-                                    xhr.abort();
-                                },
-                            });
-                            // add to active_uploads
-                            window.active_uploads[opid] = 0;
-                        },
-                        // start
-                        start: async function () {
-                            // change upload progress window message to uploading
-                            upload_progress_window.set_status('Uploading');
-                            upload_progress_window.set_progress(0);
-                        },
-                        // progress
-                        progress: async function (operation_id, op_progress) {
-                            upload_progress_window.set_progress(op_progress);
-                            // update active_uploads
-                            window.active_uploads[opid] = op_progress;
-                            // update title if window is not visible
-                            if ( document.visibilityState !== 'visible' ) {
-                                update_title_based_on_uploads();
-                            }
-                        },
-                        // success
-                        success: async function (items) {
-                            // DONE
-                            // Add action to actions_history for undo ability
-                            const files = [];
-                            if ( typeof items[Symbol.iterator] === 'function' ) {
-                                for ( const item of items ) {
-                                    files.push(item.path);
-                                }
-                            } else {
-                                files.push(items.path);
-                            }
+        // what to upload
+        items,
+        // where to upload
+        dest_path,
+        // options
+        {
+            generateThumbnails: true,
+            // init
+            init: async (operation_id, xhr) => {
+                opid = operation_id;
+                // create upload progress window
+                upload_progress_window = await UIWindowProgress({
+                    title: i18n('upload'),
+                    icon: window.icons['app-icon-uploader.svg'],
+                    operation_id: operation_id,
+                    show_progress: true,
+                    on_cancel: () => {
+                        window.show_save_account_notice_if_needed();
+                        xhr.abort();
+                    },
+                });
+                // add to active_uploads
+                window.active_uploads[opid] = 0;
+            },
+            // start
+            start: async function () {
+                // change upload progress window message to uploading
+                upload_progress_window.set_status('Uploading');
+                upload_progress_window.set_progress(0);
+            },
+            // progress
+            progress: async function (operation_id, op_progress) {
+                upload_progress_window.set_progress(op_progress);
+                // update active_uploads
+                window.active_uploads[opid] = op_progress;
+                // update title if window is not visible
+                if ( document.visibilityState !== 'visible' ) {
+                    update_title_based_on_uploads();
+                }
+            },
+            // success
+            success: async function (items) {
+                // DONE
+                // Add action to actions_history for undo ability
+                const files = [];
+                if ( typeof items[Symbol.iterator] === 'function' ) {
+                    for ( const item of items ) {
+                        files.push(item.path);
+                    }
+                } else {
+                    files.push(items.path);
+                }
 
-                            window.actions_history.push({
-                                operation: 'upload',
-                                data: files,
-                            });
-                            // close progress window after a bit of delay for a better UX
-                            setTimeout(() => {
-                                setTimeout(() => {
-                                    upload_progress_window.close();
-                                    window.show_save_account_notice_if_needed();
-                                }, Math.abs(window.upload_progress_hide_delay));
-                            });
-                            // remove from active_uploads
-                            delete window.active_uploads[opid];
-                        },
-                        // error
-                        error: async function (err) {
-                            upload_progress_window.show_error(i18n('error_uploading_files'), err.message);
-                            // remove from active_uploads
-                            delete window.active_uploads[opid];
-                        },
-                        // abort
-                        abort: async function (operation_id) {
-                            // remove from active_uploads
-                            delete window.active_uploads[opid];
-                        },
-                    });
+                window.actions_history.push({
+                    operation: 'upload',
+                    data: files,
+                });
+                // close progress window after a bit of delay for a better UX
+                setTimeout(() => {
+                    setTimeout(() => {
+                        upload_progress_window.close();
+                        window.show_save_account_notice_if_needed();
+                    }, Math.abs(window.upload_progress_hide_delay));
+                });
+                // remove from active_uploads
+                delete window.active_uploads[opid];
+            },
+            // error
+            error: async function (err) {
+                upload_progress_window.show_error(i18n('error_uploading_files'), err.message);
+                // remove from active_uploads
+                delete window.active_uploads[opid];
+            },
+            // abort
+            abort: async function (operation_id) {
+                // remove from active_uploads
+                delete window.active_uploads[opid];
+            },
+        },
+    );
 };
 
 window.empty_trash = async function () {
@@ -2179,32 +2184,6 @@ window.copy_to_clipboard = async function (text) {
     else {
         document.execCommand('copy');
     }
-};
-
-window.getUsage = () => {
-    return fetch(`${window.api_origin }/drivers/usage`, {
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${ window.auth_token}`,
-        },
-        method: 'GET',
-    })
-        .then(response => {
-        // Check if the response is ok (status code in the range 200-299)
-            if ( ! response.ok ) {
-                throw new Error('Network response was not ok');
-            }
-            return response.json(); // Parse the response as JSON
-        })
-        .then(data => {
-        // Handle the JSON data
-            return data;
-        })
-        .catch(error => {
-        // Handle any errors
-            console.error('There has been a problem with your fetch operation:', error);
-        });
-
 };
 
 window.getAppUIDFromOrigin = async function (origin) {
@@ -2547,30 +2526,31 @@ window.unzipItem = async function (itemPath) {
                 }
             });
             queuedFileWrites.length && puter.fs.upload(
-                            // what to upload
-                            queuedFileWrites,
-                            // where to upload
-                            `${rootdir.path }/`,
-                            // options
-                            {
-                                createFileParent: true,
-                                generateThumbnails: true,
-                                progress: async function (operation_id, op_progress) {
-                                    progwin.set_progress(op_progress);
-                                    // update title if window is not visible
-                                    if ( document.visibilityState !== 'visible' ) {
-                                        update_title_based_on_uploads();
-                                    }
-                                },
-                                success: async function (items) {
-                                    progwin?.set_progress(window.zippingProgressConfig.TOTAL.toPrecision(2));
-                                    // close progress window
-                                    clearTimeout(progwin_timeout);
-                                    setTimeout(() => {
-                                        progwin?.close();
-                                    }, Math.max(0, window.unzip_progress_hide_delay - (Date.now() - start_ts)));
-                                },
-                            });
+                // what to upload
+                queuedFileWrites,
+                // where to upload
+                `${rootdir.path }/`,
+                // options
+                {
+                    createFileParent: true,
+                    generateThumbnails: true,
+                    progress: async function (operation_id, op_progress) {
+                        progwin.set_progress(op_progress);
+                        // update title if window is not visible
+                        if ( document.visibilityState !== 'visible' ) {
+                            update_title_based_on_uploads();
+                        }
+                    },
+                    success: async function (items) {
+                        progwin?.set_progress(window.zippingProgressConfig.TOTAL.toPrecision(2));
+                        // close progress window
+                        clearTimeout(progwin_timeout);
+                        setTimeout(() => {
+                            progwin?.close();
+                        }, Math.max(0, window.unzip_progress_hide_delay - (Date.now() - start_ts)));
+                    },
+                },
+            );
         }
     });
 };
@@ -2798,25 +2778,27 @@ window.untarItem = async function (itemPath) {
             }
         }
 
-        queuedFileWrites.length && puter.fs.upload(queuedFileWrites,
-                        `${rootdir.path }/`,
-                        {
-                            createFileParent: true,
-                            generateThumbnails: true,
-                            progress: async function (operation_id, op_progress) {
-                                progwin.set_progress(op_progress);
-                                if ( document.visibilityState !== 'visible' ) {
-                                    update_title_based_on_uploads();
-                                }
-                            },
-                            success: async function (items) {
-                                progwin?.set_progress(window.zippingProgressConfig.TOTAL.toPrecision(2));
-                                clearTimeout(progwin_timeout);
-                                setTimeout(() => {
-                                    progwin?.close();
-                                }, Math.max(0, window.unzip_progress_hide_delay - (Date.now() - start_ts)));
-                            },
-                        });
+        queuedFileWrites.length && puter.fs.upload(
+            queuedFileWrites,
+            `${rootdir.path }/`,
+            {
+                createFileParent: true,
+                generateThumbnails: true,
+                progress: async function (operation_id, op_progress) {
+                    progwin.set_progress(op_progress);
+                    if ( document.visibilityState !== 'visible' ) {
+                        update_title_based_on_uploads();
+                    }
+                },
+                success: async function (items) {
+                    progwin?.set_progress(window.zippingProgressConfig.TOTAL.toPrecision(2));
+                    clearTimeout(progwin_timeout);
+                    setTimeout(() => {
+                        progwin?.close();
+                    }, Math.max(0, window.unzip_progress_hide_delay - (Date.now() - start_ts)));
+                },
+            },
+        );
     } catch ( err ) {
         UIAlert(err.message);
         clearTimeout(progwin_timeout);

@@ -24,9 +24,10 @@ interface AuthProbeOptions {
  * Token lookup order matches v1's `configurable_auth`:
  *   1. `req.body.auth_token`
  *   2. `Authorization: Bearer <token>` header
- *   3. Session cookie
- *   4. `?auth_token=...` query param
- *   5. Socket handshake query (for ws upgrades that pass through HTTP first)
+ *   3. `x-api-key` header — third-party SDK convention (Anthropic etc.)
+ *   4. Session cookie
+ *   5. `?auth_token=...` query param
+ *   6. Socket handshake query (for ws upgrades that pass through HTTP first)
  */
 export const createAuthProbe = (opts: AuthProbeOptions): RequestHandler => {
     const { authService, cookieName } = opts;
@@ -81,7 +82,16 @@ const extractToken = (req: Request, cookieName?: string): string | null => {
         }
     }
 
-    // 3. Cookie (set by login flow for session tokens). We parse the
+    // 3. `x-api-key` header — some third-party SDKs (Anthropic's in
+    // particular) send their API key in this header. v1 translated it
+    // to Authorization per-route; we accept it globally so every route
+    // gated on auth works uniformly for those clients.
+    const xApiKey = typeof req.header === 'function' ? req.header('x-api-key') : undefined;
+    if ( typeof xApiKey === 'string' && xApiKey.length > 0 ) {
+        return stripBearer(xApiKey);
+    }
+
+    // 4. Cookie (set by login flow for session tokens). We parse the
     // Cookie header directly rather than depending on `cookie-parser`
     // middleware — the probe only needs one named value.
     if ( cookieName ) {
@@ -91,13 +101,13 @@ const extractToken = (req: Request, cookieName?: string): string | null => {
         }
     }
 
-    // 4. Query string (used by e.g. QR login, asset URLs).
+    // 5. Query string (used by e.g. QR login, asset URLs).
     const queryToken = (req.query as { auth_token?: unknown } | undefined)?.auth_token;
     if ( typeof queryToken === 'string' && queryToken.length > 0 ) {
         return stripBearer(queryToken);
     }
 
-    // 5. Socket handshake (for websocket upgrades that pass through HTTP).
+    // 6. Socket handshake (for websocket upgrades that pass through HTTP).
     const handshake = (req as unknown as { handshake?: { query?: { auth_token?: unknown } } }).handshake;
     const handshakeToken = handshake?.query?.auth_token;
     if ( typeof handshakeToken === 'string' && handshakeToken.length > 0 ) {

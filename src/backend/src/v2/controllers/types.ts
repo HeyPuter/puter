@@ -1,10 +1,11 @@
 import type { puterClients } from '../clients';
 import type { PuterRouter } from '../core/http/PuterRouter';
+import type { puterDrivers } from '../drivers';
 import type { puterServices } from '../services';
 import type { puterStores } from '../stores';
 import type { IConfig, LayerInstances, WithControllerRegistration } from '../types';
 
-export type IPuterController<T extends WithControllerRegistration = WithControllerRegistration> = new (config: IConfig, clients: LayerInstances<typeof puterClients>, stores: LayerInstances<typeof puterStores>, services: LayerInstances<typeof puterServices> ) => T;
+export type IPuterController<T extends WithControllerRegistration = WithControllerRegistration> = new (config: IConfig, clients: LayerInstances<typeof puterClients>, stores: LayerInstances<typeof puterStores>, services: LayerInstances<typeof puterServices>, drivers: LayerInstances<typeof puterDrivers> ) => T;
 
 /**
  * Base class for v2 controllers. `registerRoutes(router)` receives a
@@ -14,7 +15,7 @@ export type IPuterController<T extends WithControllerRegistration = WithControll
  * `registerRoutes` walker on the prototype.
  */
 export const PuterController = class PuterController implements WithControllerRegistration {
-    constructor (protected config: IConfig, protected clients: LayerInstances<typeof puterClients>, protected stores: LayerInstances<typeof puterStores>, protected services: LayerInstances<typeof puterServices>) {
+    constructor (protected config: IConfig, protected clients: LayerInstances<typeof puterClients>, protected stores: LayerInstances<typeof puterStores>, protected services: LayerInstances<typeof puterServices>, protected drivers: LayerInstances<typeof puterDrivers>) {
     }
     public onServerStart () {
         return;

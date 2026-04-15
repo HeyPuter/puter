@@ -91,26 +91,11 @@ export class PuterServer {
         this.#app = express();
         this.#installGlobalMiddleware();
 
-        this.controllers = {} as typeof this.controllers;
-        for ( const [controllerName, ControllerClass] of Object.entries(controllers) ) {
-            this.controllers[controllerName] = (typeof ControllerClass === 'object'
-                ? ControllerClass
-                : (new (ControllerClass as any)(this.#config, this.clients, this.stores, this.services)) as any);
-            this.#registerControllerRoutes(controllerName, this.controllers[controllerName]);
-            controllersContainers[controllerName] = this.controllers[controllerName];
-        }
-        for ( const [controllerName, ControllerClass] of Object.entries(extensionStore.controllers) ) {
-            this.controllers[controllerName] = (typeof ControllerClass === 'object'
-                ? ControllerClass
-                : (new (ControllerClass as any)(this.#config, this.clients, this.stores, this.services)) as any);
-            this.#registerControllerRoutes(controllerName, this.controllers[controllerName]);
-            controllersContainers[controllerName] = this.controllers[controllerName];
-        }
-
-        // Build the driver registry: instantiate each driver class, extract
-        // its interface/name metadata (from @Driver decorator or imperative
-        // properties), and register it. The registry owns its own HTTP
-        // endpoints — no separate controller needed.
+        // Build the driver registry BEFORE controllers so controllers can
+        // receive a typed `drivers` reference (e.g. the AI proxy controller
+        // calls the chat-completion driver directly). Route materialisation
+        // for drivers still happens further below, after controllers, so the
+        // request-handler order is unchanged.
         const driverRegistry = new DriverRegistry();
         driverRegistry.setPermissionService(this.services.permission as unknown as PermissionService);
 
@@ -131,6 +116,22 @@ export class PuterServer {
             if ( meta ) {
                 driverRegistry.register(meta, instance);
             }
+        }
+
+        this.controllers = {} as typeof this.controllers;
+        for ( const [controllerName, ControllerClass] of Object.entries(controllers) ) {
+            this.controllers[controllerName] = (typeof ControllerClass === 'object'
+                ? ControllerClass
+                : (new (ControllerClass as any)(this.#config, this.clients, this.stores, this.services, this.drivers)) as any);
+            this.#registerControllerRoutes(controllerName, this.controllers[controllerName]);
+            controllersContainers[controllerName] = this.controllers[controllerName];
+        }
+        for ( const [controllerName, ControllerClass] of Object.entries(extensionStore.controllers) ) {
+            this.controllers[controllerName] = (typeof ControllerClass === 'object'
+                ? ControllerClass
+                : (new (ControllerClass as any)(this.#config, this.clients, this.stores, this.services, this.drivers)) as any);
+            this.#registerControllerRoutes(controllerName, this.controllers[controllerName]);
+            controllersContainers[controllerName] = this.controllers[controllerName];
         }
 
         // Materialize driver routes — the registry registers them on a
