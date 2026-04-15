@@ -1131,16 +1131,10 @@ class AuthService extends BaseService {
             if ( seen.has(session.uuid) ) {
                 continue;
             }
-            session.meta = this.db.case({
-                mysql: () => session.meta,
-                /**
-                * This method is responsible for authenticating a user or app using a token. It decodes the token and checks if it's valid, then returns an appropriate actor object based on the token type.
-                *
-                * @param {string} token - The user or app access token.
-                * @returns {Actor} - Actor object representing the authenticated user or app.
-                */
-                otherwise: () => JSON.parse(session.meta ?? '{}'),
-            })();
+
+            if ( !session.meta || typeof (session.meta) === 'string' ) {
+                session.meta = JSON.parse(session.meta || '{}');
+            }
             sessions.push(session);
         };
 

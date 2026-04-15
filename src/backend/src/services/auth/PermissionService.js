@@ -354,10 +354,9 @@ class PermissionService extends BaseService {
         // Return the first matching permission where the
         // issuer also has the permission granted
         for ( const row of rows ) {
-            row.extra = this.db.case({
-                mysql: () => row.extra,
-                otherwise: () => JSON.parse(row.extra ?? '{}'),
-            })();
+            if ( !row.extra || typeof (row.extra) === 'string' ) {
+                row.extra = JSON.parse(row.extra || '{}');
+            }
 
             const issuer_actor = new Actor({
                 type: new UserActorType({

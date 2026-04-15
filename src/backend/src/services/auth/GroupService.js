@@ -84,14 +84,13 @@ class GroupService extends BaseService {
         const [group] =
             await this.db.read('SELECT * FROM `group` WHERE uid=?', [uid]);
         if ( ! group ) return;
-        group.extra = this.db.case({
-            mysql: () => group.extra,
-            otherwise: () => JSON.parse(group.extra),
-        })();
-        group.metadata = this.db.case({
-            mysql: () => group.metadata,
-            otherwise: () => JSON.parse(group.metadata),
-        })();
+
+        if ( !group.extra || typeof (group.extra) === 'string' ) {
+            group.extra = JSON.parse(group.extra || '{}');
+        }
+        if ( !group.metadata || typeof (group.metadata) === 'string' ) {
+            group.metadata = JSON.parse(group.metadata || '{}');
+        }
         return group;
     }
 
@@ -157,14 +156,12 @@ class GroupService extends BaseService {
             [owner_user_id],
         );
         for ( const group of groups ) {
-            group.extra = this.db.case({
-                mysql: () => group.extra,
-                otherwise: () => JSON.parse(group.extra),
-            })();
-            group.metadata = this.db.case({
-                mysql: () => group.metadata,
-                otherwise: () => JSON.parse(group.metadata),
-            })();
+            if ( !group.extra || typeof (group.extra) === 'string' ) {
+                group.extra = JSON.parse(group.extra || '{}');
+            }
+            if ( !group.metadata || typeof (group.metadata) === 'string' ) {
+                group.metadata = JSON.parse(group.metadata || '{}');
+            }
         }
         return groups.map(g => create_group_entity(this, g));
     }
@@ -183,14 +180,12 @@ class GroupService extends BaseService {
             [user_id],
         );
         for ( const group of groups ) {
-            group.extra = this.db.case({
-                mysql: () => group.extra,
-                otherwise: () => JSON.parse(group.extra),
-            })();
-            group.metadata = this.db.case({
-                mysql: () => group.metadata,
-                otherwise: () => JSON.parse(group.metadata),
-            })();
+            if ( !group.extra || typeof (group.extra) === 'string' ) {
+                group.extra = JSON.parse(group.extra || '{}');
+            }
+            if ( !group.metadata || typeof (group.metadata) === 'string' ) {
+                group.metadata = JSON.parse(group.metadata || '{}');
+            }
         }
         return groups.map(g => create_group_entity(this, g));
     }
@@ -221,14 +216,12 @@ class GroupService extends BaseService {
             public_group_uids,
         );
         for ( const group of groups ) {
-            group.extra = this.db.case({
-                mysql: () => group.extra,
-                otherwise: () => JSON.parse(group.extra),
-            })();
-            group.metadata = this.db.case({
-                mysql: () => group.metadata,
-                otherwise: () => JSON.parse(group.metadata),
-            })();
+            if ( !group.metadata || typeof (group.metadata) === 'string' ) {
+                group.metadata = JSON.parse(group.metadata || '{}');
+            }
+            if ( !group.extra || typeof (group.extra) === 'string' ) {
+                group.extra = JSON.parse(group.extra || '{}');
+            }
         }
         const group_entities = groups.map(g => create_group_entity(this, g));
         await setRedisCacheValue(cacheKey, JSON.stringify(groups), {
