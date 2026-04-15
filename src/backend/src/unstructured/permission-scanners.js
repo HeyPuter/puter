@@ -111,12 +111,14 @@ const PERMISSION_SCANNERS = [
                 const has_terminal = reading_has_terminal({ reading: issuer_reading });
 
                 const db = a.iget('db');
-                const rows = await db.read('SELECT * FROM `access_token_permissions` ' +
+                const rows = await db.read(
+                    'SELECT * FROM `access_token_permissions` ' +
                     'WHERE `token_uid` = ? AND `permission` = ?',
-                [
-                    token,
-                    permission,
-                ]);
+                    [
+                        token,
+                        permission,
+                    ],
+                );
 
                 // Token must have permission
                 if ( ! rows[0] ) continue;
@@ -222,19 +224,20 @@ const PERMISSION_SCANNERS = [
             if ( permission_options.length > 1 ) {
                 sql_perm = `(${sql_perm})`;
             }
-            const rows = await db.read('SELECT p.permission, p.user_id, p.group_id, p.extra FROM `user_to_group_permissions` p ' +
+            const rows = await db.read(
+                'SELECT p.permission, p.user_id, p.group_id, p.extra FROM `user_to_group_permissions` p ' +
                 'JOIN `jct_user_group` ug ON p.group_id = ug.group_id ' +
                 `WHERE ug.user_id = ? AND ${sql_perm}`,
-            [
-                actor.type.user.id,
-                ...permission_options,
-            ]);
+                [
+                    actor.type.user.id,
+                    ...permission_options,
+                ],
+            );
 
             for ( const row of rows ) {
-                row.extra = db.case({
-                    mysql: () => row.extra,
-                    otherwise: () => JSON.parse(row.extra ?? '{}'),
-                })();
+                if ( !row.extra || typeof (row.extra) === 'string' ) {
+                    row.extra = JSON.parse(row.extra || '{}');
+                }
 
                 const issuer_actor = new Actor({
                     type: new UserActorType({
@@ -369,21 +372,22 @@ const PERMISSION_SCANNERS = [
             if ( permission_options.length > 1 ) sql_perm = `(${sql_perm})`;
 
             // SELECT permission
-            const rows = await db.read('SELECT * FROM `user_to_app_permissions` ' +
+            const rows = await db.read(
+                'SELECT * FROM `user_to_app_permissions` ' +
                 `WHERE \`user_id\` = ? AND \`app_id\` = ? AND ${
                     sql_perm}`,
-            [
-                actor.type.user.id,
-                actor.type.app.id,
-                ...permission_options,
-            ]);
+                [
+                    actor.type.user.id,
+                    actor.type.app.id,
+                    ...permission_options,
+                ],
+            );
 
             if ( rows[0] ) {
                 const row = rows[0];
-                row.extra = db.case({
-                    mysql: () => row.extra,
-                    otherwise: () => JSON.parse(row.extra ?? '{}'),
-                })();
+                if ( !row.extra || typeof (row.extra) === 'string' ) {
+                    row.extra = JSON.parse(row.extra || '{}');
+                }
                 const issuer_actor = actor.get_related_actor(UserActorType);
                 const issuer_reading = await a.icall('scan', issuer_actor, row.permission);
                 const has_terminal = reading_has_terminal({ reading: issuer_reading });
@@ -418,20 +422,21 @@ const PERMISSION_SCANNERS = [
             if ( permission_options.length > 1 ) sql_perm = `(${sql_perm})`;
 
             // SELECT permission
-            const rows = await db.read('SELECT * FROM `dev_to_app_permissions` ' +
+            const rows = await db.read(
+                'SELECT * FROM `dev_to_app_permissions` ' +
                 `WHERE \`app_id\` = ? AND ${
                     sql_perm}`,
-            [
-                actor.type.app.id,
-                ...permission_options,
-            ]);
+                [
+                    actor.type.app.id,
+                    ...permission_options,
+                ],
+            );
 
             if ( rows[0] ) {
                 const row = rows[0];
-                row.extra = db.case({
-                    mysql: () => row.extra,
-                    otherwise: () => JSON.parse(row.extra ?? '{}'),
-                })();
+                if ( !row.extra || typeof (row.extra) === 'string' ) {
+                    row.extra = JSON.parse(row.extra || '{}');
+                }
                 const issuer_user = await get_user({ id: row.user_id });
                 const issuer_actor = Actor.adapt(issuer_user);
                 const issuer_reading = await a.icall('scan', issuer_actor, row.permission);

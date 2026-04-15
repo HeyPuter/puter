@@ -238,15 +238,12 @@ class SessionService extends BaseService {
         );
         if ( ! session ) return;
         session.last_store = Date.now();
-        session.meta = this.db.case({
-            mysql: () => session.meta,
-            /**
-            * Parses session metadata based on the database type.
-            * @param {Object} session - The session object from the database.
-            * @returns {Object} The parsed session metadata.
-            */
-            otherwise: () => JSON.parse(session.meta ?? '{}'),
-        })();
+
+        // MariaDB and SQLite store JSON as string.
+        if ( typeof session.meta === 'string' ) {
+            session.meta = JSON.parse(session.meta ?? '{}');
+        }
+
         const user = await get_user({ id: session.user_id });
         session.user_uid = user?.uuid;
         return session;

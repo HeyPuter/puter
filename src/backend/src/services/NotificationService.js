@@ -209,18 +209,9 @@ class NotificationService extends BaseService {
         );
 
         for ( const n of notifications ) {
-            n.value = this.db.case({
-                mysql: () => n.value,
-                /**
-                * Adjusts the value of a notification based on the database type.
-                *
-                * This method modifies the value of a notification to be JSON parsed
-                * if the database is not MySQL.
-                *
-                * @returns {Object} The adjusted notification value.
-                */
-                otherwise: () => JSON.parse(n.value ?? '{}'),
-            })();
+            if ( !n.value || typeof (n.value) === 'string' ) {
+                n.value = JSON.parse(n.value || '{}');
+            }
         }
 
         const client_safe_notifications = [];

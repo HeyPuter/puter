@@ -204,10 +204,9 @@ class SQLES extends BaseES {
                 tasks.add(`sql_row_to_entity_::${prop.name}`, async () => {
                     value = await prop.sql_dereference(value);
                     if ( prop.typ.name === 'json' ) {
-                        value = this.db.case({
-                            mysql: () => value,
-                            otherwise: () => JSON.parse(value ?? '{}'),
-                        })();
+                        if ( !value || typeof (value) === 'string' ) {
+                            value = JSON.parse(value || '{}');
+                        }
                     }
                     entity_data[prop.name] = value;
                 });

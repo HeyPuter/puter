@@ -67,8 +67,8 @@ class BootScriptService extends BaseService {
         const scope = {
             runner: 'boot-script',
             'end-puter-process': ({ args }) => {
-                const svc_shutdown = this.services.get('shutdown');
-                svc_shutdown.shutdown(args[0]);
+                console.log('shutting down puter: BootScriptService');
+                process.exit(0);
             },
         };
 

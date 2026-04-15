@@ -20,11 +20,33 @@ const APIError = require('../../api/APIError');
 const { redisClient } = require('../../clients/redis/redisSingleton');
 const { setRedisCacheValue } = require('../../clients/redis/cacheUpdate.js');
 const { GroupRedisCacheSpace } = require('./GroupRedisCacheSpace.js');
-const Group = require('../../entities/Group');
-const { DENY_SERVICE_INSTRUCTION } = require('../AnomalyService');
 const BaseService = require('../BaseService');
 const { DB_WRITE } = require('../database/consts');
 const { v4: uuidv4 } = require('uuid');
+
+const create_group_entity = (svc_group, values) => ({
+    values,
+    async fetch_members () {
+        if ( Object.prototype.hasOwnProperty.call(this.values, 'members') ) {
+            return this.values.members;
+        }
+
+        const members = await svc_group.list_members({ uid: this.values.uid });
+        this.values.members = members;
+        return members;
+    },
+    async get_client_value (options = {}) {
+        if ( options.members ) {
+            await this.fetch_members();
+        }
+
+        return {
+            uid: this.values.uid,
+            metadata: this.values.metadata,
+            ...(options.members ? { members: this.values.members } : {}),
+        };
+    },
+});
 /**
 * The GroupService class provides functionality for managing groups within the Puter application.
 * It extends the BaseService to handle group-related operations such as creation, retrieval,
@@ -36,7 +58,6 @@ class GroupService extends BaseService {
 
     /**
     * Initializes the GroupService by setting up the database connection and registering
-    * with the anomaly service for monitoring group creation rates.
     *
     * @memberof GroupService
     * @instance
@@ -44,11 +65,6 @@ class GroupService extends BaseService {
     _init () {
         this.db = this.services.get('database').get(DB_WRITE, 'permissions');
         this.kvkey = uuidv4();
-
-        const svc_anomaly = this.services.get('anomaly');
-        svc_anomaly.register('groups-user-hour', {
-            high: 20,
-        });
     }
 
     /**
@@ -68,14 +84,13 @@ class GroupService extends BaseService {
         const [group] =
             await this.db.read('SELECT * FROM `group` WHERE uid=?', [uid]);
         if ( ! group ) return;
-        group.extra = this.db.case({
-            mysql: () => group.extra,
-            otherwise: () => JSON.parse(group.extra),
-        })();
-        group.metadata = this.db.case({
-            mysql: () => group.metadata,
-            otherwise: () => JSON.parse(group.metadata),
-        })();
+
+        if ( !group.extra || typeof (group.extra) === 'string' ) {
+            group.extra = JSON.parse(group.extra || '{}');
+        }
+        if ( !group.metadata || typeof (group.metadata) === 'string' ) {
+            group.metadata = JSON.parse(group.metadata || '{}');
+        }
         return group;
     }
 
@@ -107,13 +122,7 @@ class GroupService extends BaseService {
             [owner_user_id],
         );
 
-        const svc_anomaly = this.services.get('anomaly');
-        const anomaly = await svc_anomaly.note('groups-user-hour', {
-            value: n_groups,
-            user_id: owner_user_id,
-        });
-
-        if ( anomaly && anomaly.has(DENY_SERVICE_INSTRUCTION) ) {
+        if ( Number(n_groups) > 20 ) {
             throw APIError.create('too_many_requests');
         }
 
@@ -147,16 +156,14 @@ class GroupService extends BaseService {
             [owner_user_id],
         );
         for ( const group of groups ) {
-            group.extra = this.db.case({
-                mysql: () => group.extra,
-                otherwise: () => JSON.parse(group.extra),
-            })();
-            group.metadata = this.db.case({
-                mysql: () => group.metadata,
-                otherwise: () => JSON.parse(group.metadata),
-            })();
+            if ( !group.extra || typeof (group.extra) === 'string' ) {
+                group.extra = JSON.parse(group.extra || '{}');
+            }
+            if ( !group.metadata || typeof (group.metadata) === 'string' ) {
+                group.metadata = JSON.parse(group.metadata || '{}');
+            }
         }
-        return groups.map(g => Group(g));
+        return groups.map(g => create_group_entity(this, g));
     }
 
     /**
@@ -173,16 +180,14 @@ class GroupService extends BaseService {
             [user_id],
         );
         for ( const group of groups ) {
-            group.extra = this.db.case({
-                mysql: () => group.extra,
-                otherwise: () => JSON.parse(group.extra),
-            })();
-            group.metadata = this.db.case({
-                mysql: () => group.metadata,
-                otherwise: () => JSON.parse(group.metadata),
-            })();
+            if ( !group.extra || typeof (group.extra) === 'string' ) {
+                group.extra = JSON.parse(group.extra || '{}');
+            }
+            if ( !group.metadata || typeof (group.metadata) === 'string' ) {
+                group.metadata = JSON.parse(group.metadata || '{}');
+            }
         }
-        return groups.map(g => Group(g));
+        return groups.map(g => create_group_entity(this, g));
     }
 
     /**
@@ -198,7 +203,7 @@ class GroupService extends BaseService {
         const cached_groups = await redisClient.get(cacheKey);
         if ( cached_groups ) {
             try {
-                return JSON.parse(cached_groups).map(g => Group(g));
+                return JSON.parse(cached_groups).map(g => create_group_entity(this, g));
             } catch (e) {
                 // no op cache is in an invalid state
             }
@@ -211,16 +216,14 @@ class GroupService extends BaseService {
             public_group_uids,
         );
         for ( const group of groups ) {
-            group.extra = this.db.case({
-                mysql: () => group.extra,
-                otherwise: () => JSON.parse(group.extra),
-            })();
-            group.metadata = this.db.case({
-                mysql: () => group.metadata,
-                otherwise: () => JSON.parse(group.metadata),
-            })();
+            if ( !group.metadata || typeof (group.metadata) === 'string' ) {
+                group.metadata = JSON.parse(group.metadata || '{}');
+            }
+            if ( !group.extra || typeof (group.extra) === 'string' ) {
+                group.extra = JSON.parse(group.extra || '{}');
+            }
         }
-        const group_entities = groups.map(g => Group(g));
+        const group_entities = groups.map(g => create_group_entity(this, g));
         await setRedisCacheValue(cacheKey, JSON.stringify(groups), {
             ttlSeconds: 60,
             eventData: groups,

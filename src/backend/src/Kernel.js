@@ -27,7 +27,7 @@ const { ExtensionModule } = require('./ExtensionModule');
 const { spawn } = require('node:child_process');
 const fs = require('fs');
 const path_ = require('path');
-const { prependToJSFiles } = require('./kernel/modutil');
+const { prependToJSFiles } = require('./util/modutil');
 const { tmp_provide_services } = require('./helpers');
 const uuid = require('uuid');
 const readline = require('node:readline/promises');
@@ -255,9 +255,9 @@ class Kernel extends AdvancedBase {
         for ( const mods_dirpath of mod_paths ) {
             const p = (async () => {
                 if ( ! fs.existsSync(mods_dirpath) ) {
-                    this.services.logger.error(`mod directory not found: ${quot(mods_dirpath)}; skipping...`);
+                    console.error(`mod directory not found: ${quot(mods_dirpath)}; skipping...`);
                     // intentional delay so error is seen
-                    this.services.logger.info('boot will continue in 4 seconds');
+                    console.info('boot will continue in 4 seconds');
                     await new Promise(rslv => setTimeout(rslv, 4000));
                     return;
                 }

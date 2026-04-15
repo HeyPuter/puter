@@ -280,10 +280,9 @@ export const processSharesSequence = new Sequence({
                     });
             }
 
-            app.metadata = db.case({
-                mysql: () => app.metadata,
-                otherwise: () => JSON.parse(app.metadata ?? '{}'),
-            })();
+            if ( !app.metadata || typeof (app.metadata) === 'string' ) {
+                app.metadata = JSON.parse(app.metadata || '{}');
+            }
 
             item.app = app;
         }

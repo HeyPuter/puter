@@ -1,11 +1,9 @@
-# PuterAIModule
+# AI Services
 
-PuterAIModule class extends AdvancedBase to manage and register various AI services.
-This module handles the initialization and registration of multiple AI-related services
-including text processing, speech synthesis, chat completion, and image generation.
-Services are conditionally registered based on configuration settings, allowing for
-flexible deployment with different AI providers like AWS, OpenAI, Claude, Together AI,
-Mistral, Groq, and XAI.
+CoreModule registers the backend AI services directly.
+These services cover chat, image generation, video generation, speech, and OCR.
+Some providers are only registered when the corresponding configuration is present,
+including AWS, OpenAI, and ElevenLabs integrations.
 
 ## Services
 
