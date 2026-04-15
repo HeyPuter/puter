@@ -17,14 +17,13 @@ import {
 } from './permissionUtil';
 import { MANAGE_PERM_PREFIX, PERMISSION_SCAN_CACHE_TTL_SECONDS } from './consts';
 
-// Pure data files — imported from v1 paths; will be relocated once v1 retires.
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore — hardcoded-permissions.js is plain JS
 import {
     default_implicit_user_app_permissions,
     implicit_user_app_permissions,
     hardcoded_user_group_permissions,
-} from '../../../data/hardcoded-permissions.js';
+} from '../../data/hardcoded-permissions.js';
 
 // ── Types ────────────────────────────────────────────────────────────
 

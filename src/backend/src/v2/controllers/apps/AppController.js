@@ -49,6 +49,41 @@ export class AppController {
             res.json({ name, available });
         });
 
+        // POST /rao — record a recent app open
+        router.post('/rao', {
+            subdomain: 'api',
+            requireAuth: true,
+        }, async (req, res) => {
+            const { app_uid } = req.body ?? {};
+            if ( ! app_uid || typeof app_uid !== 'string' ) {
+                throw new HttpError(400, 'Missing or invalid `app_uid`');
+            }
+
+            const app = await this.appStore.getByUid(app_uid);
+            if ( ! app ) throw new HttpError(404, 'App not found');
+
+            // Persist open record
+            try {
+                await this.clients.db.write(
+                    'INSERT INTO `app_opens` (`app_uid`, `user_id`, `ts`) VALUES (?, ?, ?)',
+                    [app_uid, req.actor.user.id, Math.floor(Date.now() / 1000)],
+                );
+            } catch (e) {
+                console.warn('[rao] insert failed:', e);
+            }
+
+            try {
+                this.clients.event?.emit('app.opened', {
+                    app_uid,
+                    user_id: req.actor.user.id,
+                }, {});
+            } catch {
+                // event emission best-effort
+            }
+
+            res.json({});
+        });
+
         // GET /apps/:name — returns the app(s) by name.
         // Supports pipe-separated names for batch lookup: /apps/foo|bar|baz
         router.get('/apps/:name', {

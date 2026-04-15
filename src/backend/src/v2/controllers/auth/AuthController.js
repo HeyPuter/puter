@@ -606,6 +606,274 @@ export class AuthController {
             res.send('Password successfully updated.');
         });
 
+        // ── Change username ─────────────────────────────────────────
+
+        router.post('/change_username', {
+            subdomain: ['api', ''],
+            requireUserActor: true,
+            rateLimit: { scope: 'change-username', limit: 2, window: 30 * 24 * 60 * 60_000, key: 'user' },
+        }, async (req, res) => {
+            const { new_username } = req.body ?? {};
+            if ( ! new_username || typeof new_username !== 'string' ) {
+                throw new HttpError(400, '`new_username` is required');
+            }
+            if ( ! USERNAME_REGEX.test(new_username) ) {
+                throw new HttpError(400, 'Username can only contain letters, numbers and underscore (_).');
+            }
+            if ( new_username.length > USERNAME_MAX_LENGTH ) {
+                throw new HttpError(400, `Username cannot be longer than ${USERNAME_MAX_LENGTH} characters.`);
+            }
+            if ( RESERVED_USERNAMES.has(new_username.toLowerCase()) ) {
+                throw new HttpError(400, 'This username is not available.');
+            }
+            if ( await this.userStore.getByUsername(new_username) ) {
+                throw new HttpError(400, 'This username is already taken.');
+            }
+
+            await this.userStore.update(req.actor.user.id, { username: new_username });
+
+            try {
+                this.clients.event?.emit('user.username-changed', {
+                    user_id: req.actor.user.id,
+                    old_username: req.actor.user.username,
+                    new_username,
+                }, {});
+            } catch {
+                // event emission best-effort
+            }
+
+            res.json({ username: new_username });
+        });
+
+        // ── Change email ────────────────────────────────────────────
+
+        router.post('/change-email', {
+            subdomain: ['api', ''],
+            requireUserActor: true,
+            rateLimit: { scope: 'change-email-start', limit: 10, window: 60 * 60_000, key: 'user' },
+        }, async (req, res) => {
+            const { new_email } = req.body ?? {};
+            if ( ! new_email || typeof new_email !== 'string' ) {
+                throw new HttpError(400, '`new_email` is required');
+            }
+            if ( ! validator.isEmail(new_email) ) {
+                throw new HttpError(400, 'Please enter a valid email address.');
+            }
+
+            // Block if a confirmed account already owns that email
+            const existing = await this.userStore.getByEmail(new_email);
+            if ( existing && existing.email_confirmed && existing.password ) {
+                throw new HttpError(400, 'This email is already in use.');
+            }
+
+            const confirm_token = uuidv4();
+            await this.userStore.update(req.actor.user.id, {
+                unconfirmed_change_email: new_email,
+                change_email_confirm_token: confirm_token,
+            });
+
+            if ( this.clients.email ) {
+                const origin = this.config.origin ?? '';
+                const link = `${origin}/change_email/confirm?token=${encodeURIComponent(confirm_token)}`;
+                try {
+                    await this.clients.email.send(new_email, 'email_verification_link', { link });
+                } catch (e) {
+                    console.warn('[change-email] new-address email failed:', e);
+                }
+                // Notify the old address too
+                const user = await this.userStore.getById(req.actor.user.id, { force: true });
+                if ( user?.email ) {
+                    try {
+                        await this.clients.email.sendRaw({
+                            to: user.email,
+                            subject: 'Your Puter email change was requested',
+                            text: `A change to ${new_email} was requested on your account. If this wasn't you, please contact support.`,
+                        });
+                    } catch (e) {
+                        console.warn('[change-email] old-address notice failed:', e);
+                    }
+                }
+            }
+
+            res.json({});
+        });
+
+        router.get('/change_email/confirm', {
+            subdomain: ['api', ''],
+            rateLimit: { scope: 'change-email-confirm', limit: 10, window: 60 * 60_000 },
+        }, async (req, res) => {
+            const token = req.query?.token;
+            if ( ! token || typeof token !== 'string' ) {
+                throw new HttpError(400, 'Missing `token`');
+            }
+
+            const rows = await this.clients.db.read(
+                'SELECT * FROM `user` WHERE `change_email_confirm_token` = ? LIMIT 1',
+                [token],
+            );
+            const user = rows[0];
+            if ( ! user || ! user.unconfirmed_change_email ) {
+                throw new HttpError(400, 'Invalid or expired token.');
+            }
+
+            const newEmail = user.unconfirmed_change_email;
+
+            // Re-check nobody claimed the new email meanwhile
+            const owner = await this.userStore.getByEmail(newEmail);
+            if ( owner && owner.id !== user.id && owner.email_confirmed && owner.password ) {
+                throw new HttpError(400, 'This email is already in use.');
+            }
+
+            await this.userStore.update(user.id, {
+                email: newEmail,
+                clean_email: newEmail.toLowerCase(),
+                unconfirmed_change_email: null,
+                change_email_confirm_token: null,
+                pass_recovery_token: null,
+                email_confirmed: 1,
+                requires_email_confirmation: 0,
+            });
+
+            try {
+                this.clients.event?.emit('user.email-changed', {
+                    user_id: user.id,
+                    new_email: newEmail,
+                }, {});
+            } catch {
+                // best-effort
+            }
+
+            res.send('Email changed successfully. You may close this window.');
+        });
+
+        // ── Save account (convert temp user to permanent) ────────────
+
+        router.post('/save_account', {
+            subdomain: ['api', ''],
+            requireUserActor: true,
+            captcha: true,
+            rateLimit: { scope: 'save-account', limit: 10, window: 60 * 60_000, key: 'user' },
+        }, async (req, res) => {
+            const { username, email, password, referral_code } = req.body ?? {};
+
+            const user = await this.userStore.getById(req.actor.user.id, { force: true });
+            if ( ! user ) throw new HttpError(404, 'User not found');
+            if ( user.password !== null || user.email !== null ) {
+                throw new HttpError(400, 'This is not a temporary account.');
+            }
+
+            // Validation
+            if ( ! username || typeof username !== 'string' || ! USERNAME_REGEX.test(username) ) {
+                throw new HttpError(400, 'Invalid username.');
+            }
+            if ( username.length > USERNAME_MAX_LENGTH ) {
+                throw new HttpError(400, `Username cannot be longer than ${USERNAME_MAX_LENGTH} characters.`);
+            }
+            if ( RESERVED_USERNAMES.has(username.toLowerCase()) ) {
+                throw new HttpError(400, 'This username is not available.');
+            }
+            if ( ! email || ! validator.isEmail(email) ) {
+                throw new HttpError(400, 'Please enter a valid email address.');
+            }
+            if ( ! password || typeof password !== 'string' ) {
+                throw new HttpError(400, 'Password is required.');
+            }
+            const minLen = this.config.min_pass_length || 6;
+            if ( password.length < minLen ) {
+                throw new HttpError(400, `Password must be at least ${minLen} characters long.`);
+            }
+
+            // Duplicate checks
+            const existingUsername = await this.userStore.getByUsername(username);
+            if ( existingUsername && existingUsername.id !== user.id ) {
+                throw new HttpError(400, 'This username is already taken.');
+            }
+            const existingEmail = await this.userStore.getByEmail(email);
+            if ( existingEmail && existingEmail.id !== user.id
+                && existingEmail.email_confirmed && existingEmail.password ) {
+                throw new HttpError(400, 'This email is already in use.');
+            }
+
+            // Referral code lookup
+            let referred_by = null;
+            if ( referral_code ) {
+                const referrer = await this.userStore.getByReferralCode(referral_code);
+                if ( ! referrer ) throw new HttpError(400, 'Referral code not found');
+                referred_by = referrer.id;
+            }
+
+            // Promote: set username/email/password on the existing row
+            const password_hash = await bcrypt.hash(password, 8);
+            const email_confirm_code = String(Math.floor(100000 + Math.random() * 900000));
+            const email_confirm_token = uuidv4();
+
+            await this.userStore.update(user.id, {
+                username,
+                email,
+                clean_email: email.toLowerCase(),
+                password: password_hash,
+                email_confirm_code,
+                email_confirm_token,
+                email_confirmed: 0,
+                requires_email_confirmation: 1,
+                referred_by,
+            });
+
+            // Move from temp group to user group
+            if ( this.config.default_temp_group ) {
+                try {
+                    await this.groupStore.removeUsers(this.config.default_temp_group, [user.username]);
+                } catch {
+                    // Best-effort
+                }
+            }
+            if ( this.config.default_user_group ) {
+                try {
+                    await this.groupStore.addUsers(this.config.default_user_group, [username]);
+                } catch (e) {
+                    console.warn('[save-account] group add failed:', e);
+                }
+            }
+
+            // Send confirmation email
+            if ( this.clients.email ) {
+                try {
+                    await this.clients.email.send(email, 'email_verification_code', {
+                        code: email_confirm_code,
+                    });
+                } catch (e) {
+                    console.warn('[save-account] confirmation email failed:', e);
+                }
+            }
+
+            // Note: v1 also renames the user's FS root directory from the
+            // auto-generated temp username to the new username. That's
+            // deferred until v2 FS is clean.
+
+            try {
+                this.clients.event?.emit('user.save_account', {
+                    user_id: user.id,
+                    old_username: user.username,
+                    new_username: username,
+                    email,
+                }, {});
+            } catch {
+                // best-effort
+            }
+
+            const updatedUser = await this.userStore.getById(user.id, { force: true });
+            res.json({
+                user: {
+                    username: updatedUser.username,
+                    uuid: updatedUser.uuid,
+                    email: updatedUser.email,
+                    email_confirmed: updatedUser.email_confirmed,
+                    requires_email_confirmation: updatedUser.requires_email_confirmation,
+                    is_temp: false,
+                },
+            });
+        });
+
         // ── Captcha generation ───────────────────────────────────────
 
         router.get('/api/captcha/generate', { subdomain: '*' }, (_req, res) => {

@@ -13,10 +13,8 @@ import {
 import type { AppTotals, UsageAddons, UsageByType, UsageRecord } from './types';
 import { toMicroCents } from './utils';
 
-// Cost/policy data still lives in the v1 MeteringService tree — these are
-// pure data files and will be relocated once v1 is fully retired.
-import { COST_MAPS } from '../../../services/MeteringService/costMaps/index.js';
-import { SUB_POLICIES } from '../../../services/MeteringService/subPolicies/index.js';
+import { COST_MAPS } from '../../data/costMaps/index.js';
+import { SUB_POLICIES } from '../../data/subPolicies/index.js';
 
 // ── Types ────────────────────────────────────────────────────────────
 
