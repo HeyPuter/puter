@@ -2,7 +2,7 @@ import { PollyClient, SynthesizeSpeechCommand, DescribeVoicesCommand, type Engin
 import { HttpError } from '../../../../core/http/HttpError.js';
 import { Context } from '../../../../core/context.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
-import type { DriverStreamResult } from '../../../DriverRegistry.js';
+import type { DriverStreamResult } from '../../../meta.js';
 import type { ITTSVoice, ITTSEngine, ISynthesizeArgs } from '../../types.js';
 import { TTSProvider } from '../TTSProvider.js';
 

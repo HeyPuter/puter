@@ -9,7 +9,7 @@ import { OCRDriver } from './ai-ocr/OCRDriver';
 import { AppDriver } from './apps/AppDriver.js';
 import { KVStoreDriver } from './kv/KVStoreDriver';
 
-export { DriverRegistry, resolveDriverMeta } from './DriverRegistry';
+export { resolveDriverMeta } from './meta';
 export { Driver } from './decorators';
 
 export const puterDrivers = {

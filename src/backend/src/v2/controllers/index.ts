@@ -1,6 +1,7 @@
 import { AppController } from './apps/AppController.js';
 import { AuthController } from './auth/AuthController.js';
 import { DesktopController } from './desktop/DesktopController.js';
+import { DriverController } from './drivers/DriverController';
 import { FSController } from './fs/FSController';
 import { HostingController } from './hosting/HostingController.js';
 import { LegacyFSController } from './fs/LegacyFSController';
@@ -17,4 +18,5 @@ export const puterControllers = {
     fs: FSController,
     legacyFs: LegacyFSController,
     puterAi: PuterAIController,
+    drivers: DriverController,
 } satisfies IPuterControllerRegistry;

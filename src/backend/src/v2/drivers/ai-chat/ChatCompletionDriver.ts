@@ -1,25 +1,24 @@
 import { PassThrough } from 'node:stream';
-import { HttpError } from '../../core/http/HttpError.js';
 import { Context } from '../../core/context.js';
+import { HttpError } from '../../core/http/HttpError.js';
+import type { DriverStreamResult } from '../meta.js';
 import { PuterDriver } from '../types.js';
-import type { DriverStreamResult } from '../DriverRegistry.js';
-import type { IChatProvider, IChatModel, ICompleteArguments, IChatCompleteResult } from './types.js';
-import { normalize_messages, normalize_single_message } from './utils/Messages.js';
-import { normalize_tools_object } from './utils/FunctionCalling.js';
-import type { MeteringService } from '../../services/metering/MeteringService.js';
-import { AIChatStream } from './utils/Streaming.js';
 import { ClaudeProvider } from './providers/claude/ClaudeProvider.js';
-import { OpenAiChatProvider } from './providers/openai/OpenAiChatCompletionsProvider.js';
-import { OpenAiResponsesChatProvider } from './providers/openai/OpenAiChatResponsesProvider.js';
+import { DeepSeekProvider } from './providers/deepseek/DeepSeekProvider.js';
+import { FakeChatProvider } from './providers/FakeChatProvider.js';
 import { GeminiChatProvider } from './providers/gemini/GeminiChatProvider.js';
 import { GroqAIProvider } from './providers/groq/GroqAIProvider.js';
-import { DeepSeekProvider } from './providers/deepseek/DeepSeekProvider.js';
 import { MistralAIProvider } from './providers/mistral/MistralAiProvider.js';
-import { XAIProvider } from './providers/xai/XAIProvider.js';
+import { OllamaChatProvider } from './providers/ollama/OllamaProvider.js';
+import { OpenAiChatProvider } from './providers/openai/OpenAiChatCompletionsProvider.js';
+import { OpenAiResponsesChatProvider } from './providers/openai/OpenAiChatResponsesProvider.js';
 import { OpenRouterProvider } from './providers/openrouter/OpenRouterProvider.js';
 import { TogetherAIProvider } from './providers/together/TogetherAIProvider.js';
-import { OllamaChatProvider } from './providers/ollama/OllamaProvider.js';
-import { FakeChatProvider } from './providers/FakeChatProvider.js';
+import { XAIProvider } from './providers/xai/XAIProvider.js';
+import type { IChatCompleteResult, IChatModel, IChatProvider, ICompleteArguments } from './types.js';
+import { normalize_tools_object } from './utils/FunctionCalling.js';
+import { normalize_messages, normalize_single_message } from './utils/Messages.js';
+import { AIChatStream } from './utils/Streaming.js';
 
 const MAX_FALLBACKS = 4; // includes first attempt
 

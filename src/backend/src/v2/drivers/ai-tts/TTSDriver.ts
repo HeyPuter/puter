@@ -1,12 +1,11 @@
-import { HttpError } from '../../core/http/HttpError.js';
 import { Context } from '../../core/context.js';
+import { HttpError } from '../../core/http/HttpError.js';
+import type { DriverStreamResult } from '../meta.js';
 import { PuterDriver } from '../types.js';
-import type { DriverStreamResult } from '../DriverRegistry.js';
-import type { MeteringService } from '../../services/metering/MeteringService.js';
-import type { ITTSProvider, ITTSVoice, ITTSEngine, ISynthesizeArgs } from './types.js';
-import { OpenAITTSProvider } from './providers/openai/OpenAITTSProvider.js';
-import { ElevenLabsTTSProvider } from './providers/elevenlabs/ElevenLabsTTSProvider.js';
 import { AWSPollyTTSProvider } from './providers/awsPolly/AWSPollyTTSProvider.js';
+import { ElevenLabsTTSProvider } from './providers/elevenlabs/ElevenLabsTTSProvider.js';
+import { OpenAITTSProvider } from './providers/openai/OpenAITTSProvider.js';
+import type { ISynthesizeArgs, ITTSEngine, ITTSProvider, ITTSVoice } from './types.js';
 
 /**
  * Driver implementing the `puter-tts` interface.

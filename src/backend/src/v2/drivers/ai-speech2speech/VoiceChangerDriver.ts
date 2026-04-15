@@ -2,7 +2,7 @@ import { Readable } from 'node:stream';
 import { HttpError } from '../../core/http/HttpError.js';
 import { Context } from '../../core/context.js';
 import { PuterDriver } from '../types.js';
-import type { DriverStreamResult } from '../DriverRegistry.js';
+import type { DriverStreamResult } from '../meta.js';
 import type { MeteringService } from '../../services/metering/MeteringService.js';
 import type { FSEntryService } from '../../services/fs/FSEntryService.js';
 import { loadFileInput } from '../util/fileInput.js';

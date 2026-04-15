@@ -149,7 +149,7 @@ export function rateLimitGate (opts) {
 // ── Driver-call helper ──────────────────────────────────────────────
 
 /**
- * Check rate limit for a driver call. Called from DriverRegistry's
+ * Check rate limit for a driver call. Called from DriverController's
  * /call handler. Keyed by user + interface:method.
  *
  * Returns true if allowed, false if rate-limited.

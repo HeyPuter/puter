@@ -1,4 +1,4 @@
-import { DRIVER_DEFAULT_KEY, DRIVER_INTERFACE_KEY, DRIVER_NAME_KEY } from './DriverRegistry';
+import { DRIVER_DEFAULT_KEY, DRIVER_INTERFACE_KEY, DRIVER_NAME_KEY } from './meta';
 
 /**
  * Options for the `@Driver` class decorator.

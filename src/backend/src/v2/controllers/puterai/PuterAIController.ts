@@ -4,7 +4,7 @@ import { HttpError } from '../../core/http/HttpError.js';
 import { isAppActor } from '../../core/actor.js';
 import type { PuterRouter } from '../../core/http/PuterRouter.js';
 import { PuterController } from '../types.js';
-import { isDriverStreamResult } from '../../drivers/DriverRegistry.js';
+import { isDriverStreamResult } from '../../drivers/meta.js';
 import type { ChatCompletionDriver } from '../../drivers/ai-chat/ChatCompletionDriver.js';
 import type { ICompleteArguments, IChatCompleteResult } from '../../drivers/ai-chat/types.js';
 
