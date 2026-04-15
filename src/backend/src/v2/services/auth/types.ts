@@ -61,17 +61,13 @@ export type AnyTokenPayload =
 
 // ── Session row (from `sessions` table) ────────────────────────────
 
-/**
- * Minimal projection of the v1 `sessions` table. v1's row carries more
- * ephemera (last_touch/last_store/flushPending/meta) that the auth probe
- * doesn't need — we pull those only when we port the session lifecycle.
- */
 export interface SessionRow {
     id: number;
     uuid: string;
     user_id: number;
-    created_at?: string | number | null;
-    [k: string]: unknown;
+    meta?: Record<string, unknown> | string | null;
+    created_at?: number | null;
+    last_activity?: number | null;
 }
 
 export {};

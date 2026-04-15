@@ -118,6 +118,93 @@ export class AuthService extends PuterService {
         }
     }
 
+    // ── Session lifecycle ────────────────────────────────────────────
+
+    /**
+     * Create a session and sign a session JWT + GUI JWT for the user.
+     *
+     * `meta` is enriched with request metadata (IP, user-agent, etc.)
+     * when a request context is available.
+     */
+    async createSessionToken (
+        user: UserRow,
+        meta: Record<string, unknown> = {},
+    ): Promise<{ session: Record<string, unknown>; token: string; gui_token: string }> {
+        const session = await this.sessionStore.create(user.id, meta);
+
+        const token = this.tokenService.sign('auth', {
+            type: 'session',
+            version: '0.0.0',
+            uuid: session.uuid,
+            user_uid: user.uuid,
+        });
+
+        const gui_token = this.tokenService.sign('auth', {
+            type: 'gui',
+            version: '0.0.0',
+            uuid: session.uuid,
+            user_uid: user.uuid,
+        });
+
+        return { session, token, gui_token };
+    }
+
+    /** Sign a GUI token for an existing session. */
+    createGuiToken (user: UserRow, sessionUuid: string): string {
+        return this.tokenService.sign('auth', {
+            type: 'gui',
+            version: '0.0.0',
+            uuid: sessionUuid,
+            user_uid: user.uuid,
+        });
+    }
+
+    /** Sign a session token for an existing session (upgrade from GUI token). */
+    createSessionTokenForSession (user: UserRow, sessionUuid: string): string {
+        return this.tokenService.sign('auth', {
+            type: 'session',
+            version: '0.0.0',
+            uuid: sessionUuid,
+            user_uid: user.uuid,
+        });
+    }
+
+    /** Remove the session referenced by a session/GUI JWT. */
+    async removeSessionByToken (token: string): Promise<void> {
+        let decoded: AnyTokenPayload;
+        try {
+            decoded = this.tokenService.verify<AnyTokenPayload>('auth', token);
+        } catch {
+            return;
+        }
+        if ( decoded.type !== 'session' && decoded.type !== 'gui' ) return;
+        await this.sessionStore.removeByUuid((decoded as SessionTokenPayload).uuid);
+    }
+
+    /** List all sessions for an actor's user. */
+    async listSessions (actor: Actor): Promise<Array<Record<string, unknown>>> {
+        if ( ! actor.user?.id ) return [];
+
+        const rows = await this.sessionStore.getByUserId(actor.user.id);
+
+        return rows.map((row: Record<string, unknown>) => {
+            const meta = (typeof row.meta === 'string' ? JSON.parse(row.meta as string) : row.meta) ?? {};
+            const isCurrent = actor.session?.uid === row.uuid;
+            return {
+                uuid: row.uuid,
+                created_at: row.created_at,
+                last_activity: row.last_activity,
+                current: isCurrent,
+                ...meta,
+            };
+        });
+    }
+
+    /** Revoke a specific session by uuid. */
+    async revokeSession (uuid: string): Promise<void> {
+        await this.sessionStore.removeByUuid(uuid);
+    }
+
     // ── Internals ───────────────────────────────────────────────────
 
     async #actorFromSessionToken (decoded: SessionTokenPayload): Promise<Actor | null> {
