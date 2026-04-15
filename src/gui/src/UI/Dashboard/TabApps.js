@@ -65,10 +65,6 @@ function showUninstallModal ({ appName, appTitle, appUid, self, $el_window }) {
             <div class="myapps-modal">
                 <h3>Uninstall ${html_encode(displayName)}?</h3>
                 <p>This will revoke all permissions for this app.</p>
-                <label class="myapps-modal-checkbox">
-                    <input type="checkbox" class="myapps-modal-delete-data">
-                    Also remove all app data
-                </label>
                 <div class="myapps-modal-buttons">
                     <button class="myapps-modal-btn myapps-modal-cancel">Cancel</button>
                     <button class="myapps-modal-btn myapps-modal-confirm">Uninstall</button>
@@ -93,15 +89,11 @@ function showUninstallModal ({ appName, appTitle, appUid, self, $el_window }) {
     });
 
     $overlay.on('click', '.myapps-modal-confirm', async function () {
-        const deleteData = $overlay.find('.myapps-modal-delete-data').is(':checked');
         const $btn = $(this);
         $btn.prop('disabled', true).text('Uninstalling…');
 
         try {
             await puter.perms.revokeApp(appUid, '*');
-            if ( deleteData ) {
-                await puter.kv.flush({ appUuid: appUid });
-            }
             // Remove from internal state
             self._apps = self._apps.filter(a => a.name !== appName);
             // Remove tile from DOM

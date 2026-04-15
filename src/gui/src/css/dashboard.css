@@ -787,15 +787,6 @@ body {
     font-size: 14px;
     color: var(--dashboard-text-secondary);
 }
-.myapps-modal-checkbox {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 13px;
-    color: var(--dashboard-text-secondary);
-    cursor: pointer;
-    margin-bottom: 20px;
-}
 .myapps-modal-buttons {
     display: flex;
     justify-content: flex-end;
