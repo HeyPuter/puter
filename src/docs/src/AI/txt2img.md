@@ -1,6 +1,6 @@
 ---
 title: puter.ai.txt2img()
-description: Generate images from text prompts using AI models like GPT Image, Nano Banana, DALL-E 3, or Grok Image.
+description: Generate images from text prompts using AI models like GPT Image, Nano Banana, DALL-E 3, Grok Image, or FLUX.
 platforms: [websites, apps, nodejs, workers]
 ---
 
@@ -31,7 +31,7 @@ Additional settings for the generation request. Available options depend on the 
 | Option | Type | Description |
 |--------|------|-------------|
 | `prompt` | `String` | Text description for the image generation |
-| `provider` | `String` | The AI provider to use. `'openai-image-generation' (default) \| 'gemini' \| 'together' \| 'xai'` |
+| `provider` | `String` | The AI provider to use. `'openai-image-generation' (default) \| 'gemini' \| 'together' \| 'xai' \| 'replicate-image-generation'` |
 | `model` | `String` | Image model to use (provider-specific). Defaults to `'gpt-image-1-mini'` (OpenAI) or `'grok-2-image'` when `provider: 'xai'` |
 | `test_mode` | `Boolean` | When `true`, returns a sample image without using credits |
 
@@ -90,6 +90,29 @@ Available when `provider: 'together'` or inferred from model:
 | `response_format` | `String` | Format of the image response. Can be either a base64 string or a URL. Options: `'base64'`, `'url'` |
 
 For more details, see the [Together AI API reference](https://docs.together.ai/reference/post-images-generations).
+
+#### Replicate Options
+
+Available when `provider: 'replicate-image-generation'` or inferred from model:
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `model` | `String` | Image model to use. |
+| `ratio` | `Object` | Aspect ratio as `{ w, h }` (e.g., `{ w: 16, h: 9 }`) |
+| `seed` | `Number` | Random seed for reproducible generation |
+| `steps` | `Number` | Number of inference steps |
+| `guidance` | `Number` | Guidance scale for generation |
+| `go_fast` | `Boolean` | Use optimized fast mode. Defaults to `true` for `flux-2-dev`. Affects pricing on supported models |
+| `output_quality` | `Number` | Output quality (0-100). |
+| `output_megapixels` | `String` | Approximate output megapixels (`'0.25'`, `'0.5'`, `'1'`, `'2'`, `'4'`) |
+| `input_image` | `String` | URL of an input image for image-to-image generation |
+| `input_images` | `Array<String>` | Array of input image URLs for multi-image generation |
+| `negative_prompt` | `String` | Text to guide what to avoid in the image |
+| `prompt_strength` | `Number` | How strongly the prompt influences the output |
+| `disable_safety_checker` | `Boolean` | If `true`, disables the safety checker |
+| `response_format` | `String` | Output format: `'webp'`, `'jpg'`, `'png'` |
+
+For more details, see the [Replicate API reference](https://replicate.com/docs).
 
 Any properties not set fall back to provider defaults.
 

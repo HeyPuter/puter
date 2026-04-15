@@ -1,0 +1,281 @@
+/*
+ * Copyright (C) 2024-present Puter Technologies Inc.
+ *
+ * This file is part of Puter.
+ *
+ * Puter is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published
+ * by the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+import Replicate from 'replicate';
+import sharp from 'sharp';
+import APIError from '../../../../../api/APIError.js';
+import { ErrorService } from '../../../../../modules/core/ErrorService.js';
+import { Context } from '../../../../../util/context.js';
+import { MeteringService } from '../../../../MeteringService/MeteringService.js';
+import { IGenerateParams, IImageModel, IImageProvider } from '../types.js';
+import { REPLICATE_IMAGE_GENERATION_MODELS, ReplicateImageModel } from './models.js';
+
+const DEFAULT_MODEL = 'black-forest-labs/flux-schnell';
+const DEFAULT_RATIO = { w: 1024, h: 1024 };
+
+export class ReplicateImageGenerationProvider implements IImageProvider {
+    #client: Replicate;
+    #meteringService: MeteringService;
+    #errors: ErrorService;
+
+    constructor (
+        config: { apiKey: string },
+        meteringService: MeteringService,
+        errorService: ErrorService,
+    ) {
+        if ( ! config.apiKey ) {
+            throw new Error('Replicate image generation requires an API key');
+        }
+        this.#client = new Replicate({ auth: config.apiKey });
+        this.#meteringService = meteringService;
+        this.#errors = errorService;
+    }
+
+    models (): IImageModel[] {
+        return REPLICATE_IMAGE_GENERATION_MODELS;
+    }
+
+    getDefaultModel (): string {
+        return DEFAULT_MODEL;
+    }
+
+    async generate (params: IGenerateParams): Promise<string> {
+        const { prompt, test_mode } = params;
+        const selectedModel = this.#getModel(params.model);
+        const ratio = this.#normalizeRatio(params.ratio);
+
+        if ( test_mode ) {
+            return 'https://puter-sample-data.puter.site/image_example.png';
+        }
+
+        if ( typeof prompt !== 'string' || prompt.trim().length === 0 ) {
+            throw new Error('`prompt` must be a non-empty string');
+        }
+
+        const actor = Context.get('actor');
+        if ( ! actor ) {
+            this.#errors.report('replicate-image-generation:unknown-actor', {
+                message: 'failed to resolve actor for Replicate image generation',
+                trace: true,
+            });
+            throw new Error('actor not found in context');
+        }
+
+        const extra = params as unknown as Record<string, unknown>;
+
+        const goFast = selectedModel.supportsGoFast
+            ? (extra.go_fast !== undefined ? !!extra.go_fast : (selectedModel.goFastDefault ?? false))
+            : false;
+
+        const inputImages: string[] = [];
+        if ( selectedModel.imageInputKey ) {
+            if ( params.input_image ) inputImages.push(params.input_image);
+            if ( params.input_images?.length ) inputImages.push(...params.input_images);
+        }
+        const singleImage = selectedModel.singleImageInputKey ? params.input_image : undefined;
+        const allInputUrls = singleImage ? [singleImage] : inputImages;
+        const inputMp = allInputUrls.length > 0
+            ? await this.#measureInputMegapixels(allInputUrls)
+            : 0;
+
+        const outputMp = this.#resolveOutputMegapixels(extra.output_megapixels as string | undefined);
+
+        const totalCostMicroCents = this.#estimateCost(selectedModel, outputMp, goFast, inputMp);
+        if ( totalCostMicroCents <= 0 ) {
+            throw new Error(`Error calculating cost for Replicate model ${selectedModel.id}`);
+        }
+        const usageAllowed = await this.#meteringService.hasEnoughCredits(actor, totalCostMicroCents);
+        if ( ! usageAllowed ) {
+            throw APIError.create('insufficient_funds');
+        }
+
+        const input: Record<string, unknown> = {
+            prompt,
+            aspect_ratio: this.#toAspectRatio(ratio),
+            disable_safety_checker: !!extra.disable_safety_checker,
+        };
+        if ( selectedModel.supportsGoFast ) {
+            input.go_fast = goFast;
+        }
+        if ( inputImages.length && selectedModel.imageInputKey ) {
+            input[selectedModel.imageInputKey] = inputImages;
+        } else if ( singleImage && selectedModel.singleImageInputKey ) {
+            input[selectedModel.singleImageInputKey] = singleImage;
+        }
+        if ( Number.isFinite(extra.seed) ) input.seed = Math.round(extra.seed as number);
+        if ( Number.isFinite(extra.steps) ) input.num_inference_steps = Math.round(extra.steps as number);
+        if ( Number.isFinite(extra.guidance) ) input.guidance = extra.guidance;
+        if ( Number.isFinite(extra.output_quality) ) input.output_quality = Math.round(extra.output_quality as number);
+        if ( typeof extra.output_megapixels === 'string' && selectedModel.resolutionInputKey ) {
+            const val = extra.output_megapixels + (selectedModel.resolutionSuffix ?? '');
+            input[selectedModel.resolutionInputKey] = val;
+        } else if ( typeof extra.output_megapixels === 'string' ) {
+            input.megapixels = extra.output_megapixels;
+        }
+        if ( Number.isFinite(extra.prompt_strength) ) input.prompt_strength = extra.prompt_strength;
+        if ( typeof extra.negative_prompt === 'string' ) input.negative_prompt = extra.negative_prompt;
+        if ( typeof extra.response_format === 'string' ) input.output_format = extra.response_format;
+
+        const output = await this.#client.run(
+            selectedModel.replicateId as `${string}/${string}`,
+            { input },
+        );
+
+        const url = this.#extractUrl(output);
+        if ( ! url ) {
+            throw new Error('Failed to extract image URL from Replicate response');
+        }
+
+        this.#recordUsage(actor, selectedModel, outputMp, goFast, inputMp);
+
+        return url;
+    }
+
+    #getModel (model?: string): ReplicateImageModel {
+        const models = REPLICATE_IMAGE_GENERATION_MODELS;
+        const found = models.find(m => m.id === model || m.aliases?.includes(model ?? ''));
+        return found || models.find(m => m.id === DEFAULT_MODEL)!;
+    }
+
+    #normalizeRatio (ratio?: { w: number; h: number }) {
+        const w = Number(ratio?.w);
+        const h = Number(ratio?.h);
+        if ( Number.isFinite(w) && Number.isFinite(h) && w > 0 && h > 0 ) {
+            return { w: Math.round(w), h: Math.round(h) };
+        }
+        return { ...DEFAULT_RATIO };
+    }
+
+    #toAspectRatio (ratio: { w: number; h: number }): string {
+        const g = this.#gcd(ratio.w, ratio.h);
+        return `${ratio.w / g}:${ratio.h / g}`;
+    }
+
+    #gcd (a: number, b: number): number {
+        return b === 0 ? a : this.#gcd(b, a % b);
+    }
+
+    #resolveOutputMegapixels (userValue?: string): number {
+        if ( typeof userValue === 'string' ) {
+            const parsed = parseFloat(userValue);
+            if ( Number.isFinite(parsed) && parsed > 0 ) return parsed;
+        }
+        return 1;
+    }
+
+    async #measureInputMegapixels (imageUrls: string[]): Promise<number> {
+        let totalMp = 0;
+        for ( const url of imageUrls ) {
+            try {
+                const res = await fetch(url);
+                const buffer = Buffer.from(await res.arrayBuffer());
+                const meta = await sharp(buffer).metadata();
+                if ( meta.width && meta.height ) {
+                    totalMp += Math.ceil((meta.width * meta.height) / 1_000_000);
+                }
+            } catch {
+                totalMp += 1;
+            }
+        }
+        return totalMp;
+    }
+
+    #resolveCosts (model: ReplicateImageModel, goFast: boolean): Record<string, number> {
+        return (goFast && model.costs_go_fast) ? model.costs_go_fast : model.costs;
+    }
+
+    #estimateCost (model: ReplicateImageModel, outputMp: number, goFast: boolean, inputMp: number): number {
+        const costs = this.#resolveCosts(model, goFast);
+
+        if ( model.billingScheme === 'per-image' ) {
+            const cents = costs.output;
+            if ( !cents || cents <= 0 ) {
+                throw new Error(`Replicate model ${model.id} has no valid per-image cost configured`);
+            }
+            return Math.round(cents * 1_000_000);
+        }
+
+        const runCents = costs.run ?? 0;
+        const outputMpCents = costs.output_mp;
+        if ( !outputMpCents || outputMpCents <= 0 ) {
+            throw new Error(`Replicate model ${model.id} has no valid output_mp cost configured`);
+        }
+        const inputMpCents = (costs.input_mp ?? 0) * inputMp;
+        return Math.round((runCents + outputMpCents * outputMp + inputMpCents) * 1_000_000);
+    }
+
+    #recordUsage (actor: any, model: ReplicateImageModel, outputMp: number, goFast: boolean, inputMp: number) {
+        const prefix = `replicate:${model.id}`;
+        const costs = this.#resolveCosts(model, goFast);
+
+        if ( model.billingScheme === 'per-image' ) {
+            const cents = costs.output;
+            if ( !cents || cents <= 0 ) return;
+            this.#meteringService.incrementUsage(actor, `${prefix}:output`, 1, Math.round(cents * 1_000_000));
+            return;
+        }
+        const components: { usageType: string; usageAmount: number; costOverride: number }[] = [];
+
+        const runCents = costs.run ?? 0;
+        if ( runCents > 0 ) {
+            components.push({
+                usageType: `${prefix}:run`,
+                usageAmount: 1,
+                costOverride: Math.round(runCents * 1_000_000),
+            });
+        }
+
+        const outputMpCents = costs.output_mp ?? 0;
+        if ( outputMpCents > 0 ) {
+            components.push({
+                usageType: `${prefix}:output_mp`,
+                usageAmount: outputMp,
+                costOverride: Math.round(outputMpCents * outputMp * 1_000_000),
+            });
+        }
+
+        const inputMpCents = costs.input_mp ?? 0;
+        if ( inputMpCents > 0 && inputMp > 0 ) {
+            components.push({
+                usageType: `${prefix}:input_mp`,
+                usageAmount: inputMp,
+                costOverride: Math.round(inputMpCents * inputMp * 1_000_000),
+            });
+        }
+
+        if ( components.length > 0 ) {
+            this.#meteringService.batchIncrementUsages(actor, components);
+        }
+    }
+
+    #extractUrl (output: unknown): string | undefined {
+        if ( typeof output === 'string' ) return output;
+        if ( Array.isArray(output) ) {
+            const first = output[0];
+            if ( typeof first === 'string' ) return first;
+            if ( first && typeof first === 'object' ) {
+                return String(first);
+            }
+        }
+        if ( output && typeof output === 'object' ) {
+            return String(output);
+        }
+        return undefined;
+    }
+}
