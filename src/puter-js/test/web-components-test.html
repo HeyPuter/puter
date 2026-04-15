@@ -86,6 +86,36 @@
         <button onclick="testSpinner()">Show Spinner (2s)</button>
     </div>
 
+    <div class="section">
+        <h2>Menubar</h2>
+        <button onclick="testMenubar()">Show Menubar</button>
+        <button onclick="hideMenubar()">Hide Menubar</button>
+        <div class="result" id="menubar-result">Click "Show Menubar" to add an app menubar at top of page...</div>
+    </div>
+
+    <div class="section">
+        <h2>Color Picker</h2>
+        <button onclick="testColorPicker()">Pick a Color</button>
+        <button onclick="testColorPicker('#ff6b35')">Pick (default orange)</button>
+        <div class="result" id="color-result">Click to test...</div>
+    </div>
+
+    <div class="section">
+        <h2>Font Picker</h2>
+        <button onclick="testFontPicker()">Pick a Font</button>
+        <button onclick="testFontPicker('Georgia')">Pick (default Georgia)</button>
+        <div class="result" id="font-result">Click to test...</div>
+    </div>
+
+    <div class="section">
+        <h2>File Pickers</h2>
+        <button onclick="testOpenFile()">Open File</button>
+        <button onclick="testOpenFiles()">Open Multiple Files</button>
+        <button onclick="testSaveFile()">Save File</button>
+        <button onclick="testOpenDirectory()">Open Directory</button>
+        <div class="result" id="file-result">Click to test...</div>
+    </div>
+
     <script src="../dist/puter.js"></script>
     <script>
         async function testAlert() {
@@ -214,6 +244,113 @@
         function testSpinner() {
             puter.ui.showSpinner();
             setTimeout(() => puter.ui.hideSpinner(), 2000);
+        }
+
+        function testMenubar() {
+            puter.ui.setMenubar({
+                items: [
+                    { label: 'File', items: [
+                        { label: 'New', icon: ICONS.plus, shortcut: '\u2318N', action: () => log('menubar', 'New') },
+                        { label: 'Open\u2026', shortcut: '\u2318O', action: () => log('menubar', 'Open') },
+                        '-',
+                        { label: 'Save', shortcut: '\u2318S', action: () => log('menubar', 'Save') },
+                        { label: 'Save As\u2026', shortcut: '\u21E7\u2318S', action: () => log('menubar', 'Save As') },
+                        '-',
+                        { label: 'Close Window', shortcut: '\u2318W', action: () => log('menubar', 'Close') },
+                    ]},
+                    { label: 'Edit', items: [
+                        { label: 'Undo', icon: ICONS.cut, shortcut: '\u2318Z', action: () => log('menubar', 'Undo') },
+                        { label: 'Redo', shortcut: '\u21E7\u2318Z', action: () => log('menubar', 'Redo') },
+                        '-',
+                        { label: 'Cut', icon: ICONS.cut, shortcut: '\u2318X', action: () => log('menubar', 'Cut') },
+                        { label: 'Copy', icon: ICONS.copy, shortcut: '\u2318C', action: () => log('menubar', 'Copy') },
+                        { label: 'Paste', icon: ICONS.paste, shortcut: '\u2318V', action: () => log('menubar', 'Paste') },
+                        '-',
+                        { label: 'Delete', icon: ICONS.trash, type: 'danger', action: () => log('menubar', 'Delete') },
+                    ]},
+                    { label: 'View', items: [
+                        { label: 'Show Sidebar', checked: true, action: () => log('menubar', 'Toggle Sidebar') },
+                        { label: 'Show Toolbar', checked: false, action: () => log('menubar', 'Toggle Toolbar') },
+                        '-',
+                        { label: 'Zoom In', shortcut: '\u2318+', action: () => log('menubar', 'Zoom In') },
+                        { label: 'Zoom Out', shortcut: '\u2318-', action: () => log('menubar', 'Zoom Out') },
+                    ]},
+                    { label: 'Help', items: [
+                        { label: 'Documentation', icon: ICONS.info, action: () => log('menubar', 'Docs') },
+                        { label: 'About', action: () => log('menubar', 'About') },
+                    ]},
+                ],
+            });
+            document.getElementById('menubar-result').textContent = 'Menubar shown at top of page';
+        }
+
+        function hideMenubar() {
+            document.querySelectorAll('puter-menubar').forEach(el => el.remove());
+            document.getElementById('menubar-result').textContent = 'Menubar removed';
+        }
+
+        async function testColorPicker(defaultColor) {
+            const color = await puter.ui.showColorPicker(defaultColor ? { defaultColor } : undefined);
+            const el = document.getElementById('color-result');
+            if (color) {
+                el.innerHTML = `Picked: <code style="color:${color}">${color}</code> <span style="display:inline-block;width:16px;height:16px;background:${color};border:1px solid #ccc;vertical-align:middle;border-radius:3px"></span>`;
+            } else {
+                el.textContent = 'Cancelled';
+            }
+        }
+
+        async function testFontPicker(defaultFont) {
+            const result = await puter.ui.showFontPicker(defaultFont ? { defaultFont } : undefined);
+            const el = document.getElementById('font-result');
+            if (result) {
+                el.innerHTML = `Picked: <span style="font-family:${result.fontFamily};font-size:18px">${result.fontFamily}</span>`;
+            } else {
+                el.textContent = 'Cancelled';
+            }
+        }
+
+        async function testOpenFile() {
+            const file = await puter.ui.showOpenFilePicker();
+            const el = document.getElementById('file-result');
+            if (file) {
+                el.textContent = `Opened: ${file.name} (${file.size} bytes, ${file.type || 'unknown type'})`;
+            } else {
+                el.textContent = 'Cancelled';
+            }
+        }
+
+        async function testOpenFiles() {
+            const files = await puter.ui.showOpenFilePicker({ multiple: true });
+            const el = document.getElementById('file-result');
+            if (files) {
+                const arr = Array.isArray(files) ? files : [files];
+                el.textContent = `Opened ${arr.length} file(s): ${arr.map(f => f.name).join(', ')}`;
+            } else {
+                el.textContent = 'Cancelled';
+            }
+        }
+
+        async function testSaveFile() {
+            const result = await puter.ui.showSaveFilePicker(
+                'Hello from Puter!\nThis is a test file.',
+                'puter-test.txt',
+            );
+            const el = document.getElementById('file-result');
+            if (result) {
+                el.textContent = `Saved: ${result.name}`;
+            } else {
+                el.textContent = 'Cancelled';
+            }
+        }
+
+        async function testOpenDirectory() {
+            const result = await puter.ui.showDirectoryPicker();
+            const el = document.getElementById('file-result');
+            if (result) {
+                el.textContent = `Opened directory: ${result.name}`;
+            } else {
+                el.textContent = 'Cancelled';
+            }
         }
 
         function log(target, msg) {

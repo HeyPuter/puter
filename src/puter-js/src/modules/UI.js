@@ -15,6 +15,26 @@ const createDeferred = () => {
 const FILE_SAVE_CANCELLED = Symbol('FILE_SAVE_CANCELLED');
 const FILE_OPEN_CANCELLED = Symbol('FILE_OPEN_CANCELLED');
 
+// Wrap a browser File object so it presents a Puter FSItem-like surface.
+// Used by the standalone file picker fallback when running outside puter.com.
+function _wrapFileAsFSItem (file) {
+    return {
+        name: file.name,
+        path: file.name,
+        size: file.size,
+        type: file.type,
+        modified: file.lastModified,
+        is_dir: false,
+        is_file: true,
+        // FSItem-style read methods
+        read: async () => file,
+        text: () => file.text(),
+        arrayBuffer: () => file.arrayBuffer(),
+        // Convenience: the underlying File object
+        _file: file,
+    };
+}
+
 // AppConnection provides an API for interacting with another app.
 // It's returned by UI methods, and cannot be constructed directly by user code.
 // For basic usage:
@@ -781,6 +801,56 @@ class UI extends EventListener {
             if ( ! globalThis.open ) {
                 return reject('This API is not compatible in Web Workers.');
             }
+
+            // Standalone fallback: use native File System Access API if available,
+            // otherwise input[webkitdirectory]
+            if ( this.env === 'web' && !this.messageTarget ) {
+                const handleResult = (dirHandle, name) => {
+                    const fsItem = {
+                        name,
+                        path: name,
+                        is_dir: true,
+                        is_file: false,
+                        _handle: dirHandle,
+                    };
+                    resolve(fsItem);
+                };
+
+                if ( globalThis.showDirectoryPicker ) {
+                    globalThis.showDirectoryPicker()
+                        .then(handle => handleResult(handle, handle.name))
+                        .catch(err => {
+                            if ( err && err.name === 'AbortError' ) resolve(undefined);
+                            else reject(err);
+                        });
+                    return;
+                }
+
+                // Fallback: webkitdirectory input (browser support varies)
+                const input = document.createElement('input');
+                input.type = 'file';
+                input.webkitdirectory = true;
+                input.style.display = 'none';
+                document.body.appendChild(input);
+                input.addEventListener('change', () => {
+                    const files = Array.from(input.files || []);
+                    document.body.removeChild(input);
+                    if ( files.length === 0 ) return resolve(undefined);
+                    // Derive directory name from the first file's relative path
+                    const firstPath = files[0].webkitRelativePath || files[0].name;
+                    const dirName = firstPath.split('/')[0];
+                    resolve({
+                        name: dirName,
+                        path: dirName,
+                        is_dir: true,
+                        is_file: false,
+                        files: files.map(_wrapFileAsFSItem),
+                    });
+                });
+                input.click();
+                return;
+            }
+
             const msg_id = this.#messageID++;
             if ( this.env === 'app' ) {
                 this.messageTarget?.postMessage({
@@ -814,6 +884,33 @@ class UI extends EventListener {
             if ( ! globalThis.open ) {
                 return reject('This API is not compatible in Web Workers.');
             }
+
+            // Standalone fallback: use native browser file picker
+            if ( this.env === 'web' && !this.messageTarget ) {
+                const opts = options ?? {};
+                const input = document.createElement('input');
+                input.type = 'file';
+                if ( opts.multiple ) input.multiple = true;
+                if ( opts.accept ) input.accept = Array.isArray(opts.accept) ? opts.accept.join(',') : opts.accept;
+                input.style.display = 'none';
+                document.body.appendChild(input);
+                input.addEventListener('change', () => {
+                    const files = Array.from(input.files || []);
+                    document.body.removeChild(input);
+                    if ( files.length === 0 ) {
+                        undefinedOnCancel.resolve(undefined);
+                        return;
+                    }
+                    const wrapped = files.map(f => _wrapFileAsFSItem(f));
+                    const result = opts.multiple ? wrapped : wrapped[0];
+                    undefinedOnCancel.resolve(result);
+                    resolve(result);
+                });
+                input.click();
+                resolveOnlyPromise.undefinedOnCancel = undefinedOnCancel.promise;
+                return;
+            }
+
             const msg_id = this.#messageID++;
 
             if ( this.env === 'app' ) {
@@ -852,14 +949,38 @@ class UI extends EventListener {
     };
 
     showFontPicker (options) {
+        if ( this.messageTarget ) {
+            return new Promise((resolve) => {
+                this.#postMessageWithCallback('showFontPicker', resolve, { options: options ?? {} });
+            });
+        }
+        // Standalone fallback: render web component
         return new Promise((resolve) => {
-            this.#postMessageWithCallback('showFontPicker', resolve, { options: options ?? {} });
+            const opts = typeof options === 'string' ? { defaultFont: options } : (options ?? {});
+            const el = document.createElement('puter-font-picker');
+            const defaultFont = opts.defaultFont || opts.default || 'System UI';
+            el.setAttribute('default-font', defaultFont);
+            el.addEventListener('response', (e) => resolve(e.detail));
+            document.body.appendChild(el);
+            el.open();
         });
     };
 
     showColorPicker (options) {
+        if ( this.messageTarget ) {
+            return new Promise((resolve) => {
+                this.#postMessageWithCallback('showColorPicker', resolve, { options: options ?? {} });
+            });
+        }
+        // Standalone fallback: render web component
         return new Promise((resolve) => {
-            this.#postMessageWithCallback('showColorPicker', resolve, { options: options ?? {} });
+            const opts = typeof options === 'string' ? { defaultColor: options } : (options ?? {});
+            const el = document.createElement('puter-color-picker');
+            const defaultColor = opts.defaultColor || opts.default || '#3b82f6';
+            el.setAttribute('default-color', defaultColor);
+            el.addEventListener('response', (e) => resolve(e.detail));
+            document.body.appendChild(el);
+            el.open();
         });
     };
 
@@ -875,6 +996,52 @@ class UI extends EventListener {
             if ( ! globalThis.open ) {
                 return reject('This API is not compatible in Web Workers.');
             }
+
+            // Standalone fallback: use native File System Access API or trigger download
+            if ( this.env === 'web' && !this.messageTarget ) {
+                const filename = suggestedName || 'untitled';
+                const doNativeSave = async () => {
+                    const blob = content instanceof Blob ? content : new Blob([content]);
+                    // Try native File System Access API first
+                    if ( globalThis.showSaveFilePicker ) {
+                        try {
+                            const handle = await globalThis.showSaveFilePicker({ suggestedName: filename });
+                            const writable = await handle.createWritable();
+                            await writable.write(blob);
+                            await writable.close();
+                            const file = await handle.getFile();
+                            const fsItem = _wrapFileAsFSItem(file);
+                            undefinedOnCancel.resolve(fsItem);
+                            resolve(fsItem);
+                            return;
+                        } catch ( err ) {
+                            if ( err && err.name === 'AbortError' ) {
+                                undefinedOnCancel.resolve(undefined);
+                                return;
+                            }
+                            // Fall through to download fallback
+                        }
+                    }
+                    // Fallback: trigger a download
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = filename;
+                    a.style.display = 'none';
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                    const fakeFile = new File([blob], filename, { type: blob.type });
+                    const fsItem = _wrapFileAsFSItem(fakeFile);
+                    undefinedOnCancel.resolve(fsItem);
+                    resolve(fsItem);
+                };
+                doNativeSave();
+                resolveOnlyPromise.undefinedOnCancel = undefinedOnCancel.promise;
+                return;
+            }
+
             const msg_id = this.#messageID++;
             if ( !type && Object.prototype.toString.call(content) === '[object URL]' ) {
                 type = 'url';
@@ -1049,7 +1216,16 @@ class UI extends EventListener {
     };
 
     setMenubar (spec) {
-        this.#postMessageWithObject('setMenubar', spec);
+        if ( this.messageTarget ) {
+            this.#postMessageWithObject('setMenubar', spec);
+            return;
+        }
+        // Standalone fallback: render web component
+        // Replace any existing menubar
+        document.querySelectorAll('puter-menubar').forEach(el => el.remove());
+        const el = document.createElement('puter-menubar');
+        el.items = spec.items || [];
+        document.body.appendChild(el);
     };
 
     async requestPermission (options) {

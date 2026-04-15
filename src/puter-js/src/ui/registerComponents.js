@@ -8,6 +8,9 @@ import PuterPrompt from './components/PuterPrompt.js';
 import PuterNotification from './components/PuterNotification.js';
 import PuterContextMenu from './components/PuterContextMenu.js';
 import PuterSpinner from './components/PuterSpinner.js';
+import PuterMenubar from './components/PuterMenubar.js';
+import PuterColorPicker from './components/PuterColorPicker.js';
+import PuterFontPicker from './components/PuterFontPicker.js';
 
 const components = [
     ['puter-alert', PuterAlert],
@@ -15,6 +18,9 @@ const components = [
     ['puter-notification', PuterNotification],
     ['puter-context-menu', PuterContextMenu],
     ['puter-spinner', PuterSpinner],
+    ['puter-menubar', PuterMenubar],
+    ['puter-color-picker', PuterColorPicker],
+    ['puter-font-picker', PuterFontPicker],
 ];
 
 export function registerComponents () {
