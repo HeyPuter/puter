@@ -53,3 +53,32 @@ export interface ServerUploadInput {
     contentLength?: number;
     sizeHint?: number;
 }
+
+export interface GetObjectInput {
+    bucket: string;
+    objectKey: string;
+    range?: string;
+}
+
+export interface GetObjectResult {
+    body: Readable;
+    contentLength: number | null;
+    contentType: string | null;
+    contentRange: string | null;
+    etag: string | null;
+    lastModified: Date | null;
+}
+
+export interface CopyObjectInput {
+    sourceBucket: string;
+    sourceKey: string;
+    destinationBucket: string;
+    destinationKey: string;
+    contentType?: string;
+    metadataDirective?: 'COPY' | 'REPLACE';
+}
+
+export interface DeleteObjectsInput {
+    bucket: string;
+    objectKeys: string[];
+}

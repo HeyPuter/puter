@@ -1,8 +1,11 @@
 import {
     AbortMultipartUploadCommand,
     CompleteMultipartUploadCommand,
+    CopyObjectCommand,
     CreateMultipartUploadCommand,
     DeleteObjectCommand,
+    DeleteObjectsCommand,
+    GetObjectCommand,
     PutObjectCommand,
     type S3Client,
     UploadPartCommand,
@@ -11,6 +14,10 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import type { S3Client as PuterS3Client } from '../../clients/s3/S3Client.js';
 import { Readable } from 'node:stream';
 import type {
+    CopyObjectInput,
+    DeleteObjectsInput,
+    GetObjectInput,
+    GetObjectResult,
     MultipartCompleteInput,
     ServerUploadInput,
     SignedMultipartPartUrlsInput,
@@ -241,6 +248,62 @@ export class S3StorageProvider {
             Bucket: bucket,
             Key: objectKey,
         }));
+    }
+
+    // Batch delete up to 1000 objects per S3 API limit; callers chunk if needed.
+    async deleteObjects (input: DeleteObjectsInput, region: string): Promise<void> {
+        if ( input.objectKeys.length === 0 ) return;
+        const client = this.#getClientForRegion(region);
+        const MAX_BATCH = 1000;
+        for ( let offset = 0; offset < input.objectKeys.length; offset += MAX_BATCH ) {
+            const chunk = input.objectKeys.slice(offset, offset + MAX_BATCH);
+            await client.send(new DeleteObjectsCommand({
+                Bucket: input.bucket,
+                Delete: {
+                    Objects: chunk.map((key) => ({ Key: key })),
+                    Quiet: true,
+                },
+            }));
+        }
+    }
+
+    // Server-side copy. Avoids downloading/re-uploading bytes.
+    async copyObject (input: CopyObjectInput, region: string): Promise<void> {
+        const client = this.#getClientForRegion(region);
+        await client.send(new CopyObjectCommand({
+            Bucket: input.destinationBucket,
+            Key: input.destinationKey,
+            CopySource: `${input.sourceBucket}/${encodeURIComponent(input.sourceKey)}`,
+            ...(input.contentType ? { ContentType: input.contentType } : {}),
+            ...(input.metadataDirective ? { MetadataDirective: input.metadataDirective } : {}),
+        }));
+    }
+
+    async getObjectStream (input: GetObjectInput, region: string): Promise<GetObjectResult> {
+        const client = this.#getClientForRegion(region);
+        const response = await client.send(new GetObjectCommand({
+            Bucket: input.bucket,
+            Key: input.objectKey,
+            ...(input.range ? { Range: input.range } : {}),
+        }));
+
+        const body = response.Body;
+        if ( ! body ) {
+            throw new Error('S3 getObject returned no body');
+        }
+        // AWS SDK v3 returns body as Readable in Node.js; other runtimes return a web stream.
+        const stream = body instanceof Readable
+            ? body
+            : Readable.fromWeb(body as unknown as import('node:stream/web').ReadableStream);
+
+        return {
+            body: stream,
+            contentLength: response.ContentLength ?? null,
+            contentType: response.ContentType ?? null,
+            contentRange: response.ContentRange ?? null,
+            etag: response.ETag ?? null,
+            lastModified: response.LastModified ?? null,
+        };
     }
 
     #resolveContentLength (input: ServerUploadInput): number | undefined {

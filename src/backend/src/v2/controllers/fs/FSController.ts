@@ -1,14 +1,21 @@
-import type { ACLService } from '../../services/acl/ACLService.js';
 import Busboy from 'busboy';
 import type { Request, Response } from 'express';
 import { posix as pathPosix } from 'node:path';
-import type { FSEntryService } from '../../services/fs/FSEntryService.js';
+import type { Actor } from '../../core/actor.js';
+import { Context } from '../../core/context.js';
+import { HttpError } from '../../core/http/HttpError.js';
+import { Controller, Get, Post } from '../../core/http/decorators.js';
 import type {
     PreparedBatchWrite,
     UploadedBatchWriteItem,
     UploadProgressTrackerLike,
 } from '../../services/fs/types.js';
 import type { FSEntry, FSEntryWriteInput } from '../../stores/fs/FSEntry.js';
+import {
+    runWithConcurrencyLimit,
+    runWithConcurrencyLimitSettled,
+} from '../../utils/concurrency.js';
+import { PuterController } from '../types.js';
 import type {
     CompleteWriteRequest,
     CompleteWriteResponse,
@@ -20,10 +27,6 @@ import type {
     WriteRequest,
     WriteResponse,
 } from './requestTypes.js';
-import {
-    runWithConcurrencyLimit,
-    runWithConcurrencyLimitSettled,
-} from '../../utils/concurrency.js';
 import type {
     AbortWriteRequest,
     BatchWriteManifest,
@@ -33,12 +36,6 @@ import type {
     ThumbnailUploadPrepareItem,
     ThumbnailUploadPreparePayload,
 } from './types.js';
-import { HttpError } from '../../core/http/HttpError.js';
-import { Controller, Post } from '../../core/http/decorators.js';
-import { PuterController } from '../types.js';
-import { Context } from '../../core/context.js';
-import type { EventClient } from '../../clients/EventClient.js';
-import type { PermissionStore } from '../../stores/permission/PermissionStore.js';
 class UploadProgressTracker implements UploadProgressTrackerLike {
     total = 0;
     progress = 0;
@@ -73,20 +70,20 @@ const DEFAULT_BATCH_WRITE_SIDE_EFFECT_CONCURRENCY = 8;
 @Controller('/fs')
 export class FSController extends PuterController {
 
-    private get fsEntryService (): FSEntryService {
-        return this.services.fsEntry as unknown as FSEntryService;
+    private get fsEntryService () {
+        return this.services.fsEntry;
     }
 
-    private get eventService (): EventClient {
-        return this.clients.event as unknown as EventClient;
+    private get eventService () {
+        return this.clients.event;
     }
 
-    private get aclService (): ACLService {
-        return this.services.acl as unknown as ACLService;
+    private get aclService () {
+        return this.services.acl;
     }
 
-    private get permStore (): PermissionStore {
-        return this.stores.permission as unknown as PermissionStore;
+    private get permStore () {
+        return this.stores.permission;
     }
     @Post('/startWrite', { subdomain: 'api' })
     async startWrite (req: Request<RouteParams, null, SignedWriteRequest>, res: Response<SignedWriteResponse>) {
@@ -612,6 +609,430 @@ export class FSController extends PuterController {
             },
         );
         res.json(updatedResponses);
+    }
+
+    // ── Read-side routes ────────────────────────────────────────────────
+
+    @Post('/stat', { subdomain: 'api' })
+    async statEntry (req: Request, res: Response) {
+        const actor = this.#requireActor(req);
+        const userId = this.#getActorUserId(req);
+        const body = this.#toObjectRecord(req.body);
+        const entry = await this.#resolveEntryForRequest(body, userId);
+        await this.#assertAccess(actor, entry.path, 'see');
+
+        const wantsSize = this.#toBoolean(body.return_size);
+        const wantsSubdomains = this.#toBoolean(body.return_subdomains);
+
+        const subdomains = wantsSubdomains
+            ? await this.#fetchSubdomainsForEntry(entry)
+            : undefined;
+        const subtreeSize = entry.isDir && wantsSize
+            ? await this.fsEntryService.getSubtreeSize(userId, entry.path)
+            : undefined;
+
+        res.json({
+            ...entry,
+            ...(subtreeSize !== undefined ? { size: subtreeSize } : {}),
+            ...(subdomains !== undefined ? { subdomains } : {}),
+        });
+    }
+
+    @Post('/readdir', { subdomain: 'api' })
+    async readdirEntries (req: Request, res: Response) {
+        const actor = this.#requireActor(req);
+        const userId = this.#getActorUserId(req);
+        const body = this.#toObjectRecord(req.body);
+        const parent = await this.#resolveEntryForRequest(body, userId);
+        if ( ! parent.isDir ) {
+            throw new HttpError(400, 'Target is not a directory');
+        }
+        await this.#assertAccess(actor, parent.path, 'list');
+
+        const limit = this.#toNumberOrUndefined(body.limit);
+        const offset = this.#toNumberOrUndefined(body.offset);
+        const sortByRaw = typeof body.sort_by === 'string' ? body.sort_by.toLowerCase() : undefined;
+        const sortBy = (['name', 'modified', 'type', 'size'] as const).find((v) => v === sortByRaw) ?? null;
+        const sortOrderRaw = typeof body.sort_order === 'string' ? body.sort_order.toLowerCase() : undefined;
+        const sortOrder = (['asc', 'desc'] as const).find((v) => v === sortOrderRaw) ?? null;
+
+        const children = await this.fsEntryService.listDirectory(parent.uuid, {
+            limit,
+            offset,
+            sortBy,
+            sortOrder,
+        });
+        res.json(children);
+    }
+
+    @Post('/search', { subdomain: 'api' })
+    async searchEntries (req: Request, res: Response) {
+        this.#requireActor(req);
+        const userId = this.#getActorUserId(req);
+        const body = this.#toObjectRecord(req.body);
+        const query = typeof body.query === 'string' ? body.query : typeof body.text === 'string' ? body.text : '';
+        if ( query.trim().length === 0 ) {
+            throw new HttpError(400, 'Missing `query`');
+        }
+        const limit = this.#toNumberOrUndefined(body.limit);
+        const results = await this.fsEntryService.searchByName(userId, query, limit ?? 200);
+        res.json(results);
+    }
+
+    @Get('/read', { subdomain: 'api' })
+    async readEntry (req: Request, res: Response) {
+        const actor = this.#requireActor(req);
+        const userId = this.#getActorUserId(req);
+        const query = this.#toObjectRecord(req.query);
+        const entry = await this.#resolveEntryForRequest(query, userId);
+        await this.#assertAccess(actor, entry.path, 'read');
+
+        if ( entry.isDir ) {
+            throw new HttpError(400, 'Cannot read a directory; use /fs/readdir');
+        }
+
+        const range = typeof req.headers.range === 'string' ? req.headers.range : undefined;
+        const download = await this.fsEntryService.readContent(entry, { range });
+
+        if ( download.contentType ) res.setHeader('Content-Type', download.contentType);
+        if ( download.contentLength !== null ) res.setHeader('Content-Length', String(download.contentLength));
+        if ( download.contentRange ) res.setHeader('Content-Range', download.contentRange);
+        if ( download.etag ) res.setHeader('ETag', download.etag);
+        if ( download.lastModified ) res.setHeader('Last-Modified', download.lastModified.toUTCString());
+
+        res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(entry.name)}"`);
+        res.status(range ? 206 : 200);
+
+        // Meter egress on stream end (best effort — don't fail the read).
+        const metering = this.services.metering as {
+            batchIncrementUsages?: (actor: unknown, entries: unknown[]) => void;
+        } | undefined;
+        if ( metering?.batchIncrementUsages && download.contentLength ) {
+            download.body.once('end', () => {
+                try {
+                    metering.batchIncrementUsages!(actor, [{
+                        usageType: 'filesystem:egress:bytes',
+                        usageAmount: download.contentLength!,
+                    }]);
+                } catch {
+                    // ignore — metering is non-critical.
+                }
+            });
+        }
+
+        download.body.on('error', (err) => {
+            res.destroy(err);
+        });
+        download.body.pipe(res);
+    }
+
+    // ── Mutation routes ────────────────────────────────────────────────
+
+    @Post('/mkdir', { subdomain: 'api' })
+    async mkdirEntry (req: Request, res: Response) {
+        const actor = this.#requireActor(req);
+        const userId = this.#getActorUserId(req);
+        const body = this.#toObjectRecord(req.body);
+        const path = typeof body.path === 'string' ? body.path : '';
+        if ( ! path.trim() ) throw new HttpError(400, 'Missing `path`');
+
+        // ACL: write on parent (or on target path if overwriting existing).
+        const parentPath = pathPosix.dirname(path.trim().startsWith('/') ? path.trim() : `/${path.trim()}`);
+        await this.#assertAccess(actor, parentPath === '/' ? path : parentPath, 'write');
+
+        const entry = await this.fsEntryService.mkdir(userId, {
+            path,
+            overwrite: this.#toBoolean(body.overwrite) ?? false,
+            dedupeName: this.#toBoolean(body.dedupe_name ?? body.dedupeName) ?? false,
+            createMissingParents: this.#toBoolean(body.create_missing_parents ?? body.create_missing_ancestors) ?? false,
+        });
+        this.#emitGuiItemAdded(entry);
+        res.json(entry);
+    }
+
+    @Post('/touch', { subdomain: 'api' })
+    async touchEntry (req: Request, res: Response) {
+        const actor = this.#requireActor(req);
+        const userId = this.#getActorUserId(req);
+        const body = this.#toObjectRecord(req.body);
+        const path = typeof body.path === 'string' ? body.path : '';
+        if ( ! path.trim() ) throw new HttpError(400, 'Missing `path`');
+
+        const parentPath = pathPosix.dirname(path.trim().startsWith('/') ? path.trim() : `/${path.trim()}`);
+        await this.#assertAccess(actor, parentPath === '/' ? path : parentPath, 'write');
+
+        const entry = await this.fsEntryService.touch(userId, {
+            path,
+            setAccessed: this.#toBoolean(body.set_accessed_to_now) ?? false,
+            setModified: this.#toBoolean(body.set_modified_to_now) ?? false,
+            setCreated: this.#toBoolean(body.set_created_to_now) ?? false,
+            createMissingParents: this.#toBoolean(body.create_missing_parents) ?? false,
+        });
+        res.json(entry);
+    }
+
+    @Post('/rename', { subdomain: 'api' })
+    async renameEntry (req: Request, res: Response) {
+        const actor = this.#requireActor(req);
+        const userId = this.#getActorUserId(req);
+        const body = this.#toObjectRecord(req.body);
+        const newName = typeof body.new_name === 'string' ? body.new_name : '';
+        if ( ! newName.trim() ) throw new HttpError(400, 'Missing `new_name`');
+
+        const entry = await this.#resolveEntryForRequest(body, userId);
+        await this.#assertAccess(actor, entry.path, 'write');
+
+        const renamed = await this.fsEntryService.rename(entry, newName);
+        this.#emitGuiItemUpdated(renamed);
+        res.json(renamed);
+    }
+
+    @Post('/delete', { subdomain: 'api' })
+    async deleteEntry (req: Request, res: Response) {
+        const actor = this.#requireActor(req);
+        const userId = this.#getActorUserId(req);
+        const body = this.#toObjectRecord(req.body);
+        const entry = await this.#resolveEntryForRequest(body, userId);
+        await this.#assertAccess(actor, entry.path, 'write');
+
+        await this.fsEntryService.remove(userId, {
+            entry,
+            recursive: this.#toBoolean(body.recursive) ?? false,
+            descendantsOnly: this.#toBoolean(body.descendants_only) ?? false,
+        });
+        this.#emitGuiItemRemoved(entry);
+        res.json({ ok: true });
+    }
+
+    @Post('/move', { subdomain: 'api' })
+    async moveEntry (req: Request, res: Response) {
+        const actor = this.#requireActor(req);
+        const userId = this.#getActorUserId(req);
+        const body = this.#toObjectRecord(req.body);
+        const sourceRef = this.#extractNodeRef(body.source ?? body);
+        const destinationRef = this.#extractNodeRef(body.destination);
+
+        const source = await this.#resolveEntryForRequest(sourceRef, userId);
+        const destinationParent = await this.#resolveEntryForRequest(destinationRef, userId);
+
+        await this.#assertAccess(actor, source.path, 'write');
+        await this.#assertAccess(actor, destinationParent.path, 'write');
+
+        const moved = await this.fsEntryService.move(userId, {
+            source,
+            destinationParent,
+            newName: typeof body.new_name === 'string' ? body.new_name : undefined,
+            overwrite: this.#toBoolean(body.overwrite) ?? false,
+            dedupeName: this.#toBoolean(body.dedupe_name ?? body.change_name) ?? false,
+        });
+        this.#emitGuiItemMoved(source, moved);
+        res.json(moved);
+    }
+
+    @Post('/copy', { subdomain: 'api' })
+    async copyEntry (req: Request, res: Response) {
+        const actor = this.#requireActor(req);
+        const userId = this.#getActorUserId(req);
+        const body = this.#toObjectRecord(req.body);
+        const sourceRef = this.#extractNodeRef(body.source ?? body);
+        const destinationRef = this.#extractNodeRef(body.destination);
+
+        const source = await this.#resolveEntryForRequest(sourceRef, userId);
+        const destinationParent = await this.#resolveEntryForRequest(destinationRef, userId);
+
+        await this.#assertAccess(actor, source.path, 'read');
+        await this.#assertAccess(actor, destinationParent.path, 'write');
+
+        const copy = await this.fsEntryService.copy(userId, {
+            source,
+            destinationParent,
+            newName: typeof body.new_name === 'string' ? body.new_name : undefined,
+            overwrite: this.#toBoolean(body.overwrite) ?? false,
+            dedupeName: this.#toBoolean(body.dedupe_name ?? body.change_name) ?? true,
+        });
+        this.#emitGuiItemAdded(copy);
+        res.json(copy);
+    }
+
+    @Post('/mkshortcut', { subdomain: 'api' })
+    async mkshortcutEntry (req: Request, res: Response) {
+        const actor = this.#requireActor(req);
+        const userId = this.#getActorUserId(req);
+        const body = this.#toObjectRecord(req.body);
+        const parentRef = this.#extractNodeRef(body.parent ?? body);
+        const targetRef = this.#extractNodeRef(body.target);
+        const name = typeof body.name === 'string' ? body.name : '';
+        if ( ! name.trim() ) throw new HttpError(400, 'Missing `name`');
+
+        const parent = await this.#resolveEntryForRequest(parentRef, userId);
+        const target = await this.#resolveEntryForRequest(targetRef, userId);
+
+        await this.#assertAccess(actor, target.path, 'read');
+        await this.#assertAccess(actor, parent.path, 'write');
+
+        const shortcut = await this.fsEntryService.mkshortcut(userId, {
+            parent,
+            name,
+            target,
+            dedupeName: this.#toBoolean(body.dedupe_name) ?? true,
+        });
+        this.#emitGuiItemAdded(shortcut);
+        res.json(shortcut);
+    }
+
+    @Post('/mklink', { subdomain: 'api' })
+    async mklinkEntry (req: Request, res: Response) {
+        const actor = this.#requireActor(req);
+        const userId = this.#getActorUserId(req);
+        const body = this.#toObjectRecord(req.body);
+        const parentRef = this.#extractNodeRef(body.parent ?? body);
+        const parent = await this.#resolveEntryForRequest(parentRef, userId);
+        const name = typeof body.name === 'string' ? body.name : '';
+        const target = typeof body.target === 'string' ? body.target : '';
+        if ( ! name.trim() ) throw new HttpError(400, 'Missing `name`');
+        if ( ! target.trim() ) throw new HttpError(400, 'Missing `target`');
+
+        await this.#assertAccess(actor, parent.path, 'write');
+
+        const link = await this.fsEntryService.mklink(userId, {
+            parent,
+            name,
+            targetPath: target,
+            dedupeName: this.#toBoolean(body.dedupe_name) ?? true,
+        });
+        this.#emitGuiItemAdded(link);
+        res.json(link);
+    }
+
+    // ── Read-side helpers ───────────────────────────────────────────────
+
+    #requireActor (req: Request): Actor {
+        const actor = req.actor;
+        if ( ! actor ) {
+            throw new HttpError(401, 'Unauthorized');
+        }
+        return actor;
+    }
+
+    async #resolveEntryForRequest (source: Record<string, unknown>, userId: number) {
+        const repo = this.fsEntryService.entryRepository;
+        const ref = {
+            path: typeof source.path === 'string' ? source.path : undefined,
+            uid: typeof source.uid === 'string'
+                ? source.uid
+                : typeof source.uuid === 'string' ? source.uuid : undefined,
+            id: (typeof source.id === 'number' || typeof source.id === 'string') ? source.id : undefined,
+        };
+        const mod = await import('../../services/fs/resolveNode.js');
+        const entry = await mod.resolveNode(repo, ref, { userId, required: true });
+        if ( ! entry ) {
+            throw new HttpError(404, 'Entry not found');
+        }
+        return entry;
+    }
+
+    async #assertAccess (actor: Actor, path: string, mode: 'see' | 'list' | 'read' | 'write') {
+        const fsEntryService = this.fsEntryService;
+        let ancestorsCache: Promise<Array<{ uid: string; path: string }>> | null = null;
+        const descriptor = {
+            path,
+            resolveAncestors () {
+                if ( ! ancestorsCache ) {
+                    ancestorsCache = fsEntryService.getAncestorChain(path);
+                }
+                return ancestorsCache;
+            },
+        };
+        const allowed = await this.aclService.check(actor, descriptor, mode);
+        if ( allowed ) return;
+        const safe = await this.aclService.getSafeAclError(actor, descriptor, mode) as {
+            status?: unknown; message?: unknown; fields?: { code?: unknown };
+        };
+        const status = Number(safe?.status);
+        const message = typeof safe?.message === 'string' && safe.message.length > 0 ? safe.message : 'Access denied';
+        const code = typeof safe?.fields?.code === 'string' ? safe.fields.code : undefined;
+        const legacyCode = code === 'forbidden' ? 'access_denied' : code;
+        if ( status === 404 ) {
+            throw new HttpError(404, message, { ...(legacyCode ? { legacyCode } : {}) });
+        }
+        throw new HttpError(403, message, { legacyCode: legacyCode ?? 'access_denied' });
+    }
+
+    async #fetchSubdomainsForEntry (entry: FSEntry): Promise<unknown[]> {
+        const subdomainStore = this.stores.subdomain as unknown as {
+            listByRootDirUid?: (uid: string) => Promise<unknown[]>;
+            listByUserId?: (id: number) => Promise<unknown[]>;
+        };
+        if ( typeof subdomainStore?.listByRootDirUid === 'function' ) {
+            try {
+                return await subdomainStore.listByRootDirUid(entry.uuid) ?? [];
+            } catch {
+                return [];
+            }
+        }
+        return [];
+    }
+
+    #toNumberOrUndefined (value: unknown): number | undefined {
+        if ( typeof value === 'number' && Number.isFinite(value) ) return value;
+        if ( typeof value === 'string' && value.trim().length > 0 ) {
+            const parsed = Number(value);
+            if ( Number.isFinite(parsed) ) return parsed;
+        }
+        return undefined;
+    }
+
+    // Accepts loose inputs from route bodies. `source`/`destination` fields may
+    // arrive as a plain string (= path) or an object of { path | uid | id }.
+    #extractNodeRef (value: unknown): Record<string, unknown> {
+        if ( typeof value === 'string' ) return { path: value };
+        if ( value && typeof value === 'object' && !Array.isArray(value) ) {
+            return value as Record<string, unknown>;
+        }
+        return {};
+    }
+
+    // Fire-and-forget GUI events for single-entry mutations. These feed the
+    // desktop cache invalidator and extension listeners (e.g. thumbnails).
+    #emitGuiItemAdded (entry: FSEntry): void {
+        void this.#emitGuiWriteEvent('outer.gui.item.added', entry, undefined)
+            .catch(() => undefined);
+    }
+
+    #emitGuiItemUpdated (entry: FSEntry): void {
+        void this.#emitGuiWriteEvent('outer.gui.item.updated', entry, undefined)
+            .catch(() => undefined);
+    }
+
+    #emitGuiItemRemoved (entry: FSEntry): void {
+        // GUI listens for `outer.gui.item.removed`; same envelope shape.
+        void (async () => {
+            try {
+                await this.eventService.emit('outer.gui.item.removed', {
+                    user_id_list: [entry.userId],
+                    response: { ...entry, from_new_service: true },
+                }, {});
+            } catch {
+                // ignore — non-critical.
+            }
+        })();
+    }
+
+    #emitGuiItemMoved (source: FSEntry, moved: FSEntry): void {
+        void (async () => {
+            try {
+                await this.eventService.emit('outer.gui.item.moved', {
+                    user_id_list: [moved.userId],
+                    response: {
+                        ...moved,
+                        from_path: source.path,
+                        from_new_service: true,
+                    },
+                }, {});
+            } catch {
+                // ignore — non-critical.
+            }
+        })();
     }
 
     #getActorUserId (

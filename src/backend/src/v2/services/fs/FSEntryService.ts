@@ -1800,4 +1800,659 @@ export class FSEntryService extends PuterService {
         }
         return this.#fsEntryRepository.getUserStorageAllowance(numericUserId);
     }
+
+    // ── Public repository accessors ─────────────────────────────────────
+    //
+    // A few controllers (notably the legacy FS shims) need repository reads
+    // without duplicating the full service method wrapper. Expose a getter
+    // rather than threading the repo separately.
+    get entryRepository (): FSEntryRepository {
+        return this.#fsEntryRepository;
+    }
+
+    get storageProvider (): S3StorageProvider {
+        return this.#s3StorageProvider;
+    }
+
+    // ── Reads ───────────────────────────────────────────────────────────
+
+    /**
+     * List direct children of a directory. Caller is responsible for any ACL
+     * check on the parent (usually 'list' mode). Returns entries in the
+     * requested sort order.
+     */
+    async listDirectory (parentUid: string, options: {
+        limit?: number;
+        offset?: number;
+        sortBy?: 'name' | 'modified' | 'type' | 'size' | null;
+        sortOrder?: 'asc' | 'desc' | null;
+    } = {}): Promise<FSEntry[]> {
+        return this.#fsEntryRepository.listChildren(parentUid, options);
+    }
+
+    /**
+     * Search by file name for a user. Linear-scan with LIKE — cheap for
+     * typical library sizes, revisit if we need full-text.
+     */
+    async searchByName (userId: number, query: string, limit = 200): Promise<FSEntry[]> {
+        return this.#fsEntryRepository.searchByNameForUser(userId, query, limit);
+    }
+
+    /**
+     * Recursively compute total byte size under a directory. Called on demand
+     * from `stat` when the client asks for `size: true`. See the repository
+     * method for the perf caveat — this is O(descendants) and should get a
+     * materialized counter eventually.
+     */
+    async getSubtreeSize (userId: number, path: string): Promise<number> {
+        return this.#fsEntryRepository.getSubtreeSize(userId, path);
+    }
+
+    /**
+     * Stream bytes of a file entry from S3. The returned stream is a Node
+     * Readable; caller pipes it into the HTTP response and emits metering
+     * once the stream ends. Honours HTTP Range when provided.
+     *
+     * Throws 400 if the entry isn't a file, 500 if the entry has no backing
+     * bucket (should never happen for real files).
+     */
+    async readContent (entry: FSEntry, options: { range?: string } = {}): Promise<{
+        body: Readable;
+        contentLength: number | null;
+        contentType: string | null;
+        contentRange: string | null;
+        etag: string | null;
+        lastModified: Date | null;
+    }> {
+        if ( entry.isDir ) {
+            throw new HttpError(400, 'Cannot read content of a directory');
+        }
+        if ( entry.isSymlink || entry.isShortcut ) {
+            // Caller should resolve the link target before calling readContent.
+            throw new HttpError(400, 'Cannot read content of a symlink or shortcut directly');
+        }
+        if ( ! entry.bucket || ! entry.bucketRegion ) {
+            throw new HttpError(500, 'Entry has no backing storage');
+        }
+
+        // Derive the S3 object key from entry metadata if present, else fall
+        // back to the uuid convention used elsewhere (objectKey defaults to
+        // uuid during write when no metadata override is set).
+        const objectKey = this.#deriveObjectKeyFromEntry(entry);
+        return this.#s3StorageProvider.getObjectStream(
+            { bucket: entry.bucket, objectKey, range: options.range },
+            entry.bucketRegion,
+        );
+    }
+
+    // Objects written by fsv2 use the pending-session's objectKey, which is
+    // persisted in FSEntry.metadata JSON under `objectKey`. Falls back to the
+    // entry uuid for entries that didn't record it (older data).
+    #deriveObjectKeyFromEntry (entry: FSEntry): string {
+        if ( entry.metadata ) {
+            try {
+                const parsed = JSON.parse(entry.metadata);
+                if ( parsed && typeof parsed.objectKey === 'string' && parsed.objectKey.length > 0 ) {
+                    return parsed.objectKey;
+                }
+            } catch {
+                // Not JSON — fall through.
+            }
+        }
+        return entry.uuid;
+    }
+
+    // ── Mutation: mkdir / touch / rename / mkshortcut / mklink ─────────
+
+    /**
+     * Resolve a free child name under `parentEntry` by appending ` (N)` when
+     * `name` already exists. Mirrors the deduping convention used by
+     * `#findDedupedPath` but operates on the parent+name shape.
+     */
+    async #findDedupedName (parentEntry: FSEntry, name: string): Promise<string> {
+        const repo = this.#fsEntryRepository;
+        const parentPath = parentEntry.path;
+        const ext = pathPosix.extname(name);
+        const base = pathPosix.basename(name, ext);
+        for ( let suffix = 1; suffix < 100_000; suffix++ ) {
+            const candidate = `${base} (${suffix})${ext}`;
+            const candidatePath = parentPath === '/' ? `/${candidate}` : `${parentPath}/${candidate}`;
+            const existing = await repo.getEntryByPathForUser(candidatePath, parentEntry.userId);
+            if ( ! existing ) return candidate;
+        }
+        throw new HttpError(500, 'Could not dedupe name within 100000 attempts');
+    }
+
+    /**
+     * Resolve or create a parent directory for a given target path. Returns
+     * the parent entry. Throws 400 if the path has no parent (root) or 404
+     * when parents are missing and create is disabled.
+     */
+    async #resolveOrCreateParent (userId: number, targetPath: string, createMissingParents: boolean): Promise<FSEntry> {
+        const normalized = targetPath.trim();
+        if ( normalized === '/' ) throw new HttpError(400, 'Cannot operate on root');
+        const parentPath = pathPosix.dirname(normalized);
+        if ( parentPath === '/' ) throw new HttpError(400, 'Cannot operate at root');
+        return this.#fsEntryRepository.resolveParentDirectory(userId, parentPath, createMissingParents);
+    }
+
+    /**
+     * Create a directory at `path`. Mirrors v1 HLMkdir options:
+     *   - overwrite: if a non-directory exists, remove it and create dir
+     *   - dedupeName: if conflict, append ` (N)`
+     *   - createMissingParents: create intermediate dirs
+     *
+     * Returns the created (or existing-on-dedupe-false-no-conflict) entry.
+     */
+    async mkdir (userId: number, input: {
+        path: string;
+        overwrite?: boolean;
+        dedupeName?: boolean;
+        createMissingParents?: boolean;
+    }): Promise<FSEntry> {
+        const targetPath = input.path.trim();
+        const parent = await this.#resolveOrCreateParent(userId, targetPath, !!input.createMissingParents);
+
+        let name = pathPosix.basename(targetPath);
+        const existing = await this.#fsEntryRepository.getEntryByPathForUser(targetPath, userId);
+        if ( existing ) {
+            if ( existing.isDir ) {
+                // A directory already exists at path: idempotent success.
+                return existing;
+            }
+            if ( input.overwrite ) {
+                // Remove the non-directory occupant then create the dir.
+                await this.remove(userId, { entry: existing, recursive: false });
+            } else if ( input.dedupeName ) {
+                name = await this.#findDedupedName(parent, name);
+            } else {
+                throw new HttpError(409, `An entry already exists at ${targetPath}`);
+            }
+        }
+
+        return this.#fsEntryRepository.createNonFileEntry({
+            userId,
+            parent,
+            name,
+            kind: 'directory',
+        });
+    }
+
+    /**
+     * Touch: create an empty file at `path` if missing; otherwise bump
+     * timestamps. Mirrors v1 `/touch` semantics.
+     */
+    async touch (userId: number, input: {
+        path: string;
+        setAccessed?: boolean;
+        setModified?: boolean;
+        setCreated?: boolean;
+        createMissingParents?: boolean;
+    }): Promise<FSEntry> {
+        const targetPath = input.path.trim();
+        const parent = await this.#resolveOrCreateParent(userId, targetPath, !!input.createMissingParents);
+        const name = pathPosix.basename(targetPath);
+        const existing = await this.#fsEntryRepository.getEntryByPathForUser(targetPath, userId);
+        if ( existing ) {
+            return this.#fsEntryRepository.touchEntryTimestamps(existing.uuid, {
+                setAccessed: input.setAccessed,
+                setModified: input.setModified,
+                setCreated: input.setCreated,
+            });
+        }
+        return this.#fsEntryRepository.createNonFileEntry({
+            userId,
+            parent,
+            name,
+            kind: 'empty-file',
+        });
+    }
+
+    /**
+     * Rename an entry in place. The name changes and path rewrites; if the
+     * entry is a directory, descendant paths are rewritten too.
+     */
+    async rename (entry: FSEntry, newName: string): Promise<FSEntry> {
+        if ( newName.includes('/') ) throw new HttpError(400, 'Name cannot contain a slash');
+        if ( newName.trim().length === 0 ) throw new HttpError(400, 'Name cannot be empty');
+        if ( entry.name === newName ) return entry;
+
+        const parentPath = pathPosix.dirname(entry.path);
+        const newPath = parentPath === '/' ? `/${newName}` : `${parentPath}/${newName}`;
+
+        // Reject if another entry already owns the target path.
+        const collision = await this.#fsEntryRepository.getEntryByPathForUser(newPath, entry.userId);
+        if ( collision && collision.uuid !== entry.uuid ) {
+            throw new HttpError(409, `An entry already exists at ${newPath}`);
+        }
+
+        const updated = await this.#fsEntryRepository.updateEntry(entry.uuid, {
+            name: newName,
+            path: newPath,
+        });
+
+        if ( entry.isDir ) {
+            await this.#fsEntryRepository.updatePathPrefixForUser(entry.userId, entry.path, newPath);
+        }
+        return updated;
+    }
+
+    /**
+     * Create a shortcut pointing at `target`. Shortcuts are FS entries with
+     * `is_shortcut = 1` and `shortcut_to = target.id`.
+     */
+    async mkshortcut (userId: number, input: {
+        parent: FSEntry;
+        name: string;
+        target: FSEntry;
+        dedupeName?: boolean;
+    }): Promise<FSEntry> {
+        let name = input.name;
+        const childPath = input.parent.path === '/' ? `/${name}` : `${input.parent.path}/${name}`;
+        const collision = await this.#fsEntryRepository.getEntryByPathForUser(childPath, userId);
+        if ( collision ) {
+            if ( input.dedupeName ) {
+                name = await this.#findDedupedName(input.parent, name);
+            } else {
+                throw new HttpError(409, `An entry already exists at ${childPath}`);
+            }
+        }
+        return this.#fsEntryRepository.createNonFileEntry({
+            userId,
+            parent: input.parent,
+            name,
+            kind: 'shortcut',
+            shortcutTo: input.target.id,
+        });
+    }
+
+    /**
+     * Create a symlink row at `parent/name` pointing to raw string
+     * `targetPath`. No verification that target resolves — v1 allowed broken
+     * links by design.
+     */
+    async mklink (userId: number, input: {
+        parent: FSEntry;
+        name: string;
+        targetPath: string;
+        dedupeName?: boolean;
+    }): Promise<FSEntry> {
+        let name = input.name;
+        const childPath = input.parent.path === '/' ? `/${name}` : `${input.parent.path}/${name}`;
+        const collision = await this.#fsEntryRepository.getEntryByPathForUser(childPath, userId);
+        if ( collision ) {
+            if ( input.dedupeName ) {
+                name = await this.#findDedupedName(input.parent, name);
+            } else {
+                throw new HttpError(409, `An entry already exists at ${childPath}`);
+            }
+        }
+        return this.#fsEntryRepository.createNonFileEntry({
+            userId,
+            parent: input.parent,
+            name,
+            kind: 'symlink',
+            symlinkPath: input.targetPath,
+        });
+    }
+
+    // ── Mutation: remove / move / copy ─────────────────────────────────
+
+    /**
+     * Remove an entry. For directories, descendants are walked and removed
+     * (both DB rows and S3 objects). Emits `fs.remove.node` per file so the
+     * thumbnail extension (and any other listener) can clean up side state.
+     *
+     * Does NOT enforce ACL — caller (controller) performs the `write` check.
+     */
+    async remove (userId: number, input: {
+        entry: FSEntry;
+        recursive?: boolean;
+        descendantsOnly?: boolean;
+    }): Promise<void> {
+        const { entry } = input;
+        if ( entry.userId !== userId ) {
+            // Defensive — only the owner should be hitting this path; higher
+            // layers grant access via ACL, not raw ownership, but we still
+            // want to avoid a misrouted call taking out someone else's tree.
+            throw new HttpError(403, 'Cannot remove an entry owned by another user');
+        }
+
+        if ( entry.isDir ) {
+            const descendants = await this.#fsEntryRepository.listDescendantsByPath(userId, entry.path);
+            if ( descendants.length > 0 && ! input.recursive ) {
+                throw new HttpError(409, 'Directory is not empty');
+            }
+
+            // Delete descendants first (depth-descending). S3 objects are
+            // batched per bucket+region for efficiency.
+            await this.#removeDescendantsStorage(descendants);
+            if ( descendants.length > 0 ) {
+                await this.#fsEntryRepository.deleteEntries(descendants);
+            }
+
+            if ( ! input.descendantsOnly ) {
+                await this.#fsEntryRepository.deleteEntry(entry);
+                this.#emitRemoveEvent(entry);
+            }
+            return;
+        }
+
+        // File / shortcut / symlink: delete backing S3 object (if any) then the row.
+        if ( entry.bucket && entry.bucketRegion && !entry.isShortcut && !entry.isSymlink ) {
+            try {
+                await this.#s3StorageProvider.deleteObject(
+                    entry.bucket,
+                    this.#deriveObjectKeyFromEntry(entry),
+                    entry.bucketRegion,
+                );
+            } catch {
+                // Best effort — DB row is the source of truth. Extensions
+                // will get the `fs.remove.node` event regardless.
+            }
+        }
+        await this.#fsEntryRepository.deleteEntry(entry);
+        this.#emitRemoveEvent(entry);
+    }
+
+    async #removeDescendantsStorage (descendants: FSEntry[]): Promise<void> {
+        // Group file descendants by bucket+region for batch delete.
+        const grouped = new Map<string, { bucket: string; region: string; keys: string[] }>();
+        for ( const child of descendants ) {
+            if ( child.isDir || child.isShortcut || child.isSymlink ) continue;
+            if ( ! child.bucket || ! child.bucketRegion ) continue;
+            const groupKey = `${child.bucketRegion}::${child.bucket}`;
+            const group = grouped.get(groupKey) ?? { bucket: child.bucket, region: child.bucketRegion, keys: [] };
+            group.keys.push(this.#deriveObjectKeyFromEntry(child));
+            grouped.set(groupKey, group);
+            // Fire individual removal events so thumbnail extension can clean up.
+            this.#emitRemoveEvent(child);
+        }
+        await Promise.allSettled(
+            Array.from(grouped.values()).map((group) =>
+                this.#s3StorageProvider.deleteObjects({ bucket: group.bucket, objectKeys: group.keys }, group.region),
+            ),
+        );
+    }
+
+    #emitRemoveEvent (entry: FSEntry): void {
+        // Extensions (thumbnails) listen to `fs.remove.node` with a { node }-like payload.
+        // We pass the plain FSEntry — consumers already tolerate various shapes.
+        try {
+            this.clients.event.emit('fs.remove.node', { node: entry, entry }, {});
+        } catch {
+            // Non-critical.
+        }
+    }
+
+    /**
+     * Move an entry to a new parent (and optionally rename in the same op).
+     * Works for files and directories. Updates descendant paths when moving
+     * a directory.
+     */
+    async move (userId: number, input: {
+        source: FSEntry;
+        destinationParent: FSEntry;
+        newName?: string;
+        overwrite?: boolean;
+        dedupeName?: boolean;
+    }): Promise<FSEntry> {
+        const { source, destinationParent } = input;
+        if ( source.userId !== userId ) {
+            throw new HttpError(403, 'Cannot move an entry owned by another user');
+        }
+        if ( ! destinationParent.isDir ) {
+            throw new HttpError(400, 'Destination parent is not a directory');
+        }
+        if ( source.isDir && destinationParent.path.startsWith(source.path + '/') ) {
+            throw new HttpError(400, 'Cannot move a directory into itself');
+        }
+
+        let name = input.newName ?? source.name;
+        const targetPath = destinationParent.path === '/'
+            ? `/${name}`
+            : `${destinationParent.path}/${name}`;
+
+        const collision = await this.#fsEntryRepository.getEntryByPathForUser(targetPath, userId);
+        if ( collision && collision.uuid !== source.uuid ) {
+            if ( input.overwrite ) {
+                await this.remove(userId, { entry: collision, recursive: true });
+            } else if ( input.dedupeName ) {
+                name = await this.#findDedupedName(destinationParent, name);
+            } else {
+                throw new HttpError(409, `An entry already exists at ${targetPath}`);
+            }
+        }
+
+        const finalPath = destinationParent.path === '/'
+            ? `/${name}`
+            : `${destinationParent.path}/${name}`;
+
+        const updated = await this.#fsEntryRepository.updateEntry(source.uuid, {
+            name,
+            path: finalPath,
+            parentId: destinationParent.id,
+            parentUid: destinationParent.uuid,
+        });
+
+        if ( source.isDir && source.path !== finalPath ) {
+            await this.#fsEntryRepository.updatePathPrefixForUser(userId, source.path, finalPath);
+        }
+
+        try {
+            this.clients.event.emit('fs.move.node', {
+                node: updated,
+                fromPath: source.path,
+                toPath: finalPath,
+            }, {});
+        } catch {
+            // ignore — non-critical.
+        }
+        return updated;
+    }
+
+    /**
+     * Copy an entry to a new parent. For directories, walks descendants and
+     * issues S3 CopyObject + DB inserts. Thumbnail URLs on entries ride
+     * along in the DB column — the thumbnail extension is notified via
+     * `fs.copy.node` so it can duplicate the backing S3 object (otherwise
+     * deleting one copy would nuke the other's thumbnail).
+     */
+    async copy (userId: number, input: {
+        source: FSEntry;
+        destinationParent: FSEntry;
+        newName?: string;
+        overwrite?: boolean;
+        dedupeName?: boolean;
+    }): Promise<FSEntry> {
+        const { source, destinationParent } = input;
+        if ( ! destinationParent.isDir ) {
+            throw new HttpError(400, 'Destination parent is not a directory');
+        }
+        if ( source.isDir && (destinationParent.path === source.path || destinationParent.path.startsWith(source.path + '/')) ) {
+            throw new HttpError(400, 'Cannot copy a directory into itself or a descendant');
+        }
+
+        let name = input.newName ?? source.name;
+        const targetPath = destinationParent.path === '/'
+            ? `/${name}`
+            : `${destinationParent.path}/${name}`;
+
+        const collision = await this.#fsEntryRepository.getEntryByPathForUser(targetPath, userId);
+        if ( collision ) {
+            if ( input.overwrite ) {
+                await this.remove(userId, { entry: collision, recursive: true });
+            } else if ( input.dedupeName ) {
+                name = await this.#findDedupedName(destinationParent, name);
+            } else {
+                throw new HttpError(409, `An entry already exists at ${targetPath}`);
+            }
+        }
+
+        const finalPath = destinationParent.path === '/'
+            ? `/${name}`
+            : `${destinationParent.path}/${name}`;
+
+        if ( ! source.isDir ) {
+            return this.#copyLeafEntry(userId, source, destinationParent, name, finalPath);
+        }
+
+        // Recursive directory copy:
+        // 1) Create the new root directory at destination
+        // 2) Walk descendants; for each, compute new path by swapping prefix
+        // 3) Create a new row (files copy S3 object; dirs just insert)
+        const newRoot = await this.#fsEntryRepository.createNonFileEntry({
+            userId,
+            parent: destinationParent,
+            name,
+            kind: 'directory',
+            metadata: source.metadata,
+            thumbnail: source.thumbnail,
+            associatedAppId: source.associatedAppId,
+            isPublic: source.isPublic,
+        });
+
+        const descendants = await this.#fsEntryRepository.listDescendantsByPath(source.userId, source.path);
+        // Sort shallow-first so parents exist before children.
+        descendants.sort((a, b) => a.path.length - b.path.length);
+
+        // Maintain a map from old-path → new parent entry so child inserts
+        // can reference the correct parent uuid/id.
+        const newByOldPath = new Map<string, FSEntry>();
+        newByOldPath.set(source.path, newRoot);
+
+        for ( const descendant of descendants ) {
+            const oldParentPath = pathPosix.dirname(descendant.path);
+            const newParent = newByOldPath.get(oldParentPath);
+            if ( ! newParent ) {
+                // Parent wasn't copied — skip (shouldn't happen with sort).
+                continue;
+            }
+            const copied = descendant.isDir
+                ? await this.#fsEntryRepository.createNonFileEntry({
+                    userId,
+                    parent: newParent,
+                    name: descendant.name,
+                    kind: 'directory',
+                    metadata: descendant.metadata,
+                    thumbnail: descendant.thumbnail,
+                    associatedAppId: descendant.associatedAppId,
+                    isPublic: descendant.isPublic,
+                })
+                : await this.#copyLeafEntry(
+                    userId,
+                    descendant,
+                    newParent,
+                    descendant.name,
+                    newParent.path === '/' ? `/${descendant.name}` : `${newParent.path}/${descendant.name}`,
+                );
+            newByOldPath.set(descendant.path, copied);
+        }
+
+        return newRoot;
+    }
+
+    // Internal helper: copies a single non-directory entry. Handles files,
+    // shortcuts, and symlinks. Files trigger S3 CopyObject; shortcuts/symlinks
+    // are pure metadata clones.
+    async #copyLeafEntry (
+        userId: number,
+        source: FSEntry,
+        destinationParent: FSEntry,
+        newName: string,
+        _newPath: string,
+    ): Promise<FSEntry> {
+        if ( source.isSymlink ) {
+            return this.#fsEntryRepository.createNonFileEntry({
+                userId,
+                parent: destinationParent,
+                name: newName,
+                kind: 'symlink',
+                symlinkPath: source.symlinkPath,
+                metadata: source.metadata,
+                associatedAppId: source.associatedAppId,
+            });
+        }
+        if ( source.isShortcut ) {
+            return this.#fsEntryRepository.createNonFileEntry({
+                userId,
+                parent: destinationParent,
+                name: newName,
+                kind: 'shortcut',
+                shortcutTo: source.shortcutTo,
+                metadata: source.metadata,
+                associatedAppId: source.associatedAppId,
+            });
+        }
+
+        // Regular file: duplicate the S3 object under a new key (the new
+        // entry's uuid), then insert the DB row pointing at it.
+        if ( ! source.bucket || ! source.bucketRegion ) {
+            throw new HttpError(500, 'Source file has no backing storage');
+        }
+
+        const newUuid = uuidv4();
+        const sourceObjectKey = this.#deriveObjectKeyFromEntry(source);
+        await this.#s3StorageProvider.copyObject(
+            {
+                sourceBucket: source.bucket,
+                sourceKey: sourceObjectKey,
+                destinationBucket: source.bucket,
+                destinationKey: newUuid,
+            },
+            source.bucketRegion,
+        );
+
+        // Re-serialize metadata, swapping in the new objectKey.
+        const nextMetadata = this.#metadataWithObjectKey(source.metadata, newUuid);
+
+        // Insert as a file row. We reuse the files INSERT path (batchCreateEntries)
+        // since it handles bucket/metadata correctly. A single-row call is fine.
+        const [created] = await this.#fsEntryRepository.batchCreateEntries([{
+            userId,
+            uuid: newUuid,
+            path: destinationParent.path === '/' ? `/${newName}` : `${destinationParent.path}/${newName}`,
+            size: source.size ?? 0,
+            contentType: undefined,
+            metadata: nextMetadata,
+            thumbnail: source.thumbnail,
+            associatedAppId: source.associatedAppId,
+            immutable: source.immutable,
+            isPublic: source.isPublic,
+            bucket: source.bucket,
+            bucketRegion: source.bucketRegion,
+        } as FSEntryCreateInput], false);
+        if ( ! created ) {
+            throw new HttpError(500, 'Failed to copy file entry');
+        }
+
+        try {
+            this.clients.event.emit('fs.copy.node', {
+                source,
+                copy: created,
+                sourceObjectKey,
+                copyObjectKey: newUuid,
+            }, {});
+        } catch {
+            // ignore — non-critical.
+        }
+        return created;
+    }
+
+    // Preserves existing metadata JSON fields, overriding only objectKey.
+    #metadataWithObjectKey (metadata: string | null, objectKey: string): string {
+        let parsed: Record<string, unknown> = {};
+        if ( metadata ) {
+            try {
+                const tentative = JSON.parse(metadata);
+                if ( tentative && typeof tentative === 'object' && !Array.isArray(tentative) ) {
+                    parsed = tentative as Record<string, unknown>;
+                }
+            } catch {
+                // Non-JSON legacy metadata — drop and replace.
+            }
+        }
+        parsed.objectKey = objectKey;
+        return JSON.stringify(parsed);
+    }
 }

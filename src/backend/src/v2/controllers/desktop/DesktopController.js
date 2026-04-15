@@ -1,4 +1,5 @@
 import { HttpError } from '../../core/http/HttpError.js';
+import { PuterController } from '../types.js';
 
 const ALLOWED_LAYOUTS = ['icons', 'details', 'list'];
 const ALLOWED_SORT_BY = ['name', 'size', 'modified', 'type'];
@@ -11,12 +12,9 @@ const ALLOWED_SORT_ORDER = ['asc', 'desc'];
  *   - User-level: desktop background, taskbar items (UserStore)
  *   - Folder-level: layout, sort_by/sort_order (fsentries table)
  */
-export class DesktopController {
+export class DesktopController extends PuterController {
     constructor (config, clients, stores, services) {
-        this.config = config;
-        this.clients = clients;
-        this.stores = stores;
-        this.services = services;
+        super(config, clients, stores, services);
     }
 
     get userStore () {

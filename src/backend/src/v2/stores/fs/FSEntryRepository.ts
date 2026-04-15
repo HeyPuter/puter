@@ -1337,6 +1337,363 @@ export class FSEntryRepository {
         return completedEntries;
     }
 
+    // ── Non-file entry creation (dirs, shortcuts, symlinks, touch) ──────
+
+    /**
+     * Create a single non-file entry: directory, shortcut, or symlink.
+     *
+     * Unlike `batchCreateEntries` (which is geared to S3-backed files),
+     * these rows carry no bucket metadata. The caller is responsible for
+     * parent/name conflict resolution — this method assumes the parent
+     * exists and the target name is free.
+     *
+     * Returns the inserted entry with a refreshed row read. Throws 409 on
+     * a unique-key collision (caller should pre-check and dedupe).
+     */
+    async createNonFileEntry (input: {
+        userId: number;
+        parent: FSEntry;
+        name: string;
+        kind: 'directory' | 'shortcut' | 'symlink' | 'empty-file';
+        shortcutTo?: number | null;
+        symlinkPath?: string | null;
+        associatedAppId?: number | null;
+        metadata?: string | null;
+        immutable?: boolean;
+        isPublic?: boolean | null;
+        thumbnail?: string | null;
+    }): Promise<FSEntry> {
+        const uuid = uuidv4();
+        const now = Math.floor(Date.now() / 1000);
+        const parentPath = this.#normalizePath(input.parent.path);
+        const path = parentPath === '/' ? `/${input.name}` : `${parentPath}/${input.name}`;
+
+        const isDir = input.kind === 'directory' ? 1 : 0;
+        const isShortcut = input.kind === 'shortcut' ? 1 : 0;
+        const isSymlink = input.kind === 'symlink' ? 1 : 0;
+
+        await this.#db.write(
+            `INSERT INTO fsentries (
+                uuid,
+                user_id,
+                parent_id,
+                parent_uid,
+                name,
+                path,
+                is_dir,
+                is_shortcut,
+                shortcut_to,
+                is_symlink,
+                symlink_path,
+                associated_app_id,
+                metadata,
+                thumbnail,
+                immutable,
+                is_public,
+                created,
+                modified,
+                accessed,
+                size
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+                uuid,
+                input.userId,
+                input.parent.id,
+                input.parent.uuid,
+                input.name,
+                path,
+                isDir,
+                isShortcut,
+                input.shortcutTo ?? null,
+                isSymlink,
+                input.symlinkPath ?? null,
+                input.associatedAppId ?? null,
+                input.metadata ?? null,
+                input.thumbnail ?? null,
+                input.immutable ? 1 : 0,
+                input.isPublic === undefined || input.isPublic === null ? null : (input.isPublic ? 1 : 0),
+                now,
+                now,
+                now,
+                0,
+            ],
+        );
+
+        const rows = await this.#db.tryHardRead(
+            'SELECT * FROM fsentries WHERE uuid = ? LIMIT 1',
+            [uuid],
+        ) as unknown as FSEntryRow[];
+        const row = rows[0];
+        if ( ! row ) {
+            throw new HttpError(500, 'Failed to read created entry');
+        }
+        const entry = this.#mapFSEntryRow(row);
+        await this.#writeEntryToCache(entry);
+        return entry;
+    }
+
+    /**
+     * Update accessed/modified/created timestamps in place. Used by `touch`
+     * for entries that already exist.
+     */
+    async touchEntryTimestamps (uuid: string, options: {
+        setAccessed?: boolean;
+        setModified?: boolean;
+        setCreated?: boolean;
+    }): Promise<FSEntry> {
+        const now = Math.floor(Date.now() / 1000);
+        const assignments: string[] = [];
+        const values: unknown[] = [];
+        if ( options.setAccessed ) { assignments.push('accessed = ?'); values.push(now); }
+        if ( options.setModified ) { assignments.push('modified = ?'); values.push(now); }
+        if ( options.setCreated ) { assignments.push('created = ?'); values.push(now); }
+        if ( assignments.length === 0 ) {
+            // Default: touch all three.
+            assignments.push('accessed = ?', 'modified = ?', 'created = ?');
+            values.push(now, now, now);
+        }
+        await this.#db.write(
+            `UPDATE fsentries SET ${assignments.join(', ')} WHERE uuid = ?`,
+            [...values, uuid],
+        );
+        const entry = await this.getEntryByUuid(uuid);
+        if ( ! entry ) throw new HttpError(404, 'Entry not found after touch');
+        await this.#invalidateEntryCache(entry);
+        await this.#writeEntryToCache(entry);
+        return entry;
+    }
+
+    // ── Listing / descendants / search ──────────────────────────────────
+
+    // Children of a directory (direct children only). Paginated + sortable.
+    async listChildren (parentUid: string, options: {
+        limit?: number;
+        offset?: number;
+        sortBy?: 'name' | 'modified' | 'type' | 'size' | null;
+        sortOrder?: 'asc' | 'desc' | null;
+    } = {}): Promise<FSEntry[]> {
+        const limit = Number.isFinite(options.limit) ? Math.max(1, Math.min(10_000, Number(options.limit))) : 10_000;
+        const offset = Number.isFinite(options.offset) ? Math.max(0, Number(options.offset)) : 0;
+
+        // Map sort field to a safe column name; reject anything else.
+        const sortColumn = (() => {
+            switch ( options.sortBy ) {
+            case 'modified': return 'modified';
+            case 'size': return 'size';
+            case 'type': return 'is_dir'; // directories first when DESC; matches v1 heuristic
+            case 'name':
+            default: return 'name';
+            }
+        })();
+        const sortDirection = options.sortOrder === 'desc' ? 'DESC' : 'ASC';
+
+        const rows = await this.#db.read(
+            `SELECT * FROM fsentries
+             WHERE parent_uid = ?
+             ORDER BY ${sortColumn} ${sortDirection}
+             LIMIT ${limit} OFFSET ${offset}`,
+            [parentUid],
+        ) as unknown as FSEntryRow[];
+        const entries = rows.map((row) => this.#mapFSEntryRow(row));
+        await Promise.all(entries.map((entry) => this.#writeEntryToCache(entry)));
+        return entries;
+    }
+
+    // Escape a string for safe use inside a LIKE pattern. We use backslash as
+    // the LIKE escape char so `%` and `_` in user paths aren't treated as wildcards.
+    // Uses `!` as the LIKE escape character — both MySQL and SQLite treat `!` as
+    // a plain character inside string literals, so no dialect-specific quoting.
+    #escapeLikePattern (value: string): string {
+        return value.replace(/([!%_])/g, '!$1');
+    }
+
+    // All descendants of a directory path (recursive). Paths in fsentries are
+    // absolute and don't carry a trailing slash, so the prefix pattern is
+    // `${prefix}/%`. Scoped by user_id to keep the index tight.
+    async listDescendantsByPath (userId: number, pathPrefix: string): Promise<FSEntry[]> {
+        const normalizedPrefix = this.#normalizePath(pathPrefix);
+        if ( normalizedPrefix === '/' ) {
+            // Refuse to list all user entries this way — caller must mean something else.
+            throw new HttpError(400, 'Refusing to list descendants of root');
+        }
+        const likePattern = `${this.#escapeLikePattern(normalizedPrefix)}/%`;
+        const rows = await this.#db.read(
+            `SELECT * FROM fsentries WHERE user_id = ? AND path LIKE ? ESCAPE '!' ORDER BY path ASC`,
+            [userId, likePattern],
+        ) as unknown as FSEntryRow[];
+        return rows.map((row) => this.#mapFSEntryRow(row));
+    }
+
+    async countDescendantsByPath (userId: number, pathPrefix: string): Promise<number> {
+        const normalizedPrefix = this.#normalizePath(pathPrefix);
+        if ( normalizedPrefix === '/' ) return 0;
+        const likePattern = `${this.#escapeLikePattern(normalizedPrefix)}/%`;
+        const rows = await this.#db.read(
+            `SELECT COUNT(*) AS n FROM fsentries WHERE user_id = ? AND path LIKE ? ESCAPE '!'`,
+            [userId, likePattern],
+        ) as unknown as { n: number | string }[];
+        return Number(rows[0]?.n ?? 0);
+    }
+
+    // Sum of sizes under a path (inclusive). Files only — dirs have null size.
+    // NOTE: linear scan under the path prefix index; optimize later if it
+    // becomes hot (e.g., incremental size counters or materialized totals).
+    async getSubtreeSize (userId: number, pathPrefix: string): Promise<number> {
+        const normalizedPrefix = this.#normalizePath(pathPrefix);
+        const likePattern = normalizedPrefix === '/'
+            ? '/%'
+            : `${this.#escapeLikePattern(normalizedPrefix)}/%`;
+        const rows = await this.#db.read(
+            `SELECT COALESCE(SUM(size), 0) AS total FROM fsentries WHERE user_id = ? AND (path = ? OR path LIKE ? ESCAPE '!')`,
+            [userId, normalizedPrefix, likePattern],
+        ) as unknown as { total: number | string }[];
+        return Number(rows[0]?.total ?? 0);
+    }
+
+    // Simple case-insensitive substring search on name, scoped to one user.
+    async searchByNameForUser (userId: number, query: string, limit = 200): Promise<FSEntry[]> {
+        const q = query.trim();
+        if ( q.length === 0 ) return [];
+        const likePattern = `%${this.#escapeLikePattern(q)}%`;
+        const capped = Math.max(1, Math.min(1000, Math.floor(limit)));
+        const rows = await this.#db.read(
+            `SELECT * FROM fsentries
+             WHERE user_id = ? AND name LIKE ? ESCAPE '!'
+             ORDER BY modified DESC
+             LIMIT ${capped}`,
+            [userId, likePattern],
+        ) as unknown as FSEntryRow[];
+        return rows.map((row) => this.#mapFSEntryRow(row));
+    }
+
+    // ── Mutation ───────────────────────────────────────────────────────
+
+    // Generic single-entry update. Only a narrow set of columns are patchable
+    // through this method; the caller provides the JS-shaped patch and we map.
+    async updateEntry (uuid: string, patch: {
+        name?: string;
+        path?: string;
+        parentId?: number | null;
+        parentUid?: string | null;
+        thumbnail?: string | null;
+        metadata?: string | null;
+        isPublic?: boolean | null;
+        immutable?: boolean;
+        associatedAppId?: number | null;
+        layout?: string | null;
+        sortBy?: 'name' | 'modified' | 'type' | 'size' | null;
+        sortOrder?: 'asc' | 'desc' | null;
+        size?: number | null;
+        accessed?: number | null;
+        modified?: number | null;
+    }): Promise<FSEntry> {
+        const assignments: string[] = [];
+        const values: unknown[] = [];
+        const push = (column: string, value: unknown) => {
+            assignments.push(`${column} = ?`);
+            values.push(value);
+        };
+
+        if ( patch.name !== undefined ) push('name', patch.name);
+        if ( patch.path !== undefined ) push('path', patch.path);
+        if ( patch.parentId !== undefined ) push('parent_id', patch.parentId);
+        if ( patch.parentUid !== undefined ) push('parent_uid', patch.parentUid);
+        if ( patch.thumbnail !== undefined ) push('thumbnail', patch.thumbnail);
+        if ( patch.metadata !== undefined ) push('metadata', patch.metadata);
+        if ( patch.isPublic !== undefined ) push('is_public', patch.isPublic === null ? null : (patch.isPublic ? 1 : 0));
+        if ( patch.immutable !== undefined ) push('immutable', patch.immutable ? 1 : 0);
+        if ( patch.associatedAppId !== undefined ) push('associated_app_id', patch.associatedAppId);
+        if ( patch.layout !== undefined ) push('layout', patch.layout);
+        if ( patch.sortBy !== undefined ) push('sort_by', patch.sortBy);
+        if ( patch.sortOrder !== undefined ) push('sort_order', patch.sortOrder);
+        if ( patch.size !== undefined ) push('size', patch.size);
+        if ( patch.accessed !== undefined ) push('accessed', patch.accessed);
+        // Always bump modified unless caller provides it explicitly.
+        push('modified', patch.modified ?? Math.floor(Date.now() / 1000));
+
+        if ( assignments.length === 0 ) {
+            const existing = await this.getEntryByUuid(uuid);
+            if ( ! existing ) throw new HttpError(404, 'Entry not found');
+            return existing;
+        }
+
+        await this.#db.write(
+            `UPDATE fsentries SET ${assignments.join(', ')} WHERE uuid = ?`,
+            [...values, uuid],
+        );
+
+        const refreshedRows = await this.#db.tryHardRead(
+            'SELECT * FROM fsentries WHERE uuid = ? LIMIT 1',
+            [uuid],
+        ) as unknown as FSEntryRow[];
+        const row = refreshedRows[0];
+        if ( ! row ) {
+            throw new HttpError(404, 'Entry not found after update');
+        }
+        const updated = this.#mapFSEntryRow(row);
+        await this.#invalidateEntryCache(updated);
+        await this.#writeEntryToCache(updated);
+        return updated;
+    }
+
+    // Rewrites path column for every descendant of `oldPrefix` to use `newPrefix`.
+    // Used by move/rename when a directory is relocated. Cache for affected
+    // entries is invalidated coarsely afterwards by the caller.
+    async updatePathPrefixForUser (userId: number, oldPrefix: string, newPrefix: string): Promise<number> {
+        const normalizedOld = this.#normalizePath(oldPrefix);
+        const normalizedNew = this.#normalizePath(newPrefix);
+        if ( normalizedOld === '/' || normalizedNew === '/' ) {
+            throw new HttpError(400, 'Cannot rewrite path prefix to/from root');
+        }
+        if ( normalizedOld === normalizedNew ) return 0;
+
+        const likePattern = `${this.#escapeLikePattern(normalizedOld)}/%`;
+        const now = Math.floor(Date.now() / 1000);
+
+        // CONCAT(?, SUBSTR(path, ? + 1)) to rewrite just the prefix portion.
+        const oldPrefixLen = normalizedOld.length;
+        const result = await this.#db.write(
+            `UPDATE fsentries
+             SET path = CONCAT(?, SUBSTR(path, ?)),
+                 modified = ?
+             WHERE user_id = ? AND path LIKE ? ESCAPE '!'`,
+            [normalizedNew, oldPrefixLen + 1, now, userId, likePattern],
+        );
+        const affected = this.#affectedRows(result);
+        return affected;
+    }
+
+    async deleteEntry (entry: FSEntry): Promise<void> {
+        await this.#db.write('DELETE FROM fsentries WHERE id = ?', [entry.id]);
+        await this.#invalidateEntryCache(entry);
+    }
+
+    async deleteEntries (entries: FSEntry[]): Promise<void> {
+        if ( entries.length === 0 ) return;
+        const chunks = this.#chunk(entries, BULK_QUERY_CHUNK_SIZE);
+        await runWithConcurrencyLimit(
+            chunks,
+            DEFAULT_DB_CHUNK_CONCURRENCY,
+            async (chunk) => {
+                const ids = chunk.map((entry) => entry.id);
+                const placeholders = ids.map(() => '?').join(', ');
+                await this.#db.write(
+                    `DELETE FROM fsentries WHERE id IN (${placeholders})`,
+                    ids,
+                );
+            },
+        );
+        // Invalidate caches for all removed entries (best effort).
+        await Promise.all(entries.map((entry) => this.#invalidateEntryCache(entry)));
+    }
+
+    #affectedRows (writeResult: unknown): number {
+        if ( typeof writeResult !== 'object' || writeResult === null ) return 0;
+        const record = writeResult as Record<string, unknown>;
+        const affected = Number(record.affectedRows ?? record.changes ?? 0);
+        return Number.isFinite(affected) ? affected : 0;
+    }
+
     async getUserStorageAllowance (userId: number): Promise<{ curr: number; max: number }> {
         const [usageRows, userRows] = await Promise.all([
             this.#db.read(

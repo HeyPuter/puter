@@ -1,21 +1,21 @@
 import { HttpError } from '../../core/http/HttpError.js';
+import { PuterController } from '../types.js';
 
 /**
  * System-level endpoints — health, version, contact.
  *
  * These are all low-risk, authenticated or not, and mostly stateless.
  */
-export class SystemController {
+export class SystemController extends PuterController {
     constructor (config, clients, stores, services) {
-        this.config = config;
-        this.clients = clients;
-        this.stores = stores;
-        this.services = services;
+        super(config, clients, stores, services);
     }
 
-    registerRoutes (router) {
+    registerRoutes (
+        /** @type {import('../../core/http/PuterRouter.js').PuterRouter} */
+        router,
+    ) {
         // ── Healthcheck ─────────────────────────────────────────────
-
         router.get('/healthcheck', { subdomain: '*' }, (_req, res) => {
             // A simple liveness probe. If a shutdown signal has been received
             // and we're draining, return 503 so load balancers route away.
@@ -46,7 +46,7 @@ export class SystemController {
             rateLimit: { scope: 'contact-us', limit: 10, window: 15 * 60_000, key: 'user' },
         }, async (req, res) => {
             const { message } = req.body ?? {};
-            if ( ! message || typeof message !== 'string' ) {
+            if ( !message || typeof message !== 'string' ) {
                 throw new HttpError(400, '`message` is required');
             }
             if ( message.length > 100_000 ) {
@@ -82,9 +82,11 @@ export class SystemController {
         });
     }
 
-    onServerStart () {}
+    onServerStart () {
+    }
     onServerPrepareShutdown () {
         globalThis.__puter_draining = true;
     }
-    onServerShutdown () {}
+    onServerShutdown () {
+    }
 }

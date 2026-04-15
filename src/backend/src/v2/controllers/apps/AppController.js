@@ -1,5 +1,6 @@
 import { HttpError } from '../../core/http/HttpError.js';
 import { driversContainers } from '../../exports.js';
+import { PuterController } from '../types.js';
 
 /**
  * REST endpoints for app management.
@@ -8,15 +9,12 @@ import { driversContainers } from '../../exports.js';
  * these routes are just thin shape adapters that translate REST
  * conventions into driver calls.
  */
-export class AppController {
-    constructor (config, clients, stores, services) {
-        this.config = config;
-        this.clients = clients;
-        this.stores = stores;
-        this.services = services;
+export class AppController extends PuterController {
+
+    get appStore () {
+        return this.stores.app;
     }
 
-    get appStore () { return this.stores.app; }
     get appDriver () {
         // Drivers are wired into the shared driversContainers export by
         // PuterServer at boot. Controllers get them lazily via this getter
@@ -42,7 +40,7 @@ export class AppController {
             requireUserActor: true,
         }, async (req, res) => {
             const name = req.query?.name;
-            if ( ! name || typeof name !== 'string' ) {
+            if ( !name || typeof name !== 'string' ) {
                 throw new HttpError(400, 'Missing or invalid `name` query param');
             }
             const available = await this.appDriver.isNameAvailable(name);
@@ -55,7 +53,7 @@ export class AppController {
             requireAuth: true,
         }, async (req, res) => {
             const { app_uid } = req.body ?? {};
-            if ( ! app_uid || typeof app_uid !== 'string' ) {
+            if ( !app_uid || typeof app_uid !== 'string' ) {
                 throw new HttpError(400, 'Missing or invalid `app_uid`');
             }
 
@@ -113,7 +111,10 @@ export class AppController {
         });
     }
 
-    onServerStart () {}
-    onServerPrepareShutdown () {}
-    onServerShutdown () {}
+    onServerStart () {
+    }
+    onServerPrepareShutdown () {
+    }
+    onServerShutdown () {
+    }
 }

@@ -7,6 +7,7 @@ import { generateCaptcha } from '../../core/http/middleware/captcha.js';
 import { hashRecoveryCode, verify as verifyOtp } from '../../services/auth/OTPUtil.js';
 import { generateReferralCode } from '../../services/auth/referralCode.js';
 import { generate_identifier } from '../../util/identifier.js';
+import { PuterController } from '../types.js';
 
 const USERNAME_REGEX = /^\w{1,}$/;
 const USERNAME_MAX_LENGTH = 45;
@@ -22,12 +23,9 @@ const RESERVED_USERNAMES = new Set([
  *
  * Uses imperative route registration (no decorators) so it stays JS.
  */
-export class AuthController {
+export class AuthController extends PuterController {
     constructor (config, clients, stores, services) {
-        this.config = config;
-        this.clients = clients;
-        this.stores = stores;
-        this.services = services;
+        super(config, clients, stores, services);
     }
 
     get permissionService () {
@@ -614,7 +612,7 @@ export class AuthController {
             rateLimit: { scope: 'change-username', limit: 2, window: 30 * 24 * 60 * 60_000, key: 'user' },
         }, async (req, res) => {
             const { new_username } = req.body ?? {};
-            if ( ! new_username || typeof new_username !== 'string' ) {
+            if ( !new_username || typeof new_username !== 'string' ) {
                 throw new HttpError(400, '`new_username` is required');
             }
             if ( ! USERNAME_REGEX.test(new_username) ) {
@@ -653,7 +651,7 @@ export class AuthController {
             rateLimit: { scope: 'change-email-start', limit: 10, window: 60 * 60_000, key: 'user' },
         }, async (req, res) => {
             const { new_email } = req.body ?? {};
-            if ( ! new_email || typeof new_email !== 'string' ) {
+            if ( !new_email || typeof new_email !== 'string' ) {
                 throw new HttpError(400, '`new_email` is required');
             }
             if ( ! validator.isEmail(new_email) ) {
@@ -703,7 +701,7 @@ export class AuthController {
             rateLimit: { scope: 'change-email-confirm', limit: 10, window: 60 * 60_000 },
         }, async (req, res) => {
             const token = req.query?.token;
-            if ( ! token || typeof token !== 'string' ) {
+            if ( !token || typeof token !== 'string' ) {
                 throw new HttpError(400, 'Missing `token`');
             }
 
@@ -712,7 +710,7 @@ export class AuthController {
                 [token],
             );
             const user = rows[0];
-            if ( ! user || ! user.unconfirmed_change_email ) {
+            if ( !user || !user.unconfirmed_change_email ) {
                 throw new HttpError(400, 'Invalid or expired token.');
             }
 
@@ -763,7 +761,7 @@ export class AuthController {
             }
 
             // Validation
-            if ( ! username || typeof username !== 'string' || ! USERNAME_REGEX.test(username) ) {
+            if ( !username || typeof username !== 'string' || !USERNAME_REGEX.test(username) ) {
                 throw new HttpError(400, 'Invalid username.');
             }
             if ( username.length > USERNAME_MAX_LENGTH ) {
@@ -772,10 +770,10 @@ export class AuthController {
             if ( RESERVED_USERNAMES.has(username.toLowerCase()) ) {
                 throw new HttpError(400, 'This username is not available.');
             }
-            if ( ! email || ! validator.isEmail(email) ) {
+            if ( !email || !validator.isEmail(email) ) {
                 throw new HttpError(400, 'Please enter a valid email address.');
             }
-            if ( ! password || typeof password !== 'string' ) {
+            if ( !password || typeof password !== 'string' ) {
                 throw new HttpError(400, 'Password is required.');
             }
             const minLen = this.config.min_pass_length || 6;

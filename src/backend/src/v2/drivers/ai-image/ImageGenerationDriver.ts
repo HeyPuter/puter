@@ -66,10 +66,10 @@ export class ImageGenerationDriver extends PuterDriver {
         let intendedProvider = args.provider;
 
         // Default: first registered provider's default model if none given
-        if ( ! modelId && ! intendedProvider ) {
+        if ( !modelId && !intendedProvider ) {
             intendedProvider = Object.keys(this.#providers)[0];
         }
-        if ( ! modelId && intendedProvider ) {
+        if ( !modelId && intendedProvider ) {
             modelId = this.#providers[intendedProvider]?.getDefaultModel();
         }
         if ( ! modelId ) throw new HttpError(400, 'Missing `model`');
@@ -153,7 +153,7 @@ export class ImageGenerationDriver extends PuterDriver {
 
     #resolveModel (modelId: string, provider?: string): IImageModel | null {
         const models = this.#modelIdMap[modelId];
-        if ( ! models || models.length === 0 ) return null;
+        if ( !models || models.length === 0 ) return null;
         if ( ! provider ) return models[0];
         return models.find(m => m.provider === provider) ?? models[0];
     }

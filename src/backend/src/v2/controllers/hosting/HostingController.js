@@ -1,4 +1,5 @@
 import { HttpError } from '../../core/http/HttpError.js';
+import { PuterController } from '../types.js';
 
 /**
  * Site hosting endpoints — create, list, delete subdomains/sites.
@@ -6,15 +7,14 @@ import { HttpError } from '../../core/http/HttpError.js';
  * Create/update require FS root_dir_id resolution which isn't clean
  * in v2 yet. For now, only delete + list are exposed.
  */
-export class HostingController {
+export class HostingController extends PuterController {
     constructor (config, clients, stores, services) {
-        this.config = config;
-        this.clients = clients;
-        this.stores = stores;
-        this.services = services;
+        super(config, clients, stores, services);
     }
 
-    get subdomainStore () { return this.stores.subdomain; }
+    get subdomainStore () {
+        return this.stores.subdomain;
+    }
 
     registerRoutes (router) {
         // ── Delete site ─────────────────────────────────────────────
@@ -24,7 +24,7 @@ export class HostingController {
             requireUserActor: true,
         }, async (req, res) => {
             const { site_uuid } = req.body ?? {};
-            if ( ! site_uuid || typeof site_uuid !== 'string' ) {
+            if ( !site_uuid || typeof site_uuid !== 'string' ) {
                 throw new HttpError(400, 'Missing or invalid `site_uuid`');
             }
 
@@ -55,7 +55,10 @@ export class HostingController {
         });
     }
 
-    onServerStart () {}
-    onServerPrepareShutdown () {}
-    onServerShutdown () {}
+    onServerStart () {
+    }
+    onServerPrepareShutdown () {
+    }
+    onServerShutdown () {
+    }
 }
