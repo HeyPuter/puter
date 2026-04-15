@@ -1,5 +1,16 @@
 import UIContextMenu from '../UIContextMenu.js';
 
+/** Lowercase app names that must not offer Uninstall in the My Apps tile context menu. */
+const APP_NAMES_NO_UNINSTALL = new Set([
+    'dev-center',
+    'app-center',
+    'editor',
+    'camera',
+    'recorder',
+    'memos',
+    'music-player',
+]);
+
 /**
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
@@ -216,21 +227,35 @@ const TabApps = {
 
         // Context menu on right-click
         $el_window.on('contextmenu', '.myapps-tile', function (e) {
-            e.preventDefault();
-            e.stopPropagation();
             const appName = $(this).attr('data-app-name');
             const appUid = $(this).attr('data-app-uid');
+            const nameLower = (appName || '').toLowerCase();
+            const noUninstall = APP_NAMES_NO_UNINSTALL.has(nameLower);
 
-            UIContextMenu({
-                position: { top: e.clientY, left: e.clientX },
-                items: [
+            const items = noUninstall
+                ? []
+                : [
                     {
                         html: 'Uninstall',
                         onClick: () => {
-                            showUninstallModal({ appName, appUid, self, $el_window });
+                            showUninstallModal({
+                                appName,
+                                appUid,
+                                self,
+                                $el_window,
+                            });
                         },
                     },
-                ],
+                ];
+
+            if ( items.length === 0 ) return;
+
+            e.preventDefault();
+            e.stopPropagation();
+
+            UIContextMenu({
+                position: { top: e.clientY, left: e.clientX },
+                items,
             });
         });
     },
