@@ -3,6 +3,9 @@ import { ChatCompletionDriver } from './ai-chat/ChatCompletionDriver';
 import { ImageGenerationDriver } from './ai-image/ImageGenerationDriver';
 import { TTSDriver } from './ai-tts/TTSDriver';
 import { VideoGenerationDriver } from './ai-video/VideoGenerationDriver';
+import { VoiceChangerDriver } from './ai-speech2speech/VoiceChangerDriver';
+import { SpeechToTextDriver } from './ai-speech2txt/SpeechToTextDriver';
+import { OCRDriver } from './ai-ocr/OCRDriver';
 import { AppDriver } from './apps/AppDriver.js';
 import { KVStoreDriver } from './kv/KVStoreDriver';
 
@@ -15,5 +18,8 @@ export const puterDrivers = {
     aiImage: ImageGenerationDriver,
     aiTts: TTSDriver,
     aiVideo: VideoGenerationDriver,
+    aiSpeech2Speech: VoiceChangerDriver,
+    aiSpeech2Txt: SpeechToTextDriver,
+    aiOcr: OCRDriver,
     apps: AppDriver,
 } satisfies IPuterDriverRegistry;

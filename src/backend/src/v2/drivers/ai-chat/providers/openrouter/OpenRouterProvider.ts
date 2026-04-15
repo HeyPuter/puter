@@ -20,8 +20,7 @@
 import axios from 'axios';
 import { OpenAI } from 'openai';
 import { ChatCompletionCreateParams } from 'openai/resources';
-// TODO: APIError needs a v2-native path
-import APIError from '../../../../legacy/api/APIError.js';
+import { HttpError } from '../../../../core/http/HttpError.js';
 import { Context } from '../../../../core/context.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import { kv } from '../../../../util/kvSingleton.js';
@@ -80,10 +79,13 @@ export class OpenRouterProvider implements IChatProvider {
         const modelIdForParams = modelUsed.id.startsWith('openrouter:') ? modelUsed.id.slice('openrouter:'.length) : modelUsed.id;
 
         if ( model === 'openrouter/auto' ) {
-            throw APIError.create('field_invalid', undefined, {
-                key: 'model',
-                expected: 'allowed model',
-                got: 'disallowed model',
+            throw new HttpError(400, "The model 'openrouter/auto' is not allowed", {
+                legacyCode: 'field_invalid',
+                fields: {
+                    key: 'model',
+                    expected: 'allowed model',
+                    got: 'disallowed model',
+                },
             });
         }
 

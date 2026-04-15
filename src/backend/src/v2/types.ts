@@ -98,6 +98,10 @@ export interface IConfig extends Partial<{
     enable_public_folders: boolean;
     /** HMAC secret used to sign auth JWTs. Must match v1 during transition. */
     jwt_secret: string;
+    /** HMAC secret for signed file URLs (/file, /writeFile, /sign). */
+    url_signature_secret: string;
+    /** Public base URL for the API subdomain, e.g. `https://api.puter.com`. Used to build signed URLs. */
+    api_base_url: string;
     /** Name of the session cookie the auth probe reads. */
     cookie_name: string;
     /** Primary domain for Puter (e.g., `puter.localhost`, `puter.com`). Used for host validation, CORS, and root-origin gating. */

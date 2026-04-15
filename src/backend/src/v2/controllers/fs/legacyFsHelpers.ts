@@ -6,6 +6,8 @@ import type { Actor } from '../../core/actor.js';
 import type { EventClient } from '../../clients/EventClient.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { resolveNode, normalizeAbsolutePath, joinChildPath } from '../../services/fs/resolveNode.js';
+import { signFile, type SigningConfig, type SignedFile } from '../../util/fileSigning.js';
+import type { IConfig } from '../../types.js';
 
 /**
  * Shared helpers used by the v1 legacy FS route shims (LegacyFSController).
@@ -173,3 +175,29 @@ export async function toLegacyEntry (eventClient: EventClient | undefined, entry
 }
 
 export { normalizeAbsolutePath };
+
+// ── Signing ─────────────────────────────────────────────────────────
+
+/**
+ * Pull the signing config off the app config. Throws if either value is
+ * missing — these are required for signed URL routes to function.
+ */
+export function signingConfigFromAppConfig (config: IConfig): SigningConfig {
+    const secret = (config as unknown as { url_signature_secret?: string }).url_signature_secret;
+    const apiBaseUrl = (config as unknown as { api_base_url?: string }).api_base_url;
+    if ( typeof secret !== 'string' || secret.length === 0 ) {
+        throw new HttpError(500, 'Server misconfiguration: url_signature_secret not set');
+    }
+    if ( typeof apiBaseUrl !== 'string' || apiBaseUrl.length === 0 ) {
+        throw new HttpError(500, 'Server misconfiguration: api_base_url not set');
+    }
+    return { secret, apiBaseUrl };
+}
+
+/**
+ * Convenience wrapper: turn an FSEntry into a signed-file response object,
+ * matching v1 `sign_file`'s shape.
+ */
+export function signEntry (entry: { uuid: string; name: string; isDir: boolean; size: number | null; accessed: number | null; modified: number; created: number | null }, config: SigningConfig): SignedFile {
+    return signFile(entry as Parameters<typeof signFile>[0], config);
+}

@@ -7,15 +7,22 @@ import type { FSEntryService } from '../../services/fs/FSEntryService.js';
 import type { ACLService } from '../../services/acl/ACLService.js';
 import type { EventClient } from '../../clients/EventClient.js';
 import { HttpError } from '../../core/http/HttpError.js';
-import { createV1ContextShim } from '../../services/fs/v1compat.js';
 import {
     asRecord,
     assertAccess,
     getBoolean,
     getString,
     resolveV1Selector,
+    signingConfigFromAppConfig,
+    signEntry,
     toLegacyEntry,
 } from './legacyFsHelpers.js';
+import { verifySignature } from '../../util/fileSigning.js';
+import type { SignedFile } from '../../util/fileSigning.js';
+import type { PermissionService } from '../../services/permission/PermissionService.js';
+import type { AuthService } from '../../services/auth/AuthService.js';
+import type { AppStore } from '../../stores/app/AppStore.js';
+import type { UserStore } from '../../stores/user/UserStore.js';
 
 /**
  * Legacy v1 FS routes, re-implemented as thin shims over v2 `FSEntryService`.
@@ -33,18 +40,10 @@ import {
 
 type RouterCache = Map<string, RequestHandler | null>;
 
-const additionalRoutePaths: Record<string, string> = {
-    writeFile: '../../legacy/routers/writeFile.js',
-    openItem: '../../legacy/routers/open_item.js',
-    itemMetadata: '../../legacy/routers/itemMetadata.js',
-    down: '../../legacy/routers/down.js',
-    file: '../../legacy/routers/file.js',
-    sign: '../../legacy/routers/sign.js',
-    setLayout: '../../legacy/routers/set_layout.js',
-    setSortBy: '../../legacy/routers/set_sort_by.js',
-    suggestApps: '../../legacy/routers/suggest_apps.js',
-    df: '../../legacy/routers/df.js',
-};
+// All v1 FS routes now have v2 replacements. `suggest_apps` returns an
+// empty array until a v2 SuggestedAppsService is written (tracked in the
+// post-FS-migration audit).
+const additionalRoutePaths: Record<string, string> = {};
 
 async function loadAdditionalRouter (key: string): Promise<RequestHandler | null> {
     const path = additionalRoutePaths[key];
@@ -62,7 +61,6 @@ async function loadAdditionalRouter (key: string): Promise<RequestHandler | null
 
 export class LegacyFSController extends PuterController {
     #additionalCache: RouterCache = new Map();
-    #v1Shim: RequestHandler | null = null;
 
     private get fsEntryService (): FSEntryService {
         return this.services.fsEntry as unknown as FSEntryService;
@@ -72,16 +70,27 @@ export class LegacyFSController extends PuterController {
         return this.services.acl as unknown as ACLService;
     }
 
+    private get permissionService (): PermissionService {
+        return this.services.permission as unknown as PermissionService;
+    }
+
+    private get authService (): AuthService {
+        return this.services.auth as unknown as AuthService;
+    }
+
+    private get appStore (): AppStore {
+        return this.stores.app as unknown as AppStore;
+    }
+
+    private get userStore (): UserStore {
+        return this.stores.user as unknown as UserStore;
+    }
+
     private get eventClient (): EventClient | undefined {
         return this.clients.event as unknown as EventClient | undefined;
     }
 
     registerRoutes (router: PuterRouter): void {
-        // The auxiliary legacy routes (writeFile, down, file, sign, ...)
-        // still run inside v1 so they need the v1 Context ALS scope. The
-        // core filesystem_api routes we re-implemented above don't.
-        this.#v1Shim = createV1ContextShim();
-
         const apiOptions = { subdomain: 'api' } as const;
 
         // Core v1 filesystem_api routes — direct handlers over v2 service.
@@ -98,6 +107,35 @@ export class LegacyFSController extends PuterController {
         router.get('/token-read', apiOptions, this.#asHandler(this.#read));
 
         router.post('/batch', apiOptions, this.#asHandler(this.#batch));
+
+        // Signed-URL + meta routes.
+        router.post('/sign', apiOptions, this.#asHandler(this.#sign));
+        router.post('/writeFile', apiOptions, this.#asHandler(this.#writeFile));
+        router.get('/file', apiOptions, this.#asHandler(this.#file));
+        router.all('/df', apiOptions, this.#asHandler(this.#df));
+        router.post('/open_item', apiOptions, this.#asHandler(this.#openItem));
+        router.post('/auth/request-app-root-dir', apiOptions, this.#asHandler(this.#requestAppRootDir));
+        router.post('/auth/check-app-acl', apiOptions, this.#asHandler(this.#checkAppAcl));
+
+        // Redirect /down → /file?download=true to consolidate download paths.
+        router.post('/down', apiOptions, this.#asHandler(this.#redirectToFile));
+        // /itemMetadata was buggy in v1 (MIME from undefined field) and not
+        // called by puter-js. Return 410 Gone rather than resurrecting the bug.
+        router.get('/itemMetadata', apiOptions, (_req, res) => {
+            res.status(410).json({ error: 'itemMetadata is deprecated; use /fs/stat' });
+        });
+
+        // /get-launch-apps returns an empty shape until recommended-apps
+        // and app-icon services are ported to v2. UI clients tolerate
+        // empty arrays gracefully.
+        router.get('/get-launch-apps', apiOptions, (_req, res) => {
+            res.json({ recommended: [], recent: [] });
+        });
+
+        // /suggest_apps returns `[]` until a v2 SuggestedAppsService lands.
+        router.post('/suggest_apps', apiOptions, (_req, res) => {
+            res.json([]);
+        });
 
         // No-op: v1 /update was unused. v1 /cache/last-change-timestamp is
         // served by a tiny tracker — return 0 for now, revisit if a client
@@ -378,6 +416,408 @@ export class LegacyFSController extends PuterController {
         download.body.pipe(res);
     }
 
+    // ── Signed-URL + meta routes ────────────────────────────────────────
+
+    /**
+     * POST /sign
+     * Body: `{ items: [{ uid?, path?, action }], app_uid? }`. Returns v1-shape
+     * `{ signatures: [...], token? }`. Apps may only sign files under their
+     * own AppData subtree (matches v1).
+     */
+    async #sign (req: Request, res: Response): Promise<void> {
+        const actor = this.#requireActor(req);
+        const userId = this.#getActorUserId(req);
+        const body = asRecord(req.body);
+        const items = Array.isArray(body.items) ? body.items : [];
+        if ( items.length === 0 ) throw new HttpError(400, '`items` is required');
+
+        const isApp = Boolean((actor as { app?: unknown }).app);
+        const signingCfg = signingConfigFromAppConfig(this.config);
+
+        // Apps can only sign inside their AppData root.
+        let appDataRoot: string | null = null;
+        if ( isApp ) {
+            const username = (actor as { user?: { username?: string } }).user?.username;
+            const appUid = (actor as { app?: { uid?: string } }).app?.uid;
+            if ( !username || !appUid ) throw new HttpError(403, 'Forbidden');
+            appDataRoot = `/${username}/AppData/${appUid}`;
+        }
+
+        type SignedOrEmpty = SignedFile & { path?: string } | Record<string, never>;
+        const result: { signatures: SignedOrEmpty[]; token?: string } = { signatures: [] };
+
+        // Optional app grant (v1: provide app_uid to grant permissions + token).
+        let grantApp: { uid: string } | null = null;
+        if ( typeof body.app_uid === 'string' && body.app_uid.length > 0 ) {
+            const app = await this.appStore.getByUid(body.app_uid);
+            if ( ! app ) throw new HttpError(404, 'App not found');
+            grantApp = { uid: app.uid };
+            result.token = this.authService.getUserAppToken(actor, app.uid);
+        }
+
+        for ( const rawItem of items ) {
+            const item = asRecord(rawItem);
+            const uid = typeof item.uid === 'string' ? item.uid : undefined;
+            const path = typeof item.path === 'string' ? item.path : undefined;
+            const action = typeof item.action === 'string' ? item.action : 'read';
+            if ( !uid && !path ) {
+                result.signatures.push({});
+                continue;
+            }
+            try {
+                const entry = await resolveV1Selector(this.fsEntryService, { uid, path }, userId);
+
+                // App-sandbox check.
+                const withinAppRoot = appDataRoot
+                    ? entry.path === appDataRoot || entry.path.startsWith(`${appDataRoot}/`)
+                    : true;
+                if ( ! withinAppRoot ) {
+                    throw new HttpError(403, 'Forbidden');
+                }
+
+                // ACL: always require read; downgrade write→read silently.
+                await assertAccess(this.aclService, this.fsEntryService, actor, entry.path, 'read');
+                let finalAction: 'read' | 'write' = 'read';
+                if ( action === 'write' ) {
+                    const writeOk = await this.aclService.check(actor, {
+                        path: entry.path,
+                        resolveAncestors: () => this.fsEntryService.getAncestorChain(entry.path),
+                    }, 'write');
+                    finalAction = writeOk ? 'write' : 'read';
+                }
+
+                if ( grantApp ) {
+                    // Grant the app the permission the user is signing for.
+                    await this.permissionService.grantUserAppPermission(
+                        actor,
+                        grantApp.uid,
+                        `fs:${entry.uuid}:${finalAction}`,
+                        {},
+                        { reason: 'endpoint:sign' },
+                    );
+                }
+
+                const signed = signEntry(entry, signingCfg);
+                result.signatures.push({ ...signed, path: entry.path });
+            } catch {
+                // v1 silently skips unresolvable items.
+                result.signatures.push({});
+            }
+        }
+
+        res.json(result);
+    }
+
+    /**
+     * POST /writeFile?uid=<uid>&operation=<op>
+     * Signature-authenticated multipart upload. `operation` dispatches to one
+     * of write/copy/move/mkdir/delete/rename/trash. Signature must be valid
+     * for `write` action on `uid`.
+     */
+    async #writeFile (req: Request, res: Response): Promise<void> {
+        const query = asRecord(req.query);
+        const signingCfg = signingConfigFromAppConfig(this.config);
+        verifySignature(
+            { uid: query.uid as string, expires: query.expires as string, signature: query.signature as string },
+            'write',
+            signingCfg,
+        );
+
+        const uid = typeof query.uid === 'string' ? query.uid : '';
+        const targetEntry = await resolveV1Selector(this.fsEntryService, { uid }, NaN);
+        if ( ! targetEntry ) throw new HttpError(404, 'Item not found');
+
+        // Owner suspension check.
+        const owner = await this.userStore.getById(targetEntry.userId);
+        if ( ! owner ) throw new HttpError(500, 'Owner not found');
+        if ( (owner as { suspended?: unknown }).suspended ) throw new HttpError(401, 'Account suspended');
+
+        const userId = targetEntry.userId;
+        const operation = typeof query.operation === 'string' ? query.operation : 'write';
+
+        // `write` — multipart upload, streamed directly to the v2 write path.
+        if ( operation === 'write' ) {
+            const body = asRecord(req.body);
+            const parentEntry = targetEntry.isDir
+                ? targetEntry
+                : await this.#resolveParentOfEntry(targetEntry);
+            const name = typeof body.name === 'string' ? body.name
+                : (targetEntry.isDir ? `upload-${Date.now()}` : targetEntry.name);
+            const targetPath = parentEntry.path === '/' ? `/${name}` : `${parentEntry.path}/${name}`;
+
+            // Parse multipart and pipe the first `file` part into fsEntryService.write.
+            const uploadResult = await this.#multipartWrite(req, userId, targetPath);
+            const signed = signEntry(uploadResult.fsEntry, signingCfg);
+            res.json({ ...signed, path: uploadResult.fsEntry.path });
+            return;
+        }
+
+        // Non-write operations: route to existing service methods and sign the result.
+        const record = asRecord(req.body);
+        if ( operation === 'mkdir' ) {
+            const folderName = typeof record.name === 'string' ? record.name : `folder-${Date.now()}`;
+            const entry = await this.fsEntryService.mkdir(userId, {
+                path: targetEntry.isDir
+                    ? `${targetEntry.path === '/' ? '' : targetEntry.path}/${folderName}`
+                    : targetEntry.path,
+                dedupeName: true,
+            });
+            res.json({ ...signEntry(entry, signingCfg), path: entry.path });
+            return;
+        }
+        if ( operation === 'rename' ) {
+            const newName = typeof record.new_name === 'string' ? record.new_name : '';
+            if ( ! newName ) throw new HttpError(400, '`new_name` required');
+            const renamed = await this.fsEntryService.rename(targetEntry, newName);
+            res.json({ ...signEntry(renamed, signingCfg), path: renamed.path });
+            return;
+        }
+        if ( operation === 'delete' || operation === 'trash' ) {
+            // Trash is just a "move to /Trash" in v1. For v2 we treat trash ==
+            // delete (recursive). If a trash folder becomes important we can
+            // revisit — most clients just call delete directly.
+            await this.fsEntryService.remove(userId, { entry: targetEntry, recursive: true });
+            res.json({ ok: true, uid: targetEntry.uuid });
+            return;
+        }
+        if ( operation === 'copy' || operation === 'move' ) {
+            const destRef = record.destination ?? record.destination_uid ?? record.dest_path;
+            if ( ! destRef ) throw new HttpError(400, '`destination` required');
+            const destinationParent = await resolveV1Selector(this.fsEntryService, destRef, userId);
+            const method = operation === 'copy' ? 'copy' : 'move';
+            const result = await this.fsEntryService[method](userId, {
+                source: targetEntry,
+                destinationParent,
+                newName: typeof record.new_name === 'string' ? record.new_name : undefined,
+                overwrite: getBoolean(record, 'overwrite') ?? false,
+                dedupeName: getBoolean(record, 'dedupe_name') ?? false,
+            });
+            res.json({ ...signEntry(result, signingCfg), path: result.path });
+            return;
+        }
+
+        throw new HttpError(400, `Unsupported writeFile operation: '${operation}'`);
+    }
+
+    /**
+     * GET /file?uid=<uid>&signature=...&expires=...
+     * Signature-authenticated file read. Directories return a signed listing
+     * of children; files stream bytes (with Range support when `download`
+     * isn't requested).
+     */
+    async #file (req: Request, res: Response): Promise<void> {
+        const query = asRecord(req.query);
+        const signingCfg = signingConfigFromAppConfig(this.config);
+        verifySignature(
+            { uid: query.uid as string, expires: query.expires as string, signature: query.signature as string },
+            'read',
+            signingCfg,
+        );
+
+        const uid = typeof query.uid === 'string' ? query.uid : '';
+        const entry = await resolveV1Selector(this.fsEntryService, { uid }, NaN);
+
+        // Directory: return a signed listing of direct children.
+        if ( entry.isDir ) {
+            const children = await this.fsEntryService.listDirectory(entry.uuid);
+            const signedChildren = children.map((child) => ({
+                ...signEntry(child, signingCfg),
+                path: child.path,
+            }));
+            res.json(signedChildren);
+            return;
+        }
+
+        // File: stream bytes. Range supported.
+        const range = typeof req.headers.range === 'string' ? req.headers.range : undefined;
+        const download = await this.fsEntryService.readContent(entry, { range });
+        const wantsAttachment = query.download === 'true' || query.download === '1' || query.download === true;
+
+        if ( download.contentType ) res.setHeader('Content-Type', download.contentType);
+        if ( download.contentLength !== null ) res.setHeader('Content-Length', String(download.contentLength));
+        if ( download.contentRange ) res.setHeader('Content-Range', download.contentRange);
+        if ( download.etag ) res.setHeader('ETag', download.etag);
+        if ( download.lastModified ) res.setHeader('Last-Modified', download.lastModified.toUTCString());
+        res.setHeader(
+            'Content-Disposition',
+            `${wantsAttachment ? 'attachment' : 'inline'}; filename="${encodeURIComponent(entry.name)}"`,
+        );
+        res.status(range ? 206 : 200);
+
+        download.body.on('error', (err) => {
+            res.destroy(err);
+        });
+        download.body.pipe(res);
+    }
+
+    /** GET|POST /df — user storage allowance. */
+    async #df (req: Request, res: Response): Promise<void> {
+        this.#requireActor(req);
+        const userId = this.#getActorUserId(req);
+        const allowance = await this.fsEntryService.getUsersStorageAllowance(userId);
+        res.json({
+            used: allowance.curr,
+            capacity: allowance.max,
+        });
+    }
+
+    /**
+     * POST /open_item — resolve an entry and return a signed URL + token for
+     * an app to open the file. Since v2 does not yet have a suggested-apps
+     * service, `suggested_apps` is returned as `[]`.
+     */
+    async #openItem (req: Request, res: Response): Promise<void> {
+        const actor = this.#requireActor(req);
+        const userId = this.#getActorUserId(req);
+        const body = asRecord(req.body);
+        const entry = await resolveV1Selector(this.fsEntryService, body, userId);
+
+        await assertAccess(this.aclService, this.fsEntryService, actor, entry.path, 'read');
+
+        const signingCfg = signingConfigFromAppConfig(this.config);
+        const signature = { ...signEntry(entry, signingCfg), path: entry.path };
+        res.json({
+            signature,
+            token: null,
+            suggested_apps: [], // suggested-apps service not yet ported; clients usually fall back gracefully
+        });
+    }
+
+    /**
+     * POST /auth/request-app-root-dir — an app-under-user requests stat on
+     * its own app root directory. The app must own itself.
+     */
+    async #requestAppRootDir (req: Request, res: Response): Promise<void> {
+        const actor = this.#requireActor(req);
+        const body = asRecord(req.body);
+        const appUid = getString(body, 'app_uid');
+        if ( ! appUid ) throw new HttpError(400, '`app_uid` is required');
+
+        const actorApp = (actor as { app?: { uid?: string } }).app;
+        if ( !actorApp?.uid || actorApp.uid !== appUid ) {
+            throw new HttpError(403, 'Only the app itself may request its root dir');
+        }
+        const userId = this.#getActorUserId(req);
+        const username = (actor as { user?: { username?: string } }).user?.username;
+        if ( ! username ) throw new HttpError(401, 'Unauthorized');
+
+        const rootPath = `/${username}/AppData/${appUid}`;
+        // Auto-create the AppData/<uid> tree on first call (matches v1 behaviour).
+        const entry = await this.fsEntryService.mkdir(userId, {
+            path: rootPath,
+            createMissingParents: true,
+        });
+        res.json(await toLegacyEntry(this.eventClient, entry));
+    }
+
+    /**
+     * POST /auth/check-app-acl — check whether an app has a given mode of
+     * access to a subject FS entry.
+     */
+    async #checkAppAcl (req: Request, res: Response): Promise<void> {
+        this.#requireActor(req);
+        const userId = this.#getActorUserId(req);
+        const body = asRecord(req.body);
+
+        const subjectRef = body.subject;
+        const appRef = body.app;
+        const mode = (getString(body, 'mode') ?? 'read') as 'see' | 'list' | 'read' | 'write';
+        if ( !subjectRef || !appRef ) throw new HttpError(400, '`subject` and `app` are required');
+
+        const subject = await resolveV1Selector(this.fsEntryService, subjectRef, userId);
+        let app: { uid: string } | null = null;
+        if ( typeof appRef === 'string' ) {
+            app = (await this.appStore.getByUid(appRef)) ?? (await this.appStore.getByName(appRef));
+        }
+        if ( ! app ) throw new HttpError(404, 'App not found');
+
+        // Build an actor-under-user shape for the check.
+        const actorForApp = {
+            user: (req.actor as { user?: unknown }).user,
+            app: { uid: (app as { uid: string }).uid },
+        } as unknown as Parameters<ACLService['check']>[0];
+        const descriptor = {
+            path: subject.path,
+            resolveAncestors: () => this.fsEntryService.getAncestorChain(subject.path),
+        };
+        const allowed = await this.aclService.check(actorForApp, descriptor, mode);
+        res.json({ allowed });
+    }
+
+    /** POST /down → same semantics as GET /file with `download=true`. */
+    async #redirectToFile (req: Request, res: Response): Promise<void> {
+        // We call the /file handler inline, coercing query to include
+        // `download=true` so Content-Disposition becomes `attachment`.
+        (req.query as Record<string, unknown>).download = 'true';
+        await this.#file(req, res);
+    }
+
+    // Helpers for writeFile
+    async #resolveParentOfEntry (entry: { path: string; userId: number }) {
+        const parentPath = pathPosix.dirname(entry.path);
+        const parent = await resolveV1Selector(this.fsEntryService, { path: parentPath }, entry.userId);
+        return parent;
+    }
+
+    async #multipartWrite (req: Request, userId: number, targetPath: string): Promise<{ fsEntry: import('../../stores/fs/FSEntry.js').FSEntry }> {
+        // Parse the first `file` part via busboy and stream it into write.
+        const { Readable: NodeReadable } = await import('node:stream');
+        return new Promise((resolve, reject) => {
+            const bb = Busboy({ headers: req.headers });
+            let dispatched = false;
+            let writePromise: Promise<unknown> | null = null;
+            let size = 0;
+
+            bb.on('field', () => {
+                // Fields are ignored — only the file stream matters here.
+            });
+            bb.on('file', (_fieldName, fileStream, info) => {
+                if ( dispatched ) {
+                    fileStream.resume();
+                    return;
+                }
+                dispatched = true;
+                const passthrough = new NodeReadable({
+                    read () {
+                        // no-op; data pushed from the busboy file stream.
+                    },
+                });
+                fileStream.on('data', (chunk: Buffer) => {
+                    size += chunk.length;
+                    passthrough.push(chunk);
+                });
+                fileStream.on('end', () => passthrough.push(null));
+                fileStream.on('error', (err: Error) => passthrough.destroy(err));
+
+                const contentType = (info && typeof info.mimeType === 'string') ? info.mimeType : undefined;
+                writePromise = this.fsEntryService.write(userId, {
+                    fileMetadata: {
+                        path: targetPath,
+                        size: 0, // real size accumulates as stream drains
+                        ...(contentType ? { contentType } : {}),
+                        overwrite: true,
+                    },
+                    fileContent: passthrough,
+                }).then((response) => {
+                    resolve({ fsEntry: response.fsEntry });
+                }).catch(reject);
+            });
+            bb.on('close', () => {
+                if ( ! dispatched ) {
+                    reject(new HttpError(400, 'No file uploaded'));
+                    return;
+                }
+                if ( ! writePromise ) {
+                    reject(new HttpError(500, 'Write did not dispatch'));
+                }
+                // size is logged only; fsEntryService.write handles quota/size.
+                void size;
+            });
+            bb.on('error', (err) => reject(err));
+            req.pipe(bb);
+        });
+    }
+
     // ── Batch route ─────────────────────────────────────────────────────
     //
     // v1 `/batch` used busboy to interleave multipart JSON operations with
@@ -569,6 +1009,9 @@ export class LegacyFSController extends PuterController {
         return [];
     }
 
+    // Reserved: once every legacy auxiliary route is ported, remove
+    // `#createLazyHandler` entirely. Kept for now in case a future port
+    // needs the escape hatch.
     #createLazyHandler (
         key: string,
         cache: RouterCache,
@@ -584,17 +1027,7 @@ export class LegacyFSController extends PuterController {
                 next();
                 return;
             }
-            if ( this.#v1Shim ) {
-                this.#v1Shim(req, res, (err?: unknown) => {
-                    if ( err ) {
-                        next(err);
-                        return;
-                    }
-                    handler!(req, res, next);
-                });
-            } else {
-                handler(req, res, next);
-            }
+            handler(req, res, next);
         };
     }
 }

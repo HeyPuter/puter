@@ -1,0 +1,207 @@
+import OpenAI, { toFile } from 'openai';
+import { HttpError } from '../../core/http/HttpError.js';
+import { Context } from '../../core/context.js';
+import { PuterDriver } from '../types.js';
+import type { MeteringService } from '../../services/metering/MeteringService.js';
+import type { FSEntryService } from '../../services/fs/FSEntryService.js';
+import { loadFileInput } from '../util/fileInput.js';
+
+/**
+ * Driver implementing `puter-speech2txt`. Wraps OpenAI's audio API
+ * (Whisper + GPT-4o transcribe models) for transcription and translation.
+ *
+ * Request shapes match v1 so existing puter-js clients transparently work;
+ * `file` may be a path, uid/uuid ref, or data URL.
+ */
+
+const DEFAULT_TRANSCRIBE_MODEL = 'gpt-4o-mini-transcribe';
+const DEFAULT_TRANSLATE_MODEL = 'whisper-1';
+const MAX_AUDIO_FILE_SIZE = 25 * 1024 * 1024;
+
+const SAMPLE_TRANSCRIPT = {
+    text: 'Hello! This is a sample transcription returned while test mode is enabled.',
+    language: 'en',
+    duration_seconds: 2,
+    words: [
+        { start: 0.0, end: 0.5, text: 'Hello' },
+        { start: 1.1, end: 2.0, text: 'This is a sample transcription.' },
+    ],
+};
+
+interface ModelCapabilities {
+    canPrompt: boolean;
+    canLogprobs: boolean;
+    responseFormats: string[];
+    timestampGranularities?: boolean;
+    diarization?: boolean;
+    requiresChunkingOverThirtySeconds?: boolean;
+}
+
+const MODEL_CAPS: Record<string, ModelCapabilities> = {
+    'gpt-4o-mini-transcribe': { canPrompt: true, canLogprobs: true, responseFormats: ['json', 'text'] },
+    'gpt-4o-transcribe': { canPrompt: true, canLogprobs: true, responseFormats: ['json', 'text'] },
+    'gpt-4o-transcribe-diarize': {
+        canPrompt: false, canLogprobs: false, responseFormats: ['json', 'text', 'diarized_json'],
+        diarization: true, requiresChunkingOverThirtySeconds: true,
+    },
+    'whisper-1': {
+        canPrompt: true, canLogprobs: false,
+        responseFormats: ['json', 'text', 'srt', 'verbose_json', 'vtt'],
+        timestampGranularities: true,
+    },
+};
+
+interface TranscribeArgs {
+    file: unknown;
+    model?: string;
+    response_format?: string;
+    language?: string;
+    prompt?: string;
+    temperature?: number;
+    logprobs?: boolean;
+    timestamp_granularities?: string[];
+    chunking_strategy?: string;
+    known_speaker_names?: string[];
+    known_speaker_references?: unknown[];
+    extra_body?: Record<string, unknown>;
+    stream?: boolean;
+    test_mode?: boolean;
+}
+
+export class SpeechToTextDriver extends PuterDriver {
+    readonly driverInterface = 'puter-speech2txt';
+    readonly driverName = 'openai-speech2txt';
+    readonly isDefault = true;
+
+    #openai: OpenAI | null = null;
+
+    private get metering (): MeteringService {
+        return this.services.metering as unknown as MeteringService;
+    }
+
+    private get fsEntryService (): FSEntryService {
+        return this.services.fsEntry as unknown as FSEntryService;
+    }
+
+    override onServerStart () {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const cfg = this.config as any;
+        const apiKey = cfg?.services?.openai?.apiKey
+            ?? cfg?.openai?.apiKey
+            ?? cfg?.openai?.secret_key;
+        if ( ! apiKey ) return; // Leave uninitialized; convert() will reject.
+        this.#openai = new OpenAI({ apiKey });
+    }
+
+    async list_models () {
+        return Object.entries(MODEL_CAPS).map(([id, caps]) => ({
+            id,
+            name: id,
+            type: caps.diarization ? 'transcription' : (id === 'whisper-1' ? 'translation' : 'transcription'),
+            response_formats: caps.responseFormats,
+            supports_prompt: caps.canPrompt,
+            supports_logprobs: caps.canLogprobs,
+            ...(caps.diarization ? { supports_diarization: true } : {}),
+            ...(caps.timestampGranularities ? { supports_timestamp_granularities: true } : {}),
+        }));
+    }
+
+    async transcribe (args: TranscribeArgs) {
+        return this.#handleTranscription(args, false);
+    }
+
+    async translate (args: TranscribeArgs) {
+        return this.#handleTranscription(args, true);
+    }
+
+    async #handleTranscription (args: TranscribeArgs, translate: boolean) {
+        if ( args.test_mode ) {
+            return {
+                ...SAMPLE_TRANSCRIPT,
+                model: args.model || (translate ? DEFAULT_TRANSLATE_MODEL : DEFAULT_TRANSCRIBE_MODEL),
+            };
+        }
+        if ( args.stream ) {
+            throw new HttpError(400, 'Streaming transcription is not yet supported');
+        }
+        if ( ! this.#openai ) throw new HttpError(500, 'OpenAI API key not configured');
+        if ( ! args.file ) throw new HttpError(400, '`file` is required');
+
+        const actor = Context.get('actor');
+        if ( ! actor ) throw new HttpError(401, 'Authentication required');
+        const userId = Number((actor as { user?: { id?: unknown } }).user?.id ?? NaN);
+        if ( Number.isNaN(userId) ) throw new HttpError(401, 'Unauthorized');
+
+        const loaded = await loadFileInput(this.fsEntryService, userId, args.file, {
+            maxBytes: MAX_AUDIO_FILE_SIZE,
+        });
+
+        const selectedModel = args.model || (translate ? DEFAULT_TRANSLATE_MODEL : DEFAULT_TRANSCRIBE_MODEL);
+        const caps = MODEL_CAPS[selectedModel];
+        if ( ! caps ) {
+            throw new HttpError(400, `Unsupported model: ${selectedModel}`);
+        }
+
+        if ( args.response_format && !caps.responseFormats.includes(args.response_format) ) {
+            throw new HttpError(400, `response_format must be one of: ${caps.responseFormats.join(', ')}`);
+        }
+        if ( args.prompt && !caps.canPrompt ) {
+            throw new HttpError(400, `prompt is not supported for model ${selectedModel}`);
+        }
+        if ( args.logprobs && !caps.canLogprobs ) {
+            throw new HttpError(400, `logprobs is not supported for model ${selectedModel}`);
+        }
+
+        // Estimate seconds from raw bytes — 16 kbps is a conservative speech-audio
+        // lower bound. Full metadata parsing (music-metadata) is deferred — clients
+        // aren't observably sensitive to billing-time delta vs real duration.
+        const estimatedSeconds = Math.max(1, Math.ceil(loaded.buffer.byteLength / 16000));
+        const usageType = `openai:${selectedModel}:second`;
+        const allowed = await this.metering.hasEnoughCreditsFor(actor, usageType, estimatedSeconds);
+        if ( ! allowed ) throw new HttpError(402, 'Insufficient credits');
+
+        const openaiFile = await toFile(
+            loaded.buffer,
+            loaded.filename,
+            loaded.mimeType ? { type: loaded.mimeType } : undefined,
+        );
+
+        const payload: Record<string, unknown> = { file: openaiFile, model: selectedModel };
+        if ( args.response_format ) payload.response_format = args.response_format;
+        if ( args.language ) payload.language = args.language;
+        if ( typeof args.temperature === 'number' ) payload.temperature = args.temperature;
+        if ( args.prompt && caps.canPrompt ) payload.prompt = args.prompt;
+        if ( args.logprobs && caps.canLogprobs ) payload.logprobs = args.logprobs;
+        if ( args.timestamp_granularities && caps.timestampGranularities ) {
+            payload.timestamp_granularities = args.timestamp_granularities;
+        }
+        if ( caps.diarization ) {
+            if ( ! args.response_format ) payload.response_format = 'diarized_json';
+            const needsChunking = caps.requiresChunkingOverThirtySeconds && estimatedSeconds > 30;
+            const strategy = args.chunking_strategy ?? (needsChunking ? 'auto' : undefined);
+            if ( strategy ) payload.chunking_strategy = strategy;
+
+            if ( args.known_speaker_names || args.known_speaker_references ) {
+                payload.extra_body = {
+                    ...(args.extra_body ?? {}),
+                    ...(args.known_speaker_names ? { known_speaker_names: args.known_speaker_names } : {}),
+                    ...(args.known_speaker_references ? { known_speaker_references: args.known_speaker_references } : {}),
+                };
+            }
+        } else if ( args.extra_body ) {
+            payload.extra_body = args.extra_body;
+        }
+
+        const result = translate
+            ? await this.#openai.audio.translations.create(payload as Parameters<OpenAI['audio']['translations']['create']>[0])
+            : await this.#openai.audio.transcriptions.create(payload as Parameters<OpenAI['audio']['transcriptions']['create']>[0]);
+
+        this.metering.incrementUsage(actor, usageType, estimatedSeconds);
+
+        // Text response_format: return raw string; otherwise forward the OpenAI object.
+        if ( args.response_format === 'text' ) {
+            return typeof result === 'string' ? result : (result as { text?: string }).text ?? '';
+        }
+        return result;
+    }
+}
