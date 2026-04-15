@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Puter Web Components Test</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            max-width: 800px;
+            margin: 40px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        h1 { color: #333; }
+        h2 { color: #555; margin-top: 30px; }
+        button {
+            padding: 10px 20px;
+            margin: 5px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            background: white;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        button:hover { background: #f0f0f0; }
+        .result {
+            margin-top: 10px;
+            padding: 10px;
+            background: #fff;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-family: monospace;
+            font-size: 13px;
+            min-height: 20px;
+        }
+        .section {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+    </style>
+</head>
+<body>
+    <h1>Puter Web Components Test</h1>
+    <p>These components work standalone - no puter.com iframe required.</p>
+
+    <div class="section">
+        <h2>Alert</h2>
+        <button onclick="testAlert()">Basic Alert</button>
+        <button onclick="testAlertButtons()">Alert with Buttons</button>
+        <button onclick="testAlertWarning()">Warning Alert</button>
+        <button onclick="testAlertError()">Error Alert</button>
+        <div class="result" id="alert-result">Click a button to test...</div>
+    </div>
+
+    <div class="section">
+        <h2>Prompt</h2>
+        <button onclick="testPrompt()">Basic Prompt</button>
+        <button onclick="testPromptDefault()">Prompt with Default</button>
+        <div class="result" id="prompt-result">Click a button to test...</div>
+    </div>
+
+    <div class="section">
+        <h2>Notification</h2>
+        <button onclick="testNotify()">Basic</button>
+        <button onclick="testNotifyType('info')">Info</button>
+        <button onclick="testNotifyType('success')">Success</button>
+        <button onclick="testNotifyType('warning')">Warning</button>
+        <button onclick="testNotifyType('error')">Error</button>
+        <button onclick="testNotifyMultiple()">Multiple</button>
+        <div class="result" id="notify-result">Click a button to test...</div>
+    </div>
+
+    <div class="section">
+        <h2>Context Menu</h2>
+        <button oncontextmenu="testContextMenu(event); return false;">Right-click me</button>
+        <button onclick="testContextMenuClick(event)">Click for Context Menu</button>
+        <div class="result" id="menu-result">Right-click or click a button to test...</div>
+    </div>
+
+    <div class="section">
+        <h2>Spinner</h2>
+        <button onclick="testSpinner()">Show Spinner (2s)</button>
+    </div>
+
+    <script src="../dist/puter.js"></script>
+    <script>
+        async function testAlert() {
+            const result = await puter.ui.alert('Hello from standalone Puter!');
+            document.getElementById('alert-result').textContent = 'Result: ' + JSON.stringify(result);
+        }
+
+        async function testAlertButtons() {
+            const result = await puter.ui.alert('Choose an option:', [
+                { label: 'Cancel', value: 'cancel', type: 'default' },
+                { label: 'Delete', value: 'delete', type: 'danger' },
+                { label: 'Save', value: 'save', type: 'primary' },
+            ]);
+            document.getElementById('alert-result').textContent = 'Result: ' + JSON.stringify(result);
+        }
+
+        async function testAlertWarning() {
+            const result = await puter.ui.alert('This is a warning message!',
+                [{ label: 'Got it', value: true, type: 'primary' }],
+                { type: 'warning' }
+            );
+            document.getElementById('alert-result').textContent = 'Result: ' + JSON.stringify(result);
+        }
+
+        async function testAlertError() {
+            const result = await puter.ui.alert('Something went wrong!',
+                [{ label: 'OK', value: true, type: 'danger' }],
+                { type: 'error' }
+            );
+            document.getElementById('alert-result').textContent = 'Result: ' + JSON.stringify(result);
+        }
+
+        async function testPrompt() {
+            const result = await puter.ui.prompt('What is your name?', 'Enter name...');
+            document.getElementById('prompt-result').textContent = 'Result: ' + JSON.stringify(result);
+        }
+
+        async function testPromptDefault() {
+            const result = await puter.ui.prompt('Edit the value:', 'Type here...', { defaultValue: 'Hello World' });
+            document.getElementById('prompt-result').textContent = 'Result: ' + JSON.stringify(result);
+        }
+
+        async function testNotify() {
+            await puter.ui.notify({
+                title: 'New message',
+                text: 'You have a new message from Alice.',
+            });
+            document.getElementById('notify-result').textContent = 'Notification shown';
+        }
+
+        const NOTIFY_PRESETS = {
+            info:    { title: 'Heads up',     text: 'Your session will expire in 5 minutes.' },
+            success: { title: 'Saved!',       text: 'Your changes have been saved successfully.' },
+            warning: { title: 'Storage full', text: 'You are approaching your storage limit.' },
+            error:   { title: 'Upload failed', text: 'Could not upload file. Check your connection.' },
+        };
+
+        async function testNotifyType(type) {
+            const preset = NOTIFY_PRESETS[type];
+            await puter.ui.notify({ ...preset, type });
+            document.getElementById('notify-result').textContent = `${type} notification shown`;
+        }
+
+        async function testNotifyMultiple() {
+            puter.ui.notify({ ...NOTIFY_PRESETS.success, type: 'success' });
+            setTimeout(() => puter.ui.notify({ ...NOTIFY_PRESETS.info, type: 'info' }), 300);
+            setTimeout(() => puter.ui.notify({ ...NOTIFY_PRESETS.warning, type: 'warning' }), 600);
+            document.getElementById('notify-result').textContent = '3 notifications shown';
+        }
+
+        // Inline SVG icon helpers (stroke uses currentColor)
+        const svg = (paths) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${paths}</svg>`;
+        const ICONS = {
+            info:    svg('<circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>'),
+            play:    svg('<polygon points="5 3 19 12 5 21 5 3"/>'),
+            queue:   svg('<line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/>'),
+            user:    svg('<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>'),
+            disc:    svg('<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/>'),
+            plus:    svg('<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>'),
+            download: svg('<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>'),
+            trash:   svg('<polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>'),
+            cut:     svg('<circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/>'),
+            copy:    svg('<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>'),
+            paste:   svg('<path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/>'),
+        };
+
+        function testContextMenu(e) {
+            puter.ui.contextMenu({
+                x: e.clientX,
+                y: e.clientY,
+                items: [
+                    { label: 'Get Info', icon: ICONS.info, action: () => log('menu', 'Get Info') },
+                    '-',
+                    { label: 'Play Next', icon: ICONS.play, action: () => log('menu', 'Play Next') },
+                    { label: 'Add to Queue', icon: ICONS.queue, action: () => log('menu', 'Add to Queue') },
+                    '-',
+                    { label: 'Go to Artist', icon: ICONS.user, action: () => log('menu', 'Go to Artist') },
+                    { label: 'Go to Album', icon: ICONS.disc, action: () => log('menu', 'Go to Album') },
+                    '-',
+                    { label: 'Add to Playlist', icon: ICONS.plus, items: [
+                        { label: 'Favorites', action: () => log('menu', 'Add to Favorites') },
+                        { label: 'Workout Mix', action: () => log('menu', 'Add to Workout Mix') },
+                        { label: 'Chill Vibes', action: () => log('menu', 'Add to Chill Vibes') },
+                    ]},
+                    { label: 'Download', icon: ICONS.download, action: () => log('menu', 'Download') },
+                    { label: 'Delete', icon: ICONS.trash, type: 'danger', action: () => log('menu', 'Delete') },
+                ],
+            });
+        }
+
+        function testContextMenuClick(e) {
+            puter.ui.contextMenu({
+                x: e.clientX,
+                y: e.clientY,
+                items: [
+                    { label: 'Cut', icon: ICONS.cut, shortcut: '\u2318X', action: () => log('menu', 'Cut') },
+                    { label: 'Copy', icon: ICONS.copy, shortcut: '\u2318C', action: () => log('menu', 'Copy') },
+                    { label: 'Paste', icon: ICONS.paste, shortcut: '\u2318V', action: () => log('menu', 'Paste') },
+                    '-',
+                    { label: 'Disabled Item', disabled: true },
+                    { label: 'Delete', icon: ICONS.trash, type: 'danger', shortcut: '\u232B', action: () => log('menu', 'Delete') },
+                ],
+            });
+        }
+
+        function testSpinner() {
+            puter.ui.showSpinner();
+            setTimeout(() => puter.ui.hideSpinner(), 2000);
+        }
+
+        function log(target, msg) {
+            document.getElementById(target + '-result').textContent = 'Selected: ' + msg;
+        }
+    </script>
+</body>
+</html>

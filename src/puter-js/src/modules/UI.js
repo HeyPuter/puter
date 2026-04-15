@@ -696,8 +696,20 @@ class UI extends EventListener {
     };
 
     alert (message, buttons, options, callback) {
+        if ( this.messageTarget ) {
+            return new Promise((resolve) => {
+                this.#postMessageWithCallback('ALERT', resolve, { message, buttons, options });
+            });
+        }
+        // Standalone fallback: render web component
         return new Promise((resolve) => {
-            this.#postMessageWithCallback('ALERT', resolve, { message, buttons, options });
+            const el = document.createElement('puter-alert');
+            el.setAttribute('message', message || '');
+            el.buttons = buttons;
+            el.options = options;
+            el.addEventListener('response', (e) => resolve(e.detail));
+            document.body.appendChild(el);
+            el.open();
         });
     };
 
@@ -720,18 +732,47 @@ class UI extends EventListener {
     };
 
     prompt (message, placeholder, options, callback) {
+        if ( this.messageTarget ) {
+            return new Promise((resolve) => {
+                this.#postMessageWithCallback('PROMPT', resolve, { message, placeholder, options });
+            });
+        }
+        // Standalone fallback: render web component
         return new Promise((resolve) => {
-            this.#postMessageWithCallback('PROMPT', resolve, { message, placeholder, options });
+            const el = document.createElement('puter-prompt');
+            if ( message ) el.setAttribute('message', message);
+            if ( placeholder ) el.setAttribute('placeholder', placeholder);
+            if ( options?.defaultValue ) el.setAttribute('default-value', options.defaultValue);
+            el.options = options;
+            el.addEventListener('response', (e) => resolve(e.detail));
+            document.body.appendChild(el);
+            el.open();
         });
     };
 
     notify (options) {
+        if ( this.messageTarget ) {
+            return new Promise((resolve) => {
+                const normalized = { ...(options ?? {}) };
+                if ( normalized.roundIcon !== undefined && normalized.round_icon === undefined ) {
+                    normalized.round_icon = normalized.roundIcon;
+                }
+                this.#postMessageWithCallback('showNotification', resolve, { options: normalized });
+            });
+        }
+        // Standalone fallback: render web component
         return new Promise((resolve) => {
-            const normalized = { ...(options ?? {}) };
-            if ( normalized.roundIcon !== undefined && normalized.round_icon === undefined ) {
-                normalized.round_icon = normalized.roundIcon;
-            }
-            this.#postMessageWithCallback('showNotification', resolve, { options: normalized });
+            const opts = options ?? {};
+            const el = document.createElement('puter-notification');
+            if ( opts.title ) el.setAttribute('title', opts.title);
+            if ( opts.text ) el.setAttribute('text', opts.text);
+            if ( opts.icon ) el.setAttribute('icon', opts.icon);
+            if ( opts.type ) el.setAttribute('type', opts.type);
+            if ( opts.round_icon || opts.roundIcon ) el.setAttribute('round-icon', '');
+            if ( opts.duration !== undefined ) el.setAttribute('duration', String(opts.duration));
+            el.addEventListener('close', () => resolve(opts.uid || null));
+            document.body.appendChild(el);
+            resolve(opts.uid || null);
         });
     };
 
@@ -1042,7 +1083,19 @@ class UI extends EventListener {
     };
 
     contextMenu (spec) {
-        this.#postMessageWithObject('contextMenu', spec);
+        if ( this.messageTarget ) {
+            this.#postMessageWithObject('contextMenu', spec);
+            return;
+        }
+        // Standalone fallback: render web component
+        const el = document.createElement('puter-context-menu');
+        el.items = spec.items || [];
+        // Use mouse position or provided position
+        const x = spec.x ?? (globalThis.event?.clientX ?? 0);
+        const y = spec.y ?? (globalThis.event?.clientY ?? 0);
+        el.setAttribute('x', String(x));
+        el.setAttribute('y', String(y));
+        document.body.appendChild(el);
     };
 
     /**
