@@ -1,29 +1,19 @@
-import type { puterClients } from '../../clients';
+import { v4 as uuidv4, v5 as uuidv5 } from 'uuid';
 import type { Actor } from '../../core/actor';
-import type { puterStores } from '../../stores';
 import type { AppRow, PermissionStore } from '../../stores/permission/PermissionStore';
 import type { SessionStore } from '../../stores/session/SessionStore';
 import type { UserRow, UserStore } from '../../stores/user/UserStore';
-import type { IConfig, LayerInstances, WithLifecycle } from '../../types';
 import { PuterService } from '../types';
 import type { TokenService } from './TokenService';
 import type {
+    AccessTokenPayload,
     AnyTokenPayload,
     AppUnderUserTokenPayload,
-    AccessTokenPayload,
     SessionRow,
     SessionTokenPayload,
 } from './types';
 
-type Stores = LayerInstances<typeof puterStores> & {
-    permission?: PermissionStore;
-    session?: SessionStore;
-    user?: UserStore;
-};
-
-type Services = Partial<Record<string, WithLifecycle>> & {
-    token?: TokenService;
-};
+const APP_ORIGIN_UUID_NAMESPACE = '33de3768-8ee0-43e9-9e73-db192b97a5d8';
 
 /**
  * Authentication service for v2.
@@ -39,24 +29,11 @@ type Services = Partial<Record<string, WithLifecycle>> & {
  * during the transition.
  */
 export class AuthService extends PuterService {
-    protected override stores: Stores;
-    protected override services: Services;
-
-    constructor (
-        config: IConfig,
-        clients: LayerInstances<typeof puterClients>,
-        stores: LayerInstances<typeof puterStores>,
-        services: Services = {},
-    ) {
-        super(config, clients, stores, services);
-        this.stores = stores as Stores;
-        this.services = services;
-    }
 
     // ── Lookup helpers (typed peer access) ──────────────────────────
 
     private get tokenService (): TokenService {
-        const s = this.services.token;
+        const s = this.services.token as TokenService;
         if ( ! s ) throw new Error('AuthService requires the `token` service to be registered');
         return s;
     }
@@ -205,7 +182,105 @@ export class AuthService extends PuterService {
         await this.sessionStore.removeByUuid(uuid);
     }
 
+    // ── App / origin resolution ─────────────────────────────────────
+
+    /**
+     * Deterministic app UID from an origin URL.
+     * UUIDv5 with a fixed namespace, prefixed with `app-`.
+     */
+    async appUidFromOrigin (origin: string): Promise<string> {
+        const parsed = this.#originFromUrl(origin);
+        if ( ! parsed ) throw new Error('Invalid origin URL');
+        const uid = uuidv5(parsed, APP_ORIGIN_UUID_NAMESPACE);
+        return `app-${uid}`;
+    }
+
+    /**
+     * Sign an app-under-user token for the given app UID.
+     * Requires a user actor in the provided actor.
+     */
+    getUserAppToken (actor: Actor, appUid: string): string {
+        if ( ! actor.user ) throw new Error('Actor must be a user');
+        return this.tokenService.sign('auth', {
+            type: 'app-under-user',
+            version: '0.0.0',
+            user_uid: actor.user.uuid,
+            app_uid: appUid,
+            ...(actor.session ? { session: actor.session.uid } : {}),
+        });
+    }
+
+    // ── Access tokens ───────────────────────────────────────────────
+
+    /**
+     * Create an access token with the given permissions.
+     *
+     * Each permission spec is `[permissionString, extraObject?]`.
+     * The token is stored in `access_token_permissions` and a JWT is
+     * returned.
+     */
+    async createAccessToken (
+        actor: Actor,
+        permissions: Array<[string, Record<string, unknown>?]>,
+        options: { expiresIn?: string } = {},
+    ): Promise<string> {
+        if ( ! actor.user ) throw new Error('Actor must have a user');
+
+        const tokenUid = uuidv4();
+        const jwtPayload: Record<string, unknown> = {
+            type: 'access-token',
+            version: '0.0.0',
+            token_uid: tokenUid,
+            user_uid: actor.user.uuid,
+        };
+        if ( actor.app ) {
+            jwtPayload.app_uid = actor.app.uid;
+        }
+
+        const jwt = this.tokenService.sign('auth', jwtPayload, options);
+
+        // Store each permission grant
+        const db = this.stores.permission as unknown as { clients: { db: { write: (q: string, p: unknown[]) => Promise<void> } } };
+        for ( const spec of permissions ) {
+            const [permission, extra] = spec;
+            await (db.clients?.db ?? this.clients.db).write(
+                'INSERT INTO `access_token_permissions` (`token_uid`, `permission`, `extra`) VALUES (?, ?, ?)',
+                [tokenUid, permission, extra ? JSON.stringify(extra) : '{}'],
+            );
+        }
+
+        return jwt;
+    }
+
+    /** Revoke an access token by JWT or token UUID. */
+    async revokeAccessToken (tokenOrUuid: string): Promise<void> {
+        let tokenUid: string;
+        const isJwt = /^[\w-]+\.[\w-]+\.[\w-]+$/.test(tokenOrUuid.trim());
+        if ( isJwt ) {
+            const decoded = this.tokenService.verify<AccessTokenPayload>('auth', tokenOrUuid);
+            if ( decoded.type !== 'access-token' || !decoded.token_uid ) {
+                throw new Error('Invalid access token');
+            }
+            tokenUid = decoded.token_uid;
+        } else {
+            tokenUid = tokenOrUuid;
+        }
+        await this.clients.db.write(
+            'DELETE FROM `access_token_permissions` WHERE `token_uid` = ?',
+            [tokenUid],
+        );
+    }
+
     // ── Internals ───────────────────────────────────────────────────
+
+    #originFromUrl (url: string): string | null {
+        try {
+            const parsed = new URL(url);
+            return `${parsed.protocol}//${parsed.hostname}${parsed.port ? `:${parsed.port}` : ''}`;
+        } catch {
+            return null;
+        }
+    }
 
     async #actorFromSessionToken (decoded: SessionTokenPayload): Promise<Actor | null> {
         const session = await this.sessionStore.getByUuid(decoded.uuid);
@@ -236,7 +311,7 @@ export class AuthService extends PuterService {
     }
 
     async #actorFromAccessTokenToken (decoded: AccessTokenPayload): Promise<Actor | null> {
-        if ( ! decoded.token_uid || ! decoded.user_uid ) return null;
+        if ( !decoded.token_uid || !decoded.user_uid ) return null;
 
         const user = await this.userStore.getByUuid(decoded.user_uid);
         if ( ! user ) return null;
