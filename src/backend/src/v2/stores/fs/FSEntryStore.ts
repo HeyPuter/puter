@@ -40,7 +40,7 @@ export class FSEntryStore extends PuterStore {
     // Private accessors keep call sites terse (`this.#db.read(...)`) without
     // forcing every method to spell out `this.clients.db.read(...)`.
     get #db () { return this.clients.db; }
-    get #cache () { return this.clients.redis.client; }
+    get #cache () { return this.clients.redis; }
     get #kvStore () { return this.stores.kv; }
     get #config () { return this.config; }
 

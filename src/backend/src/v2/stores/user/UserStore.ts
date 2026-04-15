@@ -223,7 +223,7 @@ export class UserStore extends PuterStore {
         const keys = this.#cacheKeysForUser(user);
         if ( keys.length === 0 ) return;
         try {
-            await this.clients.redis.client.del(...keys);
+            await this.clients.redis.del(...keys);
         } catch {
             // Best-effort invalidation.
         }
@@ -253,7 +253,7 @@ export class UserStore extends PuterStore {
 
     async #readCache (prop: UserIdProperty, value: unknown): Promise<UserRow | null> {
         try {
-            const raw = await this.clients.redis.client.get(this.#cacheKey(prop, value));
+            const raw = await this.clients.redis.get(this.#cacheKey(prop, value));
             if ( ! raw ) return null;
             const parsed = JSON.parse(raw) as UserRow;
             // Cached rows were normalized on the write path, so booleans are booleans.
@@ -268,7 +268,7 @@ export class UserStore extends PuterStore {
         if ( keys.length === 0 ) return;
         const serialized = JSON.stringify(user);
         await Promise.all(keys.map(key =>
-            this.clients.redis.client.set(key, serialized, 'EX', CACHE_TTL_SECONDS)));
+            this.clients.redis.set(key, serialized, 'EX', CACHE_TTL_SECONDS)));
     }
 
     /**

@@ -1,7 +1,7 @@
 import type { Readable } from 'node:stream';
 import type { Request, Response } from 'express';
 import { HttpError } from '../core/http/HttpError.js';
-import type { PuterRouter } from '../core/http/PuterRouter.js';
+import { PuterRouter } from '../core/http/PuterRouter.js';
 import { checkDriverRateLimit } from '../core/http/middleware/rateLimit.js';
 import type { PermissionService } from '../services/permission/PermissionService.js';
 import type { WithLifecycle } from '../types';
@@ -72,6 +72,78 @@ export function resolveDriverMeta (driver: WithLifecycle & Record<string, unknow
 
     return { interfaceName, driverName, isDefault };
 }
+
+// ── /drivers/xd payload ─────────────────────────────────────────────
+//
+// Self-contained HTML/JS shipped to the iframe consumer. Listens for
+// postMessage events shaped as `{ id, interface, method, params }`,
+// forwards to `/drivers/call`, and posts `{ id, result }` back to the
+// originating window.
+//
+// Wire-shape note: the postMessage uses `params` (puter-js's historical
+// name) but `/drivers/call` expects `args`. v1's JSON path forwarded
+// `params` verbatim and so silently failed; this port translates.
+
+const XD_SCRIPT = /* js */ `
+(function () {
+    const call = async ({ interface_name, method_name, params }) => {
+        const response = await fetch('/drivers/call', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                interface: interface_name,
+                method: method_name,
+                args: params,
+            }),
+        });
+        return await response.json();
+    };
+
+    const fcall = async ({ interface_name, method_name, params }) => {
+        const form = new FormData();
+        form.append('interface', interface_name);
+        form.append('method', method_name);
+        for (const k in params) {
+            form.append(k, params[k]);
+        }
+        const response = await fetch('/drivers/call', {
+            method: 'POST',
+            body: form,
+        });
+        return await response.json();
+    };
+
+    window.addEventListener('message', async (event) => {
+        const { id, interface: iface, method, params } = event.data || {};
+        let has_file = false;
+        for (const k in params) {
+            if (params[k] instanceof File) {
+                has_file = true;
+                break;
+            }
+        }
+        const result = has_file
+            ? await fcall({ interface_name: iface, method_name: method, params })
+            : await call({ interface_name: iface, method_name: method, params });
+        if (event.source) {
+            event.source.postMessage({ id, result }, event.origin);
+        }
+    });
+})();
+`;
+
+const XD_HTML = `<!DOCTYPE html>
+<html>
+    <head>
+        <title>Puter Driver API</title>
+        <script>
+            document.addEventListener('DOMContentLoaded', function () {
+                ${XD_SCRIPT}
+            });
+        </script>
+    </head>
+    <body></body>
+</html>`;
 
 // ── Registry ────────────────────────────────────────────────────────
 
@@ -229,6 +301,15 @@ export class DriverRegistry {
             }
 
             res.json(result);
+        });
+
+        // Cross-document driver bridge — serves a tiny HTML page whose
+        // inline script proxies postMessage RPCs to `/drivers/call` on
+        // the same origin. Mounted on the `api` subdomain so the
+        // relative fetch lands on the gated `/drivers/call` route.
+        router.get('/xd', { subdomain: 'api', requireAuth: true }, (_req: Request, res: Response) => {
+            res.type('text/html');
+            res.send(XD_HTML);
         });
     }
 }

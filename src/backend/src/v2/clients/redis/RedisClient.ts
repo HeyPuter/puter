@@ -1,7 +1,6 @@
 import Redis, { Cluster } from 'ioredis';
 import MockRedis from 'ioredis-mock';
-import type { IConfig, IRedisConfig } from '../../types';
-import { PuterClient } from '../types';
+import type { IConfig, IRedisConfig, WithLifecycle } from '../../types';
 
 const redisStartupRetryMaxDelayMs = 2000;
 const redisSlotsRefreshTimeoutMs = 5000;
@@ -43,50 +42,69 @@ const attachClusterEventHandlers = (clusterClient: Cluster): void => {
     });
 };
 
-export class RedisClient extends PuterClient {
-    readonly client: Cluster;
+const getRedisConfig = (config: IConfig): IRedisConfig => {
+    return config.redis ?? config.services?.redis ?? {};
+};
 
+const buildCluster = (config: IConfig): Cluster => {
+    const redisConfig = getRedisConfig(config);
+    const startupNodes = redisConfig.startupNodes ?? redisConfig.clusterNodes ?? [];
+    const useMock = redisConfig.useMock ?? startupNodes.length === 0;
+
+    if ( useMock ) {
+        console.log('connected to local redis mock');
+        return new MockRedis.Cluster(['redis://localhost:7001']) as unknown as Cluster;
+    }
+
+    const cluster = new Redis.Cluster(startupNodes as ConstructorParameters<typeof Redis.Cluster>[0], {
+        dnsLookup: (address, callback) => callback(null, address),
+        clusterRetryStrategy: (attempts) => Math.min(100 + (attempts * 100), redisStartupRetryMaxDelayMs),
+        retryDelayOnFailover: 500,
+        retryDelayOnClusterDown: 1000,
+        retryDelayOnTryAgain: 300,
+        slotsRefreshTimeout: redisSlotsRefreshTimeoutMs,
+        enableOfflineQueue: true,
+        redisOptions: {
+            tls: {},
+            connectTimeout: redisConnectTimeoutMs,
+            maxRetriesPerRequest: null,
+        },
+    });
+    attachClusterEventHandlers(cluster);
+    console.log('connecting to redis from config');
+    return cluster;
+};
+
+/**
+ * `RedisClient` IS the ioredis `Cluster` instance — consumers call
+ * `this.clients.redis.get(...)` / `.set(...)` directly rather than
+ * going through an inner `.client` field. Lifecycle methods
+ * (`onServerShutdown`) are attached onto the cluster instance itself.
+ *
+ * Type-wise, `RedisClient` is `Cluster & WithLifecycle`; the registry-
+ * facing value below is a constructor that returns that shape. Mirrors
+ * the `DatabaseClientFactory` pattern.
+ */
+export type RedisClient = Cluster & WithLifecycle;
+
+export const RedisClient = class RedisClient {
     constructor (config: IConfig) {
-        super(config);
+        const cluster = buildCluster(config);
 
-        const redisConfig = this.#getRedisConfig(config);
-        const startupNodes = redisConfig.startupNodes ?? redisConfig.clusterNodes ?? [];
-        const useMock = redisConfig.useMock ?? startupNodes.length === 0;
+        const onServerShutdown = async (): Promise<void> => {
+            try {
+                await cluster.quit();
+            } catch ( error ) {
+                console.warn('[redis] failed to quit redis client cleanly', error);
+                cluster.disconnect();
+            }
+        };
 
-        if ( useMock ) {
-            this.client = new MockRedis.Cluster(['redis://localhost:7001']) as unknown as Cluster;
-            console.log('connected to local redis mock');
-            return;
-        }
+        // Attach lifecycle hooks directly onto the cluster instance so the
+        // server boot loop's `if (client.onServerShutdown) client.onServerShutdown()`
+        // picks them up without a wrapper object.
+        Object.assign(cluster, { onServerShutdown });
 
-        this.client = new Redis.Cluster(startupNodes as ConstructorParameters<typeof Redis.Cluster>[0], {
-            dnsLookup: (address, callback) => callback(null, address),
-            clusterRetryStrategy: (attempts) => Math.min(100 + (attempts * 100), redisStartupRetryMaxDelayMs),
-            retryDelayOnFailover: 500,
-            retryDelayOnClusterDown: 1000,
-            retryDelayOnTryAgain: 300,
-            slotsRefreshTimeout: redisSlotsRefreshTimeoutMs,
-            enableOfflineQueue: true,
-            redisOptions: {
-                tls: {},
-                connectTimeout: redisConnectTimeoutMs,
-                maxRetriesPerRequest: null,
-            },
-        });
-        attachClusterEventHandlers(this.client);
-        console.log('connecting to redis from config');
+        return cluster as unknown as RedisClient;
     }
-
-    override async onServerShutdown (): Promise<void> {
-        try {
-            await this.client.quit();
-        } catch ( error ) {
-            console.warn('[redis] failed to quit redis client cleanly', error);
-            this.client.disconnect();
-        }
-    }
-
-    #getRedisConfig (config: IConfig): IRedisConfig {
-        return config.redis ?? config.services?.redis ?? {};
-    }
-}
+} as unknown as new (config: IConfig) => RedisClient;

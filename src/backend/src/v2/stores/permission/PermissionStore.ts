@@ -404,7 +404,7 @@ export class PermissionStore extends PuterStore {
     }
 
     async getScanCache (cacheKey: string): Promise<unknown | null> {
-        const raw = await this.clients.redis.client.get(cacheKey);
+        const raw = await this.clients.redis.get(cacheKey);
         if ( ! raw ) return null;
         try {
             return JSON.parse(raw);
@@ -414,11 +414,11 @@ export class PermissionStore extends PuterStore {
     }
 
     async setScanCache (cacheKey: string, value: unknown, ttlSeconds: number = PERMISSION_SCAN_CACHE_TTL_SECONDS): Promise<void> {
-        await this.clients.redis.client.set(cacheKey, JSON.stringify(value), 'EX', ttlSeconds);
+        await this.clients.redis.set(cacheKey, JSON.stringify(value), 'EX', ttlSeconds);
     }
 
     async invalidateScanCache (cacheKey: string): Promise<void> {
-        await this.clients.redis.client.del(cacheKey);
+        await this.clients.redis.del(cacheKey);
     }
 
     // ── Internals ───────────────────────────────────────────────────

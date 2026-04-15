@@ -188,7 +188,7 @@ export class AppStore extends PuterStore {
         const keys = this.#cacheKeysForApp(app);
         if ( keys.length === 0 ) return;
         try {
-            await this.clients.redis.client.del(...keys);
+            await this.clients.redis.del(...keys);
         } catch {
             // Best-effort
         }
@@ -236,7 +236,7 @@ export class AppStore extends PuterStore {
 
     async #readCache (prop, value) {
         try {
-            const raw = await this.clients.redis.client.get(this.#cacheKey(prop, value));
+            const raw = await this.clients.redis.get(this.#cacheKey(prop, value));
             return raw ? JSON.parse(raw) : null;
         } catch {
             return null;
@@ -248,7 +248,7 @@ export class AppStore extends PuterStore {
         if ( keys.length === 0 ) return;
         const serialized = JSON.stringify(app);
         await Promise.all(keys.map(k =>
-            this.clients.redis.client.set(k, serialized, 'EX', CACHE_TTL_SECONDS)));
+            this.clients.redis.set(k, serialized, 'EX', CACHE_TTL_SECONDS)));
     }
 
     #filterEditable (fields) {

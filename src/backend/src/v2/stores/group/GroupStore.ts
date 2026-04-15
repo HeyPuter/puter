@@ -79,7 +79,7 @@ export class GroupStore extends PuterStore {
 
         const cacheKey = this.#publicGroupsCacheKey();
         try {
-            const cached = await this.clients.redis.client.get(cacheKey);
+            const cached = await this.clients.redis.get(cacheKey);
             if ( cached ) {
                 const parsed = JSON.parse(cached) as GroupRow[];
                 if ( Array.isArray(parsed) ) return parsed;
@@ -96,7 +96,7 @@ export class GroupStore extends PuterStore {
         const decoded = rows.map(r => this.#decodeGroup(r));
 
         try {
-            await this.clients.redis.client.set(
+            await this.clients.redis.set(
                 cacheKey,
                 JSON.stringify(decoded),
                 'EX',
