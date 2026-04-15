@@ -95,7 +95,7 @@ export class UserStore extends PuterStore {
         const cached = options.cached ?? true;
         const force = options.force ?? false;
 
-        if ( cached && ! force ) {
+        if ( cached && !force ) {
             const hit = await this.#readCache(prop, value);
             if ( hit ) return hit;
         }
@@ -128,8 +128,86 @@ export class UserStore extends PuterStore {
      * applies `Object.assign` semantics, and writes back. Invalidates
      * every cache key pointing at this user on success.
      */
+    /**
+     * Create a new user row.
+     *
+     * Returns the created user (by id). Password must already be hashed.
+     * Pass `null` for temporary users (no email, no password).
+     */
+    async create (fields: {
+        username: string;
+        uuid: string;
+        password: string | null;
+        email: string | null;
+        clean_email?: string | null;
+        free_storage?: number | null;
+        referred_by?: number | null;
+        requires_email_confirmation?: boolean;
+        email_confirm_code?: string | null;
+        email_confirm_token?: string | null;
+        audit_metadata?: Record<string, unknown> | null;
+        signup_ip?: string | null;
+        signup_ip_forwarded?: string | null;
+        signup_user_agent?: string | null;
+        signup_origin?: string | null;
+    }): Promise<UserRow> {
+        const result = await this.clients.db.write(
+            `INSERT INTO \`user\`
+            (username, email, clean_email, password, uuid, free_storage,
+             referred_by, requires_email_confirmation, email_confirm_code,
+             email_confirm_token, audit_metadata, signup_ip, signup_ip_forwarded,
+             signup_user_agent, signup_origin)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+                fields.username,
+                fields.email,
+                fields.clean_email ?? null,
+                fields.password,
+                fields.uuid,
+                fields.free_storage ?? null,
+                fields.referred_by ?? null,
+                fields.requires_email_confirmation ? 1 : 0,
+                fields.email_confirm_code ?? null,
+                fields.email_confirm_token ?? null,
+                fields.audit_metadata ? JSON.stringify(fields.audit_metadata) : null,
+                fields.signup_ip ?? null,
+                fields.signup_ip_forwarded ?? null,
+                fields.signup_user_agent ?? null,
+                fields.signup_origin ?? null,
+            ],
+        );
+
+        const insertId = (result as unknown as { insertId?: number }).insertId;
+        if ( ! insertId ) throw new Error('Failed to create user — no insertId returned');
+
+        const user = await this.getById(insertId, { force: true });
+        if ( ! user ) throw new Error('Failed to fetch created user');
+        return user;
+    }
+
+    /**
+     * Update arbitrary user fields by id. Invalidates cache on write.
+     *
+     * Only pass whitelisted columns — this uses string interpolation for
+     * column names for ergonomic call sites. Never take column names from
+     * request bodies.
+     */
+    async update (userId: number, patch: Record<string, unknown>): Promise<void> {
+        const keys = Object.keys(patch);
+        if ( keys.length === 0 ) return;
+
+        const setClause = keys.map(k => `\`${k}\` = ?`).join(', ');
+        const values = keys.map(k => patch[k]);
+
+        await this.clients.db.write(
+            `UPDATE \`user\` SET ${setClause} WHERE \`id\` = ?`,
+            [...values, userId],
+        );
+        await this.invalidateById(userId);
+    }
+
     async updateMetadata (userId: number, patch: Record<string, unknown>): Promise<void> {
-        const user = await this.getById(userId, );
+        const user = await this.getById(userId);
         const current: Record<string, unknown> = user?.metadata ?? {};
         const merged = { ...current, ...patch };
 
@@ -190,8 +268,7 @@ export class UserStore extends PuterStore {
         if ( keys.length === 0 ) return;
         const serialized = JSON.stringify(user);
         await Promise.all(keys.map(key =>
-            this.clients.redis.client.set(key, serialized, 'EX', CACHE_TTL_SECONDS),
-        ));
+            this.clients.redis.client.set(key, serialized, 'EX', CACHE_TTL_SECONDS)));
     }
 
     /**
