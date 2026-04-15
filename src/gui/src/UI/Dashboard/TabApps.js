@@ -47,7 +47,7 @@ function buildAppsGrid (apps) {
         const title = (app.title || app.name || '').trim();
         const iconUrl = app.iconUrl || window.icons['app.svg'];
 
-        h += `<div class="myapps-tile" data-app-name="${html_encode(app.name)}" data-app-uid="${html_encode(app.uid || '')}" title="${html_encode(title)}">`;
+        h += `<div class="myapps-tile" data-app-name="${html_encode(app.name)}" data-app-title="${html_encode(title)}" data-app-uid="${html_encode(app.uid || '')}" title="${html_encode(title)}">`;
         h += '<div class="myapps-tile-icon">';
         h += `<img src="${html_encode(iconUrl)}" alt="" draggable="false">`;
         h += '</div>';
@@ -58,11 +58,12 @@ function buildAppsGrid (apps) {
     return h;
 }
 
-function showUninstallModal ({ appName, appUid, self, $el_window }) {
+function showUninstallModal ({ appName, appTitle, appUid, self, $el_window }) {
+    const displayName = (appTitle || appName || '').trim();
     const $overlay = $(`
         <div class="myapps-modal-overlay">
             <div class="myapps-modal">
-                <h3>Uninstall ${html_encode(appName)}?</h3>
+                <h3>Uninstall ${html_encode(displayName)}?</h3>
                 <p>This will revoke all permissions for this app.</p>
                 <label class="myapps-modal-checkbox">
                     <input type="checkbox" class="myapps-modal-delete-data">
@@ -228,6 +229,7 @@ const TabApps = {
         // Context menu on right-click
         $el_window.on('contextmenu', '.myapps-tile', function (e) {
             const appName = $(this).attr('data-app-name');
+            const appTitle = $(this).attr('data-app-title');
             const appUid = $(this).attr('data-app-uid');
             const nameLower = (appName || '').toLowerCase();
             const noUninstall = APP_NAMES_NO_UNINSTALL.has(nameLower);
@@ -240,6 +242,7 @@ const TabApps = {
                         onClick: () => {
                             showUninstallModal({
                                 appName,
+                                appTitle,
                                 appUid,
                                 self,
                                 $el_window,
