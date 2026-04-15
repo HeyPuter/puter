@@ -54,7 +54,7 @@ export const FLASH_IMAGE_3_1_RESOLUTION_MAP: ResolutionMap = {
 export const TOGETHER_IMAGE_GENERATION_MODELS: IImageModel[] = [
     {
         id: 'togetherai:ByteDance-Seed/Seedream-3.0',
-        aliases: ['ByteDance-Seed/Seedream-3.0'],
+        aliases: ['ByteDance-Seed/Seedream-3.0', 'Seedream-3.0'],
         costs_currency: 'usd-cents',
         index_cost_key: '1MP',
         name: 'ByteDance-Seed/Seedream-3.0',
@@ -64,7 +64,7 @@ export const TOGETHER_IMAGE_GENERATION_MODELS: IImageModel[] = [
     },
     {
         id: 'togetherai:ByteDance-Seed/Seedream-4.0',
-        aliases: ['ByteDance-Seed/Seedream-4.0'],
+        aliases: ['ByteDance-Seed/Seedream-4.0', 'Seedream-4.0'],
         costs_currency: 'usd-cents',
         index_cost_key: '1MP',
         name: 'ByteDance-Seed/Seedream-4.0',
@@ -74,7 +74,7 @@ export const TOGETHER_IMAGE_GENERATION_MODELS: IImageModel[] = [
     },
     {
         id: 'togetherai:HiDream-ai/HiDream-I1-Dev',
-        aliases: ['HiDream-ai/HiDream-I1-Dev'],
+        aliases: ['HiDream-ai/HiDream-I1-Dev', 'HiDream-I1-Dev'],
         costs_currency: 'usd-cents',
         index_cost_key: '1MP',
         name: 'HiDream-ai/HiDream-I1-Dev',
@@ -84,7 +84,7 @@ export const TOGETHER_IMAGE_GENERATION_MODELS: IImageModel[] = [
     },
     {
         id: 'togetherai:HiDream-ai/HiDream-I1-Fast',
-        aliases: ['HiDream-ai/HiDream-I1-Fast'],
+        aliases: ['HiDream-ai/HiDream-I1-Fast', 'HiDream-I1-Fast'],
         costs_currency: 'usd-cents',
         index_cost_key: '1MP',
         name: 'HiDream-ai/HiDream-I1-Fast',
@@ -94,7 +94,7 @@ export const TOGETHER_IMAGE_GENERATION_MODELS: IImageModel[] = [
     },
     {
         id: 'togetherai:HiDream-ai/HiDream-I1-Full',
-        aliases: ['HiDream-ai/HiDream-I1-Full'],
+        aliases: ['HiDream-ai/HiDream-I1-Full', 'HiDream-I1-Full'],
         costs_currency: 'usd-cents',
         index_cost_key: '1MP',
         name: 'HiDream-ai/HiDream-I1-Full',
@@ -104,7 +104,7 @@ export const TOGETHER_IMAGE_GENERATION_MODELS: IImageModel[] = [
     },
     {
         id: 'togetherai:Lykon/DreamShaper',
-        aliases: ['Lykon/DreamShaper'],
+        aliases: ['Lykon/DreamShaper', 'DreamShaper'],
         costs_currency: 'usd-cents',
         index_cost_key: '1MP',
         name: 'Lykon/DreamShaper',
@@ -114,7 +114,7 @@ export const TOGETHER_IMAGE_GENERATION_MODELS: IImageModel[] = [
     },
     {
         id: 'togetherai:Qwen/Qwen-Image',
-        aliases: ['Qwen/Qwen-Image'],
+        aliases: ['Qwen/Qwen-Image', 'Qwen-Image'],
         costs_currency: 'usd-cents',
         index_cost_key: '1MP',
         name: 'Qwen/Qwen-Image',
@@ -124,7 +124,7 @@ export const TOGETHER_IMAGE_GENERATION_MODELS: IImageModel[] = [
     },
     {
         id: 'togetherai:Qwen/Qwen-Image-2.0',
-        aliases: ['Qwen/Qwen-Image-2.0'],
+        aliases: ['Qwen/Qwen-Image-2.0', 'Qwen-Image-2.0'],
         costs_currency: 'usd-cents',
         index_cost_key: 'per-image',
         name: 'Qwen/Qwen-Image-2.0',
@@ -134,7 +134,7 @@ export const TOGETHER_IMAGE_GENERATION_MODELS: IImageModel[] = [
     },
     {
         id: 'togetherai:Qwen/Qwen-Image-2.0-Pro',
-        aliases: ['Qwen/Qwen-Image-2.0-Pro'],
+        aliases: ['Qwen/Qwen-Image-2.0-Pro', 'Qwen-Image-2.0-Pro'],
         costs_currency: 'usd-cents',
         index_cost_key: 'per-image',
         name: 'Qwen/Qwen-Image-2.0-Pro',
@@ -144,7 +144,7 @@ export const TOGETHER_IMAGE_GENERATION_MODELS: IImageModel[] = [
     },
     {
         id: 'togetherai:RunDiffusion/Juggernaut-pro-flux',
-        aliases: ['RunDiffusion/Juggernaut-pro-flux'],
+        aliases: ['RunDiffusion/Juggernaut-pro-flux', 'Juggernaut-pro-flux'],
         costs_currency: 'usd-cents',
         index_cost_key: '1MP',
         name: 'RunDiffusion/Juggernaut-pro-flux',
@@ -154,7 +154,7 @@ export const TOGETHER_IMAGE_GENERATION_MODELS: IImageModel[] = [
     },
     {
         id: 'togetherai:Rundiffusion/Juggernaut-Lightning-Flux',
-        aliases: ['Rundiffusion/Juggernaut-Lightning-Flux'],
+        aliases: ['Rundiffusion/Juggernaut-Lightning-Flux', 'Juggernaut-Lightning-Flux'],
         costs_currency: 'usd-cents',
         index_cost_key: '1MP',
         name: 'Rundiffusion/Juggernaut-Lightning-Flux',
@@ -164,7 +164,7 @@ export const TOGETHER_IMAGE_GENERATION_MODELS: IImageModel[] = [
     },
     {
         id: 'togetherai:Wan-AI/Wan2.6-image',
-        aliases: ['Wan-AI/Wan2.6-image'],
+        aliases: ['Wan-AI/Wan2.6-image', 'Wan2.6-image'],
         costs_currency: 'usd-cents',
         index_cost_key: 'per-image',
         name: 'Wan-AI/Wan2.6-image',
@@ -174,7 +174,7 @@ export const TOGETHER_IMAGE_GENERATION_MODELS: IImageModel[] = [
     },
     {
         id: 'togetherai:black-forest-labs/FLUX.1-kontext-max',
-        aliases: ['black-forest-labs/FLUX.1-kontext-max'],
+        aliases: ['black-forest-labs/FLUX.1-kontext-max', 'FLUX.1-kontext-max'],
         costs_currency: 'usd-cents',
         index_cost_key: '1MP',
         name: 'black-forest-labs/FLUX.1-kontext-max',
@@ -184,7 +184,7 @@ export const TOGETHER_IMAGE_GENERATION_MODELS: IImageModel[] = [
     },
     {
         id: 'togetherai:black-forest-labs/FLUX.1-kontext-pro',
-        aliases: ['black-forest-labs/FLUX.1-kontext-pro'],
+        aliases: ['black-forest-labs/FLUX.1-kontext-pro', 'FLUX.1-kontext-pro'],
         costs_currency: 'usd-cents',
         index_cost_key: '1MP',
         name: 'black-forest-labs/FLUX.1-kontext-pro',
@@ -194,7 +194,7 @@ export const TOGETHER_IMAGE_GENERATION_MODELS: IImageModel[] = [
     },
     {
         id: 'togetherai:black-forest-labs/FLUX.1-krea-dev',
-        aliases: ['black-forest-labs/FLUX.1-krea-dev'],
+        aliases: ['black-forest-labs/FLUX.1-krea-dev', 'FLUX.1-krea-dev'],
         costs_currency: 'usd-cents',
         index_cost_key: '1MP',
         name: 'black-forest-labs/FLUX.1-krea-dev',
@@ -204,7 +204,7 @@ export const TOGETHER_IMAGE_GENERATION_MODELS: IImageModel[] = [
     },
     {
         id: 'togetherai:black-forest-labs/FLUX.1-schnell',
-        aliases: ['black-forest-labs/FLUX.1-schnell'],
+        aliases: ['black-forest-labs/FLUX.1-schnell', 'FLUX.1-schnell'],
         costs_currency: 'usd-cents',
         index_cost_key: '1MP',
         name: 'black-forest-labs/FLUX.1-schnell',
@@ -214,7 +214,7 @@ export const TOGETHER_IMAGE_GENERATION_MODELS: IImageModel[] = [
     },
     {
         id: 'togetherai:black-forest-labs/FLUX.1.1-pro',
-        aliases: ['black-forest-labs/FLUX.1.1-pro'],
+        aliases: ['black-forest-labs/FLUX.1.1-pro', 'FLUX.1.1-pro'],
         costs_currency: 'usd-cents',
         index_cost_key: '1MP',
         name: 'black-forest-labs/FLUX.1.1-pro',
@@ -224,7 +224,7 @@ export const TOGETHER_IMAGE_GENERATION_MODELS: IImageModel[] = [
     },
     {
         id: 'togetherai:black-forest-labs/FLUX.2-dev',
-        aliases: ['black-forest-labs/FLUX.2-dev'],
+        aliases: ['black-forest-labs/FLUX.2-dev', 'FLUX.2-dev'],
         costs_currency: 'usd-cents',
         index_cost_key: 'per-image',
         name: 'black-forest-labs/FLUX.2-dev',
@@ -234,7 +234,7 @@ export const TOGETHER_IMAGE_GENERATION_MODELS: IImageModel[] = [
     },
     {
         id: 'togetherai:black-forest-labs/FLUX.2-flex',
-        aliases: ['black-forest-labs/FLUX.2-flex'],
+        aliases: ['black-forest-labs/FLUX.2-flex', 'FLUX.2-flex'],
         costs_currency: 'usd-cents',
         index_cost_key: 'per-image',
         name: 'black-forest-labs/FLUX.2-flex',
@@ -254,7 +254,7 @@ export const TOGETHER_IMAGE_GENERATION_MODELS: IImageModel[] = [
     },
     {
         id: 'togetherai:black-forest-labs/FLUX.2-pro',
-        aliases: ['black-forest-labs/FLUX.2-pro'],
+        aliases: ['black-forest-labs/FLUX.2-pro', 'FLUX.2-pro'],
         costs_currency: 'usd-cents',
         index_cost_key: 'per-image',
         name: 'black-forest-labs/FLUX.2-pro',
@@ -264,7 +264,7 @@ export const TOGETHER_IMAGE_GENERATION_MODELS: IImageModel[] = [
     },
     {
         id: 'togetherai:google/flash-image-2.5',
-        aliases: ['google/flash-image-2.5'],
+        aliases: ['google/flash-image-2.5', 'flash-image-2.5'],
         costs_currency: 'usd-cents',
         index_cost_key: 'per-image',
         name: 'google/flash-image-2.5',
@@ -287,7 +287,7 @@ export const TOGETHER_IMAGE_GENERATION_MODELS: IImageModel[] = [
     },
     {
         id: 'togetherai:google/flash-image-3.1',
-        aliases: ['google/flash-image-3.1', 'nano-banana-2'],
+        aliases: ['google/flash-image-3.1', 'flash-image-3.1', 'nano-banana-2'],
         name: 'google/flash-image-3.1',
         costs_currency: 'usd-cents',
         index_cost_key: '1K',
@@ -337,7 +337,7 @@ export const TOGETHER_IMAGE_GENERATION_MODELS: IImageModel[] = [
     },
     {
         id: 'togetherai:google/imagen-4.0-fast',
-        aliases: ['google/imagen-4.0-fast'],
+        aliases: ['google/imagen-4.0-fast', 'imagen-4.0-fast'],
         costs_currency: 'usd-cents',
         index_cost_key: '1MP',
         name: 'google/imagen-4.0-fast',
@@ -347,7 +347,7 @@ export const TOGETHER_IMAGE_GENERATION_MODELS: IImageModel[] = [
     },
     {
         id: 'togetherai:google/imagen-4.0-preview',
-        aliases: ['google/imagen-4.0-preview'],
+        aliases: ['google/imagen-4.0-preview', 'imagen-4.0-preview'],
         costs_currency: 'usd-cents',
         index_cost_key: '1MP',
         name: 'google/imagen-4.0-preview',
@@ -357,7 +357,7 @@ export const TOGETHER_IMAGE_GENERATION_MODELS: IImageModel[] = [
     },
     {
         id: 'togetherai:google/imagen-4.0-ultra',
-        aliases: ['google/imagen-4.0-ultra'],
+        aliases: ['google/imagen-4.0-ultra', 'imagen-4.0-ultra'],
         costs_currency: 'usd-cents',
         index_cost_key: '1MP',
         name: 'google/imagen-4.0-ultra',
@@ -367,7 +367,7 @@ export const TOGETHER_IMAGE_GENERATION_MODELS: IImageModel[] = [
     },
     {
         id: 'togetherai:ideogram/ideogram-3.0',
-        aliases: ['ideogram/ideogram-3.0'],
+        aliases: ['ideogram/ideogram-3.0', 'ideogram-3.0'],
         costs_currency: 'usd-cents',
         index_cost_key: '1MP',
         name: 'ideogram/ideogram-3.0',
@@ -377,7 +377,7 @@ export const TOGETHER_IMAGE_GENERATION_MODELS: IImageModel[] = [
     },
     {
         id: 'togetherai:openai/gpt-image-1.5',
-        aliases: ['openai/gpt-image-1.5'],
+        aliases: ['openai/gpt-image-1.5', 'gpt-image-1.5'],
         costs_currency: 'usd-cents',
         index_cost_key: 'per-image',
         name: 'openai/gpt-image-1.5',
@@ -387,7 +387,7 @@ export const TOGETHER_IMAGE_GENERATION_MODELS: IImageModel[] = [
     },
     {
         id: 'togetherai:stabilityai/stable-diffusion-3-medium',
-        aliases: ['stabilityai/stable-diffusion-3-medium'],
+        aliases: ['stabilityai/stable-diffusion-3-medium', 'stable-diffusion-3-medium'],
         costs_currency: 'usd-cents',
         index_cost_key: '1MP',
         name: 'stabilityai/stable-diffusion-3-medium',
@@ -397,7 +397,7 @@ export const TOGETHER_IMAGE_GENERATION_MODELS: IImageModel[] = [
     },
     {
         id: 'togetherai:stabilityai/stable-diffusion-xl-base-1.0',
-        aliases: ['stabilityai/stable-diffusion-xl-base-1.0'],
+        aliases: ['stabilityai/stable-diffusion-xl-base-1.0', 'stable-diffusion-xl-base-1.0'],
         costs_currency: 'usd-cents',
         index_cost_key: '1MP',
         name: 'stabilityai/stable-diffusion-xl-base-1.0',
