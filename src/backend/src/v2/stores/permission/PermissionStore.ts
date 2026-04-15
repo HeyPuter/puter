@@ -1,7 +1,6 @@
 import { PuterStore } from '../types';
-import type { WithLifecycle, IConfig, LayerInstances } from '../../types';
-import type { puterClients } from '../../clients';
-import type { SystemKVStore } from '../systemKv/SystemKVStore';
+import type { LayerInstances } from '../../types';
+import type { puterStores } from '../index';
 import { PermissionUtil } from '../../services/permission/permissionUtil';
 import { PERM_KEY_PREFIX, PERMISSION_SCAN_CACHE_TTL_SECONDS } from '../../services/permission/consts';
 import type { UserRow } from '../user/UserStore';
@@ -62,8 +61,6 @@ export interface AuditEntry {
     [k: string]: unknown;
 }
 
-type Stores = Partial<Record<string, WithLifecycle>> & { kv?: SystemKVStore };
-
 /**
  * PermissionStore owns the *persistence* side of permissions:
  * - SQL CRUD + audit inserts for all permission tables
@@ -74,24 +71,7 @@ type Stores = Partial<Record<string, WithLifecycle>> & { kv?: SystemKVStore };
  * `scan()` algorithm all live on PermissionService. This store is just I/O.
  */
 export class PermissionStore extends PuterStore {
-    protected override stores: Stores;
-
-    constructor (
-        config: IConfig,
-        clients: LayerInstances<typeof puterClients>,
-        stores: Partial<Record<string, WithLifecycle>> = {},
-    ) {
-        super(config, clients, stores);
-        this.stores = stores as Stores;
-    }
-
-    private get kv (): SystemKVStore {
-        const kv = this.stores.kv;
-        if ( ! kv ) {
-            throw new Error('PermissionStore requires the `kv` store to be registered before it');
-        }
-        return kv;
-    }
+    declare protected stores: LayerInstances<typeof puterStores>;
 
     // ── Flat view (KV under system namespace) ────────────────────────
 
@@ -103,7 +83,7 @@ export class PermissionStore extends PuterStore {
     async getFlatUserPerms (holderUserId: number, permissions: string[]): Promise<FlatPermValue[]> {
         if ( permissions.length === 0 ) return [];
         const keys = [...new Set(permissions.map(p => PermissionUtil.join(PERM_KEY_PREFIX, String(holderUserId), p)))];
-        const { res } = await this.kv.get({ key: keys });
+        const { res } = await this.stores.kv.get({ key: keys });
         const values = Array.isArray(res) ? res : [res];
         return values.filter((v): v is FlatPermValue => v !== null && typeof v === 'object');
     }
@@ -111,13 +91,13 @@ export class PermissionStore extends PuterStore {
     /** Write a single flat user-to-user permission entry to KV. */
     async setFlatUserPerm (holderUserId: number, permission: string, value: FlatPermValue): Promise<void> {
         const key = PermissionUtil.join(PERM_KEY_PREFIX, String(holderUserId), permission);
-        await this.kv.set({ key, value });
+        await this.stores.kv.set({ key, value });
     }
 
     /** Delete a single flat user-to-user permission entry from KV. */
     async delFlatUserPerm (holderUserId: number, permission: string): Promise<void> {
         const key = PermissionUtil.join(PERM_KEY_PREFIX, String(holderUserId), permission);
-        await this.kv.del({ key });
+        await this.stores.kv.del({ key });
     }
 
     // ── SQL: user-to-user permissions ───────────────────────────────

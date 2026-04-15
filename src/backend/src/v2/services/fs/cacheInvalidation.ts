@@ -1,4 +1,4 @@
-import type { FSEntryRepository } from '../../stores/fs/FSEntryRepository.js';
+import type { FSEntryStore } from '../../stores/fs/FSEntryStore.js';
 import type {
     FsRemoveNodeEventPayload,
     FsRemoveNodeTarget,
@@ -6,13 +6,13 @@ import type {
 } from './eventTypes.js';
 
 export class FSEntryCacheInvalidationEventHandler {
-    #fsEntryRepository: FSEntryRepository;
+    #fsEntryStore: FSEntryStore;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     #eventClient: { on: (event: string, handler: (...args: any[]) => void) => void };
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    constructor (fsEntryRepository: FSEntryRepository, eventClient: { on: (event: string, handler: (...args: any[]) => void) => void }) {
-        this.#fsEntryRepository = fsEntryRepository;
+    constructor (fsEntryStore: FSEntryStore, eventClient: { on: (event: string, handler: (...args: any[]) => void) => void }) {
+        this.#fsEntryStore = fsEntryStore;
         this.#eventClient = eventClient;
         this.#registerHandlers();
     }
@@ -111,14 +111,14 @@ export class FSEntryCacheInvalidationEventHandler {
         const tasks: Promise<void>[] = [];
         for ( const userId of userIds ) {
             if ( path ) {
-                tasks.push(this.#fsEntryRepository.invalidateEntryCacheByPathForUser(userId, path));
+                tasks.push(this.#fsEntryStore.invalidateEntryCacheByPathForUser(userId, path));
             }
             if ( oldPath && oldPath !== path ) {
-                tasks.push(this.#fsEntryRepository.invalidateEntryCacheByPathForUser(userId, oldPath));
+                tasks.push(this.#fsEntryStore.invalidateEntryCacheByPathForUser(userId, oldPath));
             }
         }
         if ( uid ) {
-            tasks.push(this.#fsEntryRepository.invalidateEntryCacheByUuid(uid));
+            tasks.push(this.#fsEntryStore.invalidateEntryCacheByUuid(uid));
         }
 
         if ( tasks.length > 0 ) {
@@ -144,10 +144,10 @@ export class FSEntryCacheInvalidationEventHandler {
 
         const tasks: Promise<void>[] = [];
         if ( Number.isInteger(userId) && userId > 0 && path ) {
-            tasks.push(this.#fsEntryRepository.invalidateEntryCacheByPathForUser(userId, path));
+            tasks.push(this.#fsEntryStore.invalidateEntryCacheByPathForUser(userId, path));
         }
         if ( uuid ) {
-            tasks.push(this.#fsEntryRepository.invalidateEntryCacheByUuid(uuid));
+            tasks.push(this.#fsEntryStore.invalidateEntryCacheByUuid(uuid));
         }
 
         if ( tasks.length > 0 ) {

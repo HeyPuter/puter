@@ -23,10 +23,6 @@ export class TTSDriver extends PuterDriver {
 
     #providers: Record<string, ITTSProvider> = {};
 
-    private get metering (): MeteringService {
-        return this.services.metering as unknown as MeteringService;
-    }
-
     override onServerStart () {
         this.#registerProviders();
     }
@@ -108,7 +104,7 @@ export class TTSDriver extends PuterDriver {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const cfg = this.config as any;
         const providers = cfg?.providers ?? cfg?.services ?? {};
-        const m = this.metering;
+        const m = this.services.metering;
 
         // OpenAI
         const openAiConfig = providers['openai'] ?? cfg?.openai;

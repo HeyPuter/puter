@@ -1,5 +1,6 @@
 import { posix as pathPosix } from 'node:path';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
+import type { FSEntryStore } from '../../stores/fs/FSEntryStore.js';
 import type { FSEntryService } from '../../services/fs/FSEntryService.js';
 import type { ACLService, AclMode } from '../../services/acl/ACLService.js';
 import type { Actor } from '../../core/actor.js';
@@ -53,13 +54,13 @@ export function getBoolean (record: Record<string, unknown>, ...keys: string[]):
 // from a v1 body field. Returns a resolved entry (throwing 404 if not found
 // or 400 if no usable ref is present).
 export async function resolveV1Selector (
-    svc: FSEntryService,
+    fsEntryStore: FSEntryStore,
     raw: unknown,
     userId: number,
 ): Promise<FSEntry> {
     // String shorthand: raw path.
     if ( typeof raw === 'string' ) {
-        const entry = await resolveNode(svc.entryRepository, { path: raw }, { userId, required: true });
+        const entry = await resolveNode(fsEntryStore, { path: raw }, { userId, required: true });
         if ( ! entry ) throw new HttpError(404, `Entry not found: ${raw}`);
         return entry;
     }
@@ -68,9 +69,9 @@ export async function resolveV1Selector (
 
     // {parent, name}: v1 "child selector" — resolve parent, then child by name.
     if ( record.parent !== undefined && typeof record.name === 'string' ) {
-        const parent = await resolveV1Selector(svc, record.parent, userId);
+        const parent = await resolveV1Selector(fsEntryStore, record.parent, userId);
         const childPath = joinChildPath(parent.path, record.name);
-        const child = await resolveNode(svc.entryRepository, { path: childPath }, { userId, required: true });
+        const child = await resolveNode(fsEntryStore, { path: childPath }, { userId, required: true });
         if ( ! child ) throw new HttpError(404, `Entry not found: ${childPath}`);
         return child;
     }
@@ -80,7 +81,7 @@ export async function resolveV1Selector (
         uid: typeof record.uid === 'string' ? record.uid : (typeof record.uuid === 'string' ? record.uuid : undefined),
         id: (typeof record.id === 'number' || typeof record.id === 'string') ? record.id : undefined,
     };
-    const entry = await resolveNode(svc.entryRepository, ref, { userId, required: true });
+    const entry = await resolveNode(fsEntryStore, ref, { userId, required: true });
     if ( ! entry ) throw new HttpError(404, 'Entry not found');
     return entry;
 }

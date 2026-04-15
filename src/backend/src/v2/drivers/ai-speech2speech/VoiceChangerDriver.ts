@@ -47,14 +47,6 @@ export class VoiceChangerDriver extends PuterDriver {
     #defaultVoiceId = DEFAULT_VOICE_ID;
     #defaultModelId = DEFAULT_MODEL;
 
-    private get metering (): MeteringService {
-        return this.services.metering as unknown as MeteringService;
-    }
-
-    private get fsEntryService (): FSEntryService {
-        return this.services.fsEntry as unknown as FSEntryService;
-    }
-
     override onServerStart () {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const cfg = this.config as any;
@@ -85,7 +77,7 @@ export class VoiceChangerDriver extends PuterDriver {
         const userId = Number((actor as { user?: { id?: unknown } }).user?.id ?? NaN);
         if ( Number.isNaN(userId) ) throw new HttpError(401, 'Unauthorized');
 
-        const loaded = await loadFileInput(this.fsEntryService, userId, args.audio, {
+        const loaded = await loadFileInput(this.stores, userId, args.audio, {
             maxBytes: MAX_AUDIO_FILE_SIZE,
         });
 
@@ -100,7 +92,7 @@ export class VoiceChangerDriver extends PuterDriver {
         const estimatedSeconds = Math.max(1, Math.ceil(loaded.buffer.byteLength / 16000));
         const usageKey = `elevenlabs:${modelId}:second`;
 
-        const hasCredits = await this.metering.hasEnoughCreditsFor(actor, usageKey, estimatedSeconds);
+        const hasCredits = await this.services.metering.hasEnoughCreditsFor(actor, usageKey, estimatedSeconds);
         if ( ! hasCredits ) {
             throw new HttpError(402, 'Insufficient credits');
         }
@@ -159,7 +151,7 @@ export class VoiceChangerDriver extends PuterDriver {
 
         const arrayBuffer = await response.arrayBuffer();
         const stream = Readable.from(Buffer.from(arrayBuffer));
-        this.metering.incrementUsage(actor, usageKey, estimatedSeconds);
+        this.services.metering.incrementUsage(actor, usageKey, estimatedSeconds);
 
         return {
             dataType: 'stream',

@@ -1,7 +1,8 @@
 import { posix as pathPosix } from 'node:path';
-import type { FSEntryService } from '../../services/fs/FSEntryService.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { resolveNode } from '../../services/fs/resolveNode.js';
+import type { FSEntryStore } from '../../stores/fs/FSEntryStore.js';
+import type { S3ObjectStore } from '../../stores/fs/S3ObjectStore.js';
 import { mimeFromName } from '../../util/fileSigning.js';
 
 /**
@@ -35,7 +36,7 @@ export interface LoadedFile {
 const DATA_URL_PATTERN = /^data:([^;,]+)?(?:;([^,]*))?,(.*)$/s;
 
 export async function loadFileInput (
-    fsEntryService: FSEntryService,
+    stores: { fsEntry: FSEntryStore; s3Object: S3ObjectStore },
     userId: number,
     input: unknown,
     options: { maxBytes?: number } = {},
@@ -75,12 +76,25 @@ export async function loadFileInput (
             };
         })();
 
-    const entry = await resolveNode(fsEntryService.entryRepository, ref, { userId, required: true });
+    const entry = await resolveNode(stores.fsEntry, ref, { userId, required: true });
     if ( ! entry ) throw new HttpError(404, 'File not found');
     if ( entry.isDir ) throw new HttpError(400, 'Expected a file, got a directory');
+    if ( entry.isShortcut || entry.isSymlink ) {
+        throw new HttpError(400, 'Cannot load content of a symlink or shortcut directly');
+    }
+    if ( !entry.bucket || !entry.bucketRegion ) {
+        throw new HttpError(500, 'Entry has no backing storage');
+    }
 
-    const { body, contentType, contentLength } = await fsEntryService.readContent(entry);
+    // S3 object key is recorded in entry.metadata.objectKey when written by
+    // fsv2; older rows fall back to the entry uuid.
+    const objectKey = deriveObjectKey(entry);
+    const { body, contentType, contentLength } = await stores.s3Object.getObjectStream(
+        { bucket: entry.bucket, objectKey },
+        entry.bucketRegion,
+    );
     if ( contentLength && options.maxBytes && contentLength > options.maxBytes ) {
+        body.destroy();
         throw new HttpError(413, `File exceeds max size (${options.maxBytes} bytes)`);
     }
 
@@ -121,6 +135,22 @@ function assertMax (buffer: Buffer, maxBytes?: number): void {
 function filenameFromMime (mime: string): string {
     const ext = mime.split('/')[1]?.split('+')[0] ?? 'bin';
     return `input.${ext}`;
+}
+
+// Mirrors FSEntryService's private deriveObjectKeyFromEntry helper. fsv2-era
+// rows persist an `objectKey` in metadata; older rows simply use the uuid.
+function deriveObjectKey (entry: { uuid: string; metadata: string | null }): string {
+    if ( entry.metadata ) {
+        try {
+            const parsed = JSON.parse(entry.metadata);
+            if ( parsed && typeof parsed.objectKey === 'string' && parsed.objectKey.length > 0 ) {
+                return parsed.objectKey;
+            }
+        } catch {
+            // Not JSON — fall through.
+        }
+    }
+    return entry.uuid;
 }
 
 export function inferFilenameFromUrlOrPath (value: string, fallback = 'input'): string {

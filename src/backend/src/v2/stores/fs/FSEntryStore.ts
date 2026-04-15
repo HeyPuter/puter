@@ -1,7 +1,3 @@
-import type { IConfig } from '../../types.js';
-import type { DatabaseClient } from '../../clients/database/DatabaseClient.js';
-import type { SystemKVStore } from '../systemKv/SystemKVStore.js';
-import type { Cluster } from 'ioredis';
 import { posix as pathPosix } from 'node:path';
 import { v4 as uuidv4 } from 'uuid';
 import {
@@ -25,23 +21,28 @@ import type {
     ReadEntriesByPathsOptions,
 } from './types.js';
 import { HttpError } from '../../core/http/HttpError.js';
+import { PuterStore } from '../types.js';
+import type { LayerInstances } from '../../types.js';
+import type { puterStores } from '../index.js';
 
 const ENTRY_CACHE_TTL_SECONDS = 60;
 const BULK_QUERY_CHUNK_SIZE = 200;
 const DEFAULT_DB_CHUNK_CONCURRENCY = 4;
 
-export class FSEntryRepository {
-    #db: DatabaseClient;
-    #cache: Cluster;
-    #kvStore: SystemKVStore;
-    #config: IConfig;
+/**
+ * Store backing the `fsentries` table. Owns DB CRUD over filesystem entries,
+ * Redis caching keyed by uuid/path/id, and pending-upload-session state in
+ * the system KV store. Constructed by the v2 store registry; depends on `kv`.
+ */
+export class FSEntryStore extends PuterStore {
+    declare protected stores: LayerInstances<typeof puterStores>;
 
-    constructor (db: DatabaseClient, cache: Cluster, kvStore: SystemKVStore, config: IConfig) {
-        this.#db = db;
-        this.#cache = cache;
-        this.#kvStore = kvStore;
-        this.#config = config;
-    }
+    // Private accessors keep call sites terse (`this.#db.read(...)`) without
+    // forcing every method to spell out `this.clients.db.read(...)`.
+    get #db () { return this.clients.db; }
+    get #cache () { return this.clients.redis.client; }
+    get #kvStore () { return this.stores.kv; }
+    get #config () { return this.config; }
 
     #insertIgnoreIntoFsentriesSql (): string {
         return this.#db.case({
@@ -1444,9 +1445,15 @@ export class FSEntryRepository {
         const now = Math.floor(Date.now() / 1000);
         const assignments: string[] = [];
         const values: unknown[] = [];
-        if ( options.setAccessed ) { assignments.push('accessed = ?'); values.push(now); }
-        if ( options.setModified ) { assignments.push('modified = ?'); values.push(now); }
-        if ( options.setCreated ) { assignments.push('created = ?'); values.push(now); }
+        if ( options.setAccessed ) {
+            assignments.push('accessed = ?'); values.push(now);
+        }
+        if ( options.setModified ) {
+            assignments.push('modified = ?'); values.push(now);
+        }
+        if ( options.setCreated ) {
+            assignments.push('created = ?'); values.push(now);
+        }
         if ( assignments.length === 0 ) {
             // Default: touch all three.
             assignments.push('accessed = ?', 'modified = ?', 'created = ?');
@@ -1478,11 +1485,11 @@ export class FSEntryRepository {
         // Map sort field to a safe column name; reject anything else.
         const sortColumn = (() => {
             switch ( options.sortBy ) {
-            case 'modified': return 'modified';
-            case 'size': return 'size';
-            case 'type': return 'is_dir'; // directories first when DESC; matches v1 heuristic
-            case 'name':
-            default: return 'name';
+                case 'modified': return 'modified';
+                case 'size': return 'size';
+                case 'type': return 'is_dir'; // directories first when DESC; matches v1 heuristic
+                case 'name':
+                default: return 'name';
             }
         })();
         const sortDirection = options.sortOrder === 'desc' ? 'DESC' : 'ASC';
@@ -1518,7 +1525,7 @@ export class FSEntryRepository {
         }
         const likePattern = `${this.#escapeLikePattern(normalizedPrefix)}/%`;
         const rows = await this.#db.read(
-            `SELECT * FROM fsentries WHERE user_id = ? AND path LIKE ? ESCAPE '!' ORDER BY path ASC`,
+            'SELECT * FROM fsentries WHERE user_id = ? AND path LIKE ? ESCAPE \'!\' ORDER BY path ASC',
             [userId, likePattern],
         ) as unknown as FSEntryRow[];
         return rows.map((row) => this.#mapFSEntryRow(row));
@@ -1529,7 +1536,7 @@ export class FSEntryRepository {
         if ( normalizedPrefix === '/' ) return 0;
         const likePattern = `${this.#escapeLikePattern(normalizedPrefix)}/%`;
         const rows = await this.#db.read(
-            `SELECT COUNT(*) AS n FROM fsentries WHERE user_id = ? AND path LIKE ? ESCAPE '!'`,
+            'SELECT COUNT(*) AS n FROM fsentries WHERE user_id = ? AND path LIKE ? ESCAPE \'!\'',
             [userId, likePattern],
         ) as unknown as { n: number | string }[];
         return Number(rows[0]?.n ?? 0);
@@ -1544,7 +1551,7 @@ export class FSEntryRepository {
             ? '/%'
             : `${this.#escapeLikePattern(normalizedPrefix)}/%`;
         const rows = await this.#db.read(
-            `SELECT COALESCE(SUM(size), 0) AS total FROM fsentries WHERE user_id = ? AND (path = ? OR path LIKE ? ESCAPE '!')`,
+            'SELECT COALESCE(SUM(size), 0) AS total FROM fsentries WHERE user_id = ? AND (path = ? OR path LIKE ? ESCAPE \'!\')',
             [userId, normalizedPrefix, likePattern],
         ) as unknown as { total: number | string }[];
         return Number(rows[0]?.total ?? 0);

@@ -41,10 +41,6 @@ export class ChatCompletionDriver extends PuterDriver {
     #providers: Record<string, IChatProvider> = {};
     #modelIdMap: Record<string, IChatModel[]> = {};
 
-    private get metering (): MeteringService {
-        return this.services.metering as unknown as MeteringService;
-    }
-
     override onServerStart () {
         this.#registerProviders();
         this.#buildModelMap();
@@ -188,7 +184,7 @@ export class ChatCompletionDriver extends PuterDriver {
         const cfg = this.config as any;
         const providers = cfg?.providers ?? cfg?.services ?? {};
 
-        const m = this.metering;
+        const m = this.services.metering;
 
         const claudeConfig = providers['claude'];
         if ( claudeConfig?.apiKey ) {

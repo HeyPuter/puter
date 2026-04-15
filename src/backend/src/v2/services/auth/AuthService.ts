@@ -1,10 +1,10 @@
 import { v4 as uuidv4, v5 as uuidv5 } from 'uuid';
+import type { LayerInstances } from '../../types';
+import type { puterServices } from '../index';
 import type { Actor } from '../../core/actor';
-import type { AppRow, PermissionStore } from '../../stores/permission/PermissionStore';
-import type { SessionStore } from '../../stores/session/SessionStore';
-import type { UserRow, UserStore } from '../../stores/user/UserStore';
+import type { AppRow } from '../../stores/permission/PermissionStore';
+import type { UserRow } from '../../stores/user/UserStore';
 import { PuterService } from '../types';
-import type { TokenService } from './TokenService';
 import type {
     AccessTokenPayload,
     AnyTokenPayload,
@@ -29,32 +29,7 @@ const APP_ORIGIN_UUID_NAMESPACE = '33de3768-8ee0-43e9-9e73-db192b97a5d8';
  * during the transition.
  */
 export class AuthService extends PuterService {
-
-    // ── Lookup helpers (typed peer access) ──────────────────────────
-
-    private get tokenService (): TokenService {
-        const s = this.services.token as TokenService;
-        if ( ! s ) throw new Error('AuthService requires the `token` service to be registered');
-        return s;
-    }
-
-    private get permStore (): PermissionStore {
-        const s = this.stores.permission;
-        if ( ! s ) throw new Error('AuthService requires the `permission` store to be registered');
-        return s;
-    }
-
-    private get userStore (): UserStore {
-        const s = this.stores.user;
-        if ( ! s ) throw new Error('AuthService requires the `user` store to be registered');
-        return s;
-    }
-
-    private get sessionStore (): SessionStore {
-        const s = this.stores.session;
-        if ( ! s ) throw new Error('AuthService requires the `session` store to be registered');
-        return s;
-    }
+    declare protected services: LayerInstances<typeof puterServices>;
 
     // ── Public API ──────────────────────────────────────────────────
 
@@ -73,7 +48,7 @@ export class AuthService extends PuterService {
     async authenticateFromToken (token: string): Promise<Actor | null> {
         let decoded: AnyTokenPayload;
         try {
-            decoded = this.tokenService.verify<AnyTokenPayload>('auth', token);
+            decoded = this.services.token.verify<AnyTokenPayload>('auth', token);
         } catch {
             return null;
         }
@@ -107,16 +82,16 @@ export class AuthService extends PuterService {
         user: UserRow,
         meta: Record<string, unknown> = {},
     ): Promise<{ session: Record<string, unknown>; token: string; gui_token: string }> {
-        const session = await this.sessionStore.create(user.id, meta);
+        const session = await this.stores.session.create(user.id, meta);
 
-        const token = this.tokenService.sign('auth', {
+        const token = this.services.token.sign('auth', {
             type: 'session',
             version: '0.0.0',
             uuid: session.uuid,
             user_uid: user.uuid,
         });
 
-        const gui_token = this.tokenService.sign('auth', {
+        const gui_token = this.services.token.sign('auth', {
             type: 'gui',
             version: '0.0.0',
             uuid: session.uuid,
@@ -128,7 +103,7 @@ export class AuthService extends PuterService {
 
     /** Sign a GUI token for an existing session. */
     createGuiToken (user: UserRow, sessionUuid: string): string {
-        return this.tokenService.sign('auth', {
+        return this.services.token.sign('auth', {
             type: 'gui',
             version: '0.0.0',
             uuid: sessionUuid,
@@ -138,7 +113,7 @@ export class AuthService extends PuterService {
 
     /** Sign a session token for an existing session (upgrade from GUI token). */
     createSessionTokenForSession (user: UserRow, sessionUuid: string): string {
-        return this.tokenService.sign('auth', {
+        return this.services.token.sign('auth', {
             type: 'session',
             version: '0.0.0',
             uuid: sessionUuid,
@@ -150,19 +125,19 @@ export class AuthService extends PuterService {
     async removeSessionByToken (token: string): Promise<void> {
         let decoded: AnyTokenPayload;
         try {
-            decoded = this.tokenService.verify<AnyTokenPayload>('auth', token);
+            decoded = this.services.token.verify<AnyTokenPayload>('auth', token);
         } catch {
             return;
         }
         if ( decoded.type !== 'session' && decoded.type !== 'gui' ) return;
-        await this.sessionStore.removeByUuid((decoded as SessionTokenPayload).uuid);
+        await this.stores.session.removeByUuid((decoded as SessionTokenPayload).uuid);
     }
 
     /** List all sessions for an actor's user. */
     async listSessions (actor: Actor): Promise<Array<Record<string, unknown>>> {
         if ( ! actor.user?.id ) return [];
 
-        const rows = await this.sessionStore.getByUserId(actor.user.id);
+        const rows = await this.stores.session.getByUserId(actor.user.id);
 
         return rows.map((row: Record<string, unknown>) => {
             const meta = (typeof row.meta === 'string' ? JSON.parse(row.meta as string) : row.meta) ?? {};
@@ -179,7 +154,7 @@ export class AuthService extends PuterService {
 
     /** Revoke a specific session by uuid. */
     async revokeSession (uuid: string): Promise<void> {
-        await this.sessionStore.removeByUuid(uuid);
+        await this.stores.session.removeByUuid(uuid);
     }
 
     // ── App / origin resolution ─────────────────────────────────────
@@ -201,7 +176,7 @@ export class AuthService extends PuterService {
      */
     getUserAppToken (actor: Actor, appUid: string): string {
         if ( ! actor.user ) throw new Error('Actor must be a user');
-        return this.tokenService.sign('auth', {
+        return this.services.token.sign('auth', {
             type: 'app-under-user',
             version: '0.0.0',
             user_uid: actor.user.uuid,
@@ -237,7 +212,7 @@ export class AuthService extends PuterService {
             jwtPayload.app_uid = actor.app.uid;
         }
 
-        const jwt = this.tokenService.sign('auth', jwtPayload, options);
+        const jwt = this.services.token.sign('auth', jwtPayload, options);
 
         // Store each permission grant
         const db = this.stores.permission as unknown as { clients: { db: { write: (q: string, p: unknown[]) => Promise<void> } } };
@@ -257,7 +232,7 @@ export class AuthService extends PuterService {
         let tokenUid: string;
         const isJwt = /^[\w-]+\.[\w-]+\.[\w-]+$/.test(tokenOrUuid.trim());
         if ( isJwt ) {
-            const decoded = this.tokenService.verify<AccessTokenPayload>('auth', tokenOrUuid);
+            const decoded = this.services.token.verify<AccessTokenPayload>('auth', tokenOrUuid);
             if ( decoded.type !== 'access-token' || !decoded.token_uid ) {
                 throw new Error('Invalid access token');
             }
@@ -283,10 +258,10 @@ export class AuthService extends PuterService {
     }
 
     async #actorFromSessionToken (decoded: SessionTokenPayload): Promise<Actor | null> {
-        const session = await this.sessionStore.getByUuid(decoded.uuid);
+        const session = await this.stores.session.getByUuid(decoded.uuid);
         if ( ! session ) return null;
 
-        const user = await this.userStore.getByUuid(decoded.user_uid);
+        const user = await this.stores.user.getByUuid(decoded.user_uid);
         if ( ! user ) return null;
 
         return this.#buildUserActor(user, session);
@@ -297,14 +272,14 @@ export class AuthService extends PuterService {
         // the token is bound to that session — log out invalidates it.
         let session: SessionRow | null = null;
         if ( decoded.session ) {
-            session = await this.sessionStore.getByUuid(decoded.session);
+            session = await this.stores.session.getByUuid(decoded.session);
             if ( ! session ) return null;
         }
 
-        const user = await this.userStore.getByUuid(decoded.user_uid);
+        const user = await this.stores.user.getByUuid(decoded.user_uid);
         if ( ! user ) return null;
 
-        const app = await this.permStore.getAppByUid(decoded.app_uid);
+        const app = await this.stores.permission.getAppByUid(decoded.app_uid);
         if ( ! app ) return null;
 
         return this.#buildAppUnderUserActor(user, app, session);
@@ -313,14 +288,14 @@ export class AuthService extends PuterService {
     async #actorFromAccessTokenToken (decoded: AccessTokenPayload): Promise<Actor | null> {
         if ( !decoded.token_uid || !decoded.user_uid ) return null;
 
-        const user = await this.userStore.getByUuid(decoded.user_uid);
+        const user = await this.stores.user.getByUuid(decoded.user_uid);
         if ( ! user ) return null;
 
         // The authorizer is the identity whose permissions the access token
         // can exercise — either a plain user or an app-under-user.
         let authorizer: Actor;
         if ( decoded.app_uid ) {
-            const app = await this.permStore.getAppByUid(decoded.app_uid);
+            const app = await this.stores.permission.getAppByUid(decoded.app_uid);
             if ( ! app ) return null;
             authorizer = this.#buildAppUnderUserActor(user, app, null);
         } else {

@@ -27,10 +27,6 @@ export class VideoGenerationDriver extends PuterDriver {
     #providers: Record<string, IVideoProvider> = {};
     #modelIdMap: Record<string, IVideoModel[]> = {};
 
-    private get metering (): MeteringService {
-        return this.services.metering as unknown as MeteringService;
-    }
-
     override onServerStart () {
         this.#registerProviders();
         this.#buildModelMap();
@@ -142,7 +138,7 @@ export class VideoGenerationDriver extends PuterDriver {
         const cfg = this.config as any;
         const providers = cfg?.providers ?? cfg?.services ?? {};
 
-        const m = this.metering;
+        const m = this.services.metering;
 
         const openAiConfig = providers['openai-video-generation'] ?? providers['openai'];
         if ( openAiConfig?.apiKey || openAiConfig?.secret_key ) {

@@ -70,21 +70,6 @@ const DEFAULT_BATCH_WRITE_SIDE_EFFECT_CONCURRENCY = 8;
 @Controller('/fs')
 export class FSController extends PuterController {
 
-    private get fsEntryService () {
-        return this.services.fsEntry;
-    }
-
-    private get eventService () {
-        return this.clients.event;
-    }
-
-    private get aclService () {
-        return this.services.acl;
-    }
-
-    private get permStore () {
-        return this.stores.permission;
-    }
     @Post('/startWrite', { subdomain: 'api' })
     async startWrite (req: Request<RouteParams, null, SignedWriteRequest>, res: Response<SignedWriteResponse>) {
         const userId = this.#getActorUserId(req);
@@ -99,7 +84,7 @@ export class FSController extends PuterController {
         const {
             response,
             createdDirectoryEntries,
-        } = await this.fsEntryService.startUrlWriteWithCreatedDirectories(userId, requestBody, storageAllowanceMax);
+        } = await this.services.fsEntry.startUrlWriteWithCreatedDirectories(userId, requestBody, storageAllowanceMax);
         await this.#attachSignedThumbnailUploadTargets([requestBody], [response]);
         if ( ! requestBody.directory ) {
             await this.#runNonCritical(async () => {
@@ -150,7 +135,7 @@ export class FSController extends PuterController {
         const {
             responses,
             createdDirectoryEntries,
-        } = await this.fsEntryService.batchStartUrlWritesWithCreatedDirectories(userId, requests, storageAllowanceMax);
+        } = await this.services.fsEntry.batchStartUrlWritesWithCreatedDirectories(userId, requests, storageAllowanceMax);
         const directoryGuiMetadataByPath = new Map<string, WriteGuiMetadata | undefined>(
             requests
                 .filter((request) => request.directory)
@@ -197,7 +182,7 @@ export class FSController extends PuterController {
         const requestBody = this.#withGuiMetadata(req.body, req.body);
         this.#assertNoInlineSignedThumbnailData(requestBody.thumbnailData);
 
-        const response = await this.fsEntryService.completeUrlWrite(userId, requestBody);
+        const response = await this.services.fsEntry.completeUrlWrite(userId, requestBody);
         const writeResponse = await this.#applyWriteResponseSideEffects(
             userId,
             {
@@ -225,7 +210,7 @@ export class FSController extends PuterController {
         for ( const requestBody of requests ) {
             this.#assertNoInlineSignedThumbnailData(requestBody.thumbnailData);
         }
-        const response = await this.fsEntryService.batchCompleteUrlWrite(userId, requests);
+        const response = await this.services.fsEntry.batchCompleteUrlWrite(userId, requests);
         const updatedResponse = await runWithConcurrencyLimit(
             response,
             DEFAULT_BATCH_WRITE_SIDE_EFFECT_CONCURRENCY,
@@ -254,7 +239,7 @@ export class FSController extends PuterController {
             throw new HttpError(400, 'Missing uploadId');
         }
 
-        await this.fsEntryService.abortUrlWrite(userId, req.body.uploadId);
+        await this.services.fsEntry.abortUrlWrite(userId, req.body.uploadId);
         res.json({ ok: true });
     }
 
@@ -264,7 +249,7 @@ export class FSController extends PuterController {
         res: Response<SignMultipartPartsResponse>,
     ) {
         const userId = this.#getActorUserId(req);
-        const response = await this.fsEntryService.signMultipartParts(userId, req.body);
+        const response = await this.services.fsEntry.signMultipartParts(userId, req.body);
         res.json(response);
     }
 
@@ -286,7 +271,7 @@ export class FSController extends PuterController {
             Number(requestBody.fileMetadata.size ?? 0),
             requestBody.guiMetadata,
         );
-        const response = await this.fsEntryService.write(userId, requestBody, uploadTracker, storageAllowanceMax);
+        const response = await this.services.fsEntry.write(userId, requestBody, uploadTracker, storageAllowanceMax);
         const updatedResponse = await this.#applyWriteResponseSideEffects(
             userId,
             response,
@@ -377,7 +362,7 @@ export class FSController extends PuterController {
                                 { pathAlreadyNormalized: true },
                             );
 
-                            preparedBatch = await this.fsEntryService.prepareBatchWrites(
+                            preparedBatch = await this.services.fsEntry.prepareBatchWrites(
                                 userId,
                                 activeManifestItems.map((item) => ({
                                     fileMetadata: item.fileMetadata,
@@ -386,7 +371,7 @@ export class FSController extends PuterController {
                                 })),
                                 storageAllowanceMax,
                             );
-                            await this.fsEntryService.assertStorageAllowanceForPreparedBatch(
+                            await this.services.fsEntry.assertStorageAllowanceForPreparedBatch(
                                 preparedBatch,
                                 undefined,
                                 storageAllowanceMax,
@@ -449,7 +434,7 @@ export class FSController extends PuterController {
                             preparedItem.guiMetadata,
                         );
 
-                        return await this.fsEntryService.uploadPreparedBatchItem({
+                        return await this.services.fsEntry.uploadPreparedBatchItem({
                             preparedBatch,
                             itemIndex,
                             fileContent: stream,
@@ -484,7 +469,7 @@ export class FSController extends PuterController {
                 .filter((uploadedItem): uploadedItem is UploadedBatchWriteItem => uploadedItem !== null);
             if ( parseFailure ) {
                 if ( preparedBatch ) {
-                    await this.fsEntryService.cleanupPreparedBatchUploads(preparedBatch, uploadedItems);
+                    await this.services.fsEntry.cleanupPreparedBatchUploads(preparedBatch, uploadedItems);
                 }
                 throw parseFailure;
             }
@@ -493,13 +478,13 @@ export class FSController extends PuterController {
             }
             const failedUpload = uploadResults.find((result) => result.status === 'rejected');
             if ( failedUpload?.status === 'rejected' ) {
-                await this.fsEntryService.cleanupPreparedBatchUploads(preparedBatch, uploadedItems);
+                await this.services.fsEntry.cleanupPreparedBatchUploads(preparedBatch, uploadedItems);
                 throw (failedUpload.reason instanceof Error
                     ? failedUpload.reason
                     : new Error('Failed to upload multipart batch item'));
             }
 
-            const writeResponses = await this.fsEntryService.finalizePreparedBatchWrites(preparedBatch, uploadedItems);
+            const writeResponses = await this.services.fsEntry.finalizePreparedBatchWrites(preparedBatch, uploadedItems);
             const updatedResponses = await runWithConcurrencyLimit(
                 writeResponses,
                 32,
@@ -545,7 +530,7 @@ export class FSController extends PuterController {
             { pathAlreadyNormalized: true },
         );
 
-        const preparedBatch = await this.fsEntryService.prepareBatchWrites(
+        const preparedBatch = await this.services.fsEntry.prepareBatchWrites(
             userId,
             filteredRequests.map((requestBody) => ({
                 fileMetadata: requestBody.fileMetadata,
@@ -554,7 +539,7 @@ export class FSController extends PuterController {
             })),
             storageAllowanceMax,
         );
-        await this.fsEntryService.assertStorageAllowanceForPreparedBatch(
+        await this.services.fsEntry.assertStorageAllowanceForPreparedBatch(
             preparedBatch,
             undefined,
             storageAllowanceMax,
@@ -575,7 +560,7 @@ export class FSController extends PuterController {
                     preparedItem.normalizedInput.size,
                     requestBody.guiMetadata,
                 );
-                return this.fsEntryService.uploadPreparedBatchItem({
+                return this.services.fsEntry.uploadPreparedBatchItem({
                     preparedBatch,
                     itemIndex: preparedItem.index,
                     fileContent: requestBody.fileContent,
@@ -589,13 +574,13 @@ export class FSController extends PuterController {
             .map((result) => result.value);
         const failedUpload = uploadResults.find((result) => result.status === 'rejected');
         if ( failedUpload?.status === 'rejected' ) {
-            await this.fsEntryService.cleanupPreparedBatchUploads(preparedBatch, uploadedItems);
+            await this.services.fsEntry.cleanupPreparedBatchUploads(preparedBatch, uploadedItems);
             throw (failedUpload.reason instanceof Error
                 ? failedUpload.reason
                 : new Error('Failed to upload batch write item'));
         }
 
-        const writeResponses = await this.fsEntryService.finalizePreparedBatchWrites(preparedBatch, uploadedItems);
+        const writeResponses = await this.services.fsEntry.finalizePreparedBatchWrites(preparedBatch, uploadedItems);
         const updatedResponses = await runWithConcurrencyLimit(
             writeResponses,
             32,
@@ -628,7 +613,7 @@ export class FSController extends PuterController {
             ? await this.#fetchSubdomainsForEntry(entry)
             : undefined;
         const subtreeSize = entry.isDir && wantsSize
-            ? await this.fsEntryService.getSubtreeSize(userId, entry.path)
+            ? await this.services.fsEntry.getSubtreeSize(userId, entry.path)
             : undefined;
 
         res.json({
@@ -656,7 +641,7 @@ export class FSController extends PuterController {
         const sortOrderRaw = typeof body.sort_order === 'string' ? body.sort_order.toLowerCase() : undefined;
         const sortOrder = (['asc', 'desc'] as const).find((v) => v === sortOrderRaw) ?? null;
 
-        const children = await this.fsEntryService.listDirectory(parent.uuid, {
+        const children = await this.services.fsEntry.listDirectory(parent.uuid, {
             limit,
             offset,
             sortBy,
@@ -675,7 +660,7 @@ export class FSController extends PuterController {
             throw new HttpError(400, 'Missing `query`');
         }
         const limit = this.#toNumberOrUndefined(body.limit);
-        const results = await this.fsEntryService.searchByName(userId, query, limit ?? 200);
+        const results = await this.services.fsEntry.searchByName(userId, query, limit ?? 200);
         res.json(results);
     }
 
@@ -692,7 +677,7 @@ export class FSController extends PuterController {
         }
 
         const range = typeof req.headers.range === 'string' ? req.headers.range : undefined;
-        const download = await this.fsEntryService.readContent(entry, { range });
+        const download = await this.services.fsEntry.readContent(entry, { range });
 
         if ( download.contentType ) res.setHeader('Content-Type', download.contentType);
         if ( download.contentLength !== null ) res.setHeader('Content-Length', String(download.contentLength));
@@ -740,7 +725,7 @@ export class FSController extends PuterController {
         const parentPath = pathPosix.dirname(path.trim().startsWith('/') ? path.trim() : `/${path.trim()}`);
         await this.#assertAccess(actor, parentPath === '/' ? path : parentPath, 'write');
 
-        const entry = await this.fsEntryService.mkdir(userId, {
+        const entry = await this.services.fsEntry.mkdir(userId, {
             path,
             overwrite: this.#toBoolean(body.overwrite) ?? false,
             dedupeName: this.#toBoolean(body.dedupe_name ?? body.dedupeName) ?? false,
@@ -761,7 +746,7 @@ export class FSController extends PuterController {
         const parentPath = pathPosix.dirname(path.trim().startsWith('/') ? path.trim() : `/${path.trim()}`);
         await this.#assertAccess(actor, parentPath === '/' ? path : parentPath, 'write');
 
-        const entry = await this.fsEntryService.touch(userId, {
+        const entry = await this.services.fsEntry.touch(userId, {
             path,
             setAccessed: this.#toBoolean(body.set_accessed_to_now) ?? false,
             setModified: this.#toBoolean(body.set_modified_to_now) ?? false,
@@ -782,7 +767,7 @@ export class FSController extends PuterController {
         const entry = await this.#resolveEntryForRequest(body, userId);
         await this.#assertAccess(actor, entry.path, 'write');
 
-        const renamed = await this.fsEntryService.rename(entry, newName);
+        const renamed = await this.services.fsEntry.rename(entry, newName);
         this.#emitGuiItemUpdated(renamed);
         res.json(renamed);
     }
@@ -795,7 +780,7 @@ export class FSController extends PuterController {
         const entry = await this.#resolveEntryForRequest(body, userId);
         await this.#assertAccess(actor, entry.path, 'write');
 
-        await this.fsEntryService.remove(userId, {
+        await this.services.fsEntry.remove(userId, {
             entry,
             recursive: this.#toBoolean(body.recursive) ?? false,
             descendantsOnly: this.#toBoolean(body.descendants_only) ?? false,
@@ -818,7 +803,7 @@ export class FSController extends PuterController {
         await this.#assertAccess(actor, source.path, 'write');
         await this.#assertAccess(actor, destinationParent.path, 'write');
 
-        const moved = await this.fsEntryService.move(userId, {
+        const moved = await this.services.fsEntry.move(userId, {
             source,
             destinationParent,
             newName: typeof body.new_name === 'string' ? body.new_name : undefined,
@@ -843,7 +828,7 @@ export class FSController extends PuterController {
         await this.#assertAccess(actor, source.path, 'read');
         await this.#assertAccess(actor, destinationParent.path, 'write');
 
-        const copy = await this.fsEntryService.copy(userId, {
+        const copy = await this.services.fsEntry.copy(userId, {
             source,
             destinationParent,
             newName: typeof body.new_name === 'string' ? body.new_name : undefined,
@@ -870,7 +855,7 @@ export class FSController extends PuterController {
         await this.#assertAccess(actor, target.path, 'read');
         await this.#assertAccess(actor, parent.path, 'write');
 
-        const shortcut = await this.fsEntryService.mkshortcut(userId, {
+        const shortcut = await this.services.fsEntry.mkshortcut(userId, {
             parent,
             name,
             target,
@@ -894,7 +879,7 @@ export class FSController extends PuterController {
 
         await this.#assertAccess(actor, parent.path, 'write');
 
-        const link = await this.fsEntryService.mklink(userId, {
+        const link = await this.services.fsEntry.mklink(userId, {
             parent,
             name,
             targetPath: target,
@@ -915,7 +900,6 @@ export class FSController extends PuterController {
     }
 
     async #resolveEntryForRequest (source: Record<string, unknown>, userId: number) {
-        const repo = this.fsEntryService.entryRepository;
         const ref = {
             path: typeof source.path === 'string' ? source.path : undefined,
             uid: typeof source.uid === 'string'
@@ -924,7 +908,7 @@ export class FSController extends PuterController {
             id: (typeof source.id === 'number' || typeof source.id === 'string') ? source.id : undefined,
         };
         const mod = await import('../../services/fs/resolveNode.js');
-        const entry = await mod.resolveNode(repo, ref, { userId, required: true });
+        const entry = await mod.resolveNode(this.stores.fsEntry, ref, { userId, required: true });
         if ( ! entry ) {
             throw new HttpError(404, 'Entry not found');
         }
@@ -932,7 +916,7 @@ export class FSController extends PuterController {
     }
 
     async #assertAccess (actor: Actor, path: string, mode: 'see' | 'list' | 'read' | 'write') {
-        const fsEntryService = this.fsEntryService;
+        const fsEntryService = this.services.fsEntry;
         let ancestorsCache: Promise<Array<{ uid: string; path: string }>> | null = null;
         const descriptor = {
             path,
@@ -943,9 +927,9 @@ export class FSController extends PuterController {
                 return ancestorsCache;
             },
         };
-        const allowed = await this.aclService.check(actor, descriptor, mode);
+        const allowed = await this.services.acl.check(actor, descriptor, mode);
         if ( allowed ) return;
-        const safe = await this.aclService.getSafeAclError(actor, descriptor, mode) as {
+        const safe = await this.services.acl.getSafeAclError(actor, descriptor, mode) as {
             status?: unknown; message?: unknown; fields?: { code?: unknown };
         };
         const status = Number(safe?.status);
@@ -1008,7 +992,7 @@ export class FSController extends PuterController {
         // GUI listens for `outer.gui.item.removed`; same envelope shape.
         void (async () => {
             try {
-                await this.eventService.emit('outer.gui.item.removed', {
+                await this.clients.event.emit('outer.gui.item.removed', {
                     user_id_list: [entry.userId],
                     response: { ...entry, from_new_service: true },
                 }, {});
@@ -1021,7 +1005,7 @@ export class FSController extends PuterController {
     #emitGuiItemMoved (source: FSEntry, moved: FSEntry): void {
         void (async () => {
             try {
-                await this.eventService.emit('outer.gui.item.moved', {
+                await this.clients.event.emit('outer.gui.item.moved', {
                     user_id_list: [moved.userId],
                     response: {
                         ...moved,
@@ -1306,7 +1290,7 @@ export class FSController extends PuterController {
             }
 
             const createdLookupPromise = (async () => {
-                const app = await this.permStore.getAppByUid(normalizedAppUid);
+                const app = await this.stores.permission.getAppByUid(normalizedAppUid);
                 return this.#toNumber(app?.id) ?? null;
             })();
             appUidLookupCache?.set(normalizedAppUid, createdLookupPromise);
@@ -1469,13 +1453,13 @@ export class FSController extends PuterController {
         const dedupeEnabled = this.#isDedupeEnabled(normalizedFileMetadata);
         let pathToCheck = parentPath;
         if ( Boolean(normalizedFileMetadata.overwrite) && !dedupeEnabled ) {
-            const destinationExists = await this.fsEntryService.entryExistsByPath(targetPath);
+            const destinationExists = await this.services.fsEntry.entryExistsByPath(targetPath);
             if ( destinationExists ) {
                 pathToCheck = targetPath;
             }
         }
 
-        const fsEntryService = this.fsEntryService;
+        const fsEntryService = this.services.fsEntry;
         let ancestorsCache: Promise<Array<{ uid: string; path: string }>> | null = null;
         const resourceDescriptor = {
             path: pathToCheck,
@@ -1487,12 +1471,12 @@ export class FSController extends PuterController {
             },
         };
 
-        const canWrite = await this.aclService.check(actor, resourceDescriptor, 'write');
+        const canWrite = await this.services.acl.check(actor, resourceDescriptor, 'write');
         if ( canWrite ) {
             return;
         }
 
-        const safeAclError = await this.aclService.getSafeAclError(actor, resourceDescriptor, 'write') as {
+        const safeAclError = await this.services.acl.getSafeAclError(actor, resourceDescriptor, 'write') as {
             status?: unknown;
             message?: unknown;
             fields?: {
@@ -1593,7 +1577,7 @@ export class FSController extends PuterController {
                 uuid: entry.uuid,
                 thumbnail: response.thumbnail,
             };
-            await this.eventService.emit('thumbnail.read', thumbnailEntry, {});
+            await this.clients.event.emit('thumbnail.read', thumbnailEntry, {});
             response.thumbnail = typeof thumbnailEntry.thumbnail === 'string' && thumbnailEntry.thumbnail.length > 0
                 ? thumbnailEntry.thumbnail
                 : null;
@@ -1612,7 +1596,7 @@ export class FSController extends PuterController {
             ...this.#toEventGuiMetadata(guiMetadata, false),
             from_new_service: true,
         };
-        await this.eventService.emit(eventName, {
+        await this.clients.event.emit(eventName, {
             user_id_list: [fsEntry.userId],
             response,
         }, {});
@@ -1640,7 +1624,7 @@ export class FSController extends PuterController {
             ...this.#toEventGuiMetadata(requestBody.guiMetadata),
             from_new_service: true,
         };
-        await this.eventService.emit('outer.gui.item.pending', {
+        await this.clients.event.emit('outer.gui.item.pending', {
             user_id_list: [userId],
             response: pendingResponse,
         }, {});
@@ -1677,7 +1661,7 @@ export class FSController extends PuterController {
         }
 
         const thumbnailPayload = { url: requestedThumbnail };
-        await this.eventService.emit('thumbnail.created', thumbnailPayload, {});
+        await this.clients.event.emit('thumbnail.created', thumbnailPayload, {});
         const finalThumbnail = typeof thumbnailPayload.url === 'string' && thumbnailPayload.url.length > 0
             ? thumbnailPayload.url
             : null;
@@ -1686,7 +1670,7 @@ export class FSController extends PuterController {
             return fsEntry;
         }
 
-        return this.fsEntryService.updateEntryThumbnail(userId, fsEntry.uuid, finalThumbnail);
+        return this.services.fsEntry.updateEntryThumbnail(userId, fsEntry.uuid, finalThumbnail);
     }
 
     #toThumbnailPrepareItem (
@@ -1742,7 +1726,7 @@ export class FSController extends PuterController {
                 ...(item.size !== undefined ? { size: item.size } : {}),
             })),
         };
-        await this.eventService.emit('thumbnail.upload.prepare', payload, {});
+        await this.clients.event.emit('thumbnail.upload.prepare', payload, {});
 
         for ( const item of payload.items ) {
             const response = responses[item.index];
@@ -1827,7 +1811,7 @@ export class FSController extends PuterController {
             return uploadTracker;
         }
 
-        await this.eventService.emit('fs.storage.upload-progress', {
+        await this.clients.event.emit('fs.storage.upload-progress', {
             upload_tracker: uploadTracker,
             context,
             meta: {
@@ -1845,7 +1829,7 @@ export class FSController extends PuterController {
         if ( ! contentHashSha256 ) {
             return;
         }
-        await this.eventService.emit('outer.fs.write-hash', {
+        await this.clients.event.emit('outer.fs.write-hash', {
             hash: contentHashSha256,
             uuid: entryUuid,
         }, {});

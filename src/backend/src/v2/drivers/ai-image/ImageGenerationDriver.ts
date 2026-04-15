@@ -1,13 +1,12 @@
-import { HttpError } from '../../core/http/HttpError.js';
 import { Context } from '../../core/context.js';
+import { HttpError } from '../../core/http/HttpError.js';
 import { PuterDriver } from '../types.js';
-import type { MeteringService } from '../../services/metering/MeteringService.js';
-import type { IImageModel, IImageProvider, IGenerateParams } from './types.js';
 import { CloudflareImageProvider } from './providers/cloudflare/CloudflareImageProvider.js';
 import { GeminiImageProvider } from './providers/gemini/GeminiImageProvider.js';
 import { OpenAiImageProvider } from './providers/openai/OpenAiImageProvider.js';
 import { TogetherImageProvider } from './providers/together/TogetherImageProvider.js';
 import { XAIImageProvider } from './providers/xai/XAIImageProvider.js';
+import type { IGenerateParams, IImageModel, IImageProvider } from './types.js';
 
 /**
  * Driver implementing the `puter-image-generation` interface.
@@ -27,10 +26,6 @@ export class ImageGenerationDriver extends PuterDriver {
 
     #providers: Record<string, IImageProvider> = {};
     #modelIdMap: Record<string, IImageModel[]> = {};
-
-    private get metering (): MeteringService {
-        return this.services.metering as unknown as MeteringService;
-    }
 
     override onServerStart () {
         this.#registerProviders();
@@ -93,7 +88,7 @@ export class ImageGenerationDriver extends PuterDriver {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const cfg = this.config as any;
         const providers = cfg?.providers ?? cfg?.services ?? {};
-        const m = this.metering;
+        const m = this.services.metering;
 
         const openaiConfig = providers['openai-image-generation'] ?? cfg?.openai;
         if ( openaiConfig?.apiKey || openaiConfig?.secret_key ) {

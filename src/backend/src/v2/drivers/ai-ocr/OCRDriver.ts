@@ -60,14 +60,6 @@ export class OCRDriver extends PuterDriver {
     // Mistral state.
     #mistral: MistralOcrClient | null = null;
 
-    private get metering (): MeteringService {
-        return this.services.metering as unknown as MeteringService;
-    }
-
-    private get fsEntryService (): FSEntryService {
-        return this.services.fsEntry as unknown as FSEntryService;
-    }
-
     override onServerStart () {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const cfg = this.config as any;
@@ -108,7 +100,7 @@ export class OCRDriver extends PuterDriver {
         const input = args.source ?? args.file;
         if ( ! input ) throw new HttpError(400, '`source` is required');
 
-        const loaded = await loadFileInput(this.fsEntryService, userId, input);
+        const loaded = await loadFileInput(this.stores, userId, input);
 
         if ( provider === 'aws-textract' ) {
             if ( ! this.#awsConfig ) throw new HttpError(500, 'AWS credentials not configured');
@@ -145,7 +137,7 @@ export class OCRDriver extends PuterDriver {
 
     async #textractRecognize (loaded: LoadedFile, actor: unknown) {
         const usageType = 'aws-textract:detect-document-text:page';
-        const hasCredits = await this.metering.hasEnoughCreditsFor(actor, usageType, 1);
+        const hasCredits = await this.services.metering.hasEnoughCreditsFor(actor, usageType, 1);
         if ( ! hasCredits ) throw new HttpError(402, 'Insufficient credits');
 
         // Prefer S3 direct source if the file is FS-backed; fall back to raw bytes.
@@ -192,7 +184,7 @@ export class OCRDriver extends PuterDriver {
             });
         }
 
-        this.metering.incrementUsage(actor, usageType, pageCount || 1);
+        this.services.metering.incrementUsage(actor, usageType, pageCount || 1);
         return { blocks };
     }
 
@@ -245,9 +237,9 @@ export class OCRDriver extends PuterDriver {
         try {
             const pagesProcessed = response?.usageInfo?.pagesProcessed
                 ?? (Array.isArray(response?.pages) ? response.pages.length : 1);
-            this.metering.incrementUsage(actor, 'mistral-ocr:ocr:page', pagesProcessed);
+            this.services.metering.incrementUsage(actor, 'mistral-ocr:ocr:page', pagesProcessed);
             if ( annotations ) {
-                this.metering.incrementUsage(actor, 'mistral-ocr:annotations:page', pagesProcessed);
+                this.services.metering.incrementUsage(actor, 'mistral-ocr:annotations:page', pagesProcessed);
             }
         } catch {
             // Non-critical.

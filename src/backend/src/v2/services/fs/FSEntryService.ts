@@ -3,8 +3,6 @@ import { createHash } from 'node:crypto';
 import { Readable, Transform } from 'node:stream';
 import type { TransformCallback } from 'node:stream';
 import { v4 as uuidv4 } from 'uuid';
-import { FSEntryRepository } from '../../stores/fs/FSEntryRepository.js';
-import { S3StorageProvider } from '../../stores/fs/S3StorageProvider.js';
 import type {
     MultipartCompletePart,
     SignedUploadResult,
@@ -40,8 +38,7 @@ import type {
 import { runWithConcurrencyLimitSettled } from '../../utils/concurrency.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { PuterService } from '../types.js';
-import type { IConfig, LayerInstances, WithLifecycle } from '../../types.js';
-import type { puterClients } from '../../clients/index.js';
+import type { LayerInstances } from '../../types.js';
 import type { puterStores } from '../../stores/index.js';
 import { FSEntryCacheInvalidationEventHandler } from './cacheInvalidation.js';
 
@@ -78,33 +75,13 @@ interface BatchStartSignedWriteResult {
 }
 
 export class FSEntryService extends PuterService {
-    #fsEntryRepository!: FSEntryRepository;
-    #s3StorageProvider!: S3StorageProvider;
-
-    constructor (
-        config: IConfig,
-        clients: LayerInstances<typeof puterClients>,
-        stores: LayerInstances<typeof puterStores>,
-        services: Partial<Record<string, WithLifecycle>> = {},
-    ) {
-        super(config, clients, stores, services);
-    }
+    declare protected stores: LayerInstances<typeof puterStores>;
 
     override onServerStart (): void {
-        this.#fsEntryRepository = new FSEntryRepository(
-            this.clients.db,
-            this.clients.redis.client,
-            this.stores.kv,
-            this.config,
-        );
-        this.#s3StorageProvider = new S3StorageProvider(
-            this.clients.s3,
-        );
-
-        // Wire cache invalidation: listens to events emitted by legacy FS
-        // mutations and invalidates redis-cached fs entries.
+        // Wire cache invalidation: listens to events emitted by FS
+        // mutations and invalidates Redis-cached fsentries.
         new FSEntryCacheInvalidationEventHandler(
-            this.#fsEntryRepository,
+            this.stores.fsEntry,
             this.clients.event,
         );
     }
@@ -216,7 +193,7 @@ export class FSEntryService extends PuterService {
         const reservedPaths = new Set<string>();
         const existingEntryCache = new Map<string, Promise<FSEntry | null>>();
         const initialPaths = Array.from(new Set(inputs.map((input) => input.normalizedInput.path)));
-        const initialEntries = await this.#fsEntryRepository.getEntriesByPathsForUser(
+        const initialEntries = await this.stores.fsEntry.getEntriesByPathsForUser(
             userId,
             initialPaths,
             {
@@ -238,7 +215,7 @@ export class FSEntryService extends PuterService {
                 return await cachedPromise;
             }
 
-            const readPromise = this.#fsEntryRepository.getEntryByPathForUser(path, userId, {
+            const readPromise = this.stores.fsEntry.getEntryByPathForUser(path, userId, {
                 useTryHardRead: true,
                 skipCache: true,
             });
@@ -310,7 +287,7 @@ export class FSEntryService extends PuterService {
     }
 
     #determineUploadMode (requestUploadMode: UploadMode | 'auto' | undefined, size: number): UploadMode {
-        const maxSingleUploadSize = this.#s3StorageProvider.getMaxSingleUploadSize();
+        const maxSingleUploadSize = this.stores.s3Object.getMaxSingleUploadSize();
         if ( requestUploadMode === 'multipart' ) {
             return 'multipart';
         }
@@ -342,7 +319,7 @@ export class FSEntryService extends PuterService {
         existingSize = 0,
         storageAllowanceMaxOverride?: number,
     ): Promise<void> {
-        const allowance = await this.#fsEntryRepository.getUserStorageAllowance(userId);
+        const allowance = await this.stores.fsEntry.getUserStorageAllowance(userId);
         const maxStorage = this.#resolveStorageMax(allowance.max, storageAllowanceMaxOverride);
         if ( maxStorage === Number.MAX_SAFE_INTEGER ) {
             return;
@@ -363,7 +340,7 @@ export class FSEntryService extends PuterService {
             return;
         }
 
-        const allowance = await this.#fsEntryRepository.getUserStorageAllowance(userId);
+        const allowance = await this.stores.fsEntry.getUserStorageAllowance(userId);
         const maxStorage = this.#resolveStorageMax(allowance.max, storageAllowanceMaxOverride);
         if ( maxStorage === Number.MAX_SAFE_INTEGER ) {
             return;
@@ -637,7 +614,7 @@ export class FSEntryService extends PuterService {
         }
 
         const cleanupResults = await Promise.allSettled(cleanupTargets.map((target) => {
-            return this.#s3StorageProvider.deleteObject(
+            return this.stores.s3Object.deleteObject(
                 target.bucket,
                 target.objectKey,
                 target.bucketRegion,
@@ -651,7 +628,7 @@ export class FSEntryService extends PuterService {
     }
 
     getMaxSingleUploadSize (): number {
-        return this.#s3StorageProvider.getMaxSingleUploadSize();
+        return this.stores.s3Object.getMaxSingleUploadSize();
     }
 
     async #cleanupSignedMultipartUploads (uploads: SignedMultipartCleanupTarget[]): Promise<void> {
@@ -664,7 +641,7 @@ export class FSEntryService extends PuterService {
                 return Promise.resolve();
             }
 
-            return this.#s3StorageProvider.abortMutipartUpload(
+            return this.stores.s3Object.abortMutipartUpload(
                 upload.signedUploadResult.multipartUploadId,
                 upload.bucketRegion,
                 upload.bucket,
@@ -742,7 +719,7 @@ export class FSEntryService extends PuterService {
     }
 
     async entryExistsByPath (path: string): Promise<boolean> {
-        const entry = await this.#fsEntryRepository.getEntryByPath(path);
+        const entry = await this.stores.fsEntry.getEntryByPath(path);
         return entry !== null;
     }
 
@@ -754,7 +731,7 @@ export class FSEntryService extends PuterService {
             cursor = pathPosix.dirname(cursor);
         }
 
-        const entriesByPath = await this.#fsEntryRepository.getEntriesByPaths(paths);
+        const entriesByPath = await this.stores.fsEntry.getEntriesByPaths(paths);
 
         const ancestors: Array<{ uid: string; path: string }> = [];
         for ( const p of paths ) {
@@ -815,7 +792,7 @@ export class FSEntryService extends PuterService {
             };
         });
 
-        await this.#fsEntryRepository.resolveParentDirectoriesBatch(
+        await this.stores.fsEntry.resolveParentDirectoriesBatch(
             userId,
             resolvedRequests.map((item) => ({
                 parentPath: pathPosix.dirname(item.normalizedInput.path),
@@ -887,7 +864,7 @@ export class FSEntryService extends PuterService {
             input.uploadTracker,
         );
 
-        await this.#s3StorageProvider.uploadFromServer({
+        await this.stores.s3Object.uploadFromServer({
             bucket: preparedItem.normalizedInput.bucket,
             objectKey: preparedItem.objectKey,
             contentType: preparedItem.normalizedInput.contentType,
@@ -941,7 +918,7 @@ export class FSEntryService extends PuterService {
                 return this.#toCreateInput(item.normalizedInput, uploadedItem.objectKey);
             });
 
-            const fsEntries = await this.#fsEntryRepository.batchCreateEntries(createInputs, true);
+            const fsEntries = await this.stores.fsEntry.batchCreateEntries(createInputs, true);
             return preparedBatch.items.map((item, index) => {
                 const fsEntry = fsEntries[index];
                 if ( ! fsEntry ) {
@@ -984,7 +961,7 @@ export class FSEntryService extends PuterService {
             const {
                 entries,
                 createdDirectoryEntries,
-            } = await this.#fsEntryRepository.ensureDirectoriesForUserWithCreated(
+            } = await this.stores.fsEntry.ensureDirectoriesForUserWithCreated(
                 userId,
                 [{
                     path: normalizedInput.path,
@@ -1022,7 +999,7 @@ export class FSEntryService extends PuterService {
             createdDirectoryEntries,
         }] = await Promise.all([
             this.#assertStorageAllowance(userId, normalizedInput.size, existingSize, storageAllowanceMax),
-            this.#fsEntryRepository.resolveParentDirectoriesBatchWithCreated(
+            this.stores.fsEntry.resolveParentDirectoriesBatchWithCreated(
                 userId,
                 [{
                     parentPath,
@@ -1040,7 +1017,7 @@ export class FSEntryService extends PuterService {
         const expiresInSeconds = signedWriteRequest.expiresInSeconds ?? DEFAULT_SIGNED_UPLOAD_EXPIRY_SECONDS;
         const createInput = this.#toCreateInput(normalizedInput, objectKey);
 
-        const signedUploadResult = await this.#s3StorageProvider.createSignedUploadUrl({
+        const signedUploadResult = await this.stores.s3Object.createSignedUploadUrl({
             bucket: normalizedInput.bucket,
             objectKey,
             size: normalizedInput.size,
@@ -1076,7 +1053,7 @@ export class FSEntryService extends PuterService {
         };
 
         try {
-            await this.#fsEntryRepository.createPendingEntry(pendingUploadInput);
+            await this.stores.fsEntry.createPendingEntry(pendingUploadInput);
         } catch ( error ) {
             await this.#cleanupSignedMultipartUploads([{
                 bucket: normalizedInput.bucket,
@@ -1140,7 +1117,7 @@ export class FSEntryService extends PuterService {
             const {
                 entries: ensuredDirectoryEntries,
                 createdDirectoryEntries,
-            } = await this.#fsEntryRepository.ensureDirectoriesForUserWithCreated(
+            } = await this.stores.fsEntry.ensureDirectoriesForUserWithCreated(
                 userId,
                 directoryItems.map((item) => ({
                     path: item.normalizedInput.path,
@@ -1204,7 +1181,7 @@ export class FSEntryService extends PuterService {
                 createdDirectoryEntries: createdParentDirectoryEntries,
             }] = await Promise.all([
                 this.#assertStorageAllowanceForBatch(userId, allowanceChecks, storageAllowanceMax),
-                this.#fsEntryRepository.resolveParentDirectoriesBatchWithCreated(
+                this.stores.fsEntry.resolveParentDirectoriesBatchWithCreated(
                     userId,
                     resolvedFileItems.map((item) => ({
                         parentPath: pathPosix.dirname(item.normalizedInput.path),
@@ -1259,7 +1236,7 @@ export class FSEntryService extends PuterService {
             }
 
             const regionResults = await Promise.allSettled(Array.from(writesByRegion.entries()).map(async ([region, regionWrites]) => {
-                const signedResults = await this.#s3StorageProvider.batchCreateSignedUploadUrls(
+                const signedResults = await this.stores.s3Object.batchCreateSignedUploadUrls(
                     regionWrites.map((item) => item.input),
                     region,
                 );
@@ -1328,7 +1305,7 @@ export class FSEntryService extends PuterService {
                     });
                 }
 
-                await this.#fsEntryRepository.batchCreatePendingEntries(pendingInputs);
+                await this.stores.fsEntry.batchCreatePendingEntries(pendingInputs);
 
                 for ( let index = 0; index < resolvedFileItems.length; index++ ) {
                     const item = resolvedFileItems[index];
@@ -1383,7 +1360,7 @@ export class FSEntryService extends PuterService {
             throw new HttpError(400, 'Invalid partNumbers');
         }
 
-        const session = await this.#fsEntryRepository.getPendingEntryBySessionId(request.uploadId);
+        const session = await this.stores.fsEntry.getPendingEntryBySessionId(request.uploadId);
         if ( ! session ) {
             throw new HttpError(404, 'Upload session was not found');
         }
@@ -1394,7 +1371,7 @@ export class FSEntryService extends PuterService {
             throw new HttpError(409, `Upload session is not pending (status=${session.status})`);
         }
         if ( session.expiresAt < Date.now() ) {
-            await this.#fsEntryRepository.markPendingEntryFailed(session.sessionId, 'Upload session expired');
+            await this.stores.fsEntry.markPendingEntryFailed(session.sessionId, 'Upload session expired');
             throw new HttpError(400, 'Upload session expired');
         }
         if ( session.uploadMode !== 'multipart' ) {
@@ -1415,7 +1392,7 @@ export class FSEntryService extends PuterService {
         }
 
         const expiresInSeconds = request.expiresInSeconds ?? DEFAULT_SIGNED_UPLOAD_EXPIRY_SECONDS;
-        const multipartPartUrls = await this.#s3StorageProvider.createSignedMultipartPartUrls({
+        const multipartPartUrls = await this.stores.s3Object.createSignedMultipartPartUrls({
             bucket: session.bucket,
             objectKey: session.objectKey,
             multipartUploadId: session.multipartUploadId,
@@ -1437,7 +1414,7 @@ export class FSEntryService extends PuterService {
     }
 
     async completeUrlWrite (userId: number, completeWriteRequest: CompleteWriteRequest): Promise<CompleteWriteResponse> {
-        const session = await this.#fsEntryRepository.getPendingEntryBySessionId(completeWriteRequest.uploadId);
+        const session = await this.stores.fsEntry.getPendingEntryBySessionId(completeWriteRequest.uploadId);
         if ( ! session ) {
             throw new HttpError(404, 'Upload session was not found');
         }
@@ -1448,7 +1425,7 @@ export class FSEntryService extends PuterService {
             throw new HttpError(409, `Upload session is not pending (status=${session.status})`);
         }
         if ( session.expiresAt < Date.now() ) {
-            await this.#fsEntryRepository.markPendingEntryFailed(session.sessionId, 'Upload session expired');
+            await this.stores.fsEntry.markPendingEntryFailed(session.sessionId, 'Upload session expired');
             throw new HttpError(400, 'Upload session expired');
         }
 
@@ -1467,7 +1444,7 @@ export class FSEntryService extends PuterService {
                     throw new HttpError(400, 'Multipart upload completion requires parts');
                 }
 
-                await this.#s3StorageProvider.completeMultipartUpload({
+                await this.stores.s3Object.completeMultipartUpload({
                     bucket: session.bucket ?? createInput.bucket ?? this.#resolveBucket(createInput),
                     objectKey: session.objectKey,
                     multipartUploadId: session.multipartUploadId,
@@ -1475,7 +1452,7 @@ export class FSEntryService extends PuterService {
                 }, session.bucketRegion ?? createInput.bucketRegion ?? this.#resolveBucketRegion(createInput));
             }
 
-            const fsEntry = await this.#fsEntryRepository.completePendingEntry(session.sessionId, createInput);
+            const fsEntry = await this.stores.fsEntry.completePendingEntry(session.sessionId, createInput);
             return {
                 sessionId: session.sessionId,
                 fsEntry,
@@ -1483,7 +1460,7 @@ export class FSEntryService extends PuterService {
                 requestedThumbnail,
             };
         } catch ( error ) {
-            await this.#fsEntryRepository.markPendingEntryFailed(
+            await this.stores.fsEntry.markPendingEntryFailed(
                 session.sessionId,
                 error instanceof Error ? error.message : 'Unknown error while completing upload',
             );
@@ -1505,7 +1482,7 @@ export class FSEntryService extends PuterService {
             throw new HttpError(409, 'Batch contains duplicate upload session ids');
         }
 
-        const sessions = await this.#fsEntryRepository.getPendingEntriesBySessionIds(uploadIds);
+        const sessions = await this.stores.fsEntry.getPendingEntriesBySessionIds(uploadIds);
         const completionItems: Array<{
             index: number;
             request: CompleteWriteRequest;
@@ -1545,7 +1522,7 @@ export class FSEntryService extends PuterService {
         }
 
         if ( expiredSessionIds.length > 0 ) {
-            await this.#fsEntryRepository.markPendingEntriesFailed(expiredSessionIds, 'Upload session expired');
+            await this.stores.fsEntry.markPendingEntriesFailed(expiredSessionIds, 'Upload session expired');
             throw new HttpError(400, 'Upload session expired');
         }
 
@@ -1560,7 +1537,7 @@ export class FSEntryService extends PuterService {
                 throw new HttpError(400, 'Multipart upload completion requires parts');
             }
 
-            await this.#s3StorageProvider.completeMultipartUpload({
+            await this.stores.s3Object.completeMultipartUpload({
                 bucket: item.session.bucket ?? item.finalData.bucket ?? this.#resolveBucket(item.finalData),
                 objectKey: item.session.objectKey,
                 multipartUploadId: item.session.multipartUploadId,
@@ -1582,7 +1559,7 @@ export class FSEntryService extends PuterService {
 
         if ( failedMultipartItems.length > 0 ) {
             await Promise.all(failedMultipartItems.map((item) => {
-                return this.#fsEntryRepository.markPendingEntryFailed(item.sessionId, this.#toErrorMessage(item.reason));
+                return this.stores.fsEntry.markPendingEntryFailed(item.sessionId, this.#toErrorMessage(item.reason));
             }));
 
             const firstReason = failedMultipartItems[0]?.reason;
@@ -1595,7 +1572,7 @@ export class FSEntryService extends PuterService {
             throw new Error('Failed to complete multipart upload');
         }
 
-        const completedEntries = await this.#fsEntryRepository.batchCompletePendingEntries(
+        const completedEntries = await this.stores.fsEntry.batchCompletePendingEntries(
             completionItems.map((item) => ({
                 sessionId: item.session.sessionId,
                 finalData: item.finalData,
@@ -1630,7 +1607,7 @@ export class FSEntryService extends PuterService {
     }
 
     async abortUrlWrite (userId: number, uploadId: string): Promise<void> {
-        const session = await this.#fsEntryRepository.getPendingEntryBySessionId(uploadId);
+        const session = await this.stores.fsEntry.getPendingEntryBySessionId(uploadId);
         if ( ! session ) {
             return;
         }
@@ -1643,18 +1620,18 @@ export class FSEntryService extends PuterService {
             const bucketRegion = session.bucketRegion;
             if ( bucket && bucketRegion ) {
                 if ( session.uploadMode === 'multipart' && session.multipartUploadId ) {
-                    await this.#s3StorageProvider.abortMutipartUpload(
+                    await this.stores.s3Object.abortMutipartUpload(
                         session.multipartUploadId,
                         bucketRegion,
                         bucket,
                         session.objectKey,
                     );
                 } else {
-                    await this.#s3StorageProvider.deleteObject(bucket, session.objectKey, bucketRegion);
+                    await this.stores.s3Object.deleteObject(bucket, session.objectKey, bucketRegion);
                 }
             }
         } finally {
-            await this.#fsEntryRepository.abortPendingEntry(session.sessionId, 'Upload aborted by caller');
+            await this.stores.fsEntry.abortPendingEntry(session.sessionId, 'Upload aborted by caller');
         }
     }
 
@@ -1687,7 +1664,7 @@ export class FSEntryService extends PuterService {
             uploadTracker,
         );
         const objectKey = existingEntry?.uuid ?? uuidv4();
-        await this.#s3StorageProvider.uploadFromServer({
+        await this.stores.s3Object.uploadFromServer({
             bucket: normalizedInput.bucket,
             objectKey,
             contentType: normalizedInput.contentType,
@@ -1714,7 +1691,7 @@ export class FSEntryService extends PuterService {
             : uploadBody.contentHashSha256;
 
         const createInput = this.#toCreateInput(normalizedInput, objectKey);
-        const fsEntry = await this.#fsEntryRepository.createEntry(
+        const fsEntry = await this.stores.fsEntry.createEntry(
             createInput,
             normalizedInput.createMissingParents,
         );
@@ -1786,7 +1763,7 @@ export class FSEntryService extends PuterService {
             throw new HttpError(400, 'Invalid file entry identifier for thumbnail update');
         }
 
-        return this.#fsEntryRepository.updateEntryThumbnailByUuidForUser(
+        return this.stores.fsEntry.updateEntryThumbnailByUuidForUser(
             userId,
             entryUuid,
             thumbnail,
@@ -1798,20 +1775,7 @@ export class FSEntryService extends PuterService {
         if ( Number.isNaN(numericUserId) ) {
             throw new HttpError(400, 'Invalid user id');
         }
-        return this.#fsEntryRepository.getUserStorageAllowance(numericUserId);
-    }
-
-    // ── Public repository accessors ─────────────────────────────────────
-    //
-    // A few controllers (notably the legacy FS shims) need repository reads
-    // without duplicating the full service method wrapper. Expose a getter
-    // rather than threading the repo separately.
-    get entryRepository (): FSEntryRepository {
-        return this.#fsEntryRepository;
-    }
-
-    get storageProvider (): S3StorageProvider {
-        return this.#s3StorageProvider;
+        return this.stores.fsEntry.getUserStorageAllowance(numericUserId);
     }
 
     // ── Reads ───────────────────────────────────────────────────────────
@@ -1827,7 +1791,7 @@ export class FSEntryService extends PuterService {
         sortBy?: 'name' | 'modified' | 'type' | 'size' | null;
         sortOrder?: 'asc' | 'desc' | null;
     } = {}): Promise<FSEntry[]> {
-        return this.#fsEntryRepository.listChildren(parentUid, options);
+        return this.stores.fsEntry.listChildren(parentUid, options);
     }
 
     /**
@@ -1835,7 +1799,7 @@ export class FSEntryService extends PuterService {
      * typical library sizes, revisit if we need full-text.
      */
     async searchByName (userId: number, query: string, limit = 200): Promise<FSEntry[]> {
-        return this.#fsEntryRepository.searchByNameForUser(userId, query, limit);
+        return this.stores.fsEntry.searchByNameForUser(userId, query, limit);
     }
 
     /**
@@ -1845,7 +1809,7 @@ export class FSEntryService extends PuterService {
      * materialized counter eventually.
      */
     async getSubtreeSize (userId: number, path: string): Promise<number> {
-        return this.#fsEntryRepository.getSubtreeSize(userId, path);
+        return this.stores.fsEntry.getSubtreeSize(userId, path);
     }
 
     /**
@@ -1871,7 +1835,7 @@ export class FSEntryService extends PuterService {
             // Caller should resolve the link target before calling readContent.
             throw new HttpError(400, 'Cannot read content of a symlink or shortcut directly');
         }
-        if ( ! entry.bucket || ! entry.bucketRegion ) {
+        if ( !entry.bucket || !entry.bucketRegion ) {
             throw new HttpError(500, 'Entry has no backing storage');
         }
 
@@ -1879,7 +1843,7 @@ export class FSEntryService extends PuterService {
         // back to the uuid convention used elsewhere (objectKey defaults to
         // uuid during write when no metadata override is set).
         const objectKey = this.#deriveObjectKeyFromEntry(entry);
-        return this.#s3StorageProvider.getObjectStream(
+        return this.stores.s3Object.getObjectStream(
             { bucket: entry.bucket, objectKey, range: options.range },
             entry.bucketRegion,
         );
@@ -1910,7 +1874,7 @@ export class FSEntryService extends PuterService {
      * `#findDedupedPath` but operates on the parent+name shape.
      */
     async #findDedupedName (parentEntry: FSEntry, name: string): Promise<string> {
-        const repo = this.#fsEntryRepository;
+        const repo = this.stores.fsEntry;
         const parentPath = parentEntry.path;
         const ext = pathPosix.extname(name);
         const base = pathPosix.basename(name, ext);
@@ -1933,7 +1897,7 @@ export class FSEntryService extends PuterService {
         if ( normalized === '/' ) throw new HttpError(400, 'Cannot operate on root');
         const parentPath = pathPosix.dirname(normalized);
         if ( parentPath === '/' ) throw new HttpError(400, 'Cannot operate at root');
-        return this.#fsEntryRepository.resolveParentDirectory(userId, parentPath, createMissingParents);
+        return this.stores.fsEntry.resolveParentDirectory(userId, parentPath, createMissingParents);
     }
 
     /**
@@ -1954,7 +1918,7 @@ export class FSEntryService extends PuterService {
         const parent = await this.#resolveOrCreateParent(userId, targetPath, !!input.createMissingParents);
 
         let name = pathPosix.basename(targetPath);
-        const existing = await this.#fsEntryRepository.getEntryByPathForUser(targetPath, userId);
+        const existing = await this.stores.fsEntry.getEntryByPathForUser(targetPath, userId);
         if ( existing ) {
             if ( existing.isDir ) {
                 // A directory already exists at path: idempotent success.
@@ -1970,7 +1934,7 @@ export class FSEntryService extends PuterService {
             }
         }
 
-        return this.#fsEntryRepository.createNonFileEntry({
+        return this.stores.fsEntry.createNonFileEntry({
             userId,
             parent,
             name,
@@ -1992,15 +1956,15 @@ export class FSEntryService extends PuterService {
         const targetPath = input.path.trim();
         const parent = await this.#resolveOrCreateParent(userId, targetPath, !!input.createMissingParents);
         const name = pathPosix.basename(targetPath);
-        const existing = await this.#fsEntryRepository.getEntryByPathForUser(targetPath, userId);
+        const existing = await this.stores.fsEntry.getEntryByPathForUser(targetPath, userId);
         if ( existing ) {
-            return this.#fsEntryRepository.touchEntryTimestamps(existing.uuid, {
+            return this.stores.fsEntry.touchEntryTimestamps(existing.uuid, {
                 setAccessed: input.setAccessed,
                 setModified: input.setModified,
                 setCreated: input.setCreated,
             });
         }
-        return this.#fsEntryRepository.createNonFileEntry({
+        return this.stores.fsEntry.createNonFileEntry({
             userId,
             parent,
             name,
@@ -2021,18 +1985,18 @@ export class FSEntryService extends PuterService {
         const newPath = parentPath === '/' ? `/${newName}` : `${parentPath}/${newName}`;
 
         // Reject if another entry already owns the target path.
-        const collision = await this.#fsEntryRepository.getEntryByPathForUser(newPath, entry.userId);
+        const collision = await this.stores.fsEntry.getEntryByPathForUser(newPath, entry.userId);
         if ( collision && collision.uuid !== entry.uuid ) {
             throw new HttpError(409, `An entry already exists at ${newPath}`);
         }
 
-        const updated = await this.#fsEntryRepository.updateEntry(entry.uuid, {
+        const updated = await this.stores.fsEntry.updateEntry(entry.uuid, {
             name: newName,
             path: newPath,
         });
 
         if ( entry.isDir ) {
-            await this.#fsEntryRepository.updatePathPrefixForUser(entry.userId, entry.path, newPath);
+            await this.stores.fsEntry.updatePathPrefixForUser(entry.userId, entry.path, newPath);
         }
         return updated;
     }
@@ -2049,7 +2013,7 @@ export class FSEntryService extends PuterService {
     }): Promise<FSEntry> {
         let name = input.name;
         const childPath = input.parent.path === '/' ? `/${name}` : `${input.parent.path}/${name}`;
-        const collision = await this.#fsEntryRepository.getEntryByPathForUser(childPath, userId);
+        const collision = await this.stores.fsEntry.getEntryByPathForUser(childPath, userId);
         if ( collision ) {
             if ( input.dedupeName ) {
                 name = await this.#findDedupedName(input.parent, name);
@@ -2057,7 +2021,7 @@ export class FSEntryService extends PuterService {
                 throw new HttpError(409, `An entry already exists at ${childPath}`);
             }
         }
-        return this.#fsEntryRepository.createNonFileEntry({
+        return this.stores.fsEntry.createNonFileEntry({
             userId,
             parent: input.parent,
             name,
@@ -2079,7 +2043,7 @@ export class FSEntryService extends PuterService {
     }): Promise<FSEntry> {
         let name = input.name;
         const childPath = input.parent.path === '/' ? `/${name}` : `${input.parent.path}/${name}`;
-        const collision = await this.#fsEntryRepository.getEntryByPathForUser(childPath, userId);
+        const collision = await this.stores.fsEntry.getEntryByPathForUser(childPath, userId);
         if ( collision ) {
             if ( input.dedupeName ) {
                 name = await this.#findDedupedName(input.parent, name);
@@ -2087,7 +2051,7 @@ export class FSEntryService extends PuterService {
                 throw new HttpError(409, `An entry already exists at ${childPath}`);
             }
         }
-        return this.#fsEntryRepository.createNonFileEntry({
+        return this.stores.fsEntry.createNonFileEntry({
             userId,
             parent: input.parent,
             name,
@@ -2119,8 +2083,8 @@ export class FSEntryService extends PuterService {
         }
 
         if ( entry.isDir ) {
-            const descendants = await this.#fsEntryRepository.listDescendantsByPath(userId, entry.path);
-            if ( descendants.length > 0 && ! input.recursive ) {
+            const descendants = await this.stores.fsEntry.listDescendantsByPath(userId, entry.path);
+            if ( descendants.length > 0 && !input.recursive ) {
                 throw new HttpError(409, 'Directory is not empty');
             }
 
@@ -2128,11 +2092,11 @@ export class FSEntryService extends PuterService {
             // batched per bucket+region for efficiency.
             await this.#removeDescendantsStorage(descendants);
             if ( descendants.length > 0 ) {
-                await this.#fsEntryRepository.deleteEntries(descendants);
+                await this.stores.fsEntry.deleteEntries(descendants);
             }
 
             if ( ! input.descendantsOnly ) {
-                await this.#fsEntryRepository.deleteEntry(entry);
+                await this.stores.fsEntry.deleteEntry(entry);
                 this.#emitRemoveEvent(entry);
             }
             return;
@@ -2141,7 +2105,7 @@ export class FSEntryService extends PuterService {
         // File / shortcut / symlink: delete backing S3 object (if any) then the row.
         if ( entry.bucket && entry.bucketRegion && !entry.isShortcut && !entry.isSymlink ) {
             try {
-                await this.#s3StorageProvider.deleteObject(
+                await this.stores.s3Object.deleteObject(
                     entry.bucket,
                     this.#deriveObjectKeyFromEntry(entry),
                     entry.bucketRegion,
@@ -2151,7 +2115,7 @@ export class FSEntryService extends PuterService {
                 // will get the `fs.remove.node` event regardless.
             }
         }
-        await this.#fsEntryRepository.deleteEntry(entry);
+        await this.stores.fsEntry.deleteEntry(entry);
         this.#emitRemoveEvent(entry);
     }
 
@@ -2160,7 +2124,7 @@ export class FSEntryService extends PuterService {
         const grouped = new Map<string, { bucket: string; region: string; keys: string[] }>();
         for ( const child of descendants ) {
             if ( child.isDir || child.isShortcut || child.isSymlink ) continue;
-            if ( ! child.bucket || ! child.bucketRegion ) continue;
+            if ( !child.bucket || !child.bucketRegion ) continue;
             const groupKey = `${child.bucketRegion}::${child.bucket}`;
             const group = grouped.get(groupKey) ?? { bucket: child.bucket, region: child.bucketRegion, keys: [] };
             group.keys.push(this.#deriveObjectKeyFromEntry(child));
@@ -2170,8 +2134,7 @@ export class FSEntryService extends PuterService {
         }
         await Promise.allSettled(
             Array.from(grouped.values()).map((group) =>
-                this.#s3StorageProvider.deleteObjects({ bucket: group.bucket, objectKeys: group.keys }, group.region),
-            ),
+                this.stores.s3Object.deleteObjects({ bucket: group.bucket, objectKeys: group.keys }, group.region)),
         );
     }
 
@@ -2204,7 +2167,7 @@ export class FSEntryService extends PuterService {
         if ( ! destinationParent.isDir ) {
             throw new HttpError(400, 'Destination parent is not a directory');
         }
-        if ( source.isDir && destinationParent.path.startsWith(source.path + '/') ) {
+        if ( source.isDir && destinationParent.path.startsWith(`${source.path }/`) ) {
             throw new HttpError(400, 'Cannot move a directory into itself');
         }
 
@@ -2213,7 +2176,7 @@ export class FSEntryService extends PuterService {
             ? `/${name}`
             : `${destinationParent.path}/${name}`;
 
-        const collision = await this.#fsEntryRepository.getEntryByPathForUser(targetPath, userId);
+        const collision = await this.stores.fsEntry.getEntryByPathForUser(targetPath, userId);
         if ( collision && collision.uuid !== source.uuid ) {
             if ( input.overwrite ) {
                 await this.remove(userId, { entry: collision, recursive: true });
@@ -2228,7 +2191,7 @@ export class FSEntryService extends PuterService {
             ? `/${name}`
             : `${destinationParent.path}/${name}`;
 
-        const updated = await this.#fsEntryRepository.updateEntry(source.uuid, {
+        const updated = await this.stores.fsEntry.updateEntry(source.uuid, {
             name,
             path: finalPath,
             parentId: destinationParent.id,
@@ -2236,7 +2199,7 @@ export class FSEntryService extends PuterService {
         });
 
         if ( source.isDir && source.path !== finalPath ) {
-            await this.#fsEntryRepository.updatePathPrefixForUser(userId, source.path, finalPath);
+            await this.stores.fsEntry.updatePathPrefixForUser(userId, source.path, finalPath);
         }
 
         try {
@@ -2269,7 +2232,7 @@ export class FSEntryService extends PuterService {
         if ( ! destinationParent.isDir ) {
             throw new HttpError(400, 'Destination parent is not a directory');
         }
-        if ( source.isDir && (destinationParent.path === source.path || destinationParent.path.startsWith(source.path + '/')) ) {
+        if ( source.isDir && (destinationParent.path === source.path || destinationParent.path.startsWith(`${source.path }/`)) ) {
             throw new HttpError(400, 'Cannot copy a directory into itself or a descendant');
         }
 
@@ -2278,7 +2241,7 @@ export class FSEntryService extends PuterService {
             ? `/${name}`
             : `${destinationParent.path}/${name}`;
 
-        const collision = await this.#fsEntryRepository.getEntryByPathForUser(targetPath, userId);
+        const collision = await this.stores.fsEntry.getEntryByPathForUser(targetPath, userId);
         if ( collision ) {
             if ( input.overwrite ) {
                 await this.remove(userId, { entry: collision, recursive: true });
@@ -2301,7 +2264,7 @@ export class FSEntryService extends PuterService {
         // 1) Create the new root directory at destination
         // 2) Walk descendants; for each, compute new path by swapping prefix
         // 3) Create a new row (files copy S3 object; dirs just insert)
-        const newRoot = await this.#fsEntryRepository.createNonFileEntry({
+        const newRoot = await this.stores.fsEntry.createNonFileEntry({
             userId,
             parent: destinationParent,
             name,
@@ -2312,7 +2275,7 @@ export class FSEntryService extends PuterService {
             isPublic: source.isPublic,
         });
 
-        const descendants = await this.#fsEntryRepository.listDescendantsByPath(source.userId, source.path);
+        const descendants = await this.stores.fsEntry.listDescendantsByPath(source.userId, source.path);
         // Sort shallow-first so parents exist before children.
         descendants.sort((a, b) => a.path.length - b.path.length);
 
@@ -2329,7 +2292,7 @@ export class FSEntryService extends PuterService {
                 continue;
             }
             const copied = descendant.isDir
-                ? await this.#fsEntryRepository.createNonFileEntry({
+                ? await this.stores.fsEntry.createNonFileEntry({
                     userId,
                     parent: newParent,
                     name: descendant.name,
@@ -2363,7 +2326,7 @@ export class FSEntryService extends PuterService {
         _newPath: string,
     ): Promise<FSEntry> {
         if ( source.isSymlink ) {
-            return this.#fsEntryRepository.createNonFileEntry({
+            return this.stores.fsEntry.createNonFileEntry({
                 userId,
                 parent: destinationParent,
                 name: newName,
@@ -2374,7 +2337,7 @@ export class FSEntryService extends PuterService {
             });
         }
         if ( source.isShortcut ) {
-            return this.#fsEntryRepository.createNonFileEntry({
+            return this.stores.fsEntry.createNonFileEntry({
                 userId,
                 parent: destinationParent,
                 name: newName,
@@ -2387,13 +2350,13 @@ export class FSEntryService extends PuterService {
 
         // Regular file: duplicate the S3 object under a new key (the new
         // entry's uuid), then insert the DB row pointing at it.
-        if ( ! source.bucket || ! source.bucketRegion ) {
+        if ( !source.bucket || !source.bucketRegion ) {
             throw new HttpError(500, 'Source file has no backing storage');
         }
 
         const newUuid = uuidv4();
         const sourceObjectKey = this.#deriveObjectKeyFromEntry(source);
-        await this.#s3StorageProvider.copyObject(
+        await this.stores.s3Object.copyObject(
             {
                 sourceBucket: source.bucket,
                 sourceKey: sourceObjectKey,
@@ -2408,7 +2371,7 @@ export class FSEntryService extends PuterService {
 
         // Insert as a file row. We reuse the files INSERT path (batchCreateEntries)
         // since it handles bucket/metadata correctly. A single-row call is fine.
-        const [created] = await this.#fsEntryRepository.batchCreateEntries([{
+        const [created] = await this.stores.fsEntry.batchCreateEntries([{
             userId,
             uuid: newUuid,
             path: destinationParent.path === '/' ? `/${newName}` : `${destinationParent.path}/${newName}`,

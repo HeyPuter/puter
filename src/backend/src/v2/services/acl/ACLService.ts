@@ -1,14 +1,10 @@
-import type { WithLifecycle, IConfig, LayerInstances } from '../../types';
-import type { puterClients } from '../../clients';
-import type { puterStores } from '../../stores';
-import type { PermissionStore } from '../../stores/permission/PermissionStore';
-import type { UserStore } from '../../stores/user/UserStore';
+import type { LayerInstances } from '../../types';
+import type { puterServices } from '../index';
 import { PuterService } from '../types';
 import type { Actor } from '../../core/actor';
 import { isSystemActor } from '../../core/actor';
 import { PermissionUtil } from '../permission/permissionUtil';
 import { MANAGE_PERM_PREFIX } from '../permission/consts';
-import type { PermissionService } from '../permission/PermissionService';
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -42,15 +38,6 @@ interface StatPermissionsResult {
     [path: string]: string[];
 }
 
-type Services = Partial<Record<string, WithLifecycle>> & {
-    permission?: PermissionService;
-};
-
-type Stores = LayerInstances<typeof puterStores> & {
-    permission?: PermissionStore;
-    user?: UserStore;
-};
-
 const MODES_ABOVE: Record<AclMode, AclMode[]> = {
     see: ['see', 'list', 'read', 'write'],
     list: ['list', 'read', 'write'],
@@ -80,37 +67,7 @@ const PUBLIC_READ_MODES: ReadonlyArray<AclMode> = Object.freeze(['read', 'list',
  * which returns a pre-resolved ancestor chain from the caller's FS layer.
  */
 export class ACLService extends PuterService {
-    protected override stores: Stores;
-    protected override services: Services;
-
-    constructor (
-        config: IConfig,
-        clients: LayerInstances<typeof puterClients>,
-        stores: LayerInstances<typeof puterStores>,
-        services: Services = {},
-    ) {
-        super(config, clients, stores, services);
-        this.stores = stores as Stores;
-        this.services = services;
-    }
-
-    private get permStore (): PermissionStore {
-        const s = this.stores.permission;
-        if ( ! s ) throw new Error('ACLService requires the `permission` store to be registered');
-        return s;
-    }
-
-    private get userStore (): UserStore {
-        const s = this.stores.user;
-        if ( ! s ) throw new Error('ACLService requires the `user` store to be registered');
-        return s;
-    }
-
-    private get permService (): PermissionService {
-        const s = this.services.permission;
-        if ( ! s ) throw new Error('ACLService requires the `permission` service to be registered');
-        return s;
-    }
+    declare protected services: LayerInstances<typeof puterServices>;
 
     // ── Public API ───────────────────────────────────────────────────
 
@@ -159,7 +116,7 @@ export class ACLService extends PuterService {
             && components[1] === 'Public'
         ) {
             const ownerUsername = components[0];
-            const owner = await this.userStore.getByUsername(ownerUsername);
+            const owner = await this.stores.user.getByUsername(ownerUsername);
             if ( owner ) {
                 if ( (owner.email_confirmed ?? false) || owner.username === 'admin' ) {
                     return true;
@@ -178,7 +135,7 @@ export class ACLService extends PuterService {
                 const permission = mode === MANAGE_PERM_PREFIX
                     ? PermissionUtil.join(MANAGE_PERM_PREFIX, 'fs', ancestor.uid)
                     : PermissionUtil.join('fs', ancestor.uid, mode);
-                if ( await this.permStore.hasAccessTokenPerm(actor.accessToken.uid, permission) ) {
+                if ( await this.stores.permission.hasAccessTokenPerm(actor.accessToken.uid, permission) ) {
                     return true;
                 }
             }
@@ -207,7 +164,7 @@ export class ACLService extends PuterService {
             const permission = mode === MANAGE_PERM_PREFIX
                 ? PermissionUtil.join(MANAGE_PERM_PREFIX, 'fs', ancestor.uid)
                 : PermissionUtil.join('fs', ancestor.uid, mode);
-            const reading = await this.permService.scan(actor, [permission]);
+            const reading = await this.services.permission.scan(actor, [permission]);
             const options = PermissionUtil.readingToOptions(reading);
             if ( options.length > 0 ) return true;
         }
@@ -255,7 +212,7 @@ export class ACLService extends PuterService {
         const ancestors = await resource.resolveAncestors();
         for ( const ancestor of ancestors ) {
             const prefix = PermissionUtil.join('fs', ancestor.uid);
-            const perms = await this.permService.queryIssuerHolderPermissionsByPrefix(issuer, holder, prefix);
+            const perms = await this.services.permission.queryIssuerHolderPermissionsByPrefix(issuer, holder, prefix);
             if ( perms.length > 0 ) out[ancestor.path] = perms;
         }
         return out;
@@ -305,7 +262,7 @@ export class ACLService extends PuterService {
         const newPerm = mode === MANAGE_PERM_PREFIX
             ? PermissionUtil.join(MANAGE_PERM_PREFIX, 'fs', uid)
             : PermissionUtil.join('fs', uid, mode);
-        await this.permService.grantUserUserPermission(issuer, holder.user.username, newPerm);
+        await this.services.permission.grantUserUserPermission(issuer, holder.user.username, newPerm);
 
         // Revoke any other modes on the same node (ACL enforces one mode per
         // node per issuer/holder — higher modes supersede lower).
@@ -314,7 +271,7 @@ export class ACLService extends PuterService {
                 ? MANAGE_PERM_PREFIX
                 : PermissionUtil.split(perm).at(-1);
             if ( existingMode === mode ) continue;
-            await this.permService.revokeUserUserPermission(issuer, holder.user.username, perm);
+            await this.services.permission.revokeUserUserPermission(issuer, holder.user.username, perm);
         }
         return true;
     }

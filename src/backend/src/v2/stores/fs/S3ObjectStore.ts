@@ -11,7 +11,6 @@ import {
     UploadPartCommand,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import type { S3Client as PuterS3Client } from '../../clients/s3/S3Client.js';
 import { Readable } from 'node:stream';
 import type {
     CopyObjectInput,
@@ -25,25 +24,25 @@ import type {
     SignedUploadPart,
     SignedUploadResult,
 } from './s3Types.js';
+import { PuterStore } from '../types.js';
 
-export class S3StorageProvider {
-
-    #s3ClientProvider: PuterS3Client;
-
-    constructor (s3Provider: PuterS3Client) {
-        this.#s3ClientProvider = s3Provider;
-    }
+/**
+ * Store that owns S3 object I/O for fsentries: signed-URL minting, multipart
+ * lifecycle, server-driven uploads, and object reads/copies/deletes. Wraps
+ * the regional `S3Client` pool exposed by `clients.s3`.
+ */
+export class S3ObjectStore extends PuterStore {
 
     #getClientForRegion (region: string): S3Client {
-        return this.#s3ClientProvider.get(region);
+        return this.clients.s3.get(region);
     }
 
     getMaxSingleUploadSize (): number {
-        return this.#s3ClientProvider.maxSingleUploadSize;
+        return this.clients.s3.maxSingleUploadSize;
     }
 
     getMultipartPartSize (): number {
-        return this.#s3ClientProvider.partSize;
+        return this.clients.s3.partSize;
     }
 
     #resolveMultipartPartSize (requestedPartSize?: number): number {

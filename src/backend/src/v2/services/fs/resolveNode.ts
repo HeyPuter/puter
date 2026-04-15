@@ -1,7 +1,8 @@
 import { posix as pathPosix } from 'node:path';
 import { HttpError } from '../../core/http/HttpError.js';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
-import type { FSEntryRepository } from '../../stores/fs/FSEntryRepository.js';
+import type { FSEntryStore } from '../../stores/fs/FSEntryStore.js';
+
 
 /**
  * Minimal replacement for v1's FSNodeContext + selector class hierarchy.
@@ -40,7 +41,7 @@ function isNonEmptyString (value: unknown): value is string {
 }
 
 export async function resolveNode (
-    repo: FSEntryRepository,
+    fsEntryStore: FSEntryStore,
     ref: NodeRef,
     options: ResolveNodeOptions = {},
 ): Promise<FSEntry | null> {
@@ -48,7 +49,7 @@ export async function resolveNode (
 
     const uuid = ref.uid ?? ref.uuid;
     if ( isNonEmptyString(uuid) ) {
-        const entry = await repo.getEntryByUuid(uuid);
+        const entry = await fsEntryStore.getEntryByUuid(uuid);
         if ( entry ) return entry;
         return notFoundOrNull(options.required, `Entry not found: uuid=${uuid}`);
     }
@@ -58,15 +59,15 @@ export async function resolveNode (
         if ( ! Number.isFinite(numericId) ) {
             throw new HttpError(400, 'Invalid id');
         }
-        const entry = await repo.getEntryById(numericId);
+        const entry = await fsEntryStore.getEntryById(numericId);
         if ( entry ) return entry;
         return notFoundOrNull(options.required, `Entry not found: id=${numericId}`);
     }
 
     if ( isNonEmptyString(ref.path) ) {
         const entry = options.userId !== undefined
-            ? await repo.getEntryByPathForUser(ref.path, options.userId)
-            : await repo.getEntryByPath(ref.path);
+            ? await fsEntryStore.getEntryByPathForUser(ref.path, options.userId)
+            : await fsEntryStore.getEntryByPath(ref.path);
         if ( entry ) return entry;
         return notFoundOrNull(options.required, `Entry not found: path=${ref.path}`);
     }

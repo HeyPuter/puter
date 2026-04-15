@@ -75,14 +75,6 @@ export class SpeechToTextDriver extends PuterDriver {
 
     #openai: OpenAI | null = null;
 
-    private get metering (): MeteringService {
-        return this.services.metering as unknown as MeteringService;
-    }
-
-    private get fsEntryService (): FSEntryService {
-        return this.services.fsEntry as unknown as FSEntryService;
-    }
-
     override onServerStart () {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const cfg = this.config as any;
@@ -132,7 +124,7 @@ export class SpeechToTextDriver extends PuterDriver {
         const userId = Number((actor as { user?: { id?: unknown } }).user?.id ?? NaN);
         if ( Number.isNaN(userId) ) throw new HttpError(401, 'Unauthorized');
 
-        const loaded = await loadFileInput(this.fsEntryService, userId, args.file, {
+        const loaded = await loadFileInput(this.stores, userId, args.file, {
             maxBytes: MAX_AUDIO_FILE_SIZE,
         });
 
@@ -157,7 +149,7 @@ export class SpeechToTextDriver extends PuterDriver {
         // aren't observably sensitive to billing-time delta vs real duration.
         const estimatedSeconds = Math.max(1, Math.ceil(loaded.buffer.byteLength / 16000));
         const usageType = `openai:${selectedModel}:second`;
-        const allowed = await this.metering.hasEnoughCreditsFor(actor, usageType, estimatedSeconds);
+        const allowed = await this.services.metering.hasEnoughCreditsFor(actor, usageType, estimatedSeconds);
         if ( ! allowed ) throw new HttpError(402, 'Insufficient credits');
 
         const openaiFile = await toFile(
@@ -196,7 +188,7 @@ export class SpeechToTextDriver extends PuterDriver {
             ? await this.#openai.audio.translations.create(payload as Parameters<OpenAI['audio']['translations']['create']>[0])
             : await this.#openai.audio.transcriptions.create(payload as Parameters<OpenAI['audio']['transcriptions']['create']>[0]);
 
-        this.metering.incrementUsage(actor, usageType, estimatedSeconds);
+        this.services.metering.incrementUsage(actor, usageType, estimatedSeconds);
 
         // Text response_format: return raw string; otherwise forward the OpenAI object.
         if ( args.response_format === 'text' ) {
