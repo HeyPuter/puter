@@ -26,8 +26,11 @@ export class EventClient extends PuterClient {
     }
 
     /**
+     * Subscribe to an event by exact key. Callback receives the full
+     * `(key, data, meta)` tuple as passed to `emit()` — `key` is useful
+     * for listeners that want to branch on the triggering event name.
      * @param {string} key
-     * @param {(data: unknown, meta: object) => void} callback
+     * @param {(key: string, data: unknown, meta: object) => void} callback
      */
     on (key, callback) {
         if ( ! this.#eventListeners[key] ) {

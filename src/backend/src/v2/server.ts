@@ -6,6 +6,7 @@ import type { Application, RequestHandler } from 'express';
 import helmet from 'helmet';
 import uaParser from 'ua-parser-js';
 import { readdirSync, readFileSync } from 'node:fs';
+import http from 'node:http';
 import { puterClients } from './clients';
 import { puterControllers } from './controllers';
 import { createAuthProbe } from './core/http/middleware/authProbe';
@@ -123,10 +124,13 @@ export class PuterServer {
             controllersContainers[controllerName] = this.controllers[controllerName];
         }
 
-        // Register extension event listeners
+        // Register extension event listeners. Extensions opted for a
+        // 2-arg `(data, meta)` handler shape; EventClient calls with
+        // `(key, data, meta)`. Drop `key` in the adapter so extension
+        // code stays stable.
         Object.entries(extensionStore.events).forEach(([event, handlers]) => {
             handlers.forEach(handler => {
-                this.clients.event.on(event, handler);
+                this.clients.event.on(event, (_key: string, data: unknown, meta: object) => handler(data, meta));
             });
         });
 
@@ -596,7 +600,19 @@ export class PuterServer {
 
     async start () {
         await this.#ready;
-        this.#server = this.#app.listen(this.#config.port, () => {
+
+        // Create the http server explicitly (instead of `app.listen()`) so we
+        // have the server reference BEFORE listen starts — anything that needs
+        // to hook into the raw server (socket.io upgrades, WebSockets, …) runs
+        // its `attachHttpServer(server)` here, pre-listen.
+        const httpServer = http.createServer(this.#app);
+        for ( const service of Object.values(this.services) as Array<WithLifecycle & { attachHttpServer?: (s: http.Server) => void | Promise<void> }> ) {
+            if ( typeof service.attachHttpServer === 'function' ) {
+                await service.attachHttpServer(httpServer);
+            }
+        }
+
+        this.#server = httpServer.listen(this.#config.port, () => {
             console.log(`PuterServer is listening on port: ${this.#config.port}`);
             for ( const client of Object.values(this.clients) as WithLifecycle[] ) {
                 if ( client.onServerStart ) {

@@ -104,11 +104,18 @@ export class LegacyFSController extends PuterController {
             res.json([]);
         });
 
-        // No-op: v1 /update was unused. v1 /cache/last-change-timestamp is
-        // served by a tiny tracker — return 0 for now, revisit if a client
-        // complains.
-        router.get('/cache/last-change-timestamp', apiOptions, (_req, res) => {
-            res.json({ timestamp: 0 });
+        // puter-js polls this to decide whether to purge its in-memory FS
+        // cache. SocketService bumps a per-user Redis key on every
+        // `outer.gui.item.*` mutation — read it back here.
+        router.get('/cache/last-change-timestamp', apiOptions, async (req, res) => {
+            const userId = req.actor?.user?.id;
+            if ( ! userId ) {
+                res.json({ timestamp: 0 });
+                return;
+            }
+            const socket = this.services.socket as unknown as { getLastChangeTimestamp?: (id: number) => Promise<number> } | undefined;
+            const timestamp = socket?.getLastChangeTimestamp ? await socket.getLastChangeTimestamp(userId) : 0;
+            res.json({ timestamp });
         });
 
         // Remaining v1 routes still delegated to legacy modules.
