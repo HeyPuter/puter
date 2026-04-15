@@ -2,6 +2,7 @@ import type { Readable } from 'node:stream';
 import type { Request, Response } from 'express';
 import { HttpError } from '../core/http/HttpError.js';
 import type { PuterRouter } from '../core/http/PuterRouter.js';
+import { checkDriverRateLimit } from '../core/http/middleware/rateLimit.js';
 import type { PermissionService } from '../services/permission/PermissionService.js';
 import type { WithLifecycle } from '../types';
 
@@ -189,6 +190,11 @@ export class DriverRegistry {
                         legacyCode: 'forbidden',
                     });
                 }
+            }
+
+            // Per-user rate limit on driver calls
+            if ( ! checkDriverRateLimit(req, ifaceName, method) ) {
+                throw new HttpError(429, 'Too many requests.');
             }
 
             // Invoke — driver reads actor/context via Context API, no drilled params

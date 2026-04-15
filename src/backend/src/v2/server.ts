@@ -19,6 +19,7 @@ import {
     subdomainGate,
 } from './core/http/middleware/gates';
 import { createNotFoundHandler } from './core/http/middleware/notFoundHandler';
+import { rateLimitGate } from './core/http/middleware/rateLimit';
 import { PuterRouter } from './core/http/PuterRouter';
 import { PREFIX_METADATA_KEY, type RouteDescriptor } from './core/http/types';
 import type { AuthService } from './services/auth/AuthService';
@@ -492,6 +493,12 @@ export class PuterServer {
 
         if ( opts.allowedAppIds ) {
             mwChain.push(allowedAppIdsGate(opts.allowedAppIds));
+        }
+
+        // 2b. Rate limiting. Runs after auth so 'user' key strategy
+        // has access to req.actor.
+        if ( opts.rateLimit ) {
+            mwChain.push(rateLimitGate(opts.rateLimit) as unknown as RequestHandler);
         }
 
         // 3. Per-route body parsers. Each is a no-op when the request's

@@ -114,6 +114,29 @@ export interface RouteOptions {
      */
     bodyUrlencoded?: boolean | { limit?: string; extended?: boolean };
 
+    /**
+     * Per-route rate limiting. In-memory sliding window keyed by
+     * request identity.
+     *
+     * `key` controls how requests are bucketed:
+     *   - `'fingerprint'` (default) — IP + User-Agent hash. Safe for
+     *     shared IPs (offices, VPNs).
+     *   - `'ip'` — bare IP address.
+     *   - `'user'` — actor's user ID. Use for authenticated routes
+     *     where you want per-account limits.
+     *   - `(req) => string` — custom key function.
+     *
+     * `scope` is an optional namespace prefix to isolate counters
+     * between routes that share the same key strategy. Defaults to
+     * the route path.
+     */
+    rateLimit?: {
+        limit: number;
+        window: number;
+        key?: 'fingerprint' | 'ip' | 'user' | ((req: Request) => string);
+        scope?: string;
+    };
+
     // Reserved — wire as the corresponding features/services land:
     // bodyFiles?: string[];      // multer-style multipart fields
     // responseTimeout?: number;
