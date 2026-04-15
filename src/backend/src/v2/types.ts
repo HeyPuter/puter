@@ -120,6 +120,12 @@ export interface IConfig extends Partial<{
     custom_domains_enabled: boolean;
     /** When true, enable IP validation via event bus. */
     enable_ip_validation: boolean;
+    /** Minimum password length for login/signup validation. */
+    min_pass_length: number;
+    /** When true, allow the 'system' user to log in. */
+    allow_system_login: boolean;
+    /** Captcha configuration. */
+    captcha: { enabled: boolean; difficulty?: 'easy' | 'medium' | 'hard' };
     /** Default S3 bucket for file storage. */
     s3_bucket: string;
     /** Default S3 region. */

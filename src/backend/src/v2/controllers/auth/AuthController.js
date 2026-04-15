@@ -1,5 +1,7 @@
 import bcrypt from 'bcrypt';
 import { HttpError } from '../../core/http/HttpError.js';
+import { antiCsrf } from '../../core/http/middleware/antiCsrf.js';
+import { generateCaptcha } from '../../core/http/middleware/captcha.js';
 import { verify as verifyOtp, hashRecoveryCode } from '../../services/auth/OTPUtil.js';
 
 /**
@@ -28,6 +30,7 @@ export class AuthController {
 
         router.post('/login', {
             subdomain: ['api', ''],
+            captcha: true,
             rateLimit: { scope: 'login', limit: 10, window: 15 * 60_000 },
         }, async (req, res) => {
             const { username, email, password } = req.body;
@@ -90,6 +93,7 @@ export class AuthController {
 
         router.post('/login/otp', {
             subdomain: ['api', ''],
+            captcha: true,
             rateLimit: { scope: 'login-otp', limit: 15, window: 30 * 60_000 },
         }, async (req, res) => {
             const { token, code } = req.body;
@@ -115,6 +119,7 @@ export class AuthController {
 
         router.post('/login/recovery-code', {
             subdomain: ['api', ''],
+            captcha: true,
             rateLimit: { scope: 'login-recovery', limit: 10, window: 60 * 60_000 },
         }, async (req, res) => {
             const { token, code } = req.body;
@@ -148,7 +153,7 @@ export class AuthController {
 
         // ── Logout ──────────────────────────────────────────────────
 
-        router.post('/logout', { subdomain: ['api', ''], requireAuth: true }, async (req, res) => {
+        router.post('/logout', { subdomain: ['api', ''], requireAuth: true, antiCsrf: true }, async (req, res) => {
             // Clear the session cookie
             res.clearCookie(this.config.cookie_name);
 
@@ -169,6 +174,23 @@ export class AuthController {
             }
 
             res.send('logged out');
+        });
+
+        // ── Captcha generation ───────────────────────────────────────
+
+        router.get('/api/captcha/generate', { subdomain: '*' }, (_req, res) => {
+            const difficulty = this.config.captcha?.difficulty || 'medium';
+            const { token, image } = generateCaptcha(difficulty);
+            res.json({ token, image });
+        });
+
+        // ── Anti-CSRF token generation ──────────────────────────────
+
+        router.get('/get-anticsrf-token', { subdomain: '', requireAuth: true }, async (req, res) => {
+            const sessionId = req.actor?.user?.uuid;
+            if ( ! sessionId ) throw new HttpError(401, 'Authentication required.');
+            const token = antiCsrf.createToken(sessionId);
+            res.json({ token });
         });
 
         // ── Permission grants ───────────────────────────────────────

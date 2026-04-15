@@ -19,6 +19,8 @@ import {
     subdomainGate,
 } from './core/http/middleware/gates';
 import { createNotFoundHandler } from './core/http/middleware/notFoundHandler';
+import { requireAntiCsrf } from './core/http/middleware/antiCsrf';
+import { captchaGate } from './core/http/middleware/captcha';
 import { rateLimitGate } from './core/http/middleware/rateLimit';
 import { PuterRouter } from './core/http/PuterRouter';
 import { PREFIX_METADATA_KEY, type RouteDescriptor } from './core/http/types';
@@ -499,6 +501,19 @@ export class PuterServer {
         // has access to req.actor.
         if ( opts.rateLimit ) {
             mwChain.push(rateLimitGate(opts.rateLimit) as unknown as RequestHandler);
+        }
+
+        // 2c. Captcha verification. Reads captchaToken + captchaAnswer
+        // from req.body — body is already parsed by the global JSON
+        // middleware at this point.
+        if ( opts.captcha ) {
+            const enabled = Boolean(this.#config.captcha?.enabled);
+            mwChain.push(captchaGate(enabled) as unknown as RequestHandler);
+        }
+
+        // 2d. Anti-CSRF token consumption.
+        if ( opts.antiCsrf ) {
+            mwChain.push(requireAntiCsrf() as unknown as RequestHandler);
         }
 
         // 3. Per-route body parsers. Each is a no-op when the request's

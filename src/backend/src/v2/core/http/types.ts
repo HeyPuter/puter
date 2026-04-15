@@ -115,6 +115,20 @@ export interface RouteOptions {
     bodyUrlencoded?: boolean | { limit?: string; extended?: boolean };
 
     /**
+     * Require captcha verification. When `true`, the route rejects
+     * requests that don't carry valid `captchaToken` + `captchaAnswer`
+     * fields in the body. No-op when captcha is disabled in config.
+     */
+    captcha?: boolean;
+
+    /**
+     * Require a valid one-time anti-CSRF token in `req.body.anti_csrf`.
+     * The token is consumed on use. Requires authentication (keyed by
+     * user uuid).
+     */
+    antiCsrf?: boolean;
+
+    /**
      * Per-route rate limiting. In-memory sliding window keyed by
      * request identity.
      *
