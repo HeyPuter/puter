@@ -8,6 +8,7 @@ import { FSController } from './fs/FSController';
 import { HostingController } from './hosting/HostingController.js';
 import { LegacyFSController } from './fs/LegacyFSController';
 import { NotificationController } from './notification/NotificationController';
+import { OIDCController } from './oidc/OIDCController';
 import { PuterAIController } from './puterai/PuterAIController';
 import { ShareController } from './share/ShareController';
 import { SystemController } from './system/SystemController.js';
@@ -29,4 +30,5 @@ export const puterControllers = {
     notification: NotificationController,
     share: ShareController,
     webdav: WebDAVController,
+    oidc: OIDCController,
 } satisfies IPuterControllerRegistry;

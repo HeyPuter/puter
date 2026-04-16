@@ -2,6 +2,7 @@ import { AppStore } from './app/AppStore.js';
 import { FSEntryStore } from './fs/FSEntryStore.js';
 import { GroupStore } from './group/GroupStore';
 import { NotificationStore } from './notification/NotificationStore.js';
+import { OIDCStore } from './oidc/OIDCStore.js';
 import { PermissionStore } from './permission/PermissionStore';
 import { S3ObjectStore } from './fs/S3ObjectStore.js';
 import { SessionStore } from './session/SessionStore';
@@ -30,4 +31,5 @@ export const puterStores = {
     group: GroupStore,
     permission: PermissionStore,
     session: SessionStore,
+    oidc: OIDCStore,
 } satisfies IPuterStoreRegistry;

@@ -4,7 +4,7 @@ import validator from 'validator';
 import { HttpError } from '../../core/http/HttpError.js';
 import { antiCsrf } from '../../core/http/middleware/antiCsrf.js';
 import { generateCaptcha } from '../../core/http/middleware/captcha.js';
-import { hashRecoveryCode, verify as verifyOtp } from '../../services/auth/OTPUtil.js';
+import { createSecret as otpCreateSecret, createRecoveryCode, hashRecoveryCode, verify as verifyOtp } from '../../services/auth/OTPUtil.js';
 import { generateReferralCode } from '../../services/auth/referralCode.js';
 import { generate_identifier } from '../../util/identifier.js';
 import { PuterController } from '../types.js';
@@ -1140,6 +1140,108 @@ export class AuthController extends PuterController {
             }
             await this.authService.revokeAccessToken(tokenOrUuid);
             res.json({ ok: true });
+        });
+
+        // ── 2FA: configure ─────────────────────────────────────────────
+
+        router.post('/auth/configure-2fa/:action', {
+            subdomain: 'api',
+            requireUserActor: true,
+        }, async (req, res) => {
+            const action = req.params.action;
+            const user = await this.userStore.getById(req.actor.user.id, { force: true });
+            if ( ! user ) throw new HttpError(404, 'User not found');
+
+            if ( action === 'setup' ) {
+                if ( user.otp_enabled ) {
+                    throw new HttpError(409, '2FA is already enabled.');
+                }
+
+                const result = otpCreateSecret(user.username);
+
+                // Generate 10 recovery codes
+                const codes = [];
+                for ( let i = 0; i < 10; i++ ) {
+                    codes.push(createRecoveryCode());
+                }
+                const hashedCodes = codes.map(c => hashRecoveryCode(c));
+
+                await this.clients.db.write(
+                    'UPDATE `user` SET `otp_secret` = ?, `otp_recovery_codes` = ? WHERE `uuid` = ?',
+                    [result.secret, hashedCodes.join(','), user.uuid],
+                );
+                await this.userStore.invalidateById(user.id);
+
+                return res.json({ url: result.url, secret: result.secret, codes });
+            }
+
+            if ( action === 'test' ) {
+                const { code } = req.body ?? {};
+                if ( ! code ) throw new HttpError(400, 'Missing `code`');
+                const ok = verifyOtp(user.username, user.otp_secret, code);
+                return res.json({ ok });
+            }
+
+            if ( action === 'enable' ) {
+                if ( ! user.email_confirmed ) {
+                    throw new HttpError(403, 'Email must be confirmed before enabling 2FA.');
+                }
+                if ( user.otp_enabled ) {
+                    throw new HttpError(409, '2FA is already enabled.');
+                }
+                if ( ! user.otp_secret ) {
+                    throw new HttpError(409, '2FA has not been configured. Call setup first.');
+                }
+
+                await this.clients.db.write(
+                    'UPDATE `user` SET `otp_enabled` = 1 WHERE `uuid` = ?',
+                    [user.uuid],
+                );
+                await this.userStore.invalidateById(user.id);
+
+                if ( this.clients.email && user.email ) {
+                    try {
+                        await this.clients.email.send(user.email, 'enabled_2fa', {
+                            username: user.username,
+                        });
+                    } catch (e) {
+                        console.warn('[configure-2fa] email send failed:', e);
+                    }
+                }
+
+                return res.json({});
+            }
+
+            throw new HttpError(400, `Invalid action: ${action}`);
+        });
+
+        // ── 2FA: disable ───────────────────────────────────────────────
+
+        router.post('/disable-2fa', {
+            subdomain: ['api', ''],
+            requireUserActor: true,
+            rateLimit: { scope: 'disable-2fa', limit: 10, window: 60 * 60_000, key: 'user' },
+        }, async (req, res) => {
+            const user = await this.userStore.getById(req.actor.user.id, { force: true });
+            if ( ! user ) throw new HttpError(404, 'User not found');
+
+            await this.clients.db.write(
+                'UPDATE `user` SET `otp_enabled` = 0, `otp_recovery_codes` = NULL, `otp_secret` = NULL WHERE `uuid` = ?',
+                [user.uuid],
+            );
+            await this.userStore.invalidateById(user.id);
+
+            if ( this.clients.email && user.email ) {
+                try {
+                    await this.clients.email.send(user.email, 'disabled_2fa', {
+                        username: user.username,
+                    });
+                } catch (e) {
+                    console.warn('[disable-2fa] email send failed:', e);
+                }
+            }
+
+            res.json({ success: true });
         });
     }
 
