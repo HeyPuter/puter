@@ -5,7 +5,7 @@
     "checkJs": false,
     "noEmit": false
   },
-  "include": ["./src/backend"],
+  "include": ["./src/backend", "./extensions"],
   "exclude": [
     "**/*.test.ts",
     "**/*.test.mts",
@@ -14,10 +14,10 @@
     "**/*.spec.ts",
     "**/*.spec.mts",
     "**/tests/**",
-    "node_modules",
+    "**/node_modules",
     "dist",
     "volatile",
-    "extensions",
+    "extensions/**/node_modules",
     "src/backend/src/services/worker/template/puter-portable.js"
   ]
 }

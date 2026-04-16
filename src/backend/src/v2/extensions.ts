@@ -1,5 +1,7 @@
 import type { RequestHandler } from 'express';
+import type { puterClients } from './clients';
 import type { IPuterClientRegistry } from './clients/types';
+import type { puterControllers } from './controllers';
 import type { IPuterControllerRegistry } from './controllers/types';
 import type {
     RouteDescriptor,
@@ -7,10 +9,14 @@ import type {
     RouteOptions,
     RoutePath,
 } from './core/http/types';
+import type { puterDrivers } from './drivers';
 import type { IPuterDriverRegistry } from './drivers/types';
-import { clientsContainers, controllersContainers, driversContainers, servicesContainers, storesContainers } from './exports';
+import { clientsContainers, configContainer, controllersContainers, driversContainers, servicesContainers, storesContainers } from './exports';
+import type { puterServices } from './services';
 import type { IPuterServiceRegistry } from './services/types';
+import type { puterStores } from './stores';
 import type { IPuterStoreRegistry } from './stores/types';
+import type { LayerInstances } from './types';
 
 /**
  * The in-memory registry an extension's module-scope code writes into, and
@@ -23,7 +29,8 @@ export const extensionStore = {
     services: {} as IPuterServiceRegistry,
     controllers: {} as IPuterControllerRegistry,
     drivers: {} as IPuterDriverRegistry,
-    events: {} as Record<string, ((eventData: unknown, metadata: object) => void)[]>,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    events: {} as Record<string, ((...args: any[]) => void)[]>,
     /**
      * Extension-declared routes. Shape matches the controller-layer
      * `RouteDescriptor`, so both flow through the same materializer
@@ -84,10 +91,19 @@ const makeRouteFn = (method: RouteMethod): ExtensionRouteFn => {
  *     proxy to the registered instance (thrown on use-before-init).
  */
 export const extension = {
+    // ── Config access ───────────────────────────────────────────────
+    //
+    // Lazy proxy to the server config. Populated by PuterServer during
+    // boot, so extensions can read it at request time (not import time).
+
+    get config (): Record<string, unknown> {
+        return configContainer;
+    },
+
     // ── Event subscription ───────────────────────────────────────────
 
-    // TODO DS: type eventData somehow
-    on: (event: string, handler: (eventData: unknown, metadata: object) => void) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    on: (event: string, handler: (...args: any[]) => void) => {
         if ( ! extensionStore.events[event] ) {
             extensionStore.events[event] = [];
         }
@@ -135,10 +151,19 @@ export const extension = {
 
     // ── Import proxy ─────────────────────────────────────────────────
 
-    import: (name: string) => {
-        const container = name.split(':')[0];
-        switch ( container ) {
-            case 'client':{
+    import: <S extends string>(name: S): S extends 'client'
+        ? LayerInstances<typeof puterClients>
+        : S extends 'store'
+            ? LayerInstances<typeof puterStores>
+            : S extends 'service'
+                ? LayerInstances<typeof puterServices>
+                : S extends 'controller'
+                    ? LayerInstances<typeof puterControllers>
+                    : S extends 'driver'
+                        ? LayerInstances<typeof puterDrivers>
+                        : never => {
+        switch ( name ) {
+            case 'client': {
                 const proxyHandler = {
                     get: (_target: object, prop: string) => {
                         const proxiedObj = clientsContainers[prop];
@@ -148,9 +173,10 @@ export const extension = {
                         return proxiedObj;
                     },
                 };
-                return new Proxy({}, proxyHandler);
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                return new Proxy({}, proxyHandler) as any;
             }
-            case 'store':{
+            case 'store': {
                 const proxyHandler = {
                     get: (_target: object, prop: string) => {
                         const proxiedObj = storesContainers[prop];
@@ -160,9 +186,10 @@ export const extension = {
                         return proxiedObj;
                     },
                 };
-                return new Proxy({}, proxyHandler);
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                return new Proxy({}, proxyHandler) as any;
             }
-            case 'service':{
+            case 'service': {
                 const proxyHandler = {
                     get: (_target: object, prop: string) => {
                         const proxiedObj = servicesContainers[prop];
@@ -172,9 +199,10 @@ export const extension = {
                         return proxiedObj;
                     },
                 };
-                return new Proxy({}, proxyHandler);
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                return new Proxy({}, proxyHandler) as any;
             }
-            case 'controller':{
+            case 'controller': {
                 const proxyHandler = {
                     get: (_target: object, prop: string) => {
                         const proxiedObj = controllersContainers[prop];
@@ -184,9 +212,10 @@ export const extension = {
                         return proxiedObj;
                     },
                 };
-                return new Proxy({}, proxyHandler);
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                return new Proxy({}, proxyHandler) as any;
             }
-            case 'driver':{
+            case 'driver': {
                 const proxyHandler = {
                     get: (_target: object, prop: string) => {
                         const proxiedObj = driversContainers[prop];
@@ -196,13 +225,12 @@ export const extension = {
                         return proxiedObj;
                     },
                 };
-                return new Proxy({}, proxyHandler);
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                return new Proxy({}, proxyHandler) as any;
             }
             default:
-                throw new Error(`Unknown import ${name}`);
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                return undefined as any;
         }
     },
 };
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-(globalThis as any).extension = extension;

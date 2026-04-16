@@ -27,7 +27,7 @@ import { PuterRouter } from './core/http/PuterRouter';
 import { PREFIX_METADATA_KEY, type RouteDescriptor } from './core/http/types';
 import type { AuthService } from './services/auth/AuthService';
 import { puterDrivers } from './drivers';
-import { clientsContainers, controllersContainers, driversContainers, servicesContainers, storesContainers } from './exports';
+import { clientsContainers, configContainer, controllersContainers, driversContainers, servicesContainers, storesContainers } from './exports';
 import { extensionStore } from './extensions';
 import { puterServices } from './services';
 import { puterStores } from './stores';
@@ -49,11 +49,17 @@ export class PuterServer {
     constructor (config: IConfig, clients: typeof puterClients, stores: typeof puterStores, services: typeof puterServices, controllers: typeof puterControllers, drivers: typeof puterDrivers) {
 
         this.#config = config;
+        // Expose config to the extension API (extension.config)
+        Object.assign(configContainer, config);
         this.#ready = this.#setupServer(clients, stores, services, controllers, drivers);
     }
 
     async #setupServer (clients: typeof puterClients, stores: typeof puterStores, services: typeof puterServices, controllers: typeof puterControllers, drivers: typeof puterDrivers) {
 
+        // Load OSS extensions (statically imported, part of the module graph)
+        await import('./extensions/index.js');
+
+        // Load prod extensions from configured directories (dynamic)
         const extensionDirs = this.#config.extensions;
         await this.#importExtensions(extensionDirs);
 

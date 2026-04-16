@@ -1,8 +1,0 @@
-{
-    "name": "@heyputer/test-actions",
-    "version": "1.0.0",
-    "description": "Actions for test purposes",
-    "main": "main.js",
-    "type": "module",
-    "private": true
-}

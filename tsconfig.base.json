@@ -3,7 +3,7 @@
     "target": "esnext",
     "module": "esnext",
     "moduleResolution": "bundler",
-    "rootDir": "./src/backend",
+    "rootDir": ".",
     "strict": true,
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true,

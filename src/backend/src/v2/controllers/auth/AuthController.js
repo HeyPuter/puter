@@ -1243,6 +1243,24 @@ export class AuthController extends PuterController {
 
             res.json({ success: true });
         });
+
+        // ── Developer profile ──────────────────────────────────────────
+
+        router.get('/get-dev-profile', {
+            subdomain: 'api',
+            requireUserActor: true,
+        }, async (req, res) => {
+            const user = await this.userStore.getById(req.actor.user.id, { force: true });
+            if ( ! user ) throw new HttpError(404, 'User not found');
+
+            res.json({
+                first_name: user.first_name ?? null,
+                last_name: user.last_name ?? null,
+                approved_for_incentive_program: Boolean(user.approved_for_incentive_program),
+                joined_incentive_program: Boolean(user.joined_incentive_program),
+                paypal: user.paypal ?? null,
+            });
+        });
     }
 
     // ── Helpers ──────────────────────────────────────────────────────

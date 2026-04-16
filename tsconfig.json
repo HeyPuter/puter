@@ -5,7 +5,11 @@
         "checkJs": false,
         "noEmit": true
     },
-    "include": ["./src/backend", "src/backend/src/deprecated/filesystem/PuterS3StorageStrategy.js"],
+    "include": [
+        "./src/backend",
+        "./extensions",
+        "src/backend/src/deprecated/filesystem/PuterS3StorageStrategy.js"
+    ],
     "exclude": [
         "**/*.test.ts",
         "**/*.test.mts",
@@ -14,10 +18,10 @@
         "**/*.spec.ts",
         "**/*.spec.mts",
         "**/tests/**",
-        "node_modules",
+        "**/node_modules",
         "dist",
         "volatile",
-        "extensions",
+        "extensions/**/node_modules",
         "src/backend/src/services/worker/template/puter-portable.js",
         "src/backend/src/services/DynamoKVStore/DynamoKVStore.ts"
     ]
