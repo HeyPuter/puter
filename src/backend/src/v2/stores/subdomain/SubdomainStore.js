@@ -62,6 +62,29 @@ export class SubdomainStore extends PuterStore {
         return rows[0]?.n ?? 0;
     }
 
+    async getByDomain (domain) {
+        const rows = await this.clients.db.read(
+            'SELECT * FROM `subdomains` WHERE `domain` = ? LIMIT 1',
+            [domain],
+        );
+        return rows[0] ?? null;
+    }
+
+    async listByDomain (domain) {
+        return this.clients.db.read(
+            'SELECT * FROM `subdomains` WHERE `domain` = ?',
+            [domain],
+        );
+    }
+
+    async listByUserIdAndPrefix (userId, prefix) {
+        const like = `${prefix}%`;
+        return this.clients.db.read(
+            'SELECT * FROM `subdomains` WHERE `user_id` = ? AND `subdomain` LIKE ?',
+            [userId, like],
+        );
+    }
+
     // ── Writes ───────────────────────────────────────────────────────
 
     async create ({ userId, subdomain, rootDirId, associatedAppId = null, appOwner = null }) {
