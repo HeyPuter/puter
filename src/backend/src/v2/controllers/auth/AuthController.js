@@ -1261,6 +1261,147 @@ export class AuthController extends PuterController {
                 paypal: user.paypal ?? null,
             });
         });
+
+        // ── Group management ───────────────────────────────────────────
+
+        router.post('/group/create', { subdomain: 'api', requireUserActor: true }, async (req, res) => {
+            const extra = req.body.extra ?? {};
+            const metadata = req.body.metadata ?? {};
+            if ( typeof extra !== 'object' || Array.isArray(extra) ) throw new HttpError(400, '`extra` must be an object');
+            if ( typeof metadata !== 'object' || Array.isArray(metadata) ) throw new HttpError(400, '`metadata` must be an object');
+
+            const uid = await this.groupStore.create({
+                ownerUserId: req.actor.user.id,
+                extra: {},
+                metadata,
+            });
+            res.json({ uid });
+        });
+
+        router.post('/group/add-users', { subdomain: 'api', requireUserActor: true }, async (req, res) => {
+            const { uid, users } = req.body ?? {};
+            if ( ! uid ) throw new HttpError(400, 'Missing `uid`');
+            if ( ! Array.isArray(users) ) throw new HttpError(400, '`users` must be an array');
+
+            const group = await this.groupStore.getByUid(uid);
+            if ( ! group ) throw new HttpError(404, 'Group not found');
+            if ( group.owner_user_id !== req.actor.user.id ) throw new HttpError(403, 'Forbidden');
+
+            await this.groupStore.addUsers(uid, users);
+            res.json({});
+        });
+
+        router.post('/group/remove-users', { subdomain: 'api', requireUserActor: true }, async (req, res) => {
+            const { uid, users } = req.body ?? {};
+            if ( ! uid ) throw new HttpError(400, 'Missing `uid`');
+            if ( ! Array.isArray(users) ) throw new HttpError(400, '`users` must be an array');
+
+            const group = await this.groupStore.getByUid(uid);
+            if ( ! group ) throw new HttpError(404, 'Group not found');
+            if ( group.owner_user_id !== req.actor.user.id ) throw new HttpError(403, 'Forbidden');
+
+            await this.groupStore.removeUsers(uid, users);
+            res.json({});
+        });
+
+        router.get('/group/list', { subdomain: 'api', requireUserActor: true }, async (req, res) => {
+            const userId = req.actor.user.id;
+            const [owned, member] = await Promise.all([
+                this.groupStore.listByOwner(userId),
+                this.groupStore.listByMember(userId),
+            ]);
+            res.json({
+                owned_groups: owned,
+                in_groups: member,
+            });
+        });
+
+        router.get('/group/public-groups', { subdomain: 'api' }, async (_req, res) => {
+            res.json({
+                user: this.config.default_user_group ?? null,
+                temp: this.config.default_temp_group ?? null,
+            });
+        });
+
+        // ── Session helpers ────────────────────────────────────────────
+
+        router.get('/get-gui-token', { subdomain: ['api', ''], requireUserActor: true }, async (req, res) => {
+            if ( ! req.actor?.session?.uid ) throw new HttpError(400, 'No session bound to this actor');
+            const user = await this.userStore.getById(req.actor.user.id);
+            if ( ! user ) throw new HttpError(404, 'User not found');
+            const guiToken = this.authService.createGuiToken(user, req.actor.session.uid);
+            res.json({ token: guiToken });
+        });
+
+        router.get('/session/sync-cookie', { subdomain: ['api', ''], requireUserActor: true }, async (req, res) => {
+            if ( ! req.actor?.session?.uid ) { res.status(400).end(); return; }
+            const user = await this.userStore.getById(req.actor.user.id);
+            if ( ! user ) { res.status(404).end(); return; }
+            const sessionToken = this.authService.createSessionTokenForSession(user, req.actor.session.uid);
+            res.cookie(this.config.cookie_name, sessionToken, {
+                sameSite: 'none',
+                secure: true,
+                httpOnly: true,
+            });
+            res.status(204).end();
+        });
+
+        // ── ACL direct ─────────────────────────────────────────────────
+
+        router.post('/acl/stat-user-user', { subdomain: 'api', requireUserActor: true }, async (req, res) => {
+            const targetUsername = req.body?.user;
+            const resource = req.body?.resource;
+            if ( !targetUsername ) throw new HttpError(400, 'Missing `user`');
+            if ( !resource ) throw new HttpError(400, 'Missing `resource`');
+
+            const targetUser = await this.userStore.getByUsername(targetUsername);
+            if ( ! targetUser ) throw new HttpError(404, 'User not found');
+
+            const targetActor = { user: { id: targetUser.id, uuid: targetUser.uuid, username: targetUser.username } };
+            const readPerm = await this.permissionService.check(targetActor, `fs:${resource}:read`).catch(() => false);
+            const writePerm = await this.permissionService.check(targetActor, `fs:${resource}:write`).catch(() => false);
+
+            res.json({ permissions: { read: readPerm, write: writePerm } });
+        });
+
+        router.post('/acl/set-user-user', { subdomain: 'api', requireUserActor: true }, async (req, res) => {
+            const { user: targetUsername, resource, mode } = req.body ?? {};
+            if ( !targetUsername || !resource || !mode ) throw new HttpError(400, 'Missing `user`, `resource`, or `mode`');
+
+            const targetUser = await this.userStore.getByUsername(targetUsername);
+            if ( ! targetUser ) throw new HttpError(404, 'User not found');
+
+            if ( mode === 'write' ) {
+                await this.permissionService.grantUserUserPermission(req.actor, targetUsername, `fs:${resource}:read`, {});
+                await this.permissionService.grantUserUserPermission(req.actor, targetUsername, `fs:${resource}:write`, {});
+            } else if ( mode === 'read' ) {
+                await this.permissionService.grantUserUserPermission(req.actor, targetUsername, `fs:${resource}:read`, {});
+                await this.permissionService.revokeUserUserPermission(req.actor, targetUsername, `fs:${resource}:write`);
+            } else if ( mode === 'none' ) {
+                await this.permissionService.revokeUserUserPermission(req.actor, targetUsername, `fs:${resource}:read`);
+                await this.permissionService.revokeUserUserPermission(req.actor, targetUsername, `fs:${resource}:write`);
+            } else {
+                throw new HttpError(400, 'Invalid `mode` — expected read, write, or none');
+            }
+            res.json({});
+        });
+
+        // ── Delete own account ─────────────────────────────────────────
+        // ⚠ FLAG: v1 uses `deleteUser()` helper which cascades across FS,
+        // sessions, permissions, apps, etc. v2 does a simple user row delete.
+        // Full cascade needs implementing in UserStore or a dedicated service.
+
+        router.post('/delete-own-user', { subdomain: ['api', ''], requireUserActor: true }, async (req, res) => {
+            const userId = req.actor.user.id;
+            res.clearCookie(this.config.cookie_name);
+            res.clearCookie('puter_revalidation');
+
+            // Delete user row — CASCADE on FK handles sessions, permissions, etc.
+            await this.clients.db.write('DELETE FROM `user` WHERE `id` = ?', [userId]);
+            await this.userStore.invalidateById(userId);
+
+            res.json({ success: true });
+        });
     }
 
     // ── Helpers ──────────────────────────────────────────────────────

@@ -4,6 +4,7 @@ import { SuggestedAppsService } from './apps/SuggestedAppsService';
 import { AuthService } from './auth/AuthService';
 import { BroadcastService } from './broadcast/BroadcastService';
 import { NotificationService } from './notification/NotificationService';
+import { AppIconService } from './appIcon/AppIconService';
 import { OIDCService } from './auth/OIDCService';
 import { TokenService } from './auth/TokenService';
 import { FSEntryService } from './fs/FSEntryService';
@@ -33,4 +34,5 @@ export const puterServices = {
     notification: NotificationService,
     broadcast: BroadcastService,
     oidc: OIDCService,
+    appIcon: AppIconService,
 } satisfies IPuterServiceRegistry;

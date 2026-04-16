@@ -13,6 +13,7 @@ import { PuterAIController } from './puterai/PuterAIController';
 import { ShareController } from './share/ShareController';
 import { SystemController } from './system/SystemController.js';
 import { WebDAVController } from './webdav/WebDAVController';
+import { WispController } from './wisp/WispController';
 import type { IPuterControllerRegistry } from './types';
 
 export const puterControllers = {
@@ -31,4 +32,5 @@ export const puterControllers = {
     share: ShareController,
     webdav: WebDAVController,
     oidc: OIDCController,
+    wisp: WispController,
 } satisfies IPuterControllerRegistry;

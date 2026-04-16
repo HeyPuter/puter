@@ -109,6 +109,129 @@ export class AppController extends PuterController {
             }
             res.json(results);
         });
+
+        // ── POST /query/app ────────────────────────────────────────
+        // Batch query app metadata by name or UID.
+
+        router.post('/query/app', {
+            subdomain: 'api',
+            requireAuth: true,
+        }, async (req, res) => {
+            const appList = Array.isArray(req.body) ? req.body : [];
+            const results = [];
+
+            for ( const selector of appList ) {
+                if ( typeof selector !== 'string' ) continue;
+                const isUid = selector.startsWith('app-');
+                const app = isUid
+                    ? await this.appStore.getByUid(selector)
+                    : await this.appStore.getByName(selector);
+                if ( ! app ) continue;
+
+                const assocRows = await this.clients.db.read(
+                    'SELECT `type` FROM `app_filetype_association` WHERE `app_id` = ?',
+                    [app.id],
+                );
+
+                results.push({
+                    uuid: app.uid,
+                    name: app.name,
+                    title: app.title,
+                    description: app.description,
+                    metadata: app.metadata,
+                    tags: typeof app.tags === 'string' ? app.tags.split(',') : [],
+                    created: app.timestamp,
+                    associations: assocRows.map(r => r.type),
+                });
+            }
+
+            res.json(results);
+        });
+
+        // ── GET /app-icon/:app_uid(/:size) ─────────────────────────
+        // Serve app icon — data URL decoded inline, HTTP URL redirected.
+        //
+        // ⚠ FLAG: Missing sharp-based resize pipeline.
+        // v1 stored pre-sized PNGs via sharp; this serves the original.
+
+        const ICON_SIZES = [16, 32, 64, 128, 256, 512];
+        const DEFAULT_ICON_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+
+        const serveIcon = async (req, res) => {
+            let appUid = String(req.params.app_uid ?? '');
+            const size = Number(req.params.size ?? 128);
+            if ( ! appUid ) {
+                res.status(400).send('Missing app_uid'); return;
+            }
+            if ( ! ICON_SIZES.includes(size) ) {
+                res.status(400).send('Invalid size'); return;
+            }
+            if ( ! appUid.startsWith('app-') ) appUid = `app-${appUid}`;
+
+            // Try S3 first — AppIconService uploads sized PNGs here
+            try {
+                const bucket = this.config.s3_bucket ?? 'puter-local';
+                const s3Key = `app-icons/${appUid}-${size}.png`;
+                const result = await this.stores.s3Object.getObjectStream(
+                    { bucket, objectKey: s3Key },
+                    this.config.s3_region ?? this.config.region ?? 'us-east-1',
+                );
+                if ( result?.body ) {
+                    res.set('Content-Type', 'image/png');
+                    res.set('Cache-Control', 'public, max-age=3600');
+                    result.body.pipe(res);
+                    return;
+                }
+            } catch {
+                // S3 miss — fall through to DB icon
+            }
+
+            const app = await this.appStore.getByUid(appUid);
+            const icon = app?.icon;
+
+            if ( ! icon ) {
+                res.set('Content-Type', 'image/png');
+                res.set('Cache-Control', 'public, max-age=3600');
+                res.send(Buffer.from(DEFAULT_ICON_B64, 'base64'));
+                return;
+            }
+
+            // Data URL — decode and serve directly
+            if ( icon.startsWith('data:') ) {
+                const commaIdx = icon.indexOf(',');
+                if ( commaIdx === -1 ) {
+                    res.set('Content-Type', 'image/png');
+                    res.send(Buffer.from(DEFAULT_ICON_B64, 'base64'));
+                    return;
+                }
+                const mime = icon.slice(5, icon.indexOf(';')) || 'image/png';
+                res.set('Content-Type', mime);
+                res.set('Cache-Control', 'public, max-age=60');
+                res.send(Buffer.from(icon.slice(commaIdx + 1), 'base64'));
+
+                // Trigger background generation so next request hits S3
+                this.clients.event.emit('app.new-icon', {
+                    app_uid: appUid,
+                    data_url: icon,
+                }, {});
+                return;
+            }
+
+            // HTTP URL — redirect
+            if ( icon.startsWith('http://') || icon.startsWith('https://') ) {
+                res.set('Cache-Control', 'public, max-age=900');
+                res.redirect(302, icon);
+                return;
+            }
+
+            // Fallback
+            res.set('Content-Type', 'image/png');
+            res.set('Cache-Control', 'public, max-age=3600');
+            res.send(Buffer.from(DEFAULT_ICON_B64, 'base64'));
+        };
+
+        router.get('/app-icon/:app_uid', {}, serveIcon);
+        router.get('/app-icon/:app_uid/:size', {}, serveIcon);
     }
 
     onServerStart () {

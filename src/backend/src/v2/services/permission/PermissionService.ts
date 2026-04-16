@@ -651,7 +651,7 @@ export class PermissionService extends PuterService {
 
     async grantUserAppPermission (actor: Actor, appIdentifier: string, permission: string, extra: Record<string, unknown> = {}, meta: GrantMeta = {}): Promise<void> {
         permission = await this.rewritePermission(permission);
-        const app = await this.stores.permission.resolveApp(appIdentifier);
+        const app = await this.stores.app.resolveApp(appIdentifier);
         if ( ! app ) throw new Error(`entity_not_found: app:${appIdentifier}`);
         if ( ! actor.user?.id ) throw new Error('grantUserAppPermission: actor lacks user.id');
 
@@ -675,7 +675,7 @@ export class PermissionService extends PuterService {
     async revokeUserAppPermission (actor: Actor, appIdentifier: string, permission: string, meta: GrantMeta = {}): Promise<void> {
         permission = await this.rewritePermission(permission);
         if ( actor.app ) throw new Error('actor must be a user');
-        const app = await this.stores.permission.resolveApp(appIdentifier);
+        const app = await this.stores.app.resolveApp(appIdentifier);
         if ( ! app ) throw new Error(`entity_not_found: app${appIdentifier}`);
         if ( ! actor.user?.id ) throw new Error('revokeUserAppPermission: actor lacks user.id');
 
@@ -692,7 +692,7 @@ export class PermissionService extends PuterService {
 
     async revokeUserAppAll (actor: Actor, appIdentifier: string, meta: GrantMeta = {}): Promise<void> {
         if ( actor.app ) throw new Error('actor must be a user');
-        const app = await this.stores.permission.resolveApp(appIdentifier);
+        const app = await this.stores.app.resolveApp(appIdentifier);
         if ( ! app ) throw new Error(`entity_not_found: app${appIdentifier}`);
         if ( ! actor.user?.id ) throw new Error('revokeUserAppAll: actor lacks user.id');
 
@@ -709,7 +709,7 @@ export class PermissionService extends PuterService {
 
     async grantDevAppPermission (actor: Actor, appIdentifier: string, permission: string, extra: Record<string, unknown> = {}, meta: GrantMeta = {}): Promise<void> {
         permission = await this.rewritePermission(permission);
-        const app = await this.stores.permission.resolveApp(appIdentifier);
+        const app = await this.stores.app.resolveApp(appIdentifier);
         if ( ! app ) throw new Error(`entity_not_found: app:${appIdentifier}`);
         if ( ! (await this.canManagePermission(actor, permission)) ) throw new Error(`permission_denied: ${permission}`);
         if ( ! actor.user?.id ) throw new Error('grantDevAppPermission: actor lacks user.id');
@@ -728,7 +728,7 @@ export class PermissionService extends PuterService {
     async revokeDevAppPermission (actor: Actor, appIdentifier: string, permission: string, meta: GrantMeta = {}): Promise<void> {
         permission = await this.rewritePermission(permission);
         if ( actor.app ) throw new Error('actor must be a user');
-        const app = await this.stores.permission.resolveApp(appIdentifier);
+        const app = await this.stores.app.resolveApp(appIdentifier);
         if ( ! app ) throw new Error(`entity_not_found: app${appIdentifier}`);
         if ( ! actor.user?.id ) throw new Error('revokeDevAppPermission: actor lacks user.id');
 
@@ -745,7 +745,7 @@ export class PermissionService extends PuterService {
 
     async revokeDevAppAll (actor: Actor, appIdentifier: string, meta: GrantMeta = {}): Promise<void> {
         if ( actor.app ) throw new Error('actor must be a user');
-        const app = await this.stores.permission.resolveApp(appIdentifier);
+        const app = await this.stores.app.resolveApp(appIdentifier);
         if ( ! app ) throw new Error(`entity_not_found: app${appIdentifier}`);
         if ( ! actor.user?.id ) throw new Error('revokeDevAppAll: actor lacks user.id');
 
@@ -816,9 +816,9 @@ export class PermissionService extends PuterService {
             return { user: u ? { id: u.id, uuid: u.uuid, username: u.username, email: u.email } : null, permission: r.permission };
         }));
         const apps = await Promise.all(appRows.map(async r => {
-            const a = await this.stores.permission.getAppById(r.app_id);
+            const a = await this.stores.app.getById(r.app_id);
             return { app: a ? { id: a.id, uid: a.uid, name: a.name } : null, permission: r.permission };
-        }));
+        })) as Array<{ app: { id: number; uid: string; name?: string } | null; permission: string }>;;
         return { users, apps };
     }
 

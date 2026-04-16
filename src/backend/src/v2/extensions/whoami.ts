@@ -2,6 +2,7 @@ import TimeAgo from 'javascript-time-ago';
 import localeEn from 'javascript-time-ago/locale/en';
 import { extension } from '../extensions.js';
 import { Context } from '../core/context';
+import { getTaskbarItems } from './taskbarItems.js';
 
 const stores   = extension.import('store');
 const services = extension.import('service');
@@ -26,6 +27,9 @@ extension.get('/whoami', { subdomain: 'api', requireAuth: true }, async (req, re
     }
 
     const oidcOnly = user.password === null;
+    const iconSize = typeof req.query?.icon_size === 'string' ? Number(req.query.icon_size) : undefined;
+    const noIcons = !iconSize;
+
     const details: Record<string, unknown> = {
         username: user.username,
         uuid: user.uuid,
@@ -38,6 +42,9 @@ extension.get('/whoami', { subdomain: 'api', requireAuth: true }, async (req, re
         desktop_bg_fit: user.desktop_bg_fit,
         is_temp: (user.password === null && user.email === null),
         oidc_only: oidcOnly,
+        taskbar_items: isUser
+            ? await getTaskbarItems(user, { iconSize, noIcons })
+            : undefined,
         referral_code: user.referral_code,
         otp: !!user.otp_enabled,
         human_readable_age: user.timestamp

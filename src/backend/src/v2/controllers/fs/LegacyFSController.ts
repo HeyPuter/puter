@@ -165,6 +165,45 @@ export class LegacyFSController extends PuterController {
             res.json({ timestamp });
         });
 
+        // ── POST /readdir-subdomains ────────────────────────────────
+        router.post('/readdir-subdomains', apiOptions, async (req: Request, res: Response) => {
+            const userId = req.actor?.user?.id;
+            if ( ! userId ) throw new HttpError(401, 'Authentication required');
+            const rows = await this.clients.db.read(
+                'SELECT `subdomain`, `root_dir_id`, `uuid`, `ts` FROM `subdomains` WHERE `user_id` = ?',
+                [userId],
+            );
+            res.json(rows);
+        });
+
+        // ── POST /update-fsentry-thumbnail ──────────────────────────
+        router.post('/update-fsentry-thumbnail', apiOptions, async (req: Request, res: Response) => {
+            const userId = req.actor?.user?.id;
+            if ( ! userId ) throw new HttpError(401, 'Authentication required');
+            const { uid, thumbnail } = (req.body ?? {}) as { uid?: string; thumbnail?: string };
+            if ( ! uid ) throw new HttpError(400, 'Missing `uid`');
+            if ( ! thumbnail ) throw new HttpError(400, 'Missing `thumbnail`');
+
+            const entry = await this.stores.fsEntry.getEntryByUuid(uid);
+            if ( ! entry || entry.userId !== userId ) throw new HttpError(403, 'Access denied');
+
+            // Emit thumbnail.created so the thumbnails extension can S3-upload
+            const event = { url: thumbnail };
+            this.clients.event.emit('thumbnail.created', event, {});
+
+            await this.clients.db.write(
+                'UPDATE `fsentries` SET `thumbnail` = ? WHERE `uuid` = ?',
+                [event.url, uid],
+            );
+            res.json({ thumbnail: event.url });
+        });
+
+        // ── GET /video/proxy ────────────────────────────────────────
+        // ⚠ FLAG: v1 proxies AI-generated video URLs. Stubbed.
+        router.get('/video/proxy', apiOptions, async (_req: Request, res: Response) => {
+            res.status(501).json({ error: 'Video proxy not yet implemented in v2' });
+        });
+
         // Remaining v1 routes still delegated to legacy modules.
         for ( const key of Object.keys(additionalRoutePaths) ) {
             router.use(this.#createLazyHandler(key, this.#additionalCache, loadAdditionalRouter));

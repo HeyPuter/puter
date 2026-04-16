@@ -1,9 +1,8 @@
 import { v4 as uuidv4, v5 as uuidv5 } from 'uuid';
+import type { Actor } from '../../core/actor';
+import type { UserRow } from '../../stores/user/UserStore';
 import type { LayerInstances } from '../../types';
 import type { puterServices } from '../index';
-import type { Actor } from '../../core/actor';
-import type { AppRow } from '../../stores/permission/PermissionStore';
-import type { UserRow } from '../../stores/user/UserStore';
 import { PuterService } from '../types';
 import type {
     AccessTokenPayload,
@@ -279,7 +278,7 @@ export class AuthService extends PuterService {
         const user = await this.stores.user.getByUuid(decoded.user_uid);
         if ( ! user ) return null;
 
-        const app = await this.stores.permission.getAppByUid(decoded.app_uid);
+        const app = await this.stores.app.getByUid(decoded.app_uid);
         if ( ! app ) return null;
 
         return this.#buildAppUnderUserActor(user, app, session);
@@ -295,7 +294,7 @@ export class AuthService extends PuterService {
         // can exercise — either a plain user or an app-under-user.
         let authorizer: Actor;
         if ( decoded.app_uid ) {
-            const app = await this.stores.permission.getAppByUid(decoded.app_uid);
+            const app = await this.stores.app.getByUid(decoded.app_uid);
             if ( ! app ) return null;
             authorizer = this.#buildAppUnderUserActor(user, app, null);
         } else {
@@ -333,7 +332,7 @@ export class AuthService extends PuterService {
         };
     }
 
-    #buildAppUnderUserActor (user: UserRow, app: AppRow, session: SessionRow | null): Actor {
+    #buildAppUnderUserActor (user: UserRow, app: { uid: string, id: number }, session: SessionRow | null): Actor {
         return {
             user: this.#actorUserFromRow(user),
             app: {

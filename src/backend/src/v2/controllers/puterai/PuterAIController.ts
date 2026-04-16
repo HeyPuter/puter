@@ -29,6 +29,34 @@ export class PuterAIController extends PuterController {
         router.post('/openai/v1/completions', apiOpts, this.openaiCompletions);
         router.post('/openai/v1/responses', apiOpts, this.openaiResponses);
         router.post('/anthropic/v1/messages', apiOpts, this.anthropicMessages);
+
+        // Model listing — enumerate available models per AI service
+        router.get('/chat/models', apiOpts, this.#listModels('aiChat'));
+        router.get('/chat/models/details', apiOpts, this.#modelDetails('aiChat'));
+        router.get('/image/models', apiOpts, this.#listModels('aiImage'));
+        router.get('/image/models/details', apiOpts, this.#modelDetails('aiImage'));
+        router.get('/video/models', apiOpts, this.#listModels('aiVideo'));
+        router.get('/video/models/details', apiOpts, this.#modelDetails('aiVideo'));
+    }
+
+    #listModels (driverKey: string) {
+        return async (_req: Request, res: Response): Promise<void> => {
+            const driver = (this.drivers as Record<string, unknown>)[driverKey] as { list?: () => string[] } | undefined;
+            if ( !driver?.list ) throw new HttpError(501, 'Model listing not available');
+            const models = driver.list();
+            const HIDDEN = ['costly', 'fake', 'abuse', 'model-fallback-test-1'];
+            res.json({ models: (models as string[]).filter(m => !HIDDEN.includes(m)) });
+        };
+    }
+
+    #modelDetails (driverKey: string) {
+        return async (_req: Request, res: Response): Promise<void> => {
+            const driver = (this.drivers as Record<string, unknown>)[driverKey] as { models?: () => Array<{ id: string }> } | undefined;
+            if ( !driver?.models ) throw new HttpError(501, 'Model details not available');
+            const models = driver.models();
+            const HIDDEN = ['costly', 'fake', 'abuse', 'model-fallback-test-1'];
+            res.json({ models: (models as Array<{ id: string }>).filter(m => !HIDDEN.includes(m.id)) });
+        };
     }
 
     // ── /openai/v1/chat/completions ─────────────────────────────────

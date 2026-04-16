@@ -80,6 +80,24 @@ export class SystemController extends PuterController {
 
             res.json({});
         });
+
+        // ── GET /whoarewe ───────────────────────────────────────────
+
+        router.get('/whoarewe', {}, (_req, res) => {
+            res.json({
+                name: 'Puter',
+                version: this.config.version ?? null,
+                environment: this.config.env ?? 'prod',
+            });
+        });
+
+        // ── GET /lsmod ──────────────────────────────────────────────
+
+        router.get('/lsmod', { subdomain: 'api', requireAuth: true }, (_req, res) => {
+            // In v2 the driver registry lives in DriverController.
+            // This endpoint returns a simplified view.
+            res.json({ info: 'Use /drivers/list-interfaces for driver details' });
+        });
     }
 
     onServerStart () {

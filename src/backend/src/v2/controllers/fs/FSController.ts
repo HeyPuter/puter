@@ -1290,7 +1290,7 @@ export class FSController extends PuterController {
             }
 
             const createdLookupPromise = (async () => {
-                const app = await this.stores.permission.getAppByUid(normalizedAppUid);
+                const app = await this.stores.app.getByUid(normalizedAppUid);
                 return this.#toNumber(app?.id) ?? null;
             })();
             appUidLookupCache?.set(normalizedAppUid, createdLookupPromise);

@@ -30,9 +30,15 @@ export class AppStore extends PuterStore {
 
     // ── Reads ────────────────────────────────────────────────────────
 
-    async getByUid (uid) { return this.#getByProperty('uid', uid); }
-    async getById (id) { return this.#getByProperty('id', id); }
-    async getByName (name) { return this.#getByProperty('name', name); }
+    async getByUid (uid) {
+        return this.#getByProperty('uid', uid);
+    }
+    async getById (id) {
+        return this.#getByProperty('id', id);
+    }
+    async getByName (name) {
+        return this.#getByProperty('name', name);
+    }
 
     async existsByName (name) {
         const rows = await this.clients.db.read(
@@ -195,7 +201,7 @@ export class AppStore extends PuterStore {
             'DELETE FROM `app_filetype_association` WHERE `app_id` = ?',
             [appId],
         );
-        if ( ! Array.isArray(types) || types.length === 0 ) return;
+        if ( !Array.isArray(types) || types.length === 0 ) return;
         for ( const type of types ) {
             await this.clients.db.write(
                 'INSERT INTO `app_filetype_association` (`app_id`, `type`) VALUES (?, ?)',
@@ -219,6 +225,16 @@ export class AppStore extends PuterStore {
     async invalidateById (id) {
         const cached = await this.#readCache('id', id);
         if ( cached ) await this.invalidate(cached);
+    }
+
+    async invalidateByUid (uid) {
+        const cached = await this.#readCache('uid', uid);
+        if ( cached ) await this.invalidate(cached);
+    }
+
+    /** Resolve an app by either uid or name; tries uid first, then name. */
+    async resolveApp (identifier) {
+        return (await this.getByUid(identifier)) ?? (await this.getByName(identifier));
     }
 
     // ── Internals ────────────────────────────────────────────────────
@@ -292,7 +308,11 @@ export class AppStore extends PuterStore {
         }
         // Parse metadata
         if ( typeof row.metadata === 'string' ) {
-            try { row.metadata = JSON.parse(row.metadata); } catch { row.metadata = null; }
+            try {
+                row.metadata = JSON.parse(row.metadata);
+            } catch {
+                row.metadata = null;
+            }
         }
         // Alias created_at
         if ( row.timestamp !== undefined && row.created_at === undefined ) {

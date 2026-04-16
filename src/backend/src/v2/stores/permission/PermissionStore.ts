@@ -11,13 +11,6 @@ export type { UserRow };
 
 // ── Types ────────────────────────────────────────────────────────────
 
-export interface AppRow {
-    id: number;
-    uid: string;
-    name?: string;
-    [k: string]: unknown;
-}
-
 export interface FlatPermValue {
     permission?: string;
     issuer_user_id?: number;
@@ -373,28 +366,6 @@ export class PermissionStore extends PuterStore {
             [issuerUserId, holderUserId, `${prefix}%`],
         );
         return rows.map(r => String(r.permission));
-    }
-
-    // ── App lookups (user lookups live on `stores.user`) ────────────
-
-    async getAppByUid (uid: string): Promise<AppRow | null> {
-        const rows = await this.clients.db.read('SELECT * FROM `app` WHERE `uid` = ? LIMIT 1', [uid]);
-        return (rows[0] as AppRow | undefined) ?? null;
-    }
-
-    async getAppByName (name: string): Promise<AppRow | null> {
-        const rows = await this.clients.db.read('SELECT * FROM `app` WHERE `name` = ? LIMIT 1', [name]);
-        return (rows[0] as AppRow | undefined) ?? null;
-    }
-
-    async getAppById (id: number): Promise<AppRow | null> {
-        const rows = await this.clients.db.read('SELECT * FROM `app` WHERE `id` = ? LIMIT 1', [id]);
-        return (rows[0] as AppRow | undefined) ?? null;
-    }
-
-    /** Resolve an app by either uid or name; tries uid first, then name. */
-    async resolveApp (identifier: string): Promise<AppRow | null> {
-        return (await this.getAppByUid(identifier)) ?? (await this.getAppByName(identifier));
     }
 
     // ── Scan cache (redis) ──────────────────────────────────────────
