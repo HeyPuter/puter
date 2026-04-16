@@ -6,6 +6,7 @@
  */
 
 import PuterWebComponent from '../PuterWebComponent.js';
+import { defaultFontFamily, defaultButtonCSS } from '../PuterDefaultStyles.js';
 
 const PRESET_COLORS = [
     '#000000', '#434343', '#666666', '#999999', '#b7b7b7', '#cccccc', '#d9d9d9', '#efefef', '#f3f3f3', '#ffffff',
@@ -20,6 +21,163 @@ const PRESET_COLORS = [
 
 class PuterColorPicker extends PuterWebComponent {
     #currentColor = '#3b82f6';
+
+    getDefaultStyles () {
+        return `
+            dialog {
+                background: transparent;
+                border: none;
+                box-shadow: none;
+                outline: none;
+                padding: 0;
+                max-width: 90vw;
+            }
+            dialog::backdrop {
+                background: rgba(0, 0, 0, 0.5);
+            }
+            .picker-body {
+                background-color: rgba(231, 238, 245, .95);
+                backdrop-filter: blur(3px);
+                -webkit-backdrop-filter: blur(3px);
+                border: none;
+                border-radius: 8px;
+                padding: 24px;
+                box-shadow: 0px 0px 15px #00000066;
+                font-family: ${defaultFontFamily};
+                color: #414650;
+                width: 350px;
+                max-width: calc(100vw - 32px);
+                box-sizing: border-box;
+            }
+            .header {
+                display: flex;
+                align-items: center;
+                gap: 14px;
+                margin-bottom: 20px;
+            }
+            .preview {
+                width: 56px;
+                height: 56px;
+                border-radius: 4px;
+                border: 1px solid #b9b9b9;
+                background: var(--current-color, #3b82f6);
+                flex-shrink: 0;
+                transition: background 0.15s ease;
+            }
+            .header-info {
+                flex: 1;
+                min-width: 0;
+            }
+            .header-label {
+                font-size: 12px;
+                color: #666666;
+                margin-bottom: 4px;
+                text-transform: uppercase;
+                letter-spacing: 0.06em;
+            }
+            .hex-input {
+                width: 100%;
+                padding: 8px;
+                font-family: ui-monospace, "SF Mono", Menlo, monospace;
+                font-size: 14px;
+                border: 1px solid #b9b9b9;
+                border-radius: 4px;
+                color: #414650;
+                box-sizing: border-box;
+                outline: none;
+                text-transform: uppercase;
+                transition: border-color 0.15s ease;
+            }
+            .hex-input:focus {
+                border: 2px solid #01a0fd;
+                padding: 7px;
+            }
+            .native-color-row {
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                margin-bottom: 18px;
+                padding: 10px 12px;
+                background: rgba(255, 255, 255, 0.5);
+                border: 1px solid #b9b9b9;
+                border-radius: 4px;
+            }
+            .native-color-row label {
+                font-size: 13px;
+                color: #666666;
+                cursor: pointer;
+                flex: 1;
+            }
+            input[type="color"] {
+                width: 36px;
+                height: 36px;
+                padding: 0;
+                border: 1px solid #b9b9b9;
+                border-radius: 4px;
+                cursor: pointer;
+                background: transparent;
+            }
+            input[type="color"]::-webkit-color-swatch-wrapper { padding: 2px; }
+            input[type="color"]::-webkit-color-swatch { border: none; border-radius: 2px; }
+            .swatches {
+                display: grid;
+                grid-template-columns: repeat(10, 1fr);
+                gap: 5px;
+                margin-bottom: 20px;
+            }
+            .swatch {
+                aspect-ratio: 1;
+                border-radius: 3px;
+                cursor: pointer;
+                border: 1px solid rgba(0, 0, 0, 0.06);
+                transition: transform 0.1s ease;
+            }
+            .swatch:hover {
+                transform: scale(1.15);
+                z-index: 1;
+            }
+            .swatch.selected {
+                outline: 2px solid #01a0fd;
+                outline-offset: 2px;
+            }
+            .buttons {
+                display: flex;
+                justify-content: flex-end;
+                gap: 10px;
+            }
+            ${defaultButtonCSS}
+            .btn-cancel {
+                /* uses base .btn styles */
+            }
+            .btn-ok {
+                border-color: #088ef0;
+                background: linear-gradient(#34a5f8, #088ef0);
+                color: white;
+                min-width: 90px;
+            }
+            .btn-ok:active {
+                background-color: #2798eb;
+                border-color: #2798eb;
+                color: #bedef5;
+            }
+            @media (max-width: 480px) {
+                .picker-body {
+                    width: 100%;
+                    padding: 20px;
+                }
+                .swatches {
+                    grid-template-columns: repeat(8, 1fr);
+                }
+                .btn {
+                    padding: 0 20px;
+                    font-size: 16px;
+                    height: 40px;
+                    line-height: 40px;
+                    flex: 1;
+                }
+            }
+        `;
+    }
 
     getStyles () {
         return `

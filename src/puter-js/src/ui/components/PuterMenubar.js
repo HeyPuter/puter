@@ -8,6 +8,7 @@
  */
 
 import PuterWebComponent from '../PuterWebComponent.js';
+import { defaultFontFamily } from '../PuterDefaultStyles.js';
 
 class PuterMenubar extends PuterWebComponent {
     #items = [];
@@ -20,8 +21,7 @@ class PuterMenubar extends PuterWebComponent {
     set items (val) {
         this.#items = val || [];
         if ( this.shadowRoot && this.isConnected ) {
-            this.shadowRoot.innerHTML = `<style>${this.getStyles()}</style>${this.render()}`;
-            this.onReady();
+            this._rerender();
         }
     }
 
@@ -99,6 +99,64 @@ class PuterMenubar extends PuterWebComponent {
         `;
     }
 
+    getDefaultStyles () {
+        return `
+            :host {
+                position: fixed;
+                top: 0;
+                left: 0;
+                right: 0;
+                z-index: 9999;
+                font-family: ${defaultFontFamily};
+                user-select: none;
+                -webkit-user-select: none;
+            }
+            .menubar {
+                display: flex;
+                box-sizing: border-box;
+                overflow: hidden;
+                border-bottom: 1px solid #e3e3e3;
+                background-color: #fafafa;
+                padding: 2px 5px;
+                align-items: center;
+                height: 32px;
+            }
+            .menu-button {
+                background: none;
+                border: none;
+                font-family: inherit;
+                padding: 3px 10px;
+                font-size: 13px;
+                border-radius: 3px;
+                cursor: default;
+                color: #333;
+                line-height: 1.2;
+                margin: 0 1px;
+            }
+            .menu-button:hover,
+            .menu-button.active {
+                background-color: #e2e2e2;
+            }
+            @media (max-width: 480px) {
+                .menubar {
+                    height: 40px;
+                    overflow-x: auto;
+                    overflow-y: hidden;
+                    -webkit-overflow-scrolling: touch;
+                    scrollbar-width: none;
+                }
+                .menubar::-webkit-scrollbar {
+                    display: none;
+                }
+                .menu-button {
+                    font-size: 14px;
+                    padding: 6px 12px;
+                    flex-shrink: 0;
+                }
+            }
+        `;
+    }
+
     render () {
         const items = this.#items || [];
         const buttonsHTML = items.map((item, index) => {
@@ -147,6 +205,7 @@ class PuterMenubar extends PuterWebComponent {
         const rect = buttonEl.getBoundingClientRect();
         const dropdown = document.createElement('puter-context-menu');
         dropdown.setAttribute('data-submenu', ''); // skip mobile sheet behavior
+        dropdown.setAttribute('theme', this.getTheme());
         dropdown.items = item.items;
         dropdown.setAttribute('x', String(rect.left));
         dropdown.setAttribute('y', String(rect.bottom));

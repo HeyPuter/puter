@@ -7,7 +7,7 @@
  */
 
 import PuterWebComponent from '../PuterWebComponent.js';
-import { themeCSS } from '../PuterTheme.js';
+import { defaultFontFamily } from '../PuterDefaultStyles.js';
 
 class PuterContextMenu extends PuterWebComponent {
     #items = [];
@@ -20,8 +20,7 @@ class PuterContextMenu extends PuterWebComponent {
     set items (val) {
         this.#items = val || [];
         if ( this.shadowRoot && this.isConnected ) {
-            this.shadowRoot.innerHTML = `<style>${themeCSS}\n${this.getStyles()}</style>${this.render()}`;
-            this.onReady();
+            this._rerender();
         }
     }
 
@@ -229,6 +228,182 @@ class PuterContextMenu extends PuterWebComponent {
         `;
     }
 
+    getDefaultStyles () {
+        // Copied directly from src/gui/src/css/style.css (.context-menu rules)
+        return `
+            :host {
+                position: fixed;
+                z-index: 9999999999;
+            }
+
+            /* .context-menu — lines 1647-1666 of style.css */
+            .context-menu {
+                overflow: hidden;
+                white-space: nowrap;
+                font-family: sans-serif;
+                background: #FFF;
+                color: #333;
+                border-radius: 2px;
+                padding: 3px 0;
+                min-width: 200px;
+                background-color: rgb(255 255 255 / 92%);
+                backdrop-filter: blur(3px);
+                border: 1px solid #e6e4e466;
+                box-shadow: 0px 0px 15px #00000066;
+                padding-left: 6px;
+                padding-right: 6px;
+                padding-top: 4px;
+                padding-bottom: 4px;
+                user-select: none;
+                -webkit-user-select: none;
+            }
+
+            /* .context-menu-item:not(.context-menu-divider) — lines 1686-1694 */
+            .menu-item {
+                display: flex;
+                align-items: center;
+                padding: 5px;
+                list-style-type: none;
+                user-select: none;
+                -webkit-user-select: none;
+                font-size: 12px;
+                height: 25px;
+                box-sizing: border-box;
+                position: relative;
+                cursor: default;
+                white-space: nowrap;
+                color: #333;
+            }
+
+            /* .context-menu-item-active:not(.context-menu-divider) — lines 1742-1745 */
+            .menu-item:hover:not(.disabled):not(.divider),
+            .menu-item.has-open-submenu {
+                background-color: hsl(213, 74%, 56%);
+                color: white;
+                border-radius: 4px;
+            }
+
+            /* Active item turns all children white */
+            .menu-item:hover:not(.disabled):not(.divider) .icon,
+            .menu-item:hover:not(.disabled):not(.divider) .check,
+            .menu-item:hover:not(.disabled):not(.divider) .submenu-arrow,
+            .menu-item:hover:not(.disabled):not(.divider) .shortcut,
+            .menu-item:hover:not(.disabled):not(.divider) .label,
+            .menu-item.has-open-submenu .icon,
+            .menu-item.has-open-submenu .check,
+            .menu-item.has-open-submenu .submenu-arrow,
+            .menu-item.has-open-submenu .shortcut,
+            .menu-item.has-open-submenu .label {
+                color: white;
+            }
+            .menu-item:hover:not(.disabled):not(.divider) .icon svg,
+            .menu-item.has-open-submenu .icon svg {
+                filter: brightness(0) invert(1);
+            }
+            .menu-item:hover:not(.disabled):not(.divider) .icon img,
+            .menu-item.has-open-submenu .icon img {
+                filter: brightness(0) invert(1);
+            }
+
+            /* .has-open-context-menu-submenu — line 1738-1739 */
+            .menu-item.has-open-submenu:not(:hover) {
+                background-color: #dfdfdf;
+                color: #333;
+            }
+            .menu-item.has-open-submenu:not(:hover) .icon,
+            .menu-item.has-open-submenu:not(:hover) .icon svg,
+            .menu-item.has-open-submenu:not(:hover) .icon img {
+                filter: none;
+                color: #333;
+            }
+
+            /* .context-menu-item-disabled — lines 1753-1758 */
+            .menu-item.disabled {
+                opacity: 0.5;
+                background-color: transparent;
+                color: initial;
+                cursor: initial;
+            }
+
+            /* Danger items: no special color in puter.com default theme */
+            .menu-item.danger {
+                color: #333;
+            }
+            .menu-item.danger .icon {
+                color: #333;
+            }
+
+            /* .context-menu-divider — lines 1681-1684 */
+            .divider {
+                padding-top: 5px;
+                padding-bottom: 5px;
+                cursor: default;
+                height: auto;
+                pointer-events: none;
+            }
+            .divider hr {
+                border: none;
+                margin-top: 0;
+                margin-bottom: 0;
+                border-top: 1px solid #00000033;
+            }
+
+            /* .context-menu-item-icon — lines 1760-1767 */
+            .icon {
+                display: inline-block;
+                width: 20px;
+                text-align: center;
+                margin-right: 5px;
+                font-size: 14px;
+                line-height: 5px;
+                flex-shrink: 0;
+                color: #333;
+            }
+            .icon svg {
+                width: 15px;
+                height: 15px;
+                vertical-align: middle;
+            }
+            /* .ctx-item-icon — lines 1696-1703 */
+            .icon img {
+                width: 15px;
+                height: 15px;
+                object-fit: contain;
+                filter: drop-shadow(0px 0px 0.3px rgb(51, 51, 51));
+            }
+
+            .label {
+                flex: 1;
+                font-weight: 400;
+            }
+
+            .check {
+                width: 20px;
+                text-align: center;
+                margin-right: 5px;
+                flex-shrink: 0;
+                font-size: 14px;
+                line-height: 5px;
+                color: #333;
+            }
+
+            /* .submenu-arrow — lines 1705-1709 */
+            .submenu-arrow {
+                width: 15px;
+                height: 15px;
+                float: right;
+                flex-shrink: 0;
+                color: #555;
+            }
+
+            .shortcut {
+                margin-left: 16px;
+                font-size: 11px;
+                color: #999;
+            }
+        `;
+    }
+
     render () {
         return `<div class="context-menu">${this._renderItems(this.#items)}</div>`;
     }
@@ -422,6 +597,7 @@ class PuterContextMenu extends PuterWebComponent {
 
         const submenu = document.createElement('puter-context-menu');
         submenu.setAttribute('data-submenu', '');
+        submenu.setAttribute('theme', this.getTheme());
         submenu.items = items;
         // Position relative to parent item
         const rect = parentEl.getBoundingClientRect();

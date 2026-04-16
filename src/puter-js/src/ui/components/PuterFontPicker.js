@@ -6,6 +6,7 @@
  */
 
 import PuterWebComponent from '../PuterWebComponent.js';
+import { defaultFontFamily, defaultButtonCSS } from '../PuterDefaultStyles.js';
 
 const SYSTEM_FONTS = [
     // System / sans-serif
@@ -33,6 +34,159 @@ const SYSTEM_FONTS = [
 
 class PuterFontPicker extends PuterWebComponent {
     #selected = null;
+
+    getDefaultStyles () {
+        return `
+            dialog {
+                background: transparent;
+                border: none;
+                box-shadow: none;
+                outline: none;
+                padding: 0;
+                max-width: 90vw;
+                max-height: 90vh;
+            }
+            dialog::backdrop {
+                background: rgba(0, 0, 0, 0.5);
+            }
+            .picker-body {
+                background-color: rgba(231, 238, 245, .95);
+                backdrop-filter: blur(3px);
+                -webkit-backdrop-filter: blur(3px);
+                border: none;
+                border-radius: 8px;
+                padding: 24px;
+                box-shadow: 0px 0px 15px #00000066;
+                font-family: ${defaultFontFamily};
+                color: #414650;
+                width: 350px;
+                max-width: calc(100vw - 32px);
+                box-sizing: border-box;
+                display: flex;
+                flex-direction: column;
+                max-height: 80vh;
+            }
+            .header {
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                margin-bottom: 16px;
+            }
+            .title {
+                font-size: 15px;
+                font-weight: 600;
+                color: #414650;
+                text-shadow: 1px 1px #ffffff52;
+                flex: 1;
+            }
+            .search {
+                width: 100%;
+                padding: 8px;
+                font-size: 14px;
+                border: 1px solid #b9b9b9;
+                border-radius: 4px;
+                outline: none;
+                box-sizing: border-box;
+                font-family: ${defaultFontFamily};
+                margin-bottom: 14px;
+                transition: border-color 0.15s ease;
+            }
+            .search:focus {
+                border: 2px solid #01a0fd;
+                padding: 7px;
+            }
+            .font-list {
+                height: 200px;
+                overflow-y: scroll;
+                background-color: white;
+                padding: 0 10px;
+                margin-bottom: 16px;
+                border-radius: 4px;
+                border: 1px solid #b9b9b9;
+            }
+            .font-item {
+                padding: 10px;
+                border-radius: 2px;
+                margin: 10px 0;
+                cursor: pointer;
+                font-size: 16px;
+                color: #414650;
+                display: flex;
+                align-items: baseline;
+                gap: 12px;
+                transition: background 0.08s ease;
+            }
+            .font-item:hover {
+                background: rgba(0, 0, 0, 0.04);
+            }
+            .font-item.selected {
+                color: white;
+                background-color: #2b62f1;
+            }
+            .font-item.selected .font-name-label {
+                color: rgba(255, 255, 255, 0.7);
+            }
+            .font-name-label {
+                font-family: ${defaultFontFamily};
+                font-size: 12px;
+                color: #888;
+                flex-shrink: 0;
+                margin-left: auto;
+            }
+            .preview {
+                padding: 14px;
+                background: white;
+                border: 1px solid #b9b9b9;
+                border-radius: 4px;
+                font-size: 24px;
+                margin-bottom: 16px;
+                min-height: 40px;
+                color: #414650;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+            .buttons {
+                display: flex;
+                justify-content: flex-end;
+                gap: 10px;
+            }
+            ${defaultButtonCSS}
+            .btn-cancel {
+                /* uses base .btn styles */
+            }
+            .btn-ok {
+                border-color: #088ef0;
+                background: linear-gradient(#34a5f8, #088ef0);
+                color: white;
+                min-width: 90px;
+            }
+            .btn-ok:active {
+                background-color: #2798eb;
+                border-color: #2798eb;
+                color: #bedef5;
+            }
+            .btn-ok:disabled {
+                opacity: 0.5;
+                cursor: not-allowed;
+                box-shadow: none;
+            }
+            @media (max-width: 480px) {
+                .picker-body {
+                    width: 100%;
+                    padding: 20px;
+                    max-height: 90vh;
+                }
+                .btn {
+                    padding: 0 20px;
+                    font-size: 16px;
+                    height: 40px;
+                    line-height: 40px;
+                    flex: 1;
+                }
+            }
+        `;
+    }
 
     getStyles () {
         return `
@@ -223,6 +377,11 @@ class PuterFontPicker extends PuterWebComponent {
             f.name.toLowerCase() === defaultFont.toLowerCase() ||
             f.family.toLowerCase().includes(defaultFont.toLowerCase())) || SYSTEM_FONTS[0];
 
+        const isDefault = this.getTheme() === 'default';
+        const fontListHTML = isDefault
+            ? this._renderDefaultFontList(SYSTEM_FONTS)
+            : this._renderFontList(SYSTEM_FONTS);
+
         return `
             <dialog>
                 <div class="picker-body">
@@ -232,7 +391,7 @@ class PuterFontPicker extends PuterWebComponent {
                     <input class="search" type="text" placeholder="Search fonts...">
                     <div class="preview" style="font-family: ${this.#selected.family}">The quick brown fox</div>
                     <div class="font-list">
-                        ${this._renderFontList(SYSTEM_FONTS)}
+                        ${fontListHTML}
                     </div>
                     <div class="buttons">
                         <button class="btn btn-cancel">Cancel</button>
@@ -259,6 +418,17 @@ class PuterFontPicker extends PuterWebComponent {
                     <span class="font-name-label">${this._escapeHTML(cat)}</span>
                 </div>
             `).join('')}
+        `).join('');
+    }
+
+    _renderDefaultFontList (fonts) {
+        // Flat list without category headers for the default puter.com theme
+        return fonts.map(f => `
+            <div class="font-item${f.name === this.#selected.name ? ' selected' : ''}"
+                 data-name="${this._escapeAttr(f.name)}"
+                 style="font-family: ${f.family}">
+                ${this._escapeHTML(f.name)}
+            </div>
         `).join('');
     }
 
@@ -297,7 +467,10 @@ class PuterFontPicker extends PuterWebComponent {
             const q = e.target.value.toLowerCase();
             const filtered = SYSTEM_FONTS.filter(f =>
                 f.name.toLowerCase().includes(q) || f.category.toLowerCase().includes(q));
-            list.innerHTML = this._renderFontList(filtered);
+            const isDefault = this.getTheme() === 'default';
+            list.innerHTML = isDefault
+                ? this._renderDefaultFontList(filtered)
+                : this._renderFontList(filtered);
             bindItems();
         });
 

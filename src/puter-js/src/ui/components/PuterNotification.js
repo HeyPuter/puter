@@ -7,6 +7,7 @@
  */
 
 import PuterWebComponent from '../PuterWebComponent.js';
+import { defaultFontFamily } from '../PuterDefaultStyles.js';
 
 // Static notification stack manager
 const activeNotifications = [];
@@ -49,6 +50,134 @@ const TYPE_ICONS = {
 };
 
 class PuterNotification extends PuterWebComponent {
+    getDefaultStyles () {
+        return `
+            :host {
+                position: fixed;
+                right: ${NOTIFICATION_RIGHT}px;
+                z-index: 999999;
+                pointer-events: auto;
+                transition: top 0.35s cubic-bezier(0.4, 0, 0.2, 1),
+                            opacity 0.3s ease,
+                            transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+            }
+            .notification {
+                width: 320px;
+                border-radius: 11px;
+                min-height: 54px;
+                background: #ffffffcd;
+                backdrop-filter: blur(5px);
+                -webkit-backdrop-filter: blur(5px);
+                box-shadow: 0px 0px 17px -9px #000;
+                border: 1px solid #d5d5d5;
+                margin-bottom: 10px;
+                display: flex;
+                flex-direction: row;
+                font-family: ${defaultFontFamily};
+                cursor: pointer;
+                position: relative;
+            }
+            .notification:hover .close-btn {
+                display: block;
+            }
+            .close-btn {
+                position: absolute;
+                background: white;
+                border: none;
+                border-radius: 100%;
+                top: -6px;
+                left: -6px;
+                width: 13px;
+                height: 13px;
+                padding: 2px;
+                filter: drop-shadow(0px 0px 0.5px rgb(51, 51, 51));
+                display: none;
+                cursor: pointer;
+                font-size: 9px;
+                line-height: 1;
+                text-align: center;
+                color: #666;
+                z-index: 1;
+            }
+            .close-btn:hover {
+                background: #f0f0f0;
+                color: #222;
+            }
+            .icon-area {
+                width: 40px;
+                margin: 10px 5px 10px 15px;
+                border-radius: 50%;
+                filter: drop-shadow(0px 0px 0.5px rgb(51, 51, 51));
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                flex-shrink: 0;
+            }
+            .icon-area svg {
+                width: 35px;
+                height: 35px;
+            }
+            .icon-area img {
+                width: 35px;
+                height: 35px;
+                object-fit: contain;
+                border-radius: 50%;
+            }
+            :host([round-icon]) .icon-area img {
+                border-radius: 50%;
+            }
+            .content {
+                flex-grow: 1;
+                display: flex;
+                flex-direction: column;
+                padding: 10px;
+                min-width: 0;
+            }
+            .title {
+                font-size: 12px;
+                font-weight: 600;
+                color: #333;
+                line-height: 1.3;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+            .text {
+                font-size: 12px;
+                color: #555;
+                margin-top: 4px;
+                line-height: 1.4;
+                overflow: hidden;
+                display: -webkit-box;
+                -webkit-line-clamp: 2;
+                -webkit-box-orient: vertical;
+            }
+            /* Entrance animation */
+            :host(.entering) {
+                transform: translateX(110%) scale(0.95);
+                opacity: 0;
+            }
+            :host(.visible) {
+                transform: translateX(0) scale(1);
+                opacity: 1;
+            }
+            /* Exit animation */
+            :host(.exiting) {
+                transform: translateX(110%) scale(0.95);
+                opacity: 0;
+            }
+            @media (max-width: 480px) {
+                :host {
+                    right: 10px;
+                    left: 10px;
+                }
+                .notification {
+                    width: auto;
+                }
+            }
+        `;
+    }
+
     getStyles () {
         return `
             :host {
@@ -242,14 +371,26 @@ class PuterNotification extends PuterWebComponent {
         const text = this.getAttribute('text') || '';
         const icon = this.getAttribute('icon') || '';
         const type = this.getAttribute('type') || 'default';
+        const isDefault = this.getTheme() === 'default';
 
         let iconHTML;
-        if ( icon ) {
-            iconHTML = `<div class="icon-container" style="background: ${TYPE_ACCENTS[type]?.bg || TYPE_ACCENTS.default.bg}"><img src="${this._escapeAttr(icon)}" alt=""></div>`;
+        if ( isDefault ) {
+            // Default theme: simpler icon without gradient background
+            if ( icon ) {
+                iconHTML = `<div class="icon-area"><img src="${this._escapeAttr(icon)}" alt=""></div>`;
+            } else {
+                const accent = TYPE_ACCENTS[type] || TYPE_ACCENTS.default;
+                const iconSvg = TYPE_ICONS[type] || TYPE_ICONS.default;
+                iconHTML = `<div class="icon-area" style="color: ${accent.color}">${iconSvg}</div>`;
+            }
         } else {
-            const accent = TYPE_ACCENTS[type] || TYPE_ACCENTS.default;
-            const iconSvg = TYPE_ICONS[type] || TYPE_ICONS.default;
-            iconHTML = `<div class="icon-container" style="background: ${accent.bg}; color: ${accent.color}">${iconSvg}</div>`;
+            if ( icon ) {
+                iconHTML = `<div class="icon-container" style="background: ${TYPE_ACCENTS[type]?.bg || TYPE_ACCENTS.default.bg}"><img src="${this._escapeAttr(icon)}" alt=""></div>`;
+            } else {
+                const accent = TYPE_ACCENTS[type] || TYPE_ACCENTS.default;
+                const iconSvg = TYPE_ICONS[type] || TYPE_ICONS.default;
+                iconHTML = `<div class="icon-container" style="background: ${accent.bg}; color: ${accent.color}">${iconSvg}</div>`;
+            }
         }
 
         return `

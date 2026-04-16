@@ -336,7 +336,24 @@ el.open();
 
 ## Theming
 
-All components share a set of CSS custom properties defined in `PuterTheme.js`. CSS custom properties pierce Shadow DOM, so you can override them on any ancestor (e.g., `:root` or `body`).
+All components support a `theme` attribute with two values:
+
+| Value | Description |
+|-------|-------------|
+| `"default"` | Matches puter.com's native GUI appearance exactly. This is the default when no `theme` attribute is set. |
+| `"custom"` | Uses CSS custom properties for full customization. Override `--puter-*` variables to create your own look. |
+
+```html
+<!-- Default: matches puter.com -->
+<puter-alert message="Hello"></puter-alert>
+
+<!-- Custom: use CSS variables to style -->
+<puter-alert message="Hello" theme="custom"></puter-alert>
+```
+
+### Custom theme variables
+
+When using `theme="custom"`, components read CSS custom properties defined in `PuterTheme.js`. CSS custom properties pierce Shadow DOM, so you can override them on any ancestor (e.g., `:root` or `body`).
 
 ```css
 :root {

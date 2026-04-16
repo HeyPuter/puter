@@ -7,6 +7,7 @@
  */
 
 import PuterWebComponent from '../PuterWebComponent.js';
+import { defaultFontFamily } from '../PuterDefaultStyles.js';
 
 const ALERT_ICONS = {
     error: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -174,6 +175,135 @@ class PuterAlert extends PuterWebComponent {
         `;
     }
 
+    getDefaultStyles () {
+        return `
+            dialog {
+                background: transparent;
+                border: none;
+                box-shadow: none;
+                outline: none;
+                padding: 0;
+                max-width: 90vw;
+            }
+            dialog::backdrop {
+                background: rgba(0, 0, 0, 0.5);
+            }
+            .alert-body {
+                background-color: rgba(231, 238, 245, .95);
+                backdrop-filter: blur(3px);
+                -webkit-backdrop-filter: blur(3px);
+                border: none;
+                border-radius: 4px;
+                padding: 32px;
+                box-shadow: 0px 0px 15px #00000066;
+                font-family: ${defaultFontFamily};
+                color: #414650;
+                width: 350px;
+                max-width: calc(100vw - 32px);
+                box-sizing: border-box;
+                text-align: center;
+            }
+            .icon-container {
+                width: 64px;
+                margin: 10px auto 20px;
+                display: block;
+                text-align: center;
+            }
+            .icon-container svg {
+                width: 64px;
+                height: 64px;
+            }
+            .message {
+                font-size: 15px;
+                line-height: 1.5;
+                color: #414650;
+                text-shadow: 1px 1px #ffffff52;
+                text-align: center;
+                margin-top: 10px;
+                margin-bottom: 20px;
+            }
+            .buttons {
+                display: flex;
+                flex-direction: column;
+                gap: 10px;
+                margin-top: 10px;
+            }
+            button {
+                width: 100%;
+                height: 35px;
+                line-height: 35px;
+                padding: 0;
+                border-radius: 4px;
+                font-size: 14px;
+                font-weight: 400;
+                cursor: pointer;
+                font-family: ${defaultFontFamily};
+                box-sizing: border-box;
+                outline: none;
+                color: #666666;
+                border: 1px solid #b9b9b9;
+                background: linear-gradient(#f6f6f6, #e1e1e1);
+                box-shadow: inset 0px 1px 0px rgb(255 255 255 / 30%), 0 1px 2px rgb(0 0 0 / 15%);
+            }
+            button:active {
+                background-color: #eeeeee;
+                border-color: #cfcfcf;
+                color: #a9a9a9;
+                box-shadow: inset 0px 2px 3px rgb(0 0 0 / 36%), 0px 1px 0px white;
+            }
+            button:focus-visible {
+                border-color: rgb(118 118 118);
+            }
+            .btn-primary {
+                background: linear-gradient(#34a5f8, #088ef0);
+                border: 1px solid #088ef0;
+                color: white;
+            }
+            .btn-primary:active {
+                background-color: #2798eb;
+                border-color: #2798eb;
+                color: #bedef5;
+            }
+            .btn-danger {
+                background: linear-gradient(#ff4e4e, #ff4c4c);
+                border: 1px solid #f00808;
+                color: white;
+            }
+            .btn-success {
+                background: linear-gradient(#29d55d, #1ccd60);
+                border: 1px solid #08bf4e;
+                color: white;
+            }
+            .btn-warning {
+                background: linear-gradient(#ffb74d, #ffa000);
+                border: 1px solid #ffa000;
+                color: #333;
+            }
+            .btn-info {
+                background: linear-gradient(#42a5f5, #1976d2);
+                border: 1px solid #1976d2;
+                color: white;
+            }
+            .btn-default {
+                color: #666666;
+                border: 1px solid #b9b9b9;
+                background: linear-gradient(#f6f6f6, #e1e1e1);
+                box-shadow: inset 0px 1px 0px rgb(255 255 255 / 30%), 0 1px 2px rgb(0 0 0 / 15%);
+            }
+            @media (max-width: 480px) {
+                .alert-body {
+                    width: 100%;
+                    padding: 24px 20px;
+                }
+                button {
+                    height: 40px;
+                    line-height: 40px;
+                    font-size: 16px;
+                }
+            }
+        `;
+    }
+
     render () {
         const message = this.getAttribute('message') || '';
         const type = this.#options?.type || this.getAttribute('type') || '';
@@ -181,10 +311,18 @@ class PuterAlert extends PuterWebComponent {
 
         let iconHTML = '';
         if ( type && ALERT_ICONS[type] ) {
-            iconHTML = `
-                <div class="icon-container" style="background: ${ICON_BG[type]}; color: ${ICON_COLORS[type]}">
-                    ${ALERT_ICONS[type]}
-                </div>`;
+            if ( this.getTheme() === 'default' ) {
+                // Default theme: show SVG icon directly without gradient container
+                iconHTML = `
+                    <div class="icon-container" style="color: ${ICON_COLORS[type]}">
+                        ${ALERT_ICONS[type]}
+                    </div>`;
+            } else {
+                iconHTML = `
+                    <div class="icon-container" style="background: ${ICON_BG[type]}; color: ${ICON_COLORS[type]}">
+                        ${ALERT_ICONS[type]}
+                    </div>`;
+            }
         }
 
         const buttonsHTML = buttons.map((btn, i) => {
