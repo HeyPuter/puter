@@ -27,6 +27,7 @@ import UIAlert from '../UIAlert.js';
 import generate_file_context_menu from '../../helpers/generate_file_context_menu.js';
 import truncate_filename from '../../helpers/truncate_filename.js';
 import update_title_based_on_uploads from '../../helpers/update_title_based_on_uploads.js';
+import item_icon from '../../helpers/item_icon.js';
 import new_context_menu_item from '../../helpers/new_context_menu_item.js';
 import ContextMenuModal from './ContextMenu/ContextMenu.js';
 
@@ -232,7 +233,8 @@ const TabFiles = {
         };
 
         // Add touch-device class for touch devices to show .item-more button
-        if ( window.isMobile.phone || window.isMobile.tablet ) {
+        // Use multiple detection methods since user-agent sniffing can miss devices
+        if ( window.isMobile.phone || window.isMobile.tablet || navigator.maxTouchPoints > 0 ) {
             $el_window.find('.files-tab').addClass('touch-device');
         }
 
@@ -1983,7 +1985,8 @@ const TabFiles = {
         const is_shared_with_me = (file.path !== `/${window.user.username}` && !file.path.startsWith(`/${window.user.username}/`));
         const is_worker = file.workers?.length > 0;
         const worker_url = is_worker ? file.workers[0]?.address : '';
-        const icon = file.is_dir ? `<img src="${html_encode(window.icons['folder.svg'])}"/>` : ((file.thumbnail && this.currentView === 'grid') ? `<img src="${file.thumbnail}" alt="${displayName}" />` : this.determineIcon(file));
+        const iconResult = await item_icon(file);
+        const icon = `<img src="${html_encode(iconResult.image)}"/>`;
         const row = document.createElement("div");
         row.setAttribute('class', `item row ${file.is_dir ? 'folder' : 'file'}`);
         row.setAttribute("data-id", item_id);
@@ -2005,7 +2008,7 @@ const TabFiles = {
         row.setAttribute("data-size", file.size);
         row.setAttribute("data-type", html_encode(file.type) ?? '');
         row.setAttribute("data-modified", file.modified);
-        row.setAttribute("data-associated_app_name", html_encode(file.associated_app_name) ?? '');
+        row.setAttribute("data-associated_app_name", html_encode(file.associated_app?.name) ?? '');
         row.setAttribute("data-path", html_encode(file.path));
         row.innerHTML = `
             <div class="item-checkbox"><span class="checkbox-icon"></span></div>
@@ -2069,117 +2072,6 @@ const TabFiles = {
     },
 
     /**
-     * Determines the appropriate icon for a file based on its extension.
-     *
-     * @param {Object} file - The file object containing the filename
-     * @returns {string} HTML string for the icon image element
-     */
-    determineIcon (file) {
-        const extension = file.name.split('.').pop().toLowerCase();
-        switch ( extension ) {
-            case 'm4a':
-            case 'ogg':
-            case 'aac':
-            case 'flac':
-                return `<img src="${html_encode(window.icons['file-audio.svg'])}"/>`;
-            case 'cpp':
-                return `<img src="${html_encode(window.icons['file-cpp.svg'])}"/>`;
-            case 'css':
-                return `<img src="${html_encode(window.icons['file-css.svg'])}"/>`;
-            case 'csv':
-                return `<img src="${html_encode(window.icons['file-csv.svg'])}"/>`;
-            case 'doc':
-            case 'docx':
-                return `<img src="${html_encode(window.icons['file-word.svg'])}"/>`;
-            case 'exe':
-                return `<img src="${html_encode(window.icons['file-exe.svg'])}"/>`;
-            case 'gzip':
-                return `<img src="${html_encode(window.icons['file-gzip.svg'])}"/>`;
-            case 'html':
-                return `<img src="${html_encode(window.icons['file-html.svg'])}"/>`;
-            case 'jpg':
-            case 'jpeg':
-            case 'png':
-            case 'webp':
-            case 'gif':
-                return `<img src="${html_encode(window.icons['file-image.svg'])}"/>`;
-            case 'jar':
-                return `<img src="${html_encode(window.icons['file-jar.svg'])}"/>`;
-            case 'java':
-                return `<img src="${html_encode(window.icons['file-pdf.svg'])}"/>`;
-            case 'js':
-                return `<img src="${html_encode(window.icons['file-js.svg'])}"/>`;
-            case 'json':
-                return `<img src="${html_encode(window.icons['file-json.svg'])}"/>`;
-            case 'jsp':
-                return `<img src="${html_encode(window.icons['file-jsp.svg'])}"/>`;
-            case 'log':
-                return `<img src="${html_encode(window.icons['file-log.svg'])}"/>`;
-            case 'md':
-                return `<img src="${html_encode(window.icons['file-md.svg'])}"/>`;
-            case 'mp3':
-                return `<img src="${html_encode(window.icons['file-mp3.svg'])}"/>`;
-            case 'otf':
-                return `<img src="${html_encode(window.icons['file-otf.svg'])}"/>`;
-            case 'pdf':
-                return `<img src="${html_encode(window.icons['file-pdf.svg'])}"/>`;
-            case 'php':
-                return `<img src="${html_encode(window.icons['file-php.svg'])}"/>`;
-            case 'pptx':
-                return `<img src="${html_encode(window.icons['file-pptx.svg'])}"/>`;
-            case 'psd':
-                return `<img src="${html_encode(window.icons['file-psd.svg'])}"/>`;
-            case 'py':
-                return `<img src="${html_encode(window.icons['file-py.svg'])}"/>`;
-            case 'rss':
-                return `<img src="${html_encode(window.icons['file-rss.svg'])}"/>`;
-            case 'rtf':
-                return `<img src="${html_encode(window.icons['file-rtf.svg'])}"/>`;
-            case 'ruby':
-                return `<img src="${html_encode(window.icons['file-ruby.svg'])}"/>`;
-            case 'sketch':
-                return `<img src="${html_encode(window.icons['file-sketch.svg'])}"/>`;
-            case 'sql':
-                return `<img src="${html_encode(window.icons['file-sql.svg'])}"/>`;
-            case 'svg':
-                return `<img src="${html_encode(window.icons['file-svg.svg'])}"/>`;
-            case 'tar':
-                return `<img src="${html_encode(window.icons['file-tar.svg'])}"/>`;
-            case 'tpl':
-            case 'xltx':
-            case 'potx':
-            case 'tmpl':
-                return `<img src="${html_encode(window.icons['file-template.svg'])}"/>`;
-            case 'text':
-            case 'txt':
-                return `<img src="${html_encode(window.icons['file-text.svg'])}"/>`;
-            case 'tif':
-                return `<img src="${html_encode(window.icons['file-tif.svg'])}"/>`;
-            case 'tiff':
-                return `<img src="${html_encode(window.icons['file-tiff.svg'])}"/>`;
-            case 'ttf':
-                return `<img src="${html_encode(window.icons['file-ttf.svg'])}"/>`;
-            case 'mp4':
-            case 'avi':
-            case 'mov':
-            case 'wmf':
-            case 'mkv':
-            case 'webm':
-                return `<img src="${html_encode(window.icons['file-video.svg'])}"/>`;
-            case 'wav':
-                return `<img src="${html_encode(window.icons['file-wav.svg'])}"/>`;
-            case 'xlsx':
-                return `<img src="${html_encode(window.icons['file-xlsx.svg'])}"/>`;
-            case 'xml':
-                return `<img src="${html_encode(window.icons['file-xml.svg'])}"/>`;
-            case 'zip':
-                return `<img src="${html_encode(window.icons['file-zip.svg'])}"/>`;
-            default:
-                return `<img src="${html_encode(window.icons['file.svg'])}"/>`;
-        }
-    },
-
-    /**
      * Attaches event listeners to a file/folder row element.
      *
      * Handles selection, double-click to open, rename functionality,
@@ -2199,10 +2091,19 @@ const TabFiles = {
         let rename_cancelled = false;
         let shift_clicked = false;
         let itemWasSelectedOnMousedown = false;
+        let lastPointerType = null;
 
         el_item.onpointerdown = (e) => {
             if ( e.target.classList.contains('item-more') ) return;
             if ( el_item.classList.contains('header') ) return;
+
+            // Track pointer type so onclick can distinguish touch from mouse.
+            lastPointerType = e.pointerType;
+
+            // On touch devices, skip all selection logic here.
+            // Taps are handled by onclick (opens item) and taphold (context menu),
+            // so pointerdown never accidentally selects while the user is scrolling.
+            if ( e.pointerType === 'touch' ) return;
 
             shift_clicked = false;
 
@@ -2251,7 +2152,9 @@ const TabFiles = {
             // In select mode on mobile, treat taps like Ctrl+click (toggle selection)
             const isMobileSelectMode = (window.isMobile.phone || window.isMobile.tablet) && _this.selectModeActive;
 
-            // If clicking on .item-name, .item-icon, or .item-badges, select immediately so item drag works
+            // If clicking on .item-name, .item-icon, or .item-badges, select immediately so item drag works.
+            // On touch devices, these elements have pointer-events:none via CSS so this path
+            // won't be reached — touches land on .row instead, deferring selection to onclick.
             const isDragHandle = e.target.closest('.item-name, .item-icon, .item-badges');
             if ( e.button === 0 && !e.ctrlKey && !e.metaKey && !e.shiftKey && !el_item.classList.contains('selected') && !isMobileSelectMode && isDragHandle ) {
                 el_item.parentElement.querySelectorAll('.row.selected').forEach(r => {
@@ -2324,9 +2227,23 @@ const TabFiles = {
                 return;
             }
 
-            // On mobile in select mode, selection was already handled in pointerdown
-            // Just return early to prevent any further processing
-            if ( (window.isMobile.phone || window.isMobile.tablet) && _this.selectModeActive ) {
+            // On touch/mobile: tap opens the item directly, no selection step needed.
+            // Selection (and context menu) is handled via taphold.
+            // Use lastPointerType as primary signal (works even if isMobile misdetects).
+            if ( lastPointerType === 'touch' || window.isMobile.phone || window.isMobile.tablet ) {
+                // In select mode, tap toggles selection instead of opening
+                if ( _this.selectModeActive ) {
+                    el_item.classList.toggle('selected');
+                    window.latest_selected_item = el_item;
+                    _this.updateFooterStats();
+                    return;
+                }
+                if ( isFolder === "1" ) {
+                    _this.pushNavHistory(file.path);
+                    _this.renderDirectory(file.path);
+                } else {
+                    open_item({ item: el_item });
+                }
                 return;
             }
 
@@ -2352,18 +2269,6 @@ const TabFiles = {
                         _this.showImagePreview($newSelected);
                     }
                 }
-            }
-
-            // On mobile, single tap opens folders (no double-tap on touch devices)
-            if ( window.isMobile.phone || window.isMobile.tablet ) {
-                // Normal mode: open the item
-                if ( isFolder === "1" ) {
-                    _this.pushNavHistory(file.path);
-                    _this.renderDirectory(file.path);
-                } else {
-                    open_item({ item: el_item });
-                }
-                el_item.classList.remove('selected');
             }
         };
 
@@ -2470,9 +2375,16 @@ const TabFiles = {
         // Right-click context menu handler (desktop) and taphold (touch devices)
         $(el_item).on('contextmenu taphold', async (e) => {
             // Dismiss taphold on non-touch devices
-            if ( e.type === 'taphold' && !window.isMobile.phone && !window.isMobile.tablet ) {
+            if ( e.type === 'taphold' && !window.isMobile.phone && !window.isMobile.tablet && !(navigator.maxTouchPoints > 0) ) {
                 return;
             }
+            // On iOS, both contextmenu and taphold can fire for the same long-press.
+            // Debounce to prevent duplicate modals.
+            if ( el_item._contextMenuShownAt && Date.now() - el_item._contextMenuShownAt < 500 ) {
+                e.preventDefault();
+                return;
+            }
+            el_item._contextMenuShownAt = Date.now();
             e.preventDefault();
             e.stopPropagation();
 
@@ -2484,9 +2396,9 @@ const TabFiles = {
                 items = await _this.generateContextMenuItems(el_item, file);
             }
 
-            if ( window.isMobile.phone || window.isMobile.tablet ) {
+            if ( window.isMobile.phone || window.isMobile.tablet || navigator.maxTouchPoints > 0 ) {
                 const modal = new ContextMenuModal();
-                modal.show(items, el_item.getBoundingClientRect());
+                modal.show(items, el_item.getBoundingClientRect(), { title: file.name });
             } else {
                 UIContextMenu({ items: items, position: { left: e.pageX, top: e.pageY } });
             }
@@ -3140,12 +3052,7 @@ const TabFiles = {
      * @returns {void}
      */
     updateDashboardUrl (filePath) {
-        // Use pushState to update URL without firing hashchange.
-        // The popstate listener in UIDashboard handles back/forward navigation.
-        const newHash = `#files${filePath}`;
-        if ( window.location.hash !== newHash ) {
-            history.pushState(null, '', newHash);
-        }
+        // Disabled: don't modify the browser URL when navigating files.
     },
 
     /**
@@ -3169,10 +3076,10 @@ const TabFiles = {
         }
 
         // Use mobile-friendly context menu on touch devices
-        if ( window.isMobile.phone || window.isMobile.tablet ) {
+        if ( window.isMobile.phone || window.isMobile.tablet || navigator.maxTouchPoints > 0 ) {
             const targetRect = targetElement.getBoundingClientRect();
             const modal = new ContextMenuModal();
-            modal.show(items, targetRect);
+            modal.show(items, targetRect, { title: file.name });
         } else {
             UIContextMenu({ items: items });
         }

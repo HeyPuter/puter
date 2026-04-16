@@ -165,6 +165,11 @@ body {
     }
 }
 
+.window-dashboard ~ .window {
+    box-shadow: none;
+    border-radius: 0;
+}
+
 .dashboard {
     display: flex;
     height: 100%;
@@ -180,16 +185,164 @@ body {
     display: flex;
     flex-direction: column;
     box-sizing: border-box;
+    transition: width 0.2s ease, min-width 0.2s ease, padding 0.2s ease;
+}
+
+/* Sidebar header with logo and collapse toggle */
+.dashboard-sidebar-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0px 0px 10px 5px;
+    flex-shrink: 0;
+    border-bottom: 1px solid var(--dashboard-border);
+    margin-bottom: 10px;
+}
+
+.dashboard-sidebar-logo {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    font-size: 14px;
+    color: var(--dashboard-text);
+}
+
+.dashboard-sidebar-logo img {
+    height: 24px;
+    width: auto;
+    opacity: 1;
+    transition: opacity 0.15s ease;
+}
+
+.dashboard-sidebar-collapse-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border: none;
+    background: none;
+    border-radius: 6px;
+    cursor: pointer;
+    color: var(--dashboard-text-muted);
+    transition: background-color 0.15s, color 0.15s;
+    flex-shrink: 0;
+}
+
+.dashboard-sidebar-collapse-toggle img {
+    width: 24px;
+    height: 24px;
+    opacity: 0.6;
+}
+
+.dashboard-sidebar-collapse-toggle .sidebar-toggle-open {
+    display: none;
+}
+
+.dashboard-sidebar-collapse-toggle:hover {
+    background: var(--dashboard-hover);
+    color: var(--dashboard-text);
+}
+
+/* Collapsed sidebar state */
+.dashboard-sidebar.collapsed {
+    width: 50px;
+    min-width: 50px;
+    padding: 16px 6px;
+}
+
+.dashboard-sidebar.collapsed .dashboard-sidebar-header {
+    justify-content: center;
+    padding: 4px 0 12px;
+}
+
+.dashboard-sidebar.collapsed .dashboard-sidebar-logo {
+    display: none;
+}
+
+.dashboard-sidebar.collapsed .dashboard-sidebar-collapse-toggle .sidebar-toggle-close {
+    display: none;
+}
+
+.dashboard-sidebar.collapsed .dashboard-sidebar-collapse-toggle .sidebar-toggle-open {
+    display: block;
+}
+
+.dashboard-sidebar.collapsed .dashboard-sidebar-item {
+    justify-content: center;
+    padding: 10px;
+    gap: 0;
+    overflow: hidden;
+    font-size: 0;
+}
+
+.dashboard-sidebar.collapsed .dashboard-sidebar-item svg {
+    flex-shrink: 0;
+}
+
+.dashboard-sidebar.collapsed .dashboard-sidebar-separator {
+    margin: 8px 4px;
+}
+
+.dashboard-sidebar.collapsed .dashboard-sidebar-item.beta::after {
+    display: none;
+}
+
+.dashboard-sidebar.collapsed .dashboard-user-options {
+    padding-top: 8px;
+}
+
+.dashboard-sidebar.collapsed .dashboard-user-btn {
+    justify-content: center;
+    padding: 10px;
+    gap: 0;
+}
+
+.dashboard-sidebar.collapsed .dashboard-user-name,
+.dashboard-sidebar.collapsed .dashboard-user-chevron {
+    display: none;
+}
+
+/* Tooltip for collapsed sidebar */
+.dashboard-sidebar-tooltip {
+    position: fixed;
+    padding: 4px 10px;
+    background: var(--dashboard-sidebar-background);
+    border: 1px solid var(--dashboard-border);
+    border-radius: 6px;
+    font-size: 13px;
+    color: var(--dashboard-text);
+    white-space: nowrap;
+    pointer-events: none;
+    z-index: 1000;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    opacity: 0;
+    transition: opacity 0.15s ease;
+}
+
+.dashboard-sidebar-tooltip.visible {
+    opacity: 1;
+}
+
+/* Hide desktop collapse toggle on mobile */
+@media (max-width: 768px) {
+    .dashboard-sidebar-collapse-toggle {
+        display: none;
+    }
 }
 
 .dashboard-sidebar-nav {
     flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
 }
 
 .dashboard-sidebar-separator {
     border: none;
     border-top: 1px solid var(--dashboard-border);
     margin: 8px 16px;
+    flex-shrink: 0;
 }
 
 .dashboard-sidebar-item {
@@ -204,6 +357,7 @@ body {
     font-size: 14px;
     color: var(--dashboard-text);
     transition: background-color 0.15s;
+    flex-shrink: 0;
 }
 
 .dashboard-sidebar-item svg {
@@ -212,8 +366,10 @@ body {
     flex-shrink: 0;
 }
 
-.dashboard-sidebar-item:hover {
-    background: var(--dashboard-hover);
+@media (hover: hover) {
+    .dashboard-sidebar-item:hover {
+        background: var(--dashboard-hover);
+    }
 }
 
 .dashboard-sidebar-item.active {
@@ -249,8 +405,10 @@ body {
     transition: background-color 0.15s;
 }
 
-.dashboard-user-btn:hover {
-    background: var(--dashboard-hover);
+@media (hover: hover) {
+    .dashboard-user-btn:hover {
+        background: var(--dashboard-hover);
+    }
 }
 
 .dashboard-user-btn.has-open-contextmenu {
@@ -315,7 +473,6 @@ body {
 }
 
 .dashboard-section-apps {
-    max-width: 800px;
     margin: 0 auto;
 }
 
@@ -360,6 +517,12 @@ body {
 }
 
 /* Dashboard Apps */
+
+.dashboard-content.apps {
+    padding: 0;
+}
+
+
 .dashboard-apps-container {
     margin-top: 8px;
 }
@@ -390,12 +553,16 @@ body {
     cursor: pointer;
     width: 90px;
 }
-.dashboard-app-card:hover {
-    background: none !important;
+@media (hover: hover) {
+    .dashboard-app-card:hover {
+        background: none !important;
+    }
 }
 
-.dashboard-app-card:hover .start-app, .dashboard-app-card .start-app:hover {
-    background: none !important;
+@media (hover: hover) {
+    .dashboard-app-card:hover .start-app, .dashboard-app-card .start-app:hover {
+        background: none !important;
+    }
 }
 
 .dashboard-app-card:active {
@@ -419,8 +586,10 @@ body {
 .dashboard-app-card .start-app{
     transition: transform 0.15s ease;
 }
-.dashboard-app-card .start-app:hover {
-    transform: scale(1.05);
+@media (hover: hover) {
+    .dashboard-app-card .start-app:hover {
+        transform: scale(1.05);
+    }
 }
 
 .dashboard-app-title {
@@ -453,6 +622,7 @@ body {
     max-width: 360px;
     margin-left: auto;
     margin-right: auto;
+    margin-top: 30px;
 }
 
 .myapps-search-icon {
@@ -471,21 +641,22 @@ body {
     cursor: pointer;
 }
 
-.myapps-icon-clear:hover {
-    color: var(--dashboard-text-primary);
+@media (hover: hover) {
+    .myapps-icon-clear:hover {
+        color: var(--dashboard-text-primary);
+    }
 }
 
 .myapps-search {
     width: 100%;
-    padding: 8px 36px 8px 12px;
-    font-size: 14px;
+    padding-right: 33px !important;
+    font-size: 13px;
     border: 1px solid var(--dashboard-border);
-    border-radius: 8px;
+    border-radius: 6px;
     background: var(--dashboard-input-background);
     color: var(--dashboard-text-primary);
     outline: none;
     transition: border-color 0.15s;
-    padding-right: 35px;
 }
 
 .myapps-search:focus {
@@ -561,8 +732,10 @@ body {
     object-fit: cover;
 }
 
-.myapps-tile:hover .myapps-tile-icon {
-    transform: scale(1.08);
+@media (hover: hover) {
+    .myapps-tile:hover .myapps-tile-icon {
+        transform: scale(1.08);
+    }
 }
 
 .myapps-tile:active .myapps-tile-icon {
@@ -582,6 +755,99 @@ body {
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
     word-break: break-word;
+    white-space: nowrap;
+}
+
+/* Uninstall confirmation modal */
+.myapps-modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 300;
+}
+.myapps-modal {
+    background: var(--dashboard-card-background);
+    border: 1px solid var(--dashboard-border);
+    border-radius: 12px;
+    padding: 24px;
+    min-width: 320px;
+    max-width: 400px;
+    box-shadow: 0 8px 32px var(--dashboard-shadow-medium);
+}
+.myapps-modal h3 {
+    margin: 0 0 8px;
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--dashboard-text-primary);
+}
+.myapps-modal p {
+    margin: 0 0 16px;
+    font-size: 14px;
+    color: var(--dashboard-text-secondary);
+}
+.myapps-modal-buttons {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+}
+.myapps-modal-btn {
+    padding: 8px 16px;
+    border-radius: 8px;
+    border: 1px solid var(--dashboard-border);
+    font-size: 14px;
+    cursor: pointer;
+    transition: background 0.15s, opacity 0.15s;
+}
+.myapps-modal-cancel {
+    background: var(--dashboard-card-background);
+    color: var(--dashboard-text-primary);
+}
+@media (hover: hover) {
+    .myapps-modal-cancel:hover {
+        background: var(--dashboard-hover);
+    }
+}
+.myapps-modal-confirm {
+    background: #e53935;
+    color: #fff;
+    border-color: #e53935;
+}
+@media (hover: hover) {
+    .myapps-modal-confirm:hover {
+        background: #c62828;
+        border-color: #c62828;
+    }
+}
+.myapps-modal-confirm:disabled {
+    opacity: 0.6;
+    cursor: default;
+}
+
+/* Custom sort drag-and-drop */
+.myapps-grid-custom .myapps-tile {
+    cursor: grab;
+}
+
+.myapps-grid-custom .myapps-tile:active {
+    cursor: grabbing;
+}
+
+.myapps-tile-placeholder {
+    width: 80px;
+    border: 2px dashed var(--dashboard-border);
+    border-radius: 12px;
+    background: var(--dashboard-hover);
+    opacity: 0.5;
+}
+
+.ui-sortable-helper.myapps-tile {
+    transform: scale(1.05);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+    z-index: 1000;
+    opacity: 0.9;
 }
 
 /* Dashboard files */
@@ -636,8 +902,10 @@ body {
     transition: background-color 0.15s;
 }
 
-.dashboard-section-files .directories li:hover {
-    background: var(--dashboard-hover);
+@media (hover: hover) {
+    .dashboard-section-files .directories li:hover {
+        background: var(--dashboard-hover);
+    }
 }
 
 .dashboard-section-files .directories li.context-menu-active {
@@ -672,7 +940,6 @@ body {
 .dashboard-section-files .directory-contents .header {
     position: sticky;
     top: 0;
-    height: 94px;
     padding-top: 12px;
     background: var(--dashboard-background);
 }
@@ -707,20 +974,24 @@ body {
     background-color: transparent;
 }
 
-.dashboard .path-btn:hover {
-    filter: invert(1) hue-rotate(180deg);
-    background-color: var(--select-color);
-    opacity: 1;
+@media (hover: hover) {
+    .dashboard .path-btn:hover {
+        filter: invert(1) hue-rotate(180deg);
+        background-color: var(--select-color);
+        opacity: 1;
+    }
 }
 
 @media (prefers-color-scheme: dark) {
     .path-btn {
         filter: invert(1) hue-rotate(180deg);
     }
-    .path-btn:hover {
-        filter: invert(0) hue-rotate(0deg);
-        background-color: var(--select-color);
-        opacity: 1;
+    @media (hover: hover) {
+        .path-btn:hover {
+            filter: invert(0) hue-rotate(0deg);
+            background-color: var(--select-color);
+            opacity: 1;
+        }
     }
 }
 
@@ -752,9 +1023,11 @@ body {
     justify-content: center;
 }
 
-.dashboard-section-files .header .path-action-btn:hover {
-    color: var(--dashboard-background);
-    background-color: var(--select-color);
+@media (hover: hover) {
+    .dashboard-section-files .header .path-action-btn:hover {
+        color: var(--dashboard-background);
+        background-color: var(--select-color);
+    }
 }
 
 .dashboard-section-files .header .path-btn-disabled {
@@ -780,10 +1053,12 @@ body {
     border-radius: 6px;
 }
 
-.dashboard-section-files .header .path .dirname:hover {
-    color: var(--dashboard-background);
-    background-color: var(--select-color);
-    border: 1px solid var(--select-color);
+@media (hover: hover) {
+    .dashboard-section-files .header .path .dirname:hover {
+        color: var(--dashboard-background);
+        background-color: var(--select-color);
+        border: 1px solid var(--select-color);
+    }
 }
 
 .dashboard-section-files .header .path .dirname.drop-target {
@@ -833,15 +1108,19 @@ body {
     margin: 1px 2px;
     pointer-events: auto;
     float: unset;
+    -webkit-user-select: none;
+    user-select: none;
 }
 
 .dashboard-section-files .row.folder {
     border: 1px solid transparent;
 }
 
-.dashboard-section-files .row:hover {
-    background: var(--dashboard-hover);
-    border-radius: 3px;
+@media (hover: hover) {
+    .dashboard-section-files .row:hover {
+        background: var(--dashboard-hover);
+        border-radius: 3px;
+    }
 }
 
 .dashboard-section-files .row.selected {
@@ -896,6 +1175,15 @@ body {
     line-height: 32px;
 }
 
+/* On touch devices, item-name/icon/badges must not be direct event targets
+   so that pointerdown's isDragHandle check can't match them and accidentally
+   select items when the user is scrolling. Events pass through to the .row. */
+.files-tab.touch-device .row:not(.header) .item-name,
+.files-tab.touch-device .row:not(.header) .item-icon,
+.files-tab.touch-device .row:not(.header) .item-badges {
+    pointer-events: none;
+}
+
 .dashboard-section-files .row textarea {
     align-items: center;
     width: 100%;
@@ -932,8 +1220,10 @@ body {
     pointer-events: none;
 }
 
-.dashboard-section-files .row:hover .item-more {
-    color: var(--dashboard-text);
+@media (hover: hover) {
+    .dashboard-section-files .row:hover .item-more {
+        color: var(--dashboard-text);
+    }
 }
 
 .dashboard-section-files.ui-draggable-dragging {
@@ -1140,10 +1430,10 @@ body {
 }
 
 .dashboard-section-files .files-footer {
-    position: fixed;
+    position: absolute;
     bottom: 0;
     right: 0;
-    left: 371px;
+    left: 0;
     background: linear-gradient(180deg, var(--dashboard-sidebar-background), var(--dashboard-background));
     border-top: 1px solid var(--dashboard-border);
     height: 30px;
@@ -1216,8 +1506,10 @@ body {
     transition: background-color 0.15s ease, color 0.15s ease;
 }
 
-.dashboard-section-files .selection-action-btn:hover {
-    background: var(--dashboard-hover);
+@media (hover: hover) {
+    .dashboard-section-files .selection-action-btn:hover {
+        background: var(--dashboard-hover);
+    }
 }
 
 .dashboard-section-files .selection-action-btn:active {
@@ -1234,16 +1526,20 @@ body {
     color: #43a047;
 }
 
-.dashboard-section-files .selection-action-btn.restore-btn:hover {
-    background: rgba(67, 160, 71, 0.1);
+@media (hover: hover) {
+    .dashboard-section-files .selection-action-btn.restore-btn:hover {
+        background: rgba(67, 160, 71, 0.1);
+    }
 }
 
 .dashboard-section-files .selection-action-btn.delete-btn {
     color: #e53935;
 }
 
-.dashboard-section-files .selection-action-btn.delete-btn:hover {
-    background: rgba(229, 57, 53, 0.1);
+@media (hover: hover) {
+    .dashboard-section-files .selection-action-btn.delete-btn:hover {
+        background: rgba(229, 57, 53, 0.1);
+    }
 }
 
 /* Select mode button - hidden on desktop by default */
@@ -1382,9 +1678,11 @@ body {
     box-shadow: 0px 1px 3px rgba(0, 0, 0, 0.1);
 }
 
-.dashboard-section-files .files-tab .files.files-grid-view .row:hover {
-    background: var(--dashboard-sidebar-background);
-    border-color: var(--dashboard-border);
+@media (hover: hover) {
+    .dashboard-section-files .files-tab .files.files-grid-view .row:hover {
+        background: var(--dashboard-sidebar-background);
+        border-color: var(--dashboard-border);
+    }
 }
 
 .dashboard-section-files .files-tab .files.files-grid-view .row.selected {
@@ -1443,26 +1741,30 @@ body {
     display: block;
 }
 
-.dashboard-section-files .files-tab .files.files-grid-view .row:hover .item-more {
-    position: absolute;
-    top: 1px;
-    right: 1px;
-    color: #666;
-    background: var(--dashboard-sidebar-background);
-    width: 24px;
-    height: 24px;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    border-radius: 7px;
+@media (hover: hover) {
+    .dashboard-section-files .files-tab .files.files-grid-view .row:hover .item-more {
+        position: absolute;
+        top: 1px;
+        right: 1px;
+        color: #666;
+        background: var(--dashboard-sidebar-background);
+        width: 24px;
+        height: 24px;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        border-radius: 7px;
+    }
 }
 
 /* Hide .item-more on desktop (non-touch devices) - use right-click context menu instead */
 .dashboard-section-files .files-tab:not(.touch-device) .files.files-list-view .row .item-more,
 .dashboard-section-files .files-tab:not(.touch-device) .files.files-grid-view .row .item-more,
-.dashboard-section-files .files-tab:not(.touch-device) .files.files-grid-view .row:hover .item-more,
-.dashboard-section-files .files-tab:not(.touch-device) .header .columns .item-more {
-    display: none !important;
+@media (hover: hover) {
+    .dashboard-section-files .files-tab:not(.touch-device) .files.files-grid-view .row:hover .item-more,
+    .dashboard-section-files .files-tab:not(.touch-device) .header .columns .item-more {
+        display: none !important;
+    }
 }
 
 .dashboard-section-files .files-tab .files.files-grid-view .row .item-name-editor {
@@ -1485,8 +1787,10 @@ body {
     justify-content: space-between;
 }
 
-.dashboard-section-files .header .columns .sortable:hover {
-    color: var(--dashboard-text-heading);
+@media (hover: hover) {
+    .dashboard-section-files .header .columns .sortable:hover {
+        color: var(--dashboard-text-heading);
+    }
 }
 
 .dashboard-section-files .header .columns .sortable::after {
@@ -1523,8 +1827,10 @@ body {
     background: var(--dashboard-sidebar-background);
 }
 
-.dashboard-section-files .header .columns .col-resize-handle:hover {
-    background: var(--dashboard-border);
+@media (hover: hover) {
+    .dashboard-section-files .header .columns .col-resize-handle:hover {
+        background: var(--dashboard-border);
+    }
 }
 
 .dashboard-section-files .header .columns .col-resize-handle:active {
@@ -1573,8 +1879,10 @@ body {
     text-align: left;
 }
 
-.dashboard-section-files .more-menu .menu-item:hover {
-    background: var(--dashboard-hover);
+@media (hover: hover) {
+    .dashboard-section-files .more-menu .menu-item:hover {
+        background: var(--dashboard-hover);
+    }
 }
 
 .dashboard-section-files .more-menu .menu-item svg {
@@ -1602,8 +1910,10 @@ body {
     color: #ea4335;
 }
 
-.dashboard-section-files .more-menu .menu-item.danger:hover {
-    background: rgba(234, 67, 53, 0.1);
+@media (hover: hover) {
+    .dashboard-section-files .more-menu .menu-item.danger:hover {
+        background: rgba(234, 67, 53, 0.1);
+    }
 }
 
 .dashboard-section-files .more-menu .menu-divider {
@@ -1619,8 +1929,8 @@ body {
     top: 12px;
     left: 12px;
     z-index: 100;
-    width: 40px;
-    height: 40px;
+    width: 35px;
+    height: 35px;
     background: var(--dashboard-background);
     border: 1px solid var(--dashboard-border);
     border-radius: 6px;
@@ -1660,9 +1970,17 @@ body {
 
 /* Responsive: tablet and below */
 @media (max-width: 768px) {
-    .dashboard-sidebar-nav {
-        padding-top: 45px;
+    .dashboard-sidebar-header {
+        padding-left: 45px;
+        border-bottom: 0;
+        margin-bottom: 2px;
+        margin-top: 3px;
     }
+
+    .dashboard-sidebar-header .dashboard-sidebar-logo {
+        margin-left: auto;
+    }
+
     .dashboard-sidebar-toggle {
         display: flex;
     }
@@ -1686,6 +2004,11 @@ body {
         padding: 64px 16px 24px;
     }
 
+    .myapps-search-wrap {
+        margin-top: 60px;
+        margin-bottom: 20px;
+    }
+
     .dashboard-apps-grid {
         grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
         gap: 4px;
@@ -1700,8 +2023,8 @@ body {
         height: 40px;
     }
 
-    .myapps-tab {
-        padding: 20px 16px;
+    .myapps-container {
+        padding: 20px 10px;
     }
 
     .myapps-tab h2 {
@@ -1876,11 +2199,13 @@ body {
         color: var(--dashboard-text-muted);        
     }
 
-    .dashboard-section-files .files-tab .files.files-list-view .row:hover .item-modified,
-    .dashboard-section-files .files-tab .files.files-list-view .row:hover .item-size,
-    .dashboard-section-files .files-tab .files.files-list-view .row.selected .item-modified,
-    .dashboard-section-files .files-tab .files.files-list-view .row.selected .item-size {
-        /* color: var(--primary-color-sidebar-item);         */
+    @media (hover: hover) {
+        .dashboard-section-files .files-tab .files.files-list-view .row:hover .item-modified,
+        .dashboard-section-files .files-tab .files.files-list-view .row:hover .item-size,
+        .dashboard-section-files .files-tab .files.files-list-view .row.selected .item-modified,
+        .dashboard-section-files .files-tab .files.files-list-view .row.selected .item-size {
+            /* color: var(--primary-color-sidebar-item);         */
+        }
     }
 
     /* Bullet separator between size and modified */
@@ -2122,10 +2447,12 @@ body {
     transition: all 0.15s ease;
 }
 
-.dashboard .bento-save-account-warning:hover {
-    background-color: var(--dashboard-warning-hover-bg);
-    border-color: var(--dashboard-warning-hover-border);
-    color: var(--dashboard-warning-hover-text);
+@media (hover: hover) {
+    .dashboard .bento-save-account-warning:hover {
+        background-color: var(--dashboard-warning-hover-bg);
+        border-color: var(--dashboard-warning-hover-border);
+        color: var(--dashboard-warning-hover-text);
+    }
 }
 
 .dashboard .bento-save-account-warning svg {
@@ -2133,8 +2460,10 @@ body {
     color: var(--dashboard-warning-icon);
 }
 
-.dashboard .bento-save-account-warning:hover svg {
-    color: var(--dashboard-warning-hover-border);
+@media (hover: hover) {
+    .dashboard .bento-save-account-warning:hover svg {
+        color: var(--dashboard-warning-hover-border);
+    }
 }
 
 /* Recent Apps Card - Rectangle */
@@ -2237,9 +2566,11 @@ body {
     transition: color 0.15s ease;
 }
 
-.dashboard .bento-view-more:hover {
-    color: var(--dashboard-link-hover);
-    text-decoration: underline;
+@media (hover: hover) {
+    .dashboard .bento-view-more:hover {
+        color: var(--dashboard-link-hover);
+        text-decoration: underline;
+    }
 }
 
 .dashboard .bento-recent-apps-container {
@@ -2280,8 +2611,10 @@ body {
     width: 200px;
 }
 
-.dashboard .bento-recent-app:hover {
-    transform: scale(1.02);
+@media (hover: hover) {
+    .dashboard .bento-recent-app:hover {
+        transform: scale(1.02);
+    }
 }
 
 .dashboard .bento-recent-app:active {
@@ -2338,6 +2671,50 @@ body {
     color: var(--dashboard-text-tertiary);
 }
 
+/* Desktop switch bento card */
+.dashboard .bento-desktop-switch {
+    grid-column: 1 / -1;
+    min-height: auto;
+    background: radial-gradient(circle at 90% 10%, var(--dashboard-gradient-indigo) 0%, transparent 40%),
+        radial-gradient(circle at 10% 90%, var(--dashboard-gradient-pink) 0%, transparent 35%),
+        linear-gradient(135deg, var(--dashboard-card-gradient-start) 0%, var(--dashboard-card-gradient-end) 100%);
+    padding: 16px 24px;
+}
+
+.dashboard .bento-desktop-switch-inner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.dashboard .bento-desktop-switch-text {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--dashboard-text-secondary);
+}
+
+.dashboard .bento-desktop-switch-btn {
+    flex-shrink: 0;
+    padding: 8px 16px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--dashboard-background);
+    background: var(--dashboard-icon-blue-start);
+    border: 1px solid var(--dashboard-primary);
+    border-radius: 8px;
+    cursor: pointer;
+    text-decoration: none;
+    transition: background 0.15s, color 0.15s;
+}
+
+@media (hover: hover) {
+    .dashboard .bento-desktop-switch-btn:hover {
+        background: var(--dashboard-icon-blue-end);
+        color: white;
+    }
+}
+
 /* Usage bento card */
 .dashboard .bento-usage {
     grid-column: 1 / -1;
@@ -2388,9 +2765,11 @@ body {
     transition: color 0.2s;
 }
 
-.dashboard .bento-plan-upgrade:hover {
-    color: var(--dashboard-link-hover);
-    text-decoration: underline;
+@media (hover: hover) {
+    .dashboard .bento-plan-upgrade:hover {
+        color: var(--dashboard-link-hover);
+        text-decoration: underline;
+    }
 }
 
 .dashboard .bento-usage-section-header {
@@ -2430,8 +2809,10 @@ body {
     transition: opacity 0.2s;
 }
 
-.dashboard .bento-usage-card-header:hover {
-    opacity: 0.7;
+@media (hover: hover) {
+    .dashboard .bento-usage-card-header:hover {
+        opacity: 0.7;
+    }
 }
 
 .dashboard .bento-usage-card-header h3 {
@@ -2546,6 +2927,10 @@ body {
 
     .dashboard .bento-recent-app-title {
         font-size: 12px;
+    }
+
+    .driver-usage-header {
+        flex-direction: column;
     }
 
     .dashboard .bento-usage-grid {
@@ -2665,8 +3050,10 @@ body {
     box-shadow: 0 4px 16px var(--dashboard-shadow-medium);
 }
 
-.dashboard-profile-avatar:hover {
-    transform: scale(1.05);
+@media (hover: hover) {
+    .dashboard-profile-avatar:hover {
+        transform: scale(1.05);
+    }
 }
 
 .dashboard-profile-avatar-overlay {
@@ -2681,8 +3068,10 @@ body {
     transition: opacity 0.2s ease;
 }
 
-.dashboard-profile-avatar:hover .dashboard-profile-avatar-overlay {
-    opacity: 1;
+@media (hover: hover) {
+    .dashboard-profile-avatar:hover .dashboard-profile-avatar-overlay {
+        opacity: 1;
+    }
 }
 
 .dashboard-profile-avatar-overlay svg {
@@ -2892,6 +3281,7 @@ body {
     .dashboard-danger-card .button {
         width: 100%;
     }
+
 }
 
 /* ======================================
@@ -2938,10 +3328,24 @@ body {
     opacity: 1;
 }
 
+/* Title shown at top of context menu (e.g. filename) */
+.context-menu-modal-dialog .context-menu-title {
+    padding: 10px 14px 6px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--dashboard-text-muted, #888);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    border-bottom: 1px solid var(--dashboard-border, #e0e0e0);
+    flex-shrink: 0;
+}
+
 /* Menu items container */
 .context-menu-modal-dialog .context-menu-items {
     display: flex;
     flex-direction: column;
+    overflow-y: auto;
     overflow-y: auto;
 }
 
@@ -2962,8 +3366,10 @@ body {
     border-bottom: none;
 }
 
-.context-menu-modal-dialog .context-menu-item:hover {
-    background-color: var(--dashboard-hover, #e8e8e8);
+@media (hover: hover) {
+    .context-menu-modal-dialog .context-menu-item:hover {
+        background-color: var(--dashboard-hover, #e8e8e8);
+    }
 }
 
 .context-menu-modal-dialog .context-menu-item:active {
@@ -2999,9 +3405,11 @@ body {
     }
 }
 
-.context-menu-modal-dialog .context-menu-item:hover .context-menu-item-icon img,
-.context-menu-modal-dialog .context-menu-item:hover .context-menu-item-icon svg {
-    opacity: 1;
+@media (hover: hover) {
+    .context-menu-modal-dialog .context-menu-item:hover .context-menu-item-icon img,
+    .context-menu-modal-dialog .context-menu-item:hover .context-menu-item-icon svg {
+        opacity: 1;
+    }
 }
 
 /* Menu item label */
