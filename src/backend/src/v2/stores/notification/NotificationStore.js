@@ -26,8 +26,15 @@ export class NotificationStore extends PuterStore {
         return this.#normalizeRow(rows[0]) ?? null;
     }
 
-    async listByUserId (userId, { limit = 200, onlyUnacknowledged = false } = {}) {
-        const extraWhere = onlyUnacknowledged ? 'AND `acknowledged` IS NULL' : '';
+    async listByUserId (userId, { limit = 200, onlyUnacknowledged = false, filter } = {}) {
+        let extraWhere = '';
+        if ( onlyUnacknowledged || filter === 'unacknowledged' ) {
+            extraWhere = 'AND `acknowledged` IS NULL';
+        } else if ( filter === 'unseen' ) {
+            extraWhere = 'AND `shown` IS NULL AND `acknowledged` IS NULL';
+        } else if ( filter === 'acknowledged' ) {
+            extraWhere = 'AND `acknowledged` IS NOT NULL';
+        }
         const rows = await this.clients.db.read(
             `SELECT * FROM \`notification\`
              WHERE \`user_id\` = ? ${extraWhere}

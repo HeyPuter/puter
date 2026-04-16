@@ -29,17 +29,10 @@ export interface SocketSpecifier {
 const LAST_CHANGE_KEY_PREFIX = 'fs:last-change:';
 const LAST_CHANGE_TTL_SECONDS = 60 * 60 * 24 * 30;
 
-const OUTER_GUI_EVENTS = [
-    // Each of these is a FS mutation that should wake up stale caches
-    // on other tabs / devices for the same user. v2 FS controllers emit
-    // these directly with the final payload — no transformation needed.
-    'outer.gui.item.added',
-    'outer.gui.item.updated',
-    'outer.gui.item.attrs_updated',
-    'outer.gui.item.moved',
-    'outer.gui.item.pending',
-    'outer.gui.item.removed',
-] as const;
+// Bump the per-user `fs:last-change` Redis key only on item-mutation
+// events — `cache.updated` and similar are themselves notifications
+// ABOUT the timestamp, so re-bumping on them is wasted work.
+const ITEM_MUTATION_PREFIX = 'outer.gui.item.';
 
 interface OuterGuiPayload {
     user_id_list?: Array<number | string>;
@@ -303,13 +296,15 @@ export class SocketService extends PuterService {
     // ── Event bus → socket fan-out ──────────────────────────────────
 
     #subscribeEventBus (): void {
-        for ( const eventName of OUTER_GUI_EVENTS ) {
-            this.clients.event.on(eventName, (key: string, data: unknown) => {
-                this.#handleOuterGui(key, data as OuterGuiPayload).catch((err: unknown) => {
-                    console.error('[socket] outer.gui handler error', err);
-                });
+        // One wildcard subscriber covers every `outer.gui.*` mutation +
+        // notification (item.added/updated/removed/moved/pending,
+        // cache.updated, submission.done, …). EventClient walks the
+        // dot-prefix tree at emit time so we get them all.
+        this.clients.event.on('outer.gui.*', (key: string, data: unknown) => {
+            this.#handleOuterGui(key, data as OuterGuiPayload).catch((err: unknown) => {
+                console.error('[socket] outer.gui handler error', err);
             });
-        }
+        });
 
         // Upload progress — each tracker fires `.sub()` callbacks as
         // bytes flow. Matches v1 WSPushService._on_upload_progress.
@@ -325,10 +320,14 @@ export class SocketService extends PuterService {
         // Event bus names are `outer.gui.item.removed` etc.; the wire
         // name the client listens for is `item.removed` etc.
         const wireName = key.startsWith('outer.gui.') ? key.slice('outer.gui.'.length) : key;
+        // Only item-mutation events should bump the cache-invalidation
+        // timestamp — `cache.updated` is itself a notification ABOUT the
+        // timestamp, re-bumping on it is wasted work.
+        const isMutation = key.startsWith(ITEM_MUTATION_PREFIX);
 
         const fanout = userIds.map(async (userId) => {
             await this.send({ room: userId }, wireName, data.response);
-            await this.#bumpLastChange(userId);
+            if ( isMutation ) await this.#bumpLastChange(userId);
         });
         await Promise.all(fanout);
     }

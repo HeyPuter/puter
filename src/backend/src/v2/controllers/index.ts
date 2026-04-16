@@ -1,5 +1,6 @@
 import { AppController } from './apps/AppController.js';
 import { AuthController } from './auth/AuthController.js';
+import { BroadcastController } from './broadcast/BroadcastController';
 import { DesktopController } from './desktop/DesktopController.js';
 import { DriverController } from './drivers/DriverController';
 import { FSController } from './fs/FSController';
@@ -19,4 +20,5 @@ export const puterControllers = {
     legacyFs: LegacyFSController,
     puterAi: PuterAIController,
     drivers: DriverController,
+    broadcast: BroadcastController,
 } satisfies IPuterControllerRegistry;
