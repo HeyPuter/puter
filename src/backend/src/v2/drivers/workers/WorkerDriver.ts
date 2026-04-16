@@ -275,20 +275,23 @@ export class WorkerDriver extends PuterDriver {
     // we redeploy it to Cloudflare automatically. This is what makes
     // "save file → live in prod" instant.
     //
-    // v1 did this via `svc_event.on('fs.write.file', ...)`.  In v2 the
-    // FS controller emits `outer.gui.item.updated` (which is too late —
-    // the file content is already committed), but the raw `fs.write.*`
-    // event still fires from FSEntryService during the write path. We
-    // subscribe to that.
+    // v2's FS layer emits `outer.gui.item.added` and
+    // `outer.gui.item.updated` after a write commits (not `fs.write.*`
+    // which v1 used). We subscribe to those — the payload carries
+    // `{ user_id_list, response }` where `response` is the entry shape
+    // (uuid, path, user_id, etc.). We match against worker subdomain
+    // `root_dir_id` to decide whether to re-deploy.
 
     #subscribeHotReload (): void {
         if ( ! this.#cfBaseUrl ) return; // CF not configured — skip
 
-        this.clients.event.on('fs.write.*', (key: string, data: unknown, meta: unknown) => {
-            void this.#handleFileWrite(data, meta).catch(err => {
-                console.error('[workers] hot-reload error', err);
+        for ( const eventName of ['outer.gui.item.added', 'outer.gui.item.updated'] ) {
+            this.clients.event.on(eventName, (key: string, data: unknown, meta: unknown) => {
+                void this.#handleFileWrite(data, meta).catch(err => {
+                    console.error('[workers] hot-reload error', err);
+                });
             });
-        });
+        }
     }
 
     async #handleFileWrite (data: unknown, meta: unknown): Promise<void> {
@@ -299,23 +302,24 @@ export class WorkerDriver extends PuterDriver {
         const d = data as Record<string, unknown> | undefined;
         if ( ! d ) return;
 
-        // v2 FS write events carry `{ entry, userId }` (the committed FSEntry row).
-        // We need the entry's uuid to match against subdomain root_dir_id.
-        const entry = d.entry as Record<string, unknown> | undefined;
-        const node = d.node as Record<string, unknown> | undefined;
+        // `outer.gui.item.*` events carry `{ user_id_list, response }`
+        // where `response` is the FS entry shape. Extract what we need.
+        const response = (d.response ?? d) as Record<string, unknown>;
+        const userIdList = d.user_id_list as Array<number | string> | undefined;
 
-        // Support both v2 shape (`entry`) and v1 shape (`node`)
-        const uuid = (entry?.uuid ?? node?.uid) as string | undefined;
-        const userId = (d.userId ?? entry?.user_id ?? (node as Record<string, unknown> | undefined)?.user_id) as number | undefined;
-        const path = (entry?.path ?? (node as Record<string, unknown> | undefined)?.path) as string | undefined;
+        const uuid = (response.uuid ?? response.uid) as string | undefined;
+        const userId = (userIdList?.[0] ?? response.user_id) as number | undefined;
+        const path = response.path as string | undefined;
 
+        // Only files trigger hot-reload (not directories)
+        if ( response.is_dir || response.isDir ) return;
         if ( ! uuid || ! userId ) return;
 
         // Check if any worker subdomain points at this file
         const workerSubs = await this.#subStore.listByUserIdAndPrefix(userId, WORKER_SUBDOMAIN_PREFIX);
         const matched = workerSubs.filter((r: Record<string, unknown>) => {
             // root_dir_id can be the FS entry id or uuid depending on how it was stored
-            return String(r.root_dir_id) === String(uuid) || String(r.root_dir_id) === String(entry?.id);
+            return String(r.root_dir_id) === String(uuid) || String(r.root_dir_id) === String(response.id);
         });
 
         if ( matched.length === 0 ) return;

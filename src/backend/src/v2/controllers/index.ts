@@ -7,7 +7,9 @@ import { EntriController } from './entri/EntriController';
 import { FSController } from './fs/FSController';
 import { HostingController } from './hosting/HostingController.js';
 import { LegacyFSController } from './fs/LegacyFSController';
+import { NotificationController } from './notification/NotificationController';
 import { PuterAIController } from './puterai/PuterAIController';
+import { ShareController } from './share/ShareController';
 import { SystemController } from './system/SystemController.js';
 import type { IPuterControllerRegistry } from './types';
 
@@ -23,4 +25,6 @@ export const puterControllers = {
     drivers: DriverController,
     broadcast: BroadcastController,
     entri: EntriController,
+    notification: NotificationController,
+    share: ShareController,
 } satisfies IPuterControllerRegistry;

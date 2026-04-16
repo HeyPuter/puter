@@ -1,6 +1,7 @@
 import { ACLService } from './acl/ACLService';
 import { AuthService } from './auth/AuthService';
 import { BroadcastService } from './broadcast/BroadcastService';
+import { NotificationService } from './notification/NotificationService';
 import { TokenService } from './auth/TokenService';
 import { FSEntryService } from './fs/FSEntryService';
 import { MeteringService } from './metering/MeteringService';
@@ -14,6 +15,7 @@ import type { IPuterServiceRegistry } from './types';
 // AuthService depends on TokenService (JWT verify).
 // FSEntryService constructs its own internal repo + S3 provider in onServerStart.
 // SocketService depends on AuthService (for handshake auth).
+// NotificationService depends on notification store (for DB) + event client (for socket push).
 // BroadcastService is independent — only needs the event client.
 export const puterServices = {
     metering: MeteringService,
@@ -23,5 +25,6 @@ export const puterServices = {
     auth: AuthService,
     fsEntry: FSEntryService,
     socket: SocketService,
+    notification: NotificationService,
     broadcast: BroadcastService,
 } satisfies IPuterServiceRegistry;

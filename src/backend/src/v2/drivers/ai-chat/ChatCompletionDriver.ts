@@ -90,6 +90,24 @@ export class ChatCompletionDriver extends PuterDriver {
             normalize_tools_object(args.tools);
         }
 
+        // ── Pre-completion validation gate ───────────────────────────
+        // Extensions (e.g. prompt_block) listen on `ai.prompt.validate`
+        // and set `event.allow = false` to block the prompt. v1 fell
+        // back to test-mode; v2 throws so the client gets a clear 403.
+        const validateEvent: Record<string, unknown> = {
+            actor,
+            allow: true,
+            intended_service: intendedProvider,
+            parameters: args,
+        };
+        this.clients.event.emit('ai.prompt.validate', validateEvent, {});
+        if ( ! validateEvent.allow ) {
+            const reason = typeof validateEvent.message === 'string'
+                ? validateEvent.message
+                : 'Prompt blocked by policy';
+            throw new HttpError(403, reason);
+        }
+
         // First attempt
         const provider = this.#providers[model.provider!];
         if ( ! provider ) {
@@ -168,6 +186,20 @@ export class ChatCompletionDriver extends PuterDriver {
             };
             return streamResult as unknown as IChatCompleteResult;
         }
+
+        // ── Post-completion audit event ──────────────────────────────
+        // Only for non-streaming results (streaming returns early above).
+        // Extensions like prompt_block / prodMeteringAndBilling listen
+        // for this to log completions, count tokens, etc.
+        const username = actor.user?.username;
+        this.clients.event.emit('ai.prompt.complete', {
+            username,
+            intended_service: intendedProvider,
+            parameters: args,
+            result: res,
+            model_used: model.id,
+            service_used: model.provider,
+        }, {});
 
         if ( args.response?.normalize && 'message' in res && res.message ) {
             return { ...res, message: normalize_single_message(res.message), normalized: true };
