@@ -8,7 +8,7 @@ export const CLAUDE_MODELS: IChatModel[] = [
         modalities: { 'input': ['text', 'image', 'pdf'], 'output': ['text'] },
         open_weights: false,
         tool_call: true,
-        knowledge: '2025-08',
+        knowledge: '2026-01',
         release_date: '2026-04-16',
         aliases: ['claude-opus', 'claude-opus-latest', 'claude-opus-4-7-latest', 'claude-opus-4.7', 'claude-opus-4-7', 'anthropic/claude-opus-4-7'],
         name: 'Claude Opus 4.7',
