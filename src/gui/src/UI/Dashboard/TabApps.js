@@ -9,6 +9,7 @@ const APP_NAMES_NO_UNINSTALL = new Set([
     'recorder',
     'memos',
     'music-player',
+    'ai',
 ]);
 
 /**
