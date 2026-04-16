@@ -35,10 +35,6 @@ export class KVStoreDriver extends PuterDriver {
         return { namespace, key };
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    get #dynamo (): any {
-        return this.clients.dynamo;
-    }
 
     // ── Interface methods ───────────────────────────────────────────
 
@@ -54,7 +50,7 @@ export class KVStoreDriver extends PuterDriver {
         if ( Array.isArray(key) ) {
             if ( key.length === 0 ) return [];
             const items = key.map(k => ({ table: KV_TABLE, items: this.#key(ns, k) }));
-            const result = await this.#dynamo.batchGet(items);
+            const result = await this.clients.dynamo.batchGet(items);
             const responses = result?.Responses?.[KV_TABLE] ?? [];
             return key.map(k => {
                 const row = responses.find((r: Record<string, unknown>) => r.key === k);
@@ -62,7 +58,7 @@ export class KVStoreDriver extends PuterDriver {
             });
         }
 
-        const result = await this.#dynamo.get(KV_TABLE, this.#key(ns, key));
+        const result = await this.clients.dynamo.get(KV_TABLE, this.#key(ns, key));
         return result?.Item?.value ?? null;
     }
 
@@ -78,7 +74,7 @@ export class KVStoreDriver extends PuterDriver {
         const item: Record<string, unknown> = { namespace: ns, key, value };
         if ( expireAt !== undefined ) item.ttl = expireAt;
 
-        await this.#dynamo.put(KV_TABLE, item);
+        await this.clients.dynamo.put(KV_TABLE, item);
         return true;
     }
 
@@ -97,7 +93,7 @@ export class KVStoreDriver extends PuterDriver {
             return { table: KV_TABLE, item: row };
         });
 
-        await this.#dynamo.batchPut(puts);
+        await this.clients.dynamo.batchPut(puts);
         return true;
     }
 
@@ -109,7 +105,7 @@ export class KVStoreDriver extends PuterDriver {
 
         const actor = Context.get('actor');
         const ns = this.#namespace(actor, optConfig?.appUuid);
-        await this.#dynamo.del(KV_TABLE, this.#key(ns, key));
+        await this.clients.dynamo.del(KV_TABLE, this.#key(ns, key));
         return true;
     }
 
@@ -130,7 +126,7 @@ export class KVStoreDriver extends PuterDriver {
             ? { beginsWith: { key: 'key', value: pattern } }
             : undefined;
 
-        const result = await this.#dynamo.query(
+        const result = await this.clients.dynamo.query(
             KV_TABLE,
             { namespace: ns },
             limit,
@@ -157,11 +153,11 @@ export class KVStoreDriver extends PuterDriver {
     ): Promise<boolean> {
         const actor = Context.get('actor');
         const ns = this.#namespace(actor, args.optConfig?.appUuid);
-        const result = await this.#dynamo.query(KV_TABLE, { namespace: ns }, 0);
+        const result = await this.clients.dynamo.query(KV_TABLE, { namespace: ns }, 0);
         const items = (result?.Items ?? []) as Array<Record<string, unknown>>;
 
         for ( const item of items ) {
-            await this.#dynamo.del(KV_TABLE, { namespace: ns, key: item.key });
+            await this.clients.dynamo.del(KV_TABLE, { namespace: ns, key: item.key });
         }
         return true;
     }
@@ -194,7 +190,7 @@ export class KVStoreDriver extends PuterDriver {
         }
         exprValues[':zero'] = 0;
 
-        const result = await this.#dynamo.update(
+        const result = await this.clients.dynamo.update(
             KV_TABLE,
             this.#key(ns, key),
             `SET ${setParts.join(', ')}`,
@@ -213,7 +209,7 @@ export class KVStoreDriver extends PuterDriver {
 
         const actor = Context.get('actor');
         const ns = this.#namespace(actor, optConfig?.appUuid);
-        await this.#dynamo.update(
+        await this.clients.dynamo.update(
             KV_TABLE,
             this.#key(ns, key),
             'SET #ttl = :ttl',

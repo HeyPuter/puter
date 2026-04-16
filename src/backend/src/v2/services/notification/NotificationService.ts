@@ -1,9 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import { PuterService } from '../types.js';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type AnyStore = any;
-
 /**
  * Notification orchestration — glues the NotificationStore (DB) to the
  * event bus (socket push) and handles lifecycle events (user connects →
@@ -18,8 +15,6 @@ export class NotificationService extends PuterService {
     #pendingWrites = new Map<string, Promise<unknown>>();
     /** user.id → debounce timeout */
     #connectTimeouts = new Map<number, ReturnType<typeof setTimeout>>();
-
-    get #store (): AnyStore { return this.stores.notification; }
 
     override onServerStart (): void {
         // When a user opens the GUI, send their pending unreads.
@@ -76,7 +71,7 @@ export class NotificationService extends PuterService {
         const writePromise = (async () => {
             for ( const userId of userIds ) {
                 try {
-                    await this.#store.create({
+                    await this.stores.notification.create({
                         userId,
                         value: notification,
                     });
@@ -104,7 +99,7 @@ export class NotificationService extends PuterService {
      * the ack event to sockets so other tabs update.
      */
     async markAcknowledged (uid: string, userId: number): Promise<void> {
-        await this.#store.markAcknowledged(uid, userId);
+        await this.stores.notification.markAcknowledged(uid, userId);
         this.clients.event.emit('outer.gui.notif.ack', {
             user_id_list: [userId],
             response: { uid },
@@ -115,7 +110,7 @@ export class NotificationService extends PuterService {
      * Mark a notification as shown (user saw it) and push the ack event.
      */
     async markShown (uid: string, userId: number): Promise<void> {
-        await this.#store.markShown(uid, userId);
+        await this.stores.notification.markShown(uid, userId);
         this.clients.event.emit('outer.gui.notif.ack', {
             user_id_list: [userId],
             response: { uid },
@@ -126,7 +121,7 @@ export class NotificationService extends PuterService {
 
     async #sendUnreads (userId: number): Promise<void> {
         // Fetch all unseen + unacknowledged notifications
-        const rows = await this.#store.listByUserId(userId, {
+        const rows = await this.stores.notification.listByUserId(userId, {
             filter: 'unseen',
             limit: 200,
         });
@@ -135,7 +130,7 @@ export class NotificationService extends PuterService {
         // Mark them shown now that we're delivering them
         for ( const row of rows ) {
             if ( row.uid ) {
-                await this.#store.markShown(row.uid, userId).catch(() => {});
+                await this.stores.notification.markShown(row.uid, userId).catch(() => {});
             }
         }
 
@@ -154,6 +149,6 @@ export class NotificationService extends PuterService {
         // Wait for the pending write to finish before trying to mark shown
         const pending = this.#pendingWrites.get(uid);
         if ( pending ) await pending.catch(() => {});
-        await this.#store.markShown(uid, userId).catch(() => {});
+        await this.stores.notification.markShown(uid, userId).catch(() => {});
     }
 }

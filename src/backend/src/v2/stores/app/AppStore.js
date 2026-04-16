@@ -167,6 +167,28 @@ export class AppStore extends PuterStore {
         return rows.map(r => r.type);
     }
 
+    async getAppsByFiletype (extension) {
+        const rows = await this.clients.db.read(
+            `SELECT a.* FROM \`apps\` a
+             INNER JOIN \`app_filetype_association\` fa ON fa.\`app_id\` = a.\`id\`
+             WHERE fa.\`type\` = ?`,
+            [extension],
+        );
+        return rows.map(r => this.#normalizeRow(r));
+    }
+
+    async getRecentAppOpens (userId, { limit = 10 } = {}) {
+        const rows = await this.clients.db.read(
+            `SELECT DISTINCT \`app_uid\` FROM \`app_opens\`
+             WHERE \`user_id\` = ?
+             GROUP BY \`app_uid\`
+             ORDER BY MAX(\`_id\`) DESC
+             LIMIT ${limit}`,
+            [userId],
+        );
+        return rows.map(r => r.app_uid);
+    }
+
     async setFiletypeAssociations (appId, types) {
         // Replace-all semantics
         await this.clients.db.write(

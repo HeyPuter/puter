@@ -1,14 +1,7 @@
 import type { Request, Response } from 'express';
 import { HttpError } from '../../core/http/HttpError.js';
 import type { PuterRouter } from '../../core/http/PuterRouter.js';
-import type { AuthService } from '../../services/auth/AuthService.js';
-import type { NotificationService } from '../../services/notification/NotificationService.js';
 import { PuterController } from '../types.js';
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type AnyStore = any;
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type AnyService = any;
 
 const SHARE_TOKEN_TYPE = 'share';
 const SHARE_TOKEN_EXPIRY = '14d';
@@ -23,15 +16,6 @@ const SHARE_TOKEN_EXPIRY = '14d';
  * an account, permissions are granted immediately and no row is stored.
  */
 export class ShareController extends PuterController {
-
-    get #shareStore (): AnyStore { return this.stores.share; }
-    get #userStore (): AnyStore { return this.stores.user; }
-    get #appStore (): AnyStore { return this.stores.app; }
-    get #permService (): AnyService { return this.services.permission; }
-    get #aclService (): AnyService { return this.services.acl; }
-    get #tokenService (): AnyService { return this.services.token; }
-    get #authService (): AuthService { return this.services.auth as unknown as AuthService; }
-    get #notifService (): NotificationService | undefined { return this.services.notification as unknown as NotificationService | undefined; }
 
     registerRoutes (router: PuterRouter): void {
         const api = { subdomain: 'api' } as const;
@@ -53,7 +37,7 @@ export class ShareController extends PuterController {
 
         let decoded: { uid?: string; type?: string };
         try {
-            decoded = this.#tokenService.verify(SHARE_TOKEN_TYPE, token);
+            decoded = this.services.token.verify(SHARE_TOKEN_TYPE, token);
         } catch {
             throw new HttpError(400, 'Invalid or expired share token');
         }
@@ -61,7 +45,7 @@ export class ShareController extends PuterController {
             throw new HttpError(400, 'Invalid share token');
         }
 
-        const share = await this.#shareStore.getByUid(decoded.uid);
+        const share = await this.stores.share.getByUid(decoded.uid);
         if ( ! share ) throw new HttpError(404, 'Share not found or expired');
 
         res.json({
@@ -81,11 +65,11 @@ export class ShareController extends PuterController {
         const actor = req.actor;
         if ( ! actor?.user ) throw new HttpError(401, 'Unauthorized');
 
-        const share = await this.#shareStore.getByUid(uid);
+        const share = await this.stores.share.getByUid(uid);
         if ( ! share ) throw new HttpError(404, 'Share not found or expired');
 
         // Issuer must still exist
-        const issuer = await this.#userStore.getById(share.issuer_user_id);
+        const issuer = await this.stores.user.getById(share.issuer_user_id);
         if ( ! issuer ) throw new HttpError(410, 'Share expired — issuer account gone');
 
         // Email must be confirmed
@@ -99,22 +83,20 @@ export class ShareController extends PuterController {
         }
 
         // Grant each permission
+        const issuerActor = { user: { id: issuer.id, uuid: issuer.uuid, username: issuer.username, email: issuer.email ?? null, suspended: false, email_confirmed: true, requires_email_confirmation: false } } as import('../../core/actor.js').Actor;
         const data = (share.data ?? {}) as { permissions?: Array<{ permission: string; extra?: Record<string, unknown> }> };
         for ( const perm of data.permissions ?? [] ) {
             try {
-                if ( perm.permission.startsWith('fs:') ) {
-                    // FS permissions use ACL
-                    await this.#aclService.setUserUser(issuer.id, actor.user.id, perm.permission, perm.extra);
-                } else {
-                    await this.#permService.grantUserUser(issuer.id, actor.user.id, perm.permission, perm.extra);
-                }
+                await this.services.permission.grantUserUserPermission(
+                    issuerActor, actor.user.username ?? '', perm.permission, perm.extra ?? {},
+                );
             } catch ( err ) {
                 console.warn('[share] grant failed for', perm.permission, err);
             }
         }
 
         // Share consumed — delete it
-        await this.#shareStore.deleteByUid(uid);
+        await this.stores.share.deleteByUid(uid);
 
         res.json({ $: 'api:status-report', status: 'success' });
     };
@@ -129,10 +111,10 @@ export class ShareController extends PuterController {
         const actor = req.actor;
         if ( ! actor?.user ) throw new HttpError(401, 'Unauthorized');
 
-        const share = await this.#shareStore.getByUid(uid);
+        const share = await this.stores.share.getByUid(uid);
         if ( ! share ) throw new HttpError(404, 'Share not found or expired');
 
-        const issuer = await this.#userStore.getById(share.issuer_user_id);
+        const issuer = await this.stores.user.getById(share.issuer_user_id);
         if ( ! issuer ) throw new HttpError(410, 'Share expired — issuer account gone');
 
         // If caller IS the intended recipient (confirmed email matches),
@@ -142,8 +124,8 @@ export class ShareController extends PuterController {
         }
 
         // Notify the issuer
-        if ( this.#notifService ) {
-            await this.#notifService.notify([issuer.id], {
+        if ( this.services.notification ) {
+            await this.services.notification.notify([issuer.id], {
                 source: 'sharing',
                 title: `User ${actor.user.username} is trying to open a share you sent to ${share.recipient_email}`,
                 template: 'user-requesting-share',
@@ -189,27 +171,25 @@ export class ShareController extends PuterController {
 
             try {
                 // Try username first
-                const targetUser = await this.#userStore.getByUsername(recipientStr)
-                    ?? (recipientStr.includes('@') ? await this.#userStore.getByEmail(recipientStr) : null);
+                const targetUser = await this.stores.user.getByUsername(recipientStr)
+                    ?? (recipientStr.includes('@') ? await this.stores.user.getByEmail(recipientStr) : null);
 
                 if ( targetUser ) {
                     // Direct grant — user exists
                     if ( ! dryRun ) {
                         for ( const perm of permissions ) {
                             try {
-                                if ( perm.permission.startsWith('fs:') ) {
-                                    await this.#aclService.setUserUser(actor.user.id, targetUser.id, perm.permission, perm.extra);
-                                } else {
-                                    await this.#permService.grantUserUser(actor.user.id, targetUser.id, perm.permission, perm.extra);
-                                }
+                                await this.services.permission.grantUserUserPermission(
+                                    actor, targetUser.username ?? '', perm.permission, perm.extra ?? {},
+                                );
                             } catch ( err ) {
                                 console.warn('[share] grant to user failed', perm.permission, err);
                             }
                         }
 
                         // Notify
-                        if ( this.#notifService ) {
-                            await this.#notifService.notify([targetUser.id], {
+                        if ( this.services.notification ) {
+                            await this.services.notification.notify([targetUser.id], {
                                 source: 'sharing',
                                 title: `${actor.user.username} shared items with you`,
                                 template: 'file-shared-with-you',
@@ -224,7 +204,7 @@ export class ShareController extends PuterController {
                 } else if ( recipientStr.includes('@') ) {
                     // Email recipient — store pending share
                     if ( ! dryRun ) {
-                        const share = await this.#shareStore.create({
+                        const share = await this.stores.share.create({
                             issuerUserId: actor.user.id,
                             recipientEmail: recipientStr.toLowerCase(),
                             data: {
@@ -234,7 +214,7 @@ export class ShareController extends PuterController {
                         });
 
                         // Sign a share token (14-day expiry)
-                        const token = this.#tokenService.sign(SHARE_TOKEN_TYPE, {
+                        const token = this.services.token.sign(SHARE_TOKEN_TYPE, {
                             type: `token:${SHARE_TOKEN_TYPE}`,
                             uid: share.uid,
                         }, { expiresIn: SHARE_TOKEN_EXPIRY });

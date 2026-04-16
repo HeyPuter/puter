@@ -3,9 +3,6 @@ import { HttpError } from '../../core/http/HttpError.js';
 import { PuterDriver } from '../types.js';
 import type { Actor } from '../../core/actor.js';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type AnyStore = any;
-
 const MAX_SELECT_LIMIT = 200;
 
 /**
@@ -34,8 +31,6 @@ export class NotificationDriver extends PuterDriver {
     readonly driverName = 'notifications';
     readonly isDefault = true;
 
-    get #store (): AnyStore { return this.stores.notification; }
-
     // ── Driver methods ──────────────────────────────────────────────
 
     async create (args: Record<string, unknown>): Promise<unknown> {
@@ -46,7 +41,7 @@ export class NotificationDriver extends PuterDriver {
         const actor = this.#requireUserActor();
 
         const value = object.value ?? {};
-        const created = await this.#store.create({
+        const created = await this.stores.notification.create({
             userId: actor.user.id,
             value,
         });
@@ -58,7 +53,7 @@ export class NotificationDriver extends PuterDriver {
         const uid = (args.uid ?? args.id) as string | undefined;
         if ( ! uid ) throw new HttpError(400, 'Missing `uid`');
 
-        const row = await this.#store.getByUid(String(uid), { userId: actor.user.id });
+        const row = await this.stores.notification.getByUid(String(uid), { userId: actor.user.id });
         if ( ! row ) throw new HttpError(404, 'Notification not found');
         return this.#toClient(row);
     }
@@ -74,27 +69,27 @@ export class NotificationDriver extends PuterDriver {
         let rows: Array<Record<string, unknown>>;
         switch ( predicateName ) {
             case 'unseen':
-                rows = await this.#store.listByUserId(actor.user.id, {
+                rows = await this.stores.notification.listByUserId(actor.user.id, {
                     limit,
                     filter: 'unseen',
                 });
                 break;
             case 'unacknowledged':
             case 'unacknowledge': // v1 compat alias
-                rows = await this.#store.listByUserId(actor.user.id, {
+                rows = await this.stores.notification.listByUserId(actor.user.id, {
                     limit,
                     onlyUnacknowledged: true,
                 });
                 break;
             case 'acknowledged':
             case 'acknowledge': // v1 compat alias
-                rows = await this.#store.listByUserId(actor.user.id, {
+                rows = await this.stores.notification.listByUserId(actor.user.id, {
                     limit,
                     filter: 'acknowledged',
                 });
                 break;
             default:
-                rows = await this.#store.listByUserId(actor.user.id, { limit });
+                rows = await this.stores.notification.listByUserId(actor.user.id, { limit });
                 break;
         }
 
@@ -106,7 +101,7 @@ export class NotificationDriver extends PuterDriver {
         const actor = this.#requireUserActor();
         const uid = String(args.uid ?? '');
         if ( ! uid ) throw new HttpError(400, 'Missing `uid`');
-        const ok = await this.#store.markShown(uid, actor.user.id);
+        const ok = await this.stores.notification.markShown(uid, actor.user.id);
         return { success: ok };
     }
 
@@ -115,19 +110,19 @@ export class NotificationDriver extends PuterDriver {
         const actor = this.#requireUserActor();
         const uid = String(args.uid ?? '');
         if ( ! uid ) throw new HttpError(400, 'Missing `uid`');
-        const ok = await this.#store.markAcknowledged(uid, actor.user.id);
+        const ok = await this.stores.notification.markAcknowledged(uid, actor.user.id);
         return { success: ok };
     }
 
     // ── Permissions ─────────────────────────────────────────────────
 
-    #requireUserActor (): Actor & { user: NonNullable<Actor['user']> } {
+    #requireUserActor (): Actor & { user: { id: number; uuid: string; username: string } } {
         const actor = Context.get('actor') as Actor | undefined;
         if ( ! actor ) throw new HttpError(401, 'Authentication required');
-        if ( ! actor.user ) throw new HttpError(403, 'User actor required');
+        if ( ! actor.user?.id ) throw new HttpError(403, 'User actor required');
         // v1 rejected app-under-user actors for notifications
         if ( actor.app ) throw new HttpError(403, 'App actors cannot access notifications');
-        return actor as Actor & { user: NonNullable<Actor['user']> };
+        return actor as Actor & { user: { id: number; uuid: string; username: string } };
     }
 
     // ── Serialization ───────────────────────────────────────────────

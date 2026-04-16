@@ -3,11 +3,6 @@ import { HttpError } from '../../core/http/HttpError.js';
 import { PuterDriver } from '../types.js';
 import type { Actor } from '../../core/actor.js';
 
-/** Loose type for JS stores — avoids TS inference issues when calling
- *  JS methods from TS with dynamic option shapes. */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type AnyStore = any;
-
 const SUBDOMAIN_MAX_LEN = 64;
 const SUBDOMAIN_REGEX = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
 const DEFAULT_MAX_SUBDOMAINS = 500;
@@ -36,9 +31,6 @@ export class SubdomainDriver extends PuterDriver {
     readonly driverName = 'subdomains';
     readonly isDefault = true;
 
-    get #store (): AnyStore { return this.stores.subdomain; }
-    get #permService (): AnyStore { return this.services.permission; }
-
     // ── Driver methods ──────────────────────────────────────────────
 
     async create (args: Record<string, unknown>): Promise<unknown> {
@@ -52,19 +44,19 @@ export class SubdomainDriver extends PuterDriver {
         const subdomain = this.#validateSubdomain(object.subdomain);
 
         // Uniqueness
-        if ( await this.#store.existsBySubdomain(subdomain) ) {
+        if ( await this.stores.subdomain.existsBySubdomain(subdomain) ) {
             throw new HttpError(409, 'A site with this subdomain already exists');
         }
 
         // Quota
         const maxSubdomains = (actor.user as unknown as Record<string, unknown>).max_subdomains as number | undefined
             ?? this.#configMaxSubdomains();
-        const currentCount = await this.#store.countByUserId(actor.user.id) as number;
+        const currentCount = await this.stores.subdomain.countByUserId(actor.user.id) as number;
         if ( currentCount >= maxSubdomains ) {
             throw new HttpError(403, 'Subdomain limit reached');
         }
 
-        const created = await this.#store.create({
+        const created = await this.stores.subdomain.create({
             userId: actor.user.id,
             subdomain,
             rootDirId: object.root_dir_id != null ? Number(object.root_dir_id) : null,
@@ -90,7 +82,7 @@ export class SubdomainDriver extends PuterDriver {
         const limit = Math.min(Number(args.limit ?? 5000), 5000);
 
         // Default: only the actor's own subdomains
-        let rows = await this.#store.listByUserId(actor.user.id, { limit });
+        let rows = await this.stores.subdomain.listByUserId(actor.user.id, { limit });
 
         // If we have read-all permission, widen to all users
         if ( predicate !== 'user-can-edit' && await this.#hasPermission(actor, 'read-all-subdomains') ) {
@@ -125,7 +117,7 @@ export class SubdomainDriver extends PuterDriver {
         if ( object.associated_app_id !== undefined ) patch.associated_app_id = object.associated_app_id != null ? Number(object.associated_app_id) : null;
         if ( object.domain !== undefined ) patch.domain = object.domain != null ? String(object.domain) : null;
 
-        const updated = await this.#store.update(row.uuid, patch, { userId: row.user_id });
+        const updated = await this.stores.subdomain.update(row.uuid, patch, { userId: row.user_id });
         return this.#toClient(updated);
     }
 
@@ -147,19 +139,19 @@ export class SubdomainDriver extends PuterDriver {
         }
 
         await this.#checkWriteAccess(row, actor);
-        await this.#store.deleteByUuid(row.uuid, { userId: row.user_id });
+        await this.stores.subdomain.deleteByUuid(row.uuid, { userId: row.user_id });
         return { success: true, uid: row.uuid };
     }
 
     // ── Resolve ─────────────────────────────────────────────────────
 
     async #resolve (args: Record<string, unknown>): Promise<Record<string, unknown> | null> {
-        if ( args.uid ) return this.#store.getByUuid(String(args.uid));
+        if ( args.uid ) return this.stores.subdomain.getByUuid(String(args.uid));
         const id = args.id as Record<string, unknown> | string | undefined;
-        if ( typeof id === 'string' ) return this.#store.getByUuid(id);
+        if ( typeof id === 'string' ) return this.stores.subdomain.getByUuid(id);
         if ( id && typeof id === 'object' ) {
-            if ( id.uid ) return this.#store.getByUuid(String(id.uid));
-            if ( id.subdomain ) return this.#store.getBySubdomain(String(id.subdomain));
+            if ( id.uid ) return this.stores.subdomain.getByUuid(String(id.uid));
+            if ( id.subdomain ) return this.stores.subdomain.getBySubdomain(String(id.subdomain));
         }
         return null;
     }
@@ -186,19 +178,19 @@ export class SubdomainDriver extends PuterDriver {
 
     // ── Permissions ─────────────────────────────────────────────────
 
-    #requireActor (): Actor {
+    #requireActor (): Actor & { user: { id: number; uuid: string; username: string } } {
         const actor = Context.get('actor') as Actor | undefined;
-        if ( ! actor ) throw new HttpError(401, 'Authentication required');
-        return actor;
+        if ( ! actor?.user?.id ) throw new HttpError(401, 'Authentication required');
+        return actor as Actor & { user: { id: number; uuid: string; username: string } };
     }
 
     #requireUser (actor: Actor): void {
-        if ( ! actor.user ) throw new HttpError(403, 'User actor required');
+        if ( ! actor.user?.id ) throw new HttpError(403, 'User actor required');
     }
 
     async #hasPermission (actor: Actor, permission: string): Promise<boolean> {
         try {
-            return await this.#permService.check(actor, permission);
+            return await this.services.permission.check(actor, permission);
         } catch { return false; }
     }
 

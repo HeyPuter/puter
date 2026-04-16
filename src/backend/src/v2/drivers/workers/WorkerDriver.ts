@@ -7,11 +7,6 @@ import { PuterDriver } from '../types.js';
 import { loadFileInput } from '../util/fileInput.js';
 import type { Actor } from '../../core/actor.js';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type AnyStore = any;
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type AnyService = any;
-
 const CF_BASE_URL = 'https://api.cloudflare.com/client/v4/accounts';
 const WORKER_NAME_REGEX = /^[a-zA-Z0-9_-]+$/;
 const MAX_WORKERS_PER_USER = 100;
@@ -55,10 +50,6 @@ export class WorkerDriver extends PuterDriver {
 
     #cfBaseUrl = '';
 
-    get #subStore (): AnyStore { return this.stores.subdomain; }
-    get #appStore (): AnyStore { return this.stores.app; }
-    get #authService (): AnyService { return this.services.auth; }
-
     override onServerStart (): void {
         const cfg = this.#workerConfig();
         if ( cfg.ACCOUNTID ) {
@@ -87,7 +78,7 @@ export class WorkerDriver extends PuterDriver {
         this.#requireCfConfig();
 
         // Quota check — count existing workers.puter.* subdomains owned by user
-        const existingWorkers = await this.#subStore.listByUserIdAndPrefix(
+        const existingWorkers = await this.stores.subdomain.listByUserIdAndPrefix(
             actor.user.id,
             WORKER_SUBDOMAIN_PREFIX,
         );
@@ -98,15 +89,17 @@ export class WorkerDriver extends PuterDriver {
         // If tied to an app, verify ownership and get app-scoped token
         let authorization = String(args.authorization ?? '');
         if ( appId ) {
-            const app = await this.#appStore.getByUid(appId);
+            const app = await this.stores.app.getByUid(appId);
             if ( ! app || app.owner_user_id !== actor.user.id ) {
                 throw new HttpError(403, 'App not found or not owned by you');
             }
-            authorization = this.#authService.getUserAppToken(actor, appId);
+            authorization = this.services.auth.getUserAppToken(actor, appId);
         }
         if ( ! authorization ) {
             // Fall back to a session token for the current user
-            const session = await this.#authService.createSessionToken(actor.user);
+            const userRow = await this.stores.user.getById(actor.user.id!);
+            if ( ! userRow ) throw new HttpError(500, 'User not found');
+            const session = await this.services.auth.createSessionToken(userRow);
             authorization = session.token;
         }
 
@@ -121,18 +114,18 @@ export class WorkerDriver extends PuterDriver {
 
         // Create subdomain entry
         const subdomainName = `${WORKER_SUBDOMAIN_PREFIX}${workerName}`;
-        const existingSub = await this.#subStore.getBySubdomain(subdomainName);
+        const existingSub = await this.stores.subdomain.getBySubdomain(subdomainName);
         if ( existingSub ) {
             // Update root_dir if worker already exists
-            await this.#subStore.update(existingSub.uuid, {
+            await this.stores.subdomain.update(existingSub.uuid, {
                 root_dir_id: loaded.fsEntry?.uuid ?? null,
             });
         } else {
-            await this.#subStore.create({
-                userId: actor.user.id,
+            await this.stores.subdomain.create({
+                userId: actor.user.id!,
                 subdomain: subdomainName,
                 rootDirId: null,
-                appOwner: appId ? (await this.#appStore.getByUid(appId))?.id ?? null : null,
+                appOwner: appId ? (await this.stores.app.getByUid(appId))?.id ?? null : null,
             });
         }
 
@@ -148,14 +141,14 @@ export class WorkerDriver extends PuterDriver {
         this.#requireCfConfig();
 
         const subdomainName = `${WORKER_SUBDOMAIN_PREFIX}${workerName}`;
-        const row = await this.#subStore.getBySubdomain(subdomainName);
+        const row = await this.stores.subdomain.getBySubdomain(subdomainName);
         if ( ! row ) throw new HttpError(404, 'Worker not found');
         if ( row.user_id !== actor.user.id ) {
             throw new HttpError(403, 'This is not your worker');
         }
 
         const cfResult = await this.#cfDelete(workerName);
-        await this.#subStore.deleteByUuid(row.uuid, { userId: actor.user.id });
+        await this.stores.subdomain.deleteByUuid(row.uuid, { userId: actor.user.id });
         return cfResult;
     }
 
@@ -165,10 +158,10 @@ export class WorkerDriver extends PuterDriver {
 
         let rows: Array<Record<string, unknown>>;
         if ( typeof workerName === 'string' && workerName.length > 0 ) {
-            const sub = await this.#subStore.getBySubdomain(`${WORKER_SUBDOMAIN_PREFIX}${workerName}`);
+            const sub = await this.stores.subdomain.getBySubdomain(`${WORKER_SUBDOMAIN_PREFIX}${workerName}`);
             rows = sub ? [sub] : [];
         } else {
-            rows = await this.#subStore.listByUserIdAndPrefix(actor.user.id, WORKER_SUBDOMAIN_PREFIX);
+            rows = await this.stores.subdomain.listByUserIdAndPrefix(actor.user.id, WORKER_SUBDOMAIN_PREFIX);
         }
 
         return rows.map(r => {
@@ -247,8 +240,8 @@ export class WorkerDriver extends PuterDriver {
 
     #requireActor (): Actor & { user: NonNullable<Actor['user']> } {
         const actor = Context.get('actor') as Actor | undefined;
-        if ( ! actor?.user ) throw new HttpError(401, 'Authentication required');
-        return actor as Actor & { user: NonNullable<Actor['user']> };
+        if ( ! actor?.user?.id ) throw new HttpError(401, 'Authentication required');
+        return actor as Actor & { user: { id: number; uuid: string; username: string } };
     }
 
     #requireCfConfig (): void {
@@ -316,7 +309,7 @@ export class WorkerDriver extends PuterDriver {
         if ( ! uuid || ! userId ) return;
 
         // Check if any worker subdomain points at this file
-        const workerSubs = await this.#subStore.listByUserIdAndPrefix(userId, WORKER_SUBDOMAIN_PREFIX);
+        const workerSubs = await this.stores.subdomain.listByUserIdAndPrefix(userId, WORKER_SUBDOMAIN_PREFIX);
         const matched = workerSubs.filter((r: Record<string, unknown>) => {
             // root_dir_id can be the FS entry id or uuid depending on how it was stored
             return String(r.root_dir_id) === String(uuid) || String(r.root_dir_id) === String(response.id);
@@ -344,12 +337,12 @@ export class WorkerDriver extends PuterDriver {
                 let authorization: string;
                 if ( appOwnerId ) {
                     // App-scoped: get the app's uid, then mint an app-under-user token
-                    const app = await this.#appStore.getById(appOwnerId);
+                    const app = await this.stores.app.getById(appOwnerId);
                     if ( app ) {
                         const ownerUser = await this.stores.user.getById(userId);
                         if ( ownerUser ) {
                             const actor = { user: ownerUser } as Actor;
-                            authorization = this.#authService.getUserAppToken(actor, app.uid);
+                            authorization = this.services.auth.getUserAppToken(actor, app.uid);
                         } else {
                             continue; // can't auth without the user
                         }
@@ -360,7 +353,7 @@ export class WorkerDriver extends PuterDriver {
                     // User-scoped: mint a session token
                     const ownerUser = await this.stores.user.getById(userId);
                     if ( ! ownerUser ) continue;
-                    const session = await this.#authService.createSessionToken(ownerUser);
+                    const session = await this.services.auth.createSessionToken(ownerUser);
                     authorization = session.token;
                 }
 

@@ -11,6 +11,7 @@ import { NotificationController } from './notification/NotificationController';
 import { PuterAIController } from './puterai/PuterAIController';
 import { ShareController } from './share/ShareController';
 import { SystemController } from './system/SystemController.js';
+import { WebDAVController } from './webdav/WebDAVController';
 import type { IPuterControllerRegistry } from './types';
 
 export const puterControllers = {
@@ -27,4 +28,5 @@ export const puterControllers = {
     entri: EntriController,
     notification: NotificationController,
     share: ShareController,
+    webdav: WebDAVController,
 } satisfies IPuterControllerRegistry;

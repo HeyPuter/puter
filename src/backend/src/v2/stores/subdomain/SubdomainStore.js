@@ -87,7 +87,8 @@ export class SubdomainStore extends PuterStore {
 
     // ── Writes ───────────────────────────────────────────────────────
 
-    async create ({ userId, subdomain, rootDirId, associatedAppId = null, appOwner = null }) {
+    /** @param {{ userId: number, subdomain: string, rootDirId?: number|null, associatedAppId?: number|null, appOwner?: number|null }} opts */
+    async create ({ userId, subdomain, rootDirId = null, associatedAppId = null, appOwner = null }) {
         if ( ! userId || ! subdomain ) {
             throw new Error('create: userId and subdomain are required');
         }

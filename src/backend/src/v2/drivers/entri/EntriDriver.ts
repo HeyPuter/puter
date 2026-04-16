@@ -3,9 +3,6 @@ import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { PuterDriver } from '../types.js';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type AnyStore = any;
-
 const ENTRI_TOKEN_URL = 'https://api.goentri.com/token';
 const ENTRI_POWER_URL = 'https://api.goentri.com/power';
 
@@ -30,8 +27,6 @@ export class EntriDriver extends PuterDriver {
     readonly driverName = 'entri';
     readonly isDefault = true;
 
-    get #store (): AnyStore { return this.stores.subdomain; }
-
     // ── Driver methods ──────────────────────────────────────────────
 
     async getConfig (args: Record<string, unknown>): Promise<unknown> {
@@ -47,8 +42,8 @@ export class EntriDriver extends PuterDriver {
 
         // Check domain isn't already mapped (or in-progress) for a DIFFERENT subdomain
         const subdomainName = userHostedSite.replace('.puter.site', '');
-        const existing = await this.#store.getByDomain(domain)
-            ?? await this.#store.getByDomain(`in-progress:${domain}`);
+        const existing = await this.stores.subdomain.getByDomain(domain)
+            ?? await this.stores.subdomain.getByDomain(`in-progress:${domain}`);
         if ( existing && existing.subdomain !== subdomainName ) {
             throw new HttpError(409, 'Domain is already in use by another site');
         }
@@ -95,9 +90,9 @@ export class EntriDriver extends PuterDriver {
         }
 
         // Mark subdomain as in-progress
-        const row = await this.#store.getBySubdomain(subdomainName);
+        const row = await this.stores.subdomain.getBySubdomain(subdomainName);
         if ( row ) {
-            await this.#store.update(row.uuid, { domain: `in-progress:${domain}` });
+            await this.stores.subdomain.update(row.uuid, { domain: `in-progress:${domain}` });
         }
 
         return {
@@ -123,12 +118,12 @@ export class EntriDriver extends PuterDriver {
         }
 
         // Find the subdomain row by domain (or in-progress variant)
-        const row = await this.#store.getByDomain(domain)
-            ?? await this.#store.getByDomain(`in-progress:${domain}`);
+        const row = await this.stores.subdomain.getByDomain(domain)
+            ?? await this.stores.subdomain.getByDomain(`in-progress:${domain}`);
         if ( ! row ) throw new HttpError(404, 'Domain mapping not found');
 
         // Clear the domain field
-        await this.#store.update(row.uuid, { domain: null });
+        await this.stores.subdomain.update(row.uuid, { domain: null });
 
         // Best-effort Entri API delete — even for in-progress domains
         const errors: string[] = [];
@@ -196,9 +191,9 @@ export class EntriDriver extends PuterDriver {
         if ( ! realDomain ) return { ok: true };
 
         // Find rows with in-progress domain and flip
-        const rows = await this.#store.listByDomain(`in-progress:${realDomain}`);
+        const rows = await this.stores.subdomain.listByDomain(`in-progress:${realDomain}`);
         for ( const row of rows ) {
-            await this.#store.update(row.uuid, { domain: realDomain });
+            await this.stores.subdomain.update(row.uuid, { domain: realDomain });
         }
 
         return { ok: true };

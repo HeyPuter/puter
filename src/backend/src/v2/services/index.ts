@@ -1,4 +1,6 @@
 import { ACLService } from './acl/ACLService';
+import { RecommendedAppsService } from './apps/RecommendedAppsService';
+import { SuggestedAppsService } from './apps/SuggestedAppsService';
 import { AuthService } from './auth/AuthService';
 import { BroadcastService } from './broadcast/BroadcastService';
 import { NotificationService } from './notification/NotificationService';
@@ -24,6 +26,8 @@ export const puterServices = {
     token: TokenService,
     auth: AuthService,
     fsEntry: FSEntryService,
+    recommendedApps: RecommendedAppsService,
+    suggestedApps: SuggestedAppsService,
     socket: SocketService,
     notification: NotificationService,
     broadcast: BroadcastService,

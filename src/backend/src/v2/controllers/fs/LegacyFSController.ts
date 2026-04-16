@@ -92,16 +92,63 @@ export class LegacyFSController extends PuterController {
             res.status(410).json({ error: 'itemMetadata is deprecated; use /fs/stat' });
         });
 
-        // /get-launch-apps returns an empty shape until recommended-apps
-        // and app-icon services are ported to v2. UI clients tolerate
-        // empty arrays gracefully.
-        router.get('/get-launch-apps', apiOptions, (_req, res) => {
-            res.json({ recommended: [], recent: [] });
+        router.get('/get-launch-apps', apiOptions, async (req, res) => {
+            const recommendedSvc = this.services.recommendedApps as unknown as { getRecommendedApps?: () => Promise<unknown[]> } | undefined;
+            const recommended = recommendedSvc?.getRecommendedApps
+                ? await recommendedSvc.getRecommendedApps()
+                : [];
+
+            let recent: unknown[] = [];
+            const userId = req.actor?.user?.id;
+            if ( userId ) {
+                const recentUids = await (this.stores.app as unknown as { getRecentAppOpens?: (id: number, opts?: { limit?: number }) => Promise<string[]> }).getRecentAppOpens?.(userId, { limit: 10 }) ?? [];
+                const apps: unknown[] = [];
+                for ( const uid of recentUids ) {
+                    const app = await (this.stores.app as unknown as { getByUid: (uid: string) => Promise<Record<string, unknown> | null> }).getByUid(uid);
+                    if ( app ) {
+                        apps.push({
+                            uuid: app.uid,
+                            name: app.name,
+                            title: app.title,
+                            icon: app.icon ?? null,
+                            godmode: Boolean(app.godmode),
+                            maximize_on_start: Boolean(app.maximize_on_start),
+                            index_url: app.index_url,
+                        });
+                    }
+                }
+                recent = apps;
+            }
+
+            res.json({ recommended, recent });
         });
 
-        // /suggest_apps returns `[]` until a v2 SuggestedAppsService lands.
-        router.post('/suggest_apps', apiOptions, (_req, res) => {
-            res.json([]);
+        router.post('/suggest_apps', apiOptions, async (req, res) => {
+            const suggestSvc = this.services.suggestedApps as unknown as { getSuggestedApps?: (entry: { name?: string; path?: string }) => Promise<unknown[]> } | undefined;
+            if ( ! suggestSvc?.getSuggestedApps ) {
+                res.json([]);
+                return;
+            }
+            const body = req.body ?? {};
+            // Client sends { uid } or { path } identifying a file entry.
+            // Resolve the entry to get its name/path for extension detection.
+            const userId = req.actor?.user?.id;
+            let entryName: string | undefined;
+            let entryPath: string | undefined;
+            if ( body.uid || body.path ) {
+                try {
+                    const entry = await resolveV1Selector(this.stores.fsEntry, body, userId ?? NaN);
+                    entryName = entry?.name;
+                    entryPath = entry?.path;
+                } catch {
+                    // If we can't resolve, fall back to empty
+                }
+            }
+            const suggestions = await suggestSvc.getSuggestedApps({
+                name: entryName,
+                path: entryPath,
+            });
+            res.json(suggestions);
         });
 
         // puter-js polls this to decide whether to purge its in-memory FS
@@ -206,6 +253,7 @@ export class LegacyFSController extends PuterController {
             dedupeName: getBoolean(body, 'dedupe_name', 'change_name') ?? false,
             createMissingParents: getBoolean(body, 'create_missing_parents', 'create_missing_ancestors') ?? false,
         });
+        this.#emitGuiEvent('outer.gui.item.added', entry);
 
         res.json(await toLegacyEntry(this.clients.event, entry));
     };
@@ -228,6 +276,7 @@ export class LegacyFSController extends PuterController {
             overwrite: getBoolean(body, 'overwrite') ?? false,
             dedupeName: getBoolean(body, 'dedupe_name', 'change_name') ?? false,
         });
+        this.#emitGuiEvent('outer.gui.item.added', copy);
 
         // v1 /copy returns an array (historically supported bulk copies).
         res.json([await toLegacyEntry(this.clients.event, copy)]);
@@ -251,6 +300,7 @@ export class LegacyFSController extends PuterController {
             overwrite: getBoolean(body, 'overwrite') ?? false,
             dedupeName: getBoolean(body, 'dedupe_name', 'change_name') ?? false,
         });
+        this.#emitGuiEvent('outer.gui.item.moved', moved, { old_path: source.path });
 
         res.json(await toLegacyEntry(this.clients.event, moved));
     };
@@ -272,6 +322,7 @@ export class LegacyFSController extends PuterController {
                     recursive: getBoolean(body, 'recursive') ?? true,
                     descendantsOnly: getBoolean(body, 'descendants_only') ?? false,
                 });
+                this.#emitGuiEvent('outer.gui.item.removed', entry);
                 removedEntries.push(await toLegacyEntry(this.clients.event, entry));
             }
             res.json(removedEntries);
@@ -285,6 +336,7 @@ export class LegacyFSController extends PuterController {
             recursive: getBoolean(body, 'recursive') ?? true,
             descendantsOnly: getBoolean(body, 'descendants_only') ?? false,
         });
+        this.#emitGuiEvent('outer.gui.item.removed', entry);
         res.json({ ok: true, uid: entry.uuid });
     };
 
@@ -300,6 +352,7 @@ export class LegacyFSController extends PuterController {
         await assertAccess(this.services.acl, this.services.fsEntry, actor, entry.path, 'write');
 
         const renamed = await this.services.fsEntry.rename(entry, newName);
+        this.#emitGuiEvent('outer.gui.item.updated', renamed);
         res.json(await toLegacyEntry(this.clients.event, renamed));
     };
 
@@ -516,6 +569,7 @@ export class LegacyFSController extends PuterController {
 
             // Parse multipart and pipe the first `file` part into fsEntryService.write.
             const uploadResult = await this.#multipartWrite(req, userId, targetPath);
+            this.#emitGuiEvent('outer.gui.item.added', uploadResult.fsEntry);
             const signed = signEntry(uploadResult.fsEntry, signingCfg);
             res.json({ ...signed, path: uploadResult.fsEntry.path });
             return;
@@ -531,6 +585,7 @@ export class LegacyFSController extends PuterController {
                     : targetEntry.path,
                 dedupeName: true,
             });
+            this.#emitGuiEvent('outer.gui.item.added', entry);
             res.json({ ...signEntry(entry, signingCfg), path: entry.path });
             return;
         }
@@ -538,6 +593,7 @@ export class LegacyFSController extends PuterController {
             const newName = typeof record.new_name === 'string' ? record.new_name : '';
             if ( ! newName ) throw new HttpError(400, '`new_name` required');
             const renamed = await this.services.fsEntry.rename(targetEntry, newName);
+            this.#emitGuiEvent('outer.gui.item.updated', renamed);
             res.json({ ...signEntry(renamed, signingCfg), path: renamed.path });
             return;
         }
@@ -546,6 +602,7 @@ export class LegacyFSController extends PuterController {
             // delete (recursive). If a trash folder becomes important we can
             // revisit — most clients just call delete directly.
             await this.services.fsEntry.remove(userId, { entry: targetEntry, recursive: true });
+            this.#emitGuiEvent('outer.gui.item.removed', targetEntry);
             res.json({ ok: true, uid: targetEntry.uuid });
             return;
         }
@@ -561,6 +618,11 @@ export class LegacyFSController extends PuterController {
                 overwrite: getBoolean(record, 'overwrite') ?? false,
                 dedupeName: getBoolean(record, 'dedupe_name') ?? false,
             });
+            this.#emitGuiEvent(
+                operation === 'copy' ? 'outer.gui.item.added' : 'outer.gui.item.moved',
+                result,
+                operation === 'move' ? { old_path: targetEntry.path } : undefined,
+            );
             res.json({ ...signEntry(result, signingCfg), path: result.path });
             return;
         }
@@ -722,6 +784,34 @@ export class LegacyFSController extends PuterController {
     };
 
     // Helpers for writeFile
+    // ── GUI event emission ───────────────────────────────────────────
+    //
+    // Fire-and-forget `outer.gui.item.*` events so SocketService,
+    // BroadcastService, WorkerDriver (hot-reload), and cache-invalidation
+    // listeners pick up mutations made through the legacy (bare-path) routes.
+    // FSController (v2-native /fs/* routes) emits these from its own handlers;
+    // LegacyFSController delegates to the same FSEntryService but needs its
+    // own emissions because the service layer deliberately doesn't emit GUI
+    // events (that's a controller concern).
+
+    #emitGuiEvent (
+        eventName: 'outer.gui.item.added' | 'outer.gui.item.updated' | 'outer.gui.item.removed' | 'outer.gui.item.moved',
+        entry: import('../../stores/fs/FSEntry.js').FSEntry,
+        extra?: Record<string, unknown>,
+    ): void {
+        const payload = {
+            user_id_list: [entry.userId],
+            response: { ...entry, ...extra, from_new_service: true },
+        };
+        // Non-blocking — GUI event failure must never break the HTTP response.
+        const meta = {};
+        void Promise.resolve()
+            .then(() => this.clients.event.emit(eventName, payload, meta))
+            .catch(() => {
+                // ignore — non-critical
+            });
+    }
+
     async #resolveParentOfEntry (entry: { path: string; userId: number }) {
         const parentPath = pathPosix.dirname(entry.path);
         const parent = await resolveV1Selector(this.stores.fsEntry, { path: parentPath }, entry.userId);
@@ -830,6 +920,7 @@ export class LegacyFSController extends PuterController {
                         overwrite: getBoolean(record, 'overwrite') ?? false,
                         dedupeName: getBoolean(record, 'dedupe_name') ?? false,
                     });
+                    this.#emitGuiEvent('outer.gui.item.moved', moved, { old_path: source.path });
                     shaped = await toLegacyEntry(this.clients.event, moved);
                 } else if ( op === 'delete' ) {
                     const entry = await resolveV1Selector(
@@ -843,6 +934,7 @@ export class LegacyFSController extends PuterController {
                         recursive: getBoolean(record, 'recursive') ?? true,
                         descendantsOnly: getBoolean(record, 'descendants_only') ?? false,
                     });
+                    this.#emitGuiEvent('outer.gui.item.removed', entry);
                     shaped = { ok: true, uid: entry.uuid };
                 } else if ( op === 'symlink' ) {
                     const parent = await resolveV1Selector(
@@ -861,6 +953,7 @@ export class LegacyFSController extends PuterController {
                         targetPath: target,
                         dedupeName: getBoolean(record, 'dedupe_name') ?? true,
                     });
+                    this.#emitGuiEvent('outer.gui.item.added', link);
                     shaped = await toLegacyEntry(this.clients.event, link);
                 } else {
                     throw new HttpError(400, `Unsupported batch op: '${op}'`);
