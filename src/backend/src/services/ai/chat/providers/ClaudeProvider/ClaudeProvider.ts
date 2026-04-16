@@ -174,8 +174,15 @@ export class ClaudeProvider implements IChatProvider {
             reasoningEffort: requestedReasoningEffort,
             maxTokens: max_tokens,
         });
-        // Anthropic requires temperature=1 whenever thinking is enabled.
-        const resolvedTemperature = thinkingConfig ? 1 : (temperature ?? 0);
+        // Opus 4.7 errors on non-default sampling params; omit temperature entirely.
+        // Other models require temperature=1 when thinking is enabled.
+        const isOpus47 = modelUsed.id === 'claude-opus-4-7';
+        const resolvedTemperature = isOpus47 ? undefined : (thinkingConfig ? 1 : (temperature ?? 0));
+        const supportsEffort = [
+            'claude-opus-4-7',
+            'claude-opus-4-6',
+            'claude-sonnet-4-6',
+        ].includes(modelUsed.id);
         const sdkParams: MessageCreateParams = {
             model: modelUsed.id,
             max_tokens: Math.floor(max_tokens ||
@@ -183,7 +190,7 @@ export class ClaudeProvider implements IChatProvider {
                     model === 'claude-3-5-sonnet-20241022'
                     || model === 'claude-3-5-sonnet-20240620'
                 ) ? 8192 : this.models().filter(e => (e.name === model || e.aliases?.includes(model)))[0]?.max_tokens || 4096)), //required
-            temperature: resolvedTemperature, // required
+            ...(resolvedTemperature !== undefined ? { temperature: resolvedTemperature } : {}),
             ...( (system_prompts && system_prompts[0]?.content) ? {
                 system: system_prompts[0]?.content,
             } : {}),
@@ -194,6 +201,7 @@ export class ClaudeProvider implements IChatProvider {
             messages,
             ...(tools ? { tools } : {}),
             ...(thinkingConfig ? { thinking: thinkingConfig } : {}),
+            ...(supportsEffort && requestedReasoningEffort ? { output_config: { effort: requestedReasoningEffort } } : {}),
         } as MessageCreateParams;
 
         let beta_mode = false;
@@ -432,6 +440,7 @@ export class ClaudeProvider implements IChatProvider {
     };
 
     #buildThinkingConfig ({
+        modelId,
         reasoningEffort,
         maxTokens,
     }: {
@@ -440,6 +449,17 @@ export class ClaudeProvider implements IChatProvider {
         maxTokens?: number;
     }) {
         if ( ! reasoningEffort ) return undefined;
+
+        // Opus 4.7, 4.6, and Sonnet 4.6 use adaptive thinking (budget_tokens
+        // is deprecated on 4.6/Sonnet 4.6 and removed on 4.7).
+        // Opus 4.7 omits thinking content by default; display: 'summarized'
+        // restores visible reasoning in the stream.
+        if ( modelId === 'claude-opus-4-7' ) {
+            return { type: 'adaptive' as const, display: 'summarized' as const };
+        }
+        if ( modelId === 'claude-opus-4-6' || modelId === 'claude-sonnet-4-6' ) {
+            return { type: 'adaptive' as const };
+        }
 
         const requestedBudget = {
             low: 1024,
