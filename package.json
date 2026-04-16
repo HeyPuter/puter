@@ -54,7 +54,8 @@
     "build": "npx eslint --quiet -c eslint/mandatory.eslint.config.js src/backend/src extensions && npm run build:ts && cd src/gui && node ./build.js",
     "check-translations": "node tools/check-translations.js",
     "prepare": "husky",
-    "build:ts": "tsc -p tsconfig.build.json"
+    "build:ts": "tsc -p tsconfig.build.json",
+    "postinstall": "./tools/extensionSetup.sh"
   },
   "workspaces": [
     "src/*",
