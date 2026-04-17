@@ -1,1 +1,0 @@
-ALTER TABLE `subdomains` ADD COLUMN `database_id` varchar(40) DEFAULT NULL;

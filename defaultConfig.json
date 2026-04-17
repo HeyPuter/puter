@@ -19,7 +19,7 @@
     "private_app_hosting_domain_alt": "dev.puter.localhost",
     "captcha": { "enabled": false },
     "extensions": [
-        "./packages/puter/src/backend/src/v2/extensions"
+        "./extensions"
     ],
     "database": {
         "engine": "sqlite",

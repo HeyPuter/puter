@@ -92,8 +92,8 @@ const driverPolicies = {
     temp: {
         kv: {
             'rate-limit': {
-                max: 100,
-                period: 10000,
+                max: 10,
+                period: 1000,
             },
         },
         es: {
@@ -106,8 +106,8 @@ const driverPolicies = {
     user: {
         kv: {
             'rate-limit': {
-                max: 200,
-                period: 10000,
+                max: 20,
+                period: 1000,
             },
         },
         es: {
@@ -143,7 +143,6 @@ const hardcoded_user_group_permissions = {
             'driver': {},
             'service': {},
             'feature': {},
-            'kernel-info': {},
             'local-terminal:access': {},
         },
         'b7220104-7905-4985-b996-649fdcdb3c8f': {

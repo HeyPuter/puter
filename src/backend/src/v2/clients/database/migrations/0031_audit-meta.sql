@@ -1,1 +1,0 @@
-ALTER TABLE `user` ADD COLUMN `audit_metadata` JSON DEFAULT NULL;

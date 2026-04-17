@@ -1,19 +1,23 @@
 import { CreateTableCommand, CreateTableCommandInput, DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { BatchGetCommand, BatchGetCommandInput, BatchWriteCommand, BatchWriteCommandInput, DeleteCommand, DynamoDBDocumentClient, GetCommand, PutCommand, QueryCommand, ScanCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import {
+    BatchGetCommand,
+    BatchGetCommandInput,
+    BatchWriteCommand,
+    BatchWriteCommandInput,
+    DeleteCommand,
+    DynamoDBDocumentClient,
+    GetCommand,
+    PutCommand,
+    QueryCommand,
+    ScanCommand,
+    UpdateCommand,
+} from '@aws-sdk/lib-dynamodb';
 import { NodeHttpHandler } from '@smithy/node-http-handler';
 import dynalite from 'dynalite';
 import { once } from 'node:events';
 import { Agent as httpsAgent } from 'node:https';
-
-interface DBClientConfig {
-    aws?: {
-        access_key: string
-        secret_key: string
-        region: string
-    },
-    path?: string,
-    endpoint?: string
-}
+import { PuterClient } from '../types';
+import type { IConfig, IDynamoConfig } from '../../types';
 
 const LOCAL_DYNAMO_PATH_KEY = ':memory:';
 const localDynaliteEndpointPromises = new Map<string, Promise<string>>();
@@ -37,7 +41,6 @@ const getOrCreateLocalDynaliteEndpoint = async (pathKey: string) => {
 
         const dynaliteInstance = dynalite(dynaliteOptions);
         const dynaliteServer = dynaliteInstance.listen(0, '127.0.0.1');
-        // Don't keep test workers alive just because dynalite is still open.
         dynaliteServer.unref?.();
         await once(dynaliteServer, 'listening');
 
@@ -52,6 +55,7 @@ const getOrCreateLocalDynaliteEndpoint = async (pathKey: string) => {
             localDynaliteEndpointPromises.delete(pathKey);
         }
     });
+
     return endpointPromise;
 };
 
@@ -59,6 +63,7 @@ const chunkValues = <T>(values: T[], size: number): T[][] => {
     if ( values.length === 0 ) {
         return [];
     }
+
     const chunks: T[][] = [];
     for ( let index = 0; index < values.length; index += size ) {
         chunks.push(values.slice(index, index + size));
@@ -70,74 +75,37 @@ const sleep = async (ms: number) => {
     await new Promise((resolve) => setTimeout(resolve, ms));
 };
 
-export class DDBClient {
-    ddbClientPromise: Promise<DynamoDBClient>;
-    #documentClient!: DynamoDBDocumentClient;
-    config?: DBClientConfig;
+export class DDBClient extends PuterClient {
+    #documentClient: DynamoDBDocumentClient | null = null;
+    #localInitPromise: Promise<void> | null = null;
+    #ddbConfig: IDynamoConfig;
 
-    constructor (config?: DBClientConfig) {
-        this.config = config;
-        this.ddbClientPromise = this.#getClient();
-        this.ddbClientPromise.then(client => {
-            this.#documentClient = DynamoDBDocumentClient.from(client, {
-                marshallOptions: {
-                    removeUndefinedValues: true,
-                } });
+    constructor (config: IConfig) {
+        super(config);
+        this.#ddbConfig = config.dynamo ?? config.dynamoDb ?? config.services?.dynamo ?? {};
+
+        if ( this.#ddbConfig.aws ) {
+            this.#bindAwsClient();
+            return;
+        }
+
+        this.#localInitPromise = this.#bindLocalClient();
+        this.#localInitPromise.catch((error) => {
+            console.error('Failed to initialize local DynamoDB client', error);
         });
     }
 
     async recreateClient () {
-        const client = await this.#getClient();
-        this.ddbClientPromise = Promise.resolve(client);
-        this.#documentClient = DynamoDBDocumentClient.from(client, {
-            marshallOptions: {
-                removeUndefinedValues: true,
-            } });
-    }
-
-    async #getClient () {
-        if ( ! this.config?.aws ) {
-            console.warn('No config for DynamoDB, will fall back on local dynalite');
-            const pathKey = getDynalitePathKey(this.config?.path);
-            const dynamoEndpoint = await getOrCreateLocalDynaliteEndpoint(pathKey);
-
-            const client =  new DynamoDBClient({
-                credentials: {
-                    accessKeyId: 'fake',
-                    secretAccessKey: 'fake',
-                },
-                maxAttempts: 3,
-                requestHandler: new NodeHttpHandler({
-                    connectionTimeout: 5000,
-                    requestTimeout: 5000,
-                    httpsAgent: new httpsAgent({ keepAlive: true }),
-                }),
-                endpoint: dynamoEndpoint,
-                region: 'us-west-2',
-            });
-            console.log(`Dynalite client created within instance for region: ${await client.config.region()}`);
-            return client;
+        if ( this.#ddbConfig.aws ) {
+            this.#bindAwsClient();
+            return;
         }
 
-        const client =  new DynamoDBClient({
-            credentials: {
-                accessKeyId: this.config.aws.access_key,
-                secretAccessKey: this.config.aws.secret_key,
-            },
-            maxAttempts: 3,
-            requestHandler: new NodeHttpHandler({
-                connectionTimeout: 5000,
-                requestTimeout: 5000,
-                httpsAgent: new httpsAgent({ keepAlive: true }),
-            }),
-            ...(this.config.endpoint ? { endpoint: this.config.endpoint } : {}),
-            region: this.config.aws.region || 'us-west-2',
-        });
-        console.log(`DynamoDB client created with region ${await client.config.region()}`);
-        return client;
+        this.#localInitPromise = this.#bindLocalClient();
+        await this.#localInitPromise;
     }
 
-    async get <T extends Record<string, unknown>>(table: string, key: T, consistentRead = false) {
+    async get<T extends Record<string, unknown>> (table: string, key: T, consistentRead = false) {
         const command = new GetCommand({
             TableName: table,
             Key: key,
@@ -145,35 +113,32 @@ export class DDBClient {
             ReturnConsumedCapacity: 'TOTAL',
         });
 
-        const response = await this.#documentClient.send(command);
-
-        return response;
+        const client = await this.#getDocumentClient();
+        return client.send(command);
     }
 
-    async put <T extends Record<string, unknown>>(table: string, item: T) {
+    async put<T extends Record<string, unknown>> (table: string, item: T) {
         const command = new PutCommand({
             TableName: table,
             Item: item,
             ReturnConsumedCapacity: 'TOTAL',
         });
 
-        const response = await this.#documentClient.send(command);
-        return response;
+        const client = await this.#getDocumentClient();
+        return client.send(command);
     }
 
     async batchGet (params: { table: string, items: Record<string, unknown> }[], consistentRead = false) {
-        // TODO DS: implement chunking for more than 100 items or more than allowed req size
         const allRequestItemsPerTable = params.reduce((acc, curr) => {
             if ( ! acc[curr.table] ) acc[curr.table] = [];
             acc[curr.table].push(curr.items);
             return acc;
         }, {} as Record<string, Record<string, unknown>[]>);
 
-        const RequestItems: BatchGetCommandInput['RequestItems'] = Object.entries(allRequestItemsPerTable).reduce(
+        const requestItems: BatchGetCommandInput['RequestItems'] = Object.entries(allRequestItemsPerTable).reduce(
             (acc, [table, keyList]) => {
-                const Keys = keyList;
                 acc[table] = {
-                    Keys,
+                    Keys: keyList,
                     ConsistentRead: consistentRead,
                 };
                 return acc;
@@ -182,11 +147,12 @@ export class DDBClient {
         );
 
         const command = new BatchGetCommand({
-            RequestItems,
+            RequestItems: requestItems,
             ReturnConsumedCapacity: 'TOTAL',
         });
 
-        return this.#documentClient.send(command);
+        const client = await this.#getDocumentClient();
+        return client.send(command);
     }
 
     async batchPut (params: { table: string, item: Record<string, unknown> }[]) {
@@ -201,6 +167,7 @@ export class DDBClient {
             if ( ! consumedCapacityEntries ) {
                 return;
             }
+
             for ( const consumedCapacityEntry of consumedCapacityEntries ) {
                 const table = consumedCapacityEntry.TableName;
                 if ( ! table ) {
@@ -215,7 +182,9 @@ export class DDBClient {
             }
         };
 
+        const client = await this.#getDocumentClient();
         const chunks = chunkValues(params, MAX_BATCH_WRITE_ITEMS);
+
         for ( const chunk of chunks ) {
             let requestItems = chunk.reduce((acc, curr) => {
                 const tableRequests = acc[curr.table] ?? [];
@@ -233,7 +202,7 @@ export class DDBClient {
                     break;
                 }
 
-                const response = await this.#documentClient.send(new BatchWriteCommand({
+                const response = await client.send(new BatchWriteCommand({
                     RequestItems: requestItems,
                     ReturnConsumedCapacity: 'TOTAL',
                 }));
@@ -274,7 +243,8 @@ export class DDBClient {
             ReturnConsumedCapacity: 'TOTAL',
         });
 
-        return this.#documentClient.send(command);
+        const client = await this.#getDocumentClient();
+        return client.send(command);
     }
 
     async query<T extends Record<string, unknown>> (
@@ -286,18 +256,17 @@ export class DDBClient {
         consistentRead = false,
         options?: { beginsWith?: { key: string; value: string } },
     ) {
-
         const keyExpressionParts = Object.keys(keys).map(key => `#${key} = :${key}`);
         const expressionAttributeValues = Object.entries(keys).reduce((acc, [key, value]) => {
             acc[`:${key}`] = value;
             return acc;
-        }, {});
+        }, {} as Record<string, unknown>);
         const expressionAttributeNames = Object.keys(keys).reduce((acc, key) => {
             acc[`#${key}`] = key;
             return acc;
-        }, {});
+        }, {} as Record<string, string>);
 
-        if ( options?.beginsWith?.key && typeof options.beginsWith.value === 'string' && options.beginsWith.value !== '' ) {
+        if ( options?.beginsWith?.key && options.beginsWith.value !== '' ) {
             const beginsKey = options.beginsWith.key;
             const beginsValueToken = `:${beginsKey}_begins_with`;
             keyExpressionParts.push(`begins_with(#${beginsKey}, ${beginsValueToken})`);
@@ -305,12 +274,10 @@ export class DDBClient {
             expressionAttributeNames[`#${beginsKey}`] = beginsKey;
         }
 
-        const keyExpression = keyExpressionParts.join(' AND ');
-
         const command = new QueryCommand({
             TableName: table,
             ...(!index ? {} : { IndexName: index }),
-            KeyConditionExpression: keyExpression,
+            KeyConditionExpression: keyExpressionParts.join(' AND '),
             ExpressionAttributeValues: expressionAttributeValues,
             ExpressionAttributeNames: expressionAttributeNames,
             ConsistentRead: consistentRead,
@@ -319,7 +286,8 @@ export class DDBClient {
             ReturnConsumedCapacity: 'TOTAL',
         });
 
-        return await this.#documentClient.send(command);
+        const client = await this.#getDocumentClient();
+        return client.send(command);
     }
 
     async update<T extends Record<string, unknown>> (
@@ -340,46 +308,125 @@ export class DDBClient {
             ReturnValues: 'ALL_NEW',
             ReturnConsumedCapacity: 'TOTAL',
         });
+
         try {
-            return await this.#documentClient.send(command);
-        } catch ( e ) {
-            console.error('DDB Update Error', e);
-            throw e;
+            const client = await this.#getDocumentClient();
+            return await client.send(command);
+        } catch ( error ) {
+            console.error('DDB Update Error', error);
+            throw error;
         }
     }
 
     async createTableIfNotExists (params: CreateTableCommandInput, ttlAttribute?: string) {
-        if ( this.config?.aws ) {
-            console.warn('Creating DynamoDB tables in AWS is disabled by default, but if you need to enable it, modify the DDBClient class');
+        if ( this.#ddbConfig.aws ) {
+            console.warn('Creating DynamoDB tables in AWS is disabled by default, but if needed, update DDBClient');
             return;
         }
+
         try {
-            await this.#documentClient.send(new CreateTableCommand(params));
-        } catch ( e ) {
-            if ( (e as Error)?.name !== 'ResourceInUseException' ) {
-                throw e;
+            const client = await this.#getDocumentClient();
+            await client.send(new CreateTableCommand(params));
+        } catch ( error ) {
+            if ( (error as Error)?.name !== 'ResourceInUseException' ) {
+                throw error;
             }
         }
+
         if ( ttlAttribute ) {
             await this.#deleteExpiredItems(params.TableName!, params.KeySchema!, ttlAttribute);
         }
     }
 
+    async #getDocumentClient () {
+        if ( this.#documentClient ) {
+            return this.#documentClient;
+        }
+
+        if ( this.#localInitPromise ) {
+            await this.#localInitPromise;
+        }
+
+        if ( ! this.#documentClient ) {
+            throw new Error('DynamoDB document client is not initialized');
+        }
+
+        return this.#documentClient;
+    }
+
+    #bindAwsClient () {
+        const accessKeyId = this.#ddbConfig.aws?.accessKeyId ?? this.#ddbConfig.aws?.access_key;
+        const secretAccessKey = this.#ddbConfig.aws?.secretAccessKey ?? this.#ddbConfig.aws?.secret_key;
+
+        if ( !accessKeyId || !secretAccessKey ) {
+            throw new Error('DynamoDB aws config requires both accessKeyId/access_key and secretAccessKey/secret_key');
+        }
+
+        const ddbClient = new DynamoDBClient({
+            credentials: {
+                accessKeyId,
+                secretAccessKey,
+            },
+            maxAttempts: 3,
+            requestHandler: new NodeHttpHandler({
+                connectionTimeout: 5000,
+                requestTimeout: 5000,
+                httpsAgent: new httpsAgent({ keepAlive: true }),
+            }),
+            ...(this.#ddbConfig.endpoint ? { endpoint: this.#ddbConfig.endpoint } : {}),
+            region: this.#ddbConfig.aws?.region || 'us-west-2',
+        });
+
+        this.#documentClient = DynamoDBDocumentClient.from(ddbClient, {
+            marshallOptions: {
+                removeUndefinedValues: true,
+            },
+        });
+    }
+
+    async #bindLocalClient () {
+        const pathKey = getDynalitePathKey(this.#ddbConfig.path);
+        const endpoint = await getOrCreateLocalDynaliteEndpoint(pathKey);
+
+        const ddbClient = new DynamoDBClient({
+            credentials: {
+                accessKeyId: 'fake',
+                secretAccessKey: 'fake',
+            },
+            maxAttempts: 3,
+            requestHandler: new NodeHttpHandler({
+                connectionTimeout: 5000,
+                requestTimeout: 5000,
+                httpsAgent: new httpsAgent({ keepAlive: true }),
+            }),
+            endpoint,
+            region: 'us-west-2',
+        });
+
+        this.#documentClient = DynamoDBDocumentClient.from(ddbClient, {
+            marshallOptions: {
+                removeUndefinedValues: true,
+            },
+        });
+    }
+
     async #deleteExpiredItems (table: string, keySchema: NonNullable<CreateTableCommandInput['KeySchema']>, ttlAttribute: string) {
         const now = Math.floor(Date.now() / 1000);
-        const keyNames = keySchema.map(k => k.AttributeName!);
+        const keyNames = keySchema.map(key => key.AttributeName!);
 
         let lastEvaluatedKey: Record<string, unknown> | undefined;
+        const client = await this.#getDocumentClient();
+
         do {
-            const scan = await this.#documentClient.send(new ScanCommand({
+            const scan = await client.send(new ScanCommand({
                 TableName: table,
                 FilterExpression: '#ttl < :now',
                 ExpressionAttributeNames: {
                     '#ttl': ttlAttribute,
-                    ...Object.fromEntries(keyNames.map(k => [`#k_${k}`, k])),
+                    ...Object.fromEntries(keyNames.map(key => [`#k_${key}`, key])),
                 },
                 ExpressionAttributeValues: { ':now': now },
-                ProjectionExpression: keyNames.map(k => `#k_${k}`).join(', '),
+                ProjectionExpression: keyNames.map(key => `#k_${key}`).join(', '),
                 ...(lastEvaluatedKey ? { ExclusiveStartKey: lastEvaluatedKey } : {}),
             }));
 
@@ -389,11 +436,11 @@ export class DDBClient {
 
             const chunks = chunkValues(items, MAX_BATCH_WRITE_ITEMS);
             for ( const chunk of chunks ) {
-                await this.#documentClient.send(new BatchWriteCommand({
+                await client.send(new BatchWriteCommand({
                     RequestItems: {
                         [table]: chunk.map(item => ({
                             DeleteRequest: {
-                                Key: Object.fromEntries(keyNames.map(k => [k, item[k]])),
+                                Key: Object.fromEntries(keyNames.map(key => [key, item[key]])),
                             },
                         })),
                     },

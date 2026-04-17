@@ -1,1 +1,0 @@
--- Removed terminal and phoenix built-in apps; migration intentionally left empty.
