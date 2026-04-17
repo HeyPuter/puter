@@ -1075,22 +1075,6 @@ let sidebar = [
         ],
     },
     {
-        title: 'Drivers',
-        title_tag: 'Drivers',
-        source: '/Drivers.md',
-        path: '/Drivers',
-        children: [
-            {
-                title: '<code>call</code>',
-                page_title: '<code>puter.drivers.call()</code>',
-                title_tag: 'puter.drivers.call()',
-                icon: '/assets/img/function.svg',
-                source: '/Drivers/call.md',
-                path: '/Drivers/call',
-            },
-        ],
-    },
-    {
         title: 'Utilities',
         title_tag: 'Utilities',
         source: '/Utils.md',
