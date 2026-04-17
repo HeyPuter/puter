@@ -78,6 +78,14 @@ export interface RouteOptions {
     allowedAppIds?: string[];
 
     /**
+     * Reject unless the actor's user has a confirmed email. 400 with
+     * `account_is_not_verified` on failure — matches v1 `verified` middleware.
+     * No-op when `config.strict_email_verification_required` is falsy, so
+     * self-hosted deployments can opt in via config. Implies `requireUserActor`.
+     */
+    requireVerified?: boolean;
+
+    /**
      * Per-route JSON body parsing override. By default the global parser
      * handles every `application/json` request with a 50mb limit and stashes
      * the raw bytes on `req.rawBody` for signature-verification use cases.
@@ -154,8 +162,6 @@ export interface RouteOptions {
     // Reserved — wire as the corresponding features/services land:
     // bodyFiles?: string[];      // multer-style multipart fields
     // responseTimeout?: number;
-    // requireVerified?: boolean;
-    // antiCsrf?: boolean;
 }
 
 /**

@@ -58,7 +58,7 @@ export class LegacyFSController extends PuterController {
     #additionalCache: RouterCache = new Map();
 
     registerRoutes (router: PuterRouter): void {
-        const apiOptions = { subdomain: 'api' } as const;
+        const apiOptions = { subdomain: 'api', requireVerified: true } as const;
 
         // Core v1 filesystem_api routes — direct handlers over v2 service.
         router.post('/stat', apiOptions, this.stat);

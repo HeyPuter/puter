@@ -3,8 +3,10 @@ import { v4 as uuidv4 } from 'uuid';
 import validator from 'validator';
 import { HttpError } from '../../core/http/HttpError.js';
 import { antiCsrf } from '../../core/http/middleware/antiCsrf.js';
+import { createUserProtectedGate } from '../../core/http/middleware/userProtected.js';
 import { cleanEmail, isBlockedEmail } from '../../util/email.js';
 import { generateDefaultFsentries, promoteToVerifiedGroup } from '../../util/userProvisioning.js';
+import { applyReferralRewards } from '../../util/referralRewards.js';
 import { getTaskbarItems } from '../../extensions/taskbarItems.js';
 import { generateCaptcha } from '../../core/http/middleware/captcha.js';
 import { createSecret as otpCreateSecret, createRecoveryCode, hashRecoveryCode, verify as verifyOtp } from '../../services/auth/OTPUtil.js';
@@ -503,6 +505,21 @@ export class AuthController extends PuterController {
 
             await promoteToVerifiedGroup(this.groupStore, this.config, user);
 
+            // Referral rewards — best-effort, never block the user-visible
+            // response. Short-circuits when `user.referred_by` is unset.
+            try {
+                await applyReferralRewards({
+                    db: this.clients.db,
+                    redis: this.clients.redis,
+                    email: this.clients.email,
+                    notification: this.services.notification,
+                    metering: this.services.metering,
+                    userStore: this.userStore,
+                }, user);
+            } catch ( e ) {
+                console.warn('[confirm-email] referral rewards failed:', e?.message ?? e);
+            }
+
             try {
                 this.clients.event?.emit('user.email-confirmed', {
                     user_id: user.id,
@@ -627,24 +644,32 @@ export class AuthController extends PuterController {
             res.send('Password successfully updated.');
         });
 
-        router.post('/passwd', {
+        // The `/user-protected/*` gate (session-cookie + password/OIDC
+        // revalidation) is applied below. Identity is already proven by
+        // the gate, so these handlers receive a pre-refreshed user row on
+        // `req.userProtected.user` and don't re-check the old password.
+        const userProtectedDeps = {
+            config: this.config,
+            userStore: this.userStore,
+            oidcService: this.services.oidc,
+            tokenService: this.services.token,
+        };
+
+        router.post('/user-protected/change-password', {
             subdomain: ['api', ''],
             requireUserActor: true,
+            antiCsrf: true,
             rateLimit: { scope: 'passwd', limit: 10, window: 60 * 60_000, key: 'user' },
+            middleware: createUserProtectedGate(userProtectedDeps),
         }, async (req, res) => {
-            const { old_pass, new_pass } = req.body ?? {};
-            if ( !old_pass || !new_pass ) throw new HttpError(400, 'Missing `old_pass` or `new_pass`.');
+            const { new_pass } = req.body ?? {};
+            if ( ! new_pass ) throw new HttpError(400, 'Missing `new_pass`.');
             const minLen = this.config.min_pass_length || 6;
             if ( new_pass.length < minLen ) {
                 throw new HttpError(400, `Password must be at least ${minLen} characters long.`);
             }
 
-            const user = await this.userStore.getById(req.actor.user.id, { force: true });
-            if ( ! user ) throw new HttpError(404, 'User not found.');
-            if ( ! user.password ) throw new HttpError(400, 'Cannot change password for this account.');
-
-            const match = await bcrypt.compare(old_pass, user.password);
-            if ( ! match ) throw new HttpError(400, 'Old password is incorrect.');
+            const user = req.userProtected.user;
 
             const password_hash = await bcrypt.hash(new_pass, 8);
             await this.userStore.update(user.id, {
@@ -659,7 +684,7 @@ export class AuthController extends PuterController {
                         username: user.username,
                     });
                 } catch (e) {
-                    console.warn('[passwd] notification send failed:', e);
+                    console.warn('[change-password] notification send failed:', e);
                 }
             }
 
@@ -668,10 +693,13 @@ export class AuthController extends PuterController {
 
         // ── Change username ─────────────────────────────────────────
 
-        router.post('/change_username', {
+        router.post('/user-protected/change-username', {
             subdomain: ['api', ''],
             requireUserActor: true,
+            requireVerified: true,
+            antiCsrf: true,
             rateLimit: { scope: 'change-username', limit: 2, window: 30 * 24 * 60 * 60_000, key: 'user' },
+            middleware: createUserProtectedGate(userProtectedDeps),
         }, async (req, res) => {
             const { new_username } = req.body ?? {};
             if ( !new_username || typeof new_username !== 'string' ) {
@@ -707,10 +735,12 @@ export class AuthController extends PuterController {
 
         // ── Change email ────────────────────────────────────────────
 
-        router.post('/change-email', {
+        router.post('/user-protected/change-email', {
             subdomain: ['api', ''],
             requireUserActor: true,
+            antiCsrf: true,
             rateLimit: { scope: 'change-email-start', limit: 10, window: 60 * 60_000, key: 'user' },
+            middleware: createUserProtectedGate(userProtectedDeps),
         }, async (req, res) => {
             const { new_email } = req.body ?? {};
             if ( !new_email || typeof new_email !== 'string' ) {
@@ -993,7 +1023,7 @@ export class AuthController extends PuterController {
             res.json({});
         });
 
-        router.post('/auth/revoke-user-app', { subdomain: 'api', requireUserActor: true }, async (req, res) => {
+        router.post('/auth/revoke-user-app', { subdomain: 'api', requireUserActor: true, antiCsrf: true }, async (req, res) => {
             const { app_uid, permission, meta } = req.body;
             if ( !app_uid || !permission ) {
                 throw new HttpError(400, 'Missing `app_uid` or `permission`');
@@ -1006,7 +1036,7 @@ export class AuthController extends PuterController {
             res.json({});
         });
 
-        router.post('/auth/revoke-user-group', { subdomain: 'api', requireUserActor: true }, async (req, res) => {
+        router.post('/auth/revoke-user-group', { subdomain: 'api', requireUserActor: true, antiCsrf: true }, async (req, res) => {
             const { group_uid, permission, meta } = req.body;
             if ( !group_uid || !permission ) {
                 throw new HttpError(400, 'Missing `group_uid` or `permission`');
@@ -1047,7 +1077,7 @@ export class AuthController extends PuterController {
             res.json(sessions);
         });
 
-        router.post('/auth/revoke-session', { subdomain: 'api', requireUserActor: true }, async (req, res) => {
+        router.post('/auth/revoke-session', { subdomain: 'api', requireUserActor: true, antiCsrf: true }, async (req, res) => {
             const { uuid } = req.body;
             if ( !uuid || typeof uuid !== 'string' ) {
                 throw new HttpError(400, 'Missing or invalid `uuid`');
@@ -1071,7 +1101,7 @@ export class AuthController extends PuterController {
             res.json({});
         });
 
-        router.post('/auth/revoke-dev-app', { subdomain: 'api', requireUserActor: true }, async (req, res) => {
+        router.post('/auth/revoke-dev-app', { subdomain: 'api', requireUserActor: true, antiCsrf: true }, async (req, res) => {
             let { app_uid, origin, permission, meta } = req.body;
             if ( origin && !app_uid ) {
                 app_uid = await this.authService.appUidFromOrigin(origin);
@@ -1279,10 +1309,12 @@ export class AuthController extends PuterController {
 
         // ── 2FA: disable ───────────────────────────────────────────────
 
-        router.post('/disable-2fa', {
+        router.post('/user-protected/disable-2fa', {
             subdomain: ['api', ''],
             requireUserActor: true,
+            antiCsrf: true,
             rateLimit: { scope: 'disable-2fa', limit: 10, window: 60 * 60_000, key: 'user' },
+            middleware: createUserProtectedGate(userProtectedDeps),
         }, async (req, res) => {
             const user = await this.userStore.getById(req.actor.user.id, { force: true });
             if ( ! user ) throw new HttpError(404, 'User not found');
@@ -1455,7 +1487,12 @@ export class AuthController extends PuterController {
         // `ON DELETE SET NULL` (not CASCADE), so anything holding tightly
         // to user_id (sessions) we clear explicitly to avoid orphan rows.
 
-        router.post('/delete-own-user', { subdomain: ['api', ''], requireUserActor: true }, async (req, res) => {
+        router.post('/user-protected/delete-own-user', {
+            subdomain: ['api', ''],
+            requireUserActor: true,
+            antiCsrf: true,
+            middleware: createUserProtectedGate(userProtectedDeps, { allowTempUsers: true }),
+        }, async (req, res) => {
             const userId = req.actor.user.id;
             res.clearCookie(this.config.cookie_name);
             res.clearCookie('puter_revalidation');

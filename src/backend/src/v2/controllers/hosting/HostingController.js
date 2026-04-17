@@ -22,6 +22,8 @@ export class HostingController extends PuterController {
         router.post('/delete-site', {
             subdomain: 'api',
             requireUserActor: true,
+            requireVerified: true,
+            antiCsrf: true,
         }, async (req, res) => {
             const { site_uuid } = req.body ?? {};
             if ( !site_uuid || typeof site_uuid !== 'string' ) {

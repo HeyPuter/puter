@@ -28,18 +28,21 @@ export class PuterAIController extends PuterController {
     registerRoutes (router: PuterRouter): void {
         const apiOpts = { subdomain: 'api', requireAuth: true } as const;
 
-        router.post('/openai/v1/chat/completions', apiOpts, this.openaiChatCompletions);
-        router.post('/openai/v1/completions', apiOpts, this.openaiCompletions);
-        router.post('/openai/v1/responses', apiOpts, this.openaiResponses);
-        router.post('/anthropic/v1/messages', apiOpts, this.anthropicMessages);
+        // v1 mounted this controller's router at `/puterai`, so every
+        // route below carries that prefix for wire compatibility with
+        // puter-js + existing API tests.
+        router.post('/puterai/openai/v1/chat/completions', apiOpts, this.openaiChatCompletions);
+        router.post('/puterai/openai/v1/completions', apiOpts, this.openaiCompletions);
+        router.post('/puterai/openai/v1/responses', apiOpts, this.openaiResponses);
+        router.post('/puterai/anthropic/v1/messages', apiOpts, this.anthropicMessages);
 
         // Model listing — enumerate available models per AI service
-        router.get('/chat/models', apiOpts, this.#listModels('aiChat'));
-        router.get('/chat/models/details', apiOpts, this.#modelDetails('aiChat'));
-        router.get('/image/models', apiOpts, this.#listModels('aiImage'));
-        router.get('/image/models/details', apiOpts, this.#modelDetails('aiImage'));
-        router.get('/video/models', apiOpts, this.#listModels('aiVideo'));
-        router.get('/video/models/details', apiOpts, this.#modelDetails('aiVideo'));
+        router.get('/puterai/chat/models', apiOpts, this.#listModels('aiChat'));
+        router.get('/puterai/chat/models/details', apiOpts, this.#modelDetails('aiChat'));
+        router.get('/puterai/image/models', apiOpts, this.#listModels('aiImage'));
+        router.get('/puterai/image/models/details', apiOpts, this.#modelDetails('aiImage'));
+        router.get('/puterai/video/models', apiOpts, this.#listModels('aiVideo'));
+        router.get('/puterai/video/models/details', apiOpts, this.#modelDetails('aiVideo'));
 
         // ── Video URL proxy ─────────────────────────────────────────
         // Reverse-proxies AI-generated video URLs that can't be given

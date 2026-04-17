@@ -116,6 +116,31 @@ export const adminOnlyGate = (extras: readonly string[] = []): RequestHandler =>
     };
 };
 
+// ── requireVerified ─────────────────────────────────────────────────
+
+/**
+ * Reject unless the authenticated user has a confirmed email. Gated behind
+ * `strict_email_verification_required` config so self-hosted deployments
+ * without email delivery don't brick their own filesystem routes. Mirrors
+ * v1 `middleware/verified.js`.
+ *
+ * Implies `requireUserActor` at the materializer level.
+ */
+export const requireVerifiedGate = (strictFlag: boolean): RequestHandler => {
+    return (req, _res, next) => {
+        if ( ! strictFlag ) {
+            next();
+            return;
+        }
+        const user = req.actor?.user as Record<string, unknown> | undefined;
+        if ( ! user?.email_confirmed ) {
+            next(new HttpError(400, 'Account email is not verified', { legacyCode: 'account_is_not_verified' }));
+            return;
+        }
+        next();
+    };
+};
+
 // ── allowedAppIds ───────────────────────────────────────────────────
 
 /**

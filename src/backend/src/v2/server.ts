@@ -17,6 +17,7 @@ import {
     allowedAppIdsGate,
     requireAuthGate,
     requireUserActorGate,
+    requireVerifiedGate,
     subdomainGate,
 } from './core/http/middleware/gates';
 import { createNotFoundHandler } from './core/http/middleware/notFoundHandler';
@@ -24,6 +25,7 @@ import { requireAntiCsrf } from './core/http/middleware/antiCsrf';
 import { captchaGate } from './core/http/middleware/captcha';
 import { rateLimitGate } from './core/http/middleware/rateLimit';
 import { createWwwRedirect, createUserSubdomainRedirect, createNativeAppStatic } from './core/http/middleware/hostRedirects';
+import { createPuterSiteMiddleware } from './core/http/middleware/puterSite';
 import { PuterRouter } from './core/http/PuterRouter';
 import { PREFIX_METADATA_KEY, type RouteDescriptor } from './core/http/types';
 import type { AuthService } from './services/auth/AuthService';
@@ -266,6 +268,16 @@ export class PuterServer {
         // Runs AFTER auth probe so `req.actor` is already populated when
         // we snapshot it into the context.
         this.#app.use(createRequestContextMiddleware());
+
+        // ── User-hosted sites (*.puter.site, *.puter.app) ───────────
+        // Short-circuits hosting-domain hosts before any API/GUI
+        // controller route has a chance to match. Needs DI layers for
+        // subdomain lookup, private-app gate, and file streaming.
+        this.#app.use(createPuterSiteMiddleware(this.#config, {
+            clients: this.clients,
+            stores: this.stores,
+            services: this.services,
+        }));
     }
 
     // ── Host header validation ──────────────────────────────────────
@@ -482,11 +494,14 @@ export class PuterServer {
             opts.requireAuth
             || opts.requireUserActor
             || opts.adminOnly
-            || opts.allowedAppIds,
+            || opts.allowedAppIds
+            || opts.requireVerified,
         );
         if ( needsAuth ) mwChain.push(requireAuthGate());
 
-        const needsUserActor = Boolean(opts.requireUserActor || opts.adminOnly);
+        const needsUserActor = Boolean(
+            opts.requireUserActor || opts.adminOnly || opts.requireVerified,
+        );
         if ( needsUserActor ) mwChain.push(requireUserActorGate());
 
         if ( opts.adminOnly ) {
@@ -496,6 +511,14 @@ export class PuterServer {
 
         if ( opts.allowedAppIds ) {
             mwChain.push(allowedAppIdsGate(opts.allowedAppIds));
+        }
+
+        // 2a. Email verification. Keyed off `strict_email_verification_required`
+        // so self-hosted boxes without SMTP don't break every fs route.
+        if ( opts.requireVerified ) {
+            mwChain.push(requireVerifiedGate(
+                Boolean((this.#config as unknown as Record<string, unknown>).strict_email_verification_required),
+            ));
         }
 
         // 2b. Rate limiting. Runs after auth so 'user' key strategy

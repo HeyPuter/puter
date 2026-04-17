@@ -70,7 +70,7 @@ const DEFAULT_BATCH_WRITE_SIDE_EFFECT_CONCURRENCY = 8;
 @Controller('/fs')
 export class FSController extends PuterController {
 
-    @Post('/startWrite', { subdomain: 'api' })
+    @Post('/startWrite', { subdomain: 'api', requireVerified: true })
     async startWrite (req: Request<RouteParams, null, SignedWriteRequest>, res: Response<SignedWriteResponse>) {
         const userId = this.#getActorUserId(req);
         const storageAllowanceMax = this.#getStorageAllowanceMaxOverride(req);
@@ -105,7 +105,7 @@ export class FSController extends PuterController {
         res.json(response);
     }
 
-    @Post('/startBatchWrite', { subdomain: 'api' })
+    @Post('/startBatchWrite', { subdomain: 'api', requireVerified: true })
     async startBatchWrites (req: Request<RouteParams, null, SignedWriteRequest[]>, res: Response<SignedWriteResponse[]>) {
         const userId = this.#getActorUserId(req);
         const storageAllowanceMax = this.#getStorageAllowanceMaxOverride(req);
@@ -176,7 +176,7 @@ export class FSController extends PuterController {
         res.json(responses);
     }
 
-    @Post('/completeWrite', { subdomain: 'api' })
+    @Post('/completeWrite', { subdomain: 'api', requireVerified: true })
     async completeWrite (req: Request<RouteParams, null, CompleteWriteRequest>, res: Response<CompleteWriteResponse>) {
         const userId = this.#getActorUserId(req);
         const requestBody = this.#withGuiMetadata(req.body, req.body);
@@ -196,7 +196,7 @@ export class FSController extends PuterController {
         res.json({ ...response, fsEntry: writeResponse.fsEntry });
     }
 
-    @Post('/completeBatchWrite', { subdomain: 'api' })
+    @Post('/completeBatchWrite', { subdomain: 'api', requireVerified: true })
     async completeBatchWrites (
         req: Request<RouteParams, null, CompleteWriteRequest[]>,
         res: Response<CompleteWriteResponse[]>,
@@ -232,7 +232,7 @@ export class FSController extends PuterController {
         res.json(updatedResponse);
     }
 
-    @Post('/abortWrite', { subdomain: 'api' })
+    @Post('/abortWrite', { subdomain: 'api', requireVerified: true })
     async abortWrite (req: Request<RouteParams, null, AbortWriteRequest>, res: Response<{ ok: true }>) {
         const userId = this.#getActorUserId(req);
         if ( ! req.body?.uploadId ) {
@@ -243,7 +243,7 @@ export class FSController extends PuterController {
         res.json({ ok: true });
     }
 
-    @Post('/signMultipartParts', { subdomain: 'api' })
+    @Post('/signMultipartParts', { subdomain: 'api', requireVerified: true })
     async signMultipartParts (
         req: Request<RouteParams, null, SignMultipartPartsRequest>,
         res: Response<SignMultipartPartsResponse>,
@@ -253,7 +253,7 @@ export class FSController extends PuterController {
         res.json(response);
     }
 
-    @Post('/write', { subdomain: 'api' })
+    @Post('/write', { subdomain: 'api', requireVerified: true })
     async write (req: Request<RouteParams, null, WriteRequest>, res: Response<WriteResponse>) {
         const userId = this.#getActorUserId(req);
         const storageAllowanceMax = this.#getStorageAllowanceMaxOverride(req);
@@ -280,7 +280,7 @@ export class FSController extends PuterController {
         res.json(updatedResponse);
     }
 
-    @Post('/batchWrite', { subdomain: 'api' })
+    @Post('/batchWrite', { subdomain: 'api', requireVerified: true })
     async batchWrites (req: Request<RouteParams, null, WriteRequest[]>, res: Response<WriteResponse[]>) {
         const userId = this.#getActorUserId(req);
         const storageAllowanceMax = this.#getStorageAllowanceMaxOverride(req);
@@ -598,7 +598,7 @@ export class FSController extends PuterController {
 
     // ── Read-side routes ────────────────────────────────────────────────
 
-    @Post('/stat', { subdomain: 'api' })
+    @Post('/stat', { subdomain: 'api', requireVerified: true })
     async statEntry (req: Request, res: Response) {
         const actor = this.#requireActor(req);
         const userId = this.#getActorUserId(req);
@@ -623,7 +623,7 @@ export class FSController extends PuterController {
         });
     }
 
-    @Post('/readdir', { subdomain: 'api' })
+    @Post('/readdir', { subdomain: 'api', requireVerified: true })
     async readdirEntries (req: Request, res: Response) {
         const actor = this.#requireActor(req);
         const userId = this.#getActorUserId(req);
@@ -650,7 +650,7 @@ export class FSController extends PuterController {
         res.json(children);
     }
 
-    @Post('/search', { subdomain: 'api' })
+    @Post('/search', { subdomain: 'api', requireVerified: true })
     async searchEntries (req: Request, res: Response) {
         this.#requireActor(req);
         const userId = this.#getActorUserId(req);
@@ -664,7 +664,7 @@ export class FSController extends PuterController {
         res.json(results);
     }
 
-    @Get('/read', { subdomain: 'api' })
+    @Get('/read', { subdomain: 'api', requireVerified: true })
     async readEntry (req: Request, res: Response) {
         const actor = this.#requireActor(req);
         const userId = this.#getActorUserId(req);
@@ -713,7 +713,7 @@ export class FSController extends PuterController {
 
     // ── Mutation routes ────────────────────────────────────────────────
 
-    @Post('/mkdir', { subdomain: 'api' })
+    @Post('/mkdir', { subdomain: 'api', requireVerified: true })
     async mkdirEntry (req: Request, res: Response) {
         const actor = this.#requireActor(req);
         const userId = this.#getActorUserId(req);
@@ -735,7 +735,7 @@ export class FSController extends PuterController {
         res.json(entry);
     }
 
-    @Post('/touch', { subdomain: 'api' })
+    @Post('/touch', { subdomain: 'api', requireVerified: true })
     async touchEntry (req: Request, res: Response) {
         const actor = this.#requireActor(req);
         const userId = this.#getActorUserId(req);
@@ -756,7 +756,7 @@ export class FSController extends PuterController {
         res.json(entry);
     }
 
-    @Post('/rename', { subdomain: 'api' })
+    @Post('/rename', { subdomain: 'api', requireVerified: true })
     async renameEntry (req: Request, res: Response) {
         const actor = this.#requireActor(req);
         const userId = this.#getActorUserId(req);
@@ -772,7 +772,7 @@ export class FSController extends PuterController {
         res.json(renamed);
     }
 
-    @Post('/delete', { subdomain: 'api' })
+    @Post('/delete', { subdomain: 'api', requireVerified: true })
     async deleteEntry (req: Request, res: Response) {
         const actor = this.#requireActor(req);
         const userId = this.#getActorUserId(req);
@@ -789,7 +789,7 @@ export class FSController extends PuterController {
         res.json({ ok: true });
     }
 
-    @Post('/move', { subdomain: 'api' })
+    @Post('/move', { subdomain: 'api', requireVerified: true })
     async moveEntry (req: Request, res: Response) {
         const actor = this.#requireActor(req);
         const userId = this.#getActorUserId(req);
@@ -814,7 +814,7 @@ export class FSController extends PuterController {
         res.json(moved);
     }
 
-    @Post('/copy', { subdomain: 'api' })
+    @Post('/copy', { subdomain: 'api', requireVerified: true })
     async copyEntry (req: Request, res: Response) {
         const actor = this.#requireActor(req);
         const userId = this.#getActorUserId(req);
@@ -839,7 +839,7 @@ export class FSController extends PuterController {
         res.json(copy);
     }
 
-    @Post('/mkshortcut', { subdomain: 'api' })
+    @Post('/mkshortcut', { subdomain: 'api', requireVerified: true })
     async mkshortcutEntry (req: Request, res: Response) {
         const actor = this.#requireActor(req);
         const userId = this.#getActorUserId(req);
@@ -865,7 +865,7 @@ export class FSController extends PuterController {
         res.json(shortcut);
     }
 
-    @Post('/mklink', { subdomain: 'api' })
+    @Post('/mklink', { subdomain: 'api', requireVerified: true })
     async mklinkEntry (req: Request, res: Response) {
         const actor = this.#requireActor(req);
         const userId = this.#getActorUserId(req);

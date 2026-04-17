@@ -30,6 +30,19 @@ extension.get('/whoami', { subdomain: 'api', requireAuth: true }, async (req, re
     const iconSize = typeof req.query?.icon_size === 'string' ? Number(req.query.icon_size) : undefined;
     const noIcons = !iconSize;
 
+    // Feature flags: v1 had `FeatureFlagService` with permission-backed
+    // and function-based flags; the consensus during migration was that
+    // we only ever loaded values from config. Config shape is a flat
+    // `{ flag_name: boolean }` object under `config.feature_flags`. Keys
+    // that resolve to non-booleans (e.g. someone wrote `"true"` as a
+    // string) are coerced so the client never has to guess.
+    const cfg = extension.config as Record<string, unknown>;
+    const rawFlags = (cfg.feature_flags ?? {}) as Record<string, unknown>;
+    const feature_flags: Record<string, boolean> = {};
+    for ( const [k, v] of Object.entries(rawFlags) ) {
+        feature_flags[k] = Boolean(v);
+    }
+
     const details: Record<string, unknown> = {
         username: user.username,
         uuid: user.uuid,
@@ -47,6 +60,7 @@ extension.get('/whoami', { subdomain: 'api', requireAuth: true }, async (req, re
             : undefined,
         referral_code: user.referral_code,
         otp: !!user.otp_enabled,
+        feature_flags,
         human_readable_age: user.timestamp
             ? timeago.format(new Date(user.timestamp as string))
             : null,

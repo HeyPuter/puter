@@ -1,5 +1,6 @@
 import { HttpError } from '../../core/http/HttpError.js';
 import { driversContainers } from '../../exports.js';
+import { resolvePrivateLaunchAccess } from '../../util/privateLaunchAccess.js';
 import { PuterController } from '../types.js';
 
 /**
@@ -92,14 +93,25 @@ export class AppController extends PuterController {
             const raw = req.params.name;
             const names = raw.split('|').filter(Boolean);
 
+            const userUid = req.actor?.user?.uuid ?? null;
+
             const results = await Promise.all(names.map(async (name) => {
                 const app = await this.appStore.getByName(name);
                 if ( ! app ) return null;
+                let shaped;
                 try {
-                    return await this.appDriver.read({ uid: app.uid });
+                    shaped = await this.appDriver.read({ uid: app.uid });
                 } catch {
                     return null;
                 }
+                const privateAccess = await resolvePrivateLaunchAccess({
+                    app: shaped,
+                    eventClient: this.clients.event,
+                    userUid,
+                    source: 'appsRoute',
+                    args: req.query ?? {},
+                });
+                return { ...shaped, privateAccess };
             }));
 
             // Single-name requests return the app directly; batch returns an array

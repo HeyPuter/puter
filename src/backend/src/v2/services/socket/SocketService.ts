@@ -327,7 +327,29 @@ export class SocketService extends PuterService {
 
         const fanout = userIds.map(async (userId) => {
             await this.send({ room: userId }, wireName, data.response);
-            if ( isMutation ) await this.#bumpLastChange(userId);
+            // Post-send hook: v1 WSPushService fired `sent-to-user.<wireName>`
+            // so listeners (e.g. NotificationService marking notif delivery)
+            // can react after each per-user fan-out.
+            this.clients.event.emit(`sent-to-user.${wireName}`, {
+                user_id: userId,
+                response: data.response,
+            }, {});
+            if ( isMutation ) {
+                const timestamp = Date.now();
+                await this.#bumpLastChange(userId, timestamp);
+                // v1 WSPushService._update_user_ts also pushed `cache.updated`
+                // as a wire event so connected tabs invalidate their FS
+                // cache immediately (originator filters by
+                // `original_client_socket_id` to avoid self-refetch).
+                // Without this, other tabs only learn about the change on
+                // their next poll of /cache/last-change-timestamp.
+                const originalSocketId = (data.response as { original_client_socket_id?: string } | undefined)
+                    ?.original_client_socket_id;
+                await this.send({ room: userId }, 'cache.updated', {
+                    timestamp,
+                    original_client_socket_id: originalSocketId,
+                });
+            }
         });
         await Promise.all(fanout);
     }
@@ -352,11 +374,11 @@ export class SocketService extends PuterService {
         });
     }
 
-    async #bumpLastChange (userId: number | string): Promise<void> {
+    async #bumpLastChange (userId: number | string, timestamp: number): Promise<void> {
         try {
             await this.clients.redis.set(
                 `${LAST_CHANGE_KEY_PREFIX}${userId}`,
-                String(Date.now()),
+                String(timestamp),
                 'EX',
                 LAST_CHANGE_TTL_SECONDS,
             );

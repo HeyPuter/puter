@@ -159,13 +159,19 @@ export class AuthService extends PuterService {
     // ── App / origin resolution ─────────────────────────────────────
 
     /**
-     * Deterministic app UID from an origin URL.
-     * UUIDv5 with a fixed namespace, prefixed with `app-`.
+     * Resolve an origin URL to an app UID.
+     *
+     * Fires `app.from-origin` before hashing so listeners can rewrite the
+     * origin (e.g. polotno maps `polotno.com` → `studio.polotno.com` so both
+     * surfaces resolve to the same app row). UUIDv5 on the — possibly
+     * rewritten — origin preserves v1's deterministic namespace mapping.
      */
     async appUidFromOrigin (origin: string): Promise<string> {
         const parsed = this.#originFromUrl(origin);
         if ( ! parsed ) throw new Error('Invalid origin URL');
-        const uid = uuidv5(parsed, APP_ORIGIN_UUID_NAMESPACE);
+        const event = { origin: parsed };
+        await this.clients.event?.emitAndWait('app.from-origin', event, {});
+        const uid = uuidv5(event.origin, APP_ORIGIN_UUID_NAMESPACE);
         return `app-${uid}`;
     }
 

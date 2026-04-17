@@ -1,6 +1,7 @@
 import { PuterController } from '../types.js';
 import type { PuterRouter } from '../../core/http/PuterRouter';
 import { promoteToVerifiedGroup } from '../../util/userProvisioning.js';
+import { applyReferralRewards } from '../../util/referralRewards.js';
 
 /**
  * One-off user-facing pages lifted out of v1's routers/_default.js catch-all.
@@ -109,6 +110,21 @@ export class StaticPagesController extends PuterController {
             });
 
             await promoteToVerifiedGroup(this.stores.group, this.config, user);
+
+            // Referral rewards — best-effort. Short-circuits when the user
+            // wasn't referred. Never fails the confirm response.
+            try {
+                await applyReferralRewards({
+                    db: this.clients.db,
+                    redis: this.clients.redis,
+                    email: this.clients.email,
+                    notification: this.services.notification,
+                    metering: this.services.metering,
+                    userStore: this.stores.user,
+                }, user);
+            } catch ( e ) {
+                console.warn('[confirm-email-by-token] referral rewards failed:', (e as Error).message);
+            }
 
             // Best-effort side-channels — don't fail the user-visible response
             // if sockets or the event bus are unavailable.
