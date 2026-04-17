@@ -687,6 +687,17 @@ export class PuterServer {
 
         this.#server = httpServer.listen(this.#config.port, () => {
             console.log(`PuterServer is listening on port: ${this.#config.port}`);
+
+            // v1-style "live at" banner — printed BEFORE onServerStart so
+            // DefaultUserService's credentials banner appears right below it
+            // on first boot.
+            const cfg = this.#config as unknown as { origin?: string; domain?: string; protocol?: string };
+            const liveUrl = cfg.origin
+                ?? `${cfg.protocol ?? 'http'}://${cfg.domain ?? 'localhost'}:${this.#config.port}`;
+            console.log('\n************************************************************');
+            console.log(`* Puter is now live at: ${liveUrl}`);
+            console.log('************************************************************\n');
+
             for ( const client of Object.values(this.clients) as WithLifecycle[] ) {
                 if ( client.onServerStart ) {
                     client.onServerStart();

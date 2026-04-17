@@ -4,6 +4,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { PuterService } from '../types.js';
 import type { UserRow } from '../../stores/user/UserStore.js';
 import { generateDefaultFsentries } from '../../util/userProvisioning.js';
+import type { AppIconService } from '../appIcon/AppIconService.js';
 
 const USERNAME = 'admin';
 const ADMIN_GROUP_UID = 'ca342a5e-b13d-4dee-9048-58b11a57cc55';
@@ -35,7 +36,7 @@ export class DefaultUserService extends PuterService {
             // Poke it here so the `/system/app_icons/` dir + subdomain exist
             // by the time the first icon arrives — v1 relied on a
             // `user.system-user-ready` event for this; v2 does it directly.
-            await this.services.appIcon.ensureIconsDirectory();
+            await (this.services.appIcon as AppIconService).ensureIconsDirectory();
         } else {
             const metadata = (user.metadata ?? {}) as Record<string, unknown>;
             const stashed = metadata.tmp_password;
