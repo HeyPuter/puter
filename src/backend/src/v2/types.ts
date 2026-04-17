@@ -114,6 +114,46 @@ export interface IConfig extends Partial<{
     private_app_hosting_domain: string;
     /** Alt private app hosting domain. */
     private_app_hosting_domain_alt: string;
+    /**
+     * Absolute path to the directory holding native app bundles, each in a
+     * subdirectory matching its subdomain (e.g. `<root>/editor/`). When unset,
+     * native-app subdomain serving is disabled.
+     */
+    native_apps_root: string;
+    /**
+     * Absolute path to a directory laid out as
+     *   <root>/puter.js/v1.js
+     *   <root>/puter.js/v2.js
+     *   <root>/putility.js/v1.js
+     * Served at `/puter.js/v{1,2}` on any subdomain and at `/v{1,2}` /
+     * `/putility/v1` on the `js` subdomain. When unset, those routes 404.
+     */
+    client_libs_root: string;
+    /**
+     * Absolute path to the GUI assets root (the `gui/` directory). Mounted as
+     *   /dist/*  → <root>/dist
+     *   /src/*   → <root>/src
+     *   /assets/* → <root>/public  (only if that subdirectory exists)
+     * All on the root subdomain only. Unset → mounts are skipped.
+     */
+    gui_assets_root: string;
+    /** Which profile in `puter-gui.json` to load (e.g., `development`, `bundle`). Default: `development`. */
+    gui_profile: string;
+    /** Force the bundled GUI even in dev. Default: false. */
+    use_bundled_gui: boolean;
+    /** Override the GUI bundle JS path. Default: `/dist/bundle.min.js`. */
+    gui_bundle: string;
+    /** Override the GUI CSS path when bundled. Default: `/dist/bundle.min.css`. */
+    gui_css: string;
+    /** Override the puter.js preload URL when bundled. Default: `https://js.puter.com/v2/`. */
+    gui_puterjs_bundle: string;
+    /**
+     * Free-form bag of values passed through to the client-side `gui()`
+     * function. v1 exposed dozens of discrete config fields here; v2 keeps
+     * the escape hatch for arbitrary params (e.g., feature flags, regex
+     * patterns, size limits) without ballooning this interface.
+     */
+    gui_params: Record<string, unknown>;
     /** When true, accept any Host header value. Dev/testing only. */
     allow_all_host_values: boolean;
     /** When true, accept requests without a Host header. */

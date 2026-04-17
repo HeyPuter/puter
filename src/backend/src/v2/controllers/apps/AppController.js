@@ -168,24 +168,16 @@ export class AppController extends PuterController {
             }
             if ( ! appUid.startsWith('app-') ) appUid = `app-${appUid}`;
 
-            // Try S3 first — AppIconService uploads sized PNGs here
-            try {
-                const bucket = this.config.s3_bucket ?? 'puter-local';
-                const s3Key = `app-icons/${appUid}-${size}.png`;
-                const result = await this.stores.s3Object.getObjectStream(
-                    { bucket, objectKey: s3Key },
-                    this.config.s3_region ?? this.config.region ?? 'us-east-1',
-                );
-                if ( result?.body ) {
-                    res.set('Content-Type', 'image/png');
-                    res.set('Cache-Control', 'public, max-age=3600');
-                    result.body.pipe(res);
-                    return;
-                }
-            } catch {
-                // S3 miss — fall through to DB icon
+            // If the CDN-backed subdomain is configured, redirect there.
+            // AppIconService writes the resized PNGs into the `/system/app_icons/`
+            // directory which the `puter-app-icons` subdomain serves.
+            const redirectUrl = this.services.appIcon?.getIconUrl?.(appUid, size);
+            if ( redirectUrl ) {
+                res.set('Cache-Control', 'public, max-age=900');
+                return res.redirect(302, redirectUrl);
             }
 
+            // Fallback path when no hosting domain is configured (dev/local).
             const app = await this.appStore.getByUid(appUid);
             const icon = app?.icon;
 

@@ -23,6 +23,7 @@ import { createNotFoundHandler } from './core/http/middleware/notFoundHandler';
 import { requireAntiCsrf } from './core/http/middleware/antiCsrf';
 import { captchaGate } from './core/http/middleware/captcha';
 import { rateLimitGate } from './core/http/middleware/rateLimit';
+import { createWwwRedirect, createUserSubdomainRedirect, createNativeAppStatic } from './core/http/middleware/hostRedirects';
 import { PuterRouter } from './core/http/PuterRouter';
 import { PREFIX_METADATA_KEY, type RouteDescriptor } from './core/http/types';
 import type { AuthService } from './services/auth/AuthService';
@@ -55,9 +56,6 @@ export class PuterServer {
     }
 
     async #setupServer (clients: typeof puterClients, stores: typeof puterStores, services: typeof puterServices, controllers: typeof puterControllers, drivers: typeof puterDrivers) {
-
-        // Load OSS extensions (statically imported, part of the module graph)
-        await import('./extensions/index.js');
 
         // Load prod extensions from configured directories (dynamic)
         const extensionDirs = this.#config.extensions;
@@ -219,6 +217,17 @@ export class PuterServer {
 
         // ── Host header validation ──────────────────────────────────
         this.#installHostValidation();
+
+        // ── Host redirects (www → root, user subdomain → static hosting)
+        // Installed after host validation so we know the host is allowed,
+        // and before CORS/body-parsing so we short-circuit on redirects
+        // without burning work.
+        this.#app.use(createWwwRedirect(this.#config));
+        this.#app.use(createUserSubdomainRedirect(this.#config));
+
+        // ── Native app static serving (editor.*, docs.*, …) ─────────
+        // No-op when `native_apps_root` is unset.
+        this.#app.use(createNativeAppStatic(this.#config));
 
         // ── CORS headers ────────────────────────────────────────────
         this.#installCors();
