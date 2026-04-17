@@ -613,8 +613,8 @@ export class PuterServer {
 
     /**
      * Join a controller's prefix with a route path. RegExp / array paths are
-     * passed through unprefixed (consistent with express's behavior and with
-     * the v1 extensionController's assumption that decorator paths are strings).
+     * passed through unprefixed (consistent with express's behavior; decorator
+     * paths are assumed to be strings).
      */
     static #joinPath (prefix: string, path: NonNullable<RouteDescriptor['path']>): string | RegExp | Array<string | RegExp> {
         if ( typeof path !== 'string' ) return path;
@@ -688,7 +688,7 @@ export class PuterServer {
         this.#server = httpServer.listen(this.#config.port, () => {
             console.log(`PuterServer is listening on port: ${this.#config.port}`);
 
-            // v1-style "live at" banner — printed BEFORE onServerStart so
+            // "Live at" banner — printed BEFORE onServerStart so
             // DefaultUserService's credentials banner appears right below it
             // on first boot.
             const cfg = this.#config as unknown as { origin?: string; domain?: string; protocol?: string };

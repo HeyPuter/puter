@@ -26,15 +26,13 @@ const PUBLIC_GROUPS_CACHE_TTL_SECONDS = 60;
  * plus a per-process redis cache for the (small, frequently-read) set of
  * public groups (the hardcoded default user + temp groups from config).
  *
- * Matches v1 `GroupService` 1:1 on SQL, minus v1's `create_group_entity`
- * wrapper — this store returns plain rows. Callers that need the members
- * of a group can call `listMemberUsernames(uid)` explicitly.
+ * Returns plain rows. Callers that need the members of a group can call
+ * `listMemberUsernames(uid)` explicitly.
  */
 export class GroupStore extends PuterStore {
 
     /**
-     * Random per-process cache namespace. Inherits v1's behavior of giving
-     * each server instance its own namespace so restart-staleness can't cross
+     * Random per-process cache namespace so restart-staleness can't cross
      * processes. Populated in `onServerStart`.
      */
     private redisNamespace: string = '';
@@ -123,8 +121,8 @@ export class GroupStore extends PuterStore {
     // ── Writes ───────────────────────────────────────────────────────
 
     /**
-     * Creates a new group owned by `ownerUserId`. Enforces v1's 20/hour
-     * per-owner rate limit (throws `Error('too_many_requests')` if exceeded).
+     * Creates a new group owned by `ownerUserId`. Enforces a 20/hour per-owner
+     * rate limit (throws `Error('too_many_requests')` if exceeded).
      */
     async create ({ ownerUserId, extra = {}, metadata = {} }: {
         ownerUserId: number;

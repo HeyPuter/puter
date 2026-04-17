@@ -17,8 +17,7 @@ const WORKER_SUBDOMAIN_PREFIX = 'workers.puter.';
 //
 // The preamble is a webpack-built JS bundle that provides puter.js to
 // worker code. It's baked into the source sent to Cloudflare Workers.
-// If the file hasn't been built, workers run without puter.js access —
-// matches v1 fallback behaviour.
+// If the file hasn't been built, workers run without puter.js access.
 
 let preamble = '';
 let preambleLineCount = 0;
@@ -268,12 +267,12 @@ export class WorkerDriver extends PuterDriver {
     // we redeploy it to Cloudflare automatically. This is what makes
     // "save file → live in prod" instant.
     //
-    // v2's FS layer emits `outer.gui.item.added` and
-    // `outer.gui.item.updated` after a write commits (not `fs.write.*`
-    // which v1 used). We subscribe to those — the payload carries
-    // `{ user_id_list, response }` where `response` is the entry shape
-    // (uuid, path, user_id, etc.). We match against worker subdomain
-    // `root_dir_id` to decide whether to re-deploy.
+    // The FS layer emits `outer.gui.item.added` and
+    // `outer.gui.item.updated` after a write commits. We subscribe to
+    // those — the payload carries `{ user_id_list, response }` where
+    // `response` is the entry shape (uuid, path, user_id, etc.). We
+    // match against worker subdomain `root_dir_id` to decide whether
+    // to re-deploy.
 
     #subscribeHotReload (): void {
         if ( ! this.#cfBaseUrl ) return; // CF not configured — skip

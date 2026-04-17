@@ -41,8 +41,6 @@ export class NotificationController extends PuterController {
     /**
      * POST /notif/mark-read — user saw a notification.
      * Sets `shown` timestamp; pushes ack event to sockets.
-     * (v1 referenced a `read` column that doesn't exist in the schema;
-     * this maps to `shown` which is the correct column.)
      */
     @Post('/mark-read', { subdomain: 'api', requireAuth: true })
     async markRead (req: Request, res: Response): Promise<void> {

@@ -105,6 +105,9 @@ export interface IConfig extends Partial<{
         localConfig: {
             inMemory?: boolean;
             host?: string;
+            port?: number;
+            dataDir?: string;
+            s3StorageDir?: string;
         }
         s3Config?: never
     } | {
@@ -154,7 +157,7 @@ export interface IConfig extends Partial<{
     default_temp_group: string;
     /** When true, ACL grants read/list/see on `/<user>/Public` to any actor (owner must have confirmed email, or be admin). */
     enable_public_folders: boolean;
-    /** HMAC secret used to sign auth JWTs. Must match v1 during transition. */
+    /** HMAC secret used to sign auth JWTs. */
     jwt_secret: string;
     /** HMAC secret for signed file URLs (/file, /writeFile, /sign). */
     url_signature_secret: string;
@@ -207,8 +210,7 @@ export interface IConfig extends Partial<{
     gui_puterjs_bundle: string;
     /**
      * Free-form bag of values passed through to the client-side `gui()`
-     * function. v1 exposed dozens of discrete config fields here; v2 keeps
-     * the escape hatch for arbitrary params (e.g., feature flags, regex
+     * function. Escape hatch for arbitrary params (e.g., feature flags, regex
      * patterns, size limits) without ballooning this interface.
      */
     gui_params: Record<string, unknown>;

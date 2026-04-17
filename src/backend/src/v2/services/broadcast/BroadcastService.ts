@@ -94,10 +94,9 @@ interface IncomingHeaders {
  *   - Inbound handler ignores POSTs whose `X-Broadcast-Peer-Id` matches
  *     this server's own peerId (catches misconfigured loopbacks).
  *
- * No Redis pub/sub here — webhooks are the only transport. (v1 had a
- * Redis side-channel for same-cluster replication; v2 sockets handle
- * their own cluster fan-out via the streams adapter, so the Redis
- * channel here would just duplicate work.)
+ * No Redis pub/sub here — webhooks are the only transport. Same-cluster
+ * fan-out is handled by sockets via the Redis streams adapter, so an
+ * additional Redis channel here would just duplicate work.
  */
 export class BroadcastService extends PuterService {
     /** peerId → resolved peer config, used for incoming-verify lookup. */

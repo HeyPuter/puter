@@ -1,9 +1,9 @@
 /**
- * Minimal actor shape used by v2 stores and services.
+ * Minimal actor shape used by stores and services.
  *
- * A full v2 auth layer will land later; for now stores/services that key data
- * on "who's acting" just need the user/app identity, plus a `system` flag for
- * internal operations that should bypass quotas and metering.
+ * Stores/services that key data on "who's acting" need the user/app identity,
+ * plus a `system` flag for internal operations that should bypass quotas
+ * and metering.
  */
 
 export interface ActorUser {
@@ -72,7 +72,7 @@ export const isAccessTokenActor = (actor: Actor | undefined | null): boolean => 
 };
 
 /**
- * Stable identifier for an actor, matching v1's `actor.uid` semantics.
+ * Stable identifier for an actor.
  * Used as a cache key (e.g., permission scan cache) and for cycle detection.
  */
 export const actorUid = (actor: Actor): string => {
@@ -86,9 +86,8 @@ export const actorUid = (actor: Actor): string => {
 };
 
 /**
- * Return a UserActorType-equivalent actor for any app-under-user actor,
- * matching v1's `actor.get_related_actor(UserActorType)` behavior.
- * For non-app actors, returns the actor unchanged.
+ * Return a user-only actor for any app-under-user actor. For non-app actors,
+ * returns the actor unchanged.
  */
 export const userRelatedActor = (actor: Actor): Actor => {
     if ( ! actor.app && ! actor.accessToken ) return actor;

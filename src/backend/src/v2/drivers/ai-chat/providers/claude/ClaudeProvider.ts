@@ -168,9 +168,8 @@ export class ClaudeProvider implements IChatProvider {
             ...(thinkingConfig ? { thinking: thinkingConfig } : {}),
         } as MessageCreateParams;
 
-        // TODO: file upload support — requires v2 FS integration
-        // v1 used FSNodeParam + LLRead to read puter_path content parts
-        // and uploaded them via anthropic.beta.files.upload
+        // TODO: file upload support — read puter_path content parts and
+        // upload them via anthropic.beta.files.upload.
 
         const actor = Context.get('actor');
 

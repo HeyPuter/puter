@@ -30,9 +30,7 @@ extension.get('/whoami', { subdomain: 'api', requireAuth: true }, async (req, re
     const iconSize = typeof req.query?.icon_size === 'string' ? Number(req.query.icon_size) : undefined;
     const noIcons = !iconSize;
 
-    // Feature flags: v1 had `FeatureFlagService` with permission-backed
-    // and function-based flags; the consensus during migration was that
-    // we only ever loaded values from config. Config shape is a flat
+    // Feature flags come from config. Shape is a flat
     // `{ flag_name: boolean }` object under `config.feature_flags`. Keys
     // that resolve to non-booleans (e.g. someone wrote `"true"` as a
     // string) are coerced so the client never has to guess.

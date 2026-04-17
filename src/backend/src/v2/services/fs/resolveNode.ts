@@ -5,13 +5,9 @@ import type { FSEntryStore } from '../../stores/fs/FSEntryStore.js';
 
 
 /**
- * Minimal replacement for v1's FSNodeContext + selector class hierarchy.
- *
- * v1 exposed a rich object (FSNodeContext) that lazily fetched, cached via
- * ECMAP, and chained property lookups across the request. In practice, we
- * only need: "given this reference shape, fetch the plain FSEntry row".
- * Everything else (size, descendants, subdomains, shares) is fetched by
- * explicit service methods as needed.
+ * Resolve an entry by one of several reference shapes (path, uid, id) to
+ * a plain FSEntry row. Everything else (size, descendants, subdomains,
+ * shares) is fetched by explicit service methods as needed.
  *
  * If a caller wants a batch resolve, do N individual calls — the repository
  * caches each result in Redis on first read.
@@ -20,7 +16,7 @@ import type { FSEntryStore } from '../../stores/fs/FSEntryStore.js';
 export interface NodeRef {
     /** Absolute path, e.g. '/danielsalazar/Documents/foo.txt'. */
     path?: string;
-    /** UUID of the entry. Aliased as `uid` in v1 request shapes. */
+    /** UUID of the entry. Aliased as `uid` in request shapes. */
     uid?: string;
     uuid?: string;
     /** Numeric MySQL id. */
@@ -82,9 +78,9 @@ function notFoundOrNull (required: boolean | undefined, message: string): null {
 
 /**
  * Split an absolute path into `{ parentPath, name }`. Used for operations that
- * accept "create child X of parent Y" shape (touch/mkdir/write), plus v1's
- * legacy `{ parent, name }` selector style (parent resolves first, then we
- * append name to parent.path).
+ * accept "create child X of parent Y" shape (touch/mkdir/write), plus the
+ * `{ parent, name }` selector style (parent resolves first, then we append
+ * name to parent.path).
  */
 export function splitParentAndName (absolutePath: string): { parentPath: string; name: string } {
     const normalized = normalizeAbsolutePath(absolutePath);
@@ -113,7 +109,7 @@ export function normalizeAbsolutePath (path: string): string {
 
 /**
  * Build an absolute child path from a parent path + child name. Rejects names
- * containing `/` (v1 behaviour).
+ * containing `/`.
  */
 export function joinChildPath (parentPath: string, name: string): string {
     if ( typeof name !== 'string' || name.length === 0 ) {

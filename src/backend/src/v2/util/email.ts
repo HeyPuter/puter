@@ -1,9 +1,6 @@
 /**
- * Email normalization + block-list check.
- *
- * Ported from v1 CleanEmailService but stateless — these are the only
- * callers in v2 (AuthController signup / change-email / save-account) and a
- * full service layer is unnecessary.
+ * Email normalization + block-list check. Stateless — used by
+ * AuthController (signup / change-email / save-account).
  *
  *   cleanEmail('foo.bar+tag@gmail.com') === 'foobar@gmail.com'
  *   isBlockedEmail('temp@mailinator.com', ['mailinator.com']) === true

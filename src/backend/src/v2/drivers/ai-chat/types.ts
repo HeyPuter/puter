@@ -1,8 +1,8 @@
 /**
  * Types for the `puter-chat-completion` driver interface.
  *
- * Cleaned from v1 — no openai SDK type dependency. The PuterMessage
- * type is intentionally loose; each provider normalises internally.
+ * No openai SDK type dependency. The PuterMessage type is intentionally
+ * loose; each provider normalises internally.
  */
 
 export type ModelCost = Record<string, number>;

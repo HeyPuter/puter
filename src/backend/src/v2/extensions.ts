@@ -42,9 +42,7 @@ export const extensionStore = {
 
 /**
  * Internal: normalize `(path, handler)` or `(path, options, handler)` into
- * a single `RouteDescriptor` the server can materialize. Matches the
- * convention used by v1's extensionController decorators so existing
- * extensions that pass `(path, options, handler)` keep working.
+ * a single `RouteDescriptor` the server can materialize.
  */
 const pushRoute = (
     method: RouteMethod,

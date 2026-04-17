@@ -13,7 +13,6 @@ const SIZED_ICON_FILENAME = (uid: string, size: number) => `${uid}-${size}.png`;
 /**
  * App icon generation service.
  *
- * Mirrors v1's AppIconService:
  *   1. On boot: ensures `/system/app_icons/` exists (owned by admin/system user)
  *      and that the `puter-app-icons` subdomain points at it. Icons are then
  *      served through Puter's regular hosting path

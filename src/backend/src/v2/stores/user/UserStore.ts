@@ -3,9 +3,9 @@ import { PuterStore } from '../types';
 // ── Types ────────────────────────────────────────────────────────────
 
 /**
- * Canonical v2 user row. Typed fields cover everything auth/acl/quota code
- * actually reads; `[k: string]: unknown` keeps the escape hatch for fields
- * the store doesn't surface yet (the v1 user table is wide).
+ * Canonical user row. Typed fields cover everything auth/acl/quota code
+ * actually reads; `[k: string]: unknown` keeps the escape hatch for
+ * lesser-used columns the store doesn't surface yet.
  *
  * Note: `suspended` / `email_confirmed` / `requires_email_confirmation` come
  * off the DB as MySQL TINYINT or SQLite INTEGER — 0 or 1. We coerce to
@@ -44,40 +44,38 @@ const CACHE_TTL_SECONDS = 15 * 60;
 // ── UserStore ────────────────────────────────────────────────────────
 
 /**
- * Persistence + cache for the `user` table. Folds together v1's
- * `GetUserService` (multi-key redis cache + property-indexed lookups) and
- * the thin `user`-table accessors that were scattered across v1
- * (`helpers.get_user`, `UserService.updateUserMetadata`, etc.).
+ * Persistence + cache for the `user` table. Provides a multi-key Redis cache
+ * over property-indexed lookups and thin `user`-table accessors.
  *
  * Intentionally NOT folded in:
  * - `generate_default_fsentries` (filesystem concern; belongs with FS)
  * - `whoami.get_details` enrichment (service-level, not store)
- * - `register_id_property` extension hook (the 5 identifying properties
- *   are declared inline here — every caller that needs more can add the
- *   property to `USER_ID_PROPERTIES`; no runtime registration needed)
+ * - runtime identifying-property registration — the identifying properties
+ *   are declared inline in `USER_ID_PROPERTIES`; callers that need more
+ *   add the property to that tuple.
  */
 export class UserStore extends PuterStore {
 
     // ── Reads ────────────────────────────────────────────────────────
 
-    async getById (id: number): Promise<UserRow | null> {
-        return this.getByProperty('id', id);
+    async getById (id: number, opts: { cached?: boolean; force?: boolean } = {}): Promise<UserRow | null> {
+        return this.getByProperty('id', id, opts);
     }
 
-    async getByUuid (uuid: string): Promise<UserRow | null> {
-        return this.getByProperty('uuid', uuid);
+    async getByUuid (uuid: string, opts: { cached?: boolean; force?: boolean } = {}): Promise<UserRow | null> {
+        return this.getByProperty('uuid', uuid, opts);
     }
 
-    async getByUsername (username: string): Promise<UserRow | null> {
-        return this.getByProperty('username', username);
+    async getByUsername (username: string, opts: { cached?: boolean; force?: boolean } = {}): Promise<UserRow | null> {
+        return this.getByProperty('username', username, opts);
     }
 
-    async getByEmail (email: string): Promise<UserRow | null> {
-        return this.getByProperty('email', email);
+    async getByEmail (email: string, opts: { cached?: boolean; force?: boolean } = {}): Promise<UserRow | null> {
+        return this.getByProperty('email', email, opts);
     }
 
-    async getByReferralCode (code: string): Promise<UserRow | null> {
-        return this.getByProperty('referral_code', code);
+    async getByReferralCode (code: string, opts: { cached?: boolean; force?: boolean } = {}): Promise<UserRow | null> {
+        return this.getByProperty('referral_code', code, opts);
     }
 
     /**
@@ -103,9 +101,7 @@ export class UserStore extends PuterStore {
         // Replication-aware read: on `force`, go straight to the primary
         // (`pread`) to bypass replica lag for hot reads (e.g., immediately
         // after a signup). Otherwise `tryHardRead` parallels primary +
-        // replica and prefers whichever returns rows — matching v1's
-        // "read first, pread fallback" behavior without the sequential
-        // round-trip.
+        // replica and prefers whichever returns rows.
         const sql = `SELECT * FROM \`user\` WHERE \`${prop}\` = ? LIMIT 1`;
         const rows = force
             ? await this.clients.db.pread(sql, [value])

@@ -5,7 +5,7 @@ import { PuterController } from '../types.js';
 import type { PuterRouter } from '../../core/http/PuterRouter';
 
 /**
- * Static asset routes lifted out of v1's routers/_default.js catch-all.
+ * Static asset routes.
  *
  *   /puter.js/v1, /puter.js/v2          → any subdomain
  *   /v1, /v2, /putility/v1              → js subdomain

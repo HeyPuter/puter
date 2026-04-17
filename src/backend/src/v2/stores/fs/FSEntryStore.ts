@@ -32,7 +32,7 @@ const DEFAULT_DB_CHUNK_CONCURRENCY = 4;
 /**
  * Store backing the `fsentries` table. Owns DB CRUD over filesystem entries,
  * Redis caching keyed by uuid/path/id, and pending-upload-session state in
- * the system KV store. Constructed by the v2 store registry; depends on `kv`.
+ * the system KV store. Constructed by the store registry; depends on `kv`.
  */
 export class FSEntryStore extends PuterStore {
     declare protected stores: LayerInstances<typeof puterStores>;
@@ -1487,7 +1487,7 @@ export class FSEntryStore extends PuterStore {
             switch ( options.sortBy ) {
                 case 'modified': return 'modified';
                 case 'size': return 'size';
-                case 'type': return 'is_dir'; // directories first when DESC; matches v1 heuristic
+                case 'type': return 'is_dir'; // directories first when DESC
                 case 'name':
                 default: return 'name';
             }

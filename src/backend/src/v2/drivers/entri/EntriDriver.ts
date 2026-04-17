@@ -159,8 +159,8 @@ export class EntriDriver extends PuterDriver {
 
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     async fullyRegistered (_args: Record<string, unknown>): Promise<unknown> {
-        // v1 left this as an incomplete stub. Kept for interface
-        // compatibility — fill in when Entri-side confirmation is needed.
+        // Stub — kept for interface compatibility. Fill in when Entri-side
+        // confirmation is needed.
         return { ok: true };
     }
 

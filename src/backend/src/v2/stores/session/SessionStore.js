@@ -2,11 +2,11 @@ import { v4 as uuidv4 } from 'uuid';
 import { PuterStore } from '../types';
 
 /**
- * Session persistence for v2 auth.
+ * Session persistence for auth.
  *
  * Provides CRUD operations on the `sessions` table. Activity tracking
- * is done via direct DB writes for now — the v1 Redis batching
- * optimization can be layered on later without changing the interface.
+ * is done via direct DB writes for now — a Redis batching optimization
+ * can be layered on later without changing the interface.
  */
 export class SessionStore extends PuterStore {
 

@@ -1,7 +1,5 @@
 /**
  * Types for the `puter-video-generation` driver interface.
- *
- * Ported from v1 — cleaned up for v2.
  */
 
 export interface IVideoModel {

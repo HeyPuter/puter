@@ -25,13 +25,12 @@ const RESERVED_SUBDOMAINS = new Set<string>([
     // Native apps (reserved here regardless of whether nativeAppStatic is
     // currently installed — the redirect should still skip them).
     ...NATIVE_APP_SUBDOMAINS,
-    // App-icon serving subdomain (v1's puter-app-icons).
+    // App-icon serving subdomain.
     'puter-app-icons',
 ]);
 
 /**
- * Redirects `www.<domain>` → `<domain>`. v1 redirected to bare origin
- * (dropping the path); we match that so the cutover is byte-identical.
+ * Redirects `www.<domain>` → `<domain>` (dropping the path).
  */
 export const createWwwRedirect = (config: IConfig): RequestHandler => {
     const domain = (config.domain ?? '').toLowerCase();
@@ -79,8 +78,7 @@ export const createUserSubdomainRedirect = (config: IConfig): RequestHandler => 
  * under a `/dist` subdir — everything else maps directly to `<root>/<app>`.
  *
  * When the requested path is a directory without a trailing slash, responds
- * with 307 so relative asset URLs resolve correctly (matches v1 `_default.js`
- * behavior).
+ * with 307 so relative asset URLs resolve correctly.
  *
  * Pass-through when `native_apps_root` is unset so self-hosted deployments
  * that don't ship the apps don't trip on 404s.

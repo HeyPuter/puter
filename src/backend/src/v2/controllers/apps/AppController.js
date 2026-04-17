@@ -164,8 +164,7 @@ export class AppController extends PuterController {
         // ── GET /app-icon/:app_uid(/:size) ─────────────────────────
         // Serve app icon — data URL decoded inline, HTTP URL redirected.
         //
-        // ⚠ FLAG: Missing sharp-based resize pipeline.
-        // v1 stored pre-sized PNGs via sharp; this serves the original.
+        // ⚠ FLAG: Missing sharp-based resize pipeline; serves the original.
 
         const ICON_SIZES = [16, 32, 64, 128, 256, 512];
         const DEFAULT_ICON_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';

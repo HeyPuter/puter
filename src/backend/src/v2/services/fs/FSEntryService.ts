@@ -1918,7 +1918,7 @@ export class FSEntryService extends PuterService {
     }
 
     /**
-     * Create a directory at `path`. Mirrors v1 HLMkdir options:
+     * Create a directory at `path`. Options:
      *   - overwrite: if a non-directory exists, remove it and create dir
      *   - dedupeName: if conflict, append ` (N)`
      *   - createMissingParents: create intermediate dirs
@@ -1963,7 +1963,7 @@ export class FSEntryService extends PuterService {
 
     /**
      * Touch: create an empty file at `path` if missing; otherwise bump
-     * timestamps. Mirrors v1 `/touch` semantics.
+     * timestamps.
      */
     async touch (userId: number, input: {
         path: string;
@@ -2061,8 +2061,8 @@ export class FSEntryService extends PuterService {
 
     /**
      * Create a symlink row at `parent/name` pointing to raw string
-     * `targetPath`. No verification that target resolves — v1 allowed broken
-     * links by design.
+     * `targetPath`. No verification that target resolves — broken links
+     * are allowed by design.
      */
     async mklink (userId: number, input: {
         parent: FSEntry;
@@ -2152,11 +2152,10 @@ export class FSEntryService extends PuterService {
 
     /**
      * Hard-delete every FS entry owned by `userId`: S3 objects first, then
-     * every `fsentries` row. Used by account deletion. Matches v1
-     * `helpers.deleteUser` — paginates through files (5k at a time) so
-     * large users don't blow the heap, batches S3 deletes per bucket+region,
-     * and finishes with one bulk DELETE to sweep dirs/shortcuts/symlinks
-     * that don't have backing objects.
+     * every `fsentries` row. Used by account deletion. Paginates through
+     * files (5k at a time) so large users don't blow the heap, batches S3
+     * deletes per bucket+region, and finishes with one bulk DELETE to
+     * sweep dirs/shortcuts/symlinks that don't have backing objects.
      *
      * Safe to call concurrently with other ops on the same user only in the
      * sense that orphaned S3 objects may linger if a write races us; the DB
@@ -2233,7 +2232,7 @@ export class FSEntryService extends PuterService {
      * Emit one of the lifecycle events that `extension.on('fs.…')` consumers
      * expect (cf-file-cache, future thumbnails-style extensions). Payload
      * carries multiple aliases (`node` / `entry` / `uid`) so handlers using
-     * any of v1's calling conventions just work.
+     * any existing calling convention just work.
      *
      * Currently emitted:
      *   fs.create.{file,directory,shortcut,symlink}

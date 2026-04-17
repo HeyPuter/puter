@@ -98,8 +98,6 @@ function cleanFields (fields: AlarmFields): Record<string, string> {
 /**
  * Manages system alarms and dispatches alerts to external paging
  * services (PagerDuty, or any registered handler).
- *
- * Replaces both the v1 AlarmService and PagerService.
  */
 export class AlarmClient extends PuterClient {
 

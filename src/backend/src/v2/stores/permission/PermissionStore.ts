@@ -394,7 +394,7 @@ export class PermissionStore extends PuterStore {
 
     // ── Internals ───────────────────────────────────────────────────
 
-    /** Parse the JSON `extra` column into an object, matching v1 semantics. */
+    /** Parse the JSON `extra` column into an object. */
     #decodeExtra<T extends Record<string, unknown>> (row: Record<string, unknown>): T {
         const extra = this.clients.db.case<() => unknown>({
             mysql: () => row.extra,

@@ -13,11 +13,11 @@ import { PuterController } from '../types.js';
  * event-bus dispatch live in the service so they're reusable from
  * tests / direct callers.
  *
- * Mounted with `subdomain: '*'` (any host) for v1 compat: peers reach
- * the webhook through the ALB DNS, not the public `api.<domain>`
- * subdomain, so the host header can be an internal ALB hostname rather
- * than `api.<domain>` or `<domain>`. Authentication is via the
- * HMAC + peer-id + nonce triple, not the host.
+ * Mounted with `subdomain: '*'` (any host) because peers reach the
+ * webhook through the ALB DNS, not the public `api.<domain>` subdomain,
+ * so the host header can be an internal ALB hostname rather than
+ * `api.<domain>` or `<domain>`. Authentication is via the HMAC +
+ * peer-id + nonce triple, not the host.
  *
  * `req.rawBody` is captured by the global JSON parser and is what the
  * HMAC verifies against — do NOT switch this route to a custom body

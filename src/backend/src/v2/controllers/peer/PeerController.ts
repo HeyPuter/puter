@@ -7,8 +7,6 @@ import { PuterController } from '../types.js';
 /**
  * Peer controller — WebRTC signalling info + TURN credential generation.
  *
- * Ports v1's PeerService routes to v2's controller pattern.
- *
  * Config shape:
  *   config.peers.signaller_url  — WebRTC signaller URL
  *   config.peers.fallback_ice   — fallback ICE server list

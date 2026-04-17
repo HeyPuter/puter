@@ -624,9 +624,9 @@ export class SystemKVStore extends PuterStore {
 
     /**
      * Ensure each intermediate map layer exists for a set of nested paths.
-     * Returns write units consumed. Ported verbatim from v1 DynamoKVStore —
-     * DDB can't set nested paths on missing parents in one expression, so we
-     * walk the layers and `SET ... if_not_exists(..., {})` each one.
+     * Returns write units consumed. DDB can't set nested paths on missing
+     * parents in one expression, so we walk the layers and
+     * `SET ... if_not_exists(..., {})` each one.
      */
     private async createPaths (namespace: string, key: string, pathList: string[]): Promise<number> {
         const nestedMapValue = (() => {

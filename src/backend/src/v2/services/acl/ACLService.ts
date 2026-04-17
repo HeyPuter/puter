@@ -11,11 +11,9 @@ import { MANAGE_PERM_PREFIX } from '../permission/consts';
 /**
  * Thin, filesystem-agnostic view of a resource for ACL checks.
  *
- * v1's ACLService accepted a full `FSNode` (with `get('path')`, `getParent()`,
- * `isPublic()`, etc). v2 drops that dependency entirely — any caller can
- * construct a descriptor from whatever entry metadata they already have.
- * fsv2's FSController already does exactly this (see its `resourceDescriptor`
- * in `#assertWriteAccess`).
+ * Callers construct a descriptor from whatever entry metadata they already
+ * have; ACL does not depend on the filesystem layer. FSController does
+ * exactly this (see its `resourceDescriptor` in `#assertWriteAccess`).
  *
  * `resolveAncestors()` MUST return the chain starting with the resource
  * itself and ending at the direct child of root. Empty means "root".
@@ -27,7 +25,7 @@ export interface ResourceDescriptor {
 
 export type AclMode = 'see' | 'list' | 'read' | 'write' | typeof MANAGE_PERM_PREFIX;
 
-/** Duck-typed error shape compatible with v1 APIError consumers (fsv2). */
+/** Duck-typed error shape compatible with APIError consumers (fsv2). */
 export interface AclError {
     status: number;
     message: string;
@@ -53,18 +51,17 @@ const PUBLIC_READ_MODES: ReadonlyArray<AclMode> = Object.freeze(['read', 'list',
 /**
  * ACLService enforces filesystem access-control semantics for Puter.
  *
- * Migrated from v1 `ACLService`. Two significant shape changes:
+ * Design notes:
  *
- * 1. **No FSNode dependency.** Callers pass a `ResourceDescriptor` duck type
- *    (`{ path, resolveAncestors() }`). This lets ACL live as a v2 service
- *    without pulling in the filesystem layer (which transitively would
- *    depend on ACL — the circular dep that v1 tolerated).
- * 2. **No route registration.** v1 bundled `/acl/stat-user-user` and
- *    `/acl/set-user-user` into the service via `__on_install.routes`.
- *    v2 keeps the service pure; a controller will expose these routes.
+ * - **No FSNode dependency.** Callers pass a `ResourceDescriptor` duck type
+ *   (`{ path, resolveAncestors() }`). This lets ACL live as a service
+ *   without pulling in the filesystem layer (which would create a circular
+ *   dependency).
+ * - **No route registration.** The service is pure; a controller exposes
+ *   `/acl/stat-user-user` and `/acl/set-user-user`.
  *
- * Methods that relied on fsNode tree walks now iterate `resolveAncestors()`,
- * which returns a pre-resolved ancestor chain from the caller's FS layer.
+ * Tree-walks are done via `resolveAncestors()`, which returns a
+ * pre-resolved ancestor chain from the caller's FS layer.
  */
 export class ACLService extends PuterService {
     declare protected services: LayerInstances<typeof puterServices>;
@@ -73,8 +70,6 @@ export class ACLService extends PuterService {
 
     /**
      * Returns true iff `actor` is allowed to perform `mode` access on `resource`.
-     * Mirrors v1's `checkResource` — v1's separate `_check_fsNode` path is gone
-     * (all callers now pass descriptors; see class docstring).
      */
     async check (actor: Actor, resource: ResourceDescriptor, mode: AclMode): Promise<boolean> {
         if ( isSystemActor(actor) ) return true;
@@ -94,9 +89,8 @@ export class ACLService extends PuterService {
         }
 
         // Short-circuit: apps accessing their own AppData directory (under
-        // any user — v1 had two distinct short-circuits for same-user vs
-        // cross-user appdata; unified here with the below "shared appdata"
-        // check after the per-user-permission gate).
+        // any user). Shared-appdata access is handled below via the
+        // per-user-permission gate.
         if ( actor.app && ! actor.accessToken ) {
             const username = actor.user.username;
             const appUid = actor.app.uid;
@@ -175,7 +169,6 @@ export class ACLService extends PuterService {
     /**
      * When a check fails, return a user-safe error: 404 if the actor can't
      * even `see` the resource (don't leak existence), 403 otherwise.
-     * Shape matches v1's APIError duck type so fsv2 can consume it unchanged.
      */
     async getSafeAclError (actor: Actor, resource: ResourceDescriptor, _mode: AclMode): Promise<AclError> {
         const canSee = await this.check(actor, resource, 'see');
@@ -286,7 +279,7 @@ export class ACLService extends PuterService {
         return 'write';
     }
 
-    /** Modes that imply `mode`. Mirrors v1's `_higher_modes`. */
+    /** Modes that imply `mode`. */
     higherModes (mode: AclMode): AclMode[] {
         return MODES_ABOVE[mode] ?? [mode];
     }

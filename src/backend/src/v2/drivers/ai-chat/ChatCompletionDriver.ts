@@ -98,8 +98,8 @@ export class ChatCompletionDriver extends PuterDriver {
 
         // ── Pre-completion validation gate ───────────────────────────
         // Extensions (e.g. prompt_block) listen on `ai.prompt.validate`
-        // and set `event.allow = false` to block the prompt. v1 fell
-        // back to test-mode; v2 throws so the client gets a clear 403.
+        // and set `event.allow = false` to block the prompt. Throws so
+        // the client gets a clear 403.
         const validateEvent: Record<string, unknown> = {
             actor,
             completionId,

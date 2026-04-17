@@ -7,7 +7,7 @@ const SUBDOMAIN_MAX_LEN = 64;
 const SUBDOMAIN_REGEX = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
 const DEFAULT_MAX_SUBDOMAINS = 500;
 
-// Reserved words — mirrors v1's default list. Extend via config if needed.
+// Reserved words. Extend via config if needed.
 const RESERVED_SUBDOMAINS = new Set([
     'www', 'api', 'mail', 'ftp', 'admin', 'localhost', 'ns1', 'ns2',
     'smtp', 'pop', 'imap', 'blog', 'dev', 'staging', 'test',
@@ -17,7 +17,7 @@ const RESERVED_SUBDOMAINS = new Set([
  * Driver exposing the `puter-subdomains` interface.
  *
  * Wraps SubdomainStore with validation + permission checks.
- * Methods match v1's `crud-q` shape: create, read, select, update,
+ * Methods follow the `crud-q` shape: create, read, select, update,
  * upsert, delete.
  *
  * Permission model:

@@ -32,7 +32,7 @@ interface CompiledTemplate {
     html: ReturnType<typeof template>;
 }
 
-// ── Clean-email rules (was CleanEmailService) ────────────────────────
+// ── Clean-email rules ────────────────────────────────────────────────
 
 type CleanRule = (parts: { local: string; domain: string }) => {
     local: string;
@@ -80,8 +80,6 @@ const DOMAIN_ALIASES: Record<string, string> = {
  *   - Raw nodemailer passthrough (via `sendRaw`)
  *   - Canonical-form normalization for dedup (via `clean`)
  *   - Policy + extensible validation (via `validate`)
- *
- * Replaces v1 EmailService + CleanEmailService.
  */
 export class EmailClient extends PuterClient {
 

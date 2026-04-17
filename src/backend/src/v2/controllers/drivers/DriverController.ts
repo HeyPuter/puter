@@ -19,8 +19,7 @@ type DriverInstance = WithLifecycle & Record<string, unknown>;
 // originating window.
 //
 // Wire-shape note: the postMessage uses `params` (puter-js's historical
-// name) but `/drivers/call` expects `args`. v1's JSON path forwarded
-// `params` verbatim and so silently failed; this port translates.
+// name) but `/drivers/call` expects `args`; this bridge translates.
 
 const XD_SCRIPT = /* js */ `
 (function () {

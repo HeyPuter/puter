@@ -128,8 +128,6 @@ extension.on('thumbnail.read', async (entry: Record<string, unknown>) => {
         );
     } else if ( thumb.startsWith('data') ) {
         // Inline data-URL migration: upload to S3 and update the DB entry.
-        // Uses a direct DB write since the v1 FSNodeContext provider isn't
-        // available in v2.
         const key = crypto.randomUUID();
         const { mimeType, data } = base64ParseDataUrl(thumb);
         const newUrl = `s3://${thumbnailBucketName}/${key}`;

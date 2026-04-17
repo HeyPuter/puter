@@ -11,9 +11,9 @@ import { signFile, type SigningConfig, type SignedFile } from '../../util/fileSi
 import type { IConfig } from '../../types.js';
 
 /**
- * Shared helpers used by the v1 legacy FS route shims (LegacyFSController).
+ * Shared helpers used by the legacy FS route shims (LegacyFSController).
  *
- * All v1 clients speak snake_case and expect specific response shapes —
+ * Legacy clients speak snake_case and expect specific response shapes —
  * these helpers encapsulate that translation so the route handlers stay
  * terse.
  */
@@ -51,8 +51,8 @@ export function getBoolean (record: Record<string, unknown>, ...keys: string[]):
 }
 
 // Accepts either `{ path }` or `{ uid }` or `{ id }` or `{ parent, name }`
-// from a v1 body field. Returns a resolved entry (throwing 404 if not found
-// or 400 if no usable ref is present).
+// from a legacy body field. Returns a resolved entry (throwing 404 if not
+// found or 400 if no usable ref is present).
 export async function resolveV1Selector (
     fsEntryStore: FSEntryStore,
     raw: unknown,
@@ -67,7 +67,7 @@ export async function resolveV1Selector (
 
     const record = asRecord(raw);
 
-    // {parent, name}: v1 "child selector" — resolve parent, then child by name.
+    // {parent, name}: "child selector" — resolve parent, then child by name.
     if ( record.parent !== undefined && typeof record.name === 'string' ) {
         const parent = await resolveV1Selector(fsEntryStore, record.parent, userId);
         const childPath = joinChildPath(parent.path, record.name);
@@ -123,9 +123,9 @@ export async function assertAccess (
 // ── Response shaping ────────────────────────────────────────────────
 
 /**
- * Produce the snake_case entry shape v1 clients expect. If `thumbnail` is
- * set, asks the thumbnail extension (via `thumbnail.read` event) to swap an
- * S3 URL for a signed one, matching legacy behaviour.
+ * Produce the snake_case entry shape legacy clients expect. If `thumbnail`
+ * is set, asks the thumbnail extension (via `thumbnail.read` event) to swap
+ * an S3 URL for a signed one.
  */
 export async function toLegacyEntry (eventClient: EventClient | undefined, entry: FSEntry): Promise<Record<string, unknown>> {
     const dirname = pathPosix.dirname(entry.path);
@@ -196,8 +196,7 @@ export function signingConfigFromAppConfig (config: IConfig): SigningConfig {
 }
 
 /**
- * Convenience wrapper: turn an FSEntry into a signed-file response object,
- * matching v1 `sign_file`'s shape.
+ * Convenience wrapper: turn an FSEntry into a signed-file response object.
  */
 export function signEntry (entry: { uuid: string; name: string; isDir: boolean; size: number | null; accessed: number | null; modified: number; created: number | null }, config: SigningConfig): SignedFile {
     return signFile(entry as Parameters<typeof signFile>[0], config);

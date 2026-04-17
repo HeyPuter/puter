@@ -17,11 +17,10 @@ type FolderName = typeof DEFAULT_FOLDERS[number];
  * Callers should check `user.trash_uuid` / similar up-front if they need
  * idempotency.
  *
- * Deviates from v1 in one place: v1 inferred folder IDs by adding offsets
- * to `INSERT … VALUES (…), (…), …`'s single `insertId` return. That's
- * engine-dependent (MySQL returns the first inserted id; SQLite returns
- * the last) and historically off-by-one in v1. We re-SELECT by UUID
- * instead — one extra round-trip, zero ambiguity.
+ * Folder IDs are resolved by re-SELECTing by UUID rather than inferring them
+ * from a multi-row `INSERT`'s single `insertId` return — that approach is
+ * engine-dependent (MySQL returns the first inserted id; SQLite returns the
+ * last). One extra round-trip, zero ambiguity.
  */
 export async function generateDefaultFsentries (
     db: DatabaseClient,

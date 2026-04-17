@@ -10,7 +10,6 @@ import { loadFileInput } from '../util/fileInput.js';
  * Driver implementing `puter-speech2txt`. Wraps OpenAI's audio API
  * (Whisper + GPT-4o transcribe models) for transcription and translation.
  *
- * Request shapes match v1 so existing puter-js clients transparently work;
  * `file` may be a path, uid/uuid ref, or data URL.
  */
 

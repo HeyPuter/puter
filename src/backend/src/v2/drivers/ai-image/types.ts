@@ -1,7 +1,5 @@
 /**
  * Types for the `puter-image-generation` driver interface.
- *
- * Ported from v1 — no BaseService or TypedValue dependency.
  */
 
 export interface IImageModel {

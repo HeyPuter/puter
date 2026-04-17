@@ -20,11 +20,7 @@
 import mime from 'mime-types';
 import { OpenAI } from 'openai';
 import { ChatCompletionCreateParams } from 'openai/resources/index.js';
-// TODO: file upload functionality — FSNodeParam, LLRead, stream_to_buffer
-// Previously imported from v1:
-//   import { FSNodeParam } from '../../../../../api/filesystem/FSNodeParam.js';
-//   import { LLRead } from '../../../../../deprecated/filesystem/ll_operations/ll_read.js';
-//   import { stream_to_buffer } from '../../../../../util/streamutil.js';
+// TODO: file upload functionality.
 import { Context } from '../../../../core/context.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import * as OpenAiUtil from '../../utils/OpenAIUtil.js';

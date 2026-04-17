@@ -22,8 +22,7 @@ interface ErrorHandlerOptions {
  * Express 5 forwards thrown errors (sync and async) here automatically, so
  * controllers and gate middlewares can simply `throw new HttpError(...)`.
  *
- * Response shape mirrors v1's `extensionController` and `api_error_handler`
- * for wire-compat with existing clients:
+ * Response shape is kept for wire-compat with existing clients:
  * ```json
  * {
  *   "error": "<message>",

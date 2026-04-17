@@ -4,7 +4,6 @@ import { encode } from 'hi-base32';
 
 /**
  * Standalone OTP utilities — no service class, just functions.
- * Ported from v1's OTPService but without the BaseService dependency.
  */
 
 export function createSecret (label) {

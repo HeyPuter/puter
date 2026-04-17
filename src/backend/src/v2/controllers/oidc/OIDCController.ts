@@ -51,8 +51,6 @@ function appendQueryParam (url: string, key: string, value: string): string {
 /**
  * OIDC controller — provider listing, auth start, callbacks for
  * login/signup/revalidate, and revalidate-done landing page.
- *
- * All routes live under bare paths (no prefix) to match v1 URL shapes.
  */
 export class OIDCController extends PuterController {
 

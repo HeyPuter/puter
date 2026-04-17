@@ -18,10 +18,10 @@ interface AuthProbeOptions {
  *
  * Key property: this middleware **never rejects**. Missing tokens, malformed
  * tokens, expired tokens, tokens pointing at deleted users — all result in
- * `req.actor` being left undefined. Per-route gates (to land with the auth
- * options expansion) decide whether absence is acceptable.
+ * `req.actor` being left undefined. Per-route gates decide whether absence
+ * is acceptable.
  *
- * Token lookup order matches v1's `configurable_auth`:
+ * Token lookup order:
  *   1. `req.body.auth_token`
  *   2. `Authorization: Bearer <token>` header
  *   3. `x-api-key` header — third-party SDK convention (Anthropic etc.)
@@ -58,8 +58,8 @@ export const createAuthProbe = (opts: AuthProbeOptions): RequestHandler => {
 };
 
 /**
- * Token extraction logic. Mirrors v1 `configurable_auth.js:59-96` so request
- * sources that work today keep working on v2.
+ * Token extraction logic covering the request sources clients use to
+ * authenticate.
  */
 const extractToken = (req: Request, cookieName?: string): string | null => {
     // 1. Body (`{ "auth_token": "..." }`)
@@ -83,9 +83,8 @@ const extractToken = (req: Request, cookieName?: string): string | null => {
     }
 
     // 3. `x-api-key` header — some third-party SDKs (Anthropic's in
-    // particular) send their API key in this header. v1 translated it
-    // to Authorization per-route; we accept it globally so every route
-    // gated on auth works uniformly for those clients.
+    // particular) send their API key in this header. Accepted globally
+    // so every route gated on auth works uniformly for those clients.
     const xApiKey = typeof req.header === 'function' ? req.header('x-api-key') : undefined;
     if ( typeof xApiKey === 'string' && xApiKey.length > 0 ) {
         return stripBearer(xApiKey);

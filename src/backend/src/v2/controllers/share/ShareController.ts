@@ -256,7 +256,7 @@ export class ShareController extends PuterController {
 
     /**
      * Convert share declarations into a flat permission list.
-     * v1 supports `fs-share` ({ path, access }) and `app-share` ({ uid, name }).
+     * Supports `fs-share` ({ path, access }) and `app-share` ({ uid, name }).
      */
     #resolvePermissions (shares: unknown[]): Array<{ permission: string; extra?: Record<string, unknown> }> {
         const perms: Array<{ permission: string; extra?: Record<string, unknown> }> = [];

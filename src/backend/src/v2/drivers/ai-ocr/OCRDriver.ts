@@ -10,8 +10,6 @@ import { Actor } from '../../core/actor.js';
  * Driver implementing `puter-ocr` — document OCR. Two providers:
  *   • `aws-textract`  — AWS Textract (region-aware clients; direct S3 source when available)
  *   • `mistral`       — Mistral OCR (URL/data-URL based)
- *
- * Request contract matches v1 so existing puter-js clients transparently work.
  */
 interface RecognizeArgs {
     source?: unknown;

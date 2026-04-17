@@ -76,10 +76,6 @@ interface AuthenticatedSocket extends Socket {
  *
  * Cross-node fan-out comes free via `@socket.io/redis-streams-adapter`:
  * `send()` on any node reaches every socket for that room cluster-wide.
- *
- * Shape mirrors v1's `SocketioService` + `WSPushService`, collapsed into
- * one file because v2's FS controllers already emit shaped payloads —
- * v1's heavy `node.getSafeEntry()` transformations aren't needed.
  */
 export class SocketService extends PuterService {
     #io: SocketIOServer | null = null;
@@ -105,8 +101,8 @@ export class SocketService extends PuterService {
 
         this.#io = new SocketIOServer(server, {
             cors: {
-                // Reflect whatever origin the client sent back — same as
-                // v1. credentials:true means clients can send cookies.
+                // Reflect whatever origin the client sent back.
+                // credentials:true means clients can send cookies.
                 origin: (origin, callback) => callback(null, origin ?? '*'),
                 credentials: true,
             },
@@ -247,8 +243,7 @@ export class SocketService extends PuterService {
                     next(new Error('socket auth failed'));
                     return;
                 }
-                // v1 rejected anything other than UserActorType. We
-                // mirror that: no app-under-user, no access-token.
+                // Only user tokens accepted — no app-under-user, no access-token.
                 if ( isAppActor(actor) || isAccessTokenActor(actor) ) {
                     next(new Error('socket auth: only user tokens accepted'));
                     return;
@@ -312,7 +307,7 @@ export class SocketService extends PuterService {
         });
 
         // Upload progress — each tracker fires `.sub()` callbacks as
-        // bytes flow. Matches v1 WSPushService._on_upload_progress.
+        // bytes flow.
         this.clients.event.on('fs.storage.upload-progress', (_key: string, data: unknown) => {
             this.#handleUploadProgress(data as UploadProgressPayload);
         });
@@ -332,9 +327,8 @@ export class SocketService extends PuterService {
 
         const fanout = userIds.map(async (userId) => {
             await this.send({ room: userId }, wireName, data.response);
-            // Post-send hook: v1 WSPushService fired `sent-to-user.<wireName>`
-            // so listeners (e.g. NotificationService marking notif delivery)
-            // can react after each per-user fan-out.
+            // Post-send hook: listeners (e.g. NotificationService marking notif
+            // delivery) can react after each per-user fan-out.
             this.clients.event.emit(`sent-to-user.${wireName}`, {
                 user_id: userId,
                 response: data.response,
@@ -342,10 +336,9 @@ export class SocketService extends PuterService {
             if ( isMutation ) {
                 const timestamp = Date.now();
                 await this.#bumpLastChange(userId, timestamp);
-                // v1 WSPushService._update_user_ts also pushed `cache.updated`
-                // as a wire event so connected tabs invalidate their FS
-                // cache immediately (originator filters by
-                // `original_client_socket_id` to avoid self-refetch).
+                // Push `cache.updated` as a wire event so connected tabs
+                // invalidate their FS cache immediately (originator filters
+                // by `original_client_socket_id` to avoid self-refetch).
                 // Without this, other tabs only learn about the change on
                 // their next poll of /cache/last-change-timestamp.
                 const originalSocketId = (data.response as { original_client_socket_id?: string } | undefined)

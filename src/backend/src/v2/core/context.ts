@@ -4,10 +4,9 @@ import type { Actor } from './actor';
 
 /**
  * Per-request context with both typed well-known fields AND an open-ended
- * key-value map for ad-hoc data. Matches v1's `Context` dual nature: common
- * fields (`actor`, `req`) are typed for autocomplete / safety, while the
- * generic `get`/`set` bag lets any code stash per-request values without
- * threading them through function arguments.
+ * key-value map for ad-hoc data. Common fields (`actor`, `req`) are typed for
+ * autocomplete / safety, while the generic `get`/`set` bag lets any code
+ * stash per-request values without threading them through function arguments.
  *
  * Backed by Node's `AsyncLocalStorage`, so the context propagates through
  * async/await, timers, and microtasks automatically. The middleware
@@ -48,11 +47,10 @@ interface ContextStore {
 
 const als = new AsyncLocalStorage<ContextStore>();
 
-// ── Public API: static-method style matching v1's Context ───────────
+// ── Public API ──────────────────────────────────────────────────────
 
 /**
- * Static-style context accessor. Matches v1's `Context.get(key)` /
- * `Context.set(key, value)` so migration is straightforward.
+ * Static-style context accessor.
  *
  * Well-known keys (`actor`, `req`, `requestId`) return typed values.
  * Any other string key hits the generic map and returns `unknown`.
@@ -65,7 +63,7 @@ export class Context {
      * return `unknown`. Returns `undefined` when called outside a
      * request scope or when the key hasn't been set.
      */
-    /** Get the entire context store (no-arg form, like v1's `Context.get()`). */
+    /** Get the entire context store (no-arg form). */
     static get (): ContextStore | undefined;
     static get<K extends keyof KnownContextFields> (key: K): KnownContextFields[K] | undefined;
     static get (key: string): unknown;

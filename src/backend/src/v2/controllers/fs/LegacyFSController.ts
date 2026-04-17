@@ -20,24 +20,18 @@ import { verifySignature } from '../../util/fileSigning.js';
 import type { SignedFile } from '../../util/fileSigning.js';
 
 /**
- * Legacy v1 FS routes, re-implemented as thin shims over v2 `FSEntryService`.
+ * Legacy FS routes, implemented as thin shims over `FSEntryService`.
  *
- * Each shim parses the v1 request shape (FSNodeParam-style `{ path, uid, id }`
- * or `{ parent, name }`), invokes the v2 service method, and returns the
- * snake_case response v1 clients expect. No v1 runtime context required.
+ * Each shim parses the request shape (FSNodeParam-style `{ path, uid, id }`
+ * or `{ parent, name }`), invokes the service method, and returns the
+ * snake_case response clients expect.
  *
- * Some auxiliary routes (writeFile, open_item, itemMetadata, down, file,
- * sign, suggest_apps, df, set_layout, set_sort_by) still load from v1 via
- * dynamic import — they'll be migrated in follow-up work.
+ * `suggest_apps` returns an empty array until a SuggestedAppsService is
+ * written.
  */
-
-// ── Auxiliary routes still delegated to v1 via dynamic import ──────────
 
 type RouterCache = Map<string, RequestHandler | null>;
 
-// All v1 FS routes now have v2 replacements. `suggest_apps` returns an
-// empty array until a v2 SuggestedAppsService is written (tracked in the
-// post-FS-migration audit).
 const additionalRoutePaths: Record<string, string> = {};
 
 async function loadAdditionalRouter (key: string): Promise<RequestHandler | null> {
@@ -60,7 +54,7 @@ export class LegacyFSController extends PuterController {
     registerRoutes (router: PuterRouter): void {
         const apiOptions = { subdomain: 'api', requireVerified: true } as const;
 
-        // Core v1 filesystem_api routes — direct handlers over v2 service.
+        // Core filesystem_api routes — direct handlers over the FS service.
         router.post('/stat', apiOptions, this.stat);
         router.post('/readdir', apiOptions, this.readdir);
         router.post('/mkdir', apiOptions, this.mkdir);
@@ -86,8 +80,7 @@ export class LegacyFSController extends PuterController {
 
         // Redirect /down → /file?download=true to consolidate download paths.
         router.post('/down', apiOptions, this.redirectToFile);
-        // /itemMetadata was buggy in v1 (MIME from undefined field) and not
-        // called by puter-js. Return 410 Gone rather than resurrecting the bug.
+        // /itemMetadata is deprecated; not called by puter-js. Return 410 Gone.
         router.get('/itemMetadata', apiOptions, (_req, res) => {
             res.status(410).json({ error: 'itemMetadata is deprecated; use /fs/stat' });
         });
@@ -198,10 +191,6 @@ export class LegacyFSController extends PuterController {
             res.json({ thumbnail: event.url });
         });
 
-        // `/video/proxy` lives on PuterAIController as `/puterai/video/proxy`
-        // — matches what v1 GeminiVideoGenerationProvider built URLs against.
-
-        // Remaining v1 routes still delegated to legacy modules.
         for ( const key of Object.keys(additionalRoutePaths) ) {
             router.use(this.#createLazyHandler(key, this.#additionalCache, loadAdditionalRouter));
         }
@@ -223,7 +212,7 @@ export class LegacyFSController extends PuterController {
 
         const shaped = await toLegacyEntry(this.clients.event, entry);
 
-        // Optional hydrations matching v1 HLStat:
+        // Optional hydrations:
         if ( entry.isDir && getBoolean(body, 'return_size') ) {
             shaped.size = await this.services.fsEntry.getSubtreeSize(userId, entry.path);
         }
@@ -267,7 +256,7 @@ export class LegacyFSController extends PuterController {
         const rawPath = getString(body, 'path');
         if ( ! rawPath ) throw new HttpError(400, '`path` is required');
 
-        // v1 supports `{ parent, path }` where `path` is a relative suffix.
+        // Supports `{ parent, path }` where `path` is a relative suffix.
         let targetPath = rawPath;
         if ( body.parent !== undefined && !rawPath.startsWith('/') ) {
             const parent = await resolveV1Selector(this.stores.fsEntry, body.parent, userId);
@@ -314,7 +303,7 @@ export class LegacyFSController extends PuterController {
         });
         this.#emitGuiEvent('outer.gui.item.added', copy);
 
-        // v1 /copy returns an array (historically supported bulk copies).
+        // /copy returns an array (historically supported bulk copies).
         res.json([await toLegacyEntry(this.clients.event, copy)]);
     };
 
@@ -346,7 +335,7 @@ export class LegacyFSController extends PuterController {
         const userId = this.#getActorUserId(req);
         const body = asRecord(req.body);
 
-        // v1 /delete can take `paths: []` for bulk delete, or a single selector.
+        // /delete can take `paths: []` for bulk delete, or a single selector.
         const pathsArray = Array.isArray(body.paths) ? body.paths : null;
         if ( pathsArray ) {
             const removedEntries: unknown[] = [];
@@ -413,7 +402,7 @@ export class LegacyFSController extends PuterController {
             setCreated: getBoolean(body, 'set_created_to_now') ?? false,
             createMissingParents: getBoolean(body, 'create_missing_parents') ?? false,
         });
-        // v1 /touch historically returns an empty body.
+        // /touch historically returns an empty body.
         res.send('');
     };
 
@@ -452,7 +441,7 @@ export class LegacyFSController extends PuterController {
         res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(entry.name)}"`);
         res.status(range ? 206 : 200);
 
-        // Best-effort egress metering, matching v1 LLRead behaviour.
+        // Best-effort egress metering.
         const metering = this.services.metering as {
             batchIncrementUsages?: (actor: unknown, entries: unknown[]) => void;
         } | undefined;
@@ -478,9 +467,9 @@ export class LegacyFSController extends PuterController {
 
     /**
      * POST /sign
-     * Body: `{ items: [{ uid?, path?, action }], app_uid? }`. Returns v1-shape
+     * Body: `{ items: [{ uid?, path?, action }], app_uid? }`. Returns
      * `{ signatures: [...], token? }`. Apps may only sign files under their
-     * own AppData subtree (matches v1).
+     * own AppData subtree.
      */
     sign = async (req: Request, res: Response): Promise<void> => {
         const actor = this.#requireActor(req);
@@ -504,7 +493,7 @@ export class LegacyFSController extends PuterController {
         type SignedOrEmpty = SignedFile & { path?: string } | Record<string, never>;
         const result: { signatures: SignedOrEmpty[]; token?: string } = { signatures: [] };
 
-        // Optional app grant (v1: provide app_uid to grant permissions + token).
+        // Optional app grant: provide app_uid to grant permissions + token.
         let grantApp: { uid: string } | null = null;
         if ( typeof body.app_uid === 'string' && body.app_uid.length > 0 ) {
             const app = await this.stores.app.getByUid(body.app_uid);
@@ -558,7 +547,7 @@ export class LegacyFSController extends PuterController {
                 const signed = signEntry(entry, signingCfg);
                 result.signatures.push({ ...signed, path: entry.path });
             } catch {
-                // v1 silently skips unresolvable items.
+                // Silently skip unresolvable items.
                 result.signatures.push({});
             }
         }
@@ -634,9 +623,8 @@ export class LegacyFSController extends PuterController {
             return;
         }
         if ( operation === 'delete' || operation === 'trash' ) {
-            // Trash is just a "move to /Trash" in v1. For v2 we treat trash ==
-            // delete (recursive). If a trash folder becomes important we can
-            // revisit — most clients just call delete directly.
+            // Treat trash == delete (recursive). Most clients just call delete
+            // directly; if a trash folder becomes important we can revisit.
             await this.services.fsEntry.remove(userId, { entry: targetEntry, recursive: true });
             this.#emitGuiEvent('outer.gui.item.removed', targetEntry);
             res.json({ ok: true, uid: targetEntry.uuid });
@@ -695,7 +683,7 @@ export class LegacyFSController extends PuterController {
             return;
         }
 
-        // File: stream bytes. Range supported.
+        // File: stream bytes with Range support.
         const range = typeof req.headers.range === 'string' ? req.headers.range : undefined;
         const download = await this.services.fsEntry.readContent(entry, { range });
         const wantsAttachment = query.download === 'true' || query.download === '1' || query.download === true;
@@ -730,8 +718,8 @@ export class LegacyFSController extends PuterController {
 
     /**
      * POST /open_item — resolve an entry and return a signed URL + token for
-     * an app to open the file. Since v2 does not yet have a suggested-apps
-     * service, `suggested_apps` is returned as `[]`.
+     * an app to open the file. `suggested_apps` is returned as `[]` until a
+     * suggested-apps service exists.
      */
     openItem = async (req: Request, res: Response): Promise<void> => {
         const actor = this.#requireActor(req);
@@ -746,7 +734,7 @@ export class LegacyFSController extends PuterController {
         res.json({
             signature,
             token: null,
-            suggested_apps: [], // suggested-apps service not yet ported; clients usually fall back gracefully
+            suggested_apps: [], // no suggested-apps service yet; clients fall back gracefully
         });
     };
 
@@ -769,7 +757,7 @@ export class LegacyFSController extends PuterController {
         if ( ! username ) throw new HttpError(401, 'Unauthorized');
 
         const rootPath = `/${username}/AppData/${appUid}`;
-        // Auto-create the AppData/<uid> tree on first call (matches v1 behaviour).
+        // Auto-create the AppData/<uid> tree on first call.
         const entry = await this.services.fsEntry.mkdir(userId, {
             path: rootPath,
             createMissingParents: true,
@@ -915,10 +903,10 @@ export class LegacyFSController extends PuterController {
 
     // ── Batch route ─────────────────────────────────────────────────────
     //
-    // v1 `/batch` used busboy to interleave multipart JSON operations with
+    // `/batch` uses busboy to interleave multipart JSON operations with
     // optional file uploads. In puter-js the only op-types that actually
     // flow through batch are `move`, `delete`, and `symlink` — none of which
-    // need a file body — so this shim is pure JSON-field parsing.
+    // need a file body — so this handler is pure JSON-field parsing.
     //
     // The wire shape (multipart/form-data) is preserved for client
     // compatibility. Unknown op-types are rejected per-op.
@@ -929,8 +917,9 @@ export class LegacyFSController extends PuterController {
         const actor = req.actor!;
         const contentType = typeof req.headers['content-type'] === 'string' ? req.headers['content-type'] : '';
 
-        // Parse the request. We support both multipart/form-data (the v1
-        // client shape) and JSON bodies (handy for ad-hoc callers / tests).
+        // Parse the request. We support both multipart/form-data (the
+        // canonical client shape) and JSON bodies (handy for ad-hoc
+        // callers / tests).
         const operationSpecs = contentType.includes('multipart/form-data')
             ? await this.#parseMultipartBatch(req)
             : this.#parseJsonBatch(req);
@@ -1107,9 +1096,7 @@ export class LegacyFSController extends PuterController {
         return [];
     }
 
-    // Reserved: once every legacy auxiliary route is ported, remove
-    // `#createLazyHandler` entirely. Kept for now in case a future port
-    // needs the escape hatch.
+    // Reserved escape hatch for lazy-loading auxiliary route handlers.
     #createLazyHandler (
         key: string,
         cache: RouterCache,

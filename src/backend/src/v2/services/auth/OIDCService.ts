@@ -29,10 +29,10 @@ interface OIDCUserInfo {
 }
 
 /**
- * OIDC/OAuth2 service for v2 — sign-in with Google (extensible to other providers).
+ * OIDC/OAuth2 service — sign-in with Google (extensible to other providers).
  *
- * Port of v1's OIDCService. Delegates to TokenService for JWT state signing,
- * AuthService for session creation, UserStore for user creation.
+ * Delegates to TokenService for JWT state signing, AuthService for session
+ * creation, UserStore for user creation.
  *
  * Config shape: `config.oidc.providers.<providerId>.{ client_id, client_secret, ... }`
  */

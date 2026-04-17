@@ -66,16 +66,17 @@ export class S3Client extends PuterClient {
             console.log('[s3] configured with remote endpoint');
         } else {
             // Local dev: spin up fauxqs in-process
-            const forceInMem = s3Conf && 'localConfig' in s3Conf && s3Conf.localConfig?.inMemory;
-            const fauxqsHost = forceInMem ? '127.0.0.1' : s3Conf?.localConfig?.host;
+            const localConfig = s3Conf && 'localConfig' in s3Conf ? s3Conf.localConfig : undefined;
+            const forceInMem = localConfig?.inMemory;
+            const fauxqsHost = forceInMem ? '127.0.0.1' : localConfig?.host;
 
             const { startFauxqs } = await import('fauxqs');
             this.fauxqsServer = await startFauxqs({
                 host: fauxqsHost,
-                port: forceInMem ? 0 : 4566,
+                port: forceInMem ? 0 : (localConfig?.port ?? 4566),
                 logger: false,
-                dataDir:      forceInMem ? undefined : './fauxqs-data',
-                s3StorageDir: forceInMem ? undefined : './fauxqs-s3-data',
+                dataDir: forceInMem ? undefined : (localConfig?.dataDir ?? './fauxqs-data'),
+                s3StorageDir: forceInMem ? undefined : (localConfig?.s3StorageDir ?? './fauxqs-s3-data'),
                 init: { region: 'us-west-2', buckets: [LEGACY_STORAGE_BUCKET] },
             });
 
@@ -87,7 +88,7 @@ export class S3Client extends PuterClient {
             console.log(`[s3] started local fauxqs at ${this.fauxqsServer.address}`);
 
             // Migrate files from legacy local storage directory if present
-            if ( !forceInMem ) {
+            if ( ! forceInMem ) {
                 const result = await this.migrateLegacyStorage();
                 if ( result.migratedFileCount > 0 ) {
                     console.log(`[s3] migrated ${result.migratedFileCount} file(s) from legacy storage`);
@@ -148,7 +149,7 @@ export class S3Client extends PuterClient {
         const bucket = opts.bucket ?? LEGACY_STORAGE_BUCKET;
         const legacyPath = opts.legacyPath ?? path.join(process.cwd(), 'storage');
 
-        if ( !existsSync(legacyPath) ) {
+        if ( ! existsSync(legacyPath) ) {
             return { migratedFileCount: 0, scannedEntryCount: 0 };
         }
 
@@ -159,7 +160,7 @@ export class S3Client extends PuterClient {
         for ( const entryName of entries ) {
             const filePath = path.join(legacyPath, entryName);
             const stat = await fs.stat(filePath);
-            if ( !stat.isFile() ) continue;
+            if ( ! stat.isFile() ) continue;
 
             if ( stat.size > this.maxSingleUploadSize ) {
                 await this.uploadMultipart({ bucket, client, filePath, fileSize: stat.size, key: entryName });
@@ -184,7 +185,7 @@ export class S3Client extends PuterClient {
         const { UploadId } = await client.send(
             new CreateMultipartUploadCommand({ Bucket: bucket, Key: key }),
         );
-        if ( !UploadId ) throw new Error(`Failed to start multipart upload for ${filePath}`);
+        if ( ! UploadId ) throw new Error(`Failed to start multipart upload for ${filePath}`);
 
         const uploadedParts: { ETag: string; PartNumber: number }[] = [];
         const fileHandle = await fs.open(filePath, 'r');
@@ -201,11 +202,15 @@ export class S3Client extends PuterClient {
 
                 const body = bytesRead === partBuffer.length ? partBuffer : partBuffer.subarray(0, bytesRead);
                 const { ETag } = await client.send(new UploadPartCommand({
-                    Bucket: bucket, ContentLength: bytesRead, Key: key,
-                    PartNumber: partNumber, UploadId, Body: body,
+                    Bucket: bucket,
+                    ContentLength: bytesRead,
+                    Key: key,
+                    PartNumber: partNumber,
+                    UploadId,
+                    Body: body,
                 }));
 
-                if ( !ETag ) throw new Error(`No ETag for ${filePath} part ${partNumber}`);
+                if ( ! ETag ) throw new Error(`No ETag for ${filePath} part ${partNumber}`);
                 uploadedParts.push({ ETag, PartNumber: partNumber });
 
                 offset += bytesRead;
@@ -213,11 +218,14 @@ export class S3Client extends PuterClient {
             }
 
             await client.send(new CompleteMultipartUploadCommand({
-                Bucket: bucket, Key: key, UploadId,
+                Bucket: bucket,
+                Key: key,
+                UploadId,
                 MultipartUpload: { Parts: uploadedParts },
             }));
         } catch ( error ) {
-            await client.send(new AbortMultipartUploadCommand({ Bucket: bucket, Key: key, UploadId })).catch(() => {});
+            await client.send(new AbortMultipartUploadCommand({ Bucket: bucket, Key: key, UploadId })).catch(() => {
+            });
             throw error;
         } finally {
             await fileHandle.close();

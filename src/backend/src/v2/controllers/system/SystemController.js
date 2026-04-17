@@ -98,9 +98,7 @@ export class SystemController extends PuterController {
         });
 
         // ── GET /lsmod ──────────────────────────────────────────────
-        // Enumerates driver interfaces and their implementors. v1 also
-        // exposed service traits; v2 doesn't carry a trait system, so the
-        // payload is driver-only.
+        // Enumerates driver interfaces and their implementors.
 
         router.get('/lsmod', { subdomain: 'api', requireAuth: true }, (_req, res) => {
             const interfaces = {};

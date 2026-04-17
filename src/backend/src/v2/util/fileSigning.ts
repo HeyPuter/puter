@@ -3,12 +3,11 @@ import { HttpError } from '../core/http/HttpError.js';
 import type { FSEntry } from '../stores/fs/FSEntry.js';
 
 /**
- * HMAC-like file URL signing. Compatible with the v1 `sign_file` /
- * `validate_signature_auth` contract so legacy clients keep working.
+ * HMAC-like file URL signing. The on-wire contract is fixed by existing
+ * clients.
  *
  * Signature scheme: `sha256(<uid>/<action>/<secret>/<expires>)`. A `write`
- * signature is treated as a superset (it also satisfies `read`), matching
- * v1 behaviour.
+ * signature is treated as a superset (it also satisfies `read`).
  */
 
 export type SignAction = 'read' | 'write';
@@ -44,10 +43,10 @@ function computeSignature (uid: string, action: SignAction, secret: string, expi
 }
 
 /**
- * Produce a signed-URL object in the v1 `sign_file` shape. The `expires`
- * timestamp mirrors v1 which used a ~317k-year TTL (effectively permanent).
- * We keep the same default so existing client code stays compatible; callers
- * that want shorter-lived signatures can pass their own `ttlSeconds`.
+ * Produce a signed-URL object. The default `expires` timestamp uses a
+ * ~317k-year TTL (effectively permanent) — existing clients depend on that
+ * default; callers that want shorter-lived signatures can pass their own
+ * `ttlSeconds`.
  */
 export function signFile (
     entry: FSEntry,
@@ -102,7 +101,7 @@ export function verifySignature (
         throw new HttpError(403, 'Authentication failed. Signature expired.');
     }
 
-    // Write signature satisfies any action (matches v1 behaviour).
+    // Write signature satisfies any action.
     if ( signature === computeSignature(uid, 'write', config.secret, expires) ) return;
     if ( signature === computeSignature(uid, action, config.secret, expires) ) return;
 
@@ -127,9 +126,9 @@ export function isSignatureValid (
     }
 }
 
-// Minimal MIME type inference from file extension. Mirrors v1's `mime.contentType()`
-// fallback behaviour but uses a small inline map to avoid pulling in `mime-types`.
-// Callers that need complete coverage should import `mime-types` directly.
+// Minimal MIME type inference from file extension. Uses a small inline map
+// to avoid pulling in `mime-types`. Callers that need complete coverage
+// should import `mime-types` directly.
 const MIME_BY_EXT: Record<string, string> = {
     txt: 'text/plain',
     html: 'text/html',

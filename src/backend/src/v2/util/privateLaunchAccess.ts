@@ -1,9 +1,8 @@
 import type { EventClient } from '../clients/EventClient';
 
 /**
- * Ported from v1 `modules/apps/privateLaunchAccess.js`. Emits
- * `app.privateAccess.resolveLaunch` so the marketplace extension can decide
- * whether a private app may launch for the current actor; returns the
+ * Emits `app.privateAccess.resolveLaunch` so the marketplace extension can
+ * decide whether a private app may launch for the current actor; returns the
  * normalised decision with a fallback to `app-center` on denial.
  *
  * Public apps short-circuit to `hasAccess: true` without an emit.

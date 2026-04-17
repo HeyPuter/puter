@@ -21,16 +21,15 @@ const GEMINI_DOWNLOAD_BASE = 'https://generativelanguage.googleapis.com/download
  * ChatCompletionDriver, and translate the result (or NDJSON stream) back
  * into the vendor's response / SSE shape.
  *
- * All routes live on `subdomain: 'api'` and reject app-under-user actors
- * (matching v1 — only user actors may proxy).
+ * All routes live on `subdomain: 'api'` and reject app-under-user actors —
+ * only user actors may proxy.
  */
 export class PuterAIController extends PuterController {
     registerRoutes (router: PuterRouter): void {
         const apiOpts = { subdomain: 'api', requireAuth: true } as const;
 
-        // v1 mounted this controller's router at `/puterai`, so every
-        // route below carries that prefix for wire compatibility with
-        // puter-js + existing API tests.
+        // Every route below carries the `/puterai` prefix for wire
+        // compatibility with puter-js and existing API tests.
         router.post('/puterai/openai/v1/chat/completions', apiOpts, this.openaiChatCompletions);
         router.post('/puterai/openai/v1/completions', apiOpts, this.openaiCompletions);
         router.post('/puterai/openai/v1/responses', apiOpts, this.openaiResponses);
@@ -632,7 +631,7 @@ export class PuterAIController extends PuterController {
     }
 
     #rejectAppActor (req: Request): void {
-        // Matches v1: proxy routes are user-only; apps must call puter-chat-completion directly.
+        // Proxy routes are user-only; apps must call puter-chat-completion directly.
         if ( isAppActor(req.actor) ) {
             throw new HttpError(403, 'App actors may not proxy to upstream AI APIs');
         }
@@ -681,8 +680,7 @@ const expectStream = (result: IChatCompleteResult): { stream: NodeJS.ReadableStr
  * The chat driver's stream emits one JSON object per line
  * (`{type: 'text', text}` / `{type: 'tool_use', ...}` / `{type: 'usage', ...}`).
  * This helper consumes the stream line-by-line and hands parsed events to
- * the caller's reducer. Matches v1's decoding loop so the per-route
- * translators can stay shape-focused.
+ * the caller's reducer, so the per-route translators can stay shape-focused.
  */
 interface NdjsonPipeOptions {
     onEnd: () => void;

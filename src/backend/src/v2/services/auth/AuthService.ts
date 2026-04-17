@@ -15,17 +15,12 @@ import type {
 const APP_ORIGIN_UUID_NAMESPACE = '33de3768-8ee0-43e9-9e73-db192b97a5d8';
 
 /**
- * Authentication service for v2.
+ * Authentication service.
  *
- * Scope is deliberately narrow at this stage — just `authenticateFromToken`,
- * the one method the auth-probe middleware needs. Session creation, logout,
- * token rotation, 2FA, and the rest of v1's sprawling AuthService will land
- * when we port the auth controller (which will own mint / rotate / revoke).
- *
- * Token verification is wire-compatible with v1: same JWT secret, same
- * compression tables, same FPE key for session-uuid obfuscation in
- * app-under-user tokens. That means a v1-minted token authenticates on v2
- * during the transition.
+ * Scope is currently narrow — just `authenticateFromToken`, the one method
+ * the auth-probe middleware needs. Session creation, logout, token
+ * rotation, 2FA, and the rest of the auth surface will land when the auth
+ * controller is wired up (it will own mint / rotate / revoke).
  */
 export class AuthService extends PuterService {
     declare protected services: LayerInstances<typeof puterServices>;
@@ -39,10 +34,6 @@ export class AuthService extends PuterService {
      * legacy token shape, missing session, missing user, missing app. The
      * caller (auth probe) never differentiates: it either attaches an actor
      * or leaves `req.actor` undefined for per-route gates to reject.
-     *
-     * Ports v1 `AuthService.authenticate_from_token` logic branch-for-branch,
-     * minus the legacy-token migration path (which runs in v1 until the v2
-     * auth controller ships).
      */
     async authenticateFromToken (token: string): Promise<Actor | null> {
         let decoded: AnyTokenPayload;
@@ -52,8 +43,7 @@ export class AuthService extends PuterService {
             return null;
         }
 
-        // Legacy v1 tokens (pre-`type` field) aren't supported on v2 — v1
-        // still handles those via its `/whoami` migration path.
+        // Legacy tokens (pre-`type` field) aren't supported.
         if ( ! decoded.type ) return null;
 
         switch ( decoded.type ) {
@@ -164,7 +154,7 @@ export class AuthService extends PuterService {
      * Fires `app.from-origin` before hashing so listeners can rewrite the
      * origin (e.g. polotno maps `polotno.com` → `studio.polotno.com` so both
      * surfaces resolve to the same app row). UUIDv5 on the — possibly
-     * rewritten — origin preserves v1's deterministic namespace mapping.
+     * rewritten — origin gives a deterministic namespace mapping.
      */
     async appUidFromOrigin (origin: string): Promise<string> {
         const parsed = this.#originFromUrl(origin);

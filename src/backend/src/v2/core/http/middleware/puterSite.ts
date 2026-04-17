@@ -12,17 +12,16 @@ import type { IConfig, LayerInstances } from '../../../types';
  * `req.actor` is populated for the private-app gate, but before controller
  * routes so site hosts don't accidentally hit the API/GUI routers.
  *
- * Scope (v1 port — puterSiteMiddleware.js):
+ * Scope:
  *   - subdomain → site row (SubdomainStore) → file under site root
  *   - 404 for unknown subdomain / missing file / suspended owner
  *   - private-app gate via `app.privateAccess.check` — marketplace extension
  *     decides; default is denied + redirect to `app-center`
  *   - Range / ETag / Last-Modified passthrough via `fsEntry.readContent`
  *
- * Deferred (needs follow-up ports):
- *   - Protected sites with `puter.site.token` (needs `SiteActorType` which
- *     doesn't exist in v2 yet). Any site with `protected=1` serves public for
- *     now — mirror the v1 ACL error path once SiteActorType lands.
+ * Deferred (not yet implemented):
+ *   - Protected sites with `puter.site.token` (needs a `SiteActorType` that
+ *     doesn't exist yet). Any site with `protected=1` serves public for now.
  *   - `.at` username-based sites (UUIDv5-keyed `/user/Public`).
  *   - `.puter_site_config` error rules (custom status-code → file mapping).
  *   - Private-host redirect chain (public hosting domain → private hosting

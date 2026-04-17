@@ -2,11 +2,11 @@ import { PuterService } from '../types';
 import type { SocketService } from '../socket/SocketService';
 
 /**
- * Periodic liveness monitor for the backend. Ported from v1
- * `ServerHealthService`. Other services register checks via `addCheck`;
- * the internal loop runs them every `CHECK_INTERVAL_MS`, raises an alarm
- * on first failure, fires `onFail` handlers (for self-heal hooks), and
- * exposes `getStatus()` for the `/healthcheck` route.
+ * Periodic liveness monitor for the backend. Other services register
+ * checks via `addCheck`; the internal loop runs them every
+ * `CHECK_INTERVAL_MS`, raises an alarm on first failure, fires `onFail`
+ * handlers (for self-heal hooks), and exposes `getStatus()` for the
+ * `/healthcheck` route.
  *
  * Default checks registered on server start:
  *   - `database-liveness` — `SELECT 1 AS ok` latency-gated against
@@ -93,9 +93,8 @@ export class ServerHealthService extends PuterService {
 
     /**
      * Register a named health check. The returned chainable exposes
-     * `onFail(fn)` so callers can hook self-heal logic (matches v1's
-     * `svc_serverHealth.add_check(...).on_fail(...)` pattern — e.g.,
-     * recreating a pooled DB client after a liveness drop).
+     * `onFail(fn)` so callers can hook self-heal logic (e.g., recreating
+     * a pooled DB client after a liveness drop).
      */
     addCheck (name: string, fn: CheckFn): Chainable {
         const registered: RegisteredCheck = { name, fn, onFailHandlers: [] };
@@ -272,7 +271,7 @@ export class ServerHealthService extends PuterService {
             : null;
     }
 
-    /** Snapshot of per-cycle timing + DB latency. Matches v1 `get_stats`. */
+    /** Snapshot of per-cycle timing + DB latency. */
     getStats (): HealthStats {
         return { ...this.#stats, check_durations_ms: { ...this.#stats.check_durations_ms } };
     }

@@ -2,8 +2,7 @@ import { PuterService } from '../types.js';
 
 /**
  * Hardcoded list of recommended apps shown on the desktop launch grid.
- * v1 used the same approach — a static Set of app names resolved at
- * call time from the apps table.
+ * Resolved at call time against the apps table.
  */
 const RECOMMENDED_APP_NAMES = [
     'app-center', 'dev-center', 'editor', 'code', 'camera',

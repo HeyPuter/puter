@@ -1316,9 +1316,9 @@ export class FSController extends PuterController {
     }
 
     #getStorageAllowanceMaxOverride (req: Request): number | undefined {
-        // free_storage / actual_free_storage are v1 user-row fields not on
-        // the v2 ActorUser type. Access via the escape hatch until a proper
-        // storage-quota mechanism is ported.
+        // free_storage / actual_free_storage are user-row fields not on
+        // the ActorUser type. Access via the escape hatch until a proper
+        // storage-quota mechanism is in place.
         const actorUser = req.actor?.user as Record<string, unknown> | undefined;
 
         const candidates = [

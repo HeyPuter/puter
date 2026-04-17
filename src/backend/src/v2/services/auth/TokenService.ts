@@ -3,13 +3,13 @@ import { PuterService } from '../types';
 
 // ── Compression tables ──────────────────────────────────────────────
 //
-// Ported from v1's `TokenService`. Token payloads are compressed on the wire:
-// full field names become short aliases, enum values become single-letter
-// codes, and UUIDs get base64-packed (no dashes, no `-` padding).
+// Token payloads are compressed on the wire: full field names become
+// short aliases, enum values become single-letter codes, and UUIDs get
+// base64-packed (no dashes, no `-` padding).
 //
-// This keeps tokens small enough to fit in cookies / query strings while
-// staying wire-compatible with v1 during the transition. Do not change the
-// `short` aliases or value codes without coordinating with v1.
+// This keeps tokens small enough to fit in cookies / query strings.
+// The `short` aliases and value codes are part of the wire contract —
+// existing tokens depend on them, do not change without a migration.
 
 interface FieldInfo {
     short?: string;
@@ -104,9 +104,7 @@ const COMPRESSION: Record<string, CompressionContext> = {
 // ── TokenService ────────────────────────────────────────────────────
 
 /**
- * Signs and verifies JWTs for v2. Wire-compatible with v1: same secret, same
- * compression tables. During the v1/v2 transition this means a session token
- * minted by v1 authenticates on v2 and vice versa.
+ * Signs and verifies JWTs.
  *
  * Kept intentionally small — no session lifecycle, no revocation list, no
  * cookie shaping. That logic lives in `AuthService` (actor resolution) and

@@ -3,8 +3,7 @@ import { posix as pathPosix } from 'node:path';
 import type { Cluster } from 'ioredis';
 
 /**
- * Redis-backed WebDAV lock store. Replaces v1's puter-kvstore approach
- * with direct Redis calls for lower latency and automatic TTL.
+ * Redis-backed WebDAV lock store.
  *
  * Two key families:
  *   `dav:lock:<token>` → JSON `{ path, lockScope, lockType }` (per-token metadata)

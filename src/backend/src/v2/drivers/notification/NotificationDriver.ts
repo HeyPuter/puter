@@ -9,19 +9,18 @@ const MAX_SELECT_LIMIT = 200;
  * Driver exposing the `puter-notifications` interface.
  *
  * Wraps NotificationStore with owner-scoped permission checks.
- * Methods match v1's `crud-q` shape: create, read, select.
+ * Methods follow the `crud-q` shape: create, read, select.
  *
- * v1 was **read-only** for clients (update/delete threw `forbidden`).
- * We keep `create` available for server-internal callers (other services
- * push notifications via `/drivers/call` with a system token or directly
- * through the store), but expose `read` and `select` with predicates.
+ * Read-only for clients — `update` and `delete` are not exposed. `create`
+ * is available for server-internal callers (other services push
+ * notifications via `/drivers/call` with a system token or directly
+ * through the store). `read` and `select` accept predicates.
  *
  * Permission model:
- *   - Strictly owner-limited — each user can only see their own
- *     notifications
- *   - No app-actor access (v1 enforced UserActorType)
+ *   - Strictly owner-limited — each user can only see their own notifications
+ *   - No app-actor access (user tokens only)
  *
- * Predicates (from v1):
+ * Predicates:
  *   - `'unseen'` — shown IS NULL AND acknowledged IS NULL
  *   - `'unacknowledged'` — acknowledged IS NULL (may be shown)
  *   - `'acknowledged'` — acknowledged IS NOT NULL
@@ -75,14 +74,14 @@ export class NotificationDriver extends PuterDriver {
                 });
                 break;
             case 'unacknowledged':
-            case 'unacknowledge': // v1 compat alias
+            case 'unacknowledge': // client compat alias
                 rows = await this.stores.notification.listByUserId(actor.user.id, {
                     limit,
                     onlyUnacknowledged: true,
                 });
                 break;
             case 'acknowledged':
-            case 'acknowledge': // v1 compat alias
+            case 'acknowledge': // client compat alias
                 rows = await this.stores.notification.listByUserId(actor.user.id, {
                     limit,
                     filter: 'acknowledged',
@@ -120,7 +119,7 @@ export class NotificationDriver extends PuterDriver {
         const actor = Context.get('actor') as Actor | undefined;
         if ( ! actor ) throw new HttpError(401, 'Authentication required');
         if ( ! actor.user?.id ) throw new HttpError(403, 'User actor required');
-        // v1 rejected app-under-user actors for notifications
+        // App-under-user actors are not allowed for notifications.
         if ( actor.app ) throw new HttpError(403, 'App actors cannot access notifications');
         return actor as Actor & { user: { id: number; uuid: string; username: string } };
     }

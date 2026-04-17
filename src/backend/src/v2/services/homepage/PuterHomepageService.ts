@@ -56,10 +56,6 @@ interface PuterGuiAddonsEvent {
  *   - Listening for `puter.gui.addons` — mutate the event object's
  *     `bodyContent` / `headContent` / `prependHeadContent` strings to
  *     splice arbitrary markup into the shell.
- *
- * v1's `process.emit('add_script_tags_to_homepage_html', ...)` escape hatch
- * is intentionally not ported — the one remaining caller (billing) migrates
- * to `puter.gui.addons`.
  */
 export class PuterHomepageService extends PuterService {
 

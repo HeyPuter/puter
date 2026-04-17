@@ -8,8 +8,7 @@ import { toMicroCents } from '../services/metering/utils';
 
 /**
  * Grant storage + metering credit to a referrer when a newly-verified user
- * had that referrer's `referral_code` on signup. Mirrors v1's
- * `ReferralCodeService.on_verified`:
+ * had that referrer's `referral_code` on signup:
  *
  *   - +1 GiB `free_storage` for BOTH users (refer-L and refer-R audit tags).
  *   - +$0.25 metering addon credit for BOTH users (microcents).
@@ -18,7 +17,7 @@ import { toMicroCents } from '../services/metering/utils';
  *
  * Monthly cap: 20 referrals per referring user, counted via Redis with a
  * key that expires at month-end. Once exceeded, the rewards are silently
- * skipped but the audit counter still bumps — matches v1 behavior.
+ * skipped but the audit counter still bumps.
  *
  * Best-effort everywhere — any single failure logs a warning and continues.
  * Called from the two sites that emit `user.email-confirmed`

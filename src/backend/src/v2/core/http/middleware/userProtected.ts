@@ -9,8 +9,8 @@ import type { TokenService } from '../../../services/auth/TokenService';
 /**
  * Gate for security-critical account endpoints mounted under `/user-protected/*`.
  *
- * Ported from v1 `UserProtectedEndpointsService`. Runs AFTER the built-in
- * `requireUserActor` + `antiCsrf` gates; adds three extra checks:
+ * Runs AFTER the built-in `requireUserActor` + `antiCsrf` gates; adds four
+ * extra checks:
  *
  *   1. **Session-cookie only** — reject API tokens, GUI tokens, `x-api-key`
  *      headers, query-string tokens. `authProbe` stashes the token it
@@ -50,7 +50,7 @@ export interface UserProtectedGateOptions {
 }
 
 // Extend Request so the middleware chain can hand the refreshed row off to
-// the handler without re-fetching — matches v1's `req.user` contract.
+// the handler without re-fetching.
 declare module 'express-serve-static-core' {
     interface Request {
         userProtected?: { user: UserRow };
@@ -79,7 +79,7 @@ export const createUserProtectedGate = (
     const cookieName = (config as unknown as { cookie_name?: string }).cookie_name ?? 'puter_token';
     const allowTemp = !!options.allowTempUsers;
 
-    // 1. Session cookie only — matches v1 `hasHttpOnlyCookie` check.
+    // 1. Session cookie only.
     const requireSessionCookie: RequestHandler = (req, _res, next) => {
         const cookieValue = req.cookies?.[cookieName];
         if ( ! cookieValue || (req.token && req.token !== cookieValue) ) {
@@ -103,7 +103,6 @@ export const createUserProtectedGate = (
 
     // 3. Password (bcrypt) OR valid OIDC revalidation cookie.
     //
-    // Mirrors v1:
     //   - Temp users (no password + no email) pass only when the route was
     //     registered with `allowTempUsers: true` (delete-own-user).
     //   - `req.body.password` → bcrypt match against user row. OIDC-only

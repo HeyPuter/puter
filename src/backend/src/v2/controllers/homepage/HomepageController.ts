@@ -6,8 +6,8 @@ import type { PuterHomepageService, PageMeta, LaunchOptions } from '../../servic
 
 /**
  * Routes that render the Puter GUI shell, plus a catch-all static fallback
- * under `<gui_assets_root>/src` for non-dist/src paths that v1's _default.js
- * used to serve (images, fonts, lib files referenced from the shell).
+ * under `<gui_assets_root>/src` for non-dist/src paths (images, fonts, lib
+ * files referenced from the shell).
  *
  * All root-subdomain-only. Registered last in the controller list so the
  * static catch-all doesn't shadow specific API routes.
@@ -68,8 +68,8 @@ export class HomepageController extends PuterController {
                 return;
             }
 
-            // App not found — match v1's 404 status but still render the shell
-            // so the client-side router can decide what to display.
+            // App not found — return 404 but still render the shell so the
+            // client-side router can decide what to display.
             res.status(404);
             await sendShell(req, res, {
                 title: name ? (name.charAt(0).toUpperCase() + name.slice(1)) : 'Puter',

@@ -404,7 +404,7 @@ export class AuthController extends PuterController {
                 referral_code = await generateReferralCode(this.userStore, user);
             }
 
-            // Fire signup events (best-effort). v1 fires `user.save_account`
+            // Fire signup events (best-effort). `user.save_account` is fired
             // for every non-temp signup (fresh or pseudo-claim) — downstream
             // consumers (mailchimp sync, welcome email, etc.) key off it.
             try {
@@ -935,10 +935,6 @@ export class AuthController extends PuterController {
                     console.warn('[save-account] confirmation email failed:', e);
                 }
             }
-
-            // Note: v1 also renames the user's FS root directory from the
-            // auto-generated temp username to the new username. That's
-            // deferred until v2 FS is clean.
 
             try {
                 this.clients.event?.emit('user.save_account', {
@@ -1482,10 +1478,10 @@ export class AuthController extends PuterController {
 
         // ── Delete own account ─────────────────────────────────────────
         //
-        // Matches v1 `helpers.deleteUser`: purge S3 objects + fsentries
-        // first, then the user row. FK cascades on most related tables are
-        // `ON DELETE SET NULL` (not CASCADE), so anything holding tightly
-        // to user_id (sessions) we clear explicitly to avoid orphan rows.
+        // Purge S3 objects + fsentries first, then the user row. FK
+        // cascades on most related tables are `ON DELETE SET NULL` (not
+        // CASCADE), so anything holding tightly to user_id (sessions) we
+        // clear explicitly to avoid orphan rows.
 
         router.post('/user-protected/delete-own-user', {
             subdomain: ['api', ''],

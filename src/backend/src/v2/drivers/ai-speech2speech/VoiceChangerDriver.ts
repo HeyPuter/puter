@@ -9,8 +9,7 @@ import { loadFileInput } from '../util/fileInput.js';
 
 /**
  * Driver implementing `puter-speech2speech` — voice changer. Currently a
- * single provider (ElevenLabs). Request contract mirrors v1 so existing
- * puter-js clients work unchanged.
+ * single provider (ElevenLabs).
  */
 
 const DEFAULT_MODEL = 'eleven_multilingual_sts_v2';

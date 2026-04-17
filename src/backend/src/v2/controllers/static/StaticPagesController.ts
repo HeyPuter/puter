@@ -4,7 +4,7 @@ import { promoteToVerifiedGroup } from '../../util/userProvisioning.js';
 import { applyReferralRewards } from '../../util/referralRewards.js';
 
 /**
- * One-off user-facing pages lifted out of v1's routers/_default.js catch-all.
+ * One-off user-facing pages.
  *
  *   /robots.txt               — static text
  *   /sitemap.xml              — docs + approved apps

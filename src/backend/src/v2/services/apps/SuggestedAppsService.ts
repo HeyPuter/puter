@@ -3,7 +3,6 @@ import { PuterService } from '../types.js';
 
 // ── Extension → suggested app names mapping ─────────────────────────
 //
-// Mirrors v1's `buildSuggestedAppSpecifiers` from helpers.js.
 // Each extension maps to an ordered list of built-in app names that
 // can open files of that type.
 

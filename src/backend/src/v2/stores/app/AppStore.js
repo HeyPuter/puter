@@ -176,10 +176,10 @@ export class AppStore extends PuterStore {
     }
 
     async getAppsByFiletype (extension) {
-        // Cache-on-read replaces v1 RefreshAssociationsService's 30s sweep:
-        // first request after a miss pays the join, subsequent reads inside
-        // the TTL window hit redis. `setFiletypeAssociations` invalidates
-        // the affected extension explicitly so changes show up immediately.
+        // Cache-on-read: first request after a miss pays the join, subsequent
+        // reads inside the TTL window hit redis. `setFiletypeAssociations`
+        // invalidates the affected extension explicitly so changes show up
+        // immediately.
         const cacheKey = `${FILETYPE_CACHE_KEY_PREFIX}:${extension}`;
         try {
             const cached = await this.clients.redis.get(cacheKey);

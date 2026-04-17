@@ -17,11 +17,10 @@ export class EventClient extends PuterClient {
     /**
      * Dispatch an event to every matching subscriber.
      *
-     * Match semantics (mirrors v1's `EventService`): emit walks every
-     * dot-separated prefix of `key`, looking up `<prefix>.*` listeners
-     * for prefixes shorter than the full key, and exact-key listeners
-     * on the final iteration. So emitting `outer.gui.item.removed`
-     * fires subscribers on:
+     * Match semantics: emit walks every dot-separated prefix of `key`,
+     * looking up `<prefix>.*` listeners for prefixes shorter than the full
+     * key, and exact-key listeners on the final iteration. So emitting
+     * `outer.gui.item.removed` fires subscribers on:
      *
      *   - `outer.*`
      *   - `outer.gui.*`

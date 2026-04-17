@@ -49,8 +49,7 @@ export class PermissionService extends PuterService {
      * System-issued grants registered at runtime by other services. Keyed by
      * group UID, then by permission string. Merged with the imported
      * `hardcoded_user_group_permissions.system` map during the hc-user-group
-     * scan. Replaces v1's `__on_boot.consolidation` + event-bus mutation of
-     * the imported module.
+     * scan.
      */
     private readonly systemGrantsByGroupUid: Record<string, Record<string, unknown>> = {};
 
@@ -76,9 +75,7 @@ export class PermissionService extends PuterService {
      * Grant a permission (as issued by `system`) to everyone — members of
      * both the default user group and the default temp group.
      *
-     * V2 replacement for v1's `svc_event.emit('create.permissions', event)` +
-     * `event.grant_to_everyone(permission)` dance. Call from an owning
-     * service's `onServerStart` (or later).
+     * Call from an owning service's `onServerStart` (or later).
      */
     registerSystemGrantForEveryone (permission: string, data: unknown = {}): void {
         const userGroup = this.config.default_user_group;
@@ -90,8 +87,6 @@ export class PermissionService extends PuterService {
     /**
      * Grant a permission (as issued by `system`) to non-temp users only —
      * members of the default user group, but not the default temp group.
-     *
-     * V2 replacement for v1's `event.grant_to_users(permission)`.
      */
     registerSystemGrantForUsers (permission: string, data: unknown = {}): void {
         const userGroup = this.config.default_user_group;
@@ -158,9 +153,6 @@ export class PermissionService extends PuterService {
      * Scan all paths by which `actor` might hold any of the given permission
      * options. Returns a tree-shaped "reading". Use
      * `PermissionUtil.readingToOptions()` to flatten to a yes/no answer.
-     *
-     * Replaces v1's Sequence-based `scan` and `PERMISSION_SCANNERS` with
-     * straight sequential logic.
      */
     async scan (
         actor: Actor,
@@ -309,11 +301,10 @@ export class PermissionService extends PuterService {
     }
 
     /**
-     * Mirrors v1's `hc-user-group-user` scanner. Resolves permissions that
-     * a persistent group's members inherit from an issuer (typically
-     * `system`) via the hardcoded map in `hardcoded-permissions.js`, merged
-     * with any runtime grants registered through
-     * `registerSystemGrantForEveryone` / `registerSystemGrantForUsers`.
+     * Resolve permissions that a persistent group's members inherit from an
+     * issuer (typically `system`) via the hardcoded map in
+     * `hardcoded-permissions.js`, merged with any runtime grants registered
+     * through `registerSystemGrantForEveryone` / `registerSystemGrantForUsers`.
      */
     async #scanHcUserGroupUser (actor: Actor, options: string[], reading: ReadingNode[]): Promise<void> {
         if ( actor.app || actor.accessToken ) return;
@@ -612,7 +603,7 @@ export class PermissionService extends PuterService {
             deleted: false,
         });
 
-        // Linked upsert + audit fire-and-forget (mirrors v1 behavior)
+        // Linked upsert + audit fire-and-forget.
         this.stores.permission.upsertUserUserPerm(user.id, issuerId, permission, extra).catch(() => {
         });
         this.stores.permission.auditUserUserPerm({

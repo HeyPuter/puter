@@ -19,8 +19,8 @@ const ADMIN_STORAGE_BYTES = 10 * 1024 * 1024 * 1024;
  * operator has rotated it yet.
  *
  * Each boot where the current password hash still matches the stashed
- * plaintext, the credentials are re-printed to stdout (matches v1 behavior
- * — CI scrapes this line to extract the default password).
+ * plaintext, the credentials are re-printed to stdout (CI scrapes this
+ * line to extract the default password).
  */
 export class DefaultUserService extends PuterService {
 
@@ -34,8 +34,7 @@ export class DefaultUserService extends PuterService {
             // AppIconService is registered before us, so its own onServerStart
             // bailed on its first-boot bootstrap (admin didn't exist yet).
             // Poke it here so the `/system/app_icons/` dir + subdomain exist
-            // by the time the first icon arrives — v1 relied on a
-            // `user.system-user-ready` event for this; v2 does it directly.
+            // by the time the first icon arrives.
             await (this.services.appIcon as AppIconService).ensureIconsDirectory();
         } else {
             const metadata = (user.metadata ?? {}) as Record<string, unknown>;

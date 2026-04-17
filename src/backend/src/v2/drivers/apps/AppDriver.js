@@ -18,7 +18,7 @@ const APP_DESCRIPTION_MAX_LEN = 7000;
  * Driver exposing the `puter-apps` interface.
  *
  * Wraps AppStore with input validation + permission checks.
- * Methods match v1's `crud-q` shape so client SDKs stay compatible:
+ * Methods follow the `crud-q` shape client SDKs expect:
  *   create, read, select, update, upsert, delete
  *
  * Permission model:

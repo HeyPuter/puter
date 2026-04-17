@@ -122,8 +122,7 @@ export const PermissionUtil = {
 
 /**
  * Check whether a reading includes any terminal node (an `option`, or a
- * `path` that itself transitively terminates). Mirrors v1's
- * `reading_has_terminal` helper.
+ * `path` that itself transitively terminates).
  */
 export const readingHasTerminal = (reading: ReadingNode[]): boolean => {
     for ( const node of reading ) {
@@ -136,9 +135,8 @@ export const readingHasTerminal = (reading: ReadingNode[]): boolean => {
 // ── Rules ────────────────────────────────────────────────────────────
 //
 // Rewriters, Implicators, and Exploders are the extension points other
-// services use to contribute domain semantics. These are plain objects
-// rather than v1's class hierarchy — easier to construct from anywhere,
-// easier to test, and no ESM/CJS interop hacks.
+// services use to contribute domain semantics. These are plain objects —
+// easy to construct from anywhere, easy to test.
 
 export interface PermissionRewriter {
     id?: string;

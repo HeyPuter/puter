@@ -27,8 +27,6 @@ import '../expressAugmentation';
  * Skip this route entirely (via `next('route')`) when the request's
  * leftmost subdomain doesn't match. This *isn't* a rejection — it lets
  * a different route matcher handle the request.
- *
- * Mirrors v1 `middleware/subdomain.js`.
  */
 export const subdomainGate = (allowed: string | string[]): RequestHandler => {
     const allowList = Array.isArray(allowed) ? allowed : [allowed];
@@ -98,9 +96,8 @@ export const DEFAULT_ADMIN_USERNAMES = ['admin', 'system'] as const;
 
 /**
  * Reject unless `actor.user.username` matches `admin`, `system`, or one of
- * the supplied extras. Mirrors v1 `extensionController` semantics:
- * extras are *additional* allowed users on top of the built-in pair, not a
- * replacement for it.
+ * the supplied extras. Extras are *additional* allowed users on top of the
+ * built-in pair, not a replacement for it.
  *
  * Implies `requireAuth` + `requireUserActor`.
  */
@@ -121,8 +118,7 @@ export const adminOnlyGate = (extras: readonly string[] = []): RequestHandler =>
 /**
  * Reject unless the authenticated user has a confirmed email. Gated behind
  * `strict_email_verification_required` config so self-hosted deployments
- * without email delivery don't brick their own filesystem routes. Mirrors
- * v1 `middleware/verified.js`.
+ * without email delivery don't brick their own filesystem routes.
  *
  * Implies `requireUserActor` at the materializer level.
  */
@@ -145,8 +141,8 @@ export const requireVerifiedGate = (strictFlag: boolean): RequestHandler => {
 
 /**
  * Reject unless the actor is acting through one of the named apps.
- * Matches v1 extensionController: app-under-user actors are permitted iff
- * `actor.app.uid` is in the allowList; non-app actors are rejected.
+ * App-under-user actors are permitted iff `actor.app.uid` is in the allowList;
+ * non-app actors are rejected.
  *
  * Implies `requireAuth`. Doesn't pair sensibly with `requireUserActor`
  * (a user-only actor has no app), but if both are set we reject loudly here.

@@ -3,7 +3,7 @@ import type { Actor } from '../actor';
 
 /**
  * Every route method PuterRouter exposes. Mirrors the express router surface
- * plus WebDAV verbs that some legacy endpoints still use.
+ * plus WebDAV verbs that some endpoints still use.
  *
  * `use` and `all` don't map to a single HTTP verb — they're treated uniformly
  * by the materializer (see `v2/server.ts`).
@@ -69,8 +69,8 @@ export interface RouteOptions {
     /**
      * Reject unless the actor's username is `admin`, `system`, or one of the
      * extras in this array. `true` means just `admin`/`system`; an array adds
-     * to that pair (does not replace it). Matches v1 `extensionController`
-     * semantics. Implies `requireAuth` + `requireUserActor`.
+     * to that pair (does not replace it). Implies `requireAuth` +
+     * `requireUserActor`.
      */
     adminOnly?: boolean | string[];
 
@@ -79,9 +79,9 @@ export interface RouteOptions {
 
     /**
      * Reject unless the actor's user has a confirmed email. 400 with
-     * `account_is_not_verified` on failure — matches v1 `verified` middleware.
-     * No-op when `config.strict_email_verification_required` is falsy, so
-     * self-hosted deployments can opt in via config. Implies `requireUserActor`.
+     * `account_is_not_verified` on failure. No-op when
+     * `config.strict_email_verification_required` is falsy, so self-hosted
+     * deployments can opt in via config. Implies `requireUserActor`.
      */
     requireVerified?: boolean;
 

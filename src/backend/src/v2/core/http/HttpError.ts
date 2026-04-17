@@ -13,8 +13,8 @@ export interface HttpErrorOptions {
     /**
      * Modern, structured error code. If both `legacyCode` and `code` are set,
      * the legacy one takes the `code` slot in the response body and `code`
-     * is emitted as `errorCode`. Mirrors v1 `extensionController` behavior so
-     * existing clients keep working.
+     * is emitted as `errorCode`, so clients keying on either field find
+     * what they expect.
      */
     code?: string;
     /** Additional fields merged into the response body. */
@@ -22,9 +22,9 @@ export interface HttpErrorOptions {
 }
 
 /**
- * The single error type v2 controllers and services throw to surface an HTTP
+ * The single error type controllers and services throw to surface an HTTP
  * failure. The terminal `errorHandler` middleware catches it, serializes a
- * JSON body matching v1's wire format, and sets the response status.
+ * JSON body, and sets the response status.
  *
  * Usage:
  * ```ts
