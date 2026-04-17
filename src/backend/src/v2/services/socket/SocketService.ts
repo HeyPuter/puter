@@ -188,6 +188,11 @@ export class SocketService extends PuterService {
         return false;
     }
 
+    /** True once `attachHttpServer` has wired up the io instance. */
+    hasIO (): boolean {
+        return this.#io !== null;
+    }
+
     /**
      * Read the last-change timestamp for a user from Redis. Returns 0
      * when unset. Called by `LegacyFSController`'s

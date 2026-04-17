@@ -107,7 +107,9 @@ export class ChatCompletionDriver extends PuterDriver {
             intended_service: intendedProvider,
             parameters: args,
         };
-        this.clients.event.emit('ai.prompt.validate', validateEvent, {});
+        // emitAndWait — promptBlock is an async listener; the `event.allow`
+        // read below must observe mutations made inside awaited work.
+        await this.clients.event.emitAndWait('ai.prompt.validate', validateEvent, {});
         if ( ! validateEvent.allow ) {
             const reason = typeof validateEvent.message === 'string'
                 ? validateEvent.message

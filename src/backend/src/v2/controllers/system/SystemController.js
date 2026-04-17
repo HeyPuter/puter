@@ -16,13 +16,19 @@ export class SystemController extends PuterController {
         router,
     ) {
         // ── Healthcheck ─────────────────────────────────────────────
-        router.get('/healthcheck', { subdomain: '*' }, (_req, res) => {
-            // A simple liveness probe. If a shutdown signal has been received
-            // and we're draining, return 503 so load balancers route away.
-            if ( globalThis.__puter_draining ) {
-                return res.status(503).send('draining');
+        // Delegates to ServerHealthService for the real check-based
+        // status. Returns `{ ok: true }` when all registered checks pass,
+        // or `{ ok: false, failed: [...] }` + 503 when any fail or the
+        // server is draining.
+        router.get('/healthcheck', { subdomain: '*' }, async (_req, res) => {
+            const health = this.services.health;
+            if ( ! health || typeof health.getStatus !== 'function' ) {
+                // Fallback for boot ordering / missing service.
+                return res.send('ok');
             }
-            res.send('ok');
+            const status = await health.getStatus();
+            if ( ! status.ok ) return res.status(503).json(status);
+            return res.json(status);
         });
 
         // ── Version ─────────────────────────────────────────────────

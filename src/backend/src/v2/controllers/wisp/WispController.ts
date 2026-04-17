@@ -66,7 +66,10 @@ export class WispController extends PuterController {
             guest: isGuest,
             user,
         };
-        this.clients.event.emit('wisp.get-policy', event, {});
+        // emitAndWait so async listeners can fetch policy data before
+        // mutating `event.allow` / `event.policy`; plain emit would return
+        // control before any awaited work completed.
+        await this.clients.event.emitAndWait('wisp.get-policy', event, {});
 
         if ( ! event.allow ) {
             throw new HttpError(403, 'Forbidden');

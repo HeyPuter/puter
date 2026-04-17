@@ -12,6 +12,7 @@ import { TokenService } from './auth/TokenService';
 import { FSEntryService } from './fs/FSEntryService';
 import { MeteringService } from './metering/MeteringService';
 import { PermissionService } from './permission/PermissionService';
+import { ServerHealthService } from './health/ServerHealthService';
 import { SocketService } from './socket/SocketService';
 import type { IPuterServiceRegistry } from './types';
 
@@ -39,4 +40,7 @@ export const puterServices = {
     appIcon: AppIconService,
     defaultUser: DefaultUserService,
     homepage: PuterHomepageService,
+    // Health comes after socket so its default `socket-initialized`
+    // check can reference the peer.
+    health: ServerHealthService,
 } satisfies IPuterServiceRegistry;

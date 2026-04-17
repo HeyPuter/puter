@@ -413,7 +413,10 @@ export class PuterServer {
         this.#app.use(async (req, res, next) => {
             const ip = req.headers?.['x-forwarded-for'] ?? req.socket?.remoteAddress;
             const event = { allow: true, ip };
-            this.clients.event.emit('ip.validate', event, {});
+            // emitAndWait so listeners that do async work (IP-reputation
+            // lookups, Redis checks) can complete before we read
+            // `event.allow` and decide the gate.
+            await this.clients.event.emitAndWait('ip.validate', event, {});
             if ( ! event.allow ) {
                 res.status(403).send('Forbidden');
                 return;
