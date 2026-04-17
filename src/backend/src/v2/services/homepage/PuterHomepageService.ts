@@ -37,6 +37,12 @@ interface PuterGuiAddonsEvent {
     bodyContent: string;
     headContent: string;
     prependHeadContent: string;
+    /**
+     * Scripts/markup that must run BEFORE the `gui(...)` bootstrap. Useful
+     * for loading jQuery or third-party SDKs (Stripe.js) that the GUI code
+     * expects to be present on window.
+     */
+    prependBodyContent: string;
 }
 
 /**
@@ -152,6 +158,7 @@ export class PuterHomepageService extends PuterService {
             bodyContent: '',
             headContent: '',
             prependHeadContent: '',
+            prependBodyContent: '',
         };
 
         try {
@@ -270,6 +277,7 @@ export class PuterHomepageService extends PuterService {
     ${event.headContent}
 </head>
 <body>
+    ${event.prependBodyContent}
     <script>window.puter_gui_enabled = true;</script>
     ${bundled ? '<script>window.gui_env = \'prod\';</script>' : ''}
 

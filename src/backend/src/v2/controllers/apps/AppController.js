@@ -74,6 +74,7 @@ export class AppController extends PuterController {
                 this.clients.event?.emit('app.opened', {
                     app_uid,
                     user_id: req.actor.user.id,
+                    ts: Math.floor(Date.now() / 1000),
                 }, {});
             } catch {
                 // event emission best-effort

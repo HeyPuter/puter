@@ -5,7 +5,7 @@ import express from 'express';
 import type { Application, RequestHandler } from 'express';
 import helmet from 'helmet';
 import uaParser from 'ua-parser-js';
-import { readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import http from 'node:http';
 import { puterClients } from './clients';
 import { puterControllers } from './controllers';
@@ -598,17 +598,49 @@ export class PuterServer {
 
     async #importExtensions (extensionDirs: string[]) {
         for ( const extDir of extensionDirs ) {
-            for ( const jsFileOrFolder of readdirSync(extDir) ) {
-                // if its a folder, read the package.json to find the main file, otherwise if its a js/ts/mjs file, import it directly
-                if ( jsFileOrFolder.endsWith('.js') || jsFileOrFolder.endsWith('.mjs') ) {
-                    console.log(`Importing extension file ${extDir}/${jsFileOrFolder}`);
-                    await import(`${extDir}/${jsFileOrFolder}`);
-                } else if ( ! jsFileOrFolder.includes('.') ) {
-                    const packageJson = JSON.parse(readFileSync(`${extDir}/${jsFileOrFolder}/package.json`, 'utf-8'));
-                    const mainFile = packageJson.main;
-                    console.log(`Importing extension file ${extDir}/${jsFileOrFolder}/${mainFile}`);
-                    await import(`${extDir}/${jsFileOrFolder}/${mainFile}`);
+            // `withFileTypes: true` gives us `Dirent` objects so we can
+            // distinguish files from directories without extra stat calls
+            // (and without relying on a dot-in-name heuristic, which breaks
+            // for data-bearing sidecar dirs like `pages.assets/`).
+            for ( const entry of readdirSync(extDir, { withFileTypes: true }) ) {
+                const entryPath = `${extDir}/${entry.name}`;
+
+                if ( entry.isFile() ) {
+                    if ( /\.(js|mjs|cjs)$/.test(entry.name) ) {
+                        console.log(`Importing extension file ${entryPath}`);
+                        await import(entryPath);
+                    }
+                    continue;
                 }
+
+                if ( ! entry.isDirectory() ) continue; // symlinks, etc. — skip
+
+                // Prefer package.json "main"; fall back to index.{js,mjs,cjs}.
+                // Dirs that match neither (e.g. data-only sidecars) are
+                // silently ignored rather than crashing the boot.
+                let mainPath: string | null = null;
+                const pkgPath = `${entryPath}/package.json`;
+                if ( existsSync(pkgPath) ) {
+                    try {
+                        const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8')) as { main?: string };
+                        if ( pkg.main ) mainPath = `${entryPath}/${pkg.main}`;
+                    } catch ( e ) {
+                        console.warn(`[extensions] invalid package.json at ${pkgPath}:`, e);
+                        continue;
+                    }
+                }
+                if ( ! mainPath ) {
+                    for ( const cand of ['index.js', 'index.mjs', 'index.cjs'] ) {
+                        if ( existsSync(`${entryPath}/${cand}`) ) {
+                            mainPath = `${entryPath}/${cand}`;
+                            break;
+                        }
+                    }
+                }
+                if ( ! mainPath ) continue;
+
+                console.log(`Importing extension file ${mainPath}`);
+                await import(mainPath);
             }
         }
     }

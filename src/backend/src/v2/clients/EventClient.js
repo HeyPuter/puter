@@ -51,6 +51,42 @@ export class EventClient extends PuterClient {
     }
 
     /**
+     * Like `emit`, but awaits every matched listener before resolving.
+     *
+     * Use this when the emitter needs to act on mutations the handlers made
+     * to `data` — e.g. validation hooks where a listener can set
+     * `data.allow = false` to reject, or pre-commit pipelines where every
+     * stage must complete before the next step runs. Regular `emit` is
+     * fire-and-forget and can't observe handler state changes.
+     *
+     * Listeners run sequentially in the order they're registered so an
+     * earlier handler's mutation is visible to later ones. A listener that
+     * throws is logged (same as `emit`) and the chain continues.
+     *
+     * @param {string} key
+     * @param {unknown} data
+     * @param {object} meta
+     * @returns {Promise<void>}
+     */
+    async emitAndWait (key, data, meta) {
+        const parts = key.split('.');
+        for ( let i = 0; i < parts.length; i++ ) {
+            const matchKey = i === parts.length - 1
+                ? key
+                : `${parts.slice(0, i + 1).join('.')}.*`;
+            const listeners = this.#eventListeners[matchKey];
+            if ( ! listeners ) continue;
+            for ( const listener of listeners ) {
+                try {
+                    await listener(key, data, meta);
+                } catch ( e ) {
+                    console.error('Error in event listener for event', key, e);
+                }
+            }
+        }
+    }
+
+    /**
      * Subscribe to an event by exact key OR a wildcard prefix.
      *
      * Wildcards: a key ending in `.*` matches every event whose name

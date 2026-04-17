@@ -31,6 +31,60 @@ export interface IPagerConfig {
     };
 }
 
+/**
+ * Legacy billing extension — retained for existing Puter-paid subscribers
+ * while a rebuilt flow ships. New customers go through the metering/
+ * appStore stack instead.
+ */
+export interface ILegacyBillingConfig {
+    /** Stripe secret key. Unset → extension disables itself. */
+    api_secret?: string;
+    /** Stripe publishable key (client-side). */
+    stripe_publishable_key?: string;
+    /** Stripe webhook signing secret. */
+    endpoint_secret?: string;
+    /** Map from `price_pseudo_id` (e.g. `price_basic`) → actual Stripe price id. */
+    price_ids?: Record<string, string>;
+}
+
+export interface IAbuseConfig {
+    /** Master toggle. When false the extension short-circuits every handler. */
+    enabled?: boolean;
+    /** IPs that bypass every signup check. */
+    allowed_ips?: string[];
+    /** IPInfo token used for geo / hosting / ASN lookups. Unset → checks disabled. */
+    ipinfo_token?: string;
+    /** Kickbox API key used for email deliverability. Unset → check skipped (permissive). */
+    kickbox_api_key?: string;
+    /** PagerDuty personal REST token (NOT an Events API routing key). */
+    pagerduty_token?: string;
+    /** PagerDuty service UID that incidents are filed against. */
+    pagerduty_service_id?: string;
+    /** `From:` header required by the Incidents API. */
+    pagerduty_from_email?: string;
+}
+
+export interface ICfFileCacheConfig {
+    /** POST endpoint that accepts batched `{ site, path }[]` invalidation payloads. */
+    endpoint: string;
+    /** Flush cadence in ms. Default 500. */
+    throttle_ms?: number;
+}
+
+export interface IClickhouseConfig {
+    url: string;
+    username?: string;
+    password?: string;
+    /** Milliseconds. Default 15000. */
+    request_timeout?: number;
+    /** Max pending rows before backpressure drops oldest. Default 100000. */
+    max_buffer_size?: number;
+    /** Rows per flush. Default 500. */
+    batch_size?: number;
+    /** Flush cadence in ms. Default 5000. */
+    flush_interval_ms?: number;
+}
+
 export interface IEmailConfig {
     /** "From" address used when callers don't override. */
     from?: string;
@@ -87,6 +141,10 @@ export interface IConfig extends Partial<{
     redis: IRedisConfig;
     pager: IPagerConfig;
     email: IEmailConfig;
+    clickhouse: IClickhouseConfig;
+    cf_file_cache: ICfFileCacheConfig;
+    abuse: IAbuseConfig;
+    legacyBilling: ILegacyBillingConfig;
     serverId: string;
     env: 'dev' | 'prod';
     blockedEmailDomains: string[];

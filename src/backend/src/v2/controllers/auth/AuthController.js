@@ -264,6 +264,34 @@ export class AuthController extends PuterController {
                 }
             }
 
+            // Extension-level validation gate. Abuse-prevention extensions
+            // inspect the incoming signup and can:
+            //   - block it outright via `event.allow = false`
+            //   - force email confirmation via `event.requires_email_confirmation = true`
+            //   - skip temp-user creation via `event.no_temp_user = true`
+            // Listeners run sequentially so multi-signal checks (rate limit +
+            // IP reputation + domain reputation) can short-circuit cleanly.
+            const validateEvent = {
+                req,
+                data: body,
+                allow: true,
+                no_temp_user: false,
+                requires_email_confirmation: false,
+                message: null,
+            };
+            try {
+                await this.clients.event?.emitAndWait('puter.signup.validate', validateEvent, {});
+            } catch ( e ) {
+                console.warn('[signup] validate hook failed:', e);
+            }
+            if ( ! validateEvent.allow ) {
+                throw new HttpError(403, validateEvent.message ?? 'Signup blocked');
+            }
+            if ( is_temp && validateEvent.no_temp_user ) {
+                throw new HttpError(403, validateEvent.message ?? 'Temporary accounts are disabled');
+            }
+            const force_email_confirmation = Boolean(validateEvent.requires_email_confirmation);
+
             // Prepare shared fields
             const user_uuid = uuidv4();
             const email_confirm_code = String(Math.floor(100000 + Math.random() * 900000));
@@ -280,6 +308,9 @@ export class AuthController extends PuterController {
                     email_confirm_code,
                     email_confirm_token,
                     email_confirmed: 0,
+                    // Pseudo claims always require email confirmation — the
+                    // validate hook can only tighten, not loosen, so `1`
+                    // stays hardcoded here.
                     requires_email_confirmation: 1,
                     referred_by: referred_by_user_id,
                 });
@@ -311,7 +342,7 @@ export class AuthController extends PuterController {
                     clean_email: is_temp ? null : cleanEmail(body.email),
                     free_storage: this.config.storage_capacity ?? null,
                     referred_by: referred_by_user_id,
-                    requires_email_confirmation: !is_temp,
+                    requires_email_confirmation: !is_temp || force_email_confirmation,
                     email_confirm_code,
                     email_confirm_token,
                     audit_metadata: {
