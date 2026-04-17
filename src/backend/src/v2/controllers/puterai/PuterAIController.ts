@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { Readable } from 'node:stream';
 import type { Request, Response } from 'express';
 import { HttpError } from '../../core/http/HttpError.js';
 import { isAppActor } from '../../core/actor.js';
@@ -7,6 +8,8 @@ import { PuterController } from '../types.js';
 import { isDriverStreamResult } from '../../drivers/meta.js';
 import type { ChatCompletionDriver } from '../../drivers/ai-chat/ChatCompletionDriver.js';
 import type { ICompleteArguments, IChatCompleteResult } from '../../drivers/ai-chat/types.js';
+
+const GEMINI_DOWNLOAD_BASE = 'https://generativelanguage.googleapis.com/download/v1beta/files';
 
 /**
  * OpenAI-/Anthropic-compatible HTTP surface on top of the
@@ -37,7 +40,78 @@ export class PuterAIController extends PuterController {
         router.get('/image/models/details', apiOpts, this.#modelDetails('aiImage'));
         router.get('/video/models', apiOpts, this.#listModels('aiVideo'));
         router.get('/video/models/details', apiOpts, this.#modelDetails('aiVideo'));
+
+        // ── Video URL proxy ─────────────────────────────────────────
+        // Reverse-proxies AI-generated video URLs that can't be given
+        // directly to the client (auth-gated provider downloads). The
+        // URL itself is HMAC-signed, so no additional auth gate.
+        router.get('/puterai/video/proxy', { subdomain: 'api' }, this.#videoProxy);
     }
+
+    #videoProxy = async (req: Request, res: Response): Promise<void> => {
+        const fileId = typeof req.query.fileId === 'string' ? req.query.fileId : '';
+        const provider = typeof req.query.provider === 'string' ? req.query.provider : '';
+        const expires = typeof req.query.expires === 'string' ? req.query.expires : '';
+        const signature = typeof req.query.signature === 'string' ? req.query.signature : '';
+
+        if ( ! /^[a-zA-Z0-9_-]+$/.test(fileId) ) {
+            res.status(400).send('Invalid or missing fileId parameter');
+            return;
+        }
+        if ( ! expires || ! signature ) {
+            res.status(403).send('Missing signature');
+            return;
+        }
+        if ( Number(expires) < Date.now() / 1000 ) {
+            res.status(403).send('Signature expired');
+            return;
+        }
+
+        const secret = this.config.url_signature_secret;
+        if ( ! secret ) {
+            res.status(500).send('URL signature secret not configured');
+            return;
+        }
+        const expected = crypto
+            .createHash('sha256')
+            .update(`${fileId}/video-proxy/${secret}/${expires}`)
+            .digest('hex');
+        // Constant-time compare so signature probing can't time-leak.
+        const sigBuf = Buffer.from(signature, 'hex');
+        const expBuf = Buffer.from(expected, 'hex');
+        if ( sigBuf.length !== expBuf.length || ! crypto.timingSafeEqual(sigBuf, expBuf) ) {
+            res.status(403).send('Invalid signature');
+            return;
+        }
+
+        if ( provider !== 'gemini' ) {
+            res.status(400).send('Unsupported provider');
+            return;
+        }
+
+        const geminiConfig = (this.config as unknown as { services?: Record<string, { apiKey?: string; secret_key?: string }> }).services?.gemini;
+        const apiKey = geminiConfig?.apiKey ?? geminiConfig?.secret_key;
+        if ( ! apiKey ) {
+            res.status(500).send('Gemini API key not configured');
+            return;
+        }
+
+        const upstream = await fetch(
+            `${GEMINI_DOWNLOAD_BASE}/${fileId}:download?alt=media&key=${apiKey}`,
+        );
+        if ( ! upstream.ok ) {
+            res.status(upstream.status).send('Failed to fetch video');
+            return;
+        }
+        const contentType = upstream.headers.get('content-type');
+        if ( contentType ) res.setHeader('Content-Type', contentType);
+
+        if ( ! upstream.body ) {
+            res.status(500).send('Empty response body');
+            return;
+        }
+        Readable.fromWeb(upstream.body as unknown as import('node:stream/web').ReadableStream).pipe(res);
+    };
 
     #listModels (driverKey: string) {
         return async (_req: Request, res: Response): Promise<void> => {

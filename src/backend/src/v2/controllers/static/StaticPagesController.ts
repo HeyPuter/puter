@@ -1,5 +1,6 @@
 import { PuterController } from '../types.js';
 import type { PuterRouter } from '../../core/http/PuterRouter';
+import { promoteToVerifiedGroup } from '../../util/userProvisioning.js';
 
 /**
  * One-off user-facing pages lifted out of v1's routers/_default.js catch-all.
@@ -55,11 +56,11 @@ export class StaticPagesController extends PuterController {
         // ── /unsubscribe ────────────────────────────────────────────
         router.get('/unsubscribe', {}, async (req, res) => {
             const userUuid = typeof req.query.user_uuid === 'string' ? req.query.user_uuid : undefined;
-            if ( ! userUuid ) return res.send(err('user_uuid is required'));
+            if ( ! userUuid ) { res.send(err('user_uuid is required')); return; }
 
             const user = await this.stores.user.getByUuid(userUuid);
-            if ( ! user ) return res.send(err('User not found.'));
-            if ( user.unsubscribed ) return res.send(ok('You are already unsubscribed.'));
+            if ( ! user ) { res.send(err('User not found.')); return; }
+            if ( user.unsubscribed ) { res.send(ok('You are already unsubscribed.')); return; }
 
             await this.stores.user.update(user.id, { unsubscribed: 1 });
             res.send(ok('You have successfully unsubscribed from all emails.'));
@@ -69,13 +70,13 @@ export class StaticPagesController extends PuterController {
         router.get('/confirm-email-by-token', {}, async (req, res) => {
             const userUuid = typeof req.query.user_uuid === 'string' ? req.query.user_uuid : undefined;
             const token = typeof req.query.token === 'string' ? req.query.token : undefined;
-            if ( ! userUuid ) return res.send(err('user_uuid is required'));
-            if ( ! token ) return res.send(err('token is required'));
+            if ( ! userUuid ) { res.send(err('user_uuid is required')); return; }
+            if ( ! token ) { res.send(err('token is required')); return; }
 
             const user = await this.stores.user.getByProperty('uuid', userUuid, { force: true });
-            if ( ! user ) return res.send(err('user not found.'));
-            if ( user.email_confirmed ) return res.send(ok('Email already confirmed.'));
-            if ( user.email_confirm_token !== token ) return res.send(err('invalid token.'));
+            if ( ! user ) { res.send(err('user not found.')); return; }
+            if ( user.email_confirmed ) { res.send(ok('Email already confirmed.')); return; }
+            if ( user.email_confirm_token !== token ) { res.send(err('invalid token.')); return; }
 
             // v2 writes `clean_email` at signup (lowercased email). Older rows
             // that predate that may be null — fall back to email.lower().
@@ -91,7 +92,8 @@ export class StaticPagesController extends PuterController {
                 [user.email, cleanEmail],
             ) as Array<{ email_exists: number }>;
             if ( dupe?.email_exists ) {
-                return res.send(err('This email was confirmed on a different account.'));
+                res.send(err('This email was confirmed on a different account.'));
+                return;
             }
 
             // Revoke any other accounts' pending change-email slots targeting
@@ -105,6 +107,8 @@ export class StaticPagesController extends PuterController {
                 email_confirmed: 1,
                 requires_email_confirmation: 0,
             });
+
+            await promoteToVerifiedGroup(this.stores.group, this.config, user);
 
             // Best-effort side-channels — don't fail the user-visible response
             // if sockets or the event bus are unavailable.

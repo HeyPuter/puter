@@ -925,6 +925,10 @@ export class FSEntryService extends PuterService {
                     throw new Error(`Failed to resolve batch write result at index ${index}`);
                 }
                 const uploadedItem = uploadedItemMap.get(item.index);
+                this.#emitFsEvent(
+                    item.wasOverwrite ? 'fs.write.file' : 'fs.create.file',
+                    fsEntry,
+                );
                 return {
                     fsEntry,
                     wasOverwrite: item.wasOverwrite,
@@ -1453,6 +1457,10 @@ export class FSEntryService extends PuterService {
             }
 
             const fsEntry = await this.stores.fsEntry.completePendingEntry(session.sessionId, createInput);
+            this.#emitFsEvent(
+                session.overwriteTargetUid ? 'fs.write.file' : 'fs.create.file',
+                fsEntry,
+            );
             return {
                 sessionId: session.sessionId,
                 fsEntry,
@@ -1587,6 +1595,10 @@ export class FSEntryService extends PuterService {
                 throw new Error('Failed to build completed batch write response');
             }
 
+            this.#emitFsEvent(
+                completionItem.session.overwriteTargetUid ? 'fs.write.file' : 'fs.create.file',
+                completedEntry,
+            );
             responseByIndex.set(completionItem.index, {
                 sessionId: completionItem.session.sessionId,
                 fsEntry: completedEntry,
@@ -1694,6 +1706,11 @@ export class FSEntryService extends PuterService {
         const fsEntry = await this.stores.fsEntry.createEntry(
             createInput,
             normalizedInput.createMissingParents,
+        );
+
+        this.#emitFsEvent(
+            existingEntry ? 'fs.write.file' : 'fs.create.file',
+            fsEntry,
         );
 
         return {
@@ -1934,12 +1951,14 @@ export class FSEntryService extends PuterService {
             }
         }
 
-        return this.stores.fsEntry.createNonFileEntry({
+        const created = await this.stores.fsEntry.createNonFileEntry({
             userId,
             parent,
             name,
             kind: 'directory',
         });
+        this.#emitFsEvent('fs.create.directory', created);
+        return created;
     }
 
     /**
@@ -1964,12 +1983,14 @@ export class FSEntryService extends PuterService {
                 setCreated: input.setCreated,
             });
         }
-        return this.stores.fsEntry.createNonFileEntry({
+        const created = await this.stores.fsEntry.createNonFileEntry({
             userId,
             parent,
             name,
             kind: 'empty-file',
         });
+        this.#emitFsEvent('fs.create.file', created);
+        return created;
     }
 
     /**
@@ -1998,6 +2019,12 @@ export class FSEntryService extends PuterService {
         if ( entry.isDir ) {
             await this.stores.fsEntry.updatePathPrefixForUser(entry.userId, entry.path, newPath);
         }
+        this.#emitFsEvent('fs.rename', updated, {
+            old_name: entry.name,
+            new_name: newName,
+            old_path: entry.path,
+            new_path: newPath,
+        });
         return updated;
     }
 
@@ -2021,13 +2048,15 @@ export class FSEntryService extends PuterService {
                 throw new HttpError(409, `An entry already exists at ${childPath}`);
             }
         }
-        return this.stores.fsEntry.createNonFileEntry({
+        const created = await this.stores.fsEntry.createNonFileEntry({
             userId,
             parent: input.parent,
             name,
             kind: 'shortcut',
             shortcutTo: input.target.id,
         });
+        this.#emitFsEvent('fs.create.shortcut', created);
+        return created;
     }
 
     /**
@@ -2051,13 +2080,15 @@ export class FSEntryService extends PuterService {
                 throw new HttpError(409, `An entry already exists at ${childPath}`);
             }
         }
-        return this.stores.fsEntry.createNonFileEntry({
+        const created = await this.stores.fsEntry.createNonFileEntry({
             userId,
             parent: input.parent,
             name,
             kind: 'symlink',
             symlinkPath: input.targetPath,
         });
+        this.#emitFsEvent('fs.create.symlink', created);
+        return created;
     }
 
     // ── Mutation: remove / move / copy ─────────────────────────────────
@@ -2119,6 +2150,56 @@ export class FSEntryService extends PuterService {
         this.#emitRemoveEvent(entry);
     }
 
+    /**
+     * Hard-delete every FS entry owned by `userId`: S3 objects first, then
+     * every `fsentries` row. Used by account deletion. Matches v1
+     * `helpers.deleteUser` — paginates through files (5k at a time) so
+     * large users don't blow the heap, batches S3 deletes per bucket+region,
+     * and finishes with one bulk DELETE to sweep dirs/shortcuts/symlinks
+     * that don't have backing objects.
+     *
+     * Safe to call concurrently with other ops on the same user only in the
+     * sense that orphaned S3 objects may linger if a write races us; the DB
+     * state always converges to "user has no entries".
+     */
+    async removeAllForUser (userId: number): Promise<void> {
+        const pageSize = 5000;
+        // Files-first loop: delete backing S3 objects in batches, then DB rows.
+        for ( ; ; ) {
+            const files = await this.clients.db.read(
+                `SELECT uuid, bucket, bucket_region FROM fsentries
+                 WHERE user_id = ? AND is_dir = 0 AND (is_shortcut = 0 OR is_shortcut IS NULL) AND (is_symlink = 0 OR is_symlink IS NULL)
+                 LIMIT ${pageSize}`,
+                [userId],
+            ) as Array<{ uuid: string; bucket: string | null; bucket_region: string | null }>;
+
+            if ( files.length === 0 ) break;
+
+            // Group by bucket+region so one S3 DeleteObjects call covers each.
+            const grouped = new Map<string, { bucket: string; region: string; keys: string[] }>();
+            for ( const f of files ) {
+                if ( ! f.bucket || ! f.bucket_region ) continue;
+                const groupKey = `${f.bucket_region}::${f.bucket}`;
+                const group = grouped.get(groupKey) ?? { bucket: f.bucket, region: f.bucket_region, keys: [] };
+                group.keys.push(f.uuid);
+                grouped.set(groupKey, group);
+            }
+            await Promise.allSettled(
+                Array.from(grouped.values()).map(g =>
+                    this.stores.s3Object.deleteObjects({ bucket: g.bucket, objectKeys: g.keys }, g.region)),
+            );
+
+            const uuidPlaceholders = files.map(() => '?').join(', ');
+            await this.clients.db.write(
+                `DELETE FROM fsentries WHERE user_id = ? AND uuid IN (${uuidPlaceholders})`,
+                [userId, ...files.map(f => f.uuid)],
+            );
+        }
+
+        // Sweep remaining non-file rows (dirs, shortcuts, symlinks).
+        await this.clients.db.write('DELETE FROM fsentries WHERE user_id = ?', [userId]);
+    }
+
     async #removeDescendantsStorage (descendants: FSEntry[]): Promise<void> {
         // Group file descendants by bucket+region for batch delete.
         const grouped = new Map<string, { bucket: string; region: string; keys: string[] }>();
@@ -2145,6 +2226,34 @@ export class FSEntryService extends PuterService {
             this.clients.event.emit('fs.remove.node', { node: entry, entry }, {});
         } catch {
             // Non-critical.
+        }
+    }
+
+    /**
+     * Emit one of the lifecycle events that `extension.on('fs.…')` consumers
+     * expect (cf-file-cache, future thumbnails-style extensions). Payload
+     * carries multiple aliases (`node` / `entry` / `uid`) so handlers using
+     * any of v1's calling conventions just work.
+     *
+     * Currently emitted:
+     *   fs.create.{file,directory,shortcut,symlink}
+     *   fs.write.file       — overwrite of an existing file
+     *   fs.rename           — in-place name change (move emits fs.move.node separately)
+     *
+     * Skipped intentionally: `fs.pending.*` (no real entry yet at signed-URL
+     * issue time) and per-flavor `fs.move.file` (move already emits
+     * `fs.move.node`).
+     */
+    #emitFsEvent (name: string, entry: FSEntry, extras: Record<string, unknown> = {}): void {
+        try {
+            this.clients.event.emit(name, {
+                node: entry,
+                entry,
+                uid: entry.uuid,
+                ...extras,
+            }, {});
+        } catch {
+            // Non-critical — the response is the source of truth.
         }
     }
 

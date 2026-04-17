@@ -198,11 +198,8 @@ export class LegacyFSController extends PuterController {
             res.json({ thumbnail: event.url });
         });
 
-        // ── GET /video/proxy ────────────────────────────────────────
-        // ⚠ FLAG: v1 proxies AI-generated video URLs. Stubbed.
-        router.get('/video/proxy', apiOptions, async (_req: Request, res: Response) => {
-            res.status(501).json({ error: 'Video proxy not yet implemented in v2' });
-        });
+        // `/video/proxy` lives on PuterAIController as `/puterai/video/proxy`
+        // — matches what v1 GeminiVideoGenerationProvider built URLs against.
 
         // Remaining v1 routes still delegated to legacy modules.
         for ( const key of Object.keys(additionalRoutePaths) ) {

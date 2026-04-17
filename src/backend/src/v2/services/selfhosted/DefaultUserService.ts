@@ -3,6 +3,7 @@ import crypto from 'node:crypto';
 import { v4 as uuidv4 } from 'uuid';
 import { PuterService } from '../types.js';
 import type { UserRow } from '../../stores/user/UserStore.js';
+import { generateDefaultFsentries } from '../../util/userProvisioning.js';
 
 const USERNAME = 'admin';
 const ADMIN_GROUP_UID = 'ca342a5e-b13d-4dee-9048-58b11a57cc55';
@@ -61,6 +62,12 @@ export class DefaultUserService extends PuterService {
             await this.stores.group.addUsers(ADMIN_GROUP_UID, [USERNAME]);
         } catch ( e ) {
             console.warn('[default-user] failed to add admin to admin group', e);
+        }
+
+        try {
+            await generateDefaultFsentries(this.clients.db, this.stores.user, created);
+        } catch ( e ) {
+            console.warn('[default-user] failed to provision admin home directory', e);
         }
 
         return (await this.stores.user.getById(created.id)) ?? created;

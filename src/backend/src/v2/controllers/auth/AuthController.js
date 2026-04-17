@@ -3,6 +3,9 @@ import { v4 as uuidv4 } from 'uuid';
 import validator from 'validator';
 import { HttpError } from '../../core/http/HttpError.js';
 import { antiCsrf } from '../../core/http/middleware/antiCsrf.js';
+import { cleanEmail, isBlockedEmail } from '../../util/email.js';
+import { generateDefaultFsentries, promoteToVerifiedGroup } from '../../util/userProvisioning.js';
+import { getTaskbarItems } from '../../extensions/taskbarItems.js';
 import { generateCaptcha } from '../../core/http/middleware/captcha.js';
 import { createSecret as otpCreateSecret, createRecoveryCode, hashRecoveryCode, verify as verifyOtp } from '../../services/auth/OTPUtil.js';
 import { generateReferralCode } from '../../services/auth/referralCode.js';
@@ -217,6 +220,10 @@ export class AuthController extends PuterController {
                 if ( ! body.email ) throw new HttpError(400, 'Email is required');
                 if ( typeof body.email !== 'string' ) throw new HttpError(400, 'email must be a string.');
                 if ( ! validator.isEmail(body.email) ) throw new HttpError(400, 'Please enter a valid email address.');
+                // Block listed/disposable domains (env=dev bypasses to keep fixtures working).
+                if ( this.config.env !== 'dev' && isBlockedEmail(body.email, this.config.blockedEmailDomains) ) {
+                    throw new HttpError(400, 'This email is not allowed.');
+                }
                 if ( ! body.password ) throw new HttpError(400, 'Password is required');
                 if ( typeof body.password !== 'string' ) throw new HttpError(400, 'password must be a string.');
                 const minLen = this.config.min_pass_length || 6;
@@ -301,7 +308,7 @@ export class AuthController extends PuterController {
                     uuid: user_uuid,
                     password: password_hash,
                     email: is_temp ? null : body.email,
-                    clean_email: is_temp ? null : body.email.toLowerCase(),
+                    clean_email: is_temp ? null : cleanEmail(body.email),
                     free_storage: this.config.storage_capacity ?? null,
                     referred_by: referred_by_user_id,
                     requires_email_confirmation: !is_temp,
@@ -332,6 +339,15 @@ export class AuthController extends PuterController {
                 }
             }
 
+            // ── Provision FS home + default folders ─────────────────
+            // Idempotent — skips if `user.trash_uuid` is already set (pseudo
+            // users who went through a prior signup won't double-create).
+            try {
+                await generateDefaultFsentries(this.clients.db, this.userStore, user);
+            } catch ( e ) {
+                console.warn('[signup] generateDefaultFsentries failed:', e);
+            }
+
             // ── Send email confirmation ─────────────────────────────
             if ( !is_temp && user.requires_email_confirmation && this.clients.email ) {
                 const sendCode = body.send_confirmation_code ?? true;
@@ -355,7 +371,9 @@ export class AuthController extends PuterController {
                 referral_code = await generateReferralCode(this.userStore, user);
             }
 
-            // Fire signup event (best-effort)
+            // Fire signup events (best-effort). v1 fires `user.save_account`
+            // for every non-temp signup (fresh or pseudo-claim) — downstream
+            // consumers (mailchimp sync, welcome email, etc.) key off it.
             try {
                 this.clients.event?.emit('puter.signup.success', {
                     user_id: user.id,
@@ -366,6 +384,13 @@ export class AuthController extends PuterController {
                 }, {});
             } catch {
                 // ignore — event emission shouldn't block signup
+            }
+            if ( ! is_temp ) {
+                try {
+                    this.clients.event?.emit('user.save_account', { user_id: user.id }, {});
+                } catch {
+                    // ignore
+                }
             }
 
             return this.#completeLogin(req, res, user, { referral_code });
@@ -445,8 +470,14 @@ export class AuthController extends PuterController {
                 requires_email_confirmation: 0,
             });
 
+            await promoteToVerifiedGroup(this.groupStore, this.config, user);
+
             try {
-                this.clients.event?.emit('user.email-confirmed', { user_id: user.id, email: user.email }, {});
+                this.clients.event?.emit('user.email-confirmed', {
+                    user_id: user.id,
+                    user_uid: user.uuid,
+                    email: user.email,
+                }, {});
             } catch {
                 // ignore — event is a side-channel signal, not load-bearing
             }
@@ -724,7 +755,7 @@ export class AuthController extends PuterController {
 
             await this.userStore.update(user.id, {
                 email: newEmail,
-                clean_email: newEmail.toLowerCase(),
+                clean_email: cleanEmail(newEmail),
                 unconfirmed_change_email: null,
                 change_email_confirm_token: null,
                 pass_recovery_token: null,
@@ -808,7 +839,7 @@ export class AuthController extends PuterController {
             await this.userStore.update(user.id, {
                 username,
                 email,
-                clean_email: email.toLowerCase(),
+                clean_email: cleanEmail(email),
                 password: password_hash,
                 email_confirm_code,
                 email_confirm_token,
@@ -1387,16 +1418,30 @@ export class AuthController extends PuterController {
         });
 
         // ── Delete own account ─────────────────────────────────────────
-        // ⚠ FLAG: v1 uses `deleteUser()` helper which cascades across FS,
-        // sessions, permissions, apps, etc. v2 does a simple user row delete.
-        // Full cascade needs implementing in UserStore or a dedicated service.
+        //
+        // Matches v1 `helpers.deleteUser`: purge S3 objects + fsentries
+        // first, then the user row. FK cascades on most related tables are
+        // `ON DELETE SET NULL` (not CASCADE), so anything holding tightly
+        // to user_id (sessions) we clear explicitly to avoid orphan rows.
 
         router.post('/delete-own-user', { subdomain: ['api', ''], requireUserActor: true }, async (req, res) => {
             const userId = req.actor.user.id;
             res.clearCookie(this.config.cookie_name);
             res.clearCookie('puter_revalidation');
 
-            // Delete user row — CASCADE on FK handles sessions, permissions, etc.
+            try {
+                await this.services.fsEntry.removeAllForUser(userId);
+            } catch ( e ) {
+                console.warn('[delete-own-user] fs cleanup failed:', e);
+                // Proceed with user-row delete anyway — fsentries are then
+                // orphaned (user_id FK resolves to nothing) but the account
+                // is gone. Better than leaving the user around.
+            }
+
+            // Drop sessions explicitly — FK is SET NULL, which would leave
+            // authenticable rows with user_id=null.
+            await this.clients.db.write('DELETE FROM `sessions` WHERE `user_id` = ?', [userId]);
+
             await this.clients.db.write('DELETE FROM `user` WHERE `id` = ?', [userId]);
             await this.userStore.invalidateById(userId);
 
@@ -1435,6 +1480,16 @@ export class AuthController extends PuterController {
             httpOnly: true,
         });
 
+        // Resolve taskbar items up-front so the GUI doesn't need a second
+        // round-trip on first paint. Best-effort: a failure here shouldn't
+        // block login (the client can still fetch them via /whoami later).
+        let taskbar_items = [];
+        try {
+            taskbar_items = await getTaskbarItems(user);
+        } catch ( e ) {
+            console.warn('[auth] taskbar_items resolution failed:', e);
+        }
+
         // Response body gets the GUI token (client never sees session token)
         return res.json({
             proceed: true,
@@ -1447,6 +1502,7 @@ export class AuthController extends PuterController {
                 email_confirmed: user.email_confirmed,
                 requires_email_confirmation: user.requires_email_confirmation,
                 is_temp: (user.password === null && user.email === null),
+                taskbar_items,
                 ...(extras.referral_code ? { referral_code: extras.referral_code } : {}),
             },
         });

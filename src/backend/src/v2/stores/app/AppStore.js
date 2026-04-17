@@ -12,6 +12,8 @@ import { PuterStore } from '../types';
 
 const CACHE_KEY_PREFIX = 'apps';
 const CACHE_TTL_SECONDS = 5 * 60;
+const FILETYPE_CACHE_KEY_PREFIX = 'apps:by-filetype';
+const FILETYPE_CACHE_TTL_SECONDS = 60;
 const APP_ID_PROPERTIES = ['id', 'uid', 'name'];
 
 // Columns that may not be set through `create` / `update` from user input.
@@ -174,13 +176,39 @@ export class AppStore extends PuterStore {
     }
 
     async getAppsByFiletype (extension) {
+        // Cache-on-read replaces v1 RefreshAssociationsService's 30s sweep:
+        // first request after a miss pays the join, subsequent reads inside
+        // the TTL window hit redis. `setFiletypeAssociations` invalidates
+        // the affected extension explicitly so changes show up immediately.
+        const cacheKey = `${FILETYPE_CACHE_KEY_PREFIX}:${extension}`;
+        try {
+            const cached = await this.clients.redis.get(cacheKey);
+            if ( cached ) {
+                const parsed = JSON.parse(cached);
+                if ( Array.isArray(parsed) ) return parsed;
+            }
+        } catch {
+            // Fall through to DB on any cache failure.
+        }
+
         const rows = await this.clients.db.read(
             `SELECT a.* FROM \`apps\` a
              INNER JOIN \`app_filetype_association\` fa ON fa.\`app_id\` = a.\`id\`
              WHERE fa.\`type\` = ?`,
             [extension],
         );
-        return rows.map(r => this.#normalizeRow(r));
+        const apps = rows.map(r => this.#normalizeRow(r));
+
+        this.clients.redis.set(
+            cacheKey,
+            JSON.stringify(apps),
+            'EX',
+            FILETYPE_CACHE_TTL_SECONDS,
+        ).catch(() => {
+            // Best-effort cache write.
+        });
+
+        return apps;
     }
 
     async getRecentAppOpens (userId, { limit = 10 } = {}) {
@@ -196,17 +224,29 @@ export class AppStore extends PuterStore {
     }
 
     async setFiletypeAssociations (appId, types) {
-        // Replace-all semantics
+        // Replace-all semantics. Capture the previous extension set so we
+        // can drop their cached app lists in addition to the new ones.
+        const previous = await this.getFiletypeAssociations(appId);
         await this.clients.db.write(
             'DELETE FROM `app_filetype_association` WHERE `app_id` = ?',
             [appId],
         );
-        if ( !Array.isArray(types) || types.length === 0 ) return;
-        for ( const type of types ) {
-            await this.clients.db.write(
-                'INSERT INTO `app_filetype_association` (`app_id`, `type`) VALUES (?, ?)',
-                [appId, type],
-            );
+        if ( Array.isArray(types) && types.length > 0 ) {
+            for ( const type of types ) {
+                await this.clients.db.write(
+                    'INSERT INTO `app_filetype_association` (`app_id`, `type`) VALUES (?, ?)',
+                    [appId, type],
+                );
+            }
+        }
+
+        const affected = new Set([...previous, ...(types ?? [])]);
+        if ( affected.size === 0 ) return;
+        const keys = [...affected].map(t => `${FILETYPE_CACHE_KEY_PREFIX}:${t}`);
+        try {
+            await this.clients.redis.del(...keys);
+        } catch {
+            // Best-effort invalidation.
         }
     }
 

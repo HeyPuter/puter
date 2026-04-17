@@ -71,6 +71,8 @@ export class AppDriver extends PuterDriver {
         const app = await this.appStore.create(fields);
         if ( filetypes ) await this.appStore.setFiletypeAssociations(app.id, filetypes);
 
+        this.#emitAppChanged({ app, action: 'created' });
+
         return this.#toClient(app, actor);
     }
 
@@ -134,6 +136,11 @@ export class AppDriver extends PuterDriver {
             await this.appStore.setFiletypeAssociations(app.id, filetypes);
         }
 
+        this.#emitAppChanged({ app: updated, old_app: app, action: 'updated' });
+        if ( fields.name && fields.name !== app.name ) {
+            this.#emitAppRename({ app: updated, old_name: app.name, new_name: fields.name });
+        }
+
         return this.#toClient(updated, actor);
     }
 
@@ -156,7 +163,39 @@ export class AppDriver extends PuterDriver {
 
         await this.#checkWriteAccess(app, actor);
         await this.appStore.delete(app.id);
+
+        this.#emitAppChanged({ app: null, old_app: app, action: 'deleted' });
+
         return { success: true, uid: app.uid };
+    }
+
+    // ── Event emission ───────────────────────────────────────────────
+    //
+    // Consumers (AppIconService, future cf-file-cache port, billing
+    // event handlers) key off `app_uid`; the full `app` / `old_app`
+    // payload lets cache invalidators compute exact origins.
+
+    #emitAppChanged ({ app, old_app, action }) {
+        const app_uid = app?.uid ?? old_app?.uid;
+        if ( ! app_uid ) return;
+        try {
+            this.clients.event.emit('app.changed', { app_uid, app, old_app, action }, {});
+        } catch {
+            // Non-critical.
+        }
+    }
+
+    #emitAppRename ({ app, old_name, new_name }) {
+        try {
+            this.clients.event.emit('app.rename', {
+                app_uid: app.uid,
+                old_name,
+                new_name,
+                app,
+            }, {});
+        } catch {
+            // Non-critical.
+        }
     }
 
     // ── Public helpers (used by AppController) ──────────────────────

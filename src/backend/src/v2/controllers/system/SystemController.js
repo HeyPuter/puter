@@ -7,8 +7,8 @@ import { PuterController } from '../types.js';
  * These are all low-risk, authenticated or not, and mostly stateless.
  */
 export class SystemController extends PuterController {
-    constructor (config, clients, stores, services) {
-        super(config, clients, stores, services);
+    constructor (config, clients, stores, services, drivers) {
+        super(config, clients, stores, services, drivers);
     }
 
     registerRoutes (
@@ -92,11 +92,24 @@ export class SystemController extends PuterController {
         });
 
         // ── GET /lsmod ──────────────────────────────────────────────
+        // Enumerates driver interfaces and their implementors. v1 also
+        // exposed service traits; v2 doesn't carry a trait system, so the
+        // payload is driver-only.
 
         router.get('/lsmod', { subdomain: 'api', requireAuth: true }, (_req, res) => {
-            // In v2 the driver registry lives in DriverController.
-            // This endpoint returns a simplified view.
-            res.json({ info: 'Use /drivers/list-interfaces for driver details' });
+            const interfaces = {};
+            for ( const [key, driver] of Object.entries(this.drivers) ) {
+                const ifaceName = driver?.driverInterface;
+                if ( ! ifaceName ) continue;
+                const driverName = driver.driverName ?? key;
+                if ( ! interfaces[ifaceName] ) {
+                    interfaces[ifaceName] = { implementors: {} };
+                }
+                interfaces[ifaceName].implementors[driverName] = {
+                    isDefault: Boolean(driver.isDefault),
+                };
+            }
+            res.json({ interfaces });
         });
     }
 
