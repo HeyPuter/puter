@@ -18,7 +18,7 @@
  */
 
 import path from '../lib/path.js';
-import UIWindowClaimReferral from './UIWindowClaimReferral.js';
+
 import UIContextMenu from './UIContextMenu.js';
 import UIItem from './UIItem.js';
 import UIAlert from './UIAlert.js';
@@ -29,7 +29,7 @@ import UIWindowMyWebsites from './UIWindowMyWebsites.js';
 import UIWindowFeedback from './UIWindowFeedback.js';
 import UIWindowLogin from './UIWindowLogin.js';
 import UIWindowQR from './UIWindowQR.js';
-import UIWindowRefer from './UIWindowRefer.js';
+
 import UIWindowProgress from './UIWindowProgress.js';
 import UITaskbar from './UITaskbar.js';
 import new_context_menu_item from '../helpers/new_context_menu_item.js';
@@ -1244,11 +1244,6 @@ async function UIDesktop (options) {
     // 'Show Desktop'
     ht += `<a href="/" class="show-desktop-btn toolbar-btn antialiased hidden" target="_blank" title="${i18n('desktop_show_desktop')}">${i18n('desktop_show_desktop')} <img src="${window.icons['launch-white.svg']}" style="width: 10px; height: 10px; margin-left: 5px;"></a>`;
 
-    // refer
-    if ( window.user.referral_code ) {
-        ht += `<div class="toolbar-btn refer-btn" title="${i18n('toolbar.refer')}" style="background-image:url(${window.icons['gift.svg']});"></div>`;
-    }
-
     // github
     ht += `<a href="https://github.com/HeyPuter/puter" target="_blank" class="toolbar-btn" title="${i18n('toolbar.github')}" style="background-image:url(${window.icons['logo-github-white.svg']});"></a>`;
 
@@ -1457,21 +1452,6 @@ async function UIDesktop (options) {
     }
     display_ct();
     setInterval(display_ct, 1000);
-
-    // show referral notice window
-    if ( window.show_referral_notice && !window.user.email_confirmed ) {
-        puter.kv.get('shown_referral_notice').then(async (val) => {
-            if ( !val || val === 'false' || val === false ) {
-                setTimeout(() => {
-                    UIWindowClaimReferral();
-                }, 1000);
-                puter.kv.set({
-                    key: 'shown_referral_notice',
-                    value: true,
-                });
-            }
-        });
-    }
 
     window.hide_toolbar = (animate = true) => {
         // Always show toolbar on mobile and tablet devices
@@ -2386,10 +2366,6 @@ $(document).on('click', '.user-options-create-account-btn', async function (e) {
         send_confirmation_code: false,
         default_username: window.user.username,
     });
-});
-
-$(document).on('click', '.refer-btn', async function (e) {
-    UIWindowRefer();
 });
 
 $(document).on('click', '.start-app', async function (e) {

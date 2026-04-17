@@ -5417,13 +5417,6 @@ html.dark-mode .usage-table-show-less:hover {
     max-width: calc(100% - 30px);
 }
 
-.device-phone .window.window-refer-friend {
-    left: 50% !important;
-    transform: translate(-50%) !important;
-    height: initial !important;
-    max-width: calc(100% - 30px);
-}
-
 .device-phone .window.window-task-manager {
     height: initial !important;
 }
@@ -5682,15 +5675,7 @@ html.dark-mode .usage-table-show-less:hover {
     visibility: hidden;
 }
 
-.refer-friend-c2a {
-    text-align: center;
-    font-size: 16px;
-    padding: 20px;
-    font-weight: 400;
-    margin: -10px 10px 20px 10px;
-    -webkit-font-smoothing: antialiased;
-    color: #5f626d;
-}
+
 .progress-report{
     font-size:15px; 
     overflow: hidden; 
