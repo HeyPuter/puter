@@ -1,7 +1,7 @@
+import { Context } from "@heyputer/backend/src/core";
+import { extension } from "@heyputer/backend/src/extensions";
 import TimeAgo from 'javascript-time-ago';
 import localeEn from 'javascript-time-ago/locale/en';
-import { extension } from '../extensions.js';
-import { Context } from '../core/context';
 import { getTaskbarItems } from './taskbarItems.js';
 
 const stores   = extension.import('store');

@@ -1,4 +1,4 @@
-import { extension } from '.';
+import { extension } from "@heyputer/backend/src/extensions";
 
 const page = `
 <!doctype html>

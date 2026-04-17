@@ -1,8 +1,0 @@
-{
-    "name": "@heyputer/extension-whoami",
-    "main": "main.js",
-    "type": "module",
-    "dependencies": {
-        "javascript-time-ago": "^2.5.12"
-    }
-}

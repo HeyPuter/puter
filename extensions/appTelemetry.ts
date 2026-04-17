@@ -1,6 +1,7 @@
-import { extension } from '.';
-import { HttpError } from '../core/http/HttpError';
-import { Context } from '../core/context';
+import { Context } from "@heyputer/backend/src/core";
+import { HttpError } from "@heyputer/backend/src/core/http";
+import { extension } from "@heyputer/backend/src/extensions";
+
 
 const clients  = extension.import('client');
 const stores   = extension.import('store');

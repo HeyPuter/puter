@@ -5,7 +5,7 @@
  * Used by the whoami extension.
  */
 
-import { extension } from '../extensions.js';
+import { extension } from "@heyputer/backend/src/extensions";
 
 const stores  = extension.import('store');
 const clients = extension.import('client');

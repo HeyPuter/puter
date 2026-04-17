@@ -1,6 +1,6 @@
+import { extension } from "@heyputer/backend/src/extensions";
 import fs from 'fs/promises';
 import os from 'os';
-import { extension } from '.';
 
 extension.get('/serverInfo', { subdomain: 'api', adminOnly: true }, async (_req, res) => {
     const osData = {
