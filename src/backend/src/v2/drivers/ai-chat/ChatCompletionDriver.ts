@@ -1,4 +1,5 @@
 import { PassThrough } from 'node:stream';
+import crypto from 'node:crypto';
 import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import type { DriverStreamResult } from '../meta.js';
@@ -90,12 +91,18 @@ export class ChatCompletionDriver extends PuterDriver {
             normalize_tools_object(args.tools);
         }
 
+        // Correlation id threaded through every downstream event so
+        // listeners (prompt_block, prodMeteringAndBilling, …) can stitch
+        // validate → complete → cost-calculated rows together.
+        const completionId = crypto.randomUUID();
+
         // ── Pre-completion validation gate ───────────────────────────
         // Extensions (e.g. prompt_block) listen on `ai.prompt.validate`
         // and set `event.allow = false` to block the prompt. v1 fell
         // back to test-mode; v2 throws so the client gets a clear 403.
         const validateEvent: Record<string, unknown> = {
             actor,
+            completionId,
             allow: true,
             intended_service: intendedProvider,
             parameters: args,
@@ -153,6 +160,8 @@ export class ChatCompletionDriver extends PuterDriver {
             throw new HttpError(502, 'All providers failed', { fields: { attempts } });
         }
 
+        const username = actor.user?.username;
+
         // Streaming result — create a PassThrough, kick off the provider's
         // stream populator, and return a DriverStreamResult so the route
         // handler pipes it to the HTTP response as chunked NDJSON.
@@ -161,6 +170,34 @@ export class ChatCompletionDriver extends PuterDriver {
             const chatStream = new AIChatStream({ stream: passthrough });
             const init = res.init_chat_stream;
             const cleanup = res.finally_fn;
+
+            // Intercept `chatStream.end(usage)` so we can fire the same
+            // complete + cost-calculated events the non-streaming branch
+            // emits. Providers always terminate streams via `.end(usage)`;
+            // if they skip it, we just lose the cost event (no worse than
+            // not emitting).
+            const originalEnd = chatStream.end.bind(chatStream);
+            chatStream.end = (usage?: Record<string, number>) => {
+                this.clients.event.emit('ai.prompt.complete', {
+                    username,
+                    completionId,
+                    intended_service: intendedProvider,
+                    parameters: args,
+                    result: { usage, stream: true },
+                    model_used: model.id,
+                    service_used: model.provider,
+                }, {});
+                if ( usage ) {
+                    this.#emitCostCalculated({
+                        completionId,
+                        username,
+                        usage,
+                        model,
+                        intendedProvider,
+                    });
+                }
+                return originalEnd(usage);
+            };
 
             // Fire-and-forget — the stream writes happen async while the
             // response is being piped to the client.
@@ -188,12 +225,12 @@ export class ChatCompletionDriver extends PuterDriver {
         }
 
         // ── Post-completion audit event ──────────────────────────────
-        // Only for non-streaming results (streaming returns early above).
-        // Extensions like prompt_block / prodMeteringAndBilling listen
-        // for this to log completions, count tokens, etc.
-        const username = actor.user?.username;
+        // Only for non-streaming results (streaming emits from the
+        // `chatStream.end` wrapper above). Extensions like prompt_block /
+        // prodMeteringAndBilling listen for this to log completions.
         this.clients.event.emit('ai.prompt.complete', {
             username,
+            completionId,
             intended_service: intendedProvider,
             parameters: args,
             result: res,
@@ -201,11 +238,66 @@ export class ChatCompletionDriver extends PuterDriver {
             service_used: model.provider,
         }, {});
 
+        if ( 'usage' in res && res.usage ) {
+            this.#emitCostCalculated({
+                completionId,
+                username,
+                usage: res.usage,
+                model,
+                intendedProvider,
+            });
+        }
+
         if ( args.response?.normalize && 'message' in res && res.message ) {
             return { ...res, message: normalize_single_message(res.message), normalized: true };
         }
 
         return res;
+    }
+
+    // Compute per-token cost in microcents using the model's cost map,
+    // then emit `ai.prompt.cost-calculated` for listeners that persist
+    // billing/abuse rows keyed on the completion id.
+    #emitCostCalculated (params: {
+        completionId: string;
+        username?: string;
+        usage: Record<string, number>;
+        model: IChatModel;
+        intendedProvider: string;
+    }) {
+        const { completionId, username, usage, model, intendedProvider } = params;
+
+        const inputKey = (model.input_cost_key as string | undefined) ?? 'input_tokens';
+        const outputKey = (model.output_cost_key as string | undefined) ?? 'output_tokens';
+        const inputCostPer = Number(model.costs?.[inputKey] ?? 0);
+        const outputCostPer = Number(model.costs?.[outputKey] ?? 0);
+        const inputTokens = Number(usage[inputKey] ?? usage.prompt_tokens ?? usage.input_tokens ?? 0);
+        const outputTokens = Number(usage[outputKey] ?? usage.completion_tokens ?? usage.output_tokens ?? 0);
+        const inputUcents = Math.round(inputTokens * inputCostPer);
+        const outputUcents = Math.round(outputTokens * outputCostPer);
+
+        this.clients.event.emit('ai.prompt.cost-calculated', {
+            completionId,
+            username,
+            usage,
+            input_tokens: inputTokens,
+            output_tokens: outputTokens,
+            input_ucents: inputUcents,
+            output_ucents: outputUcents,
+            total_ucents: inputUcents + outputUcents,
+            costs_currency: model.costs_currency,
+            model_used: model.id,
+            service_used: model.provider,
+            intended_service: intendedProvider,
+            model_details: {
+                id: model.id,
+                provider: model.provider,
+                input_cost_key: inputKey,
+                output_cost_key: outputKey,
+                costs: model.costs,
+                costs_currency: model.costs_currency,
+            },
+        }, {});
     }
 
     // ── Provider registration ───────────────────────────────────────

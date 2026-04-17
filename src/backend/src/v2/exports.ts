@@ -1,10 +1,9 @@
-import type { IConfig } from '../config';
 import type { IPuterClientRegistry } from './clients/types';
 import type { IPuterControllerRegistry } from './controllers/types';
 import type { IPuterDriverRegistry } from './drivers/types';
 import type { IPuterServiceRegistry } from './services/types';
 import type { IPuterStoreRegistry } from './stores/types';
-import type { LayerInstances } from './types';
+import type { IConfig, LayerInstances } from './types';
 
 export const configContainer: IConfig = {} as IConfig;
 

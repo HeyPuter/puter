@@ -30,6 +30,12 @@ export class DefaultUserService extends PuterService {
         if ( ! user ) {
             tmpPassword = crypto.randomBytes(4).toString('hex');
             user = await this.#createAdminUser(tmpPassword);
+            // AppIconService is registered before us, so its own onServerStart
+            // bailed on its first-boot bootstrap (admin didn't exist yet).
+            // Poke it here so the `/system/app_icons/` dir + subdomain exist
+            // by the time the first icon arrives — v1 relied on a
+            // `user.system-user-ready` event for this; v2 does it directly.
+            await this.services.appIcon.ensureIconsDirectory();
         } else {
             const metadata = (user.metadata ?? {}) as Record<string, unknown>;
             const stashed = metadata.tmp_password;

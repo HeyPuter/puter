@@ -143,7 +143,6 @@ const hardcoded_user_group_permissions = {
             'driver': {},
             'service': {},
             'feature': {},
-            'kernel-info': {},
             'local-terminal:access': {},
         },
         'b7220104-7905-4985-b996-649fdcdb3c8f': {

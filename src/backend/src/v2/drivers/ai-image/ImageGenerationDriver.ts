@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { PuterDriver } from '../types.js';
@@ -78,6 +79,19 @@ export class ImageGenerationDriver extends PuterDriver {
         if ( ! provider ) {
             throw new HttpError(500, `No provider found for model ${model.id}`);
         }
+
+        // Audit log for abuse / billing. Fired before the upstream call
+        // so a failed generate still shows up in the log (prompt_block
+        // uses this to track user-by-user image prompts).
+        const completionId = crypto.randomUUID();
+        this.clients.event.emit('ai.log.image', {
+            actor,
+            completionId,
+            parameters: args,
+            intended_service: model.id,
+            model_used: model.id,
+            service_used: model.provider,
+        }, {});
 
         return provider.generate({ ...args, model: model.id, provider: model.provider });
     }

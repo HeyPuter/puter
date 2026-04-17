@@ -41,7 +41,7 @@ export class AppIconService extends PuterService {
             console.warn('[app-icon] sharp not available — icon resizing disabled');
         }
 
-        this.#dirReady = this.#ensureIconsDirectoryAndSubdomain();
+        this.#dirReady = this.ensureIconsDirectory();
 
         this.clients.event.on('app.new-icon', async (_key: string, data: unknown) => {
             try {
@@ -78,7 +78,14 @@ export class AppIconService extends PuterService {
 
     // ── Bootstrap ───────────────────────────────────────────────────
 
-    async #ensureIconsDirectoryAndSubdomain (): Promise<void> {
+    /**
+     * Public so `DefaultUserService` can call it immediately after it
+     * creates the admin user on first boot — otherwise we'd lose the
+     * race (AppIconService is registered BEFORE DefaultUserService and
+     * its own `onServerStart` runs when no admin exists yet). Idempotent:
+     * safe to call repeatedly.
+     */
+    async ensureIconsDirectory (): Promise<void> {
         // The admin user owns the icons directory. DefaultUserService
         // creates the admin on first boot; if it doesn't exist yet we
         // bail and try again the next time an icon is processed.
@@ -129,7 +136,7 @@ export class AppIconService extends PuterService {
         if ( ! this.#ownerUserId ) {
             // Retry the bootstrap — admin may have been created in the
             // meantime (e.g. first-boot race).
-            await this.#ensureIconsDirectoryAndSubdomain();
+            await this.ensureIconsDirectory();
             if ( ! this.#ownerUserId ) return;
         }
         if ( ! this.#sharp ) return; // can't resize without sharp
