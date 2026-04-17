@@ -1,0 +1,2 @@
+ALTER TABLE `sessions` ADD COLUMN "created_at" INTEGER DEFAULT 0;
+ALTER TABLE `sessions` ADD COLUMN "last_activity" INTEGER DEFAULT 0;

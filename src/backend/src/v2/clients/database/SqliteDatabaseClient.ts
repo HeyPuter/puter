@@ -7,11 +7,7 @@ import type { IConfig } from '../../types';
 
 const __dirname_ = dirname(fileURLToPath(import.meta.url));
 
-/**
- * Path to the migration files shipped with the v1 SQLite setup.
- * These live in the existing `services/database/sqlite_setup/` directory.
- */
-const MIGRATIONS_DIR = resolve(__dirname_, '../../../services/database/sqlite_setup');
+const MIGRATIONS_DIR = resolve(__dirname_, './migrations');
 
 /**
  * Ordered list of [threshold_version, files[]] pairs.

@@ -1,11 +1,10 @@
-import { TextractClient, AnalyzeDocumentCommand, InvalidS3ObjectException } from '@aws-sdk/client-textract';
-import { HttpError } from '../../core/http/HttpError.js';
+import { AnalyzeDocumentCommand, InvalidS3ObjectException, TextractClient } from '@aws-sdk/client-textract';
 import { Context } from '../../core/context.js';
-import { PuterDriver } from '../types.js';
-import type { MeteringService } from '../../services/metering/MeteringService.js';
-import type { FSEntryService } from '../../services/fs/FSEntryService.js';
-import { loadFileInput, type LoadedFile } from '../util/fileInput.js';
+import { HttpError } from '../../core/http/HttpError.js';
 import { mimeFromName } from '../../util/fileSigning.js';
+import { PuterDriver } from '../types.js';
+import { loadFileInput, type LoadedFile } from '../util/fileInput.js';
+import { Actor } from '../../core/actor.js';
 
 /**
  * Driver implementing `puter-ocr` — document OCR. Two providers:
@@ -14,7 +13,6 @@ import { mimeFromName } from '../../util/fileSigning.js';
  *
  * Request contract matches v1 so existing puter-js clients transparently work.
  */
-
 interface RecognizeArgs {
     source?: unknown;
     file?: unknown;
@@ -77,7 +75,7 @@ export class OCRDriver extends PuterDriver {
         if ( mistralKey ) {
             try {
                 // Lazy import so we don't pay the cost when Mistral is unused.
-                // eslint-disable-next-line @typescript-eslint/no-require-imports
+
                 const { Mistral } = require('@mistralai/mistralai');
                 this.#mistral = new Mistral({ apiKey: mistralKey }) as unknown as MistralOcrClient;
             } catch (e) {
@@ -135,9 +133,9 @@ export class OCRDriver extends PuterDriver {
         return client;
     }
 
-    async #textractRecognize (loaded: LoadedFile, actor: unknown) {
+    async #textractRecognize (loaded: LoadedFile, actor: Actor) {
         const usageType = 'aws-textract:detect-document-text:page';
-        const hasCredits = await this.services.metering.hasEnoughCreditsFor(actor, usageType, 1);
+        const hasCredits = await this.services.metering.hasEnoughCreditsFor(actor!, usageType, 1);
         if ( ! hasCredits ) throw new HttpError(402, 'Insufficient credits');
 
         // Prefer S3 direct source if the file is FS-backed; fall back to raw bytes.
@@ -175,7 +173,9 @@ export class OCRDriver extends PuterDriver {
         const blocks: Array<{ type: string; confidence: number; text: string }> = [];
         let pageCount = 0;
         for ( const block of (response.Blocks ?? []) as TextractBlock[] ) {
-            if ( block.BlockType === 'PAGE' ) { pageCount += 1; continue; }
+            if ( block.BlockType === 'PAGE' ) {
+                pageCount += 1; continue;
+            }
             if ( ['CELL', 'TABLE', 'MERGED_CELL', 'LAYOUT_FIGURE', 'LAYOUT_TEXT'].includes(block.BlockType ?? '') ) continue;
             blocks.push({
                 type: `text/textract:${block.BlockType ?? 'UNKNOWN'}`,
@@ -190,7 +190,7 @@ export class OCRDriver extends PuterDriver {
 
     // ── Mistral OCR ──────────────────────────────────────────────────
 
-    async #mistralRecognize (loaded: LoadedFile, args: RecognizeArgs, actor: unknown) {
+    async #mistralRecognize (loaded: LoadedFile, args: RecognizeArgs, actor: Actor) {
         const model = args.model ?? 'mistral-ocr-latest';
         const chunk = this.#mistralBuildChunk(loaded);
         const payload: Record<string, unknown> = { model, document: chunk };
@@ -233,7 +233,7 @@ export class OCRDriver extends PuterDriver {
         return { model: response?.model, pages, usage_info: response?.usageInfo, blocks, text };
     }
 
-    #recordMistralUsage (response: MistralOcrResponse, actor: unknown, annotations: boolean) {
+    #recordMistralUsage (response: MistralOcrResponse, actor: Actor, annotations: boolean) {
         try {
             const pagesProcessed = response?.usageInfo?.pagesProcessed
                 ?? (Array.isArray(response?.pages) ? response.pages.length : 1);

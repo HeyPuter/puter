@@ -1,0 +1,1 @@
+ALTER TABLE apps ADD COLUMN "background" BOOLEAN DEFAULT 0;

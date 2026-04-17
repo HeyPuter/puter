@@ -5,6 +5,7 @@ import { AuthService } from './auth/AuthService';
 import { BroadcastService } from './broadcast/BroadcastService';
 import { NotificationService } from './notification/NotificationService';
 import { AppIconService } from './appIcon/AppIconService';
+import { DefaultUserService } from './selfhosted/DefaultUserService';
 import { OIDCService } from './auth/OIDCService';
 import { TokenService } from './auth/TokenService';
 import { FSEntryService } from './fs/FSEntryService';
@@ -35,4 +36,5 @@ export const puterServices = {
     broadcast: BroadcastService,
     oidc: OIDCService,
     appIcon: AppIconService,
+    defaultUser: DefaultUserService,
 } satisfies IPuterServiceRegistry;
