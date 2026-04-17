@@ -17,7 +17,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import UIWindowShare from './UIWindowShare.js';
 import UIWindowPublishWebsite from './UIWindowPublishWebsite.js';
 import UIWindowItemProperties from './UIWindowItemProperties.js';
 import UIWindowSaveAccount from './UIWindowSaveAccount.js';
@@ -127,7 +126,6 @@ async function UIItem (options) {
     options.visible = options.visible ?? 'visible'; // one of 'visible', 'revealed', 'hidden'
     options.is_dir = options.is_dir ?? false;
     options.is_selected = options.is_selected ?? false;
-    options.is_shared = options.is_shared ?? false;
     options.is_shortcut = options.is_shortcut ?? 0;
     options.is_trash = options.is_trash ?? false;
     options.metadata = options.metadata ?? '';
@@ -136,7 +134,6 @@ async function UIItem (options) {
     options.shortcut_to_path = options.shortcut_to_path ?? '';
     options.immutable = (options.immutable === false || options.immutable === 0 || options.immutable === undefined ? 0 : 1);
     options.sort_container_after_append = (options.sort_container_after_append !== undefined ? options.sort_container_after_append : false);
-    const is_shared_with_me = (options.path !== `/${window.user.username}` && !options.path.startsWith(`/${window.user.username}/`));
     const workers = Array.isArray(options.workers) ? options.workers : [];
     const is_worker = !options.is_dir && workers.length > 0;
     const worker_url = is_worker ? workers[0].address : '';
@@ -221,22 +218,6 @@ async function UIItem (options) {
                         data-item-id="${item_id}"
                     >`;
 
-    // shared badge
-    h += `<img  class="item-badge item-badge-has-permission" 
-                        style="display: ${ is_shared_with_me ? 'block' : 'none'};
-                            background-color: #ffffff;
-                            padding: 2px;" src="${html_encode(window.icons['shared.svg'])}" 
-                        data-item-id="${item_id}"
-                        title="${i18n('item_shared_with_you')}">`;
-    // owner-shared badge
-    h += `<img  class="item-badge item-is-shared" 
-                        style="background-color: #ffffff; padding: 2px; ${!is_shared_with_me && options.is_shared ? 'display:block;' : ''}" 
-                        src="${html_encode(window.icons['owner-shared.svg'])}" 
-                        data-item-id="${item_id}"
-                        data-item-uid="${options.uid}"
-                        data-item-path="${html_encode(options.path)}"
-                        title="${i18n('item_shared_by_you')}"
-                    >`;
     // shortcut badge
     h += `<img  class="item-badge item-shortcut" 
                         style="background-color: #ffffff; padding: 2px; ${options.is_shortcut !== 0 ? 'display:block;' : ''}" 
@@ -601,12 +582,14 @@ async function UIItem (options) {
                 // If alt key is down, create shortcut items
                 else if ( event.altKey && window.feature_flags.create_shortcut ) {
                     items_to_move.forEach((item_to_move) => {
-                        window.create_shortcut(path.basename($(item_to_move).attr('data-path')),
-                                        $(item_to_move).attr('data-is_dir') === '1',
-                                        options.is_dir ? $(el_item).attr('data-path') : path.dirname($(el_item).attr('data-path')),
-                                        null,
-                                        $(item_to_move).attr('data-shortcut_to') === '' ? $(item_to_move).attr('data-uid') : $(item_to_move).attr('data-shortcut_to'),
-                                        $(item_to_move).attr('data-shortcut_to_path') === '' ? $(item_to_move).attr('data-path') : $(item_to_move).attr('data-shortcut_to_path'));
+                        window.create_shortcut(
+                            path.basename($(item_to_move).attr('data-path')),
+                            $(item_to_move).attr('data-is_dir') === '1',
+                            options.is_dir ? $(el_item).attr('data-path') : path.dirname($(el_item).attr('data-path')),
+                            null,
+                            $(item_to_move).attr('data-shortcut_to') === '' ? $(item_to_move).attr('data-uid') : $(item_to_move).attr('data-shortcut_to'),
+                            $(item_to_move).attr('data-shortcut_to_path') === '' ? $(item_to_move).attr('data-path') : $(item_to_move).attr('data-shortcut_to_path'),
+                        );
                     });
                 }
                 // Otherwise, move items
@@ -964,34 +947,6 @@ async function UIItem (options) {
                 menu_items.push('-');
             }
             if ( ! are_trashed ) {
-                menu_items.push({
-                    html: i18n('Share With…'),
-                    onClick: async function () {
-                        if ( window.user.is_temp &&
-                            !await UIWindowSaveAccount({
-                                send_confirmation_code: true,
-                                message: 'Please create an account to proceed.',
-                                window_options: {
-                                    backdrop: true,
-                                    close_on_backdrop_click: false,
-                                },
-                            }) )
-                        {
-                            return;
-                        }
-                        else if ( !window.user.email_confirmed && !await UIWindowEmailConfirmationRequired() )
-                        {
-                            return;
-                        }
-
-                        let items = [];
-                        $selected_items.each(function () {
-                            const ell = this;
-                            items.push({ uid: $(ell).attr('data-uid'), path: $(ell).attr('data-path'), icon: $(ell).find('.item-icon img').attr('src'), name: $(ell).attr('data-name') });
-                        });
-                        UIWindowShare(items);
-                    },
-                });
                 // -------------------------------------------
                 // Open in AI
                 // -------------------------------------------
@@ -1146,7 +1101,7 @@ async function UIItem (options) {
             if ( !are_trashed && window.feature_flags.create_shortcut ) {
                 menu_items.push({
                     html: i18n('create_shortcut'),
-                    html: is_shared_with_me ? i18n('create_desktop_shortcut_s') : i18n('create_shortcut_s'),
+                    html: i18n('create_shortcut_s'),
                     onClick: async function () {
                         $selected_items.each(function () {
                             let base_dir = path.dirname($(this).attr('data-path'));
@@ -1154,14 +1109,15 @@ async function UIItem (options) {
                             if ( $(this).attr('data-path') && $(this).closest('.item-container').attr('data-path') === window.desktop_path ) {
                                 base_dir = window.desktop_path;
                             }
-                            if ( is_shared_with_me ) base_dir = window.desktop_path;
                             // create shortcut
-                            window.create_shortcut(path.basename($(this).attr('data-path')),
-                                            $(this).attr('data-is_dir') === '1',
-                                            base_dir,
-                                            $(this).closest('.item-container'),
-                                            $(this).attr('data-shortcut_to') === '' ? $(this).attr('data-uid') : $(this).attr('data-shortcut_to'),
-                                            $(this).attr('data-shortcut_to_path') === '' ? $(this).attr('data-path') : $(this).attr('data-shortcut_to_path'));
+                            window.create_shortcut(
+                                path.basename($(this).attr('data-path')),
+                                $(this).attr('data-is_dir') === '1',
+                                base_dir,
+                                $(this).closest('.item-container'),
+                                $(this).attr('data-shortcut_to') === '' ? $(this).attr('data-uid') : $(this).attr('data-shortcut_to'),
+                                $(this).attr('data-shortcut_to_path') === '' ? $(this).attr('data-path') : $(this).attr('data-shortcut_to_path'),
+                            );
                         });
                     },
                 });
@@ -1310,35 +1266,9 @@ async function UIItem (options) {
                 }
             }
             // -------------------------------------------
-            // Share With…
+            // Open in AI
             // -------------------------------------------
             if ( !is_trashed && !is_trash ) {
-                menu_items.push({
-                    html: i18n('Share With…'),
-                    onClick: async function () {
-                        if ( window.user.is_temp &&
-                            !await UIWindowSaveAccount({
-                                send_confirmation_code: true,
-                                message: 'Please create an account to proceed.',
-                                window_options: {
-                                    backdrop: true,
-                                    close_on_backdrop_click: false,
-                                },
-                            }) )
-                        {
-                            return;
-                        }
-                        else if ( !window.user.email_confirmed && !await UIWindowEmailConfirmationRequired() )
-                        {
-                            return;
-                        }
-
-                        UIWindowShare([{ uid: $(el_item).attr('data-uid'), path: $(el_item).attr('data-path'), name: $(el_item).attr('data-name'), icon: $(el_item_icon).find('img').attr('src') }]);
-                    },
-                });
-                // -------------------------------------------
-                // Open in AI
-                // -------------------------------------------
                 menu_items.push({
                     html: i18n('open_in_ai'),
                     onClick: async function () {
@@ -1567,7 +1497,7 @@ async function UIItem (options) {
             // -------------------------------------------
             // Cut
             // -------------------------------------------
-            if ( $(el_item).attr('data-immutable') === '0' && !is_shared_with_me ) {
+            if ( $(el_item).attr('data-immutable') === '0' ) {
                 menu_items.push({
                     html: i18n('cut'),
                     onClick: function () {
@@ -1618,7 +1548,7 @@ async function UIItem (options) {
             // -------------------------------------------
             if ( !is_trashed && window.feature_flags.create_shortcut ) {
                 menu_items.push({
-                    html: is_shared_with_me ? i18n('create_desktop_shortcut') : i18n('create_shortcut'),
+                    html: i18n('create_shortcut'),
                     onClick: async function () {
                         let base_dir = path.dirname($(el_item).attr('data-path'));
                         // Trash on Desktop is a special case
@@ -1626,21 +1556,21 @@ async function UIItem (options) {
                             base_dir = window.desktop_path;
                         }
 
-                        if ( is_shared_with_me ) base_dir = window.desktop_path;
-
-                        window.create_shortcut(path.basename($(el_item).attr('data-path')),
-                                        options.is_dir,
-                                        base_dir,
-                                        options.appendTo,
-                                        options.shortcut_to === '' ? options.uid : options.shortcut_to,
-                                        options.shortcut_to_path === '' ? options.path : options.shortcut_to_path);
+                        window.create_shortcut(
+                            path.basename($(el_item).attr('data-path')),
+                            options.is_dir,
+                            base_dir,
+                            options.appendTo,
+                            options.shortcut_to === '' ? options.uid : options.shortcut_to,
+                            options.shortcut_to_path === '' ? options.path : options.shortcut_to_path,
+                        );
                     },
                 });
             }
             // -------------------------------------------
             // Delete
             // -------------------------------------------
-            if ( $(el_item).attr('data-immutable') === '0' && !is_trashed && !is_shared_with_me ) {
+            if ( $(el_item).attr('data-immutable') === '0' && !is_trashed ) {
                 menu_items.push({
                     html: i18n('delete'),
                     onClick: async function () {
@@ -1715,13 +1645,15 @@ async function UIItem (options) {
                     let top = $(el_item).position().top + $(el_item).height();
                     top = top > (window.innerHeight - (window_height + window.taskbar_height + window.toolbar_height)) ? (window.innerHeight - (window_height + window.taskbar_height + window.toolbar_height)) : top;
 
-                    UIWindowItemProperties($(el_item).attr('data-name'),
-                                    $(el_item).attr('data-path'),
-                                    $(el_item).attr('data-uid'),
-                                    left,
-                                    top,
-                                    window_width,
-                                    window_height);
+                    UIWindowItemProperties(
+                        $(el_item).attr('data-name'),
+                        $(el_item).attr('data-path'),
+                        $(el_item).attr('data-uid'),
+                        left,
+                        top,
+                        window_width,
+                        window_height,
+                    );
                 },
             });
         }

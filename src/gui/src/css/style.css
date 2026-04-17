@@ -2232,68 +2232,13 @@ label {
     text-decoration: underline;
 }
 
-.remove-permission-link, .disassociate-website-link {
+.disassociate-website-link {
     cursor: pointer;
     color: red;
 }
 
-.permission-owner-badge {
-    background-color: #9dacbd;
-}
-
-.permission-editor-badge {
-    background-color: #007cff;
-}
-
-.permission-viewer-badge {
-    background-color: #41c95d;
-}
-
-.permission-owner-badge, .permission-editor-badge, .permission-viewer-badge {
-    display: inline-block;
-    width: 45px;
-    text-align: center;
-    padding: 2px 4px;
-    border-radius: 2px;
-    color: white;
-    font-size: 12px;
-    margin-right: 10px;
-    margin-top: -2px;
-}
-
-.remove-permission-link:hover, .disassociate-website-link:hover {
+.disassociate-website-link:hover {
     text-decoration: underline;
-}
-
-.item-perm-recipient-card {
-    margin-bottom: 5px;
-    margin-top: 15px;
-    padding: 11px;
-    background-color: white;
-    border-radius: 3px;
-    border: 1px solid var(--dashboard-border);
-    color: #65707b;
-    font-size: 13px;
-}
-
-.remove-permission-icon {
-    display: none;
-    text-decoration: none !important;
-    color: rgb(184, 184, 184);
-}
-
-.remove-permission-icon:hover {
-    color: rgb(109, 109, 109);
-}
-
-.item-perm-recipient-card:hover .remove-permission-icon {
-    display: block;
-}
-
-.share-recipients {
-    max-height: 200px;
-    overflow: hidden;
-    overflow-y: scroll;
 }
 
 .ui-menu {
@@ -2333,16 +2278,6 @@ label {
     position: relative;
 }
 
-.window-give-item-access-success {
-    display: none;
-    padding: 10px;
-    margin-bottom: 20px;
-    border: 1px solid #59d959;
-    border-radius: 3px;
-    background-color: #e4f9e4;
-    position: relative;
-}
-
 .save-account-success {
     display: none;
     padding: 30px;
@@ -2351,50 +2286,6 @@ label {
     position: relative;
     color: green;
     -webkit-font-smoothing: antialiased;
-}
-
-.sharing-form {
-    padding: 30px 40px 20px;
-    border-bottom: 1px solid #ced7e1;
-}
-
-.sharing-item-name {
-    font-size: 17px;
-    margin-top: 0;
-    text-align: center;
-    margin-bottom: 40px;
-    font-weight: 400;
-    color: #303d49;
-}
-
-.sharing-already-shared {
-    font-size: 14px;
-    margin-bottom: 0px;
-    color: #303d49;
-    text-shadow: 1px 1px white;
-}
-
-.hide-sharing-success-alert {
-    position: absolute;
-    color: #8d8c8c;
-    font-size: 20px;
-    right: 15px;
-    cursor: pointer;
-}
-
-.hide-sharing-success-alert:hover {
-    color: black;
-}
-
-.access-recipient {
-    height: 40px;
-    background-color: white;
-    margin-bottom: 5px;
-    width: 100%;
-}
-
-.item-is-shared {
-    cursor: pointer;
 }
 
 .session-entry {

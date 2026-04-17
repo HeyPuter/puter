@@ -18,7 +18,7 @@
  */
 
 import UIAlert from '../UI/UIAlert.js';
-import UIWindowShare from '../UI/UIWindowShare.js';
+
 import UIWindowPublishWebsite from '../UI/UIWindowPublishWebsite.js';
 import UIWindowItemProperties from '../UI/UIWindowItemProperties.js';
 import UIWindowSaveAccount from '../UI/UIWindowSaveAccount.js';
@@ -145,8 +145,6 @@ const generate_file_context_menu = async function (options) {
     const is_worker = options.is_worker ?? false;
     const onOpen = options.onOpen;
 
-    const is_shared_with_me = (fsentry.path !== `/${window.user.username}` && !fsentry.path.startsWith(`/${window.user.username}/`));
-
     let menu_items = [];
 
     // -------------------------------------------
@@ -208,40 +206,9 @@ const generate_file_context_menu = async function (options) {
     }
 
     // -------------------------------------------
-    // Share With…
+    // Open in AI
     // -------------------------------------------
     if ( !is_trashed && !is_trash ) {
-        menu_items.push({
-            html: i18n('Share With…'),
-            onClick: async function () {
-                if ( window.user.is_temp &&
-                    !await UIWindowSaveAccount({
-                        send_confirmation_code: true,
-                        message: 'Please create an account to proceed.',
-                        window_options: {
-                            backdrop: true,
-                            close_on_backdrop_click: false,
-                        },
-                    }) ) {
-                    return;
-                }
-                else if ( !window.user.email_confirmed && !await UIWindowEmailConfirmationRequired() ) {
-                    return;
-                }
-
-                const icon = $(el_item).find('.icon img').attr('src') || $(el_item).find('img').attr('src');
-                UIWindowShare([{
-                    uid: $(el_item).attr('data-uid'),
-                    path: $(el_item).attr('data-path'),
-                    name: $(el_item).attr('data-name'),
-                    icon: icon,
-                }]);
-            },
-        });
-
-        // -------------------------------------------
-        // Open in AI
-        // -------------------------------------------
         menu_items.push({
             html: i18n('open_in_ai'),
             onClick: async function () {
@@ -482,7 +449,7 @@ const generate_file_context_menu = async function (options) {
     // -------------------------------------------
     // Cut
     // -------------------------------------------
-    if ( $(el_item).attr('data-immutable') === '0' && !is_shared_with_me ) {
+    if ( $(el_item).attr('data-immutable') === '0' ) {
         menu_items.push({
             html: i18n('cut'),
             onClick: function () {
@@ -535,15 +502,13 @@ const generate_file_context_menu = async function (options) {
     // -------------------------------------------
     if ( !is_trashed && window.feature_flags.create_shortcut ) {
         menu_items.push({
-            html: is_shared_with_me ? i18n('create_desktop_shortcut') : i18n('create_shortcut'),
+            html: i18n('create_shortcut'),
             onClick: async function () {
                 let base_dir = path.dirname($(el_item).attr('data-path'));
                 // Trash on Desktop is a special case
                 if ( $(el_item).attr('data-path') && $(el_item).closest('.item-container').attr('data-path') === window.desktop_path ) {
                     base_dir = window.desktop_path;
                 }
-
-                if ( is_shared_with_me ) base_dir = window.desktop_path;
 
                 window.create_shortcut(
                     path.basename($(el_item).attr('data-path')),
@@ -560,7 +525,7 @@ const generate_file_context_menu = async function (options) {
     // -------------------------------------------
     // Delete
     // -------------------------------------------
-    if ( $(el_item).attr('data-immutable') === '0' && !is_trashed && !is_shared_with_me ) {
+    if ( $(el_item).attr('data-immutable') === '0' && !is_trashed ) {
         menu_items.push({
             html: i18n('delete'),
             onClick: async function () {
