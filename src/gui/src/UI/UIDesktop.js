@@ -1303,13 +1303,18 @@ async function UIDesktop (options) {
     globalThis.services.emit('gui:ready');
 
     //--------------------------------------------------------
-    // Open the AI app
+    // Open the AI app (best-effort — the `ai` app isn't seeded
+    // in OSS, so swallow 404s / token failures silently here
+    // instead of surfacing a "Couldn't open" alert at boot).
     //--------------------------------------------------------
     launch_app({
         name: 'ai',
+        silent_on_failure: true,
         window_options: {
             is_panel: true,
         },
+    }).catch(err => {
+        console.debug('auto-launch of ai panel skipped:', err?.message ?? err);
     });
 
     //--------------------------------------------------------------------------------------

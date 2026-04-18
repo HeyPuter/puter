@@ -180,18 +180,24 @@ export class AppController extends PuterController {
             }
             if ( ! appUid.startsWith('app-') ) appUid = `app-${appUid}`;
 
-            // If the CDN-backed subdomain is configured, redirect there.
-            // AppIconService writes the resized PNGs into the `/system/app_icons/`
-            // directory which the `puter-app-icons` subdomain serves.
-            const redirectUrl = this.services.appIcon?.getIconUrl?.(appUid, size);
-            if ( redirectUrl ) {
-                res.set('Cache-Control', 'public, max-age=900');
-                return res.redirect(302, redirectUrl);
-            }
-
-            // Fallback path when no hosting domain is configured (dev/local).
             const app = await this.appStore.getByUid(appUid);
             const icon = app?.icon;
+
+            // If the icon has been processed into PNGs on the hosting
+            // subdomain, redirect there. AppIconService rewrites the `icon`
+            // column to a non-`data:` value after processing, so anything
+            // still sitting as a `data:` URL or bare base64 means the PNG
+            // variant doesn't exist yet — don't redirect or we'll bounce to a
+            // 404. Unknown-icon apps skip the redirect too and fall through
+            // to the default-icon branch below.
+            const isInline = typeof icon === 'string' && (icon.startsWith('data:') || !/^https?:\/\//i.test(icon));
+            if ( icon && !isInline ) {
+                const redirectUrl = this.services.appIcon?.getIconUrl?.(appUid, size);
+                if ( redirectUrl ) {
+                    res.set('Cache-Control', 'public, max-age=900');
+                    return res.redirect(302, redirectUrl);
+                }
+            }
 
             if ( ! icon ) {
                 res.set('Content-Type', 'image/png');

@@ -71,8 +71,13 @@ export class AppIconService extends PuterService {
         const host = (cfg.static_hosting_domain ?? cfg.static_hosting_domain_alt) as string | undefined;
         if ( ! host ) return null;
         const protocol = (cfg.protocol as string) ?? 'https';
+        // Externally-visible port. Mirrors what PuterHomepageService et al.
+        // do — non-80/443 deployments (local dev, reverse-proxied setups on
+        // non-standard ports) would otherwise get a hostname with no port.
+        const pubPort = cfg.pub_port as number | undefined;
+        const portSuffix = (pubPort && pubPort !== 80 && pubPort !== 443) ? `:${pubPort}` : '';
         const normalized = appUid.startsWith('app-') ? appUid : `app-${appUid}`;
-        return `${protocol}://${APP_ICONS_SUBDOMAIN}.${host}/${SIZED_ICON_FILENAME(normalized, size)}`;
+        return `${protocol}://${APP_ICONS_SUBDOMAIN}.${host}${portSuffix}/${SIZED_ICON_FILENAME(normalized, size)}`;
     }
 
     // ── Bootstrap ───────────────────────────────────────────────────
