@@ -233,7 +233,13 @@ export class S3ObjectStore extends PuterStore {
                 Key: input.objectKey,
                 ContentType: input.contentType,
                 Body: input.body,
-                ...(input.contentLength !== undefined ? { ContentLength: input.contentLength } : {}),
+                // Use the *resolved* length (input.contentLength → sizeHint →
+                // Buffer.byteLength). Without this, a Readable body whose
+                // length we know only via `sizeHint` falls into the SDK's
+                // chunked-streaming path and emits
+                // `x-amz-decoded-content-length: undefined`, which the HTTP
+                // layer rejects as an invalid header value.
+                ...(resolvedContentLength !== undefined ? { ContentLength: resolvedContentLength } : {}),
             }));
             return;
         }
