@@ -281,7 +281,7 @@ export class LegacyFSController extends PuterController {
             dedupeName: getBoolean(body, 'dedupe_name', 'change_name') ?? false,
             createMissingParents: getBoolean(body, 'create_missing_parents', 'create_missing_ancestors') ?? false,
         });
-        this.#emitGuiEvent('outer.gui.item.added', entry);
+        await this.#emitGuiEvent('outer.gui.item.added', entry);
 
         res.json(await toLegacyEntry(this.clients.event, entry));
     };
@@ -304,7 +304,7 @@ export class LegacyFSController extends PuterController {
             overwrite: getBoolean(body, 'overwrite') ?? false,
             dedupeName: getBoolean(body, 'dedupe_name', 'change_name') ?? false,
         });
-        this.#emitGuiEvent('outer.gui.item.added', copy);
+        await this.#emitGuiEvent('outer.gui.item.added', copy);
 
         // /copy returns an array (historically supported bulk copies).
         res.json([await toLegacyEntry(this.clients.event, copy)]);
@@ -327,8 +327,13 @@ export class LegacyFSController extends PuterController {
             newName: getString(body, 'new_name'),
             overwrite: getBoolean(body, 'overwrite') ?? false,
             dedupeName: getBoolean(body, 'dedupe_name', 'change_name') ?? false,
+            // Trash/restore rides on this: GUI sends
+            // `{ original_name, original_path, trashed_ts }` when moving into
+            // Trash, and `null`/`{}` when restoring. See
+            // `src/gui/src/helpers.js` → `window.move_items`.
+            newMetadata: (body.new_metadata ?? undefined) as Record<string, unknown> | null | undefined,
         });
-        this.#emitGuiEvent('outer.gui.item.moved', moved, { old_path: source.path });
+        await this.#emitGuiEvent('outer.gui.item.moved', moved, { old_path: source.path });
 
         res.json(await toLegacyEntry(this.clients.event, moved));
     };
@@ -350,7 +355,7 @@ export class LegacyFSController extends PuterController {
                     recursive: getBoolean(body, 'recursive') ?? true,
                     descendantsOnly: getBoolean(body, 'descendants_only') ?? false,
                 });
-                this.#emitGuiEvent('outer.gui.item.removed', entry);
+                await this.#emitGuiEvent('outer.gui.item.removed', entry);
                 removedEntries.push(await toLegacyEntry(this.clients.event, entry));
             }
             res.json(removedEntries);
@@ -364,7 +369,7 @@ export class LegacyFSController extends PuterController {
             recursive: getBoolean(body, 'recursive') ?? true,
             descendantsOnly: getBoolean(body, 'descendants_only') ?? false,
         });
-        this.#emitGuiEvent('outer.gui.item.removed', entry);
+        await this.#emitGuiEvent('outer.gui.item.removed', entry);
         res.json({ ok: true, uid: entry.uuid });
     };
 
@@ -380,7 +385,7 @@ export class LegacyFSController extends PuterController {
         await assertAccess(this.services.acl, this.services.fsEntry, actor, entry.path, 'write');
 
         const renamed = await this.services.fsEntry.rename(entry, newName);
-        this.#emitGuiEvent('outer.gui.item.updated', renamed);
+        await this.#emitGuiEvent('outer.gui.item.updated', renamed);
         res.json(await toLegacyEntry(this.clients.event, renamed));
     };
 
@@ -597,7 +602,7 @@ export class LegacyFSController extends PuterController {
 
             // Parse multipart and pipe the first `file` part into fsEntryService.write.
             const uploadResult = await this.#multipartWrite(req, userId, targetPath);
-            this.#emitGuiEvent('outer.gui.item.added', uploadResult.fsEntry);
+            await this.#emitGuiEvent('outer.gui.item.added', uploadResult.fsEntry);
             const signed = signEntry(uploadResult.fsEntry, signingCfg);
             res.json({ ...signed, path: uploadResult.fsEntry.path });
             return;
@@ -613,7 +618,7 @@ export class LegacyFSController extends PuterController {
                     : targetEntry.path,
                 dedupeName: true,
             });
-            this.#emitGuiEvent('outer.gui.item.added', entry);
+            await this.#emitGuiEvent('outer.gui.item.added', entry);
             res.json({ ...signEntry(entry, signingCfg), path: entry.path });
             return;
         }
@@ -621,7 +626,7 @@ export class LegacyFSController extends PuterController {
             const newName = typeof record.new_name === 'string' ? record.new_name : '';
             if ( ! newName ) throw new HttpError(400, '`new_name` required');
             const renamed = await this.services.fsEntry.rename(targetEntry, newName);
-            this.#emitGuiEvent('outer.gui.item.updated', renamed);
+            await this.#emitGuiEvent('outer.gui.item.updated', renamed);
             res.json({ ...signEntry(renamed, signingCfg), path: renamed.path });
             return;
         }
@@ -629,7 +634,7 @@ export class LegacyFSController extends PuterController {
             // Treat trash == delete (recursive). Most clients just call delete
             // directly; if a trash folder becomes important we can revisit.
             await this.services.fsEntry.remove(userId, { entry: targetEntry, recursive: true });
-            this.#emitGuiEvent('outer.gui.item.removed', targetEntry);
+            await this.#emitGuiEvent('outer.gui.item.removed', targetEntry);
             res.json({ ok: true, uid: targetEntry.uuid });
             return;
         }
@@ -645,7 +650,7 @@ export class LegacyFSController extends PuterController {
                 overwrite: getBoolean(record, 'overwrite') ?? false,
                 dedupeName: getBoolean(record, 'dedupe_name') ?? false,
             });
-            this.#emitGuiEvent(
+            await this.#emitGuiEvent(
                 operation === 'copy' ? 'outer.gui.item.added' : 'outer.gui.item.moved',
                 result,
                 operation === 'move' ? { old_path: targetEntry.path } : undefined,
@@ -821,32 +826,29 @@ export class LegacyFSController extends PuterController {
     // own emissions because the service layer deliberately doesn't emit GUI
     // events (that's a controller concern).
 
-    #emitGuiEvent (
+    async #emitGuiEvent (
         eventName: 'outer.gui.item.added' | 'outer.gui.item.updated' | 'outer.gui.item.removed' | 'outer.gui.item.moved',
         entry: import('../../stores/fs/FSEntry.js').FSEntry,
         extra?: Record<string, unknown>,
-    ): void {
+    ): Promise<void> {
         // GUI consumes snake_case fields (`user_id`, `parent_uid`, `is_dir`,
         // …) — spreading the raw FSEntry ships camelCase, which the client
         // silently ignores. Run the entry through `toLegacyEntry` first so
         // the event payload matches what /stat et al. return, then overlay
         // per-op extras (e.g. `old_path` for moves).
-        const meta = {};
-        void Promise.resolve()
-            .then(async () => {
-                const response = {
-                    ...await toLegacyEntry(this.clients.event, entry),
-                    ...extra,
-                    from_new_service: true,
-                };
-                await this.clients.event.emit(eventName, {
-                    user_id_list: [entry.userId],
-                    response,
-                }, meta);
-            })
-            .catch(() => {
-                // ignore — non-critical
-            });
+        try {
+            const response = {
+                ...await toLegacyEntry(this.clients.event, entry),
+                ...extra,
+                from_new_service: true,
+            };
+            await this.clients.event.emit(eventName, {
+                user_id_list: [entry.userId],
+                response,
+            }, {});
+        } catch {
+            // Non-critical — GUI event failure must never break the HTTP response.
+        }
     }
 
     async #resolveParentOfEntry (entry: { path: string; userId: number }) {
@@ -958,7 +960,7 @@ export class LegacyFSController extends PuterController {
                         overwrite: getBoolean(record, 'overwrite') ?? false,
                         dedupeName: getBoolean(record, 'dedupe_name') ?? false,
                     });
-                    this.#emitGuiEvent('outer.gui.item.moved', moved, { old_path: source.path });
+                    await this.#emitGuiEvent('outer.gui.item.moved', moved, { old_path: source.path });
                     shaped = await toLegacyEntry(this.clients.event, moved);
                 } else if ( op === 'delete' ) {
                     const entry = await resolveV1Selector(
@@ -972,7 +974,7 @@ export class LegacyFSController extends PuterController {
                         recursive: getBoolean(record, 'recursive') ?? true,
                         descendantsOnly: getBoolean(record, 'descendants_only') ?? false,
                     });
-                    this.#emitGuiEvent('outer.gui.item.removed', entry);
+                    await this.#emitGuiEvent('outer.gui.item.removed', entry);
                     shaped = { ok: true, uid: entry.uuid };
                 } else if ( op === 'symlink' ) {
                     const parent = await resolveV1Selector(
@@ -991,7 +993,7 @@ export class LegacyFSController extends PuterController {
                         targetPath: target,
                         dedupeName: getBoolean(record, 'dedupe_name') ?? true,
                     });
-                    this.#emitGuiEvent('outer.gui.item.added', link);
+                    await this.#emitGuiEvent('outer.gui.item.added', link);
                     shaped = await toLegacyEntry(this.clients.event, link);
                 } else {
                     throw new HttpError(400, `Unsupported batch op: '${op}'`);

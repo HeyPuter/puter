@@ -2269,6 +2269,13 @@ export class FSEntryService extends PuterService {
         newName?: string;
         overwrite?: boolean;
         dedupeName?: boolean;
+        /**
+         * Optional metadata to overwrite on the moved entry. Callers use this
+         * for trash/restore: when moving into Trash the GUI stores
+         * `{ original_name, original_path, trashed_ts }` here so the restore
+         * path and trash listing can recover the pre-trash name.
+         */
+        newMetadata?: Record<string, unknown> | null;
     }): Promise<FSEntry> {
         const { source, destinationParent } = input;
         if ( source.userId !== userId ) {
@@ -2301,11 +2308,19 @@ export class FSEntryService extends PuterService {
             ? `/${name}`
             : `${destinationParent.path}/${name}`;
 
+        // `metadata` column is a TEXT field; serialize when the caller sends
+        // an object, pass-through a bare string, and `null` clears it.
+        // `undefined` leaves the column untouched.
+        let metadataPatch: string | null | undefined;
+        if ( input.newMetadata === null ) metadataPatch = null;
+        else if ( typeof input.newMetadata === 'object' ) metadataPatch = JSON.stringify(input.newMetadata);
+
         const updated = await this.stores.fsEntry.updateEntry(source.uuid, {
             name,
             path: finalPath,
             parentId: destinationParent.id,
             parentUid: destinationParent.uuid,
+            ...(metadataPatch !== undefined ? { metadata: metadataPatch } : {}),
         });
 
         if ( source.isDir && source.path !== finalPath ) {
