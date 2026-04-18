@@ -471,12 +471,18 @@ export class PuterServer {
         // aren't `use` middleware) are restricted to the root origin — this
         // prevents API-subdomain requests from accidentally hitting a root-
         // only route. Explicit `subdomain: '*'` disables the gate entirely.
+        //
+        // For `use` routes, `next('route')` in a middleware doesn't skip the
+        // handler (that's only reliable inside `app.METHOD`/`router.METHOD`
+        // chains). We handle subdomain gating by wrapping the handler for
+        // `use` routes further down — don't push `subdomainGate` here.
+        const isUse = route.method === 'use';
         if ( opts.subdomain !== undefined ) {
-            if ( opts.subdomain !== '*' ) {
+            if ( opts.subdomain !== '*' && !isUse ) {
                 mwChain.push(subdomainGate(opts.subdomain));
             }
             // subdomain: '*' → no gate, match any subdomain
-        } else if ( route.method !== 'use' ) {
+        } else if ( ! isUse ) {
             // No subdomain specified + not a `use()` middleware → root only.
             // Root = no subdomain present (req.subdomains is empty).
             mwChain.push((req, _res, next) => {
@@ -590,10 +596,23 @@ export class PuterServer {
             : undefined;
 
         if ( route.method === 'use' ) {
+            // Subdomain check for `use` middleware lives INSIDE the handler
+            // wrapper — `next('route')` from a stand-alone subdomainGate
+            // doesn't reliably skip a `use` handler in Express 5.
+            let handler = route.handler;
+            if ( opts.subdomain !== undefined && opts.subdomain !== '*' ) {
+                const allowList = Array.isArray(opts.subdomain) ? opts.subdomain : [opts.subdomain];
+                const original = handler;
+                handler = (req, res, next) => {
+                    const active = req.subdomains?.[req.subdomains.length - 1] ?? '';
+                    if ( ! allowList.includes(active) ) return next();
+                    return original(req, res, next);
+                };
+            }
             if ( fullPath !== undefined ) {
-                app.use(fullPath as any, ...mwChain, route.handler);
+                app.use(fullPath as any, ...mwChain, handler);
             } else {
-                app.use(...mwChain, route.handler);
+                app.use(...mwChain, handler);
             }
             return;
         }
@@ -686,12 +705,28 @@ export class PuterServer {
         }
 
         this.#server = httpServer.listen(this.#config.port, async () => {
-            const cfg = this.#config as unknown as { origin?: string; domain?: string; protocol?: string };
+            const cfg = this.#config as unknown as {
+                origin?: string;
+                domain?: string;
+                protocol?: string;
+                no_browser_launch?: boolean;
+            };
             const liveUrl = cfg.origin
                 ?? `${cfg.protocol ?? 'http'}://${cfg.domain ?? 'localhost'}:${this.#config.port}`;
             console.log('\n************************************************************');
             console.log(`* Puter is now live at: ${liveUrl}`);
             console.log('************************************************************\n');
+
+            // Auto-launch the browser on dev boot (matches v1 WebServerService).
+            // Opt out via `no_browser_launch: true` in config.
+            if ( this.#config.env === 'dev' && !cfg.no_browser_launch ) {
+                try {
+                    const openModule = await import('open');
+                    await openModule.default(liveUrl);
+                } catch ( e ) {
+                    console.log('[server] could not auto-open browser:', (e as Error).message);
+                }
+            }
 
             for ( const client of Object.values(this.clients) as WithLifecycle[] ) {
                 if ( client.onServerStart ) {
