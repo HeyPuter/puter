@@ -39,10 +39,18 @@ export class FSEntryStore extends PuterStore {
 
     // Private accessors keep call sites terse (`this.#db.read(...)`) without
     // forcing every method to spell out `this.clients.db.read(...)`.
-    get #db () { return this.clients.db; }
-    get #cache () { return this.clients.redis; }
-    get #kvStore () { return this.stores.kv; }
-    get #config () { return this.config; }
+    get #db () {
+        return this.clients.db;
+    }
+    get #cache () {
+        return this.clients.redis;
+    }
+    get #kvStore () {
+        return this.stores.kv;
+    }
+    get #config () {
+        return this.config;
+    }
 
     #insertIgnoreIntoFsentriesSql (): string {
         return this.#db.case({
@@ -256,7 +264,7 @@ export class FSEntryStore extends PuterStore {
             return sessionsById;
         }
 
-        const rawValues = await this.#kvStore.get({
+        const { res: rawValues } = await this.#kvStore.get({
             key: uniqueSessionIds.map((sessionId) => toPendingUploadSessionKey(sessionId)),
         });
         if ( ! Array.isArray(rawValues) ) {
@@ -1278,10 +1286,13 @@ export class FSEntryStore extends PuterStore {
     }
 
     async getPendingEntryBySessionId (sessionId: string): Promise<PendingUploadSession | null> {
-        const value = await this.#kvStore.get({
+        // SystemKVStore returns `{ res, usage }`. Hand the raw value (res)
+        // to the normalizer — passing the envelope would trip
+        // `isPendingUploadSession` and silently 404 the session.
+        const { res } = await this.#kvStore.get({
             key: toPendingUploadSessionKey(sessionId),
         });
-        return normalizePendingUploadSession(value, sessionId);
+        return normalizePendingUploadSession(res, sessionId);
     }
 
     async getPendingEntriesBySessionIds (sessionIds: string[]): Promise<(PendingUploadSession | null)[]> {
