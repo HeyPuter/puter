@@ -20,14 +20,13 @@ const WORKER_SUBDOMAIN_PREFIX = 'workers.puter.';
 let preamble = '';
 let preambleLineCount = 0;
 try {
-    const workerDir = __dirname.replace(
-        /\/v2\/drivers\/workers$/,
-        '/services/worker',
-    );
-    preamble = readFileSync(`${workerDir}/dist/workerPreamble.js`, 'utf-8');
+    // Preamble lives alongside the driver in a `dist/` directory, populated
+    // by whatever build step ships with the worker template. Missing file
+    // → non-fatal; workers just run without puter.js access.
+    preamble = readFileSync(`${__dirname}/dist/workerPreamble.js`, 'utf-8');
     preambleLineCount = preamble.split('\n').length - 1;
 } catch {
-    console.warn('[workers] preamble not built — workers will not have puter.js. Run `npm run build` in src/backend/src/services/worker/');
+    console.warn('[workers] preamble not built — workers will not have puter.js injected.');
 }
 
 /**

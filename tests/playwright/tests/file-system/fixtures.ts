@@ -1,6 +1,6 @@
 import { test as base, expect, Page } from '@playwright/test';
 import { validate as isValidUUID } from 'uuid';
-import { FSEntry } from '../../../../src/backend/src/filesystem/definitions/ts/fsentry';
+import { FSEntry } from '../../../../src/backend/stores/fs/FSEntry';
 import { testConfig } from '../../config/test-config';
 
 // The maximum time needed for file-system change to be propagated from

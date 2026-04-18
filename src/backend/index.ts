@@ -11,7 +11,10 @@ import type { IConfig } from './types';
 // Config resolution: prefer the user's runtime config (gitignored), fall back
 // to the bundled OSS defaults. Both live at the repo package root so a single
 // `packages/puter/config.json` override slot is always the authoritative source.
-const PACKAGE_ROOT = path.resolve(__dirname, '../../../..');
+//
+// Post-flatten depth: compiled file is at `packages/puter/dist/src/backend/index.js`,
+// so three `..`s land at `packages/puter/`.
+const PACKAGE_ROOT = path.resolve(__dirname, '../../..');
 const loadConfig = (): IConfig => {
     const runtimePath = path.join(PACKAGE_ROOT, 'config.json');
     const defaultPath = path.join(PACKAGE_ROOT, 'config.default.json');

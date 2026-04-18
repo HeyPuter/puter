@@ -30,18 +30,6 @@ const mandatoryRules = {
 
 export default defineConfig([
     {
-        ignores: [
-            'src/backend/src/modules/apps/AppInformationService.js', // TEMPORARY - SHOULD BE FIXED!
-            'src/backend/src/services/worker/WorkerService.js', // TEMPORARY - SHOULD BE FIXED!
-            'src/backend/src/public/**/*', // We may be able to delete this! I don't think it's used
-
-            // These files run in the worker environment, so these rules don't apply
-            'src/backend/src/services/worker/dist/**/*.{js,cjs,mjs}',
-            'src/backend/src/services/worker/src/**/*.{js,cjs,mjs}',
-            'src/backend/src/services/worker/template/puter-portable.js',
-        ],
-    },
-    {
         plugins: {
             '@typescript-eslint': tseslintPlugin,
         },
@@ -52,7 +40,10 @@ export default defineConfig([
             'extensions/**/*.{js,mjc,cjs}',
         ],
         ignores: [
-            'src/backend/src/services/database/sqlite_setup/**/*.js',
+            // Migration `.dbmig.js` scripts run in a VM context with injected
+            // `read` / `write` / `log` globals, not node's — they're linted
+            // separately below.
+            'src/backend/clients/database/migrations/**/*.{js,cjs,mjs}',
         ],
         rules: mandatoryRules,
         languageOptions: {
@@ -61,7 +52,7 @@ export default defineConfig([
     },
     {
         files: [
-            'src/backend/src/services/database/sqlite_setup/**/*.js',
+            'src/backend/clients/database/migrations/**/*.{js,cjs,mjs}',
         ],
         rules: mandatoryRules,
         languageOptions: {

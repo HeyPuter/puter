@@ -9,11 +9,13 @@ import type { PuterRouter } from '../../core/http/PuterRouter';
  *
  *   /puter.js/v1, /puter.js/v2          → any subdomain
  *   /v1, /v2, /putility/v1              → js subdomain
+ *   /sdk/*                              → root subdomain — puter-js bundle
  *   /dist/*, /src/*, /assets/*          → root subdomain
  *
  * Each block depends on its config root (`client_libs_root`,
- * `gui_assets_root`). When unset, that block is skipped — deployments that
- * don't ship the libs or the GUI just don't get those routes.
+ * `gui_assets_root`, `puterjs_root`). When unset, that block is skipped —
+ * deployments that don't ship the libs or the GUI just don't get those
+ * routes.
  */
 export class StaticAssetsController extends PuterController {
 
@@ -37,6 +39,22 @@ export class StaticAssetsController extends PuterController {
             router.get('/putility/v1', { subdomain: 'js' }, (_req, res) => {
                 res.sendFile('putility.js/v1.js', { root });
             });
+        }
+
+        // puter-js SDK mount. GUI loads it at `/sdk/puter.dev.js`; the
+        // webpack dev build writes that filename, but the OSS repo ships
+        // `puter.js` (minified) as the built artifact. Fall back to
+        // `puter.js` when `.dev.js` isn't present so `yarn start` works
+        // out of the box without running the dev-mode webpack build.
+        const puterjsRoot = (this.config as unknown as { puterjs_root?: string }).puterjs_root;
+        if ( puterjsRoot ) {
+            const hasDev = existsSync(path.join(puterjsRoot, 'puter.dev.js'));
+            if ( !hasDev && existsSync(path.join(puterjsRoot, 'puter.js')) ) {
+                router.get('/sdk/puter.dev.js', { subdomain: '' }, (_req, res) => {
+                    res.sendFile('puter.js', { root: puterjsRoot });
+                });
+            }
+            router.use('/sdk', { subdomain: '' }, express.static(puterjsRoot));
         }
 
         if ( this.config.gui_assets_root ) {

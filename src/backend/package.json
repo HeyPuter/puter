@@ -3,9 +3,9 @@
   "type": "module",
   "version": "2.5.1",
   "description": "Backend/Kernel for Puter",
-  "main": "exports.js",
+  "main": "exports.ts",
   "scripts": {
-    "test": "npx mocha src/**/*.test.js && node ./tools/test.mjs",
+    "test": "npx mocha '**/*.test.js' && node ./tools/test.mjs",
     "bench": "vitest bench --config=vitest.bench.config.ts --run",
     "build:worker": "cd src/services/worker && npm run build"
   },

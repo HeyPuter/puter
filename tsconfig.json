@@ -8,7 +8,10 @@
     "baseUrl": ".",
     "paths": {
       "@heyputer/backend": [
-        "src/backend/src/exports.ts"
+        "src/backend/exports.ts"
+      ],
+      "@heyputer/backend/src/*": [
+        "src/backend/*"
       ],
       "@heyputer/backend/*": [
         "src/backend/*"
@@ -28,7 +31,7 @@
     "noImplicitAny": false
   },
   "include": [
-    "src/backend/src/**/*",
+    "src/backend/**/*",
     "extensions/**/*"
   ],
   "exclude": [
@@ -41,14 +44,16 @@
     "dist/**",
     "volatile/**",
     "extensions/**/node_modules/**",
+    "src/backend/test/**",
+    "src/backend/tools/**",
     "src/backend/vitest.config.ts",
     "src/backend/vitest.bench.config.ts",
     "src/backend/vitest.bench.config.js",
-    "src/backend/src/services/worker/template/puter-portable.js",
-    "src/backend/src/services/DynamoKVStore/DynamoKVStore.ts",
-    "src/backend/src/clients/s3/S3Client.js",
-    "src/backend/src/clients/s3/s3ClientProvider.js",
-    "src/backend/src/clients/redis/RedisClient.js",
-    "src/backend/src/clients/dynamodb/DDBClient.js"
+    "src/backend/services/worker/template/puter-portable.js",
+    "src/backend/services/DynamoKVStore/DynamoKVStore.ts",
+    "src/backend/clients/s3/S3Client.js",
+    "src/backend/clients/s3/s3ClientProvider.js",
+    "src/backend/clients/redis/RedisClient.js",
+    "src/backend/clients/dynamodb/DDBClient.js"
   ]
 }
