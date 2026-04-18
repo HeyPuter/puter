@@ -22,7 +22,8 @@ const loadConfig = (): IConfig => {
 
 // if called directly, start the server
 if ( require.main === module ) {
-    const server = new PuterServer(loadConfig(), puterClients, puterStores, puterServices, puterControllers, puterDrivers);
+    const config = loadConfig();
+    const server = new PuterServer(config, puterClients, puterStores, puterServices, puterControllers, puterDrivers);
     server.start();
     // listen for shutdown signals to gracefully stop the server
     const shutDownProcess = async () => {
@@ -30,7 +31,7 @@ if ( require.main === module ) {
         setTimeout( async () => {
             await server.shutdown();
             process.exit(0);
-        }, 1000 * 90);
+        }, config.serverId ? 1000 * 90 : 1);
     };
     process.on('SIGINT', shutDownProcess);
     process.on('SIGTERM', shutDownProcess);

@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
-import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
+import { nativeImport } from '../../util/nativeImport.js';
 import { PuterDriver } from '../types.js';
 
 const ENTRI_TOKEN_URL = 'https://api.goentri.com/token';
@@ -36,7 +36,7 @@ export class EntriDriver extends PuterDriver {
         if ( ! userHostedSite ) throw new HttpError(400, 'Missing `userHostedSite`');
 
         const cfg = this.#entriConfig();
-        if ( ! cfg.applicationId || ! cfg.secret ) {
+        if ( !cfg.applicationId || !cfg.secret ) {
             throw new HttpError(503, 'Entri integration not configured');
         }
 
@@ -51,7 +51,7 @@ export class EntriDriver extends PuterDriver {
         // Detect root vs subdomain for DNS record shape
         let isRootDomain = true;
         try {
-            const parseDomain = (await import('parse-domain')).parseDomain;
+            const parseDomain = (await nativeImport<typeof import('parse-domain')>('parse-domain')).parseDomain;
             const parsed = parseDomain(domain);
             isRootDomain = ((parsed as { icann?: { subDomains?: string[] } })?.icann?.subDomains?.length ?? 0) === 0;
         } catch {
@@ -113,7 +113,7 @@ export class EntriDriver extends PuterDriver {
         }
 
         const cfg = this.#entriConfig();
-        if ( ! cfg.applicationId || ! cfg.secret ) {
+        if ( !cfg.applicationId || !cfg.secret ) {
             throw new HttpError(503, 'Entri integration not configured');
         }
 
@@ -157,7 +157,6 @@ export class EntriDriver extends PuterDriver {
         return { ok: true, errors };
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     async fullyRegistered (_args: Record<string, unknown>): Promise<unknown> {
         // Stub — kept for interface compatibility. Fill in when Entri-side
         // confirmation is needed.

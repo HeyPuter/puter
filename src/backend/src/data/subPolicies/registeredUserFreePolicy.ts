@@ -1,5 +1,5 @@
-import { DEFAULT_FREE_SUBSCRIPTION } from '../consts.js';
-import { toMicroCents } from '../utils.js';
+import { DEFAULT_FREE_SUBSCRIPTION } from '../../services/metering/consts.js';
+import { toMicroCents } from '../../services/metering/utils.js';
 
 export const REGISTERED_USER_FREE = {
     id: DEFAULT_FREE_SUBSCRIPTION,

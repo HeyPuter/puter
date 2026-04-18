@@ -7,7 +7,7 @@ import { createUserProtectedGate } from '../../core/http/middleware/userProtecte
 import { cleanEmail, isBlockedEmail } from '../../util/email.js';
 import { generateDefaultFsentries, promoteToVerifiedGroup } from '../../util/userProvisioning.js';
 import { applyReferralRewards } from '../../util/referralRewards.js';
-import { getTaskbarItems } from '../../extensions/taskbarItems.js';
+import { getTaskbarItems } from '../../../../../extensions/taskbarItems.js';
 import { generateCaptcha } from '../../core/http/middleware/captcha.js';
 import { createSecret as otpCreateSecret, createRecoveryCode, hashRecoveryCode, verify as verifyOtp } from '../../services/auth/OTPUtil.js';
 import { generateReferralCode } from '../../services/auth/referralCode.js';
@@ -962,9 +962,9 @@ export class AuthController extends PuterController {
 
         // ── Captcha generation ───────────────────────────────────────
 
-        router.get('/api/captcha/generate', { subdomain: '*' }, (_req, res) => {
+        router.get('/api/captcha/generate', { subdomain: '*' }, async (_req, res) => {
             const difficulty = this.config.captcha?.difficulty || 'medium';
-            const { token, image } = generateCaptcha(difficulty);
+            const { token, image } = await generateCaptcha(difficulty);
             res.json({ token, image });
         });
 
@@ -1424,9 +1424,13 @@ export class AuthController extends PuterController {
         });
 
         router.get('/session/sync-cookie', { subdomain: ['api', ''], requireUserActor: true }, async (req, res) => {
-            if ( ! req.actor?.session?.uid ) { res.status(400).end(); return; }
+            if ( ! req.actor?.session?.uid ) {
+                res.status(400).end(); return;
+            }
             const user = await this.userStore.getById(req.actor.user.id);
-            if ( ! user ) { res.status(404).end(); return; }
+            if ( ! user ) {
+                res.status(404).end(); return;
+            }
             const sessionToken = this.authService.createSessionTokenForSession(user, req.actor.session.uid);
             res.cookie(this.config.cookie_name, sessionToken, {
                 sameSite: 'none',
@@ -1441,8 +1445,8 @@ export class AuthController extends PuterController {
         router.post('/acl/stat-user-user', { subdomain: 'api', requireUserActor: true }, async (req, res) => {
             const targetUsername = req.body?.user;
             const resource = req.body?.resource;
-            if ( !targetUsername ) throw new HttpError(400, 'Missing `user`');
-            if ( !resource ) throw new HttpError(400, 'Missing `resource`');
+            if ( ! targetUsername ) throw new HttpError(400, 'Missing `user`');
+            if ( ! resource ) throw new HttpError(400, 'Missing `resource`');
 
             const targetUser = await this.userStore.getByUsername(targetUsername);
             if ( ! targetUser ) throw new HttpError(404, 'User not found');

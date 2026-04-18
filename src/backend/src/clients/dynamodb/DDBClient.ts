@@ -27,7 +27,7 @@ const BATCH_WRITE_RETRY_BASE_MS = 25;
 
 const getDynalitePathKey = (path?: string) => {
     if ( path === ':memory:' ) return LOCAL_DYNAMO_PATH_KEY;
-    return path || './puter-ddb';
+    return path || './volatile/runtime/puter-ddb';
 };
 
 const getOrCreateLocalDynaliteEndpoint = async (pathKey: string) => {

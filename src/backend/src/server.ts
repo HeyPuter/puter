@@ -685,12 +685,7 @@ export class PuterServer {
             }
         }
 
-        this.#server = httpServer.listen(this.#config.port, () => {
-            console.log(`PuterServer is listening on port: ${this.#config.port}`);
-
-            // "Live at" banner — printed BEFORE onServerStart so
-            // DefaultUserService's credentials banner appears right below it
-            // on first boot.
+        this.#server = httpServer.listen(this.#config.port, async () => {
             const cfg = this.#config as unknown as { origin?: string; domain?: string; protocol?: string };
             const liveUrl = cfg.origin
                 ?? `${cfg.protocol ?? 'http'}://${cfg.domain ?? 'localhost'}:${this.#config.port}`;
@@ -700,60 +695,62 @@ export class PuterServer {
 
             for ( const client of Object.values(this.clients) as WithLifecycle[] ) {
                 if ( client.onServerStart ) {
-                    client.onServerStart();
+                    await client.onServerStart();
                 }
             }
             for ( const store of Object.values(this.stores) as WithLifecycle[] ) {
                 if ( store.onServerStart ) {
-                    store.onServerStart();
+                    await store.onServerStart();
                 }
             }
             for ( const service of Object.values(this.services) as WithLifecycle[] ) {
                 if ( service.onServerStart ) {
-                    service.onServerStart();
+                    await service.onServerStart();
                 }
             }
             for ( const controller of Object.values(this.controllers) as WithLifecycle[] ) {
                 if ( controller.onServerStart ) {
-                    controller.onServerStart();
+                    await controller.onServerStart();
                 }
             }
             for ( const driver of Object.values(this.drivers) as WithLifecycle[] ) {
                 if ( driver.onServerStart ) {
-                    driver.onServerStart();
+                    await driver.onServerStart();
                 }
             }
+            console.log(this.drivers);
+            console.log('PuterServer has fully booted.');
         });
 
     }
 
     async prepareShutdown () {
         if ( this.#server ) {
-            this.#server.close(() => {
+            this.#server.close(async () => {
                 console.log('PuterServer has stopped accepting new connections');
                 for ( const client of Object.values(this.clients) as WithLifecycle[] ) {
                     if ( client.onServerPrepareShutdown ) {
-                        client.onServerPrepareShutdown();
+                        await client.onServerPrepareShutdown();
                     }
                 }
                 for ( const store of Object.values(this.stores) as WithLifecycle[] ) {
                     if ( store.onServerPrepareShutdown ) {
-                        store.onServerPrepareShutdown();
+                        await store.onServerPrepareShutdown();
                     }
                 }
                 for ( const service of Object.values(this.services) as WithLifecycle[] ) {
                     if ( service.onServerPrepareShutdown ) {
-                        service.onServerPrepareShutdown();
+                        await service.onServerPrepareShutdown();
                     }
                 }
                 for ( const controller of Object.values(this.controllers) as WithLifecycle[] ) {
                     if ( controller.onServerPrepareShutdown ) {
-                        controller.onServerPrepareShutdown();
+                        await controller.onServerPrepareShutdown();
                     }
                 }
                 for ( const driver of Object.values(this.drivers) as WithLifecycle[] ) {
                     if ( driver.onServerPrepareShutdown ) {
-                        driver.onServerPrepareShutdown();
+                        await driver.onServerPrepareShutdown();
                     }
                 }
             });

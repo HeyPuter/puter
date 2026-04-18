@@ -1,6 +1,4 @@
 import { readFileSync } from 'node:fs';
-import { dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { PuterDriver } from '../types.js';
@@ -22,7 +20,7 @@ const WORKER_SUBDOMAIN_PREFIX = 'workers.puter.';
 let preamble = '';
 let preambleLineCount = 0;
 try {
-    const workerDir = dirname(fileURLToPath(import.meta.url)).replace(
+    const workerDir = __dirname.replace(
         /\/v2\/drivers\/workers$/,
         '/services/worker',
     );
@@ -89,7 +87,7 @@ export class WorkerDriver extends PuterDriver {
         let authorization = String(args.authorization ?? '');
         if ( appId ) {
             const app = await this.stores.app.getByUid(appId);
-            if ( ! app || app.owner_user_id !== actor.user.id ) {
+            if ( !app || app.owner_user_id !== actor.user.id ) {
                 throw new HttpError(403, 'App not found or not owned by you');
             }
             authorization = this.services.auth.getUserAppToken(actor, appId);
@@ -245,7 +243,7 @@ export class WorkerDriver extends PuterDriver {
 
     #requireCfConfig (): void {
         const cfg = this.#workerConfig();
-        if ( ! cfg.XAUTHKEY || ! cfg.ACCOUNTID ) {
+        if ( !cfg.XAUTHKEY || !cfg.ACCOUNTID ) {
             throw new HttpError(503, 'Cloudflare Workers not configured');
         }
     }
@@ -305,7 +303,7 @@ export class WorkerDriver extends PuterDriver {
 
         // Only files trigger hot-reload (not directories)
         if ( response.is_dir || response.isDir ) return;
-        if ( ! uuid || ! userId ) return;
+        if ( !uuid || !userId ) return;
 
         // Check if any worker subdomain points at this file
         const workerSubs = await this.stores.subdomain.listByUserIdAndPrefix(userId, WORKER_SUBDOMAIN_PREFIX);

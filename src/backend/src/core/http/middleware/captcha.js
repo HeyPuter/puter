@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import { HttpError } from '../HttpError.js';
-
+import svgCaptcha from 'svg-captcha';
 /**
  * Simple SVG captcha service — generates image challenges and
  * verifies one-time tokens. No external deps beyond `svg-captcha`.
@@ -12,18 +12,11 @@ import { HttpError } from '../HttpError.js';
  * When captcha is disabled in config, the middleware is a no-op.
  */
 
-let svgCaptcha;
-try {
-    svgCaptcha = (await import('svg-captcha')).default;
-} catch {
-    svgCaptcha = null;
-}
-
 const EXPIRATION_MS = 10 * 60_000; // 10 minutes
 const DIFFICULTY = {
-    easy:   { size: 4, width: 150, height: 50, noise: 1 },
+    easy: { size: 4, width: 150, height: 50, noise: 1 },
     medium: { size: 6, width: 180, height: 50, noise: 2 },
-    hard:   { size: 7, width: 200, height: 60, noise: 3 },
+    hard: { size: 7, width: 200, height: 60, noise: 3 },
 };
 
 /** token → { text, expiresAt } */
@@ -41,7 +34,7 @@ cleanupTimer.unref?.();
 // ── Public API ──────────────────────────────────────────────────────
 
 /** Generate a captcha image + token pair. */
-export function generateCaptcha (difficulty = 'medium') {
+export async function generateCaptcha (difficulty = 'medium') {
     if ( ! svgCaptcha ) throw new Error('svg-captcha not available');
     const opts = DIFFICULTY[difficulty] || DIFFICULTY.medium;
     const captcha = svgCaptcha.create({
@@ -82,7 +75,7 @@ export function captchaGate (enabled) {
         if ( ! enabled ) return next();
 
         const { captchaToken, captchaAnswer } = req.body ?? {};
-        if ( ! captchaToken || ! captchaAnswer ) {
+        if ( !captchaToken || !captchaAnswer ) {
             return next(new HttpError(400, 'Captcha verification required.'));
         }
         if ( ! verifyCaptcha(captchaToken, captchaAnswer) ) {

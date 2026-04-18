@@ -1,13 +1,10 @@
 import { existsSync, readFileSync } from 'fs';
-import { basename, extname, join, resolve, dirname } from 'path';
-import { fileURLToPath } from 'url';
+import { basename, extname, join, resolve } from 'path';
 import { createContext, runInContext } from 'vm';
 import { DatabaseClient, type WriteResult } from './DatabaseClient';
 import type { IConfig } from '../../types';
 
-const __dirname_ = dirname(fileURLToPath(import.meta.url));
-
-const MIGRATIONS_DIR = resolve(__dirname_, './migrations');
+const MIGRATIONS_DIR = resolve(__dirname, './migrations');
 
 /**
  * Ordered list of [threshold_version, files[]] pairs.

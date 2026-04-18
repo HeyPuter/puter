@@ -1,4 +1,4 @@
-import { toMicroCents } from '../utils.js';
+import { toMicroCents } from '../../services/metering/utils.js';
 
 export const FILE_SYSTEM_COST_MAP = {
     'filesystem:ingress:bytes': 0,

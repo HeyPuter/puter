@@ -15,6 +15,7 @@ import fs from 'node:fs/promises';
 import { Agent as HttpsAgent } from 'node:https';
 import path from 'node:path';
 import type { IConfig } from '../../types';
+import { nativeImport } from '../../util/nativeImport.js';
 import { PuterClient } from '../types';
 
 const DEFAULT_MULTIPART_PART_SIZE_BYTES = 5 * 1024 * 1024;
@@ -70,7 +71,7 @@ export class S3Client extends PuterClient {
             const forceInMem = localConfig?.inMemory;
             const fauxqsHost = forceInMem ? '127.0.0.1' : localConfig?.host;
 
-            const { startFauxqs } = await import('fauxqs');
+            const { startFauxqs } = await nativeImport<typeof import('fauxqs')>('fauxqs');
             this.fauxqsServer = await startFauxqs({
                 host: fauxqsHost,
                 port: forceInMem ? 0 : (localConfig?.port ?? 4566),
