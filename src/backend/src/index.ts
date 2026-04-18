@@ -14,7 +14,7 @@ import type { IConfig } from './types';
 const PACKAGE_ROOT = path.resolve(__dirname, '../../../..');
 const loadConfig = (): IConfig => {
     const runtimePath = path.join(PACKAGE_ROOT, 'config.json');
-    const defaultPath = path.join(PACKAGE_ROOT, 'defaultConfig.json');
+    const defaultPath = path.join(PACKAGE_ROOT, 'config.default.json');
     const chosen = existsSync(runtimePath) ? runtimePath : defaultPath;
     console.log(`[config] loading ${chosen}`);
     return JSON.parse(readFileSync(chosen, 'utf8')) as IConfig;

@@ -18,6 +18,7 @@
     "private_app_hosting_domain": "app.puter.localhost",
     "private_app_hosting_domain_alt": "dev.puter.localhost",
     "captcha": { "enabled": false },
+    "gui_assets_root": "packages/puter/src/gui",
     "extensions": [
         "./extensions"
     ],
