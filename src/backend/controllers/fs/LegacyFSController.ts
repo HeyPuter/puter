@@ -178,11 +178,14 @@ export class LegacyFSController extends PuterController {
             if ( ! thumbnail ) throw new HttpError(400, 'Missing `thumbnail`');
 
             const entry = await this.stores.fsEntry.getEntryByUuid(uid);
-            if ( ! entry || entry.userId !== userId ) throw new HttpError(403, 'Access denied');
+            if ( !entry || entry.userId !== userId ) throw new HttpError(403, 'Access denied');
 
-            // Emit thumbnail.created so the thumbnails extension can S3-upload
+            // Emit thumbnail.created so the thumbnails extension can S3-upload.
+            // emitAndWait is required — the extension rewrites `event.url`
+            // from a data URL to an `s3://` pointer, and the DB write below
+            // needs to see that rewrite.
             const event = { url: thumbnail };
-            this.clients.event.emit('thumbnail.created', event, {});
+            await this.clients.event.emitAndWait('thumbnail.created', event, {});
 
             await this.clients.db.write(
                 'UPDATE `fsentries` SET `thumbnail` = ? WHERE `uuid` = ?',
@@ -823,14 +826,24 @@ export class LegacyFSController extends PuterController {
         entry: import('../../stores/fs/FSEntry.js').FSEntry,
         extra?: Record<string, unknown>,
     ): void {
-        const payload = {
-            user_id_list: [entry.userId],
-            response: { ...entry, ...extra, from_new_service: true },
-        };
-        // Non-blocking — GUI event failure must never break the HTTP response.
+        // GUI consumes snake_case fields (`user_id`, `parent_uid`, `is_dir`,
+        // …) — spreading the raw FSEntry ships camelCase, which the client
+        // silently ignores. Run the entry through `toLegacyEntry` first so
+        // the event payload matches what /stat et al. return, then overlay
+        // per-op extras (e.g. `old_path` for moves).
         const meta = {};
         void Promise.resolve()
-            .then(() => this.clients.event.emit(eventName, payload, meta))
+            .then(async () => {
+                const response = {
+                    ...await toLegacyEntry(this.clients.event, entry),
+                    ...extra,
+                    from_new_service: true,
+                };
+                await this.clients.event.emit(eventName, {
+                    user_id_list: [entry.userId],
+                    response,
+                }, meta);
+            })
             .catch(() => {
                 // ignore — non-critical
             });

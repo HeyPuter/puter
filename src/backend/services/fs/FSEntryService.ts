@@ -35,7 +35,7 @@ import type {
     UploadPreparedBatchItemInput,
     UploadProgressTrackerLike,
 } from './types.js';
-import { runWithConcurrencyLimitSettled } from '../../utils/concurrency.js';
+import { runWithConcurrencyLimitSettled } from '../../util/concurrency.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { PuterService } from '../types.js';
 import type { LayerInstances } from '../../types.js';
@@ -2177,7 +2177,7 @@ export class FSEntryService extends PuterService {
             // Group by bucket+region so one S3 DeleteObjects call covers each.
             const grouped = new Map<string, { bucket: string; region: string; keys: string[] }>();
             for ( const f of files ) {
-                if ( ! f.bucket || ! f.bucket_region ) continue;
+                if ( !f.bucket || !f.bucket_region ) continue;
                 const groupKey = `${f.bucket_region}::${f.bucket}`;
                 const group = grouped.get(groupKey) ?? { bucket: f.bucket, region: f.bucket_region, keys: [] };
                 group.keys.push(f.uuid);
@@ -2219,10 +2219,12 @@ export class FSEntryService extends PuterService {
     }
 
     #emitRemoveEvent (entry: FSEntry): void {
-        // Extensions (thumbnails) listen to `fs.remove.node` with a { node }-like payload.
-        // We pass the plain FSEntry — consumers already tolerate various shapes.
+        // Ship the entry under every alias existing handlers use — `node`,
+        // `entry`, `target`. The thumbnails extension destructures
+        // `{ target }`, and the bare `{ node, entry }` shape landed
+        // `target: undefined` → crash on `target.thumbnail`.
         try {
-            this.clients.event.emit('fs.remove.node', { node: entry, entry }, {});
+            this.clients.event.emit('fs.remove.node', { node: entry, entry, target: entry }, {});
         } catch {
             // Non-critical.
         }

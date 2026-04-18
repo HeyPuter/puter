@@ -158,7 +158,11 @@ export class PuterHomepageService extends PuterService {
         };
 
         try {
-            await this.clients.event.emit('puter.gui.addons', event, {});
+            // emitAndWait — extensions mutate `bodyContent` / `headContent` /
+            // `prependHeadContent` / `prependBodyContent` on `event`, and
+            // `#buildHtml` reads those fields below. Plain `emit` would
+            // return before the listeners ran.
+            await this.clients.event.emitAndWait('puter.gui.addons', event, {});
         } catch ( e ) {
             console.warn('[homepage] puter.gui.addons emit failed:', e);
         }

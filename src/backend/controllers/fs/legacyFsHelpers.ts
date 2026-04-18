@@ -58,9 +58,13 @@ export async function resolveV1Selector (
     raw: unknown,
     userId: number,
 ): Promise<FSEntry> {
-    // String shorthand: raw path.
+    // String shorthand — either an absolute path (`/a/b/c`) or a UUID.
+    // The legacy API accepts both interchangeably; dispatch on the leading
+    // character rather than guessing by regex. Anything that doesn't start
+    // with `/` is treated as a uid.
     if ( typeof raw === 'string' ) {
-        const entry = await resolveNode(fsEntryStore, { path: raw }, { userId, required: true });
+        const ref = raw.startsWith('/') ? { path: raw } : { uid: raw };
+        const entry = await resolveNode(fsEntryStore, ref, { userId, required: true });
         if ( ! entry ) throw new HttpError(404, `Entry not found: ${raw}`);
         return entry;
     }
@@ -163,7 +167,9 @@ export async function toLegacyEntry (eventClient: EventClient | undefined, entry
     if ( typeof response.thumbnail === 'string' && (response.thumbnail as string).length > 0 && eventClient ) {
         const thumbnailEntry = { uuid: entry.uuid, thumbnail: response.thumbnail as string };
         try {
-            await eventClient.emit('thumbnail.read', thumbnailEntry, {});
+            // emitAndWait — listener mutates `thumbnail` on the payload;
+            // plain `emit` is fire-and-forget and would drop the rewrite.
+            await eventClient.emitAndWait('thumbnail.read', thumbnailEntry, {});
         } catch {
             // ignore — non-critical.
         }

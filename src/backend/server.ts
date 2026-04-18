@@ -705,28 +705,12 @@ export class PuterServer {
         }
 
         this.#server = httpServer.listen(this.#config.port, async () => {
-            const cfg = this.#config as unknown as {
-                origin?: string;
-                domain?: string;
-                protocol?: string;
-                no_browser_launch?: boolean;
-            };
+            const cfg = this.#config;
             const liveUrl = cfg.origin
                 ?? `${cfg.protocol ?? 'http'}://${cfg.domain ?? 'localhost'}:${this.#config.port}`;
             console.log('\n************************************************************');
             console.log(`* Puter is now live at: ${liveUrl}`);
             console.log('************************************************************\n');
-
-            // Auto-launch the browser on dev boot (matches v1 WebServerService).
-            // Opt out via `no_browser_launch: true` in config.
-            if ( this.#config.env === 'dev' && !cfg.no_browser_launch ) {
-                try {
-                    const openModule = await import('open');
-                    await openModule.default(liveUrl);
-                } catch ( e ) {
-                    console.log('[server] could not auto-open browser:', (e as Error).message);
-                }
-            }
 
             for ( const client of Object.values(this.clients) as WithLifecycle[] ) {
                 if ( client.onServerStart ) {
@@ -754,6 +738,16 @@ export class PuterServer {
                 }
             }
             console.log('PuterServer has fully booted.');
+            // Auto-launch the browser on dev boot (matches v1 WebServerService).
+            // Opt out via `no_browser_launch: true` in config.
+            if ( this.#config.env === 'dev' && !cfg.no_browser_launch ) {
+                try {
+                    const openModule = await import('open');
+                    await openModule.default(liveUrl);
+                } catch ( e ) {
+                    console.log('[server] could not auto-open browser:', (e as Error).message);
+                }
+            }
         });
 
     }

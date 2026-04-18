@@ -6,7 +6,7 @@ import {
     PendingUploadCreateInput,
     PendingUploadSession,
 } from './FSEntry.js';
-import { runWithConcurrencyLimit } from '../../utils/concurrency.js';
+import { runWithConcurrencyLimit } from '../../util/concurrency.js';
 import {
     normalizePendingUploadSession,
     PendingUploadSessionStatus,

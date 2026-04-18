@@ -1,6 +1,6 @@
 import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import { extension } from "@heyputer/backend/src/extensions";
+import { extension } from '@heyputer/backend/src/extensions';
 import crypto from 'node:crypto';
 const clients = extension.import('client');
 
@@ -14,22 +14,25 @@ let extensionBucketEndpoint = 'http://127.0.0.1:4566/puter-local/';
 function getClient (): S3Client {
     if ( s3Client ) return s3Client;
 
-    // Check for extension-specific thumbnail bucket config
-    const cfg = extension.config as Record<string, unknown>;
-    const thumbCfg = (cfg.services as Record<string, unknown> | undefined)?.thumbnails as Record<string, unknown> | undefined;
-    const bucket = thumbCfg?.bucket as Record<string, unknown> | undefined;
+    // Top-level `thumbnailStore` config when the extension should use a
+    // dedicated S3 bucket instead of the main one.
+    const thumbStore = extension.config.thumbnailStore;
 
-    if ( bucket?.endpoint && bucket?.credentials ) {
+    if ( thumbStore?.endpoint && thumbStore.credentials ) {
         s3Client = new S3Client({
             region: 'auto',
-            endpoint: String(bucket.endpoint),
-            credentials: bucket.credentials as { accessKeyId: string; secretAccessKey: string },
+            endpoint: thumbStore.endpoint,
+            credentials: thumbStore.credentials,
         });
-        thumbnailBucketName = String(bucket.name ?? 'puter-local');
-        extensionBucketEndpoint = String(bucket.endpoint);
+        thumbnailBucketName = thumbStore.name ?? 'puter-local';
+        extensionBucketEndpoint = thumbStore.endpoint;
     } else {
-        // Fall back to the project's S3 client
-        s3Client = clients.s3 as unknown as S3Client;
+        // Fall back to the project's S3 wrapper. `clients.s3` is the Puter
+        // `S3Client` wrapper (region-cache + lifecycle), not an AWS
+        // `S3Client`. Call `.get()` to obtain the underlying AWS client that
+        // `getSignedUrl` / `.send(command)` both expect.
+        const wrapper = clients.s3;
+        s3Client = wrapper.get();
     }
     return s3Client;
 }

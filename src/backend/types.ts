@@ -100,6 +100,22 @@ export interface IEmailConfig {
     [key: string]: unknown;
 }
 
+/**
+ * S3-compatible bucket the thumbnails extension uses for storing generated
+ * thumbnails. When unset, the extension falls back to the main `S3Client`
+ * (fauxqs locally, real S3 in prod) and writes into the default bucket.
+ */
+export interface IThumbnailStoreConfig {
+    /** Bucket name. Default: `puter-local`. */
+    name?: string;
+    /** Endpoint URL — unset forces the fallback. */
+    endpoint?: string;
+    credentials?: {
+        accessKeyId: string;
+        secretAccessKey: string;
+    };
+}
+
 export interface IConfig extends Partial<{
     s3: {
         localConfig: {
@@ -175,6 +191,8 @@ export interface IConfig extends Partial<{
     private_app_hosting_domain: string;
     /** Alt private app hosting domain. */
     private_app_hosting_domain_alt: string;
+    /** Don't launch browser when starting */
+    no_browser_launch: boolean;
     /**
      * Absolute path to the directory holding native app bundles, each in a
      * subdirectory matching its subdomain (e.g. `<root>/editor/`). When unset,
@@ -248,6 +266,8 @@ export interface IConfig extends Partial<{
     is_storage_limited: boolean;
     /** Bytes of device storage available (used when is_storage_limited=false). */
     available_device_storage: number;
+    /** Optional dedicated S3-compatible bucket used by the thumbnails extension. */
+    thumbnailStore: IThumbnailStoreConfig;
     services: {
         dynamo?: IDynamoConfig;
         redis?: IRedisConfig;

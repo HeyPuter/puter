@@ -16,7 +16,7 @@ import type { puterServices } from './services';
 import type { IPuterServiceRegistry } from './services/types';
 import type { puterStores } from './stores';
 import type { IPuterStoreRegistry } from './stores/types';
-import type { LayerInstances } from './types';
+import type { IConfig, LayerInstances } from './types';
 
 /**
  * The in-memory registry an extension's module-scope code writes into, and
@@ -94,7 +94,7 @@ export const extension = {
     // Lazy proxy to the server config. Populated by PuterServer during
     // boot, so extensions can read it at request time (not import time).
 
-    get config (): Record<string, unknown> {
+    get config (): IConfig {
         return configContainer;
     },
 

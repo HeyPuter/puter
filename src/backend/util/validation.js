@@ -13,13 +13,13 @@ export function validateString (value, { key, maxLen, regex, required = true, al
     if ( typeof value !== 'string' ) {
         throw new HttpError(400, `\`${key}\` must be a string`);
     }
-    if ( ! allowEmpty && value.length === 0 ) {
+    if ( !allowEmpty && value.length === 0 ) {
         throw new HttpError(400, `\`${key}\` must not be empty`);
     }
     if ( maxLen && value.length > maxLen ) {
         throw new HttpError(400, `\`${key}\` must be at most ${maxLen} characters`);
     }
-    if ( regex && ! regex.test(value) ) {
+    if ( regex && !regex.test(value) ) {
         throw new HttpError(400, `\`${key}\` has an invalid format`);
     }
     return value;
@@ -53,8 +53,12 @@ export function validateJsonObject (value, { key, required = false } = {}) {
         return value;
     }
     if ( typeof value === 'string' ) {
-        try { value = JSON.parse(value); }
-        catch { throw new HttpError(400, `\`${key}\` must be valid JSON`); }
+        try {
+            value = JSON.parse(value);
+        }
+        catch {
+            throw new HttpError(400, `\`${key}\` must be valid JSON`);
+        }
     }
     if ( typeof value !== 'object' || Array.isArray(value) ) {
         throw new HttpError(400, `\`${key}\` must be an object`);

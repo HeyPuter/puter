@@ -14,7 +14,7 @@ import type { FSEntry, FSEntryWriteInput } from '../../stores/fs/FSEntry.js';
 import {
     runWithConcurrencyLimit,
     runWithConcurrencyLimitSettled,
-} from '../../utils/concurrency.js';
+} from '../../util/concurrency.js';
 import { PuterController } from '../types.js';
 import type {
     CompleteWriteRequest,
@@ -1577,7 +1577,9 @@ export class FSController extends PuterController {
                 uuid: entry.uuid,
                 thumbnail: response.thumbnail,
             };
-            await this.clients.event.emit('thumbnail.read', thumbnailEntry, {});
+            // emitAndWait — listener rewrites s3:// / legacy URLs into
+            // time-limited signed URLs on the payload object.
+            await this.clients.event.emitAndWait('thumbnail.read', thumbnailEntry, {});
             response.thumbnail = typeof thumbnailEntry.thumbnail === 'string' && thumbnailEntry.thumbnail.length > 0
                 ? thumbnailEntry.thumbnail
                 : null;
@@ -1661,7 +1663,10 @@ export class FSController extends PuterController {
         }
 
         const thumbnailPayload = { url: requestedThumbnail };
-        await this.clients.event.emit('thumbnail.created', thumbnailPayload, {});
+        // emitAndWait — the thumbnails extension may rewrite `url` from a
+        // data URL to an `s3://` pointer; plain `emit` races with the DB
+        // update below.
+        await this.clients.event.emitAndWait('thumbnail.created', thumbnailPayload, {});
         const finalThumbnail = typeof thumbnailPayload.url === 'string' && thumbnailPayload.url.length > 0
             ? thumbnailPayload.url
             : null;
@@ -1726,7 +1731,10 @@ export class FSController extends PuterController {
                 ...(item.size !== undefined ? { size: item.size } : {}),
             })),
         };
-        await this.clients.event.emit('thumbnail.upload.prepare', payload, {});
+        // emitAndWait — listeners populate `uploadUrl` / `thumbnailUrl` on
+        // each item; plain `emit` returns before the extension runs and we'd
+        // read the payload back empty.
+        await this.clients.event.emitAndWait('thumbnail.upload.prepare', payload, {});
 
         for ( const item of payload.items ) {
             const response = responses[item.index];
