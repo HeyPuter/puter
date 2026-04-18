@@ -224,6 +224,12 @@ export interface IConfig extends Partial<{
     custom_domains_enabled: boolean;
     /** When true, enable IP validation via event bus. */
     enable_ip_validation: boolean;
+    /** Protocol used for the externally-visible origin ('http' or 'https'). Default: 'http'. */
+    protocol: string;
+    /** Externally-visible port. Defaults to `port`. Behind a reverse proxy, set this to the public port (e.g. 443). */
+    pub_port: number;
+    /** Fully-qualified externally-visible URL (protocol + domain + port). Computed from `protocol`/`domain`/`pub_port` if unset. */
+    origin: string;
     /** Minimum password length for login/signup validation. */
     min_pass_length: number;
     /** When true, allow the 'system' user to log in. */

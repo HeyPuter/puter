@@ -152,7 +152,7 @@ export class SqliteDatabaseClient extends DatabaseClient {
 
         const userVersion = isNew
             ? -1
-            : (this.db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version;
+            : this.getEffectiveUserVersion();
 
         console.log(`[sqlite] database version: ${userVersion}`);
 
@@ -191,6 +191,257 @@ export class SqliteDatabaseClient extends DatabaseClient {
 
         this.db.exec(`PRAGMA user_version = ${targetVersion};`);
         console.log(`[sqlite] database upgraded to version ${targetVersion}`);
+    }
+
+    private getEffectiveUserVersion (): number {
+        const userVersion = (this.db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version;
+        if ( userVersion !== 0 ) return userVersion;
+
+        const hasAppsTable = this.hasTable('apps');
+        const hasUserTable = this.hasTable('user');
+
+        if ( !hasAppsTable || !hasUserTable ) {
+            console.warn('[sqlite] user_version=0 but bootstrap tables are missing; treating database as uninitialized');
+            return -1;
+        }
+
+        const inferredUserVersion = this.inferLegacyUserVersion();
+        if ( inferredUserVersion !== 0 ) {
+            console.warn(`[sqlite] user_version=0; inferred legacy schema version ${inferredUserVersion}`);
+        }
+
+        return inferredUserVersion;
+    }
+
+    private inferLegacyUserVersion (): number {
+        const markers: Array<{ version: number; check: () => boolean }> = [
+            {
+                version: 1,
+                check: () =>
+                    this.hasTable('user_to_user_permissions') &&
+                    this.hasTable('audit_user_to_user_permissions'),
+            },
+            {
+                version: 2,
+                check: () => this.hasTable('sessions'),
+            },
+            {
+                version: 3,
+                check: () => this.hasColumn('apps', 'background'),
+            },
+            {
+                version: 5,
+                check: () =>
+                    this.hasColumn('sessions', 'created_at') &&
+                    this.hasColumn('sessions', 'last_activity'),
+            },
+            {
+                version: 6,
+                check: () =>
+                    this.hasColumn('user', 'otp_secret') &&
+                    this.hasColumn('user', 'otp_enabled') &&
+                    this.hasColumn('user', 'otp_recovery_codes'),
+            },
+            {
+                version: 8,
+                check: () =>
+                    this.hasRow('SELECT 1 FROM `apps` WHERE `uid` = ?', [
+                        'app-e3ac5486-da8c-42ad-8377-8728086e0980',
+                    ]),
+            },
+            {
+                version: 9,
+                check: () => this.hasTable('notification'),
+            },
+            {
+                version: 10,
+                check: () => this.hasColumn('apps', 'metadata'),
+            },
+            {
+                version: 11,
+                check: () =>
+                    this.hasColumn('apps', 'protected') &&
+                    this.hasColumn('subdomains', 'protected'),
+            },
+            {
+                version: 12,
+                check: () => this.hasTable('share'),
+            },
+            {
+                version: 13,
+                check: () =>
+                    this.hasTable('group') &&
+                    this.hasTable('jct_user_group'),
+            },
+            {
+                version: 14,
+                check: () =>
+                    this.hasTable('user_to_group_permissions') &&
+                    this.hasTable('audit_user_to_group_permissions'),
+            },
+            {
+                version: 15,
+                check: () =>
+                    this.hasColumn('user', 'public_uuid') &&
+                    this.hasColumn('user', 'public_id'),
+            },
+            {
+                version: 16,
+                check: () =>
+                    this.columnAllowsNull('audit_user_to_user_permissions', 'issuer_user_id') &&
+                    this.columnAllowsNull('audit_user_to_user_permissions', 'holder_user_id'),
+            },
+            {
+                version: 17,
+                check: () =>
+                    this.columnAllowsNull('audit_user_to_group_permissions', 'user_id') &&
+                    this.columnAllowsNull('audit_user_to_group_permissions', 'group_id'),
+            },
+            {
+                version: 18,
+                check: () =>
+                    this.hasRow('SELECT 1 FROM `apps` WHERE `uid` = ?', [
+                        'app-0b37f054-07d4-4627-8765-11bd23e889d4',
+                    ]),
+            },
+            {
+                version: 21,
+                check: () => this.columnTypeIs('kv', 'value', 'JSON'),
+            },
+            {
+                version: 22,
+                check: () =>
+                    this.hasRow('SELECT 1 FROM `group` WHERE `uid` = ?', [
+                        '26bfb1fb-421f-45bc-9aa4-d81ea569e7a5',
+                    ]),
+            },
+            {
+                version: 23,
+                check: () =>
+                    this.hasRow('SELECT 1 FROM `user` WHERE `uuid` = ?', [
+                        '5d4adce0-a381-4982-9c02-6e2540026238',
+                    ]),
+            },
+            {
+                version: 24,
+                check: () =>
+                    this.hasRow('SELECT 1 FROM `group` WHERE `uid` = ?', [
+                        'b7220104-7905-4985-b996-649fdcdb3c8f',
+                    ]),
+            },
+            {
+                version: 26,
+                check: () => this.hasColumn('user', 'clean_email'),
+            },
+            {
+                version: 28,
+                check: () => this.hasTable('user_comments'),
+            },
+            {
+                version: 29,
+                check: () => this.hasColumn('user', 'audit_metadata'),
+            },
+            {
+                version: 30,
+                check: () => this.hasColumn('user', 'signup_ip'),
+            },
+            {
+                version: 31,
+                check: () => this.hasTable('ai_usage'),
+            },
+            {
+                version: 32,
+                check: () => this.hasTable('old_app_names'),
+            },
+            {
+                version: 33,
+                check: () => this.hasTable('thread'),
+            },
+            {
+                version: 34,
+                check: () =>
+                    this.hasTable('dev_to_app_permissions') &&
+                    this.hasTable('audit_dev_to_app_permissions'),
+            },
+            {
+                version: 35,
+                check: () => this.hasColumn('subdomains', 'domain'),
+            },
+            {
+                version: 36,
+                check: () => this.hasColumn('kv', 'expireAt'),
+            },
+            {
+                version: 37,
+                check: () => this.hasColumn('user', 'metadata'),
+            },
+            {
+                version: 39,
+                check: () => this.hasColumn('subdomains', 'database_id'),
+            },
+            {
+                version: 40,
+                check: () => this.hasColumn('user_to_app_permissions', 'dt'),
+            },
+            {
+                version: 42,
+                check: () => this.hasTable('user_oidc_providers'),
+            },
+            {
+                version: 43,
+                check: () => this.hasColumn('apps', 'is_private'),
+            },
+        ];
+
+        let inferredUserVersion = 0;
+
+        for ( const marker of markers ) {
+            if ( marker.check() ) {
+                inferredUserVersion = marker.version;
+            }
+        }
+
+        return inferredUserVersion;
+    }
+
+    private hasTable (table: string): boolean {
+        return Boolean(this.db.prepare(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+        ).get(table));
+    }
+
+    private hasColumn (table: string, column: string): boolean {
+        return Boolean(this.db.prepare(
+            `SELECT 1 FROM pragma_table_info(${this.quoteSqlString(table)}) WHERE name = ?`,
+        ).get(column));
+    }
+
+    private columnAllowsNull (table: string, column: string): boolean {
+        const info = this.db.prepare(
+            `SELECT * FROM pragma_table_info(${this.quoteSqlString(table)}) WHERE name = ?`,
+        ).get(column) as { notnull: number } | undefined;
+
+        return info?.notnull === 0;
+    }
+
+    private columnTypeIs (table: string, column: string, type: string): boolean {
+        const info = this.db.prepare(
+            `SELECT type FROM pragma_table_info(${this.quoteSqlString(table)}) WHERE name = ?`,
+        ).get(column) as { type: string } | undefined;
+
+        return info?.type?.toUpperCase() === type.toUpperCase();
+    }
+
+    private hasRow (query: string, params: unknown[] = []): boolean {
+        try {
+            return Boolean(this.db.prepare(query).get(...params));
+        } catch {
+            return false;
+        }
+    }
+
+    private quoteSqlString (value: string): string {
+        return `'${value.replaceAll("'", "''")}'`;
     }
 
     private applySqlMigration (name: string, contents: string): void {

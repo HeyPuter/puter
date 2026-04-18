@@ -189,8 +189,17 @@ export default defineConfig([
         globals: { ...globals.node, ...globals.vitest },
     }),
     createTsConfig({
+        files: ['src/backend/**/*.ts'],
+        project: './src/backend/tsconfig.json',
+    }),
+    createTsConfig({
         files: ['**/*.ts'],
-        ignores: ['**/*.test.ts', '**/*.test.mts', 'extensions/**/*.ts'],
+        ignores: [
+            '**/*.test.ts',
+            '**/*.test.mts',
+            'src/backend/**/*.ts',
+            'extensions/**/*.ts',
+        ],
         project: './tsconfig.json',
     }),
     createTsConfig({

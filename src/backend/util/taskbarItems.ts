@@ -1,16 +1,35 @@
-/**
- * Taskbar items helper — resolves a user's taskbar_items JSON column
- * into a list of app objects with icon URLs.
- *
- * Used by the whoami extension.
- */
+interface TaskbarEntry {
+    name?: string;
+    id?: number;
+    uid?: string;
+    type?: string;
+}
 
-import { extension } from "@heyputer/backend/src/extensions";
+interface TaskbarOptions {
+    iconSize?: number;
+    noIcons?: boolean;
+}
 
-const stores  = extension.import('store');
-const clients = extension.import('client');
+interface TaskbarDeps {
+    apiBaseUrl?: string;
+    clients: {
+        db: {
+            write: (query: string, params?: unknown[]) => Promise<unknown>;
+        };
+    };
+    stores: {
+        app: {
+            getByName: (name: string) => Promise<Record<string, unknown> | null>;
+            getByUid: (uid: string) => Promise<Record<string, unknown> | null>;
+            getById: (id: number) => Promise<Record<string, unknown> | null>;
+        };
+        user: {
+            invalidateById: (id: number) => Promise<unknown>;
+        };
+    };
+}
 
-const DEFAULT_TASKBAR_ITEMS = [
+const DEFAULT_TASKBAR_ITEMS: TaskbarEntry[] = [
     { name: 'app-center', type: 'app' },
     { name: 'dev-center', type: 'app' },
     { name: 'editor', type: 'app' },
@@ -19,37 +38,41 @@ const DEFAULT_TASKBAR_ITEMS = [
     { name: 'recorder', type: 'app' },
 ];
 
-function getAppIconUrl (app: Record<string, unknown>, size?: number): string | null {
+function getAppIconUrl (
+    app: Record<string, unknown>,
+    apiBaseUrl: string | undefined,
+    size?: number,
+): string | null {
     const appUid = (app.uid ?? app.uuid) as string | undefined;
     if ( ! appUid ) return null;
 
     const normalizedUid = appUid.startsWith('app-') ? appUid : `app-${appUid}`;
     const iconSize = Number.isFinite(Number(size)) ? Number(size) : 128;
-    const apiBaseUrl = String((extension.config as Record<string, unknown>).api_base_url ?? '').replace(/\/+$/, '');
-    if ( ! apiBaseUrl ) return null;
+    const normalizedApiBaseUrl = String(apiBaseUrl ?? '').replace(/\/+$/, '');
+    if ( ! normalizedApiBaseUrl ) return null;
 
-    return `${apiBaseUrl}/app-icon/${normalizedUid}/${iconSize}`;
+    return `${normalizedApiBaseUrl}/app-icon/${normalizedUid}/${iconSize}`;
 }
 
 export async function getTaskbarItems (
     user: Record<string, unknown>,
-    options: { iconSize?: number; noIcons?: boolean } = {},
+    deps: TaskbarDeps,
+    options: TaskbarOptions = {},
 ): Promise<Array<Record<string, unknown>>> {
-    let raw: Array<{ name?: string; id?: number; uid?: string; type?: string }>;
+    let raw: TaskbarEntry[];
 
     if ( ! user.taskbar_items ) {
-        // First time — write defaults
         raw = DEFAULT_TASKBAR_ITEMS;
-        await clients.db.write(
+        await deps.clients.db.write(
             'UPDATE `user` SET `taskbar_items` = ? WHERE `id` = ?',
             [JSON.stringify(raw), user.id],
         );
-        await stores.user.invalidateById(user.id as number);
+        await deps.stores.user.invalidateById(user.id as number);
     } else {
         try {
             raw = typeof user.taskbar_items === 'string'
                 ? JSON.parse(user.taskbar_items as string)
-                : user.taskbar_items as typeof raw;
+                : user.taskbar_items as TaskbarEntry[];
         } catch {
             raw = [];
         }
@@ -62,9 +85,9 @@ export async function getTaskbarItems (
         if ( entry.name === 'explorer' ) continue;
 
         let app: Record<string, unknown> | null = null;
-        if ( entry.name ) app = await stores.app.getByName(entry.name);
-        else if ( entry.uid ) app = await stores.app.getByUid(entry.uid);
-        else if ( entry.id ) app = await stores.app.getById(entry.id);
+        if ( entry.name ) app = await deps.stores.app.getByName(entry.name);
+        else if ( entry.uid ) app = await deps.stores.app.getByUid(entry.uid);
+        else if ( entry.id ) app = await deps.stores.app.getById(entry.id);
         if ( ! app ) continue;
 
         const item: Record<string, unknown> = {
@@ -82,7 +105,7 @@ export async function getTaskbarItems (
         if ( options.noIcons ) {
             delete item.icon;
         } else {
-            item.icon = getAppIconUrl(app, options.iconSize) ?? app.icon ?? null;
+            item.icon = getAppIconUrl(app, deps.apiBaseUrl, options.iconSize) ?? app.icon ?? null;
         }
 
         items.push(item);

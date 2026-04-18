@@ -20,7 +20,22 @@ const loadConfig = (): IConfig => {
     const defaultPath = path.join(PACKAGE_ROOT, 'config.default.json');
     const chosen = existsSync(runtimePath) ? runtimePath : defaultPath;
     console.log(`[config] loading ${chosen}`);
-    return JSON.parse(readFileSync(chosen, 'utf8')) as IConfig;
+    const config = JSON.parse(readFileSync(chosen, 'utf8')) as IConfig;
+
+    // Computed defaults. `origin` and `pub_port` are the externally-visible
+    // URL+port — what the browser sees. Separate from `port`, which is the
+    // bind port (can differ when behind a reverse proxy). Code paths that
+    // build self-referential URLs (GUI bootstrap, email links, OIDC callbacks)
+    // depend on `origin` having the right port baked in.
+    if ( config.pub_port === undefined ) config.pub_port = config.port;
+    if ( config.origin === undefined ) {
+        const protocol = config.protocol ?? 'http';
+        const domain = config.domain ?? 'localhost';
+        const suffix = config.pub_port === 80 || config.pub_port === 443
+            ? '' : `:${config.pub_port}`;
+        config.origin = `${protocol}://${domain}${suffix}`;
+    }
+    return config;
 };
 
 // if called directly, start the server

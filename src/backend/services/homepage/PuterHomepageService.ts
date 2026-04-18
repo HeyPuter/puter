@@ -312,6 +312,11 @@ export class PuterHomepageService extends PuterService {
     }
 
     #originFromRequest (req: Request): string {
+        // Prefer the pre-computed `config.origin` (protocol + domain + port).
+        // Without it, non-80/443 deployments end up with URLs missing the
+        // port, which breaks every self-referential fetch the GUI makes
+        // (`/get-gui-token`, `/login`, `/signup`, …).
+        if ( this.config.origin ) return this.config.origin;
         const domain = this.config.domain ?? req.hostname;
         return `${req.protocol}://${domain}`;
     }

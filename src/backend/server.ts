@@ -753,7 +753,6 @@ export class PuterServer {
                     await driver.onServerStart();
                 }
             }
-            console.log(this.drivers);
             console.log('PuterServer has fully booted.');
         });
 

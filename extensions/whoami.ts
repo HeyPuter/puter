@@ -1,11 +1,12 @@
-import { Context } from "@heyputer/backend/src/core";
-import { extension } from "@heyputer/backend/src/extensions";
+import { Context } from '@heyputer/backend/src/core';
+import { extension } from '@heyputer/backend/src/extensions';
+import { getTaskbarItems } from '@heyputer/backend/src/util/taskbarItems.js';
 import TimeAgo from 'javascript-time-ago';
 import localeEn from 'javascript-time-ago/locale/en';
-import { getTaskbarItems } from './taskbarItems.js';
 
 const stores   = extension.import('store');
 const services = extension.import('service');
+const clients  = extension.import('client');
 
 const timeago = (() => {
     TimeAgo.addDefaultLocale(localeEn);
@@ -54,7 +55,11 @@ extension.get('/whoami', { subdomain: 'api', requireAuth: true }, async (req, re
         is_temp: (user.password === null && user.email === null),
         oidc_only: oidcOnly,
         taskbar_items: isUser
-            ? await getTaskbarItems(user, { iconSize, noIcons })
+            ? await getTaskbarItems(user, {
+                clients,
+                stores,
+                apiBaseUrl: String((extension.config as Record<string, unknown>).api_base_url ?? ''),
+            }, { iconSize, noIcons })
             : undefined,
         referral_code: user.referral_code,
         otp: !!user.otp_enabled,

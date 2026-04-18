@@ -7,11 +7,11 @@ import { createUserProtectedGate } from '../../core/http/middleware/userProtecte
 import { cleanEmail, isBlockedEmail } from '../../util/email.js';
 import { generateDefaultFsentries, promoteToVerifiedGroup } from '../../util/userProvisioning.js';
 import { applyReferralRewards } from '../../util/referralRewards.js';
-import { getTaskbarItems } from '../../../../../extensions/taskbarItems.js';
 import { generateCaptcha } from '../../core/http/middleware/captcha.js';
 import { createSecret as otpCreateSecret, createRecoveryCode, hashRecoveryCode, verify as verifyOtp } from '../../services/auth/OTPUtil.js';
 import { generateReferralCode } from '../../services/auth/referralCode.js';
 import { generate_identifier } from '../../util/identifier.js';
+import { getTaskbarItems } from '../../util/taskbarItems.js';
 import { PuterController } from '../types.js';
 
 const USERNAME_REGEX = /^\w{1,}$/;
@@ -1553,7 +1553,11 @@ export class AuthController extends PuterController {
         // block login (the client can still fetch them via /whoami later).
         let taskbar_items = [];
         try {
-            taskbar_items = await getTaskbarItems(user);
+            taskbar_items = await getTaskbarItems(user, {
+                clients: this.clients,
+                stores: this.stores,
+                apiBaseUrl: this.config.api_base_url,
+            });
         } catch ( e ) {
             console.warn('[auth] taskbar_items resolution failed:', e);
         }
