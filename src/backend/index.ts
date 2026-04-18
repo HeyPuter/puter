@@ -15,6 +15,11 @@ import type { IConfig } from './types';
 // Post-flatten depth: compiled file is at `packages/puter/dist/src/backend/index.js`,
 // so three `..`s land at `packages/puter/`.
 const PACKAGE_ROOT = path.resolve(__dirname, '../../..');
+// Root of the running code tree. Matches PACKAGE_ROOT for a source run, but
+// points at `dist/` for a compiled run — so config-declared paths like
+// `./extensions` resolve to `dist/extensions` at runtime without the config
+// having to know about the build layout.
+const RUNTIME_ROOT = path.resolve(__dirname, '../..');
 const loadConfig = (): IConfig => {
     const runtimePath = path.join(PACKAGE_ROOT, 'config.json');
     const defaultPath = path.join(PACKAGE_ROOT, 'config.default.json');
@@ -34,6 +39,17 @@ const loadConfig = (): IConfig => {
         const suffix = config.pub_port === 80 || config.pub_port === 443
             ? '' : `:${config.pub_port}`;
         config.origin = `${protocol}://${domain}${suffix}`;
+    }
+
+    // Resolve extension dirs against PACKAGE_ROOT. The dynamic `import()` in
+    // the loader treats bare relative paths as relative to the *importing*
+    // module file (dist/src/backend/server.js) — not cwd — so unresolved
+    // paths like `./dist/extensions` break even when the process is started
+    // from the repo root.
+    if ( Array.isArray(config.extensions) ) {
+        config.extensions = config.extensions.map(
+            p => path.isAbsolute(p) ? p : path.resolve(RUNTIME_ROOT, p),
+        );
     }
     return config;
 };
