@@ -218,6 +218,14 @@ export interface IConfig extends Partial<{
     gui_assets_root: string;
     /** Which profile in `puter-gui.json` to load (e.g., `development`, `bundle`). Default: `development`. */
     gui_profile: string;
+    /**
+     * Map of built-in app name → local directory served at `/builtin/<name>`.
+     * The GUI rewrites `https://builtins.namespaces.puter.com/<name>` to
+     * `${gui_origin}/builtin/<name>`, so each entry listed here becomes a
+     * static mount that resolves that iframe URL. Entries whose directory
+     * doesn't exist are skipped silently.
+     */
+    builtin_apps: Record<string, string>;
     /** Force the bundled GUI even in dev. Default: false. */
     use_bundled_gui: boolean;
     /** Override the GUI bundle JS path. Default: `/dist/bundle.min.js`. */

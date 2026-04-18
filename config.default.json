@@ -20,6 +20,9 @@
     "captcha": { "enabled": false },
     "gui_assets_root": "./src/gui",
     "puterjs_root": "./src/puter-js/dist",
+    "builtin_apps": {
+        "dev-center": "./src/dev-center"
+    },
     "extensions": [
         "./extensions"
     ],

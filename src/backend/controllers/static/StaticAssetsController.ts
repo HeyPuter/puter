@@ -55,6 +55,21 @@ export class StaticAssetsController extends PuterController {
                 });
             }
             router.use('/sdk', { subdomain: '' }, express.static(puterjsRoot));
+
+            // Third-party apps (dev-center, emulator, …) load puter-js via
+            // `/puter.js/v{1,2}` — a self-contained single-file endpoint.
+            // When `client_libs_root` is configured the block above already
+            // owns these routes and wins by registration order; skip to
+            // avoid a noisy double-mount.
+            if ( ! this.config.client_libs_root ) {
+                const puterJsFile = hasDev ? 'puter.dev.js' : 'puter.js';
+                router.get('/puter.js/v1', { subdomain: '*' }, (_req, res) => {
+                    res.sendFile(puterJsFile, { root: puterjsRoot });
+                });
+                router.get('/puter.js/v2', { subdomain: '*' }, (_req, res) => {
+                    res.sendFile(puterJsFile, { root: puterjsRoot });
+                });
+            }
         }
 
         if ( this.config.gui_assets_root ) {
@@ -66,6 +81,20 @@ export class StaticAssetsController extends PuterController {
             const publicDir = path.join(root, 'public');
             if ( existsSync(publicDir) ) {
                 router.use('/assets', { subdomain: '' }, express.static(publicDir));
+            }
+        }
+
+        // Built-in app mounts. The seed SQL ships apps with
+        // `index_url: https://builtins.namespaces.puter.com/<name>`, and
+        // `launch_app` rewrites that prefix to `${gui_origin}/builtin/<name>`.
+        // Without these static mounts the iframe loads from our own origin
+        // and hits the 404 handler. `builtin_apps` maps each wire name to
+        // the directory we serve it from.
+        const builtinApps = this.config.builtin_apps;
+        if ( builtinApps ) {
+            for ( const [name, dirPath] of Object.entries(builtinApps) ) {
+                if ( !dirPath || !existsSync(dirPath) ) continue;
+                router.use(`/builtin/${name}`, { subdomain: '' }, express.static(dirPath));
             }
         }
     }
