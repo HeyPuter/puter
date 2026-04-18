@@ -25,6 +25,7 @@
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true,
     "sourceMap": true,
+    "inlineSources": true,
     "removeComments": true,
     "noEmit": false,
     "noEmitOnError": false,

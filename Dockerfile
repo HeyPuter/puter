@@ -82,6 +82,7 @@ HEALTHCHECK --interval=30s --timeout=3s \
     CMD wget --no-verbose --tries=1 --spider http://puter.localhost:4100/test || exit 1
 
 ENV NO_VAR_RUNTUME=1
+ENV NODE_OPTIONS=--enable-source-maps
 
 # Attempt to fix `lru-cache@11.0.2` missing after build stage
 # by doing a redundant `npm install` at this stage
