@@ -1556,6 +1556,7 @@ export class AuthController extends PuterController {
             taskbar_items = await getTaskbarItems(user, {
                 clients: this.clients,
                 stores: this.stores,
+                services: this.services,
                 apiBaseUrl: this.config.api_base_url,
             });
         } catch ( e ) {

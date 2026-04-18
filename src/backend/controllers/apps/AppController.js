@@ -234,8 +234,11 @@ export class AppController extends PuterController {
             res.send(Buffer.from(DEFAULT_ICON_B64, 'base64'));
         };
 
-        router.get('/app-icon/:app_uid', {}, serveIcon);
-        router.get('/app-icon/:app_uid/:size', {}, serveIcon);
+        // Icons are <img src> targets from the GUI (root) AND resolved via
+        // api_base_url in taskbar payloads. Register on both so either origin
+        // works without a cross-subdomain redirect.
+        router.get('/app-icon/:app_uid', { subdomain: ['api', ''] }, serveIcon);
+        router.get('/app-icon/:app_uid/:size', { subdomain: ['api', ''] }, serveIcon);
     }
 
     onServerStart () {

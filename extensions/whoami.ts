@@ -58,6 +58,7 @@ extension.get('/whoami', { subdomain: 'api', requireAuth: true }, async (req, re
             ? await getTaskbarItems(user, {
                 clients,
                 stores,
+                services,
                 apiBaseUrl: String((extension.config as Record<string, unknown>).api_base_url ?? ''),
             }, { iconSize, noIcons })
             : undefined,

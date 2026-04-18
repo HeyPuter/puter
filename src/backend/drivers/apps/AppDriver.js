@@ -29,16 +29,24 @@ const APP_DESCRIPTION_MAX_LEN = 7000;
  */
 export class AppDriver extends PuterDriver {
     driverInterface = 'puter-apps';
-    driverName = 'apps';
+    // `es:app` is the wire name puter-js sends in `/drivers/call`'s `driver`
+    // field. Origin/main registered the service under that exact key; keep
+    // it so existing clients + hardcoded permission keys (`service:es\Capp:…`)
+    // resolve without a translation layer.
+    driverName = 'es:app';
     isDefault = true;
 
-    get appStore () { return this.stores.app; }
-    get permService () { return this.services.permission; }
+    get appStore () {
+        return this.stores.app;
+    }
+    get permService () {
+        return this.services.permission;
+    }
 
     // ── Driver methods ───────────────────────────────────────────────
 
     async create ({ object, options } = {}) {
-        if ( ! object || typeof object !== 'object' ) {
+        if ( !object || typeof object !== 'object' ) {
             throw new HttpError(400, 'Missing or invalid `object`');
         }
         const actor = this.#requireActor();
@@ -108,7 +116,7 @@ export class AppDriver extends PuterDriver {
     }
 
     async update ({ uid, id, object } = {}) {
-        if ( ! object || typeof object !== 'object' ) {
+        if ( !object || typeof object !== 'object' ) {
             throw new HttpError(400, 'Missing or invalid `object`');
         }
         const actor = this.#requireActor();
@@ -203,7 +211,7 @@ export class AppDriver extends PuterDriver {
     /** Check if an app name is available. Mirrors the REST endpoint behaviour. */
     async isNameAvailable (name) {
         validateString(name, { key: 'name', maxLen: APP_NAME_MAX_LEN, regex: APP_NAME_REGEX });
-        return ! (await this.appStore.existsByName(name));
+        return !(await this.appStore.existsByName(name));
     }
 
     // ── Validation ───────────────────────────────────────────────────

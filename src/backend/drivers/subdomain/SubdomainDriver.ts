@@ -28,7 +28,9 @@ const RESERVED_SUBDOMAINS = new Set([
  */
 export class SubdomainDriver extends PuterDriver {
     readonly driverInterface = 'puter-subdomains';
-    readonly driverName = 'subdomains';
+    // Matches origin/main's `iface_to_driver['puter-subdomains']` and the
+    // hardcoded `service:es\Csubdomain:…` permission keys.
+    readonly driverName = 'es:subdomain';
     readonly isDefault = true;
 
     // ── Driver methods ──────────────────────────────────────────────
@@ -191,7 +193,9 @@ export class SubdomainDriver extends PuterDriver {
     async #hasPermission (actor: Actor, permission: string): Promise<boolean> {
         try {
             return await this.services.permission.check(actor, permission);
-        } catch { return false; }
+        } catch {
+            return false;
+        }
     }
 
     async #checkReadAccess (row: Record<string, unknown>, actor: Actor): Promise<void> {

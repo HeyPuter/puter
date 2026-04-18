@@ -27,7 +27,9 @@ const MAX_SELECT_LIMIT = 200;
  */
 export class NotificationDriver extends PuterDriver {
     readonly driverInterface = 'puter-notifications';
-    readonly driverName = 'notifications';
+    // Matches origin/main's `iface_to_driver['puter-notifications']` and the
+    // hardcoded `service:es\Cnotification:…` permission keys.
+    readonly driverName = 'es:notification';
     readonly isDefault = true;
 
     // ── Driver methods ──────────────────────────────────────────────
