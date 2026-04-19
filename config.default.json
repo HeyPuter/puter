@@ -18,6 +18,10 @@
     "private_app_hosting_domain": "app.puter.localhost",
     "private_app_hosting_domain_alt": "dev.puter.localhost",
     "captcha": { "enabled": false },
+    "default_user_group": "78b1b1dd-c959-44d2-b02c-8735671f9997",
+    "default_temp_group": "b7220104-7905-4985-b996-649fdcdb3c8f",
+    "storage_capacity": 104857600,
+    "strict_email_verification_required": false,
     "gui_assets_root": "./src/gui",
     "puterjs_root": "./src/puter-js/dist",
     "builtin_apps": {

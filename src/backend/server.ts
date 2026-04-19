@@ -23,7 +23,7 @@ import {
 import { createNotFoundHandler } from './core/http/middleware/notFoundHandler';
 import { requireAntiCsrf } from './core/http/middleware/antiCsrf';
 import { captchaGate } from './core/http/middleware/captcha';
-import { rateLimitGate } from './core/http/middleware/rateLimit';
+import { rateLimitGate, configureRateLimit } from './core/http/middleware/rateLimit';
 import { createWwwRedirect, createUserSubdomainRedirect, createNativeAppStatic } from './core/http/middleware/hostRedirects';
 import { createPuterSiteMiddleware } from './core/http/middleware/puterSite';
 import { PuterRouter } from './core/http/PuterRouter';
@@ -93,6 +93,11 @@ export class PuterServer {
             servicesContainers[serviceName] = this.services[serviceName];
         }
 
+        // Wire the rate-limiter to its configured backend now that clients
+        // and stores exist. Memory is the default; `redis` needs a redis
+        // client, `kv` needs the system KV store (DynamoDB-backed).
+        this.#configureRateLimiter();
+
         // init express server here
         this.#app = express();
         this.#installGlobalMiddleware();
@@ -156,6 +161,31 @@ export class PuterServer {
         this.#installTerminalMiddleware();
 
         return true;
+    }
+
+    /**
+     * Point the shared rate-limiter at its configured backend. Reads
+     * `config.rate_limit.backend` (defaults to `memory`) and resolves the
+     * required dependency from `this.clients` / `this.stores`. Unknown
+     * or misconfigured backends fall back to memory with a warning so a
+     * typo doesn't take the server down.
+     */
+    #configureRateLimiter () {
+        // Default to `redis` — the redis client is always present (falls
+        // back to ioredis-mock in dev when no nodes are configured), and
+        // sorted-set rate limiting scales across nodes for free. Set
+        // `rate_limit.backend` in config to switch to `memory` or `kv`.
+        const backend = this.#config.rate_limit?.backend ?? 'redis';
+        try {
+            configureRateLimit({
+                backend,
+                redis: this.clients.redis,
+                kv: this.stores.kv,
+            });
+        } catch ( e ) {
+            console.warn(`[rate-limit] ${backend} backend unavailable, falling back to memory:`, (e as Error).message);
+            configureRateLimit();
+        }
     }
 
     /**
@@ -526,7 +556,7 @@ export class PuterServer {
         // so self-hosted boxes without SMTP don't break every fs route.
         if ( opts.requireVerified ) {
             mwChain.push(requireVerifiedGate(
-                Boolean((this.#config as unknown as Record<string, unknown>).strict_email_verification_required),
+                Boolean(this.#config.strict_email_verification_required),
             ));
         }
 

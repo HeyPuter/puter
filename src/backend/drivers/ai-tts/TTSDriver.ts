@@ -100,36 +100,41 @@ export class TTSDriver extends PuterDriver {
     // ── Provider registration ───────────────────────────────────────
 
     #registerProviders () {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const cfg = this.config as any;
-        const providers = cfg?.providers ?? cfg?.services ?? {};
+        const providers = this.config.providers ?? {};
         const m = this.services.metering;
 
-        // OpenAI
-        const openAiConfig = providers['openai'] ?? cfg?.openai;
-        if ( openAiConfig?.apiKey || openAiConfig?.secret_key ) {
+        const openai = providers['openai'];
+        if ( openai?.apiKey ) {
             try {
-                this.#providers['openai'] = new OpenAITTSProvider(m, openAiConfig);
+                this.#providers['openai'] = new OpenAITTSProvider(m, { apiKey: openai.apiKey });
             } catch (e) {
                 console.warn('[TTSDriver] Failed to init OpenAI TTS provider:', (e as Error).message);
             }
         }
 
-        // ElevenLabs
-        const elevenLabsConfig = providers['elevenlabs'] ?? cfg?.elevenlabs;
-        if ( elevenLabsConfig?.apiKey || elevenLabsConfig?.api_key || elevenLabsConfig?.key ) {
+        const elevenlabs = providers['elevenlabs'];
+        if ( elevenlabs?.apiKey ) {
             try {
-                this.#providers['elevenlabs'] = new ElevenLabsTTSProvider(m, elevenLabsConfig);
+                this.#providers['elevenlabs'] = new ElevenLabsTTSProvider(m, {
+                    apiKey: elevenlabs.apiKey,
+                    apiBaseUrl: elevenlabs.apiBaseUrl,
+                    defaultVoiceId: elevenlabs.defaultVoiceId,
+                });
             } catch (e) {
                 console.warn('[TTSDriver] Failed to init ElevenLabs TTS provider:', (e as Error).message);
             }
         }
 
-        // AWS Polly
-        const awsConfig = providers['aws-polly'] ?? cfg?.aws ? { aws: cfg.aws } : undefined;
-        if ( awsConfig?.aws?.access_key && awsConfig?.aws?.secret_key ) {
+        // AWS Polly is configured under `providers['aws-polly']` with flat
+        // `access_key`/`secret_key`/`region` fields (no `aws:` wrapper).
+        const polly = providers['aws-polly'];
+        if ( polly?.access_key && polly?.secret_key ) {
             try {
-                this.#providers['aws-polly'] = new AWSPollyTTSProvider(m, awsConfig);
+                this.#providers['aws-polly'] = new AWSPollyTTSProvider(m, {
+                    access_key: polly.access_key as string,
+                    secret_key: polly.secret_key as string,
+                    region: polly.region as string | undefined,
+                });
             } catch (e) {
                 console.warn('[TTSDriver] Failed to init AWS Polly TTS provider:', (e as Error).message);
             }

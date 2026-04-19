@@ -41,7 +41,7 @@ export class ShareController extends PuterController {
         } catch {
             throw new HttpError(400, 'Invalid or expired share token');
         }
-        if ( decoded.type !== `token:${SHARE_TOKEN_TYPE}` || ! decoded.uid ) {
+        if ( decoded.type !== `token:${SHARE_TOKEN_TYPE}` || !decoded.uid ) {
             throw new HttpError(400, 'Invalid share token');
         }
 
@@ -73,12 +73,12 @@ export class ShareController extends PuterController {
         if ( ! issuer ) throw new HttpError(410, 'Share expired — issuer account gone');
 
         // Email must be confirmed
-        if ( actor.user.requires_email_confirmation && ! actor.user.email_confirmed ) {
+        if ( actor.user.requires_email_confirmation && !actor.user.email_confirmed ) {
             throw new HttpError(403, 'Please confirm your email before applying shares');
         }
 
         // Recipient email must match
-        if ( ! actor.user.email || actor.user.email.toLowerCase() !== share.recipient_email.toLowerCase() ) {
+        if ( !actor.user.email || actor.user.email.toLowerCase() !== share.recipient_email.toLowerCase() ) {
             throw new HttpError(403, 'This share was sent to a different email address');
         }
 
@@ -87,9 +87,7 @@ export class ShareController extends PuterController {
         const data = (share.data ?? {}) as { permissions?: Array<{ permission: string; extra?: Record<string, unknown> }> };
         for ( const perm of data.permissions ?? [] ) {
             try {
-                await this.services.permission.grantUserUserPermission(
-                    issuerActor, actor.user.username ?? '', perm.permission, perm.extra ?? {},
-                );
+                await this.services.permission.grantUserUserPermission(issuerActor, actor.user.username ?? '', perm.permission, perm.extra ?? {});
             } catch ( err ) {
                 console.warn('[share] grant failed for', perm.permission, err);
             }
@@ -179,9 +177,7 @@ export class ShareController extends PuterController {
                     if ( ! dryRun ) {
                         for ( const perm of permissions ) {
                             try {
-                                await this.services.permission.grantUserUserPermission(
-                                    actor, targetUser.username ?? '', perm.permission, perm.extra ?? {},
-                                );
+                                await this.services.permission.grantUserUserPermission(actor, targetUser.username ?? '', perm.permission, perm.extra ?? {});
                             } catch ( err ) {
                                 console.warn('[share] grant to user failed', perm.permission, err);
                             }
@@ -220,7 +216,7 @@ export class ShareController extends PuterController {
                         }, { expiresIn: SHARE_TOKEN_EXPIRY });
 
                         // Email the share link
-                        const origin = `https://${(this.config as unknown as { domain?: string }).domain ?? 'puter.com'}`;
+                        const origin = `https://${this.config.domain ?? 'puter.com'}`;
                         try {
                             await this.clients.email.sendRaw({
                                 to: recipientStr,
@@ -265,7 +261,7 @@ export class ShareController extends PuterController {
             if ( !share || typeof share !== 'object' ) continue;
             const s = share as Record<string, unknown>;
 
-            if ( s.$  === 'fs-share' || s.type === 'fs-share' || s.path ) {
+            if ( s.$ === 'fs-share' || s.type === 'fs-share' || s.path ) {
                 const path = String(s.path ?? '');
                 const access = String(s.access ?? 'read');
                 if ( path ) {

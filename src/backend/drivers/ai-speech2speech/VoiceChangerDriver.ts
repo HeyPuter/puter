@@ -45,14 +45,12 @@ export class VoiceChangerDriver extends PuterDriver {
     #defaultModelId = DEFAULT_MODEL;
 
     override onServerStart () {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const cfg = this.config as any;
-        const svcConfig = cfg?.services?.elevenlabs ?? cfg?.elevenlabs;
+        const elevenlabs = this.config.providers?.elevenlabs;
 
-        this.#apiKey = svcConfig?.apiKey ?? svcConfig?.api_key ?? svcConfig?.key ?? null;
-        this.#baseUrl = svcConfig?.baseUrl ?? this.#baseUrl;
-        this.#defaultVoiceId = svcConfig?.defaultVoiceId ?? svcConfig?.voiceId ?? DEFAULT_VOICE_ID;
-        this.#defaultModelId = svcConfig?.speechToSpeechModelId ?? svcConfig?.stsModelId ?? DEFAULT_MODEL;
+        this.#apiKey = elevenlabs?.apiKey ?? null;
+        this.#baseUrl = elevenlabs?.apiBaseUrl ?? this.#baseUrl;
+        this.#defaultVoiceId = elevenlabs?.defaultVoiceId ?? DEFAULT_VOICE_ID;
+        this.#defaultModelId = elevenlabs?.speechToSpeechModelId ?? DEFAULT_MODEL;
     }
 
     async convert (args: ConvertArgs): Promise<DriverStreamResult | { url: string; content_type: string }> {

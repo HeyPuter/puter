@@ -76,7 +76,7 @@ export class OIDCController extends PuterController {
             if ( ! cfg ) throw new HttpError(404, 'Provider not configured.');
 
             const flow = String(Array.isArray(req.query.flow) ? req.query.flow[0] : req.query.flow ?? 'login');
-            const origin = ((this.config as unknown as { origin?: string }).origin ?? '').replace(/\/$/, '');
+            const origin = (this.config.origin ?? '').replace(/\/$/, '');
 
             const flowRedirects: Record<string, string> = {
                 login: origin || '/',
@@ -127,7 +127,7 @@ export class OIDCController extends PuterController {
             subdomain: '',
             rateLimit: { scope: 'oidc-general', limit: 30, window: 60_000 },
         }, async (req: Request, res: Response) => {
-            const origin = (this.config as unknown as { origin?: string }).origin ?? '';
+            const origin = this.config.origin ?? '';
             const result = await this.#processCallback(req, 'login');
             if ( 'error' in result ) {
                 return res.redirect(302, buildErrorRedirectUrl(origin, 'login', 'other', result.error));
@@ -158,7 +158,7 @@ export class OIDCController extends PuterController {
             subdomain: '',
             rateLimit: { scope: 'oidc-general', limit: 30, window: 60_000 },
         }, async (req: Request, res: Response) => {
-            const origin = (this.config as unknown as { origin?: string }).origin ?? '';
+            const origin = this.config.origin ?? '';
             const result = await this.#processCallback(req, 'signup');
             if ( 'error' in result ) {
                 return res.redirect(302, buildErrorRedirectUrl(origin, 'signup', 'other', result.error));
@@ -202,7 +202,9 @@ export class OIDCController extends PuterController {
             }
 
             const user = await this.services.oidc.findUserByProviderSub(provider, userinfo.sub);
-            if ( ! user ) { res.status(400).send('No account found.'); return; }
+            if ( ! user ) {
+                res.status(400).send('No account found.'); return;
+            }
             if ( user.id !== stateDecoded.user_id ) {
                 res.status(403).send('Wrong account. Sign in with the account linked to this session.');
                 return;
@@ -217,7 +219,7 @@ export class OIDCController extends PuterController {
                 path: '/',
             });
 
-            const origin = ((this.config as unknown as { origin?: string }).origin ?? '').replace(/\/$/, '');
+            const origin = (this.config.origin ?? '').replace(/\/$/, '');
             const target = (stateDecoded.redirect_uri as string) || `${origin}/auth/revalidate-done`;
             res.redirect(302, target);
         });
@@ -226,7 +228,7 @@ export class OIDCController extends PuterController {
         // Landing page after revalidation; posts to opener for popup flow.
 
         router.get('/auth/revalidate-done', { subdomain: '' }, (_req: Request, res: Response) => {
-            const origin = (this.config as unknown as { origin?: string }).origin ?? '';
+            const origin = this.config.origin ?? '';
             res.set('Content-Type', 'text/html; charset=utf-8');
             res.send(`<!DOCTYPE html><html><head><title>Re-validated</title></head><body><script>
 (function(){
@@ -278,14 +280,14 @@ if (window.opener) {
             user as import('../../stores/user/UserStore.js').UserRow,
         );
 
-        const cookieName = (this.config as unknown as { cookie_name?: string }).cookie_name ?? 'puter_token';
+        const cookieName = this.config.cookie_name ?? 'puter_token';
         res.cookie(cookieName, sessionToken, {
             sameSite: 'none',
             secure: true,
             httpOnly: true,
         });
 
-        const origin = ((this.config as unknown as { origin?: string }).origin ?? '').replace(/\/$/, '');
+        const origin = (this.config.origin ?? '').replace(/\/$/, '');
         let target = (stateDecoded.redirect_uri as string) || origin || '/';
 
         // Security: don't redirect off-origin

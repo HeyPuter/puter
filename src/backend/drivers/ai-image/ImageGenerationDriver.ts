@@ -99,34 +99,36 @@ export class ImageGenerationDriver extends PuterDriver {
     // ── Provider registration ───────────────────────────────────────
 
     #registerProviders () {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const cfg = this.config as any;
-        const providers = cfg?.providers ?? cfg?.services ?? {};
+        const providers = this.config.providers ?? {};
         const m = this.services.metering;
 
-        const openaiConfig = providers['openai-image-generation'] ?? cfg?.openai;
-        if ( openaiConfig?.apiKey || openaiConfig?.secret_key ) {
-            this.#providers['openai-image-generation'] = new OpenAiImageProvider(openaiConfig, m);
+        const openai = providers['openai-image-generation'];
+        if ( openai?.apiKey ) {
+            this.#providers['openai-image-generation'] = new OpenAiImageProvider({ apiKey: openai.apiKey }, m);
         }
 
-        const geminiConfig = providers['gemini-image-generation'] ?? providers['gemini'];
-        if ( geminiConfig?.apiKey ) {
-            this.#providers['gemini-image-generation'] = new GeminiImageProvider(geminiConfig, m);
+        const gemini = providers['gemini-image-generation'];
+        if ( gemini?.apiKey ) {
+            this.#providers['gemini-image-generation'] = new GeminiImageProvider({ apiKey: gemini.apiKey }, m);
         }
 
-        const togetherConfig = providers['together-image-generation'] ?? providers['together-ai'];
-        if ( togetherConfig?.apiKey ) {
-            this.#providers['together-image-generation'] = new TogetherImageProvider(togetherConfig, m);
+        const together = providers['together-image-generation'];
+        if ( together?.apiKey ) {
+            this.#providers['together-image-generation'] = new TogetherImageProvider({ apiKey: together.apiKey }, m);
         }
 
-        const cloudflareConfig = providers['cloudflare-image-generation'] ?? providers['cloudflare'];
-        if ( cloudflareConfig?.apiToken || cloudflareConfig?.apiKey || cloudflareConfig?.secret_key ) {
-            this.#providers['cloudflare-image-generation'] = new CloudflareImageProvider(cloudflareConfig, m);
+        const cloudflare = providers['cloudflare-image-generation'];
+        if ( cloudflare?.apiToken && cloudflare?.accountId ) {
+            this.#providers['cloudflare-image-generation'] = new CloudflareImageProvider({
+                apiToken: cloudflare.apiToken,
+                accountId: cloudflare.accountId,
+                apiBaseUrl: cloudflare.apiBaseUrl,
+            }, m);
         }
 
-        const xaiConfig = providers['xai-image-generation'] ?? providers['xai'];
-        if ( xaiConfig?.apiKey ) {
-            this.#providers['xai-image-generation'] = new XAIImageProvider(xaiConfig, m);
+        const xai = providers['xai-image-generation'];
+        if ( xai?.apiKey ) {
+            this.#providers['xai-image-generation'] = new XAIImageProvider({ apiKey: xai.apiKey }, m);
         }
     }
 

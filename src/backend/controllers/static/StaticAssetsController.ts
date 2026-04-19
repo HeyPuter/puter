@@ -46,7 +46,7 @@ export class StaticAssetsController extends PuterController {
         // `puter.js` (minified) as the built artifact. Fall back to
         // `puter.js` when `.dev.js` isn't present so `yarn start` works
         // out of the box without running the dev-mode webpack build.
-        const puterjsRoot = (this.config as unknown as { puterjs_root?: string }).puterjs_root;
+        const puterjsRoot = this.config.puterjs_root;
         if ( puterjsRoot ) {
             const hasDev = existsSync(path.join(puterjsRoot, 'puter.dev.js'));
             if ( !hasDev && existsSync(path.join(puterjsRoot, 'puter.js')) ) {

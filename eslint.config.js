@@ -109,7 +109,13 @@ const createTsConfig = ({ files, project, ignores = [], globals: tsGlobals }) =>
         parserOptions: {
             ecmaVersion: 'latest',
             sourceType: 'module',
-            project,
+            // typescript-eslint v8 `projectService` auto-discovers the closest
+            // tsconfig per file, with `defaultProject` as the fallback when no
+            // tsconfig owns the file. More forgiving than a fixed `project`
+            // path, which trips when an editor lints a file before the
+            // include-glob resolves it.
+            projectService: { defaultProject: project },
+            tsconfigRootDir: import.meta.dirname,
         },
     },
     plugins: {

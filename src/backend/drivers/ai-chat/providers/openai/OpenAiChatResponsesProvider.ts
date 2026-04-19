@@ -52,26 +52,10 @@ export class OpenAiResponsesChatProvider implements IChatProvider {
 
     constructor (
         meteringService: MeteringService,
-        config: { apiKey?: string, secret_key?: string },
+        config: { apiKey: string },
     ) {
-
         this.#meteringService = meteringService;
-        let apiKey = config.apiKey;
-
-        // Fallback to the old format for backward compatibility
-        if ( ! apiKey ) {
-            apiKey = config?.secret_key;
-
-            // Log a warning to inform users about the deprecated format
-            console.warn('The `openai.secret_key` configuration format is deprecated. ' +
-                'Please use `services.openai.apiKey` instead.');
-        }
-        if ( ! apiKey ) {
-            throw new Error('OpenAI API key is missing in configuration.');
-        }
-        this.#openAi = new OpenAI({
-            apiKey: apiKey,
-        });
+        this.#openAi = new OpenAI({ apiKey: config.apiKey });
     }
 
     /**

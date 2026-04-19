@@ -49,27 +49,14 @@ export class CloudflareImageProvider implements IImageProvider {
 
     constructor (
         config: {
-            apiToken?: string;
-            apiKey?: string;
-            secret_key?: string;
-            accountId?: string;
-            account_id?: string;
+            apiToken: string;
+            accountId: string;
             apiBaseUrl?: string;
         },
         meteringService: MeteringService,
     ) {
-        const apiToken = config.apiToken || config.apiKey || config.secret_key;
-        if ( ! apiToken ) {
-            throw new Error('Cloudflare image generation requires `apiToken` (or `apiKey`)');
-        }
-
-        const accountId = config.accountId || config.account_id;
-        if ( ! accountId ) {
-            throw new Error('Cloudflare image generation requires `accountId`');
-        }
-
-        this.#apiToken = apiToken;
-        this.#accountId = accountId;
+        this.#apiToken = config.apiToken;
+        this.#accountId = config.accountId;
         this.#apiBaseUrl = config.apiBaseUrl || 'https://api.cloudflare.com/client/v4';
         this.#meteringService = meteringService;
     }
@@ -167,81 +154,81 @@ export class CloudflareImageProvider implements IImageProvider {
         const megapixels = this.#megapixels(ratio);
 
         switch ( model.billingScheme ) {
-        case 'tile-plus-step':
-            return [
-                {
-                    key: 'tile_512',
-                    usageAmount: tiles,
-                    totalCostMicroCents: this.#costForUnits(tiles, model.costs.tile_512),
-                },
-                {
-                    key: 'step',
-                    usageAmount: steps,
-                    totalCostMicroCents: this.#costForUnits(steps, model.costs.step),
-                },
-            ];
-        case 'step-only':
-            return [
-                {
-                    key: 'step',
-                    usageAmount: steps,
-                    totalCostMicroCents: this.#costForUnits(steps, model.costs.step),
-                },
-            ];
-        case 'flux2-dev-tile-step':
-            return [
-                {
-                    key: 'input_tile_512_per_step',
-                    usageAmount: tiles * steps,
-                    totalCostMicroCents: this.#costForUnits(tiles * steps, model.costs.input_tile_512_per_step),
-                },
-                {
-                    key: 'output_tile_512_per_step',
-                    usageAmount: tiles * steps,
-                    totalCostMicroCents: this.#costForUnits(tiles * steps, model.costs.output_tile_512_per_step),
-                },
-            ];
-        case 'flux2-klein-4b-tile':
-            return [
-                {
-                    key: 'input_tile_512',
-                    usageAmount: tiles,
-                    totalCostMicroCents: this.#costForUnits(tiles, model.costs.input_tile_512),
-                },
-                {
-                    key: 'output_tile_512',
-                    usageAmount: tiles,
-                    totalCostMicroCents: this.#costForUnits(tiles, model.costs.output_tile_512),
-                },
-            ];
-        case 'flux2-klein-9b-mp': {
-            const firstMP = Math.min(megapixels, 1);
-            const subsequentMP = Math.max(0, megapixels - firstMP);
-            const firstPixels = Math.min(pixels, 1_000_000);
-            const subsequentPixels = Math.max(0, pixels - firstPixels);
-            const inputImageMP = options?.hasInputImage ? megapixels : 0;
-            return [
-                {
-                    key: 'first_mp',
-                    usageAmount: firstMP,
-                    totalCostMicroCents: this.#costForMillionUnits(firstPixels, model.costs.first_mp),
-                },
-                {
-                    key: 'subsequent_mp',
-                    usageAmount: subsequentMP,
-                    totalCostMicroCents: this.#costForMillionUnits(subsequentPixels, model.costs.subsequent_mp),
-                },
-                {
-                    key: 'input_image_mp',
-                    usageAmount: inputImageMP,
-                    totalCostMicroCents: options?.hasInputImage
-                        ? this.#costForMillionUnits(pixels, model.costs.input_image_mp)
-                        : 0,
-                },
-            ];
-        }
-        default:
-            return [];
+            case 'tile-plus-step':
+                return [
+                    {
+                        key: 'tile_512',
+                        usageAmount: tiles,
+                        totalCostMicroCents: this.#costForUnits(tiles, model.costs.tile_512),
+                    },
+                    {
+                        key: 'step',
+                        usageAmount: steps,
+                        totalCostMicroCents: this.#costForUnits(steps, model.costs.step),
+                    },
+                ];
+            case 'step-only':
+                return [
+                    {
+                        key: 'step',
+                        usageAmount: steps,
+                        totalCostMicroCents: this.#costForUnits(steps, model.costs.step),
+                    },
+                ];
+            case 'flux2-dev-tile-step':
+                return [
+                    {
+                        key: 'input_tile_512_per_step',
+                        usageAmount: tiles * steps,
+                        totalCostMicroCents: this.#costForUnits(tiles * steps, model.costs.input_tile_512_per_step),
+                    },
+                    {
+                        key: 'output_tile_512_per_step',
+                        usageAmount: tiles * steps,
+                        totalCostMicroCents: this.#costForUnits(tiles * steps, model.costs.output_tile_512_per_step),
+                    },
+                ];
+            case 'flux2-klein-4b-tile':
+                return [
+                    {
+                        key: 'input_tile_512',
+                        usageAmount: tiles,
+                        totalCostMicroCents: this.#costForUnits(tiles, model.costs.input_tile_512),
+                    },
+                    {
+                        key: 'output_tile_512',
+                        usageAmount: tiles,
+                        totalCostMicroCents: this.#costForUnits(tiles, model.costs.output_tile_512),
+                    },
+                ];
+            case 'flux2-klein-9b-mp': {
+                const firstMP = Math.min(megapixels, 1);
+                const subsequentMP = Math.max(0, megapixels - firstMP);
+                const firstPixels = Math.min(pixels, 1_000_000);
+                const subsequentPixels = Math.max(0, pixels - firstPixels);
+                const inputImageMP = options?.hasInputImage ? megapixels : 0;
+                return [
+                    {
+                        key: 'first_mp',
+                        usageAmount: firstMP,
+                        totalCostMicroCents: this.#costForMillionUnits(firstPixels, model.costs.first_mp),
+                    },
+                    {
+                        key: 'subsequent_mp',
+                        usageAmount: subsequentMP,
+                        totalCostMicroCents: this.#costForMillionUnits(subsequentPixels, model.costs.subsequent_mp),
+                    },
+                    {
+                        key: 'input_image_mp',
+                        usageAmount: inputImageMP,
+                        totalCostMicroCents: options?.hasInputImage
+                            ? this.#costForMillionUnits(pixels, model.costs.input_image_mp)
+                            : 0,
+                    },
+                ];
+            }
+            default:
+                return [];
         }
     }
 

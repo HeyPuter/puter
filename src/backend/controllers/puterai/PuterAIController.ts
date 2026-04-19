@@ -60,7 +60,7 @@ export class PuterAIController extends PuterController {
             res.status(400).send('Invalid or missing fileId parameter');
             return;
         }
-        if ( ! expires || ! signature ) {
+        if ( !expires || !signature ) {
             res.status(403).send('Missing signature');
             return;
         }
@@ -81,7 +81,7 @@ export class PuterAIController extends PuterController {
         // Constant-time compare so signature probing can't time-leak.
         const sigBuf = Buffer.from(signature, 'hex');
         const expBuf = Buffer.from(expected, 'hex');
-        if ( sigBuf.length !== expBuf.length || ! crypto.timingSafeEqual(sigBuf, expBuf) ) {
+        if ( sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf) ) {
             res.status(403).send('Invalid signature');
             return;
         }
@@ -91,8 +91,8 @@ export class PuterAIController extends PuterController {
             return;
         }
 
-        const geminiConfig = (this.config as unknown as { services?: Record<string, { apiKey?: string; secret_key?: string }> }).services?.gemini;
-        const apiKey = geminiConfig?.apiKey ?? geminiConfig?.secret_key;
+        // Same key used by `gemini-video-generation` driver to mint the asset.
+        const apiKey = this.config.providers?.['gemini-video-generation']?.apiKey;
         if ( ! apiKey ) {
             res.status(500).send('Gemini API key not configured');
             return;
@@ -118,7 +118,7 @@ export class PuterAIController extends PuterController {
     #listModels (driverKey: string) {
         return async (_req: Request, res: Response): Promise<void> => {
             const driver = (this.drivers as Record<string, unknown>)[driverKey] as { list?: () => string[] } | undefined;
-            if ( !driver?.list ) throw new HttpError(501, 'Model listing not available');
+            if ( ! driver?.list ) throw new HttpError(501, 'Model listing not available');
             const models = driver.list();
             const HIDDEN = ['costly', 'fake', 'abuse', 'model-fallback-test-1'];
             res.json({ models: (models as string[]).filter(m => !HIDDEN.includes(m)) });
@@ -128,7 +128,7 @@ export class PuterAIController extends PuterController {
     #modelDetails (driverKey: string) {
         return async (_req: Request, res: Response): Promise<void> => {
             const driver = (this.drivers as Record<string, unknown>)[driverKey] as { models?: () => Array<{ id: string }> } | undefined;
-            if ( !driver?.models ) throw new HttpError(501, 'Model details not available');
+            if ( ! driver?.models ) throw new HttpError(501, 'Model details not available');
             const models = driver.models();
             const HIDDEN = ['costly', 'fake', 'abuse', 'model-fallback-test-1'];
             res.json({ models: (models as Array<{ id: string }>).filter(m => !HIDDEN.includes(m.id)) });
@@ -215,7 +215,9 @@ export class PuterAIController extends PuterController {
                     res.end();
                 },
                 getBuffer: () => buffer,
-                setBuffer: (v) => { buffer = v; },
+                setBuffer: (v) => {
+                    buffer = v;
+                },
             });
             return;
         }
@@ -307,7 +309,9 @@ export class PuterAIController extends PuterController {
                     res.end();
                 },
                 getBuffer: () => buffer,
-                setBuffer: (v) => { buffer = v; },
+                setBuffer: (v) => {
+                    buffer = v;
+                },
             });
             return;
         }
@@ -453,7 +457,9 @@ export class PuterAIController extends PuterController {
                     res.end();
                 },
                 getBuffer: () => buffer,
-                setBuffer: (v) => { buffer = v; },
+                setBuffer: (v) => {
+                    buffer = v;
+                },
             });
             return;
         }
@@ -595,7 +601,9 @@ export class PuterAIController extends PuterController {
                     res.end();
                 },
                 getBuffer: () => buffer,
-                setBuffer: (v) => { buffer = v; },
+                setBuffer: (v) => {
+                    buffer = v;
+                },
             });
             return;
         }
@@ -651,7 +659,7 @@ const randomId = (): string => crypto.randomUUID().replace(/-/g, '');
 const generateId = (prefix: string): string => `${prefix}_${randomId()}`;
 
 const asRecord = (value: unknown): Record<string, unknown> => {
-    return (value && typeof value === 'object' && ! Array.isArray(value))
+    return (value && typeof value === 'object' && !Array.isArray(value))
         ? (value as Record<string, unknown>)
         : {};
 };
@@ -994,7 +1002,7 @@ const normalizeResponsesTool = (tool: unknown): unknown => {
 // ── Anthropic → internal messages ───────────────────────────────────
 
 const normalizeAnthropicTools = (tools: unknown): unknown[] | undefined => {
-    if ( ! Array.isArray(tools) || tools.length === 0 ) return undefined;
+    if ( !Array.isArray(tools) || tools.length === 0 ) return undefined;
     return tools.map((t) => {
         if ( !t || typeof t !== 'object' ) return t;
         const tt = t as Record<string, unknown>;

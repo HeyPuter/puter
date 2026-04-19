@@ -195,7 +195,7 @@ export class DriverController extends PuterController {
             }
         }
 
-        if ( ! checkDriverRateLimit(req, ifaceName, method) ) {
+        if ( ! await checkDriverRateLimit(req, ifaceName, method) ) {
             throw new HttpError(429, 'Too many requests.');
         }
 

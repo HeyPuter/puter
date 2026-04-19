@@ -149,7 +149,7 @@ export class SystemKVStore extends PuterStore {
     override async onServerStart (): Promise<void> {
         // For local/dynalite runs we need to create the table up front.
         // For real AWS we assume the table already exists.
-        const ddbConfig = this.config.dynamo ?? this.config.dynamoDb ?? this.config.services?.dynamo ?? {};
+        const ddbConfig = this.config.dynamo ?? {};
         if ( ddbConfig.aws ) return;
 
         this.initialized = this.clients.dynamo.createTableIfNotExists(

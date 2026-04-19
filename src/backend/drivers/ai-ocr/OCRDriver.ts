@@ -57,25 +57,27 @@ export class OCRDriver extends PuterDriver {
     #mistral: MistralOcrClient | null = null;
 
     override onServerStart () {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const cfg = this.config as any;
-        const aws = cfg?.aws ?? cfg?.services?.['aws-textract'];
-        if ( aws?.access_key && aws?.secret_key ) {
+        const providers = this.config.providers ?? {};
+
+        const textract = providers['aws-textract'];
+        if (
+            typeof textract?.access_key === 'string'
+            && typeof textract?.secret_key === 'string'
+        ) {
             this.#awsConfig = {
-                accessKeyId: aws.access_key,
-                secretAccessKey: aws.secret_key,
-                region: aws.region ?? 'us-west-2',
+                accessKeyId: textract.access_key,
+                secretAccessKey: textract.secret_key,
+                region: typeof textract.region === 'string' ? textract.region : 'us-west-2',
             };
         }
 
-        const mistralCfg = cfg?.services?.['mistral-ocr'] ?? cfg?.mistral;
-        const mistralKey = mistralCfg?.apiKey ?? mistralCfg?.api_key;
-        if ( mistralKey ) {
+        const mistral = providers['mistral-ocr'];
+        if ( mistral?.apiKey ) {
             try {
                 // Lazy import so we don't pay the cost when Mistral is unused.
 
                 const { Mistral } = require('@mistralai/mistralai');
-                this.#mistral = new Mistral({ apiKey: mistralKey }) as unknown as MistralOcrClient;
+                this.#mistral = new Mistral({ apiKey: mistral.apiKey }) as unknown as MistralOcrClient;
             } catch (e) {
                 console.warn('[OCRDriver] Failed to init Mistral:', (e as Error).message);
             }

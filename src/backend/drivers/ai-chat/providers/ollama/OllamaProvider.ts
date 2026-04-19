@@ -40,14 +40,14 @@ export class OllamaChatProvider implements IChatProvider {
 
     #meteringService: MeteringService;
 
-    constructor (config: { api_base_url?: string } | undefined, meteringService: MeteringService) {
+    constructor (config: { apiBaseUrl?: string } | undefined, meteringService: MeteringService) {
         // Ollama typically runs on HTTP, not HTTPS
-        this.#apiBaseUrl = config?.api_base_url || 'http://localhost:11434';
+        this.#apiBaseUrl = config?.apiBaseUrl || 'http://localhost:11434';
 
         // OpenAI SDK is used to interact with the Ollama API
         this.#openai = new openai.OpenAI({
             apiKey: 'ollama', // Ollama doesn't use an API key, it uses the "ollama" string
-            baseURL: `${config?.api_base_url }/v1`,
+            baseURL: `${this.#apiBaseUrl}/v1`,
         });
 
         this.#meteringService = meteringService;

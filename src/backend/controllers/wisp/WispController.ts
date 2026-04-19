@@ -78,7 +78,7 @@ export class WispController extends PuterController {
         res.json(event.policy);
     };
 
-    #wispConfig (): Record<string, unknown> {
-        return ((this.config as unknown as { wisp?: Record<string, unknown> }).wisp) ?? {};
+    #wispConfig (): NonNullable<typeof this.config.wisp> {
+        return this.config.wisp ?? {};
     }
 }

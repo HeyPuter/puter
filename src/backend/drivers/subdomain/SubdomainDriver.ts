@@ -221,8 +221,7 @@ export class SubdomainDriver extends PuterDriver {
     // ── Config ──────────────────────────────────────────────────────
 
     #configMaxSubdomains (): number {
-        const cfg = this.config as unknown as Record<string, unknown>;
-        const n = Number(cfg.max_subdomains_per_user ?? DEFAULT_MAX_SUBDOMAINS);
+        const n = Number(this.config.max_subdomains_per_user ?? DEFAULT_MAX_SUBDOMAINS);
         return Number.isFinite(n) && n > 0 ? n : DEFAULT_MAX_SUBDOMAINS;
     }
 

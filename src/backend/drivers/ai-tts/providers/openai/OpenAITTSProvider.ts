@@ -60,15 +60,9 @@ export class OpenAITTSProvider extends TTSProvider {
 
     private openai: OpenAI;
 
-    constructor (meteringService: MeteringService, config: { apiKey?: string; secret_key?: string }) {
+    constructor (meteringService: MeteringService, config: { apiKey: string }) {
         super(meteringService, config);
-
-        const apiKey = config.apiKey ?? config.secret_key;
-        if ( ! apiKey ) {
-            throw new Error('OpenAI API key not configured for TTS provider');
-        }
-
-        this.openai = new OpenAI({ apiKey });
+        this.openai = new OpenAI({ apiKey: config.apiKey });
     }
 
     async listVoices (): Promise<ITTSVoice[]> {

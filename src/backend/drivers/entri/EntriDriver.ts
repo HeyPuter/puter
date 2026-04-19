@@ -200,7 +200,7 @@ export class EntriDriver extends PuterDriver {
 
     // ── Config ──────────────────────────────────────────────────────
 
-    #entriConfig (): { applicationId?: string; secret?: string } {
-        return (this.config as unknown as { entri?: { applicationId?: string; secret?: string } }).entri ?? {};
+    #entriConfig (): NonNullable<typeof this.config.entri> {
+        return this.config.entri ?? {};
     }
 }

@@ -1,6 +1,6 @@
 import Redis, { Cluster } from 'ioredis';
 import MockRedis from 'ioredis-mock';
-import type { IConfig, IRedisConfig, WithLifecycle } from '../../types';
+import type { IConfig, WithLifecycle } from '../../types';
 
 const redisStartupRetryMaxDelayMs = 2000;
 const redisSlotsRefreshTimeoutMs = 5000;
@@ -42,13 +42,9 @@ const attachClusterEventHandlers = (clusterClient: Cluster): void => {
     });
 };
 
-const getRedisConfig = (config: IConfig): IRedisConfig => {
-    return config.redis ?? config.services?.redis ?? {};
-};
-
 const buildCluster = (config: IConfig): Cluster => {
-    const redisConfig = getRedisConfig(config);
-    const startupNodes = redisConfig.startupNodes ?? redisConfig.clusterNodes ?? [];
+    const redisConfig = config.redis ?? {};
+    const startupNodes = redisConfig.startupNodes ?? [];
     const useMock = redisConfig.useMock ?? startupNodes.length === 0;
 
     if ( useMock ) {

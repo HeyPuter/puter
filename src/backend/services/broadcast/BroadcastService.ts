@@ -8,8 +8,6 @@ import { PuterService } from '../types.js';
 interface PeerConfig {
     /** Stable id of the peer (also sent as `X-Broadcast-Peer-Id`). */
     peerId?: string;
-    /** Legacy alias for `peerId`. Older configs use `key`. */
-    key?: string;
     /** Whether this peer should receive webhooks. Non-webhook peers are skipped. */
     webhook?: boolean;
     /** HTTPS endpoint to POST broadcast events to. */
@@ -21,8 +19,6 @@ interface PeerConfig {
 interface SelfConfig {
     /** This server's peerId, sent in outbound POSTs as `X-Broadcast-Peer-Id`. */
     peerId?: string;
-    /** Legacy alias for `peerId`. */
-    key?: string;
     /** Secret used to sign OUTBOUND POSTs. Peers verify with their copy. */
     secret?: string;
 }
@@ -271,7 +267,7 @@ export class BroadcastService extends PuterService {
                 try {
                     await this.#sendWebhookToPeer(peer, events);
                 } catch ( err ) {
-                    const peerId = peer.peerId ?? peer.key ?? 'unknown';
+                    const peerId = peer.peerId ?? 'unknown';
                     console.warn(`[broadcast] webhook send to peer ${peerId} failed`, err);
                 }
             }
@@ -419,14 +415,13 @@ export class BroadcastService extends PuterService {
     }
 
     #resolveLocalPeerId (): string | null {
-        const self = this.#self();
-        const id = self?.peerId ?? self?.key;
+        const id = this.#self()?.peerId;
         if ( typeof id !== 'string' || id.trim() === '' ) return null;
         return id.trim();
     }
 
     #resolvePeerIdOf (peer: PeerConfig): string | null {
-        const id = peer.peerId ?? peer.key;
+        const id = peer.peerId;
         if ( typeof id !== 'string' || id.trim() === '' ) return null;
         return id.trim();
     }
@@ -436,7 +431,7 @@ export class BroadcastService extends PuterService {
     }
 
     #broadcastConfig (): BroadcastConfig {
-        return ((this.config as unknown as { broadcast?: BroadcastConfig }).broadcast) ?? {};
+        return this.config.broadcast ?? {};
     }
 
     #normalizeWebhookUrl (url: string | undefined): string | null {
@@ -490,8 +485,8 @@ export class BroadcastService extends PuterService {
         const flushMs = Number(cfg.outbound_flush_ms ?? 2000);
         this.#outboundFlushMs = Number.isFinite(flushMs) && flushMs >= 0 ? flushMs : 2000;
 
-        this.#webhookHostHeader = (this.config as unknown as { domain?: string }).domain ?? null;
-        const protoRaw = String((this.config as unknown as { protocol?: string }).protocol ?? '')
+        this.#webhookHostHeader = this.config.domain ?? null;
+        const protoRaw = String(this.config.protocol ?? '')
             .trim().replace(/:$/, '').toLowerCase();
         this.#webhookProtocol = protoRaw === 'http' || protoRaw === 'https' ? protoRaw : 'https';
     }

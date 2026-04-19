@@ -34,13 +34,13 @@ export class PeerController extends PuterController {
     /** POST /peer/generate-turn — generate TURN credentials via Cloudflare. */
     #generateTurn = async (req: Request, res: Response): Promise<void> => {
         const cfg = this.#peerConfig();
-        const turnCfg = cfg.turn as Record<string, unknown> | undefined;
+        const turnCfg = cfg.turn;
         if ( !turnCfg?.cloudflare_turn_service_id || !turnCfg?.cloudflare_turn_api_token ) {
             throw new HttpError(503, 'TURN not configured');
         }
 
-        const serviceId = String(turnCfg.cloudflare_turn_service_id);
-        const apiToken = String(turnCfg.cloudflare_turn_api_token);
+        const serviceId = turnCfg.cloudflare_turn_service_id;
+        const apiToken = turnCfg.cloudflare_turn_api_token;
         const ttl = Number(turnCfg.ttl ?? 86400);
 
         const cfRes = await fetch(
@@ -68,14 +68,14 @@ export class PeerController extends PuterController {
     /** POST /turn/ingest-usage — internal-only TURN egress metering. */
     #ingestUsage = async (req: Request, res: Response): Promise<void> => {
         const cfg = this.#peerConfig();
-        const internalSecret = (cfg as Record<string, unknown>).internal_auth_secret;
+        const internalSecret = cfg.internal_auth_secret;
         const header = req.headers['x-puter-internal-auth'];
         if ( !internalSecret || header !== internalSecret ) {
             throw new HttpError(403, 'Forbidden');
         }
 
         const { records } = req.body ?? {};
-        if ( !Array.isArray(records) ) {
+        if ( ! Array.isArray(records) ) {
             throw new HttpError(400, 'Missing `records` array');
         }
 
@@ -115,7 +115,7 @@ export class PeerController extends PuterController {
         res.json({ ok: true });
     };
 
-    #peerConfig (): Record<string, unknown> {
-        return ((this.config as unknown as { peers?: Record<string, unknown> }).peers) ?? {};
+    #peerConfig (): NonNullable<typeof this.config.peers> {
+        return this.config.peers ?? {};
     }
 }

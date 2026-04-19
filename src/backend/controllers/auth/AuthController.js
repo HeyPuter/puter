@@ -49,7 +49,7 @@ export class AuthController extends PuterController {
         return this.stores.group;
     }
 
-    registerRoutes (router) {
+    registerRoutes (/** @type {import('../../core/http/PuterRouter.js').PuterRouter} */ router) {
 
         // ── Login ───────────────────────────────────────────────────
 

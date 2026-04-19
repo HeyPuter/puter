@@ -248,14 +248,14 @@ export class WorkerDriver extends PuterDriver {
     }
 
     #rejectReserved (name: string): void {
-        const reserved = (this.config as unknown as { reserved_words?: string[] }).reserved_words ?? [];
+        const reserved = this.config.reserved_words ?? [];
         if ( reserved.includes(name) ) {
             throw new HttpError(400, `Worker name '${name}' is reserved`);
         }
     }
 
-    #workerConfig (): Record<string, string | undefined> {
-        return ((this.config as unknown as { workers?: Record<string, string> }).workers) ?? {};
+    #workerConfig (): NonNullable<typeof this.config.workers> {
+        return this.config.workers ?? {};
     }
 
     // ── Hot-reload: auto-redeploy on file write ─────────────────────

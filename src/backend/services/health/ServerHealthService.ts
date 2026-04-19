@@ -149,8 +149,7 @@ export class ServerHealthService extends PuterService {
 
     #registerDefaultChecks (): void {
         const latencyFailMs = Number(
-            (this.config as unknown as { server_health?: { db_liveness_latency_fail_ms?: number } })
-                .server_health?.db_liveness_latency_fail_ms,
+            this.config.server_health?.db_liveness_latency_fail_ms,
         ) || DEFAULT_DB_LIVENESS_LATENCY_FAIL_MS;
 
         const db = this.clients.db;
@@ -190,7 +189,9 @@ export class ServerHealthService extends PuterService {
         this.#intervalHandle = setInterval(() => {
             if ( this.#loopRunning ) return; // reentrancy guard
             this.#loopRunning = true;
-            this.#runCycle().finally(() => { this.#loopRunning = false; });
+            this.#runCycle().finally(() => {
+                this.#loopRunning = false;
+            });
         }, CHECK_INTERVAL_MS);
         // Don't keep the process alive just for health checks.
         this.#intervalHandle.unref?.();
@@ -256,8 +257,7 @@ export class ServerHealthService extends PuterService {
 
     #staleLoopFailure (): string | null {
         const staleAfterMs = Number(
-            (this.config as unknown as { server_health?: { stale_health_loop_fail_ms?: number } })
-                .server_health?.stale_health_loop_fail_ms,
+            this.config.server_health?.stale_health_loop_fail_ms,
         ) || (CHECK_INTERVAL_MS * HEALTH_LOOP_STALE_MULTIPLIER);
         const now = Date.now();
 

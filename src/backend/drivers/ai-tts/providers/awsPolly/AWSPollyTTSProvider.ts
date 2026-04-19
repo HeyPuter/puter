@@ -9,16 +9,16 @@ import { TTSProvider } from '../TTSProvider.js';
 const SAMPLE_AUDIO_URL = 'https://puter-sample-data.puter.site/tts_example.mp3';
 
 const ENGINE_PRICING: Record<string, number> = {
-    'standard': 400,      // $4.00 per 1M characters
-    'neural': 1600,        // $16.00 per 1M characters
-    'long-form': 10000,    // $100.00 per 1M characters
-    'generative': 3000,    // $30.00 per 1M characters
+    'standard': 400, // $4.00 per 1M characters
+    'neural': 1600, // $16.00 per 1M characters
+    'long-form': 10000, // $100.00 per 1M characters
+    'generative': 3000, // $30.00 per 1M characters
 };
 
 const VALID_ENGINES = ['standard', 'neural', 'long-form', 'generative'];
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-type PollyVoicesResponse = { Voices: any[] };
+interface PollyVoicesResponse { Voices: any[] }
 
 /**
  * AWS Polly TTS provider. Wraps the AWS Polly speech synthesis API and
@@ -32,21 +32,16 @@ export class AWSPollyTTSProvider extends TTSProvider {
     private voicesCache: { data: PollyVoicesResponse; expires: number } | null = null;
 
     constructor (meteringService: MeteringService, config: {
-        aws?: {
-            access_key?: string;
-            secret_key?: string;
-            region?: string;
-        };
+        access_key: string;
+        secret_key: string;
+        region?: string;
     }) {
         super(meteringService, config);
-
-        if ( ! config.aws?.access_key || ! config.aws?.secret_key ) {
-            throw new Error('AWS credentials not configured for Polly TTS provider');
-        }
     }
 
     private getClient (region?: string): PollyClient {
-        const resolvedRegion = region ?? this.providerConfig.aws?.region ?? 'us-west-2';
+        const cfg = this.providerConfig as { access_key: string; secret_key: string; region?: string };
+        const resolvedRegion = region ?? cfg.region ?? 'us-west-2';
 
         if ( this.clients[resolvedRegion] ) {
             return this.clients[resolvedRegion];
@@ -54,8 +49,8 @@ export class AWSPollyTTSProvider extends TTSProvider {
 
         this.clients[resolvedRegion] = new PollyClient({
             credentials: {
-                accessKeyId: this.providerConfig.aws.access_key,
-                secretAccessKey: this.providerConfig.aws.secret_key,
+                accessKeyId: cfg.access_key,
+                secretAccessKey: cfg.secret_key,
             },
             region: resolvedRegion,
         });
@@ -69,7 +64,7 @@ export class AWSPollyTTSProvider extends TTSProvider {
             return this.voicesCache.data;
         }
 
-        const client = this.getClient(this.providerConfig.aws?.region);
+        const client = this.getClient();
         const command = new DescribeVoicesCommand({});
         const response = await client.send(command);
 
@@ -81,14 +76,12 @@ export class AWSPollyTTSProvider extends TTSProvider {
         return response as PollyVoicesResponse;
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     private async getLanguageAppropriateVoice (language: string, engine: string): Promise<string | null> {
         const voices = await this.describeVoices();
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const voice = voices.Voices.find((v: any) =>
             v.LanguageCode === language &&
-            v.SupportedEngines?.includes(engine),
-        );
+            v.SupportedEngines?.includes(engine));
         return voice ? voice.Id : null;
     }
 
@@ -108,16 +101,14 @@ export class AWSPollyTTSProvider extends TTSProvider {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const voice = voices.Voices.find((v: any) =>
                 v.Id === voiceName &&
-                v.SupportedEngines?.includes(engine),
-            );
+                v.SupportedEngines?.includes(engine));
             if ( voice ) return voice.Id;
         }
 
         // Fallback: any voice that supports the engine
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const fallback = voices.Voices.find((v: any) =>
-            v.SupportedEngines?.includes(engine),
-        );
+            v.SupportedEngines?.includes(engine));
         return fallback ? fallback.Id : 'Salli';
     }
 
@@ -196,7 +187,7 @@ export class AWSPollyTTSProvider extends TTSProvider {
         // Resolve voice
         let voice = voiceArg ?? undefined;
 
-        if ( ! voice && language ) {
+        if ( !voice && language ) {
             voice = await this.getLanguageAppropriateVoice(language, engine) ?? undefined;
         }
 
@@ -204,7 +195,7 @@ export class AWSPollyTTSProvider extends TTSProvider {
             voice = await this.getDefaultVoiceForEngine(engine);
         }
 
-        const client = this.getClient(this.providerConfig.aws?.region);
+        const client = this.getClient();
 
         const params = {
             Engine: engine as Engine,

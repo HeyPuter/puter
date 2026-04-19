@@ -35,8 +35,7 @@ extension.get('/whoami', { subdomain: 'api', requireAuth: true }, async (req, re
     // `{ flag_name: boolean }` object under `config.feature_flags`. Keys
     // that resolve to non-booleans (e.g. someone wrote `"true"` as a
     // string) are coerced so the client never has to guess.
-    const cfg = extension.config as Record<string, unknown>;
-    const rawFlags = (cfg.feature_flags ?? {}) as Record<string, unknown>;
+    const rawFlags = extension.config.feature_flags ?? {};
     const feature_flags: Record<string, boolean> = {};
     for ( const [k, v] of Object.entries(rawFlags) ) {
         feature_flags[k] = Boolean(v);
@@ -59,7 +58,7 @@ extension.get('/whoami', { subdomain: 'api', requireAuth: true }, async (req, re
                 clients,
                 stores,
                 services,
-                apiBaseUrl: String((extension.config as Record<string, unknown>).api_base_url ?? ''),
+                apiBaseUrl: String(extension.config.api_base_url ?? ''),
             }, { iconSize, noIcons })
             : undefined,
         referral_code: user.referral_code,

@@ -134,34 +134,22 @@ export class VideoGenerationDriver extends PuterDriver {
     // -- Provider registration -----------------------------------------------
 
     #registerProviders () {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const cfg = this.config as any;
-        const providers = cfg?.providers ?? cfg?.services ?? {};
-
+        const providers = this.config.providers ?? {};
         const m = this.services.metering;
 
-        const openAiConfig = providers['openai-video-generation'] ?? providers['openai'];
-        if ( openAiConfig?.apiKey || openAiConfig?.secret_key ) {
-            this.#providers['openai-video-generation'] = new OpenAIVideoProvider(
-                { apiKey: openAiConfig.apiKey || openAiConfig.secret_key },
-                m,
-            );
+        const openai = providers['openai-video-generation'];
+        if ( openai?.apiKey ) {
+            this.#providers['openai-video-generation'] = new OpenAIVideoProvider({ apiKey: openai.apiKey }, m);
         }
 
-        const togetherConfig = providers['together-video-generation'] ?? providers['together-ai'];
-        if ( togetherConfig?.apiKey || togetherConfig?.secret_key ) {
-            this.#providers['together-video-generation'] = new TogetherVideoProvider(
-                { apiKey: togetherConfig.apiKey || togetherConfig.secret_key },
-                m,
-            );
+        const together = providers['together-video-generation'];
+        if ( together?.apiKey ) {
+            this.#providers['together-video-generation'] = new TogetherVideoProvider({ apiKey: together.apiKey }, m);
         }
 
-        const geminiConfig = providers['gemini-video-generation'] ?? providers['gemini'];
-        if ( geminiConfig?.apiKey || geminiConfig?.secret_key ) {
-            this.#providers['gemini-video-generation'] = new GeminiVideoProvider(
-                { apiKey: geminiConfig.apiKey || geminiConfig.secret_key },
-                m,
-            );
+        const gemini = providers['gemini-video-generation'];
+        if ( gemini?.apiKey ) {
+            this.#providers['gemini-video-generation'] = new GeminiVideoProvider({ apiKey: gemini.apiKey }, m);
         }
     }
 

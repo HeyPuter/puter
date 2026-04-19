@@ -198,7 +198,7 @@ export class ChatCompletionDriver extends PuterDriver {
                         intendedProvider,
                     });
                 }
-                return originalEnd(usage);
+                return originalEnd(usage!);
             };
 
             // Fire-and-forget — the stream writes happen async while the
@@ -305,62 +305,64 @@ export class ChatCompletionDriver extends PuterDriver {
     // ── Provider registration ───────────────────────────────────────
 
     #registerProviders () {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const cfg = this.config as any;
-        const providers = cfg?.providers ?? cfg?.services ?? {};
-
+        const providers = this.config.providers ?? {};
         const m = this.services.metering;
 
-        const claudeConfig = providers['claude'];
-        if ( claudeConfig?.apiKey ) {
-            this.#providers['claude'] = new ClaudeProvider(m, claudeConfig);
+        const claude = providers['claude'];
+        if ( claude?.apiKey ) {
+            this.#providers['claude'] = new ClaudeProvider(m, { apiKey: claude.apiKey });
         }
 
-        const openAiConfig = providers['openai-completion'] ?? cfg?.openai;
-        if ( openAiConfig?.apiKey || openAiConfig?.secret_key ) {
-            this.#providers['openai-completion'] = new OpenAiChatProvider(m, openAiConfig);
-            this.#providers['openai-responses'] = new OpenAiResponsesChatProvider(m, openAiConfig);
+        const openai = providers['openai-completion'];
+        if ( openai?.apiKey ) {
+            this.#providers['openai-completion'] = new OpenAiChatProvider(m, { apiKey: openai.apiKey });
+            this.#providers['openai-responses'] = new OpenAiResponsesChatProvider(m, { apiKey: openai.apiKey });
         }
 
-        const geminiConfig = providers['gemini'];
-        if ( geminiConfig?.apiKey ) {
-            this.#providers['gemini'] = new GeminiChatProvider(m, geminiConfig);
+        const gemini = providers['gemini'];
+        if ( gemini?.apiKey ) {
+            this.#providers['gemini'] = new GeminiChatProvider(m, { apiKey: gemini.apiKey });
         }
 
-        const groqConfig = providers['groq'];
-        if ( groqConfig?.apiKey ) {
-            this.#providers['groq'] = new GroqAIProvider(groqConfig, m);
+        const groq = providers['groq'];
+        if ( groq?.apiKey ) {
+            this.#providers['groq'] = new GroqAIProvider({ apiKey: groq.apiKey }, m);
         }
 
-        const deepSeekConfig = providers['deepseek'];
-        if ( deepSeekConfig?.apiKey ) {
-            this.#providers['deepseek'] = new DeepSeekProvider(deepSeekConfig, m);
+        const deepseek = providers['deepseek'];
+        if ( deepseek?.apiKey ) {
+            this.#providers['deepseek'] = new DeepSeekProvider({ apiKey: deepseek.apiKey }, m);
         }
 
-        const mistralConfig = providers['mistral'];
-        if ( mistralConfig?.apiKey ) {
-            this.#providers['mistral'] = new MistralAIProvider(mistralConfig, m);
+        const mistral = providers['mistral'];
+        if ( mistral?.apiKey ) {
+            this.#providers['mistral'] = new MistralAIProvider({ apiKey: mistral.apiKey }, m);
         }
 
-        const xaiConfig = providers['xai'];
-        if ( xaiConfig?.apiKey ) {
-            this.#providers['xai'] = new XAIProvider(xaiConfig, m);
+        const xai = providers['xai'];
+        if ( xai?.apiKey ) {
+            this.#providers['xai'] = new XAIProvider({ apiKey: xai.apiKey }, m);
         }
 
-        const openrouterConfig = providers['openrouter'];
-        if ( openrouterConfig?.apiKey ) {
-            this.#providers['openrouter'] = new OpenRouterProvider(openrouterConfig, m);
+        const openrouter = providers['openrouter'];
+        if ( openrouter?.apiKey ) {
+            this.#providers['openrouter'] = new OpenRouterProvider({
+                apiKey: openrouter.apiKey,
+                apiBaseUrl: openrouter.apiBaseUrl,
+            }, m);
         }
 
-        const togetherConfig = providers['together-ai'];
-        if ( togetherConfig?.apiKey ) {
-            this.#providers['together-ai'] = new TogetherAIProvider(togetherConfig, m);
+        const together = providers['together-ai'];
+        if ( together?.apiKey ) {
+            this.#providers['together-ai'] = new TogetherAIProvider({ apiKey: together.apiKey }, m);
         }
 
-        // Ollama — auto-discover local instance
-        const ollamaConfig = providers['ollama'];
-        if ( ollamaConfig?.enabled !== false ) {
-            this.#providers['ollama'] = new OllamaChatProvider(ollamaConfig, m);
+        // Ollama — auto-discover local instance unless `enabled: false`.
+        const ollama = providers['ollama'];
+        if ( ollama?.enabled !== false ) {
+            this.#providers['ollama'] = new OllamaChatProvider({
+                apiBaseUrl: ollama?.apiBaseUrl,
+            }, m);
         }
 
         // Fake provider — always available for testing

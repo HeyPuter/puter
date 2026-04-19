@@ -62,10 +62,10 @@ async function buildRevalidateFields (
     oidcService: OIDCService,
     user: UserRow,
 ): Promise<Record<string, string> | undefined> {
-    const origin = ((config as unknown as { origin?: string }).origin ?? '').replace(/\/$/, '');
+    const origin = (config.origin ?? '').replace(/\/$/, '');
     const providers = await oidcService.getEnabledProviderIds();
     const provider = providers && providers[0];
-    if ( ! provider || ! origin ) return undefined;
+    if ( !provider || !origin ) return undefined;
     return {
         revalidate_url: `${origin}/auth/oidc/${provider}/start?flow=revalidate&user_id=${user.id}`,
     };
@@ -76,13 +76,13 @@ export const createUserProtectedGate = (
     options: UserProtectedGateOptions = {},
 ): RequestHandler[] => {
     const { config, userStore, oidcService, tokenService } = deps;
-    const cookieName = (config as unknown as { cookie_name?: string }).cookie_name ?? 'puter_token';
+    const cookieName = config.cookie_name ?? 'puter_token';
     const allowTemp = !!options.allowTempUsers;
 
     // 1. Session cookie only.
     const requireSessionCookie: RequestHandler = (req, _res, next) => {
         const cookieValue = req.cookies?.[cookieName];
-        if ( ! cookieValue || (req.token && req.token !== cookieValue) ) {
+        if ( !cookieValue || (req.token && req.token !== cookieValue) ) {
             throw new HttpError(401, 'Session cookie required', { legacyCode: 'session_required' });
         }
         next();

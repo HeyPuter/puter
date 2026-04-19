@@ -67,14 +67,14 @@ export class AppIconService extends PuterService {
 
     /** Public: canonical URL for an app's icon at a given size (CDN/subdomain-backed). */
     getIconUrl (appUid: string, size: number): string | null {
-        const cfg = this.config as unknown as Record<string, unknown>;
-        const host = (cfg.static_hosting_domain ?? cfg.static_hosting_domain_alt) as string | undefined;
+        const cfg = this.config;
+        const host = cfg.static_hosting_domain ?? cfg.static_hosting_domain_alt;
         if ( ! host ) return null;
-        const protocol = (cfg.protocol as string) ?? 'https';
+        const protocol = cfg.protocol ?? 'https';
         // Externally-visible port. Mirrors what PuterHomepageService et al.
         // do — non-80/443 deployments (local dev, reverse-proxied setups on
         // non-standard ports) would otherwise get a hostname with no port.
-        const pubPort = cfg.pub_port as number | undefined;
+        const pubPort = cfg.pub_port;
         const portSuffix = (pubPort && pubPort !== 80 && pubPort !== 443) ? `:${pubPort}` : '';
         const normalized = appUid.startsWith('app-') ? appUid : `app-${appUid}`;
         return `${protocol}://${APP_ICONS_SUBDOMAIN}.${host}${portSuffix}/${SIZED_ICON_FILENAME(normalized, size)}`;
@@ -173,7 +173,7 @@ export class AppIconService extends PuterService {
         // that falls back to the data URL if S3/CDN lookups miss. Using it
         // here keeps the icon column small and makes clients go through
         // the cached path.
-        const apiBase = String((this.config as unknown as Record<string, unknown>).api_base_url ?? '').replace(/\/+$/, '');
+        const apiBase = String(this.config.api_base_url ?? '').replace(/\/+$/, '');
         if ( apiBase ) {
             await this.clients.db.write(
                 "UPDATE `apps` SET `icon` = ? WHERE `uid` = ? AND `icon` LIKE 'data:%'",

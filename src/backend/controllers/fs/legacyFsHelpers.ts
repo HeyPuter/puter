@@ -190,8 +190,8 @@ export { normalizeAbsolutePath };
  * missing — these are required for signed URL routes to function.
  */
 export function signingConfigFromAppConfig (config: IConfig): SigningConfig {
-    const secret = (config as unknown as { url_signature_secret?: string }).url_signature_secret;
-    const apiBaseUrl = (config as unknown as { api_base_url?: string }).api_base_url;
+    const secret = config.url_signature_secret;
+    const apiBaseUrl = config.api_base_url;
     if ( typeof secret !== 'string' || secret.length === 0 ) {
         throw new HttpError(500, 'Server misconfiguration: url_signature_secret not set');
     }

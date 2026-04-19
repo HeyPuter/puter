@@ -43,8 +43,8 @@ export class OIDCService extends PuterService {
     #providers: Record<string, Record<string, string>> = {};
 
     override onServerStart (): void {
-        const oidcConfig = (this.config as unknown as { oidc?: { providers?: Record<string, Record<string, string>> } }).oidc;
-        this.#providers = oidcConfig?.providers ?? {};
+        const oidcConfig = this.config.oidc;
+        this.#providers = (oidcConfig?.providers ?? {}) as Record<string, Record<string, string>>;
     }
 
     // ── Provider config ─────────────────────────────────────────────
@@ -94,14 +94,14 @@ export class OIDCService extends PuterService {
 
     getCallbackUrl (flow: string): string | null {
         if ( ! (VALID_OIDC_FLOWS as readonly string[]).includes(flow) ) return null;
-        const origin = ((this.config as unknown as { origin?: string }).origin ?? '').replace(/\/$/, '');
+        const origin = (this.config.origin ?? '').replace(/\/$/, '');
         return `${origin}/auth/oidc/callback/${flow}`;
     }
 
     async getAuthorizationUrl (providerId: string, state: string, flow: string): Promise<string | null> {
         const config = await this.getProviderConfig(providerId);
         if ( ! config ) return null;
-        const redirectUri = this.getCallbackUrl(flow) ?? `${((this.config as unknown as { api_base_url?: string }).api_base_url ?? '')}/auth/oidc/callback`;
+        const redirectUri = this.getCallbackUrl(flow) ?? `${(this.config.api_base_url ?? '')}/auth/oidc/callback`;
         const params = new URLSearchParams({
             client_id: config.client_id,
             redirect_uri: redirectUri,
@@ -171,7 +171,7 @@ export class OIDCService extends PuterService {
 
     async getUserInfo (providerId: string, accessToken: string): Promise<OIDCUserInfo | null> {
         const config = await this.getProviderConfig(providerId);
-        if ( !config?.userinfo_endpoint ) return null;
+        if ( ! config?.userinfo_endpoint ) return null;
 
         const res = await fetch(config.userinfo_endpoint, {
             headers: { Authorization: `Bearer ${accessToken}` },

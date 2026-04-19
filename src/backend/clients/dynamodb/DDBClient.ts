@@ -82,7 +82,7 @@ export class DDBClient extends PuterClient {
 
     constructor (config: IConfig) {
         super(config);
-        this.#ddbConfig = config.dynamo ?? config.dynamoDb ?? config.services?.dynamo ?? {};
+        this.#ddbConfig = config.dynamo ?? {};
 
         if ( this.#ddbConfig.aws ) {
             this.#bindAwsClient();
@@ -355,11 +355,11 @@ export class DDBClient extends PuterClient {
     }
 
     #bindAwsClient () {
-        const accessKeyId = this.#ddbConfig.aws?.accessKeyId ?? this.#ddbConfig.aws?.access_key;
-        const secretAccessKey = this.#ddbConfig.aws?.secretAccessKey ?? this.#ddbConfig.aws?.secret_key;
+        const accessKeyId = this.#ddbConfig.aws?.access_key;
+        const secretAccessKey = this.#ddbConfig.aws?.secret_key;
 
         if ( !accessKeyId || !secretAccessKey ) {
-            throw new Error('DynamoDB aws config requires both accessKeyId/access_key and secretAccessKey/secret_key');
+            throw new Error('DynamoDB aws config requires both `access_key` and `secret_key`');
         }
 
         const ddbClient = new DynamoDBClient({

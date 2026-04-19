@@ -30,22 +30,15 @@ export class ElevenLabsTTSProvider extends TTSProvider {
     private defaultVoiceId: string;
 
     constructor (meteringService: MeteringService, config: {
-        apiKey?: string;
-        api_key?: string;
-        key?: string;
-        baseUrl?: string;
+        apiKey: string;
+        apiBaseUrl?: string;
         defaultVoiceId?: string;
-        voiceId?: string;
     }) {
         super(meteringService, config);
 
-        this.apiKey = config.apiKey ?? config.api_key ?? config.key ?? '';
-        this.baseUrl = config.baseUrl ?? 'https://api.elevenlabs.io';
-        this.defaultVoiceId = config.defaultVoiceId ?? config.voiceId ?? DEFAULT_VOICE_ID;
-
-        if ( ! this.apiKey ) {
-            throw new Error('ElevenLabs API key not configured for TTS provider');
-        }
+        this.apiKey = config.apiKey;
+        this.baseUrl = config.apiBaseUrl ?? 'https://api.elevenlabs.io';
+        this.defaultVoiceId = config.defaultVoiceId ?? DEFAULT_VOICE_ID;
     }
 
     private async request (path: string, opts: { method?: string; body?: unknown; headers?: Record<string, string> } = {}): Promise<Response> {

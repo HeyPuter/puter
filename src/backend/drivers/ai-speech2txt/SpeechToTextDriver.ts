@@ -40,11 +40,15 @@ const MODEL_CAPS: Record<string, ModelCapabilities> = {
     'gpt-4o-mini-transcribe': { canPrompt: true, canLogprobs: true, responseFormats: ['json', 'text'] },
     'gpt-4o-transcribe': { canPrompt: true, canLogprobs: true, responseFormats: ['json', 'text'] },
     'gpt-4o-transcribe-diarize': {
-        canPrompt: false, canLogprobs: false, responseFormats: ['json', 'text', 'diarized_json'],
-        diarization: true, requiresChunkingOverThirtySeconds: true,
+        canPrompt: false,
+        canLogprobs: false,
+        responseFormats: ['json', 'text', 'diarized_json'],
+        diarization: true,
+        requiresChunkingOverThirtySeconds: true,
     },
     'whisper-1': {
-        canPrompt: true, canLogprobs: false,
+        canPrompt: true,
+        canLogprobs: false,
         responseFormats: ['json', 'text', 'srt', 'verbose_json', 'vtt'],
         timestampGranularities: true,
     },
@@ -75,11 +79,7 @@ export class SpeechToTextDriver extends PuterDriver {
     #openai: OpenAI | null = null;
 
     override onServerStart () {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const cfg = this.config as any;
-        const apiKey = cfg?.services?.openai?.apiKey
-            ?? cfg?.openai?.apiKey
-            ?? cfg?.openai?.secret_key;
+        const apiKey = this.config.providers?.openai?.apiKey;
         if ( ! apiKey ) return; // Leave uninitialized; convert() will reject.
         this.#openai = new OpenAI({ apiKey });
     }
