@@ -219,6 +219,19 @@ export interface IEntriConfig {
     secret?: string;
 }
 
+/**
+ * Optional outbound-fetch proxy used by `secureFetch()` when the backend has
+ * to fetch a user-supplied URL (e.g. image-gen `input_image`). Requests get
+ * prefixed with `url` and sent through the Worker with `x-cors-proxy-auth-
+ * secret: <secret>`; the Worker authenticates the secret, fetches the real
+ * URL, and strips CORS on the response. Unset → fetches go direct (still
+ * guarded by the URL/redirect/DNS checks in secureFetch).
+ */
+export interface ISecureCorsProxyConfig {
+    url: string;
+    secret: string;
+}
+
 export interface IWispConfig {
     /** WISP relay server address returned to clients on token create. */
     server?: string;
@@ -436,6 +449,8 @@ interface IConfigOptional {
     workers: IWorkersConfig;
     /** Entri custom-domain integration. */
     entri: IEntriConfig;
+    /** Optional CORS-stripping signed-Worker proxy used by `secureFetch`. */
+    secureCorsProxy: ISecureCorsProxyConfig;
     /** IPInfo / Kickbox / PagerDuty signup-abuse integration. */
     abuse: IAbuseConfig;
     /** Legacy Stripe billing extension. */

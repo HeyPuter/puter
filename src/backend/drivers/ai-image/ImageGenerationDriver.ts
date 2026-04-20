@@ -5,6 +5,7 @@ import { PuterDriver } from '../types.js';
 import { CloudflareImageProvider } from './providers/cloudflare/CloudflareImageProvider.js';
 import { GeminiImageProvider } from './providers/gemini/GeminiImageProvider.js';
 import { OpenAiImageProvider } from './providers/openai/OpenAiImageProvider.js';
+import { ReplicateImageGenerationProvider } from './providers/replicate/ReplicateImageGenerationProvider.js';
 import { TogetherImageProvider } from './providers/together/TogetherImageProvider.js';
 import { XAIImageProvider } from './providers/xai/XAIImageProvider.js';
 import type { IGenerateParams, IImageModel, IImageProvider } from './types.js';
@@ -147,6 +148,15 @@ export class ImageGenerationDriver extends PuterDriver {
                 { apiKey: xai.apiKey },
                 m,
             );
+        }
+
+        const replicate = providers['replicate-image-generation'];
+        if (replicate?.apiKey) {
+            this.#providers['replicate-image-generation'] =
+                new ReplicateImageGenerationProvider(
+                    { apiKey: replicate.apiKey },
+                    m,
+                );
         }
     }
 

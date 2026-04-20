@@ -61,6 +61,7 @@
     "otpauth": "^9.2.4",
     "parse-domain": "^8.2.2",
     "prompt-sync": "^4.2.0",
+    "replicate": "^1.0.0",
     "sharp": "^0.34.3",
     "socket.io": "^4.8.3",
     "svg-captcha": "^1.4.0",

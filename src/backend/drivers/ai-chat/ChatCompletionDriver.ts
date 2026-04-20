@@ -75,6 +75,17 @@ export class ChatCompletionDriver extends PuterDriver {
         return (await this.models()).map((m) => m.puterId || m.id).sort();
     }
 
+    // TODO: port v1's per-group concurrent-request limiter as HTTP middleware.
+    // v1 `AIChatService` wrapped `complete()` in a `concurrentRequestLimiter`
+    // (services/abuse-prevention/concurrentRequestLimiter) that kept a short
+    // Redis lease per (actor-group, limit-key) pair and rejected new calls
+    // once each group's cap was hit (default: temp_free=3, user_free=5,
+    // per-subscription limits from `config.ai-chat.concurrentRequests.
+    // subscriptionLimits`, lease TTL from `.leaseMs`, default 120_000ms).
+    // v2 has no equivalent yet — redesign as a rate-limit-style middleware
+    // living alongside `core/http/middleware/rateLimit.js` so any driver can
+    // opt-in by policy, not just chat. Config shape should live under
+    // `rate_limit.concurrent` (or similar) in IConfig, not in a driver bag.
     async complete(args: ICompleteArguments): Promise<IChatCompleteResult> {
         const actor = Context.get('actor');
         if (!actor) throw new HttpError(401, 'Authentication required');

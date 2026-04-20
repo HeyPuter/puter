@@ -278,6 +278,22 @@ export const transformToV2 = (source) => {
     // service. v2's IThumbnailStoreConfig is strictly the bucket — unwrap.
     if ( svc.thumbnails?.bucket ) out.thumbnailStore = svc.thumbnails.bucket;
 
+    // v2 onlyoffice extension reads `config.onlyoffice` (same field names as
+    // v1's `services.onlyoffice-app`), so it's a straight rename.
+    if ( svc['onlyoffice-app'] ) out.onlyoffice = svc['onlyoffice-app'];
+
+    // Cloudflare Turnstile: v2 GUI renders the challenge widget when
+    // `gui_params.turnstileSiteKey` is set (see initgui.js / UIWindowSignup).
+    // Preserve the full block at `turnstile` for whenever the backend verifier
+    // is ported, and surface the site key into gui_params so the widget works.
+    if ( svc['cloudflare-turnstile'] ) {
+        out.turnstile = svc['cloudflare-turnstile'];
+        if ( svc['cloudflare-turnstile'].site_key ) {
+            out.gui_params = out.gui_params ?? {};
+            out.gui_params.turnstileSiteKey = svc['cloudflare-turnstile'].site_key;
+        }
+    }
+
     // AI / integration providers: v1 kept each under `services.<id>` (plus a
     // top-level `openai` shortcut in some configs). v2 unifies them under
     // `providers[<id>]` and accepts only the canonical camelCase field names
@@ -291,6 +307,7 @@ export const transformToV2 = (source) => {
         'gemini-image-generation', 'gemini-video-generation',
         'together-image-generation', 'together-video-generation',
         'cloudflare-image-generation', 'xai-image-generation',
+        'replicate-image-generation',
     ];
     const PROVIDER_RENAMES = [
         ['api_key', 'apiKey'], ['secret_key', 'apiKey'], ['key', 'apiKey'],
@@ -315,6 +332,12 @@ export const transformToV2 = (source) => {
     }
     if ( source.openai && providers.openai === undefined ) {
         providers.openai = normalizeProvider(source.openai);
+    }
+    // v1 had a single `services.replicate` that the image driver keyed on;
+    // v2 splits providers by capability, so the image one lands at
+    // `providers['replicate-image-generation']`.
+    if ( svc.replicate && providers['replicate-image-generation'] === undefined ) {
+        providers['replicate-image-generation'] = normalizeProvider(svc.replicate);
     }
     // Backward-compat fan-out: v1 had a single `openai` / `gemini` / `together-ai`
     // / `xai` entry used for chat + image + video. v2 drivers look up split ids
@@ -343,20 +366,44 @@ export const transformToV2 = (source) => {
         'database', 'dynamo', 'email', 'captcha', 'puter-homepage',
         'stripe', 'offerings', '__subs-serve',
         'oidc', 'wisp', 'peer', 'broadcast', 'worker-service', 'entri-service',
-        'thumbnails',
+        'thumbnails', 'onlyoffice-app', 'cloudflare-turnstile', 'replicate',
         ...PROVIDER_IDS,
     ]);
     const droppedServiceKeys = new Set([
+        // v1 services with no v2 equivalent — data intentionally discarded.
         'heap-monitor', 'file-cache', 'telemetry', 'monitor', 'spending',
         'judge0', 'convert-api',
+        // `auth.uuid_fpe_key` — v2 AuthService uses plain session UUIDs
+        // (see services/auth/types.ts: "not FPE-encrypted").
+        'auth',
+        // SNS bounce handler not ported to v2 — no v2 SNSService.
+        'sns',
+        // v1 config-only orphans: never actually read by v1 backend
+        // (confirmed via git grep on puter@main), no v2 consumers.
+        'ipgeo', 'newsdata', 'weather', 'user-send-mail',
+        // `ai-chat.concurrentRequests` — v1 concurrency limiter not ported
+        // yet; see TODO in v2 drivers/ai-chat/ChatCompletionDriver.ts. Config
+        // shape should move under `rate_limit.*` in IConfig when reintroduced,
+        // so dropping avoids migrating a soon-to-be-renamed shape.
+        'ai-chat',
     ]);
     for ( const [k, v] of Object.entries(svc) ) {
         if ( consumedServiceKeys.has(k) || droppedServiceKeys.has(k) ) continue;
         if ( out[k] === undefined ) out[k] = v;
     }
 
+    // Top-level v1 keys that v2 OSS doesn't read and no extension claims.
+    // Silently dropped — everything else falls through to the preservation
+    // loop below in case it belongs to a prod extension we're not aware of.
+    const droppedTopKeys = new Set([
+        // `puter_hosted_data.puter_versions` — set in v1 config.js but never
+        // read. Planted for a version-check feature that never shipped.
+        'puter_hosted_data',
+    ]);
+    for ( const k of droppedTopKeys ) delete out[k];
+
     // Preserve any other top-level keys we haven't explicitly translated
-    // (e.g. puter_hosted_data, custom extension configs).
+    // (custom extension configs etc.).
     const handledTop = new Set([
         'config_name', 'env', 'http_port', 'port', 'pub_port', 'domain', 'protocol',
         'blocked_email_domains', 'toConsole', 'is_storage_limited',
@@ -386,6 +433,7 @@ export const transformToV2 = (source) => {
         'default_user_group', 'default_temp_group',
         'abuse', 'clickhouse', 'cf_file_cache', 'legacyBilling',
         'providers', 'thumbnailStore',
+        ...droppedTopKeys,
     ]);
     for ( const [k, v] of Object.entries(source) ) {
         if ( handledTop.has(k) || k === '' ) continue;
