@@ -99,8 +99,7 @@ async function UIDashboard (options) {
                     continue;
                 }
                 const isActive = i === 0 ? ' active' : '';
-                const isBeta = tab.label === 'Apps';
-                h += `<div class="dashboard-sidebar-item${isActive} ${isBeta ? 'beta' : ''}" data-section="${tab.id}" data-tooltip="${html_encode(tab.label)}">`;
+                h += `<div class="dashboard-sidebar-item${isActive}" data-section="${tab.id}" data-tooltip="${html_encode(tab.label)}">`;
                     h += tab.icon;
                     h += tab.label;
                 h += '</div>';
