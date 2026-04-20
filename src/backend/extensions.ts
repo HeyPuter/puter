@@ -11,7 +11,14 @@ import type {
 } from './core/http/types';
 import type { puterDrivers } from './drivers';
 import type { IPuterDriverRegistry } from './drivers/types';
-import { clientsContainers, configContainer, controllersContainers, driversContainers, servicesContainers, storesContainers } from './exports';
+import {
+    clientsContainers,
+    configContainer,
+    controllersContainers,
+    driversContainers,
+    servicesContainers,
+    storesContainers,
+} from './exports';
 import type { puterServices } from './services';
 import type { IPuterServiceRegistry } from './services/types';
 import type { puterStores } from './stores';
@@ -50,14 +57,16 @@ const pushRoute = (
     optionsOrHandler: RouteOptions | RequestHandler,
     maybeHandler?: RequestHandler,
 ): void => {
-    const handler = typeof optionsOrHandler === 'function'
-        ? optionsOrHandler
-        : maybeHandler;
-    const options = typeof optionsOrHandler === 'function'
-        ? {}
-        : optionsOrHandler;
-    if ( ! handler ) {
-        throw new Error(`extension.${method}('${String(path)}', ...) missing handler`);
+    const handler =
+        typeof optionsOrHandler === 'function'
+            ? optionsOrHandler
+            : maybeHandler;
+    const options =
+        typeof optionsOrHandler === 'function' ? {} : optionsOrHandler;
+    if (!handler) {
+        throw new Error(
+            `extension.${method}('${String(path)}', ...) missing handler`,
+        );
     }
     extensionStore.routeHandlers.push({ method, path, options, handler });
 };
@@ -68,7 +77,11 @@ interface ExtensionRouteFn {
 }
 
 const makeRouteFn = (method: RouteMethod): ExtensionRouteFn => {
-    return ((path: RoutePath, optionsOrHandler: RouteOptions | RequestHandler, maybeHandler?: RequestHandler) => {
+    return ((
+        path: RoutePath,
+        optionsOrHandler: RouteOptions | RequestHandler,
+        maybeHandler?: RequestHandler,
+    ) => {
         pushRoute(method, path, optionsOrHandler, maybeHandler);
     }) as ExtensionRouteFn;
 };
@@ -94,7 +107,7 @@ export const extension = {
     // Lazy proxy to the server config. Populated by PuterServer during
     // boot, so extensions can read it at request time (not import time).
 
-    get config (): IConfig {
+    get config(): IConfig {
         return configContainer;
     },
 
@@ -102,7 +115,7 @@ export const extension = {
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     on: (event: string, handler: (...args: any[]) => void) => {
-        if ( ! extensionStore.events[event] ) {
+        if (!extensionStore.events[event]) {
             extensionStore.events[event] = [];
         }
         extensionStore.events[event].push(handler);
@@ -110,19 +123,34 @@ export const extension = {
 
     // ── Registry writers ─────────────────────────────────────────────
 
-    registerClient: (name: string, client: IPuterClientRegistry[keyof IPuterClientRegistry]) => {
+    registerClient: (
+        name: string,
+        client: IPuterClientRegistry[keyof IPuterClientRegistry],
+    ) => {
         extensionStore.clients[name] = client;
     },
-    registerStore: (name: string, store: IPuterStoreRegistry[keyof IPuterStoreRegistry]) => {
+    registerStore: (
+        name: string,
+        store: IPuterStoreRegistry[keyof IPuterStoreRegistry],
+    ) => {
         extensionStore.stores[name] = store;
     },
-    registerService: (name: string, service: IPuterServiceRegistry[keyof IPuterServiceRegistry]) => {
+    registerService: (
+        name: string,
+        service: IPuterServiceRegistry[keyof IPuterServiceRegistry],
+    ) => {
         extensionStore.services[name] = service;
     },
-    registerController: (name: string, controller: IPuterControllerRegistry[keyof IPuterControllerRegistry]) => {
+    registerController: (
+        name: string,
+        controller: IPuterControllerRegistry[keyof IPuterControllerRegistry],
+    ) => {
         extensionStore.controllers[name] = controller;
     },
-    registerDriver: (name: string, driver: IPuterDriverRegistry[keyof IPuterDriverRegistry]) => {
+    registerDriver: (
+        name: string,
+        driver: IPuterDriverRegistry[keyof IPuterDriverRegistry],
+    ) => {
         extensionStore.drivers[name] = driver;
     },
 
@@ -149,24 +177,28 @@ export const extension = {
 
     // ── Import proxy ─────────────────────────────────────────────────
 
-    import: <S extends string>(name: S): S extends 'client'
+    import: <S extends string>(
+        name: S,
+    ): S extends 'client'
         ? LayerInstances<typeof puterClients>
         : S extends 'store'
-            ? LayerInstances<typeof puterStores>
-            : S extends 'service'
-                ? LayerInstances<typeof puterServices>
-                : S extends 'controller'
-                    ? LayerInstances<typeof puterControllers>
-                    : S extends 'driver'
-                        ? LayerInstances<typeof puterDrivers>
-                        : never => {
-        switch ( name ) {
+          ? LayerInstances<typeof puterStores>
+          : S extends 'service'
+            ? LayerInstances<typeof puterServices>
+            : S extends 'controller'
+              ? LayerInstances<typeof puterControllers>
+              : S extends 'driver'
+                ? LayerInstances<typeof puterDrivers>
+                : never => {
+        switch (name) {
             case 'client': {
                 const proxyHandler = {
                     get: (_target: object, prop: string) => {
                         const proxiedObj = clientsContainers[prop];
-                        if ( ! proxiedObj ) {
-                            throw new Error(`Called before initialization: ${name}.${prop}`);
+                        if (!proxiedObj) {
+                            throw new Error(
+                                `Called before initialization: ${name}.${prop}`,
+                            );
                         }
                         return proxiedObj;
                     },
@@ -178,8 +210,10 @@ export const extension = {
                 const proxyHandler = {
                     get: (_target: object, prop: string) => {
                         const proxiedObj = storesContainers[prop];
-                        if ( ! proxiedObj ) {
-                            throw new Error(`Called before initialization: ${name}.${prop}`);
+                        if (!proxiedObj) {
+                            throw new Error(
+                                `Called before initialization: ${name}.${prop}`,
+                            );
                         }
                         return proxiedObj;
                     },
@@ -191,8 +225,10 @@ export const extension = {
                 const proxyHandler = {
                     get: (_target: object, prop: string) => {
                         const proxiedObj = servicesContainers[prop];
-                        if ( ! proxiedObj ) {
-                            throw new Error(`Called before initialization: ${name}.${prop}`);
+                        if (!proxiedObj) {
+                            throw new Error(
+                                `Called before initialization: ${name}.${prop}`,
+                            );
                         }
                         return proxiedObj;
                     },
@@ -204,8 +240,10 @@ export const extension = {
                 const proxyHandler = {
                     get: (_target: object, prop: string) => {
                         const proxiedObj = controllersContainers[prop];
-                        if ( ! proxiedObj ) {
-                            throw new Error(`Called before initialization: ${name}.${prop}`);
+                        if (!proxiedObj) {
+                            throw new Error(
+                                `Called before initialization: ${name}.${prop}`,
+                            );
                         }
                         return proxiedObj;
                     },
@@ -217,8 +255,10 @@ export const extension = {
                 const proxyHandler = {
                     get: (_target: object, prop: string) => {
                         const proxiedObj = driversContainers[prop];
-                        if ( ! proxiedObj ) {
-                            throw new Error(`Called before initialization: ${name}.${prop}`);
+                        if (!proxiedObj) {
+                            throw new Error(
+                                `Called before initialization: ${name}.${prop}`,
+                            );
                         }
                         return proxiedObj;
                     },

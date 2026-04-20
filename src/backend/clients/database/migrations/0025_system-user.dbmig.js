@@ -27,19 +27,21 @@ user to the first username in this sequence:
 
 let existing_user;
 
-;[existing_user] = await read("SELECT username FROM `user` WHERE username='system'");
+[existing_user] = await read(
+    "SELECT username FROM `user` WHERE username='system'",
+);
 
-if ( existing_user ) {
+if (existing_user) {
     let replace_num = 0;
     let replace_name = 'system_';
 
-    for ( ;; ) {
-        ;[existing_user] = await read(
+    for (;;) {
+        [existing_user] = await read(
             'SELECT username FROM `user` WHERE username=?',
             [replace_name],
         );
-        if ( ! existing_user ) break;
-        replace_name = `system_${ replace_num++}`;
+        if (!existing_user) break;
+        replace_name = `system_${replace_num++}`;
     }
 
     console.debug('updating existing user called system', {
@@ -48,17 +50,14 @@ if ( existing_user ) {
     });
 
     await write(
-        'UPDATE `user` SET username=? WHERE username=\'system\' LIMIT 1',
+        "UPDATE `user` SET username=? WHERE username='system' LIMIT 1",
         [replace_name],
     );
 }
 
 const { insertId: system_user_id } = await write(
     'INSERT INTO `user` (`uuid`, `username`) VALUES (?, ?)',
-    [
-        '5d4adce0-a381-4982-9c02-6e2540026238',
-        'system',
-    ],
+    ['5d4adce0-a381-4982-9c02-6e2540026238', 'system'],
 );
 
 const [{ id: system_group_id }] = await read(
@@ -74,7 +73,7 @@ const [{ id: admin_group_id }] = await read(
 // admin group has unlimited access to all drivers
 await write(
     'INSERT INTO `user_to_group_permissions` ' +
-    '(`user_id`, `group_id`, `permission`, `extra`) ' +
-    'VALUES (?, ?, ?, ?)',
+        '(`user_id`, `group_id`, `permission`, `extra`) ' +
+        'VALUES (?, ?, ?, ?)',
     [system_user_id, admin_group_id, 'driver', '{}'],
 );

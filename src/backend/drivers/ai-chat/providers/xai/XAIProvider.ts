@@ -23,7 +23,11 @@ import { Context } from '../../../../core/context.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 // TODO: OpenAIUtil needs to be ported to v2
 import * as OpenAIUtil from '../../utils/OpenAIUtil.js';
-import type { IChatProvider, ICompleteArguments, IChatCompleteResult } from '../../types.js';
+import type {
+    IChatProvider,
+    ICompleteArguments,
+    IChatCompleteResult,
+} from '../../types.js';
 import { XAI_MODELS } from './models.js';
 
 export class XAIProvider implements IChatProvider {
@@ -31,7 +35,7 @@ export class XAIProvider implements IChatProvider {
 
     #meteringService: MeteringService;
 
-    constructor (config: { apiKey: string }, meteringService: MeteringService) {
+    constructor(config: { apiKey: string }, meteringService: MeteringService) {
         this.#openai = new OpenAI({
             apiKey: config.apiKey,
             baseURL: 'https://api.x.ai/v1',
@@ -39,30 +43,38 @@ export class XAIProvider implements IChatProvider {
         this.#meteringService = meteringService;
     }
 
-    getDefaultModel () {
+    getDefaultModel() {
         return 'grok-beta';
     }
 
-    models () {
+    models() {
         return XAI_MODELS;
     }
 
-    async list () {
+    async list() {
         const models = this.models();
         const modelNames: string[] = [];
-        for ( const model of models ) {
+        for (const model of models) {
             modelNames.push(model.id);
-            if ( model.aliases ) {
+            if (model.aliases) {
                 modelNames.push(...model.aliases);
             }
         }
         return modelNames;
     }
 
-    async complete ({ messages, stream, model, tools }: ICompleteArguments): Promise<IChatCompleteResult> {
+    async complete({
+        messages,
+        stream,
+        model,
+        tools,
+    }: ICompleteArguments): Promise<IChatCompleteResult> {
         const actor = Context.get('actor');
         const availableModels = this.models();
-        const modelUsed = availableModels.find(m => [m.id, ...(m.aliases || [])].includes(model)) || availableModels.find(m => m.id === this.getDefaultModel())!;
+        const modelUsed =
+            availableModels.find((m) =>
+                [m.id, ...(m.aliases || [])].includes(model),
+            ) || availableModels.find((m) => m.id === this.getDefaultModel())!;
         messages = await OpenAIUtil.process_input_messages(messages);
         let completion;
         try {
@@ -72,11 +84,12 @@ export class XAIProvider implements IChatProvider {
                 ...(tools ? { tools } : {}),
                 max_tokens: 1000,
                 stream,
-                ...(stream ? {
-                    stream_options: { include_usage: true },
-                } : {}),
+                ...(stream
+                    ? {
+                          stream_options: { include_usage: true },
+                      }
+                    : {}),
             } as ChatCompletionCreateParams);
-
         } catch (e) {
             console.log('XAI AI process_input_messages error: ', e);
         }
@@ -84,10 +97,17 @@ export class XAIProvider implements IChatProvider {
         return OpenAIUtil.handle_completion_output({
             usage_calculator: ({ usage }) => {
                 const trackedUsage = OpenAIUtil.extractMeteredUsage(usage);
-                const costsOverride = Object.fromEntries(Object.entries(trackedUsage).map(([key, value]) => {
-                    return [key, value * (modelUsed.costs[key])];
-                }));
-                this.#meteringService.utilRecordUsageObject(trackedUsage, actor, `xai:${modelUsed.id}`, costsOverride);
+                const costsOverride = Object.fromEntries(
+                    Object.entries(trackedUsage).map(([key, value]) => {
+                        return [key, value * modelUsed.costs[key]];
+                    }),
+                );
+                this.#meteringService.utilRecordUsageObject(
+                    trackedUsage,
+                    actor,
+                    `xai:${modelUsed.id}`,
+                    costsOverride,
+                );
                 return trackedUsage;
             },
             stream,
@@ -95,7 +115,9 @@ export class XAIProvider implements IChatProvider {
         });
     }
 
-    checkModeration (_text: string): ReturnType<IChatProvider['checkModeration']> {
+    checkModeration(
+        _text: string,
+    ): ReturnType<IChatProvider['checkModeration']> {
         throw new Error('Method not implemented.');
     }
 }

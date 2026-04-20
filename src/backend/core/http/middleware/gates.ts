@@ -34,7 +34,7 @@ export const subdomainGate = (allowed: string | string[]): RequestHandler => {
         // Express `req.subdomains` is reverse-of-URL order; the leftmost
         // subdomain (the active one) is the last element.
         const active = req.subdomains?.[req.subdomains.length - 1] ?? '';
-        if ( ! allowList.includes(active) ) {
+        if (!allowList.includes(active)) {
             next('route');
             return;
         }
@@ -54,12 +54,20 @@ export const subdomainGate = (allowed: string | string[]): RequestHandler => {
  */
 export const requireAuthGate = (): RequestHandler => {
     return (req, _res, next) => {
-        if ( ! req.actor ) {
-            next(new HttpError(401, 'Authentication required', { legacyCode: 'token_required' }));
+        if (!req.actor) {
+            next(
+                new HttpError(401, 'Authentication required', {
+                    legacyCode: 'token_required',
+                }),
+            );
             return;
         }
-        if ( req.actor.user.suspended ) {
-            next(new HttpError(403, 'Account suspended', { legacyCode: 'forbidden' }));
+        if (req.actor.user.suspended) {
+            next(
+                new HttpError(403, 'Account suspended', {
+                    legacyCode: 'forbidden',
+                }),
+            );
             return;
         }
         next();
@@ -77,12 +85,22 @@ export const requireUserActorGate = (): RequestHandler => {
     return (req, _res, next) => {
         const actor = req.actor;
         // requireAuth runs first; this gate just narrows the actor type.
-        if ( ! actor ) {
-            next(new HttpError(401, 'Authentication required', { legacyCode: 'token_required' }));
+        if (!actor) {
+            next(
+                new HttpError(401, 'Authentication required', {
+                    legacyCode: 'token_required',
+                }),
+            );
             return;
         }
-        if ( actor.app || actor.accessToken ) {
-            next(new HttpError(403, 'This endpoint is only available to user sessions', { legacyCode: 'forbidden' }));
+        if (actor.app || actor.accessToken) {
+            next(
+                new HttpError(
+                    403,
+                    'This endpoint is only available to user sessions',
+                    { legacyCode: 'forbidden' },
+                ),
+            );
             return;
         }
         next();
@@ -101,12 +119,18 @@ export const DEFAULT_ADMIN_USERNAMES = ['admin', 'system'] as const;
  *
  * Implies `requireAuth` + `requireUserActor`.
  */
-export const adminOnlyGate = (extras: readonly string[] = []): RequestHandler => {
+export const adminOnlyGate = (
+    extras: readonly string[] = [],
+): RequestHandler => {
     const allowList = new Set<string>([...DEFAULT_ADMIN_USERNAMES, ...extras]);
     return (req, _res, next) => {
         const username = req.actor?.user.username;
-        if ( ! username || ! allowList.has(username) ) {
-            next(new HttpError(403, 'Only admins may request this resource', { legacyCode: 'forbidden' }));
+        if (!username || !allowList.has(username)) {
+            next(
+                new HttpError(403, 'Only admins may request this resource', {
+                    legacyCode: 'forbidden',
+                }),
+            );
             return;
         }
         next();
@@ -124,13 +148,17 @@ export const adminOnlyGate = (extras: readonly string[] = []): RequestHandler =>
  */
 export const requireVerifiedGate = (strictFlag: boolean): RequestHandler => {
     return (req, _res, next) => {
-        if ( ! strictFlag ) {
+        if (!strictFlag) {
             next();
             return;
         }
         const user = req.actor?.user as Record<string, unknown> | undefined;
-        if ( ! user?.email_confirmed ) {
-            next(new HttpError(400, 'Account email is not verified', { legacyCode: 'account_is_not_verified' }));
+        if (!user?.email_confirmed) {
+            next(
+                new HttpError(400, 'Account email is not verified', {
+                    legacyCode: 'account_is_not_verified',
+                }),
+            );
             return;
         }
         next();
@@ -147,12 +175,18 @@ export const requireVerifiedGate = (strictFlag: boolean): RequestHandler => {
  * Implies `requireAuth`. Doesn't pair sensibly with `requireUserActor`
  * (a user-only actor has no app), but if both are set we reject loudly here.
  */
-export const allowedAppIdsGate = (allowedAppUids: readonly string[]): RequestHandler => {
+export const allowedAppIdsGate = (
+    allowedAppUids: readonly string[],
+): RequestHandler => {
     const allowList = new Set(allowedAppUids);
     return (req, _res, next) => {
         const appUid = req.actor?.app?.uid;
-        if ( ! appUid || ! allowList.has(appUid) ) {
-            next(new HttpError(403, 'This app may not request this resource', { legacyCode: 'forbidden' }));
+        if (!appUid || !allowList.has(appUid)) {
+            next(
+                new HttpError(403, 'This app may not request this resource', {
+                    legacyCode: 'forbidden',
+                }),
+            );
             return;
         }
         next();

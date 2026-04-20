@@ -8,7 +8,7 @@
 import type { IImageProvider, IImageModel, IGenerateParams } from '../types.js';
 
 export abstract class ImageProvider implements IImageProvider {
-    abstract generate (params: IGenerateParams): Promise<string>;
-    abstract models (): IImageModel[] | Promise<IImageModel[]>;
-    abstract getDefaultModel (): string;
+    abstract generate(params: IGenerateParams): Promise<string>;
+    abstract models(): IImageModel[] | Promise<IImageModel[]>;
+    abstract getDefaultModel(): string;
 }

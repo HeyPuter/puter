@@ -19,8 +19,15 @@
 
 import { Context } from '../../../../core/context.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
-import type { IGenerateParams, IImageModel, IImageProvider } from '../../types.js';
-import { CLOUDFLARE_IMAGE_GENERATION_MODELS, CloudflareImageModel } from './models.js';
+import type {
+    IGenerateParams,
+    IImageModel,
+    IImageProvider,
+} from '../../types.js';
+import {
+    CLOUDFLARE_IMAGE_GENERATION_MODELS,
+    CloudflareImageModel,
+} from './models.js';
 
 type CloudflareGenerateParams = IGenerateParams & {
     steps?: number;
@@ -47,7 +54,7 @@ export class CloudflareImageProvider implements IImageProvider {
     #apiBaseUrl: string;
     #meteringService: MeteringService;
 
-    constructor (
+    constructor(
         config: {
             apiToken: string;
             accountId: string;
@@ -57,44 +64,53 @@ export class CloudflareImageProvider implements IImageProvider {
     ) {
         this.#apiToken = config.apiToken;
         this.#accountId = config.accountId;
-        this.#apiBaseUrl = config.apiBaseUrl || 'https://api.cloudflare.com/client/v4';
+        this.#apiBaseUrl =
+            config.apiBaseUrl || 'https://api.cloudflare.com/client/v4';
         this.#meteringService = meteringService;
     }
 
-    models (): IImageModel[] {
+    models(): IImageModel[] {
         return CLOUDFLARE_IMAGE_GENERATION_MODELS;
     }
 
-    getDefaultModel (): string {
+    getDefaultModel(): string {
         return DEFAULT_MODEL;
     }
 
-    async generate (params: IGenerateParams): Promise<string> {
+    async generate(params: IGenerateParams): Promise<string> {
         const options = params as CloudflareGenerateParams;
         const { prompt, test_mode } = options;
         const ratio = this.#normalizeRatio(options.ratio);
         const selectedModel = this.#getModel(options.model);
 
-        if ( test_mode ) {
+        if (test_mode) {
             return 'https://puter-sample-data.puter.site/image_example.png';
         }
 
-        if ( typeof prompt !== 'string' || prompt.trim().length === 0 ) {
+        if (typeof prompt !== 'string' || prompt.trim().length === 0) {
             throw new Error('`prompt` must be a non-empty string');
         }
 
         const actor = Context.get('actor');
-        if ( ! actor ) {
+        if (!actor) {
             throw new Error('actor not found in context');
         }
 
         const steps = this.#resolveSteps(selectedModel, options);
         const costComponents = this.#estimateCost(selectedModel, ratio, steps, {
-            hasInputImage: typeof options.image === 'string' && options.image.trim() !== '',
+            hasInputImage:
+                typeof options.image === 'string' &&
+                options.image.trim() !== '',
         });
-        const totalCostInMicroCents = costComponents.reduce((acc, component) => acc + component.totalCostMicroCents, 0);
-        const usageAllowed = await this.#meteringService.hasEnoughCredits(actor, totalCostInMicroCents);
-        if ( ! usageAllowed ) {
+        const totalCostInMicroCents = costComponents.reduce(
+            (acc, component) => acc + component.totalCostMicroCents,
+            0,
+        );
+        const usageAllowed = await this.#meteringService.hasEnoughCredits(
+            actor,
+            totalCostInMicroCents,
+        );
+        if (!usageAllowed) {
             throw new Error('Insufficient credits for image generation');
         }
 
@@ -104,36 +120,58 @@ export class CloudflareImageProvider implements IImageProvider {
             steps,
         });
 
-        this.#meteringService.batchIncrementUsages(actor, costComponents
-            .filter(component => component.usageAmount > 0 && component.totalCostMicroCents > 0)
-            .map(component => ({
-                usageType: `cloudflare:${this.#getMeteringModelKey(selectedModel)}:${component.key}`,
-                usageAmount: component.usageAmount,
-                costOverride: component.totalCostMicroCents,
-            })));
+        this.#meteringService.batchIncrementUsages(
+            actor,
+            costComponents
+                .filter(
+                    (component) =>
+                        component.usageAmount > 0 &&
+                        component.totalCostMicroCents > 0,
+                )
+                .map((component) => ({
+                    usageType: `cloudflare:${this.#getMeteringModelKey(selectedModel)}:${component.key}`,
+                    usageAmount: component.usageAmount,
+                    costOverride: component.totalCostMicroCents,
+                })),
+        );
 
         return response;
     }
 
-    #getModel (model?: string): CloudflareImageModel {
+    #getModel(model?: string): CloudflareImageModel {
         const models = CLOUDFLARE_IMAGE_GENERATION_MODELS;
-        const found = models.find(m => m.id === model || m.aliases?.includes(model ?? ''));
-        return found || models.find(m => m.id === DEFAULT_MODEL)!;
+        const found = models.find(
+            (m) => m.id === model || m.aliases?.includes(model ?? ''),
+        );
+        return found || models.find((m) => m.id === DEFAULT_MODEL)!;
     }
 
-    #normalizeRatio (ratio?: { w: number; h: number }) {
+    #normalizeRatio(ratio?: { w: number; h: number }) {
         const width = Number(ratio?.w);
         const height = Number(ratio?.h);
-        if ( Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0 ) {
-            return { w: Math.max(64, Math.round(width)), h: Math.max(64, Math.round(height)) };
+        if (
+            Number.isFinite(width) &&
+            Number.isFinite(height) &&
+            width > 0 &&
+            height > 0
+        ) {
+            return {
+                w: Math.max(64, Math.round(width)),
+                h: Math.max(64, Math.round(height)),
+            };
         }
         return { ...DEFAULT_RATIO };
     }
 
-    #resolveSteps (model: CloudflareImageModel, options: CloudflareGenerateParams): number {
-        const input = Number(options.steps ?? options.num_steps ?? model.defaultSteps ?? 25);
+    #resolveSteps(
+        model: CloudflareImageModel,
+        options: CloudflareGenerateParams,
+    ): number {
+        const input = Number(
+            options.steps ?? options.num_steps ?? model.defaultSteps ?? 25,
+        );
         const fallback = model.defaultSteps ?? 25;
-        if ( ! Number.isFinite(input) ) return fallback;
+        if (!Number.isFinite(input)) return fallback;
         return Math.max(1, Math.min(50, Math.round(input)));
     }
 
@@ -143,7 +181,7 @@ export class CloudflareImageProvider implements IImageProvider {
     // in the future likely. It's VERY easy to screw this up. I would not recommend touching any step based calculations
     // unless you actually know what you're doing here, or you might regret it!
     // Signed -- NS
-    #estimateCost (
+    #estimateCost(
         model: CloudflareImageModel,
         ratio: { w: number; h: number },
         steps: number,
@@ -153,18 +191,24 @@ export class CloudflareImageProvider implements IImageProvider {
         const pixels = ratio.w * ratio.h;
         const megapixels = this.#megapixels(ratio);
 
-        switch ( model.billingScheme ) {
+        switch (model.billingScheme) {
             case 'tile-plus-step':
                 return [
                     {
                         key: 'tile_512',
                         usageAmount: tiles,
-                        totalCostMicroCents: this.#costForUnits(tiles, model.costs.tile_512),
+                        totalCostMicroCents: this.#costForUnits(
+                            tiles,
+                            model.costs.tile_512,
+                        ),
                     },
                     {
                         key: 'step',
                         usageAmount: steps,
-                        totalCostMicroCents: this.#costForUnits(steps, model.costs.step),
+                        totalCostMicroCents: this.#costForUnits(
+                            steps,
+                            model.costs.step,
+                        ),
                     },
                 ];
             case 'step-only':
@@ -172,7 +216,10 @@ export class CloudflareImageProvider implements IImageProvider {
                     {
                         key: 'step',
                         usageAmount: steps,
-                        totalCostMicroCents: this.#costForUnits(steps, model.costs.step),
+                        totalCostMicroCents: this.#costForUnits(
+                            steps,
+                            model.costs.step,
+                        ),
                     },
                 ];
             case 'flux2-dev-tile-step':
@@ -180,12 +227,18 @@ export class CloudflareImageProvider implements IImageProvider {
                     {
                         key: 'input_tile_512_per_step',
                         usageAmount: tiles * steps,
-                        totalCostMicroCents: this.#costForUnits(tiles * steps, model.costs.input_tile_512_per_step),
+                        totalCostMicroCents: this.#costForUnits(
+                            tiles * steps,
+                            model.costs.input_tile_512_per_step,
+                        ),
                     },
                     {
                         key: 'output_tile_512_per_step',
                         usageAmount: tiles * steps,
-                        totalCostMicroCents: this.#costForUnits(tiles * steps, model.costs.output_tile_512_per_step),
+                        totalCostMicroCents: this.#costForUnits(
+                            tiles * steps,
+                            model.costs.output_tile_512_per_step,
+                        ),
                     },
                 ];
             case 'flux2-klein-4b-tile':
@@ -193,12 +246,18 @@ export class CloudflareImageProvider implements IImageProvider {
                     {
                         key: 'input_tile_512',
                         usageAmount: tiles,
-                        totalCostMicroCents: this.#costForUnits(tiles, model.costs.input_tile_512),
+                        totalCostMicroCents: this.#costForUnits(
+                            tiles,
+                            model.costs.input_tile_512,
+                        ),
                     },
                     {
                         key: 'output_tile_512',
                         usageAmount: tiles,
-                        totalCostMicroCents: this.#costForUnits(tiles, model.costs.output_tile_512),
+                        totalCostMicroCents: this.#costForUnits(
+                            tiles,
+                            model.costs.output_tile_512,
+                        ),
                     },
                 ];
             case 'flux2-klein-9b-mp': {
@@ -211,18 +270,27 @@ export class CloudflareImageProvider implements IImageProvider {
                     {
                         key: 'first_mp',
                         usageAmount: firstMP,
-                        totalCostMicroCents: this.#costForMillionUnits(firstPixels, model.costs.first_mp),
+                        totalCostMicroCents: this.#costForMillionUnits(
+                            firstPixels,
+                            model.costs.first_mp,
+                        ),
                     },
                     {
                         key: 'subsequent_mp',
                         usageAmount: subsequentMP,
-                        totalCostMicroCents: this.#costForMillionUnits(subsequentPixels, model.costs.subsequent_mp),
+                        totalCostMicroCents: this.#costForMillionUnits(
+                            subsequentPixels,
+                            model.costs.subsequent_mp,
+                        ),
                     },
                     {
                         key: 'input_image_mp',
                         usageAmount: inputImageMP,
                         totalCostMicroCents: options?.hasInputImage
-                            ? this.#costForMillionUnits(pixels, model.costs.input_image_mp)
+                            ? this.#costForMillionUnits(
+                                  pixels,
+                                  model.costs.input_image_mp,
+                              )
                             : 0,
                     },
                 ];
@@ -232,25 +300,39 @@ export class CloudflareImageProvider implements IImageProvider {
         }
     }
 
-    async #runModel (model: CloudflareImageModel, params: CloudflareGenerateParams & { ratio: { w: number; h: number }, steps: number }) {
+    async #runModel(
+        model: CloudflareImageModel,
+        params: CloudflareGenerateParams & {
+            ratio: { w: number; h: number };
+            steps: number;
+        },
+    ) {
         const endpoint = `${this.#apiBaseUrl}/accounts/${this.#accountId}/ai/run/${model.id}`;
         const headers: Record<string, string> = {
             Authorization: `Bearer ${this.#apiToken}`,
         };
 
         let body;
-        if ( model.requiresMultipart ) {
+        if (model.requiresMultipart) {
             const formData = new FormData();
             formData.append('prompt', params.prompt);
             formData.append('width', String(params.ratio.w));
             formData.append('height', String(params.ratio.h));
             formData.append('steps', String(params.steps));
 
-            if ( Number.isFinite(params.seed) ) formData.append('seed', String(Math.round(params.seed as number)));
-            if ( Number.isFinite(params.guidance) ) formData.append('guidance', String(params.guidance));
-            if ( typeof params.negative_prompt === 'string' ) formData.append('negative_prompt', params.negative_prompt);
-            if ( typeof params.output_format === 'string' ) formData.append('output_format', params.output_format);
-            if ( typeof params.image === 'string' ) formData.append('image', params.image);
+            if (Number.isFinite(params.seed))
+                formData.append(
+                    'seed',
+                    String(Math.round(params.seed as number)),
+                );
+            if (Number.isFinite(params.guidance))
+                formData.append('guidance', String(params.guidance));
+            if (typeof params.negative_prompt === 'string')
+                formData.append('negative_prompt', params.negative_prompt);
+            if (typeof params.output_format === 'string')
+                formData.append('output_format', params.output_format);
+            if (typeof params.image === 'string')
+                formData.append('image', params.image);
             body = formData;
         } else {
             headers['Content-Type'] = 'application/json';
@@ -260,10 +342,18 @@ export class CloudflareImageProvider implements IImageProvider {
                 height: params.ratio.h,
                 steps: params.steps,
                 num_steps: params.steps,
-                ...(Number.isFinite(params.seed) ? { seed: Math.round(params.seed as number) } : {}),
-                ...(Number.isFinite(params.guidance) ? { guidance: params.guidance } : {}),
-                ...(typeof params.negative_prompt === 'string' ? { negative_prompt: params.negative_prompt } : {}),
-                ...(typeof params.output_format === 'string' ? { output_format: params.output_format } : {}),
+                ...(Number.isFinite(params.seed)
+                    ? { seed: Math.round(params.seed as number) }
+                    : {}),
+                ...(Number.isFinite(params.guidance)
+                    ? { guidance: params.guidance }
+                    : {}),
+                ...(typeof params.negative_prompt === 'string'
+                    ? { negative_prompt: params.negative_prompt }
+                    : {}),
+                ...(typeof params.output_format === 'string'
+                    ? { output_format: params.output_format }
+                    : {}),
             });
         }
 
@@ -273,8 +363,10 @@ export class CloudflareImageProvider implements IImageProvider {
             body,
         });
 
-        const contentType = (response.headers.get('content-type') || '').toLowerCase();
-        if ( contentType.startsWith('image/') ) {
+        const contentType = (
+            response.headers.get('content-type') || ''
+        ).toLowerCase();
+        if (contentType.startsWith('image/')) {
             const imageBuffer = Buffer.from(await response.arrayBuffer());
             return `data:${contentType};base64,${imageBuffer.toString('base64')}`;
         }
@@ -287,16 +379,16 @@ export class CloudflareImageProvider implements IImageProvider {
             payload = { raw: text };
         }
 
-        if ( ! response.ok ) {
+        if (!response.ok) {
             const message =
                 this.#extractErrorMessage(payload) ||
                 `Cloudflare image generation failed with status ${response.status}`;
             throw new Error(message);
         }
 
-        if ( typeof payload === 'object' && payload !== null ) {
+        if (typeof payload === 'object' && payload !== null) {
             const envelope = payload as Record<string, unknown>;
-            if ( envelope.success === false ) {
+            if (envelope.success === false) {
                 const message =
                     this.#extractErrorMessage(payload) ||
                     'Cloudflare image generation failed';
@@ -305,11 +397,17 @@ export class CloudflareImageProvider implements IImageProvider {
         }
 
         const imageString = this.#extractImageString(payload);
-        if ( ! imageString ) {
-            throw new Error('Cloudflare image generation response did not include image data');
+        if (!imageString) {
+            throw new Error(
+                'Cloudflare image generation response did not include image data',
+            );
         }
 
-        if ( imageString.startsWith('data:image/') || imageString.startsWith('http://') || imageString.startsWith('https://') ) {
+        if (
+            imageString.startsWith('data:image/') ||
+            imageString.startsWith('http://') ||
+            imageString.startsWith('https://')
+        ) {
             return imageString;
         }
 
@@ -317,82 +415,103 @@ export class CloudflareImageProvider implements IImageProvider {
         return `data:${mime};base64,${imageString}`;
     }
 
-    #extractImageString (payload: unknown): string | undefined {
-        if ( typeof payload === 'string' ) return payload;
-        if ( !payload || typeof payload !== 'object' ) return undefined;
+    #extractImageString(payload: unknown): string | undefined {
+        if (typeof payload === 'string') return payload;
+        if (!payload || typeof payload !== 'object') return undefined;
 
         const record = payload as Record<string, unknown>;
-        if ( typeof record.image === 'string' ) return record.image;
-        if ( typeof record.output === 'string' ) return record.output;
-        if ( Array.isArray(record.images) && typeof record.images[0] === 'string' ) return record.images[0];
-        if ( Array.isArray(record.images) && typeof record.images[0] === 'object' && record.images[0] !== null ) {
+        if (typeof record.image === 'string') return record.image;
+        if (typeof record.output === 'string') return record.output;
+        if (
+            Array.isArray(record.images) &&
+            typeof record.images[0] === 'string'
+        )
+            return record.images[0];
+        if (
+            Array.isArray(record.images) &&
+            typeof record.images[0] === 'object' &&
+            record.images[0] !== null
+        ) {
             const firstImage = record.images[0] as Record<string, unknown>;
-            if ( typeof firstImage.image === 'string' ) return firstImage.image;
+            if (typeof firstImage.image === 'string') return firstImage.image;
         }
-        if ( Array.isArray(record.output) && typeof record.output[0] === 'string' ) return record.output[0];
+        if (
+            Array.isArray(record.output) &&
+            typeof record.output[0] === 'string'
+        )
+            return record.output[0];
 
-        if ( record.result ) {
+        if (record.result) {
             const nested = this.#extractImageString(record.result);
-            if ( nested ) return nested;
+            if (nested) return nested;
         }
-        if ( record.response ) {
+        if (record.response) {
             const nested = this.#extractImageString(record.response);
-            if ( nested ) return nested;
+            if (nested) return nested;
         }
         return undefined;
     }
 
-    #extractErrorMessage (payload: unknown): string | undefined {
-        if ( !payload || typeof payload !== 'object' ) return undefined;
+    #extractErrorMessage(payload: unknown): string | undefined {
+        if (!payload || typeof payload !== 'object') return undefined;
         const record = payload as Record<string, unknown>;
 
-        if ( typeof record.error === 'string' ) return record.error;
-        if ( typeof record.message === 'string' ) return record.message;
-        if ( Array.isArray(record.errors) && record.errors.length > 0 ) {
+        if (typeof record.error === 'string') return record.error;
+        if (typeof record.message === 'string') return record.message;
+        if (Array.isArray(record.errors) && record.errors.length > 0) {
             const first = record.errors[0] as Record<string, unknown>;
-            if ( typeof first?.message === 'string' ) return first.message;
-            if ( typeof first?.error === 'string' ) return first.error;
+            if (typeof first?.message === 'string') return first.message;
+            if (typeof first?.error === 'string') return first.error;
         }
         return undefined;
     }
 
-    #tileCount ({ w, h }: { w: number; h: number }) {
+    #tileCount({ w, h }: { w: number; h: number }) {
         return Math.ceil(w / 512) * Math.ceil(h / 512);
     }
 
-    #megapixels ({ w, h }: { w: number; h: number }) {
+    #megapixels({ w, h }: { w: number; h: number }) {
         return (w * h) / 1_000_000;
     }
 
-    #mimeForFormat (format?: string) {
-        if ( format === 'jpeg' ) return 'image/jpeg';
-        if ( format === 'webp' ) return 'image/webp';
+    #mimeForFormat(format?: string) {
+        if (format === 'jpeg') return 'image/jpeg';
+        if (format === 'webp') return 'image/webp';
         return 'image/png';
     }
 
-    #costForUnits (units: number, microCentsPerUnit?: number) {
-        if ( !Number.isFinite(units) || units <= 0 ) return 0;
-        if ( !Number.isFinite(microCentsPerUnit) || (microCentsPerUnit as number) <= 0 ) return 0;
+    #costForUnits(units: number, microCentsPerUnit?: number) {
+        if (!Number.isFinite(units) || units <= 0) return 0;
+        if (
+            !Number.isFinite(microCentsPerUnit) ||
+            (microCentsPerUnit as number) <= 0
+        )
+            return 0;
         return Math.round(units * (microCentsPerUnit as number));
     }
 
     // `numerator` is in millionths of a unit (e.g. pixels out of 1,000,000 for MP-based pricing).
-    #costForMillionUnits (numerator: number, microCentsPerMillion?: number) {
-        if ( !Number.isFinite(numerator) || numerator <= 0 ) return 0;
-        if ( !Number.isFinite(microCentsPerMillion) || (microCentsPerMillion as number) <= 0 ) return 0;
-        return Math.round((numerator * (microCentsPerMillion as number)) / 1_000_000);
+    #costForMillionUnits(numerator: number, microCentsPerMillion?: number) {
+        if (!Number.isFinite(numerator) || numerator <= 0) return 0;
+        if (
+            !Number.isFinite(microCentsPerMillion) ||
+            (microCentsPerMillion as number) <= 0
+        )
+            return 0;
+        return Math.round(
+            (numerator * (microCentsPerMillion as number)) / 1_000_000,
+        );
     }
 
-    #getMeteringModelKey (model: CloudflareImageModel) {
-        if ( model.puterId && typeof model.puterId === 'string' ) {
+    #getMeteringModelKey(model: CloudflareImageModel) {
+        if (model.puterId && typeof model.puterId === 'string') {
             return model.puterId;
         }
 
-        if ( model.id.startsWith('@cf/') ) {
+        if (model.id.startsWith('@cf/')) {
             return `workers-ai:${model.id.slice('@cf/'.length)}`;
         }
 
         return model.id.replace(/^@+/, '');
     }
-
 }

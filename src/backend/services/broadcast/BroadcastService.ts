@@ -100,7 +100,10 @@ export class BroadcastService extends PuterService {
     /** Subset of peers with `webhook: true`, used for outbound fan-out. */
     #webhookPeers: PeerConfig[] = [];
     /** peerId → last accepted {timestamp, nonce} pair (replay protection). */
-    #incomingLastNonceByPeer = new Map<string, { timestamp: number; nonce: number }>();
+    #incomingLastNonceByPeer = new Map<
+        string,
+        { timestamp: number; nonce: number }
+    >();
     /** peerId → next nonce we'll send. Monotonic; bumped on every send. */
     #outgoingNonceByPeer = new Map<string, number>();
 
@@ -119,13 +122,13 @@ export class BroadcastService extends PuterService {
 
     // ── Lifecycle ───────────────────────────────────────────────────
 
-    override onServerStart (): void {
+    override onServerStart(): void {
         this.#loadConfig();
         this.#subscribeOutbound();
     }
 
-    override async onServerPrepareShutdown (): Promise<void> {
-        if ( this.#outboundFlushTimer ) {
+    override async onServerPrepareShutdown(): Promise<void> {
+        if (this.#outboundFlushTimer) {
             clearTimeout(this.#outboundFlushTimer);
             this.#outboundFlushTimer = null;
         }
@@ -133,7 +136,7 @@ export class BroadcastService extends PuterService {
         // shutdown make it out.
         try {
             await this.#flushOutboundEvents();
-        } catch ( err ) {
+        } catch (err) {
             console.warn('[broadcast] final flush failed', err);
         }
     }
@@ -148,63 +151,91 @@ export class BroadcastService extends PuterService {
      * raw bytes that JSON came from (HMAC verifies over those exact
      * bytes), and the four broadcast headers.
      */
-    async verifyAndEmit (
+    async verifyAndEmit(
         rawBody: Buffer | undefined,
         body: unknown,
         headers: IncomingHeaders,
     ): Promise<IncomingResult> {
-        if ( ! rawBody ) {
-            return { ok: false, status: 400, message: 'Missing or invalid body' };
+        if (!rawBody) {
+            return {
+                ok: false,
+                status: 400,
+                message: 'Missing or invalid body',
+            };
         }
-        if ( !body || typeof body !== 'object' ) {
+        if (!body || typeof body !== 'object') {
             return { ok: false, status: 400, message: 'Invalid JSON body' };
         }
 
-        const incomingEvents = this.#normalizeIncomingPayload(body as IncomingPayload);
-        if ( ! incomingEvents ) {
-            return { ok: false, status: 400, message: 'Invalid broadcast payload' };
+        const incomingEvents = this.#normalizeIncomingPayload(
+            body as IncomingPayload,
+        );
+        if (!incomingEvents) {
+            return {
+                ok: false,
+                status: 400,
+                message: 'Invalid broadcast payload',
+            };
         }
 
         const peerId = headers.peerId;
-        if ( ! peerId ) {
-            return { ok: false, status: 403, message: 'Missing X-Broadcast-Peer-Id' };
+        if (!peerId) {
+            return {
+                ok: false,
+                status: 403,
+                message: 'Missing X-Broadcast-Peer-Id',
+            };
         }
 
         // Defend against a misconfigured peer that includes us in its
         // own peer list — easy mistake when bootstrapping a cluster.
         const localPeerId = this.#resolveLocalPeerId();
-        if ( localPeerId && peerId === localPeerId ) {
+        if (localPeerId && peerId === localPeerId) {
             return { ok: true, info: { ignored: 'self-peer' } };
         }
 
         const peer = this.#peersByKey[peerId];
-        if ( !peer || !peer.webhook_secret ) {
-            return { ok: false, status: 403, message: 'Unknown peer or webhook not configured' };
+        if (!peer || !peer.webhook_secret) {
+            return {
+                ok: false,
+                status: 403,
+                message: 'Unknown peer or webhook not configured',
+            };
         }
 
         const tsCheck = this.#parseTimestamp(headers.timestamp);
-        if ( ! tsCheck.ok ) return tsCheck;
+        if (!tsCheck.ok) return tsCheck;
         const timestamp = tsCheck.timestamp;
 
         const nonceCheck = this.#parseNonce(headers.nonce);
-        if ( ! nonceCheck.ok ) return nonceCheck;
+        if (!nonceCheck.ok) return nonceCheck;
         const nonce = nonceCheck.nonce;
 
-        if ( this.#isNonceReplayForPeer({ timestamp, nonce, peerId }) ) {
-            return { ok: false, status: 403, message: 'Duplicate or stale nonce' };
+        if (this.#isNonceReplayForPeer({ timestamp, nonce, peerId })) {
+            return {
+                ok: false,
+                status: 403,
+                message: 'Duplicate or stale nonce',
+            };
         }
 
-        if ( ! headers.signature ) {
-            return { ok: false, status: 403, message: 'Missing X-Broadcast-Signature' };
+        if (!headers.signature) {
+            return {
+                ok: false,
+                status: 403,
+                message: 'Missing X-Broadcast-Signature',
+            };
         }
 
         const payloadToSign = `${timestamp}.${nonce}.${rawBody.toString('utf8')}`;
-        const expectedHmac = createHmac('sha256', peer.webhook_secret).update(payloadToSign).digest('hex');
+        const expectedHmac = createHmac('sha256', peer.webhook_secret)
+            .update(payloadToSign)
+            .digest('hex');
         const signatureBuffer = Buffer.from(headers.signature, 'hex');
         const expectedBuffer = Buffer.from(expectedHmac, 'hex');
         if (
-            signatureBuffer.length !== expectedBuffer.length
-            || !timingSafeEqual(signatureBuffer, expectedBuffer)
+            signatureBuffer.length !== expectedBuffer.length ||
+            !timingSafeEqual(signatureBuffer, expectedBuffer)
         ) {
             return { ok: false, status: 403, message: 'Invalid signature' };
         }
@@ -217,18 +248,25 @@ export class BroadcastService extends PuterService {
 
     // ── Outbound: subscribe + queue + flush ────────────────────────
 
-    #subscribeOutbound (): void {
+    #subscribeOutbound(): void {
         // Wildcard: every `outer.*` event gets considered for broadcast.
         // The handler skips events that came in via webhook (meta.from_outside)
         // so we don't bounce them back to peers.
-        this.clients.event.on('outer.*', (key: string, data: unknown, meta: object) => {
-            this.#handleOutbound(key, data, meta);
-        });
+        this.clients.event.on(
+            'outer.*',
+            (key: string, data: unknown, meta: object) => {
+                this.#handleOutbound(key, data, meta);
+            },
+        );
     }
 
-    #handleOutbound (key: string, data: unknown, meta: object | undefined): void {
+    #handleOutbound(
+        key: string,
+        data: unknown,
+        meta: object | undefined,
+    ): void {
         const safeMeta = this.#normalizeMeta(meta);
-        if ( safeMeta.from_outside ) return;
+        if (safeMeta.from_outside) return;
 
         const event: BroadcastEvent = { key, data, meta: safeMeta };
         const dedupKey = this.#createDedupKey(event);
@@ -236,7 +274,7 @@ export class BroadcastService extends PuterService {
         this.#scheduleOutboundFlush();
     }
 
-    #createDedupKey (event: BroadcastEvent): string {
+    #createDedupKey(event: BroadcastEvent): string {
         try {
             return JSON.stringify(event);
         } catch {
@@ -245,8 +283,8 @@ export class BroadcastService extends PuterService {
         }
     }
 
-    #scheduleOutboundFlush (): void {
-        if ( this.#outboundFlushTimer ) return;
+    #scheduleOutboundFlush(): void {
+        if (this.#outboundFlushTimer) return;
         this.#outboundFlushTimer = setTimeout(() => {
             this.#outboundFlushTimer = null;
             void this.#flushOutboundEvents().catch((err) => {
@@ -255,37 +293,47 @@ export class BroadcastService extends PuterService {
         }, this.#outboundFlushMs);
     }
 
-    async #flushOutboundEvents (): Promise<void> {
-        if ( this.#outboundIsFlushing || this.#outboundEventsByDedupKey.size === 0 ) return;
+    async #flushOutboundEvents(): Promise<void> {
+        if (
+            this.#outboundIsFlushing ||
+            this.#outboundEventsByDedupKey.size === 0
+        )
+            return;
 
         this.#outboundIsFlushing = true;
         try {
             const events = [...this.#outboundEventsByDedupKey.values()];
             this.#outboundEventsByDedupKey.clear();
 
-            for ( const peer of this.#webhookPeers ) {
+            for (const peer of this.#webhookPeers) {
                 try {
                     await this.#sendWebhookToPeer(peer, events);
-                } catch ( err ) {
+                } catch (err) {
                     const peerId = peer.peerId ?? 'unknown';
-                    console.warn(`[broadcast] webhook send to peer ${peerId} failed`, err);
+                    console.warn(
+                        `[broadcast] webhook send to peer ${peerId} failed`,
+                        err,
+                    );
                 }
             }
         } finally {
             this.#outboundIsFlushing = false;
             // Anything that arrived during flush gets the next tick.
-            if ( this.#outboundEventsByDedupKey.size > 0 ) {
+            if (this.#outboundEventsByDedupKey.size > 0) {
                 this.#scheduleOutboundFlush();
             }
         }
     }
 
-    async #sendWebhookToPeer (peer: PeerConfig, events: BroadcastEvent[]): Promise<void> {
+    async #sendWebhookToPeer(
+        peer: PeerConfig,
+        events: BroadcastEvent[],
+    ): Promise<void> {
         const peerId = this.#resolvePeerIdOf(peer);
-        if ( ! peerId ) return;
+        if (!peerId) return;
         const requestUrl = this.#normalizeWebhookUrl(peer.webhook_url);
         const mySecret = this.#self()?.secret;
-        if ( !requestUrl || !mySecret ) return;
+        if (!requestUrl || !mySecret) return;
 
         const nextNonce = this.#outgoingNonceByPeer.get(peerId) ?? 0;
         this.#outgoingNonceByPeer.set(peerId, nextNonce + 1);
@@ -293,7 +341,9 @@ export class BroadcastService extends PuterService {
         const timestamp = Math.floor(Date.now() / 1000);
         const rawBody = JSON.stringify({ events });
         const payloadToSign = `${timestamp}.${nextNonce}.${rawBody}`;
-        const signature = createHmac('sha256', mySecret).update(payloadToSign).digest('hex');
+        const signature = createHmac('sha256', mySecret)
+            .update(payloadToSign)
+            .digest('hex');
 
         const myPublicId = this.#resolveLocalPeerId() ?? '';
         const headers: Record<string, string> = {
@@ -304,7 +354,7 @@ export class BroadcastService extends PuterService {
             'X-Broadcast-Nonce': String(nextNonce),
             'X-Broadcast-Signature': signature,
         };
-        if ( this.#webhookHostHeader ) headers.Host = this.#webhookHostHeader;
+        if (this.#webhookHostHeader) headers.Host = this.#webhookHostHeader;
 
         const response = await axios.request({
             method: 'POST',
@@ -317,26 +367,35 @@ export class BroadcastService extends PuterService {
             validateStatus: () => true,
             responseType: 'text',
             transformResponse: (value: unknown) => value,
-            ...(requestUrl.startsWith('https:') ? { httpsAgent: this.#webhookHttpsAgent } : {}),
+            ...(requestUrl.startsWith('https:')
+                ? { httpsAgent: this.#webhookHttpsAgent }
+                : {}),
         });
 
-        if ( response.status < 200 || response.status >= 300 ) {
-            console.warn(`[broadcast] peer ${peerId} responded ${response.status}: ${response.data}`);
-            throw new Error(`Webhook POST failed: ${response.status} ${response.statusText}`);
+        if (response.status < 200 || response.status >= 300) {
+            console.warn(
+                `[broadcast] peer ${peerId} responded ${response.status}: ${response.data}`,
+            );
+            throw new Error(
+                `Webhook POST failed: ${response.status} ${response.statusText}`,
+            );
         }
     }
 
     // ── Inbound helpers ─────────────────────────────────────────────
 
-    #normalizeIncomingPayload (payload: IncomingPayload): BroadcastEvent[] | null {
-        if ( !payload || typeof payload !== 'object' || Array.isArray(payload) ) return null;
+    #normalizeIncomingPayload(
+        payload: IncomingPayload,
+    ): BroadcastEvent[] | null {
+        if (!payload || typeof payload !== 'object' || Array.isArray(payload))
+            return null;
 
         // Either `{ events: [...] }` or a single event spread at top level.
-        if ( Array.isArray(payload.events) ) {
+        if (Array.isArray(payload.events)) {
             const out: BroadcastEvent[] = [];
-            for ( const ev of payload.events ) {
+            for (const ev of payload.events) {
                 const norm = this.#normalizeIncomingEvent(ev);
-                if ( ! norm ) return null;
+                if (!norm) return null;
                 out.push(norm);
             }
             return out;
@@ -346,11 +405,12 @@ export class BroadcastService extends PuterService {
         return norm ? [norm] : null;
     }
 
-    #normalizeIncomingEvent (event: unknown): BroadcastEvent | null {
-        if ( !event || typeof event !== 'object' || Array.isArray(event) ) return null;
+    #normalizeIncomingEvent(event: unknown): BroadcastEvent | null {
+        if (!event || typeof event !== 'object' || Array.isArray(event))
+            return null;
         const e = event as { key?: unknown; data?: unknown; meta?: unknown };
-        if ( typeof e.key !== 'string' || e.key.length === 0 ) return null;
-        if ( e.data === undefined ) return null;
+        if (typeof e.key !== 'string' || e.key.length === 0) return null;
+        if (e.data === undefined) return null;
         return {
             key: e.key,
             data: e.data,
@@ -358,84 +418,127 @@ export class BroadcastService extends PuterService {
         };
     }
 
-    async #emitIncomingEventsSequentially (events: BroadcastEvent[]): Promise<void> {
-        for ( const event of events ) {
+    async #emitIncomingEventsSequentially(
+        events: BroadcastEvent[],
+    ): Promise<void> {
+        for (const event of events) {
             // Belt-and-braces: a misbehaving peer that forwards already
             // outside-tagged events would otherwise bounce ad infinitum.
-            if ( event.meta?.from_outside ) {
-                console.warn('[broadcast] dropping incoming event already tagged from_outside', { key: event.key });
+            if (event.meta?.from_outside) {
+                console.warn(
+                    '[broadcast] dropping incoming event already tagged from_outside',
+                    { key: event.key },
+                );
                 continue;
             }
             const metaOut = { ...event.meta, from_outside: true };
             try {
                 this.clients.event.emit(event.key, event.data, metaOut);
-            } catch ( err ) {
-                console.warn('[broadcast] event re-emit failed', { key: event.key, err });
+            } catch (err) {
+                console.warn('[broadcast] event re-emit failed', {
+                    key: event.key,
+                    err,
+                });
             }
         }
     }
 
-    #isNonceReplayForPeer ({ timestamp, nonce, peerId }: { timestamp: number; nonce: number; peerId: string }): boolean {
+    #isNonceReplayForPeer({
+        timestamp,
+        nonce,
+        peerId,
+    }: {
+        timestamp: number;
+        nonce: number;
+        peerId: string;
+    }): boolean {
         const last = this.#incomingLastNonceByPeer.get(peerId);
-        if ( ! last ) return false;
+        if (!last) return false;
         // A newer timestamp resets the nonce window for this peer.
-        if ( timestamp > last.timestamp ) return false;
-        if ( timestamp < last.timestamp ) return true;
+        if (timestamp > last.timestamp) return false;
+        if (timestamp < last.timestamp) return true;
         return nonce <= last.nonce;
     }
 
-    #parseTimestamp (raw: string | undefined): { ok: true; timestamp: number } | (IncomingResult & { ok: false }) {
-        if ( ! raw ) return { ok: false, status: 400, message: 'Missing X-Broadcast-Timestamp' };
+    #parseTimestamp(
+        raw: string | undefined,
+    ): { ok: true; timestamp: number } | (IncomingResult & { ok: false }) {
+        if (!raw)
+            return {
+                ok: false,
+                status: 400,
+                message: 'Missing X-Broadcast-Timestamp',
+            };
         const ts = Number(raw);
-        if ( Number.isNaN(ts) ) return { ok: false, status: 400, message: 'Invalid X-Broadcast-Timestamp' };
+        if (Number.isNaN(ts))
+            return {
+                ok: false,
+                status: 400,
+                message: 'Invalid X-Broadcast-Timestamp',
+            };
         const nowSec = Math.floor(Date.now() / 1000);
         const window = this.#webhookReplayWindowSeconds;
         // 60s of forward tolerance for clock skew; the rest is replay-
         // window backstop.
-        if ( ts < nowSec - window || ts > nowSec + 60 ) {
-            return { ok: false, status: 400, message: 'Timestamp out of window' };
+        if (ts < nowSec - window || ts > nowSec + 60) {
+            return {
+                ok: false,
+                status: 400,
+                message: 'Timestamp out of window',
+            };
         }
         return { ok: true, timestamp: ts };
     }
 
-    #parseNonce (raw: string | undefined): { ok: true; nonce: number } | (IncomingResult & { ok: false }) {
-        if ( raw === undefined || raw === null || raw === '' ) {
-            return { ok: false, status: 400, message: 'Missing X-Broadcast-Nonce' };
+    #parseNonce(
+        raw: string | undefined,
+    ): { ok: true; nonce: number } | (IncomingResult & { ok: false }) {
+        if (raw === undefined || raw === null || raw === '') {
+            return {
+                ok: false,
+                status: 400,
+                message: 'Missing X-Broadcast-Nonce',
+            };
         }
         const n = Number(raw);
-        if ( Number.isNaN(n) ) return { ok: false, status: 400, message: 'Invalid X-Broadcast-Nonce' };
+        if (Number.isNaN(n))
+            return {
+                ok: false,
+                status: 400,
+                message: 'Invalid X-Broadcast-Nonce',
+            };
         return { ok: true, nonce: n };
     }
 
     // ── Misc ────────────────────────────────────────────────────────
 
-    #normalizeMeta (meta: unknown): Record<string, unknown> {
-        if ( !meta || typeof meta !== 'object' || Array.isArray(meta) ) return {};
+    #normalizeMeta(meta: unknown): Record<string, unknown> {
+        if (!meta || typeof meta !== 'object' || Array.isArray(meta)) return {};
         return meta as Record<string, unknown>;
     }
 
-    #resolveLocalPeerId (): string | null {
+    #resolveLocalPeerId(): string | null {
         const id = this.#self()?.peerId;
-        if ( typeof id !== 'string' || id.trim() === '' ) return null;
+        if (typeof id !== 'string' || id.trim() === '') return null;
         return id.trim();
     }
 
-    #resolvePeerIdOf (peer: PeerConfig): string | null {
+    #resolvePeerIdOf(peer: PeerConfig): string | null {
         const id = peer.peerId;
-        if ( typeof id !== 'string' || id.trim() === '' ) return null;
+        if (typeof id !== 'string' || id.trim() === '') return null;
         return id.trim();
     }
 
-    #self (): SelfConfig | undefined {
+    #self(): SelfConfig | undefined {
         return this.#broadcastConfig().webhook;
     }
 
-    #broadcastConfig (): BroadcastConfig {
+    #broadcastConfig(): BroadcastConfig {
         return this.config.broadcast ?? {};
     }
 
-    #normalizeWebhookUrl (url: string | undefined): string | null {
-        if ( typeof url !== 'string' || url.trim() === '' ) return null;
+    #normalizeWebhookUrl(url: string | undefined): string | null {
+        if (typeof url !== 'string' || url.trim() === '') return null;
         const trimmed = url.trim();
         let parsed: URL;
         try {
@@ -451,17 +554,20 @@ export class BroadcastService extends PuterService {
         return parsed.toString();
     }
 
-    #loadConfig (): void {
+    #loadConfig(): void {
         const cfg = this.#broadcastConfig();
         const peers = cfg.peers ?? [];
 
-        for ( const peerCfg of peers ) {
+        for (const peerCfg of peers) {
             const peerId = this.#resolvePeerIdOf(peerCfg);
-            if ( ! peerId ) {
-                console.warn('[broadcast] ignoring peer config with missing key/peerId', { peerCfg });
+            if (!peerId) {
+                console.warn(
+                    '[broadcast] ignoring peer config with missing key/peerId',
+                    { peerCfg },
+                );
                 continue;
             }
-            if ( this.#peersByKey[peerId] ) {
+            if (this.#peersByKey[peerId]) {
                 console.warn('[broadcast] duplicate peer id', {
                     peerId,
                     existing: this.#peersByKey[peerId]?.webhook_url,
@@ -474,20 +580,29 @@ export class BroadcastService extends PuterService {
                 webhook_url: peerCfg.webhook_url,
                 webhook: !!peerCfg.webhook,
             };
-            if ( peerCfg.webhook ) {
+            if (peerCfg.webhook) {
                 this.#webhookPeers.push({ ...peerCfg, peerId });
             } else {
-                console.warn('[broadcast] non-webhook peer ignored (websocket transport disabled in v2)', { peerId });
+                console.warn(
+                    '[broadcast] non-webhook peer ignored (websocket transport disabled in v2)',
+                    { peerId },
+                );
             }
         }
 
-        this.#webhookReplayWindowSeconds = Number(cfg.webhook_replay_window_seconds ?? 300);
+        this.#webhookReplayWindowSeconds = Number(
+            cfg.webhook_replay_window_seconds ?? 300,
+        );
         const flushMs = Number(cfg.outbound_flush_ms ?? 2000);
-        this.#outboundFlushMs = Number.isFinite(flushMs) && flushMs >= 0 ? flushMs : 2000;
+        this.#outboundFlushMs =
+            Number.isFinite(flushMs) && flushMs >= 0 ? flushMs : 2000;
 
         this.#webhookHostHeader = this.config.domain ?? null;
         const protoRaw = String(this.config.protocol ?? '')
-            .trim().replace(/:$/, '').toLowerCase();
-        this.#webhookProtocol = protoRaw === 'http' || protoRaw === 'https' ? protoRaw : 'https';
+            .trim()
+            .replace(/:$/, '')
+            .toLowerCase();
+        this.#webhookProtocol =
+            protoRaw === 'http' || protoRaw === 'https' ? protoRaw : 'https';
     }
 }

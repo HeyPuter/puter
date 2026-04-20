@@ -1,21 +1,24 @@
-import {
-    PendingUploadCreateInput,
-    PendingUploadSession,
-} from './FSEntry.js';
+import { PendingUploadCreateInput, PendingUploadSession } from './FSEntry.js';
 
-export type PendingUploadSessionStatus = 'pending' | 'completed' | 'failed' | 'aborted';
+export type PendingUploadSessionStatus =
+    | 'pending'
+    | 'completed'
+    | 'failed'
+    | 'aborted';
 
 export const PENDING_UPLOAD_SESSION_KEY_PREFIX = 'prodfsv2:upload-session:';
 
-export function toPendingUploadSessionKey (sessionId: string): string {
+export function toPendingUploadSessionKey(sessionId: string): string {
     return `${PENDING_UPLOAD_SESSION_KEY_PREFIX}${sessionId}`;
 }
 
-export function toPendingUploadSessionExpiresAtSeconds (expiresAtMs: number): number {
+export function toPendingUploadSessionExpiresAtSeconds(
+    expiresAtMs: number,
+): number {
     return Math.max(1, Math.ceil(expiresAtMs / 1000));
 }
 
-export function toPendingUploadSession (
+export function toPendingUploadSession(
     input: PendingUploadCreateInput,
     now: number,
 ): PendingUploadSession {
@@ -51,28 +54,30 @@ export function toPendingUploadSession (
     };
 }
 
-export function isPendingUploadSession (value: unknown): value is PendingUploadSession {
-    if ( !value || typeof value !== 'object' || Array.isArray(value) ) {
+export function isPendingUploadSession(
+    value: unknown,
+): value is PendingUploadSession {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
         return false;
     }
 
     const candidate = value as Record<string, unknown>;
     return (
-        typeof candidate.sessionId === 'string'
-        && typeof candidate.userId === 'number'
-        && typeof candidate.status === 'string'
-        && typeof candidate.expiresAt === 'number'
-        && typeof candidate.objectKey === 'string'
-        && typeof candidate.parentPath === 'string'
-        && typeof candidate.targetPath === 'string'
+        typeof candidate.sessionId === 'string' &&
+        typeof candidate.userId === 'number' &&
+        typeof candidate.status === 'string' &&
+        typeof candidate.expiresAt === 'number' &&
+        typeof candidate.objectKey === 'string' &&
+        typeof candidate.parentPath === 'string' &&
+        typeof candidate.targetPath === 'string'
     );
 }
 
-export function normalizePendingUploadSession (
+export function normalizePendingUploadSession(
     value: unknown,
     sessionId: string,
 ): PendingUploadSession | null {
-    if ( ! isPendingUploadSession(value) ) {
+    if (!isPendingUploadSession(value)) {
         return null;
     }
 
@@ -84,28 +89,35 @@ export function normalizePendingUploadSession (
         consumedAt?: unknown;
         completedAt?: unknown;
     };
-    const createdAt = typeof record.createdAt === 'number' ? record.createdAt : Date.now();
-    const updatedAt = typeof record.updatedAt === 'number' ? record.updatedAt : createdAt;
+    const createdAt =
+        typeof record.createdAt === 'number' ? record.createdAt : Date.now();
+    const updatedAt =
+        typeof record.updatedAt === 'number' ? record.updatedAt : createdAt;
 
     return {
         ...record,
         id: typeof record.id === 'number' ? record.id : 0,
         sessionId,
-        failureReason: typeof record.failureReason === 'string' ? record.failureReason : null,
+        failureReason:
+            typeof record.failureReason === 'string'
+                ? record.failureReason
+                : null,
         createdAt,
         updatedAt,
-        consumedAt: typeof record.consumedAt === 'number' ? record.consumedAt : null,
-        completedAt: typeof record.completedAt === 'number' ? record.completedAt : null,
+        consumedAt:
+            typeof record.consumedAt === 'number' ? record.consumedAt : null,
+        completedAt:
+            typeof record.completedAt === 'number' ? record.completedAt : null,
     };
 }
 
-export function withPendingUploadSessionStatus (
+export function withPendingUploadSessionStatus(
     session: PendingUploadSession,
     status: PendingUploadSessionStatus,
     reason: string | null,
     now: number,
 ): PendingUploadSession {
-    if ( status === 'completed' ) {
+    if (status === 'completed') {
         return {
             ...session,
             status,
@@ -116,7 +128,7 @@ export function withPendingUploadSessionStatus (
         };
     }
 
-    if ( status === 'failed' || status === 'aborted' ) {
+    if (status === 'failed' || status === 'aborted') {
         return {
             ...session,
             status,

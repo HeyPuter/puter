@@ -10,10 +10,17 @@ import { PuterController } from '../types.js';
  * Config: `config.wisp.server` — WISP relay server address.
  */
 export class WispController extends PuterController {
-
-    registerRoutes (router: PuterRouter): void {
-        router.post('/wisp/relay-token/create', { subdomain: 'api' }, this.#create);
-        router.post('/wisp/relay-token/verify', { subdomain: 'api' }, this.#verify);
+    registerRoutes(router: PuterRouter): void {
+        router.post(
+            '/wisp/relay-token/create',
+            { subdomain: 'api' },
+            this.#create,
+        );
+        router.post(
+            '/wisp/relay-token/verify',
+            { subdomain: 'api' },
+            this.#verify,
+        );
     }
 
     /** POST /wisp/relay-token/create — mint a relay token (auth optional). */
@@ -21,19 +28,27 @@ export class WispController extends PuterController {
         const actor = req.actor;
         const wispCfg = this.#wispConfig();
 
-        if ( actor?.user?.uuid ) {
-            const token = this.services.token.sign('wisp', {
-                $: 'token:wisp',
-                $v: '0.0.0',
-                user_uid: actor.user.uuid,
-            }, { expiresIn: '1d' });
+        if (actor?.user?.uuid) {
+            const token = this.services.token.sign(
+                'wisp',
+                {
+                    $: 'token:wisp',
+                    $v: '0.0.0',
+                    user_uid: actor.user.uuid,
+                },
+                { expiresIn: '1d' },
+            );
             res.json({ token, server: wispCfg.server ?? null });
         } else {
-            const token = this.services.token.sign('wisp', {
-                $: 'token:wisp',
-                $v: '0.0.0',
-                guest: true,
-            }, { expiresIn: '1d' });
+            const token = this.services.token.sign(
+                'wisp',
+                {
+                    $: 'token:wisp',
+                    $v: '0.0.0',
+                    guest: true,
+                },
+                { expiresIn: '1d' },
+            );
             res.json({ token, server: wispCfg.server ?? null });
         }
     };
@@ -41,14 +56,17 @@ export class WispController extends PuterController {
     /** POST /wisp/relay-token/verify — verify a relay token and apply policy. */
     #verify = async (req: Request, res: Response): Promise<void> => {
         const bodyToken = req.body?.token;
-        if ( !bodyToken || typeof bodyToken !== 'string' ) {
+        if (!bodyToken || typeof bodyToken !== 'string') {
             throw new HttpError(400, 'Missing `token`');
         }
 
         let decoded: Record<string, unknown>;
         try {
-            decoded = this.services.token.verify<Record<string, unknown>>('wisp', bodyToken);
-            if ( decoded.$ !== 'token:wisp' ) throw new Error('wrong token type');
+            decoded = this.services.token.verify<Record<string, unknown>>(
+                'wisp',
+                bodyToken,
+            );
+            if (decoded.$ !== 'token:wisp') throw new Error('wrong token type');
         } catch {
             throw new HttpError(403, 'Forbidden');
         }
@@ -56,7 +74,7 @@ export class WispController extends PuterController {
         // Build policy event — extensions can deny via extension.on('wisp.get-policy')
         const isGuest = Boolean(decoded.guest);
         let user: Record<string, unknown> | null = null;
-        if ( !isGuest && decoded.user_uid ) {
+        if (!isGuest && decoded.user_uid) {
             user = await this.stores.user.getByUuid(String(decoded.user_uid));
         }
 
@@ -71,14 +89,14 @@ export class WispController extends PuterController {
         // control before any awaited work completed.
         await this.clients.event.emitAndWait('wisp.get-policy', event, {});
 
-        if ( ! event.allow ) {
+        if (!event.allow) {
             throw new HttpError(403, 'Forbidden');
         }
 
         res.json(event.policy);
     };
 
-    #wispConfig (): NonNullable<typeof this.config.wisp> {
+    #wispConfig(): NonNullable<typeof this.config.wisp> {
         return this.config.wisp ?? {};
     }
 }

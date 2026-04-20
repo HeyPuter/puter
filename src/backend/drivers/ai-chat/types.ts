@@ -12,7 +12,10 @@ export interface ModelModalities {
     output: string[];
 }
 
-export interface IChatModel<T extends ModelCost = ModelCost> extends Record<string, unknown> {
+export interface IChatModel<T extends ModelCost = ModelCost> extends Record<
+    string,
+    unknown
+> {
     id: string;
     provider?: string;
     puterId?: string;
@@ -55,7 +58,13 @@ export interface ICompleteArguments {
     top_p?: number;
     truncation?: 'auto' | 'disabled' | undefined;
     background?: boolean;
-    service_tier?: 'auto' | 'default' | 'flex' | 'scale' | 'priority' | undefined;
+    service_tier?:
+        | 'auto'
+        | 'default'
+        | 'flex'
+        | 'scale'
+        | 'priority'
+        | undefined;
     max_tokens?: number;
     temperature?: number;
     reasoning?: { effort: 'low' | 'medium' | 'high' } | undefined;
@@ -92,8 +101,8 @@ export interface IChatMessageResult {
 export type IChatCompleteResult = IChatStreamResult | IChatMessageResult;
 
 export interface IChatProvider {
-    models (extra_params?: unknown): IChatModel[] | Promise<IChatModel[]>;
-    list (): string[] | Promise<string[]>;
-    getDefaultModel (): string;
-    complete (arg: ICompleteArguments): Promise<IChatCompleteResult>;
+    models(extra_params?: unknown): IChatModel[] | Promise<IChatModel[]>;
+    list(): string[] | Promise<string[]>;
+    getDefaultModel(): string;
+    complete(arg: ICompleteArguments): Promise<IChatCompleteResult>;
 }

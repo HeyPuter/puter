@@ -27,7 +27,7 @@ export const OPENAI_IMAGE_COST_MAP = {
     'openai:gpt-image-1.5:medium:1024x1536': toMicroCents(0.051),
     'openai:gpt-image-1.5:medium:1536x1024': toMicroCents(0.05),
     'openai:gpt-image-1.5:high:1024x1024': toMicroCents(0.133),
-    'openai:gpt-image-1.5:high:1024x1536': toMicroCents(0.20),
+    'openai:gpt-image-1.5:high:1024x1536': toMicroCents(0.2),
     'openai:gpt-image-1.5:high:1536x1024': toMicroCents(0.199),
 
     // gpt-image-1

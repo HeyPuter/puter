@@ -58,32 +58,36 @@ interface PuterGuiAddonsEvent {
  *     splice arbitrary markup into the shell.
  */
 export class PuterHomepageService extends PuterService {
-
     #manifest: Manifest | null = null;
     #serviceScripts: string[] = [];
     #guiParams: Record<string, unknown> = {};
 
-    override async onServerStart (): Promise<void> {
+    override async onServerStart(): Promise<void> {
         const root = this.config.gui_assets_root;
-        if ( ! root ) return;
+        if (!root) return;
         try {
-            const raw = await readFile(path.join(root, 'puter-gui.json'), 'utf8');
+            const raw = await readFile(
+                path.join(root, 'puter-gui.json'),
+                'utf8',
+            );
             const parsed = JSON.parse(raw) as Record<string, Manifest>;
             const profile = this.config.gui_profile ?? 'development';
             this.#manifest = parsed[profile] ?? null;
-            if ( ! this.#manifest ) {
-                console.warn(`[homepage] puter-gui.json has no profile "${profile}"`);
+            if (!this.#manifest) {
+                console.warn(
+                    `[homepage] puter-gui.json has no profile "${profile}"`,
+                );
             }
-        } catch ( e ) {
+        } catch (e) {
             console.warn('[homepage] failed to load puter-gui.json:', e);
         }
     }
 
-    registerScript (url: string): void {
+    registerScript(url: string): void {
         this.#serviceScripts.push(url);
     }
 
-    setGuiParam (key: string, val: unknown): void {
+    setGuiParam(key: string, val: unknown): void {
         this.#guiParams[key] = val;
     }
 
@@ -92,7 +96,7 @@ export class PuterHomepageService extends PuterService {
      * that want to cache or post-process can opt in; `res.send` is already
      * called on the happy path.
      */
-    async send (
+    async send(
         ctx: { req: Request; res: Response; actor?: Actor | null },
         meta: PageMeta,
         launchOptions: LaunchOptions = {},
@@ -100,21 +104,33 @@ export class PuterHomepageService extends PuterService {
         const { req, res, actor } = ctx;
 
         // Easter egg: puter-in-puter detection → render error page instead.
-        if ( req.query['puter.app_instance_id'] || req.query['error_from_within_iframe'] ) {
-            const eggs = ['puter in puter?', 'Infinite recursion!', 'what\'chu cookin\'?'];
-            const msg = (typeof req.query.message === 'string' && req.query.message)
-                || eggs[Math.floor(Math.random() * eggs.length)];
+        if (
+            req.query['puter.app_instance_id'] ||
+            req.query['error_from_within_iframe']
+        ) {
+            const eggs = [
+                'puter in puter?',
+                'Infinite recursion!',
+                "what'chu cookin'?",
+            ];
+            const msg =
+                (typeof req.query.message === 'string' && req.query.message) ||
+                eggs[Math.floor(Math.random() * eggs.length)];
             res.send(this.#renderError(msg));
             return;
         }
 
-        const html = await this.#renderShell({ req, actor: actor ?? null }, meta, launchOptions);
+        const html = await this.#renderShell(
+            { req, actor: actor ?? null },
+            meta,
+            launchOptions,
+        );
         res.send(html);
     }
 
     // ── Internals ────────────────────────────────────────────────────
 
-    async #renderShell (
+    async #renderShell(
         ctx: { req: Request; actor: Actor | null },
         meta: PageMeta,
         launchOptions: LaunchOptions,
@@ -125,7 +141,10 @@ export class PuterHomepageService extends PuterService {
         const assetDir = env === 'dev' ? '/src' : '/dist';
 
         const captchaEnabled = Boolean(this.config.captcha?.enabled);
-        const captchaRequired = { login: captchaEnabled, signup: captchaEnabled };
+        const captchaRequired = {
+            login: captchaEnabled,
+            signup: captchaEnabled,
+        };
 
         // Payload delivered to the client-side `gui(…)` boot function.
         // Order: extension-registered params → built-in config params →
@@ -163,7 +182,7 @@ export class PuterHomepageService extends PuterService {
             // `#buildHtml` reads those fields below. Plain `emit` would
             // return before the listeners ran.
             await this.clients.event.emitAndWait('puter.gui.addons', event, {});
-        } catch ( e ) {
+        } catch (e) {
             console.warn('[homepage] puter.gui.addons emit failed:', e);
         }
 
@@ -177,7 +196,7 @@ export class PuterHomepageService extends PuterService {
         });
     }
 
-    #buildHtml (args: {
+    #buildHtml(args: {
         meta: PageMeta;
         assetDir: string;
         bundled: boolean;
@@ -192,21 +211,31 @@ export class PuterHomepageService extends PuterService {
         const shortDescription = meta.short_description ?? description;
         const company = meta.company ?? 'Puter Technologies Inc.';
         const canonical = meta.canonical_url ?? '';
-        const socialImage = this.#validSocialImage(meta.social_media_image, assetDir);
+        const socialImage = this.#validSocialImage(
+            meta.social_media_image,
+            assetDir,
+        );
 
         const guiBundle = this.config.gui_bundle ?? '/dist/bundle.min.js';
         const guiCss = this.config.gui_css ?? '/dist/bundle.min.css';
-        const puterJsBundle = this.config.gui_puterjs_bundle ?? 'https://js.puter.com/v2/';
+        const puterJsBundle =
+            this.config.gui_puterjs_bundle ?? 'https://js.puter.com/v2/';
 
-        const manifestCss = (!bundled && manifest?.css_paths)
-            ? manifest.css_paths.map(p => `<link rel="stylesheet" href="${p}">`).join('\n')
-            : '';
+        const manifestCss =
+            !bundled && manifest?.css_paths
+                ? manifest.css_paths
+                      .map((p) => `<link rel="stylesheet" href="${p}">`)
+                      .join('\n')
+                : '';
 
         const serviceScriptTags = this.#serviceScripts
-            .map(url => `<script type="module" src="${url}"></script>`)
+            .map((url) => `<script type="module" src="${url}"></script>`)
             .join('\n');
 
-        const guiParamsJson = JSON.stringify(guiParams).replace(/</g, '\\u003c');
+        const guiParamsJson = JSON.stringify(guiParams).replace(
+            /</g,
+            '\\u003c',
+        );
 
         return `<!DOCTYPE html>
 <html lang="en">
@@ -279,7 +308,7 @@ export class PuterHomepageService extends PuterService {
 <body>
     ${event.prependBodyContent}
     <script>window.puter_gui_enabled = true;</script>
-    ${bundled ? '<script>window.gui_env = \'prod\';</script>' : ''}
+    ${bundled ? "<script>window.gui_env = 'prod';</script>" : ''}
 
     <script src="${guiBundle}"></script>
     <script type="module">
@@ -295,7 +324,7 @@ export class PuterHomepageService extends PuterService {
 </html>`;
     }
 
-    #renderError (message: string): string {
+    #renderError(message: string): string {
         return `<!DOCTYPE html>
 <html>
 <head>
@@ -315,26 +344,27 @@ export class PuterHomepageService extends PuterService {
 </html>`;
     }
 
-    #originFromRequest (req: Request): string {
+    #originFromRequest(req: Request): string {
         // Prefer the pre-computed `config.origin` (protocol + domain + port).
         // Without it, non-80/443 deployments end up with URLs missing the
         // port, which breaks every self-referential fetch the GUI makes
         // (`/get-gui-token`, `/login`, `/signup`, …).
-        if ( this.config.origin ) return this.config.origin;
+        if (this.config.origin) return this.config.origin;
         const domain = this.config.domain ?? req.hostname;
         return `${req.protocol}://${domain}`;
     }
 
-    #validSocialImage (raw: string | undefined, assetDir: string): string {
+    #validSocialImage(raw: string | undefined, assetDir: string): string {
         const fallback = `${assetDir}/images/screenshot.png`;
-        if ( ! raw ) return fallback;
+        if (!raw) return fallback;
         try {
             const url = new URL(raw);
-            if ( url.protocol !== 'http:' && url.protocol !== 'https:' ) return fallback;
+            if (url.protocol !== 'http:' && url.protocol !== 'https:')
+                return fallback;
         } catch {
             return fallback;
         }
-        if ( ! /\.(png|jpg|jpeg|gif|webp)$/i.test(raw) ) return fallback;
+        if (!/\.(png|jpg|jpeg|gif|webp)$/i.test(raw)) return fallback;
         return raw;
     }
 }

@@ -22,8 +22,8 @@ import { OpenAI } from 'openai';
 import { ChatCompletionCreateParams } from 'openai/resources/index.js';
 import { Context } from '../../../../core/context.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
+import type { IChatProvider, ICompleteArguments } from '../../types.js';
 import * as OpenAIUtil from '../../utils/OpenAIUtil.js';
-import type { IChatProvider, ICompleteArguments, IChatCompleteResult } from '../../types.js';
 import { DEEPSEEK_MODELS } from './models.js';
 
 export class DeepSeekProvider implements IChatProvider {
@@ -31,7 +31,7 @@ export class DeepSeekProvider implements IChatProvider {
 
     #meteringService: MeteringService;
 
-    constructor (config: { apiKey: string }, meteringService: MeteringService) {
+    constructor(config: { apiKey: string }, meteringService: MeteringService) {
         this.#openai = new OpenAI({
             apiKey: config.apiKey,
             baseURL: 'https://api.deepseek.com',
@@ -39,41 +39,55 @@ export class DeepSeekProvider implements IChatProvider {
         this.#meteringService = meteringService;
     }
 
-    getDefaultModel () {
+    getDefaultModel() {
         return 'deepseek-chat';
     }
 
-    models () {
+    models() {
         return DEEPSEEK_MODELS;
     }
 
-    async list () {
+    async list() {
         const models = this.models();
         const modelNames: string[] = [];
-        for ( const model of models ) {
+        for (const model of models) {
             modelNames.push(model.id);
-            if ( model.aliases ) {
+            if (model.aliases) {
                 modelNames.push(...model.aliases);
             }
         }
         return modelNames;
     }
 
-    async complete ({ messages, stream, model, tools, max_tokens, temperature }: ICompleteArguments): ReturnType<IChatProvider['complete']> {
+    async complete({
+        messages,
+        stream,
+        model,
+        tools,
+        max_tokens,
+        temperature,
+    }: ICompleteArguments): ReturnType<IChatProvider['complete']> {
         const actor = Context.get('actor');
         const availableModels = this.models();
-        const modelUsed = availableModels.find(m => [m.id, ...(m.aliases || [])].includes(model)) || availableModels.find(m => m.id === this.getDefaultModel())!;
+        const modelUsed =
+            availableModels.find((m) =>
+                [m.id, ...(m.aliases || [])].includes(model),
+            ) || availableModels.find((m) => m.id === this.getDefaultModel())!;
 
         messages = await OpenAIUtil.process_input_messages(messages);
-        for ( const message of messages ) {
+        for (const message of messages) {
             // DeepSeek doesn't accept string arrays alongside tool calls
-            if ( message.tool_calls && Array.isArray(message.content) ) {
+            if (message.tool_calls && Array.isArray(message.content)) {
                 message.content = '';
             }
         }
 
         // Function calling currently loops unless we inject the tool result as a system message.
-        const TOOL_TEXT = (message: { tool_call_id: string; content: string }) => dedent(`
+        const TOOL_TEXT = (message: {
+            tool_call_id: string;
+            content: string;
+        }) =>
+            dedent(`
             Hi DeepSeek V3, your tool calling is broken and you are not able to
             obtain tool results in the expected way. That's okay, we can work
             around this.
@@ -84,9 +98,9 @@ export class DeepSeekProvider implements IChatProvider {
 
             Tool call ${message.tool_call_id} returned: ${message.content}.
         `);
-        for ( let i = messages.length - 1; i >= 0; i-- ) {
+        for (let i = messages.length - 1; i >= 0; i--) {
             const message = messages[i];
-            if ( message.role === 'tool' ) {
+            if (message.role === 'tool') {
                 messages.splice(i + 1, 0, {
                     role: 'system',
                     content: [
@@ -106,18 +120,27 @@ export class DeepSeekProvider implements IChatProvider {
             max_tokens: max_tokens || 1000,
             temperature,
             stream,
-            ...(stream ? {
-                stream_options: { include_usage: true },
-            } : {}),
+            ...(stream
+                ? {
+                      stream_options: { include_usage: true },
+                  }
+                : {}),
         } as ChatCompletionCreateParams);
 
         return OpenAIUtil.handle_completion_output({
             usage_calculator: ({ usage }) => {
                 const trackedUsage = OpenAIUtil.extractMeteredUsage(usage);
-                const costsOverrideFromModel = Object.fromEntries(Object.entries(trackedUsage).map(([k, v]) => {
-                    return [k, v * (modelUsed.costs[k])];
-                }));
-                this.#meteringService.utilRecordUsageObject(trackedUsage, actor, `deepseek:${modelUsed.id}`, costsOverrideFromModel);
+                const costsOverrideFromModel = Object.fromEntries(
+                    Object.entries(trackedUsage).map(([k, v]) => {
+                        return [k, v * modelUsed.costs[k]];
+                    }),
+                );
+                this.#meteringService.utilRecordUsageObject(
+                    trackedUsage,
+                    actor,
+                    `deepseek:${modelUsed.id}`,
+                    costsOverrideFromModel,
+                );
                 return trackedUsage;
             },
             stream,
@@ -125,7 +148,9 @@ export class DeepSeekProvider implements IChatProvider {
         });
     }
 
-    checkModeration (_text: string): ReturnType<IChatProvider['checkModeration']> {
+    checkModeration(
+        _text: string,
+    ): ReturnType<IChatProvider['checkModeration']> {
         throw new Error('Method not implemented.');
     }
 }

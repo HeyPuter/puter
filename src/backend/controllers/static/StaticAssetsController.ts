@@ -18,9 +18,8 @@ import type { PuterRouter } from '../../core/http/PuterRouter';
  * routes.
  */
 export class StaticAssetsController extends PuterController {
-
-    registerRoutes (router: PuterRouter) {
-        if ( this.config.client_libs_root ) {
+    registerRoutes(router: PuterRouter) {
+        if (this.config.client_libs_root) {
             const root = this.config.client_libs_root;
 
             router.get('/puter.js/v1', { subdomain: '*' }, (_req, res) => {
@@ -47,12 +46,16 @@ export class StaticAssetsController extends PuterController {
         // `puter.js` when `.dev.js` isn't present so `yarn start` works
         // out of the box without running the dev-mode webpack build.
         const puterjsRoot = this.config.puterjs_root;
-        if ( puterjsRoot ) {
+        if (puterjsRoot) {
             const hasDev = existsSync(path.join(puterjsRoot, 'puter.dev.js'));
-            if ( !hasDev && existsSync(path.join(puterjsRoot, 'puter.js')) ) {
-                router.get('/sdk/puter.dev.js', { subdomain: '' }, (_req, res) => {
-                    res.sendFile('puter.js', { root: puterjsRoot });
-                });
+            if (!hasDev && existsSync(path.join(puterjsRoot, 'puter.js'))) {
+                router.get(
+                    '/sdk/puter.dev.js',
+                    { subdomain: '' },
+                    (_req, res) => {
+                        res.sendFile('puter.js', { root: puterjsRoot });
+                    },
+                );
             }
             router.use('/sdk', { subdomain: '' }, express.static(puterjsRoot));
 
@@ -61,7 +64,7 @@ export class StaticAssetsController extends PuterController {
             // When `client_libs_root` is configured the block above already
             // owns these routes and wins by registration order; skip to
             // avoid a noisy double-mount.
-            if ( ! this.config.client_libs_root ) {
+            if (!this.config.client_libs_root) {
                 const puterJsFile = hasDev ? 'puter.dev.js' : 'puter.js';
                 router.get('/puter.js/v1', { subdomain: '*' }, (_req, res) => {
                     res.sendFile(puterJsFile, { root: puterjsRoot });
@@ -72,15 +75,27 @@ export class StaticAssetsController extends PuterController {
             }
         }
 
-        if ( this.config.gui_assets_root ) {
+        if (this.config.gui_assets_root) {
             const root = this.config.gui_assets_root;
 
-            router.use('/dist', { subdomain: '' }, express.static(path.join(root, 'dist')));
-            router.use('/src', { subdomain: '' }, express.static(path.join(root, 'src')));
+            router.use(
+                '/dist',
+                { subdomain: '' },
+                express.static(path.join(root, 'dist')),
+            );
+            router.use(
+                '/src',
+                { subdomain: '' },
+                express.static(path.join(root, 'src')),
+            );
 
             const publicDir = path.join(root, 'public');
-            if ( existsSync(publicDir) ) {
-                router.use('/assets', { subdomain: '' }, express.static(publicDir));
+            if (existsSync(publicDir)) {
+                router.use(
+                    '/assets',
+                    { subdomain: '' },
+                    express.static(publicDir),
+                );
             }
         }
 
@@ -91,10 +106,14 @@ export class StaticAssetsController extends PuterController {
         // and hits the 404 handler. `builtin_apps` maps each wire name to
         // the directory we serve it from.
         const builtinApps = this.config.builtin_apps;
-        if ( builtinApps ) {
-            for ( const [name, dirPath] of Object.entries(builtinApps) ) {
-                if ( !dirPath || !existsSync(dirPath) ) continue;
-                router.use(`/builtin/${name}`, { subdomain: '' }, express.static(dirPath));
+        if (builtinApps) {
+            for (const [name, dirPath] of Object.entries(builtinApps)) {
+                if (!dirPath || !existsSync(dirPath)) continue;
+                router.use(
+                    `/builtin/${name}`,
+                    { subdomain: '' },
+                    express.static(dirPath),
+                );
             }
         }
     }

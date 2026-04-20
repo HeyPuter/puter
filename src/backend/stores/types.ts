@@ -13,21 +13,24 @@ export type IPuterStore<T extends WithLifecycle = WithLifecycle> = new (
 ) => T;
 
 export const PuterStore = class PuterStore implements WithLifecycle {
-    constructor (
+    constructor(
         protected config: IConfig,
         protected clients: LayerInstances<typeof puterClients>,
         protected stores: Partial<Record<string, WithLifecycle>> = {},
-    ) {
-    }
-    public onServerStart () {
+    ) {}
+    public onServerStart() {
         return;
     }
-    public onServerPrepareShutdown () {
+    public onServerPrepareShutdown() {
         return;
     }
-    public onServerShutdown () {
+    public onServerShutdown() {
         return;
     }
 } satisfies IPuterStore<WithLifecycle>;
 
-export type IPuterStoreRegistry = Record<string, IPuterStore<WithLifecycle> | (InstanceType<IPuterStore<WithLifecycle>> & Record<string, unknown>)>;
+export type IPuterStoreRegistry = Record<
+    string,
+    | IPuterStore<WithLifecycle>
+    | (InstanceType<IPuterStore<WithLifecycle>> & Record<string, unknown>)
+>;

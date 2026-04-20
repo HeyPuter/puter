@@ -42,7 +42,7 @@ export class HttpError extends Error {
     readonly code?: string;
     readonly fields?: Record<string, unknown>;
 
-    constructor (
+    constructor(
         statusCode: number,
         message: string,
         options: HttpErrorOptions = {},
@@ -65,11 +65,11 @@ export class HttpError extends Error {
  * normal callers can use `instanceof HttpError`.
  */
 export const isHttpError = (e: unknown): e is HttpError => {
-    if ( e instanceof HttpError ) return true;
+    if (e instanceof HttpError) return true;
     return Boolean(
-        e
-        && typeof e === 'object'
-        && (e as { name?: unknown }).name === 'HttpError'
-        && typeof (e as { statusCode?: unknown }).statusCode === 'number',
+        e &&
+        typeof e === 'object' &&
+        (e as { name?: unknown }).name === 'HttpError' &&
+        typeof (e as { statusCode?: unknown }).statusCode === 'number',
     );
 };

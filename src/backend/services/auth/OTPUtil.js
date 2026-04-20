@@ -6,7 +6,7 @@ import { encode } from 'hi-base32';
  * Standalone OTP utilities — no service class, just functions.
  */
 
-export function createSecret (label) {
+export function createSecret(label) {
     const secret = genOtpSecret();
     const totp = new TOTP({
         issuer: 'puter.com',
@@ -18,12 +18,12 @@ export function createSecret (label) {
     return { url: totp.toString(), secret };
 }
 
-export function createRecoveryCode () {
+export function createRecoveryCode() {
     const buffer = crypto.randomBytes(6);
     return encode(buffer).replace(/=/g, '').substring(0, 8);
 }
 
-export function verify (label, secret, code) {
+export function verify(label, secret, code) {
     const totp = new TOTP({
         issuer: 'puter.com',
         label,
@@ -32,11 +32,11 @@ export function verify (label, secret, code) {
         secret,
     });
     const delta = totp.validate({ token: code });
-    if ( delta === null ) return false;
+    if (delta === null) return false;
     return [-1, 0, 1].includes(delta);
 }
 
-export function hashRecoveryCode (code) {
+export function hashRecoveryCode(code) {
     return crypto
         .createHash('sha256')
         .update(code)
@@ -44,7 +44,7 @@ export function hashRecoveryCode (code) {
         .slice(0, 22);
 }
 
-function genOtpSecret () {
+function genOtpSecret() {
     const buffer = crypto.randomBytes(15);
     return encode(buffer).replace(/=/g, '').substring(0, 24);
 }

@@ -61,33 +61,87 @@ interface KnownErrorRule {
  * Produces a readable 3-word slug like "amber-delta-fox".
  */
 const WORD_POOL = [
-    'alpha', 'amber', 'arc', 'bolt', 'cape', 'cask', 'core', 'crow',
-    'dawn', 'delta', 'dune', 'echo', 'edge', 'elk', 'fern', 'flint',
-    'fog', 'fox', 'gate', 'glow', 'haze', 'helm', 'hive', 'jade',
-    'keel', 'knot', 'lark', 'lime', 'lynx', 'mast', 'mist', 'moss',
-    'node', 'nova', 'opal', 'orbit', 'palm', 'peak', 'pine', 'pike',
-    'quad', 'quay', 'rail', 'reef', 'rune', 'sage', 'shard', 'silo',
-    'slate', 'spark', 'surge', 'tarn', 'tide', 'vale', 'vane', 'wren',
-    'yard', 'yew', 'zeal', 'zero', 'zinc', 'zone',
+    'alpha',
+    'amber',
+    'arc',
+    'bolt',
+    'cape',
+    'cask',
+    'core',
+    'crow',
+    'dawn',
+    'delta',
+    'dune',
+    'echo',
+    'edge',
+    'elk',
+    'fern',
+    'flint',
+    'fog',
+    'fox',
+    'gate',
+    'glow',
+    'haze',
+    'helm',
+    'hive',
+    'jade',
+    'keel',
+    'knot',
+    'lark',
+    'lime',
+    'lynx',
+    'mast',
+    'mist',
+    'moss',
+    'node',
+    'nova',
+    'opal',
+    'orbit',
+    'palm',
+    'peak',
+    'pine',
+    'pike',
+    'quad',
+    'quay',
+    'rail',
+    'reef',
+    'rune',
+    'sage',
+    'shard',
+    'silo',
+    'slate',
+    'spark',
+    'surge',
+    'tarn',
+    'tide',
+    'vale',
+    'vane',
+    'wren',
+    'yard',
+    'yew',
+    'zeal',
+    'zero',
+    'zinc',
+    'zone',
 ];
 
-function shortId (id: string): string {
+function shortId(id: string): string {
     const hash = createHash('sha256').update(id).digest();
     const words: string[] = [];
-    for ( let i = 0; i < 3; i++ ) {
+    for (let i = 0; i < 3; i++) {
         words.push(WORD_POOL[hash[i] % WORD_POOL.length]);
     }
     return words.join('-');
 }
 
-function displayId (alarm: Alarm): string {
-    if ( alarm.id.length < 20 ) return alarm.id;
+function displayId(alarm: Alarm): string {
+    if (alarm.id.length < 20) return alarm.id;
     return `${alarm.shortId} (${alarm.id.slice(0, 20)}...)`;
 }
 
-function cleanFields (fields: AlarmFields): Record<string, string> {
+function cleanFields(fields: AlarmFields): Record<string, string> {
     const out: Record<string, string> = {};
-    for ( const [key, value] of Object.entries(fields) ) {
+    for (const [key, value] of Object.entries(fields)) {
         out[key] = inspect(value);
     }
     return out;
@@ -100,7 +154,6 @@ function cleanFields (fields: AlarmFields): Record<string, string> {
  * services (PagerDuty, or any registered handler).
  */
 export class AlarmClient extends PuterClient {
-
     private alarms = new Map<string, Alarm>();
     private aliases = new Map<string, Alarm>();
     private alertHandlers: AlertHandler[] = [];
@@ -108,19 +161,21 @@ export class AlarmClient extends PuterClient {
     private draining = false;
     private drainLogged = false;
 
-    constructor (config: IConfig) {
+    constructor(config: IConfig) {
         super(config);
     }
 
     // ── Lifecycle ────────────────────────────────────────────────────
 
-    override async onServerStart (): Promise<void> {
+    override async onServerStart(): Promise<void> {
         const pagerConf = this.config.pager;
-        if ( ! pagerConf?.pagerduty?.enabled ) return;
+        if (!pagerConf?.pagerduty?.enabled) return;
 
         const routingKey = pagerConf.pagerduty.routingKey;
-        if ( ! routingKey ) {
-            console.warn('[alarm] PagerDuty enabled but no routingKey configured');
+        if (!routingKey) {
+            console.warn(
+                '[alarm] PagerDuty enabled but no routingKey configured',
+            );
             return;
         }
 
@@ -148,8 +203,8 @@ export class AlarmClient extends PuterClient {
         console.log('[alarm] PagerDuty handler registered');
     }
 
-    override onServerPrepareShutdown (): void {
-        if ( this.draining ) return;
+    override onServerPrepareShutdown(): void {
+        if (this.draining) return;
         this.draining = true;
         console.log('[alarm] entering drain mode — suppressing new alarms');
     }
@@ -160,9 +215,9 @@ export class AlarmClient extends PuterClient {
      * Create or update an alarm. If the alarm ID already exists, the
      * occurrence count is incremented and a repeat alert is dispatched.
      */
-    create (id: string, message: string, fields: AlarmFields = {}): void {
-        if ( this.draining ) {
-            if ( ! this.drainLogged ) {
+    create(id: string, message: string, fields: AlarmFields = {}): void {
+        if (this.draining) {
+            if (!this.drainLogged) {
                 this.drainLogged = true;
                 console.log('[alarm] suppressing alarm while draining');
             }
@@ -171,7 +226,7 @@ export class AlarmClient extends PuterClient {
 
         const existing = this.alarms.get(id);
 
-        if ( existing ) {
+        if (existing) {
             this.recordOccurrence(existing, message, fields);
             this.handleRepeat(existing);
             return;
@@ -186,7 +241,7 @@ export class AlarmClient extends PuterClient {
             timestamps: [Date.now()],
             occurrences: [],
         };
-        if ( fields.error ) alarm.error = fields.error;
+        if (fields.error) alarm.error = fields.error;
 
         this.alarms.set(id, alarm);
         this.aliases.set(alarm.shortId, alarm);
@@ -195,9 +250,9 @@ export class AlarmClient extends PuterClient {
     }
 
     /** Clear an active alarm. */
-    clear (id: string): void {
+    clear(id: string): void {
         const alarm = this.alarms.get(id);
-        if ( ! alarm ) return;
+        if (!alarm) return;
 
         this.alarms.delete(id);
         this.aliases.delete(alarm.shortId);
@@ -205,7 +260,7 @@ export class AlarmClient extends PuterClient {
     }
 
     /** Look up an alarm by its full ID or short ID. */
-    get (id: string): Alarm | undefined {
+    get(id: string): Alarm | undefined {
         return this.alarms.get(id) ?? this.aliases.get(id);
     }
 
@@ -213,24 +268,28 @@ export class AlarmClient extends PuterClient {
      * Register an additional alert handler. Handlers are called for
      * every alarm that isn't suppressed by a known-error rule.
      */
-    addAlertHandler (handler: AlertHandler): void {
+    addAlertHandler(handler: AlertHandler): void {
         this.alertHandlers.push(handler);
     }
 
     /**
      * Add rules that can suppress or adjust severity of known errors.
      */
-    setKnownErrors (rules: KnownErrorRule[]): void {
+    setKnownErrors(rules: KnownErrorRule[]): void {
         this.knownErrors = rules;
     }
 
     // ── Internals ────────────────────────────────────────────────────
 
-    private recordOccurrence (alarm: Alarm, message: string, fields: AlarmFields): void {
+    private recordOccurrence(
+        alarm: Alarm,
+        message: string,
+        fields: AlarmFields,
+    ): void {
         alarm.message = message;
         alarm.fields = { ...alarm.fields, ...fields };
         alarm.timestamps.push(Date.now());
-        if ( fields.error ) alarm.error = fields.error;
+        if (fields.error) alarm.error = fields.error;
 
         alarm.occurrences.push({
             message,
@@ -239,11 +298,11 @@ export class AlarmClient extends PuterClient {
         });
     }
 
-    private applyKnownErrors (alarm: Alarm): void {
-        for ( const rule of this.knownErrors ) {
-            if ( ! this.ruleMatches(rule, alarm) ) continue;
+    private applyKnownErrors(alarm: Alarm): void {
+        for (const rule of this.knownErrors) {
+            if (!this.ruleMatches(rule, alarm)) continue;
 
-            switch ( rule.action.type ) {
+            switch (rule.action.type) {
                 case 'no-alert':
                     alarm.noAlert = true;
                     break;
@@ -254,47 +313,45 @@ export class AlarmClient extends PuterClient {
         }
     }
 
-    private ruleMatches (rule: KnownErrorRule, alarm: Alarm): boolean {
+    private ruleMatches(rule: KnownErrorRule, alarm: Alarm): boolean {
         const { match } = rule;
-        if ( match.id !== alarm.id ) return false;
-        if ( match.message && match.message !== alarm.message ) return false;
-        if ( match.fields ) {
-            for ( const [key, value] of Object.entries(match.fields) ) {
-                if ( alarm.fields[key] !== value ) return false;
+        if (match.id !== alarm.id) return false;
+        if (match.message && match.message !== alarm.message) return false;
+        if (match.fields) {
+            for (const [key, value] of Object.entries(match.fields)) {
+                if (alarm.fields[key] !== value) return false;
             }
         }
         return true;
     }
 
-    private handleNew (alarm: Alarm): void {
+    private handleNew(alarm: Alarm): void {
         this.applyKnownErrors(alarm);
 
-        console.error(
-            `[alarm] ACTIVE ${displayId(alarm)} :: ${alarm.message}`,
-        );
+        console.error(`[alarm] ACTIVE ${displayId(alarm)} :: ${alarm.message}`);
 
-        if ( alarm.error ) {
+        if (alarm.error) {
             console.error(alarm.error);
         }
 
-        if ( alarm.noAlert ) return;
+        if (alarm.noAlert) return;
 
         this.dispatchAlert(alarm);
     }
 
-    private handleRepeat (alarm: Alarm): void {
+    private handleRepeat(alarm: Alarm): void {
         this.applyKnownErrors(alarm);
 
         console.warn(
             `[alarm] REPEAT ${displayId(alarm)} :: ${alarm.message} (${alarm.timestamps.length})`,
         );
 
-        if ( alarm.noAlert ) return;
+        if (alarm.noAlert) return;
 
         this.dispatchAlert(alarm);
     }
 
-    private dispatchAlert (alarm: Alarm): void {
+    private dispatchAlert(alarm: Alarm): void {
         const severity = alarm.severity ?? 'critical';
         const fieldsClean = cleanFields(alarm.fields);
 
@@ -310,8 +367,8 @@ export class AlarmClient extends PuterClient {
             },
         };
 
-        for ( const handler of this.alertHandlers ) {
-            handler(payload).catch(err => {
+        for (const handler of this.alertHandlers) {
+            handler(payload).catch((err) => {
                 console.error(`[alarm] alert handler failed: ${err?.message}`);
             });
         }

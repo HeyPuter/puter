@@ -1,33 +1,33 @@
 /**
-     * Process input messages from Puter's normalized format to OpenAI's format
-     * May make changes in-place.
-     *
-     * @param {Array<Message>} messages - array of normalized messages
-     * @returns {Array<Message>} - array of messages in OpenAI format
-     */
+ * Process input messages from Puter's normalized format to OpenAI's format
+ * May make changes in-place.
+ *
+ * @param {Array<Message>} messages - array of normalized messages
+ * @returns {Array<Message>} - array of messages in OpenAI format
+ */
 export const process_input_messages = async (messages) => {
-    for ( const msg of messages ) {
-        if ( ! msg.content ) continue;
-        if ( typeof msg.content !== 'object' ) continue;
+    for (const msg of messages) {
+        if (!msg.content) continue;
+        if (typeof msg.content !== 'object') continue;
 
         const content = msg.content;
 
-        for ( const o of content ) {
-            if ( o['image_url'] && !o.type ) {
+        for (const o of content) {
+            if (o['image_url'] && !o.type) {
                 o.type = 'image_url';
             }
-            if ( o['video_url'] && !o.type ) {
+            if (o['video_url'] && !o.type) {
                 o.type = 'video_url';
             }
         }
 
         // coerce tool calls
         let is_tool_call = false;
-        for ( let i = content.length - 1 ; i >= 0 ; i-- ) {
+        for (let i = content.length - 1; i >= 0; i--) {
             const content_block = content[i];
 
-            if ( content_block.type === 'tool_use' ) {
-                if ( ! msg.tool_calls ) {
+            if (content_block.type === 'tool_use') {
+                if (!msg.tool_calls) {
                     msg.tool_calls = [];
                     is_tool_call = true;
                 }
@@ -38,19 +38,21 @@ export const process_input_messages = async (messages) => {
                         name: content_block.name,
                         arguments: JSON.stringify(content_block.input),
                     },
-                    ...(content_block.extra_content ? { extra_content: content_block.extra_content } : {}),
+                    ...(content_block.extra_content
+                        ? { extra_content: content_block.extra_content }
+                        : {}),
                 });
                 content.splice(i, 1);
             }
         }
 
-        if ( is_tool_call ) msg.content = null;
+        if (is_tool_call) msg.content = null;
 
         // coerce tool results
         // (we assume multiple tool results were already split into separate messages)
-        for ( let i = content.length - 1 ; i >= 0 ; i-- ) {
+        for (let i = content.length - 1; i >= 0; i--) {
             const content_block = content[i];
-            if ( content_block.type !== 'tool_result' ) continue;
+            if (content_block.type !== 'tool_result') continue;
             msg.role = 'tool';
             msg.tool_call_id = content_block.tool_use_id;
             msg.content = content_block.content;
@@ -61,24 +63,30 @@ export const process_input_messages = async (messages) => {
 };
 
 export const process_input_messages_responses_api = async (messages) => {
-    for ( const msg of messages ) {
+    for (const msg of messages) {
         const content_as_string = (content) => {
-            if ( content === undefined || content === null ) return '';
-            if ( typeof content === 'string' ) return content;
-            if ( Array.isArray(content) ) {
-                return content.map((part) => {
-                    if ( typeof part === 'string' ) return part;
-                    if ( part && typeof part.text === 'string' ) return part.text;
-                    if ( part && typeof part.content === 'string' ) return part.content;
-                    return '';
-                }).join('');
+            if (content === undefined || content === null) return '';
+            if (typeof content === 'string') return content;
+            if (Array.isArray(content)) {
+                return content
+                    .map((part) => {
+                        if (typeof part === 'string') return part;
+                        if (part && typeof part.text === 'string')
+                            return part.text;
+                        if (part && typeof part.content === 'string')
+                            return part.content;
+                        return '';
+                    })
+                    .join('');
             }
-            if ( content && typeof content.text === 'string' ) return content.text;
-            if ( content && typeof content.content === 'string' ) return content.content;
+            if (content && typeof content.text === 'string')
+                return content.text;
+            if (content && typeof content.content === 'string')
+                return content.content;
             return '';
         };
 
-        if ( msg.role === 'tool' ) {
+        if (msg.role === 'tool') {
             msg.type = 'function_call_output';
             msg.call_id = msg.tool_call_id || msg.tool_use_id;
             msg.output = content_as_string(msg.content);
@@ -90,33 +98,36 @@ export const process_input_messages_responses_api = async (messages) => {
             continue;
         }
 
-        if ( ! msg.content ) continue;
-        if ( typeof msg.content !== 'object' ) continue;
+        if (!msg.content) continue;
+        if (typeof msg.content !== 'object') continue;
 
         const content = msg.content;
 
-        for ( const o of content ) {
-            if ( o['image_url'] && !o.type ) {
+        for (const o of content) {
+            if (o['image_url'] && !o.type) {
                 o.type = 'image_url';
             }
-            if ( o['video_url'] && !o.type ) {
+            if (o['video_url'] && !o.type) {
                 o.type = 'video_url';
             }
         }
 
         // coerce tool calls
         let is_tool_call = false;
-        for ( let i = content.length - 1; i >= 0; i-- ) {
+        for (let i = content.length - 1; i >= 0; i--) {
             const content_block = content[i];
-            if ( content_block.type === 'text' && (msg.role === 'user' || msg.role === 'system') ) {
+            if (
+                content_block.type === 'text' &&
+                (msg.role === 'user' || msg.role === 'system')
+            ) {
                 content_block.type = 'input_text';
             }
-            if ( content_block.type === 'text' && (msg.role === 'assistant') ) {
+            if (content_block.type === 'text' && msg.role === 'assistant') {
                 content_block.type = 'output_text';
             }
 
-            if ( content_block.type === 'tool_use' ) {
-                if ( ! msg.tool_calls ) {
+            if (content_block.type === 'tool_use') {
+                if (!msg.tool_calls) {
                     msg.tool_calls = [];
                     is_tool_call = true;
                 }
@@ -128,7 +139,9 @@ export const process_input_messages_responses_api = async (messages) => {
                         name: content_block.name,
                         arguments: JSON.stringify(content_block.input),
                     },
-                    ...(content_block.extra_content ? { extra_content: content_block.extra_content } : {}),
+                    ...(content_block.extra_content
+                        ? { extra_content: content_block.extra_content }
+                        : {}),
                 });
 
                 content.splice(i, 1);
@@ -139,7 +152,7 @@ export const process_input_messages_responses_api = async (messages) => {
         // We only allow sequential toolcalling right now so this shouldn't be an issue right now
         // but this probably needs to be changed in the future to split "one completions message"
         // into multiple responses inputs.
-        if ( is_tool_call ) {
+        if (is_tool_call) {
             msg.call_id = msg.tool_calls[0].id;
             msg.id = msg.tool_calls[0].canonical_id;
             msg.name = msg.tool_calls[0].function.name;
@@ -152,9 +165,9 @@ export const process_input_messages_responses_api = async (messages) => {
         }
 
         // coerce tool results
-        for ( let i = content.length - 1; i >= 0; i-- ) {
+        for (let i = content.length - 1; i >= 0; i--) {
             const content_block = content[i];
-            if ( content_block.type !== 'tool_result' ) continue;
+            if (content_block.type !== 'tool_result') continue;
             msg.type = 'function_call_output';
             msg.call_id = content_block.tool_use_id;
             msg.output = content_block.content;
@@ -197,145 +210,158 @@ export const extractMeteredUsage = (usage) => {
     };
 };
 
-export const create_chat_stream_handler = ({
-    deviations,
-    completion,
-    usage_calculator,
-}) => async ({ chatStream }) => {
-    deviations = Object.assign({
-        // affected by: Groq
-        index_usage_from_stream_chunk: chunk => chunk.usage,
-        // affected by: Mistral
-        chunk_but_like_actually: chunk => chunk,
-        index_tool_calls_from_stream_choice: choice => choice.delta.tool_calls,
-    }, deviations);
+export const create_chat_stream_handler =
+    ({ deviations, completion, usage_calculator }) =>
+    async ({ chatStream }) => {
+        deviations = Object.assign(
+            {
+                // affected by: Groq
+                index_usage_from_stream_chunk: (chunk) => chunk.usage,
+                // affected by: Mistral
+                chunk_but_like_actually: (chunk) => chunk,
+                index_tool_calls_from_stream_choice: (choice) =>
+                    choice.delta.tool_calls,
+            },
+            deviations,
+        );
 
-    const message = chatStream.message();
-    let textblock = message.contentBlock({ type: 'text' });
-    let toolblock = null;
-    let mode = 'text';
-    const tool_call_blocks = [];
+        const message = chatStream.message();
+        let textblock = message.contentBlock({ type: 'text' });
+        let toolblock = null;
+        let mode = 'text';
+        const tool_call_blocks = [];
 
-    let last_usage = null;
-    for await ( let chunk of completion ) {
-        chunk = deviations.chunk_but_like_actually(chunk);
-        const chunk_usage = deviations.index_usage_from_stream_chunk(chunk);
-        if ( chunk_usage ) last_usage = chunk_usage;
-        if ( chunk.choices.length < 1 ) continue;
+        let last_usage = null;
+        for await (let chunk of completion) {
+            chunk = deviations.chunk_but_like_actually(chunk);
+            const chunk_usage = deviations.index_usage_from_stream_chunk(chunk);
+            if (chunk_usage) last_usage = chunk_usage;
+            if (chunk.choices.length < 1) continue;
 
-        const choice = chunk.choices[0];
+            const choice = chunk.choices[0];
 
-        // Deepseek returns choice.delta.reasoning_content, openrouter returns choice.delta.reasoning.
-        if ( choice.delta.reasoning_content || choice.delta.reasoning ) {
-            textblock.addReasoning(choice.delta.reasoning_content || choice.delta.reasoning);
-            // Q: Why don't "continue" to next chunk here?
-            // A: For now, reasoning_content and content never appear together, but I’m not sure if they’ll always be mutually exclusive.
-        }
-
-        if ( choice.delta.content ) {
-            if ( mode === 'tool' ) {
-                toolblock.end();
-                mode = 'text';
-                textblock = message.contentBlock({ type: 'text' });
+            // Deepseek returns choice.delta.reasoning_content, openrouter returns choice.delta.reasoning.
+            if (choice.delta.reasoning_content || choice.delta.reasoning) {
+                textblock.addReasoning(
+                    choice.delta.reasoning_content || choice.delta.reasoning,
+                );
+                // Q: Why don't "continue" to next chunk here?
+                // A: For now, reasoning_content and content never appear together, but I’m not sure if they’ll always be mutually exclusive.
             }
-            textblock.addText(choice.delta.content);
-            continue;
-        }
 
-        if ( choice.delta.extra_content ) {
-            // Gemini specific thing for metadata, we will basically be appending onto the current message by abusing .addText a little
-            // Apps have to choose to handle extra_content themselves, it doesn't seem like theres a way we can do it in a backwards
-            // compatible fashion since most streaming apps will handle chat history by continuously updating content themselves
-            // This doesn't present us a chance to add in an extra object for gemini's chat continuing features
-            textblock.addExtraContent(choice.delta.extra_content);
-        }
-
-        const tool_calls = deviations.index_tool_calls_from_stream_choice(choice);
-        if ( tool_calls ) {
-            if ( mode === 'text' ) {
-                mode = 'tool';
-                textblock.end();
-            }
-            for ( const tool_call of tool_calls ) {
-                if ( ! tool_call_blocks[tool_call.index] ) {
-                    toolblock = message.contentBlock({
-                        type: 'tool_use',
-                        id: tool_call.id,
-                        name: tool_call.function.name,
-                        ...(tool_call.extra_content ? { extra_content: tool_call.extra_content } : {}),
-                    });
-                    tool_call_blocks[tool_call.index] = toolblock;
-                } else {
-                    toolblock = tool_call_blocks[tool_call.index];
+            if (choice.delta.content) {
+                if (mode === 'tool') {
+                    toolblock.end();
+                    mode = 'text';
+                    textblock = message.contentBlock({ type: 'text' });
                 }
-                toolblock.addPartialJSON(tool_call.function.arguments);
+                textblock.addText(choice.delta.content);
+                continue;
+            }
+
+            if (choice.delta.extra_content) {
+                // Gemini specific thing for metadata, we will basically be appending onto the current message by abusing .addText a little
+                // Apps have to choose to handle extra_content themselves, it doesn't seem like theres a way we can do it in a backwards
+                // compatible fashion since most streaming apps will handle chat history by continuously updating content themselves
+                // This doesn't present us a chance to add in an extra object for gemini's chat continuing features
+                textblock.addExtraContent(choice.delta.extra_content);
+            }
+
+            const tool_calls =
+                deviations.index_tool_calls_from_stream_choice(choice);
+            if (tool_calls) {
+                if (mode === 'text') {
+                    mode = 'tool';
+                    textblock.end();
+                }
+                for (const tool_call of tool_calls) {
+                    if (!tool_call_blocks[tool_call.index]) {
+                        toolblock = message.contentBlock({
+                            type: 'tool_use',
+                            id: tool_call.id,
+                            name: tool_call.function.name,
+                            ...(tool_call.extra_content
+                                ? { extra_content: tool_call.extra_content }
+                                : {}),
+                        });
+                        tool_call_blocks[tool_call.index] = toolblock;
+                    } else {
+                        toolblock = tool_call_blocks[tool_call.index];
+                    }
+                    toolblock.addPartialJSON(tool_call.function.arguments);
+                }
             }
         }
-    }
 
-    // TODO DS: this is a bit too abstracted... this is basically just doing the metering now
-    const usage = usage_calculator({ usage: last_usage });
+        // TODO DS: this is a bit too abstracted... this is basically just doing the metering now
+        const usage = usage_calculator({ usage: last_usage });
 
-    if ( mode === 'text' ) textblock.end();
-    if ( mode === 'tool' ) toolblock.end();
+        if (mode === 'text') textblock.end();
+        if (mode === 'tool') toolblock.end();
 
-    message.end();
-    chatStream.end(usage);
-};
+        message.end();
+        chatStream.end(usage);
+    };
 
-export const create_chat_stream_handler_responses_api = ({
-    deviations,
-    completion,
-    usage_calculator,
-}) => async ({ chatStream }) => {
-    deviations = Object.assign({
-        // affected by: Groq
-        index_usage_from_stream_chunk: chunk => chunk.usage,
-        // affected by: Mistral
-        chunk_but_like_actually: chunk => chunk,
-        index_tool_calls_from_stream_choice: choice => choice.delta.tool_calls,
-    }, deviations);
+export const create_chat_stream_handler_responses_api =
+    ({ deviations, completion, usage_calculator }) =>
+    async ({ chatStream }) => {
+        deviations = Object.assign(
+            {
+                // affected by: Groq
+                index_usage_from_stream_chunk: (chunk) => chunk.usage,
+                // affected by: Mistral
+                chunk_but_like_actually: (chunk) => chunk,
+                index_tool_calls_from_stream_choice: (choice) =>
+                    choice.delta.tool_calls,
+            },
+            deviations,
+        );
 
-    const message = chatStream.message();
-    let textblock = message.contentBlock({ type: 'text' });
-    let toolblock = null;
-    let mode = 'text';
+        const message = chatStream.message();
+        const textblock = message.contentBlock({ type: 'text' });
+        let toolblock = null;
+        const mode = 'text';
 
-    let last_usage = null;
-    for await ( let chunk of completion ) {
+        let last_usage = null;
+        for await (const chunk of completion) {
+            if (chunk.type === 'response.output_text.delta') {
+                textblock.addText(chunk.delta);
+                continue;
+            }
 
-        if ( chunk.type === 'response.output_text.delta' ) {
-            textblock.addText(chunk.delta);
-            continue;
+            if (chunk.type === 'response.completed') {
+                last_usage = chunk.response.usage;
+            }
+
+            if (
+                chunk.type === 'response.output_item.done' &&
+                chunk.item?.type === 'function_call'
+            ) {
+                const tool_call = chunk.item;
+                toolblock = message.contentBlock({
+                    type: 'tool_use',
+                    canonical_id: tool_call.id,
+                    id: tool_call.call_id,
+                    name: tool_call.name,
+                    ...(tool_call.extra_content
+                        ? { extra_content: tool_call.extra_content }
+                        : {}),
+                });
+                toolblock.addPartialJSON(tool_call.arguments);
+                toolblock.end();
+            }
         }
 
-        if ( chunk.type === 'response.completed' ) {
-            last_usage = chunk.response.usage;
-        }
+        // TODO DS: this is a bit too abstracted... this is basically just doing the metering now
+        const usage = usage_calculator({ usage: last_usage });
 
-        if ( chunk.type === 'response.output_item.done' && chunk.item?.type === 'function_call' ) {
-            const tool_call = chunk.item;
-            toolblock = message.contentBlock({
-                type: 'tool_use',
-                canonical_id: tool_call.id,
-                id: tool_call.call_id,
-                name: tool_call.name,
-                ...(tool_call.extra_content ? { extra_content: tool_call.extra_content } : {}),
-            });
-            toolblock.addPartialJSON(tool_call.arguments);
-            toolblock.end();
-        }
-    }
+        if (mode === 'text') textblock.end();
+        if (mode === 'tool') toolblock.end();
 
-    // TODO DS: this is a bit too abstracted... this is basically just doing the metering now
-    const usage = usage_calculator({ usage: last_usage });
-
-    if ( mode === 'text' ) textblock.end();
-    if ( mode === 'tool' ) toolblock.end();
-
-    message.end();
-    chatStream.end(usage);
-};
+        message.end();
+        chatStream.end(usage);
+    };
 
 /**
  *
@@ -351,18 +377,20 @@ export const handle_completion_output = async ({
     usage_calculator,
     finally_fn,
 }) => {
-    deviations = Object.assign({
-        // affected by: Mistral
-        coerce_completion_usage: completion => completion.usage,
-    }, deviations);
+    deviations = Object.assign(
+        {
+            // affected by: Mistral
+            coerce_completion_usage: (completion) => completion.usage,
+        },
+        deviations,
+    );
 
-    if ( stream ) {
-        const init_chat_stream =
-            create_chat_stream_handler({
-                deviations,
-                completion,
-                usage_calculator,
-            });
+    if (stream) {
+        const init_chat_stream = create_chat_stream_handler({
+            deviations,
+            completion,
+            usage_calculator,
+        });
 
         return {
             stream: true,
@@ -371,26 +399,28 @@ export const handle_completion_output = async ({
         };
     }
 
-    if ( finally_fn ) await finally_fn();
+    if (finally_fn) await finally_fn();
 
     // We need to moderate the completion too
     const mod_text = completion.choices[0].message.content;
-    if ( moderate && mod_text !== null ) {
+    if (moderate && mod_text !== null) {
         const moderation_result = await moderate(mod_text);
-        if ( moderation_result.flagged ) {
+        if (moderation_result.flagged) {
             throw new Error('message is not allowed');
         }
     }
 
     const ret = completion.choices[0];
     const completion_usage = deviations.coerce_completion_usage(completion);
-    ret.usage = usage_calculator ? usage_calculator({
-        ...completion,
-        usage: completion_usage,
-    }) : {
-        input_tokens: completion_usage.prompt_tokens,
-        output_tokens: completion_usage.completion_tokens,
-    };
+    ret.usage = usage_calculator
+        ? usage_calculator({
+              ...completion,
+              usage: completion_usage,
+          })
+        : {
+              input_tokens: completion_usage.prompt_tokens,
+              output_tokens: completion_usage.completion_tokens,
+          };
     return ret;
 };
 
@@ -408,18 +438,20 @@ export const handle_completion_output_responses_api = async ({
     usage_calculator,
     finally_fn,
 }) => {
-    deviations = Object.assign({
-        // affected by: Mistral
-        coerce_completion_usage: completion => completion.usage,
-    }, deviations);
+    deviations = Object.assign(
+        {
+            // affected by: Mistral
+            coerce_completion_usage: (completion) => completion.usage,
+        },
+        deviations,
+    );
 
-    if ( stream ) {
-        const init_chat_stream =
-            create_chat_stream_handler_responses_api({
-                deviations,
-                completion,
-                usage_calculator,
-            });
+    if (stream) {
+        const init_chat_stream = create_chat_stream_handler_responses_api({
+            deviations,
+            completion,
+            usage_calculator,
+        });
 
         return {
             stream: true,
@@ -428,12 +460,12 @@ export const handle_completion_output_responses_api = async ({
         };
     }
 
-    if ( finally_fn ) await finally_fn();
+    if (finally_fn) await finally_fn();
 
     const output = Array.isArray(completion.output) ? completion.output : [];
     const responseToolCalls = output
-        .filter(item => item?.type === 'function_call')
-        .map(item => ({
+        .filter((item) => item?.type === 'function_call')
+        .map((item) => ({
             id: item.call_id,
             type: 'function',
             function: {
@@ -444,7 +476,7 @@ export const handle_completion_output_responses_api = async ({
         }));
 
     const is_empty = completion.output_text.trim() === '';
-    if ( is_empty && responseToolCalls.length < 1 ) {
+    if (is_empty && responseToolCalls.length < 1) {
         // GPT refuses to generate an empty response if you ask it to,
         // so this will probably only happen on an error condition.
         throw new Error('an empty response was generated');
@@ -452,9 +484,9 @@ export const handle_completion_output_responses_api = async ({
 
     // We need to moderate the completion too
     const mod_text = completion.output_text;
-    if ( moderate && mod_text !== null ) {
+    if (moderate && mod_text !== null) {
         const moderation_result = await moderate(mod_text);
-        if ( moderation_result.flagged ) {
+        if (moderation_result.flagged) {
             throw new Error('message is not allowed');
         }
     }
@@ -467,20 +499,23 @@ export const handle_completion_output_responses_api = async ({
             reasoning: null, // Fix later to add proper reasoning
             refusal: null,
             role: 'assistant',
-            ...(responseToolCalls.length ? { tool_calls: responseToolCalls } : {}),
+            ...(responseToolCalls.length
+                ? { tool_calls: responseToolCalls }
+                : {}),
         },
     };
-    ret.role = output.find(item => item?.role)?.role ?? 'assistant';
+    ret.role = output.find((item) => item?.role)?.role ?? 'assistant';
 
     delete ret.type;
 
-    ret.usage = usage_calculator ? usage_calculator({
-        ...completion,
-        usage: completion.usage,
-    }) : {
-        input_tokens: completion.usage.input_tokens,
-        output_tokens: completion.usage.output_tokens,
-    };
+    ret.usage = usage_calculator
+        ? usage_calculator({
+              ...completion,
+              usage: completion.usage,
+          })
+        : {
+              input_tokens: completion.usage.input_tokens,
+              output_tokens: completion.usage.output_tokens,
+          };
     return ret;
-
 };

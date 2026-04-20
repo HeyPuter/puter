@@ -37,33 +37,42 @@ interface Deps {
     userStore: UserStore;
 }
 
-export async function applyReferralRewards (
+export async function applyReferralRewards(
     deps: Deps,
     newUser: UserRow,
 ): Promise<void> {
     const referredBy = newUser.referred_by as number | undefined;
-    if ( ! referredBy ) return;
+    if (!referredBy) return;
 
     const referrer = await deps.userStore.getById(Number(referredBy));
-    if ( ! referrer ) return;
+    if (!referrer) return;
 
     // Monthly cap — keyed by YYYY-MM so it naturally rolls at month boundary.
     // No Redis = no cap enforcement; better than failing the verification.
-    if ( deps.redis ) {
+    if (deps.redis) {
         try {
             const month = new Date().toISOString().slice(0, 7);
             const key = `referral:monthly:user:${referrer.id}:month:${month}`;
             const count = await deps.redis.incr(key);
-            if ( count === 1 ) {
+            if (count === 1) {
                 // First increment this month — set expiry to end of month.
                 const now = new Date();
-                const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1).getTime();
-                const ttlSeconds = Math.ceil((endOfMonth - now.getTime()) / 1000);
+                const endOfMonth = new Date(
+                    now.getFullYear(),
+                    now.getMonth() + 1,
+                    1,
+                ).getTime();
+                const ttlSeconds = Math.ceil(
+                    (endOfMonth - now.getTime()) / 1000,
+                );
                 await deps.redis.expire(key, ttlSeconds);
             }
-            if ( count > MONTHLY_REFERRAL_CAP ) return;
-        } catch ( e ) {
-            console.warn('[referral] cap check failed, proceeding:', (e as Error).message);
+            if (count > MONTHLY_REFERRAL_CAP) return;
+        } catch (e) {
+            console.warn(
+                '[referral] cap check failed, proceeding:',
+                (e as Error).message,
+            );
         }
     }
 
@@ -76,35 +85,41 @@ export async function applyReferralRewards (
         );
         await deps.userStore.invalidateById(referrer.id);
         await deps.userStore.invalidateById(newUser.id);
-    } catch ( e ) {
+    } catch (e) {
         console.warn('[referral] storage grant failed:', (e as Error).message);
     }
 
-    if ( deps.metering ) {
+    if (deps.metering) {
         const micro = toMicroCents(CREDIT_BONUS_USD);
         try {
             await deps.metering.updateAddonCredit(referrer.uuid, micro);
-        } catch ( e ) {
-            console.warn('[referral] referrer credit failed:', (e as Error).message);
+        } catch (e) {
+            console.warn(
+                '[referral] referrer credit failed:',
+                (e as Error).message,
+            );
         }
         try {
             await deps.metering.updateAddonCredit(newUser.uuid, micro);
-        } catch ( e ) {
-            console.warn('[referral] new-user credit failed:', (e as Error).message);
+        } catch (e) {
+            console.warn(
+                '[referral] new-user credit failed:',
+                (e as Error).message,
+            );
         }
     }
 
-    if ( deps.email && referrer.email ) {
+    if (deps.email && referrer.email) {
         try {
             await deps.email.send('new-referral', referrer.email, {
                 storage_increase: '1 GB',
             });
-        } catch ( e ) {
+        } catch (e) {
             console.warn('[referral] email send failed:', (e as Error).message);
         }
     }
 
-    if ( deps.notification ) {
+    if (deps.notification) {
         try {
             await deps.notification.notify([referrer.id], {
                 source: 'referral',
@@ -116,8 +131,11 @@ export async function applyReferralRewards (
                     referred_username: newUser.username,
                 },
             });
-        } catch ( e ) {
-            console.warn('[referral] notification failed:', (e as Error).message);
+        } catch (e) {
+            console.warn(
+                '[referral] notification failed:',
+                (e as Error).message,
+            );
         }
     }
 }

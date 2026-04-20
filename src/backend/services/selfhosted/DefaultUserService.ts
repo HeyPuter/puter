@@ -23,34 +23,38 @@ const ADMIN_STORAGE_BYTES = 10 * 1024 * 1024 * 1024;
  * line to extract the default password).
  */
 export class DefaultUserService extends PuterService {
-
-    override async onServerStart (): Promise<void> {
+    override async onServerStart(): Promise<void> {
         let user = await this.stores.user.getByUsername(USERNAME);
         let tmpPassword: string;
 
-        if ( ! user ) {
+        if (!user) {
             tmpPassword = crypto.randomBytes(4).toString('hex');
             user = await this.#createAdminUser(tmpPassword);
             // AppIconService is registered before us, so its own onServerStart
             // bailed on its first-boot bootstrap (admin didn't exist yet).
             // Poke it here so the `/system/app_icons/` dir + subdomain exist
             // by the time the first icon arrives.
-            await (this.services.appIcon as AppIconService).ensureIconsDirectory();
+            await (
+                this.services.appIcon as AppIconService
+            ).ensureIconsDirectory();
         } else {
             const metadata = (user.metadata ?? {}) as Record<string, unknown>;
             const stashed = metadata.tmp_password;
-            if ( typeof stashed !== 'string' || stashed === '' ) return;
+            if (typeof stashed !== 'string' || stashed === '') return;
             tmpPassword = stashed;
         }
 
-        if ( ! user.password ) return;
-        const isDefault = await bcrypt.compare(tmpPassword, String(user.password));
-        if ( ! isDefault ) return;
+        if (!user.password) return;
+        const isDefault = await bcrypt.compare(
+            tmpPassword,
+            String(user.password),
+        );
+        if (!isDefault) return;
 
         this.#printCredentials(tmpPassword);
     }
 
-    async #createAdminUser (tmpPassword: string): Promise<UserRow> {
+    async #createAdminUser(tmpPassword: string): Promise<UserRow> {
         const passwordHash = await bcrypt.hash(tmpPassword, 8);
 
         const created = await this.stores.user.create({
@@ -62,30 +66,46 @@ export class DefaultUserService extends PuterService {
             requires_email_confirmation: false,
         });
 
-        await this.stores.user.updateMetadata(created.id, { tmp_password: tmpPassword });
+        await this.stores.user.updateMetadata(created.id, {
+            tmp_password: tmpPassword,
+        });
 
         try {
             await this.stores.group.addUsers(ADMIN_GROUP_UID, [USERNAME]);
-        } catch ( e ) {
-            console.warn('[default-user] failed to add admin to admin group', e);
+        } catch (e) {
+            console.warn(
+                '[default-user] failed to add admin to admin group',
+                e,
+            );
         }
 
         try {
-            await generateDefaultFsentries(this.clients.db, this.stores.user, created);
-        } catch ( e ) {
-            console.warn('[default-user] failed to provision admin home directory', e);
+            await generateDefaultFsentries(
+                this.clients.db,
+                this.stores.user,
+                created,
+            );
+        } catch (e) {
+            console.warn(
+                '[default-user] failed to provision admin home directory',
+                e,
+            );
         }
 
         return (await this.stores.user.getById(created.id)) ?? created;
     }
 
-    #printCredentials (tmpPassword: string): void {
+    #printCredentials(tmpPassword: string): void {
         console.log(`password for admin is: ${tmpPassword}`);
-        console.log('\n************************************************************');
+        console.log(
+            '\n************************************************************',
+        );
         console.log('* Your default login credentials are:');
         console.log('* Username: admin');
         console.log(`* Password: ${tmpPassword}`);
         console.log('* (change the password to remove this message)');
-        console.log('************************************************************\n');
+        console.log(
+            '************************************************************\n',
+        );
     }
 }

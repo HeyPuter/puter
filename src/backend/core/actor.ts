@@ -67,7 +67,9 @@ export const isAppActor = (actor: Actor | undefined | null): boolean => {
     return !!actor?.app && !actor?.accessToken;
 };
 
-export const isAccessTokenActor = (actor: Actor | undefined | null): boolean => {
+export const isAccessTokenActor = (
+    actor: Actor | undefined | null,
+): boolean => {
     return !!actor?.accessToken;
 };
 
@@ -76,12 +78,14 @@ export const isAccessTokenActor = (actor: Actor | undefined | null): boolean => 
  * Used as a cache key (e.g., permission scan cache) and for cycle detection.
  */
 export const actorUid = (actor: Actor): string => {
-    if ( actor.accessToken ) {
-        const authorizedUid = actor.accessToken.authorized ? actorUid(actor.accessToken.authorized) : '<none>';
+    if (actor.accessToken) {
+        const authorizedUid = actor.accessToken.authorized
+            ? actorUid(actor.accessToken.authorized)
+            : '<none>';
         return `access-token:${actorUid(actor.accessToken.issuer)}:${authorizedUid}:${actor.accessToken.uid}`;
     }
-    if ( isSystemActor(actor) ) return 'system';
-    if ( actor.app ) return `app-under-user:${actor.user.uuid}:${actor.app.uid}`;
+    if (isSystemActor(actor)) return 'system';
+    if (actor.app) return `app-under-user:${actor.user.uuid}:${actor.app.uid}`;
     return `user:${actor.user.uuid}`;
 };
 
@@ -90,6 +94,6 @@ export const actorUid = (actor: Actor): string => {
  * returns the actor unchanged.
  */
 export const userRelatedActor = (actor: Actor): Actor => {
-    if ( ! actor.app && ! actor.accessToken ) return actor;
+    if (!actor.app && !actor.accessToken) return actor;
     return { user: actor.user };
 };

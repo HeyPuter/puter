@@ -15,22 +15,25 @@ export type IPuterService<T extends WithLifecycle = WithLifecycle> = new (
 ) => T;
 
 export const PuterService = class PuterService implements WithLifecycle {
-    constructor (
+    constructor(
         protected config: IConfig,
         protected clients: LayerInstances<typeof puterClients>,
         protected stores: LayerInstances<typeof puterStores>,
         protected services: Partial<Record<string, WithLifecycle>> = {},
-    ) {
-    }
-    public onServerStart () {
+    ) {}
+    public onServerStart() {
         return;
     }
-    public onServerPrepareShutdown () {
+    public onServerPrepareShutdown() {
         return;
     }
-    public onServerShutdown () {
+    public onServerShutdown() {
         return;
     }
 } satisfies IPuterService<WithLifecycle>;
 
-export type IPuterServiceRegistry = Record<string, IPuterService<WithLifecycle> | (InstanceType<IPuterService<WithLifecycle>> & Record<string, unknown>)>;
+export type IPuterServiceRegistry = Record<
+    string,
+    | IPuterService<WithLifecycle>
+    | (InstanceType<IPuterService<WithLifecycle>> & Record<string, unknown>)
+>;

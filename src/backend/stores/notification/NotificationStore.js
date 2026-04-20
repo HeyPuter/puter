@@ -11,13 +11,13 @@ import { PuterStore } from '../types';
  */
 
 export class NotificationStore extends PuterStore {
-
     // ── Reads ────────────────────────────────────────────────────────
 
-    async getByUid (uid, { userId } = {}) {
-        const where = userId !== undefined
-            ? 'WHERE `uid` = ? AND `user_id` = ?'
-            : 'WHERE `uid` = ?';
+    async getByUid(uid, { userId } = {}) {
+        const where =
+            userId !== undefined
+                ? 'WHERE `uid` = ? AND `user_id` = ?'
+                : 'WHERE `uid` = ?';
         const params = userId !== undefined ? [uid, userId] : [uid];
         const rows = await this.clients.db.read(
             `SELECT * FROM \`notification\` ${where} LIMIT 1`,
@@ -27,13 +27,16 @@ export class NotificationStore extends PuterStore {
     }
 
     /** @param {number} userId @param {{ limit?: number, onlyUnacknowledged?: boolean, filter?: string }} [opts] */
-    async listByUserId (userId, { limit = 200, onlyUnacknowledged = false, filter = undefined } = {}) {
+    async listByUserId(
+        userId,
+        { limit = 200, onlyUnacknowledged = false, filter = undefined } = {},
+    ) {
         let extraWhere = '';
-        if ( onlyUnacknowledged || filter === 'unacknowledged' ) {
+        if (onlyUnacknowledged || filter === 'unacknowledged') {
             extraWhere = 'AND `acknowledged` IS NULL';
-        } else if ( filter === 'unseen' ) {
+        } else if (filter === 'unseen') {
             extraWhere = 'AND `shown` IS NULL AND `acknowledged` IS NULL';
-        } else if ( filter === 'acknowledged' ) {
+        } else if (filter === 'acknowledged') {
             extraWhere = 'AND `acknowledged` IS NOT NULL';
         }
         const rows = await this.clients.db.read(
@@ -43,10 +46,10 @@ export class NotificationStore extends PuterStore {
              LIMIT ${limit}`,
             [userId],
         );
-        return rows.map(r => this.#normalizeRow(r));
+        return rows.map((r) => this.#normalizeRow(r));
     }
 
-    async countUnacknowledged (userId) {
+    async countUnacknowledged(userId) {
         const rows = await this.clients.db.read(
             'SELECT COUNT(*) AS n FROM `notification` WHERE `user_id` = ? AND `acknowledged` IS NULL',
             [userId],
@@ -56,10 +59,11 @@ export class NotificationStore extends PuterStore {
 
     // ── Writes ───────────────────────────────────────────────────────
 
-    async create ({ userId, value }) {
-        if ( ! userId ) throw new Error('create: userId is required');
+    async create({ userId, value }) {
+        if (!userId) throw new Error('create: userId is required');
         const uid = uuidv4();
-        const serialized = typeof value === 'string' ? value : JSON.stringify(value ?? {});
+        const serialized =
+            typeof value === 'string' ? value : JSON.stringify(value ?? {});
         await this.clients.db.write(
             'INSERT INTO `notification` (`uid`, `user_id`, `value`) VALUES (?, ?, ?)',
             [uid, userId, serialized],
@@ -67,7 +71,7 @@ export class NotificationStore extends PuterStore {
         return this.getByUid(uid, { userId });
     }
 
-    async markAcknowledged (uid, userId) {
+    async markAcknowledged(uid, userId) {
         const now = Math.floor(Date.now() / 1000);
         const result = await this.clients.db.write(
             'UPDATE `notification` SET `acknowledged` = ? WHERE `uid` = ? AND `user_id` = ? AND `acknowledged` IS NULL',
@@ -76,7 +80,7 @@ export class NotificationStore extends PuterStore {
         return (result?.affectedRows ?? result?.changes ?? 0) > 0;
     }
 
-    async markShown (uid, userId) {
+    async markShown(uid, userId) {
         const now = Math.floor(Date.now() / 1000);
         const result = await this.clients.db.write(
             'UPDATE `notification` SET `shown` = ? WHERE `uid` = ? AND `user_id` = ? AND `shown` IS NULL',
@@ -85,7 +89,7 @@ export class NotificationStore extends PuterStore {
         return (result?.affectedRows ?? result?.changes ?? 0) > 0;
     }
 
-    async deleteByUid (uid, userId) {
+    async deleteByUid(uid, userId) {
         const result = await this.clients.db.write(
             'DELETE FROM `notification` WHERE `uid` = ? AND `user_id` = ?',
             [uid, userId],
@@ -95,10 +99,14 @@ export class NotificationStore extends PuterStore {
 
     // ── Internals ────────────────────────────────────────────────────
 
-    #normalizeRow (row) {
-        if ( ! row ) return null;
-        if ( typeof row.value === 'string' ) {
-            try { row.value = JSON.parse(row.value); } catch { /* keep string */ }
+    #normalizeRow(row) {
+        if (!row) return null;
+        if (typeof row.value === 'string') {
+            try {
+                row.value = JSON.parse(row.value);
+            } catch {
+                /* keep string */
+            }
         }
         return row;
     }

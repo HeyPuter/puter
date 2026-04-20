@@ -14,7 +14,7 @@ export interface EmailTemplate {
 
 export const EMAIL_TEMPLATES = {
     'new-referral': {
-        subject: 'You\'ve made a referral!',
+        subject: "You've made a referral!",
         html: `
             <p>Hi there,</p>
             <p>A new user has used your referral code. Enjoy an extra {{storage_increase}} of storage, on the house!</p>
@@ -68,7 +68,7 @@ The Puter Team
 </p>
         `,
     },
-    'email_change_request': {
+    email_change_request: {
         subject: '📝 Confirm your email change',
         html: `
 <p>Hi there,</p>
@@ -81,7 +81,7 @@ We received a request to link this email to the user "{{username}}" on Puter. If
 </p>
         `,
     },
-    'email_change_notification': {
+    email_change_notification: {
         subject: '📝 Notification of email change',
         html: `
 <p>Hi there,</p>
@@ -92,7 +92,7 @@ If this was not you, please contact support@puter.com immediately.
 </p>
         `,
     },
-    'password_change_notification': {
+    password_change_notification: {
         subject: '🔑 Password change notification',
         html: `
 <p>Hi there,</p>
@@ -103,7 +103,7 @@ support@puter.com immediately.
 </p>
         `,
     },
-    'email_verification_code': {
+    email_verification_code: {
         subject: '{{code}} is your confirmation code',
         html: `
 <p>Hi there,</p>
@@ -112,7 +112,7 @@ support@puter.com immediately.
 <p>Puter</p>
         `,
     },
-    'email_verification_link': {
+    email_verification_link: {
         subject: 'Please confirm your email',
         html: `
 <p>Hi there,</p>
@@ -121,7 +121,7 @@ support@puter.com immediately.
 <p>Puter</p>
         `,
     },
-    'email_password_recovery': {
+    email_password_recovery: {
         subject: 'Password Recovery',
         html: `
 <p>Hi there,</p>
@@ -131,7 +131,7 @@ support@puter.com immediately.
 <p>Puter</p>
         `,
     },
-    'enabled_2fa': {
+    enabled_2fa: {
         subject: '2FA Enabled on your Account',
         html: `
 <p>Hi there,</p>
@@ -143,7 +143,7 @@ immediately</p>
 <p>Puter</p>
         `,
     },
-    'disabled_2fa': {
+    disabled_2fa: {
         subject: '2FA Disabled on your Account',
         html: `
 <p>Hi there,</p>
@@ -154,7 +154,7 @@ immediately</p>
 <p>Puter</p>
         `,
     },
-    'share_by_username': {
+    share_by_username: {
         subject: 'Puter share from {{susername}}',
         html: `
 <p>Hi there {{rusername}},</p>
@@ -168,7 +168,7 @@ immediately</p>
 <p>Puter</p>
         `,
     },
-    'share_by_email': {
+    share_by_email: {
         subject: 'share by email',
         html: `
 <p>Hi there,</p>

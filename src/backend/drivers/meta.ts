@@ -18,9 +18,13 @@ export interface DriverStreamResult {
     stream: Readable;
 }
 
-export function isDriverStreamResult (v: unknown): v is DriverStreamResult {
-    return !!v && typeof v === 'object' && (v as Record<string, unknown>).dataType === 'stream'
-        && 'stream' in v;
+export function isDriverStreamResult(v: unknown): v is DriverStreamResult {
+    return (
+        !!v &&
+        typeof v === 'object' &&
+        (v as Record<string, unknown>).dataType === 'stream' &&
+        'stream' in v
+    );
 }
 
 // ── Driver metadata keys ────────────────────────────────────────────
@@ -50,21 +54,23 @@ export interface DriverMeta {
  * prototype metadata first, then falls back to instance properties.
  * Returns `null` if the driver doesn't declare an interface.
  */
-export function resolveDriverMeta (driver: WithLifecycle & Record<string, unknown>): DriverMeta | null {
+export function resolveDriverMeta(
+    driver: WithLifecycle & Record<string, unknown>,
+): DriverMeta | null {
     const proto = Object.getPrototypeOf(driver) as Record<string, unknown>;
 
     const interfaceName =
-        (proto[DRIVER_INTERFACE_KEY] as string | undefined)
-        ?? (driver.driverInterface as string | undefined);
+        (proto[DRIVER_INTERFACE_KEY] as string | undefined) ??
+        (driver.driverInterface as string | undefined);
     const driverName =
-        (proto[DRIVER_NAME_KEY] as string | undefined)
-        ?? (driver.driverName as string | undefined);
+        (proto[DRIVER_NAME_KEY] as string | undefined) ??
+        (driver.driverName as string | undefined);
     const isDefault =
-        (proto[DRIVER_DEFAULT_KEY] as boolean | undefined)
-        ?? (driver.isDefault as boolean | undefined)
-        ?? false;
+        (proto[DRIVER_DEFAULT_KEY] as boolean | undefined) ??
+        (driver.isDefault as boolean | undefined) ??
+        false;
 
-    if ( !interfaceName || !driverName ) return null;
+    if (!interfaceName || !driverName) return null;
 
     return { interfaceName, driverName, isDefault };
 }

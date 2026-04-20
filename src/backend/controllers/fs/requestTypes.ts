@@ -89,7 +89,16 @@ export interface BinaryPayload {
 
 export interface WriteRequest {
     fileMetadata: FSEntryWriteInput;
-    fileContent: Buffer | Readable | ReadableStream | string | Blob | File | Uint8Array | ArrayBuffer | BinaryPayload;
+    fileContent:
+        | Buffer
+        | Readable
+        | ReadableStream
+        | string
+        | Blob
+        | File
+        | Uint8Array
+        | ArrayBuffer
+        | BinaryPayload;
     encoding?: 'utf8' | 'base64' | 'ascii' | 'latin1' | 'utf16le' | 'hex';
     thumbnailData?: string;
     guiMetadata?: WriteGuiMetadata;

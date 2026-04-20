@@ -4,8 +4,16 @@ import type { GroupStore } from '../stores/group/GroupStore';
 import type { UserRow, UserStore } from '../stores/user/UserStore';
 import type { IConfig } from '../types';
 
-const DEFAULT_FOLDERS = ['Trash', 'AppData', 'Desktop', 'Documents', 'Pictures', 'Videos', 'Public'] as const;
-type FolderName = typeof DEFAULT_FOLDERS[number];
+const DEFAULT_FOLDERS = [
+    'Trash',
+    'AppData',
+    'Desktop',
+    'Documents',
+    'Pictures',
+    'Videos',
+    'Public',
+] as const;
+type FolderName = (typeof DEFAULT_FOLDERS)[number];
 
 /**
  * Creates a user's default FS tree: `/<username>` (home) and the seven
@@ -22,14 +30,14 @@ type FolderName = typeof DEFAULT_FOLDERS[number];
  * engine-dependent (MySQL returns the first inserted id; SQLite returns the
  * last). One extra round-trip, zero ambiguity.
  */
-export async function generateDefaultFsentries (
+export async function generateDefaultFsentries(
     db: DatabaseClient,
     userStore: UserStore,
     user: UserRow,
 ): Promise<void> {
     // Idempotency guard: if trash_uuid is already set, the tree exists.
     // Cheap check vs. a redundant INSERT + UPDATE on retries / re-runs.
-    if ( user.trash_uuid ) return;
+    if (user.trash_uuid) return;
 
     const home_uuid = uuidv4();
     const folderUuids: Record<FolderName, string> = {
@@ -47,15 +55,20 @@ export async function generateDefaultFsentries (
     const rows: Array<[string, string | null, string, string]> = [
         [home_uuid, null, user.username, `/${user.username}`],
         ...DEFAULT_FOLDERS.map((name): [string, string, string, string] => [
-            folderUuids[name], home_uuid, name, `/${user.username}/${name}`,
+            folderUuids[name],
+            home_uuid,
+            name,
+            `/${user.username}/${name}`,
         ]),
     ];
 
     // Each row: uuid, parent_uid, user_id, name, path, created, modified
     // is_dir and immutable are hardcoded to 1.
-    const placeholders = rows.map(() => '(?, ?, ?, ?, ?, 1, ?, ?, 1)').join(', ');
+    const placeholders = rows
+        .map(() => '(?, ?, ?, ?, ?, 1, ?, ?, 1)')
+        .join(', ');
     const params: unknown[] = [];
-    for ( const [uuid, parent, name, path] of rows ) {
+    for (const [uuid, parent, name, path] of rows) {
         params.push(uuid, parent, user.id, name, path, ts, ts);
     }
 
@@ -69,11 +82,11 @@ export async function generateDefaultFsentries (
     // Resolve auto-increment IDs by UUID so we can pin them on the user row.
     const folderUuidList = Object.values(folderUuids);
     const idPlaceholders = folderUuidList.map(() => '?').join(', ');
-    const idRows = await db.pread(
+    const idRows = (await db.pread(
         `SELECT id, uuid FROM fsentries WHERE user_id = ? AND uuid IN (${idPlaceholders})`,
         [user.id, ...folderUuidList],
-    ) as Array<{ id: number; uuid: string }>;
-    const idByUuid = new Map(idRows.map(r => [String(r.uuid), Number(r.id)]));
+    )) as Array<{ id: number; uuid: string }>;
+    const idByUuid = new Map(idRows.map((r) => [String(r.uuid), Number(r.id)]));
 
     await userStore.update(user.id, {
         trash_uuid: folderUuids.Trash,
@@ -101,7 +114,7 @@ export async function generateDefaultFsentries (
  * OIDC signups that come in already-verified), and a failing user-group
  * add shouldn't fail the response — we just log it.
  */
-export async function promoteToVerifiedGroup (
+export async function promoteToVerifiedGroup(
     groupStore: GroupStore,
     config: IConfig,
     user: UserRow,
@@ -109,17 +122,17 @@ export async function promoteToVerifiedGroup (
     const tempGroup = config.default_temp_group;
     const userGroup = config.default_user_group;
 
-    if ( tempGroup ) {
+    if (tempGroup) {
         try {
             await groupStore.removeUsers(tempGroup, [user.username]);
         } catch {
             // Expected when the user was never in the temp group.
         }
     }
-    if ( userGroup ) {
+    if (userGroup) {
         try {
             await groupStore.addUsers(userGroup, [user.username]);
-        } catch ( e ) {
+        } catch (e) {
             console.warn('[verified-group] add to user group failed:', e);
         }
     }

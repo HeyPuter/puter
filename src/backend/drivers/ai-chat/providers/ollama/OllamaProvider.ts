@@ -26,21 +26,23 @@ import * as OpenAIUtil from '../../utils/OpenAIUtil.js';
 import { IChatModel, IChatProvider, ICompleteArguments } from '../../types.js';
 import { ChatCompletionCreateParams } from 'openai/resources/index.js';
 /**
-* OllamaService class - Provides integration with Ollama's API for chat completions
-* Extends BaseService to implement the puter-chat-completion interface.
-* Handles model management, message adaptation, streaming responses,
-* and usage tracking for Ollama's language models.
-* @extends BaseService
-*/
+ * OllamaService class - Provides integration with Ollama's API for chat completions
+ * Extends BaseService to implement the puter-chat-completion interface.
+ * Handles model management, message adaptation, streaming responses,
+ * and usage tracking for Ollama's language models.
+ * @extends BaseService
+ */
 export class OllamaChatProvider implements IChatProvider {
-
     #apiBaseUrl: string;
 
     #openai: OpenAI;
 
     #meteringService: MeteringService;
 
-    constructor (config: { apiBaseUrl?: string } | undefined, meteringService: MeteringService) {
+    constructor(
+        config: { apiBaseUrl?: string } | undefined,
+        meteringService: MeteringService,
+    ) {
         // Ollama typically runs on HTTP, not HTTPS
         this.#apiBaseUrl = config?.apiBaseUrl || 'http://localhost:11434';
 
@@ -53,31 +55,34 @@ export class OllamaChatProvider implements IChatProvider {
         this.#meteringService = meteringService;
     }
 
-    async models () {
+    async models() {
         let models = kv.get('ollamaChat:models');
-        if ( ! models ) {
+        if (!models) {
             try {
                 const resp = await axios.request({
                     method: 'GET',
                     url: `${this.#apiBaseUrl}/api/tags`,
                 });
                 models = resp.data.models || [];
-                if ( models.length > 0 ) {
+                if (models.length > 0) {
                     kv.set('ollamaChat:models', models);
                 }
-            } catch ( error ) {
-                console.error('Failed to fetch models from Ollama:', (error as Error).message);
+            } catch (error) {
+                console.error(
+                    'Failed to fetch models from Ollama:',
+                    (error as Error).message,
+                );
                 // Return empty array if Ollama is not available
                 return [];
             }
         }
 
-        if ( !models || models.length === 0 ) {
+        if (!models || models.length === 0) {
             return [];
         }
 
         const coerced_models: IChatModel[] = [];
-        for ( const model of models ) {
+        for (const model of models) {
             // Ollama API returns models with 'name' property, not 'model'
             const modelName = model.name || model.model || 'unknown';
             coerced_models.push({
@@ -94,17 +99,23 @@ export class OllamaChatProvider implements IChatProvider {
         }
         return coerced_models;
     }
-    async list () {
+    async list() {
         const models = await this.models();
         const model_names: string[] = [];
-        for ( const model of models ) {
+        for (const model of models) {
             model_names.push(model.id);
         }
         return model_names;
     }
-    async complete ({ messages, stream, model, tools, max_tokens, temperature }: ICompleteArguments): ReturnType<IChatProvider['complete']> {
-
-        if ( model.startsWith('ollama:') ) {
+    async complete({
+        messages,
+        stream,
+        model,
+        tools,
+        max_tokens,
+        temperature,
+    }: ICompleteArguments): ReturnType<IChatProvider['complete']> {
+        if (model.startsWith('ollama:')) {
             model = model.slice('ollama:'.length);
         }
 
@@ -119,26 +130,45 @@ export class OllamaChatProvider implements IChatProvider {
             max_tokens,
             temperature: temperature, // default to 1.0
             stream: !!stream,
-            ...(stream ? {
-                stream_options: { include_usage: true },
-            } : {}),
-        } as ChatCompletionCreateParams) ;
+            ...(stream
+                ? {
+                      stream_options: { include_usage: true },
+                  }
+                : {}),
+        } as ChatCompletionCreateParams);
 
-        const modelDetails =  (await this.models()).find(m => m.id === `ollama:${model}`);
-        const modelIdForMetering = modelDetails?.id ?? (model ? (model.startsWith('ollama/') ? `ollama:${model}` : `ollama:ollama/${model}`) : undefined);
+        const modelDetails = (await this.models()).find(
+            (m) => m.id === `ollama:${model}`,
+        );
+        const modelIdForMetering =
+            modelDetails?.id ??
+            (model
+                ? model.startsWith('ollama/')
+                    ? `ollama:${model}`
+                    : `ollama:ollama/${model}`
+                : undefined);
         return OpenAIUtil.handle_completion_output({
             usage_calculator: ({ usage }) => {
-
                 const trackedUsage = {
-                    prompt: (usage.prompt_tokens ?? 1 ) - (usage.prompt_tokens_details?.cached_tokens ?? 0),
+                    prompt:
+                        (usage.prompt_tokens ?? 1) -
+                        (usage.prompt_tokens_details?.cached_tokens ?? 0),
                     completion: usage.completion_tokens ?? 1,
-                    input_cache_read: usage.prompt_tokens_details?.cached_tokens ?? 0,
+                    input_cache_read:
+                        usage.prompt_tokens_details?.cached_tokens ?? 0,
                 };
-                const costOverwrites = Object.fromEntries(Object.keys(trackedUsage).map((k) => {
-                    return [k, 0]; // override to 0 since local is free
-                }));
-                if ( modelIdForMetering ) {
-                    this.#meteringService.utilRecordUsageObject(trackedUsage, actor, modelIdForMetering, costOverwrites);
+                const costOverwrites = Object.fromEntries(
+                    Object.keys(trackedUsage).map((k) => {
+                        return [k, 0]; // override to 0 since local is free
+                    }),
+                );
+                if (modelIdForMetering) {
+                    this.#meteringService.utilRecordUsageObject(
+                        trackedUsage,
+                        actor,
+                        modelIdForMetering,
+                        costOverwrites,
+                    );
                 }
                 return trackedUsage;
             },
@@ -146,15 +176,15 @@ export class OllamaChatProvider implements IChatProvider {
             completion,
         });
     }
-    checkModeration (_text: string) {
+    checkModeration(_text: string) {
         throw new Error('Method not implemented.');
     }
 
     /**
-    * Returns the default model identifier for the Ollama service
-    * @returns {string} The default model ID 'gpt-oss:20b'
-    */
-    getDefaultModel () {
+     * Returns the default model identifier for the Ollama service
+     * @returns {string} The default model ID 'gpt-oss:20b'
+     */
+    getDefaultModel() {
         return 'gpt-oss:20b';
     }
 }

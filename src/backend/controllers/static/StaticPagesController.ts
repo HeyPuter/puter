@@ -17,22 +17,31 @@ import { applyReferralRewards } from '../../util/referralRewards.js';
  * tokens in the query string are the auth).
  */
 export class StaticPagesController extends PuterController {
-
-    registerRoutes (router: PuterRouter) {
+    registerRoutes(router: PuterRouter) {
         const wrap = (inner: string) =>
             `<body style="display:flex; flex-direction: column; justify-content: center; height: 100vh;">${inner}</body>`;
-        const err = (msg: string) => wrap(`<p style="text-align:center; color:red;">${msg}</p>`);
-        const ok = (msg: string) => wrap(`<p style="text-align:center; color:green;">${msg}</p>`);
+        const err = (msg: string) =>
+            wrap(`<p style="text-align:center; color:red;">${msg}</p>`);
+        const ok = (msg: string) =>
+            wrap(`<p style="text-align:center; color:green;">${msg}</p>`);
 
         // ── /robots.txt ─────────────────────────────────────────────
         router.get('/robots.txt', {}, (req, res) => {
             const domain = this.config.domain ?? req.hostname;
             const disallowed = [
-                'AhrefsBot', 'BLEXBot', 'DotBot', 'ia_archiver',
-                'MJ12bot', 'SearchmetricsBot', 'SemrushBot',
+                'AhrefsBot',
+                'BLEXBot',
+                'DotBot',
+                'ia_archiver',
+                'MJ12bot',
+                'SearchmetricsBot',
+                'SemrushBot',
             ];
-            const body = disallowed.map(ua => `User-agent: ${ua}\nDisallow: /\n`).join('\n')
-                + `\nSitemap: ${req.protocol}://${domain}/sitemap.xml\n`;
+            const body =
+                disallowed
+                    .map((ua) => `User-agent: ${ua}\nDisallow: /\n`)
+                    .join('\n') +
+                `\nSitemap: ${req.protocol}://${domain}/sitemap.xml\n`;
             res.type('text/plain').send(body);
         });
 
@@ -40,28 +49,43 @@ export class StaticPagesController extends PuterController {
         router.get('/sitemap.xml', {}, async (req, res) => {
             const domain = this.config.domain ?? req.hostname;
             const origin = `${req.protocol}://${domain}`;
-            const apps = await this.clients.db.read(
+            const apps = (await this.clients.db.read(
                 'SELECT `name` FROM `apps` WHERE `approved_for_listing` = 1',
-            ) as Array<{ name: string }>;
+            )) as Array<{ name: string }>;
             const urls = [
                 `<url><loc>${req.protocol}://docs.${domain}/</loc></url>`,
-                ...apps.map(a => `<url><loc>${origin}/app/${a.name}</loc></url>`),
+                ...apps.map(
+                    (a) => `<url><loc>${origin}/app/${a.name}</loc></url>`,
+                ),
             ];
-            const body = '<?xml version="1.0" encoding="UTF-8"?>'
-                + '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
-                + urls.join('')
-                + '</urlset>';
+            const body =
+                '<?xml version="1.0" encoding="UTF-8"?>' +
+                '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">' +
+                urls.join('') +
+                '</urlset>';
             res.type('application/xml').send(body);
         });
 
         // ── /unsubscribe ────────────────────────────────────────────
         router.get('/unsubscribe', {}, async (req, res) => {
-            const userUuid = typeof req.query.user_uuid === 'string' ? req.query.user_uuid : undefined;
-            if ( ! userUuid ) { res.send(err('user_uuid is required')); return; }
+            const userUuid =
+                typeof req.query.user_uuid === 'string'
+                    ? req.query.user_uuid
+                    : undefined;
+            if (!userUuid) {
+                res.send(err('user_uuid is required'));
+                return;
+            }
 
             const user = await this.stores.user.getByUuid(userUuid);
-            if ( ! user ) { res.send(err('User not found.')); return; }
-            if ( user.unsubscribed ) { res.send(ok('You are already unsubscribed.')); return; }
+            if (!user) {
+                res.send(err('User not found.'));
+                return;
+            }
+            if (user.unsubscribed) {
+                res.send(ok('You are already unsubscribed.'));
+                return;
+            }
 
             await this.stores.user.update(user.id, { unsubscribed: 1 });
             res.send(ok('You have successfully unsubscribed from all emails.'));
@@ -69,31 +93,59 @@ export class StaticPagesController extends PuterController {
 
         // ── /confirm-email-by-token ─────────────────────────────────
         router.get('/confirm-email-by-token', {}, async (req, res) => {
-            const userUuid = typeof req.query.user_uuid === 'string' ? req.query.user_uuid : undefined;
-            const token = typeof req.query.token === 'string' ? req.query.token : undefined;
-            if ( ! userUuid ) { res.send(err('user_uuid is required')); return; }
-            if ( ! token ) { res.send(err('token is required')); return; }
+            const userUuid =
+                typeof req.query.user_uuid === 'string'
+                    ? req.query.user_uuid
+                    : undefined;
+            const token =
+                typeof req.query.token === 'string'
+                    ? req.query.token
+                    : undefined;
+            if (!userUuid) {
+                res.send(err('user_uuid is required'));
+                return;
+            }
+            if (!token) {
+                res.send(err('token is required'));
+                return;
+            }
 
-            const user = await this.stores.user.getByProperty('uuid', userUuid, { force: true });
-            if ( ! user ) { res.send(err('user not found.')); return; }
-            if ( user.email_confirmed ) { res.send(ok('Email already confirmed.')); return; }
-            if ( user.email_confirm_token !== token ) { res.send(err('invalid token.')); return; }
+            const user = await this.stores.user.getByProperty(
+                'uuid',
+                userUuid,
+                { force: true },
+            );
+            if (!user) {
+                res.send(err('user not found.'));
+                return;
+            }
+            if (user.email_confirmed) {
+                res.send(ok('Email already confirmed.'));
+                return;
+            }
+            if (user.email_confirm_token !== token) {
+                res.send(err('invalid token.'));
+                return;
+            }
 
             // v2 writes `clean_email` at signup (lowercased email). Older rows
             // that predate that may be null — fall back to email.lower().
-            const cleanEmail = (user.clean_email as string | null | undefined)
-                ?? String(user.email ?? '').toLowerCase();
+            const cleanEmail =
+                (user.clean_email as string | null | undefined) ??
+                String(user.email ?? '').toLowerCase();
 
-            const [dupe] = await this.clients.db.read(
+            const [dupe] = (await this.clients.db.read(
                 `SELECT EXISTS(
                     SELECT 1 FROM \`user\` WHERE (\`email\` = ? OR \`clean_email\` = ?)
                     AND \`email_confirmed\` = 1
                     AND \`password\` IS NOT NULL
                 ) AS email_exists`,
                 [user.email, cleanEmail],
-            ) as Array<{ email_exists: number }>;
-            if ( dupe?.email_exists ) {
-                res.send(err('This email was confirmed on a different account.'));
+            )) as Array<{ email_exists: number }>;
+            if (dupe?.email_exists) {
+                res.send(
+                    err('This email was confirmed on a different account.'),
+                );
                 return;
             }
 
@@ -114,30 +166,48 @@ export class StaticPagesController extends PuterController {
             // Referral rewards — best-effort. Short-circuits when the user
             // wasn't referred. Never fails the confirm response.
             try {
-                await applyReferralRewards({
-                    db: this.clients.db,
-                    redis: this.clients.redis,
-                    email: this.clients.email,
-                    notification: this.services.notification,
-                    metering: this.services.metering,
-                    userStore: this.stores.user,
-                }, user);
-            } catch ( e ) {
-                console.warn('[confirm-email-by-token] referral rewards failed:', (e as Error).message);
+                await applyReferralRewards(
+                    {
+                        db: this.clients.db,
+                        redis: this.clients.redis,
+                        email: this.clients.email,
+                        notification: this.services.notification,
+                        metering: this.services.metering,
+                        userStore: this.stores.user,
+                    },
+                    user,
+                );
+            } catch (e) {
+                console.warn(
+                    '[confirm-email-by-token] referral rewards failed:',
+                    (e as Error).message,
+                );
             }
 
             // Best-effort side-channels — don't fail the user-visible response
             // if sockets or the event bus are unavailable.
             try {
-                await this.services.socket.send({ room: user.id }, 'user.email_confirmed', {});
-            } catch { /* ignore */ }
+                await this.services.socket.send(
+                    { room: user.id },
+                    'user.email_confirmed',
+                    {},
+                );
+            } catch {
+                /* ignore */
+            }
             try {
-                this.clients.event?.emit('user.email-confirmed', {
-                    user_id: user.id,
-                    user_uid: user.uuid,
-                    email: user.email,
-                }, {});
-            } catch { /* ignore */ }
+                this.clients.event?.emit(
+                    'user.email-confirmed',
+                    {
+                        user_id: user.id,
+                        user_uid: user.uuid,
+                        email: user.email,
+                    },
+                    {},
+                );
+            } catch {
+                /* ignore */
+            }
 
             res.send(ok('Your email has been successfully confirmed.'));
         });

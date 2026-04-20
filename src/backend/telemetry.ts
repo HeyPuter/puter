@@ -4,10 +4,17 @@ import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-grpc';
 import { resourceFromAttributes } from '@opentelemetry/resources';
 import { PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics';
 import { NodeSDK } from '@opentelemetry/sdk-node';
-import { ParentBasedSampler, TraceIdRatioBasedSampler } from '@opentelemetry/sdk-trace-base';
-import { ATTR_SERVICE_NAME, ATTR_SERVICE_VERSION } from '@opentelemetry/semantic-conventions';
+import {
+    ParentBasedSampler,
+    TraceIdRatioBasedSampler,
+} from '@opentelemetry/sdk-trace-base';
+import {
+    ATTR_SERVICE_NAME,
+    ATTR_SERVICE_VERSION,
+} from '@opentelemetry/semantic-conventions';
 
-const endpoint = process.env.OTEL_EXPORTER_OTLP_ENDPOINT ?? 'http://localhost:4317';
+const endpoint =
+    process.env.OTEL_EXPORTER_OTLP_ENDPOINT ?? 'http://localhost:4317';
 const sampleRatio = Number(process.env.OTEL_TRACE_SAMPLE_RATIO ?? 0.05);
 
 const sdk = new NodeSDK({

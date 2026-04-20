@@ -36,22 +36,28 @@ interface ErrorHandlerOptions {
  * a generic 500 response — no internal details leak. The full error is
  * passed to `onUnhandled` for logging/alerting.
  */
-export const createErrorHandler = (opts: ErrorHandlerOptions = {}): ErrorRequestHandler => {
-    const onUnhandled = opts.onUnhandled ?? ((err, req) => {
-        // eslint-disable-next-line no-console
-        console.error(`[v2] unhandled error on ${req.method} ${req.url}:`, err);
-    });
+export const createErrorHandler = (
+    opts: ErrorHandlerOptions = {},
+): ErrorRequestHandler => {
+    const onUnhandled =
+        opts.onUnhandled ??
+        ((err, req) => {
+            console.error(
+                `[v2] unhandled error on ${req.method} ${req.url}:`,
+                err,
+            );
+        });
 
     return (err, req, res, next): void => {
         // If the response already started streaming, we can't send a JSON
         // error. Defer to express's default handler to abort the connection.
-        if ( res.headersSent ) {
+        if (res.headersSent) {
             opts.onError?.(err, req);
             next(err);
             return;
         }
 
-        if ( isHttpError(err) ) {
+        if (isHttpError(err)) {
             opts.onError?.(err, req);
             res.status(err.statusCode).json(serializeHttpError(err));
             return;
@@ -77,17 +83,17 @@ const serializeHttpError = (err: HttpError): Record<string, unknown> => {
     // `code` slot precedence: legacyCode wins for back-compat. If both are
     // set, the modern code goes to `errorCode` so clients that key on either
     // field find what they expect.
-    if ( err.legacyCode ) {
+    if (err.legacyCode) {
         payload.code = err.legacyCode;
-        if ( err.code ) payload.errorCode = err.code;
-    } else if ( err.code ) {
+        if (err.code) payload.errorCode = err.code;
+    } else if (err.code) {
         payload.code = err.code;
     }
 
-    if ( err.fields ) {
-        for ( const [k, v] of Object.entries(err.fields) ) {
+    if (err.fields) {
+        for (const [k, v] of Object.entries(err.fields)) {
             // Don't let `fields` clobber the canonical `error` / `code` slots.
-            if ( k === 'error' || k === 'code' || k === 'errorCode' ) continue;
+            if (k === 'error' || k === 'code' || k === 'errorCode') continue;
             payload[k] = v;
         }
     }

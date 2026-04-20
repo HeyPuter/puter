@@ -44,11 +44,11 @@ export interface ITTSProvider {
     readonly providerName: string;
 
     /** List voices available from this provider. */
-    listVoices (args?: Record<string, unknown>): Promise<ITTSVoice[]>;
+    listVoices(args?: Record<string, unknown>): Promise<ITTSVoice[]>;
 
     /** List engines/models available from this provider. */
-    listEngines (): Promise<ITTSEngine[]>;
+    listEngines(): Promise<ITTSEngine[]>;
 
     /** Synthesize speech from text. Returns a DriverStreamResult. */
-    synthesize (args: ISynthesizeArgs): Promise<unknown>;
+    synthesize(args: ISynthesizeArgs): Promise<unknown>;
 }

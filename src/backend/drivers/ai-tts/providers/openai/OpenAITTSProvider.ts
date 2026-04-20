@@ -60,12 +60,12 @@ export class OpenAITTSProvider extends TTSProvider {
 
     private openai: OpenAI;
 
-    constructor (meteringService: MeteringService, config: { apiKey: string }) {
+    constructor(meteringService: MeteringService, config: { apiKey: string }) {
         super(meteringService, config);
         this.openai = new OpenAI({ apiKey: config.apiKey });
     }
 
-    async listVoices (): Promise<ITTSVoice[]> {
+    async listVoices(): Promise<ITTSVoice[]> {
         return OPENAI_TTS_VOICES.map((voice) => ({
             id: voice.id,
             name: voice.name,
@@ -74,12 +74,12 @@ export class OpenAITTSProvider extends TTSProvider {
                 code: 'en',
             },
             provider: 'openai',
-            supported_models: OPENAI_TTS_MODELS.map(m => m.id),
+            supported_models: OPENAI_TTS_MODELS.map((m) => m.id),
         }));
     }
 
-    async listEngines (): Promise<ITTSEngine[]> {
-        return OPENAI_TTS_MODELS.map(model => ({
+    async listEngines(): Promise<ITTSEngine[]> {
+        return OPENAI_TTS_MODELS.map((model) => ({
             id: model.id,
             name: model.name,
             pricing_per_million_chars: model.pricing_per_million_chars,
@@ -87,43 +87,81 @@ export class OpenAITTSProvider extends TTSProvider {
         }));
     }
 
-    async synthesize (args: ISynthesizeArgs): Promise<DriverStreamResult | { url: string; content_type: string }> {
-        const { text, voice: voiceArg, model: modelArg, response_format, instructions, test_mode } = args;
+    async synthesize(
+        args: ISynthesizeArgs,
+    ): Promise<DriverStreamResult | { url: string; content_type: string }> {
+        const {
+            text,
+            voice: voiceArg,
+            model: modelArg,
+            response_format,
+            instructions,
+            test_mode,
+        } = args;
 
-        if ( test_mode ) {
+        if (test_mode) {
             return { url: SAMPLE_AUDIO_URL, content_type: 'audio' };
         }
 
-        if ( typeof text !== 'string' || text.trim() === '' ) {
-            throw new HttpError(400, 'Missing required field: text', { legacyCode: 'field_required', fields: { key: 'text' } });
+        if (typeof text !== 'string' || text.trim() === '') {
+            throw new HttpError(400, 'Missing required field: text', {
+                legacyCode: 'field_required',
+                fields: { key: 'text' },
+            });
         }
 
         const model = modelArg || DEFAULT_MODEL;
-        if ( ! OPENAI_TTS_MODELS.find(({ id }) => id === model) ) {
-            throw new HttpError(400, `Invalid model: ${model}. Expected: ${OPENAI_TTS_MODELS.map(({ id }) => id).join(', ')}`, {
-                legacyCode: 'field_invalid',
-                fields: { key: 'model', expected: OPENAI_TTS_MODELS.map(({ id }) => id).join(', '), got: model },
-            });
+        if (!OPENAI_TTS_MODELS.find(({ id }) => id === model)) {
+            throw new HttpError(
+                400,
+                `Invalid model: ${model}. Expected: ${OPENAI_TTS_MODELS.map(({ id }) => id).join(', ')}`,
+                {
+                    legacyCode: 'field_invalid',
+                    fields: {
+                        key: 'model',
+                        expected: OPENAI_TTS_MODELS.map(({ id }) => id).join(
+                            ', ',
+                        ),
+                        got: model,
+                    },
+                },
+            );
         }
 
         const voice = voiceArg || DEFAULT_VOICE;
-        if ( ! OPENAI_TTS_VOICES.find(({ id }) => id === voice) ) {
-            throw new HttpError(400, `Invalid voice: ${voice}. Expected: ${OPENAI_TTS_VOICES.map(({ id }) => id).join(', ')}`, {
-                legacyCode: 'field_invalid',
-                fields: { key: 'voice', expected: OPENAI_TTS_VOICES.map(({ id }) => id).join(', '), got: voice },
-            });
+        if (!OPENAI_TTS_VOICES.find(({ id }) => id === voice)) {
+            throw new HttpError(
+                400,
+                `Invalid voice: ${voice}. Expected: ${OPENAI_TTS_VOICES.map(({ id }) => id).join(', ')}`,
+                {
+                    legacyCode: 'field_invalid',
+                    fields: {
+                        key: 'voice',
+                        expected: OPENAI_TTS_VOICES.map(({ id }) => id).join(
+                            ', ',
+                        ),
+                        got: voice,
+                    },
+                },
+            );
         }
 
         const format = response_format || 'mp3';
-        const contentType = RESPONSE_CONTENT_TYPES[format] || RESPONSE_CONTENT_TYPES.mp3;
+        const contentType =
+            RESPONSE_CONTENT_TYPES[format] || RESPONSE_CONTENT_TYPES.mp3;
 
         const actor = Context.get('actor')!;
         const usageType = `openai:${model}:character`;
 
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const usageAllowed = await this.meteringService.hasEnoughCreditsFor(actor, usageType as any, text.length);
-        if ( ! usageAllowed ) {
-            throw new HttpError(402, 'Insufficient funds', { legacyCode: 'insufficient_funds' });
+        const usageAllowed = await this.meteringService.hasEnoughCreditsFor(
+            actor,
+            usageType as any,
+            text.length,
+        );
+        if (!usageAllowed) {
+            throw new HttpError(402, 'Insufficient funds', {
+                legacyCode: 'insufficient_funds',
+            });
         }
 
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -133,11 +171,11 @@ export class OpenAITTSProvider extends TTSProvider {
             input: text,
         };
 
-        if ( instructions ) {
+        if (instructions) {
             payload.instructions = instructions;
         }
 
-        if ( response_format ) {
+        if (response_format) {
             payload.response_format = response_format;
         }
 

@@ -22,8 +22,8 @@ import { ChatCompletionCreateParams } from 'groq-sdk/resources/chat/completions.
 import { CompletionUsage } from 'openai/resources';
 import { Context } from '../../../../core/context.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
+import type { IChatProvider, ICompleteArguments } from '../../types.js';
 import * as OpenAIUtil from '../../utils/OpenAIUtil.js';
-import type { IChatProvider, ICompleteArguments, IChatCompleteResult } from '../../types.js';
 import { GROQ_MODELS } from './models.js';
 
 export class GroqAIProvider implements IChatProvider {
@@ -31,41 +31,51 @@ export class GroqAIProvider implements IChatProvider {
 
     #meteringService: MeteringService;
 
-    constructor (config: { apiKey: string }, meteringService: MeteringService) {
+    constructor(config: { apiKey: string }, meteringService: MeteringService) {
         this.#client = new Groq({
             apiKey: config.apiKey,
         });
         this.#meteringService = meteringService;
     }
 
-    getDefaultModel () {
+    getDefaultModel() {
         return 'llama-3.1-8b-instant';
     }
 
-    models () {
+    models() {
         return GROQ_MODELS;
     }
 
-    async list () {
+    async list() {
         const models = this.models();
         const modelNames: string[] = [];
-        for ( const model of models ) {
+        for (const model of models) {
             modelNames.push(model.id);
-            if ( model.aliases ) {
+            if (model.aliases) {
                 modelNames.push(...model.aliases);
             }
         }
         return modelNames;
     }
 
-    async complete ({ messages, model, stream, tools, max_tokens, temperature }: ICompleteArguments): ReturnType<IChatProvider['complete']> {
+    async complete({
+        messages,
+        model,
+        stream,
+        tools,
+        max_tokens,
+        temperature,
+    }: ICompleteArguments): ReturnType<IChatProvider['complete']> {
         const actor = Context.get('actor');
         const availableModels = this.models();
-        const modelUsed = availableModels.find(m => [m.id, ...(m.aliases || [])].includes(model)) || availableModels.find(m => m.id === this.getDefaultModel())!;
+        const modelUsed =
+            availableModels.find((m) =>
+                [m.id, ...(m.aliases || [])].includes(model),
+            ) || availableModels.find((m) => m.id === this.getDefaultModel())!;
 
         messages = await OpenAIUtil.process_input_messages(messages);
-        for ( const message of messages ) {
-            if ( message.tool_calls && Array.isArray(message.content) ) {
+        for (const message of messages) {
+            if (message.tool_calls && Array.isArray(message.content)) {
                 message.content = '';
             }
         }
@@ -81,16 +91,24 @@ export class GroqAIProvider implements IChatProvider {
 
         return OpenAIUtil.handle_completion_output({
             deviations: {
-                index_usage_from_stream_chunk: chunk =>
+                index_usage_from_stream_chunk: (chunk) =>
                     // x_groq contains usage details for streamed responses
-                    (chunk as { x_groq?: { usage?: CompletionUsage } }).x_groq?.usage,
+                    (chunk as { x_groq?: { usage?: CompletionUsage } }).x_groq
+                        ?.usage,
             },
             usage_calculator: ({ usage }) => {
                 const trackedUsage = OpenAIUtil.extractMeteredUsage(usage);
-                const costsOverride = Object.fromEntries(Object.entries(trackedUsage).map(([k, v]) => {
-                    return [k, v * (modelUsed.costs[k])];
-                }));
-                this.#meteringService.utilRecordUsageObject(trackedUsage, actor, `groq:${modelUsed.id}`, costsOverride);
+                const costsOverride = Object.fromEntries(
+                    Object.entries(trackedUsage).map(([k, v]) => {
+                        return [k, v * modelUsed.costs[k]];
+                    }),
+                );
+                this.#meteringService.utilRecordUsageObject(
+                    trackedUsage,
+                    actor,
+                    `groq:${modelUsed.id}`,
+                    costsOverride,
+                );
                 return trackedUsage;
             },
             stream,
@@ -98,7 +116,9 @@ export class GroqAIProvider implements IChatProvider {
         });
     }
 
-    checkModeration (_text: string): ReturnType<IChatProvider['checkModeration']> {
+    checkModeration(
+        _text: string,
+    ): ReturnType<IChatProvider['checkModeration']> {
         throw new Error('Method not implemented.');
     }
 }

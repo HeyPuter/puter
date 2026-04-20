@@ -59,13 +59,12 @@ const AVAILABLE_MIGRATIONS: [number, string[]][] = [
 ];
 
 export class SqliteDatabaseClient extends DatabaseClient {
-
     override readonly engineName = 'sqlite';
 
     // better-sqlite3 instance — set during onServerStart
     private db!: InstanceType<typeof import('better-sqlite3')>;
 
-    constructor (config: IConfig) {
+    constructor(config: IConfig) {
         super(config);
     }
 
@@ -73,7 +72,7 @@ export class SqliteDatabaseClient extends DatabaseClient {
     // Lifecycle
     // ------------------------------------------------------------------
 
-    override async onServerStart (): Promise<void> {
+    override async onServerStart(): Promise<void> {
         const Database = (await import('better-sqlite3')).default;
 
         const dbPath = this.config.database?.path ?? ':memory:';
@@ -84,8 +83,8 @@ export class SqliteDatabaseClient extends DatabaseClient {
         await this.runMigrations(isNew);
     }
 
-    override onServerShutdown (): void {
-        if ( this.db ) {
+    override onServerShutdown(): void {
+        if (this.db) {
             this.db.close();
         }
     }
@@ -94,18 +93,30 @@ export class SqliteDatabaseClient extends DatabaseClient {
     // Query interface
     // ------------------------------------------------------------------
 
-    override async read (query: string, params: unknown[] = []): Promise<Record<string, unknown>[]> {
+    override async read(
+        query: string,
+        params: unknown[] = [],
+    ): Promise<Record<string, unknown>[]> {
         query = this.transformQuery(query);
         params = this.transformParams(params);
-        return this.db.prepare(query).all(...params) as Record<string, unknown>[];
+        return this.db.prepare(query).all(...params) as Record<
+            string,
+            unknown
+        >[];
     }
 
-    override async pread (query: string, params: unknown[] = []): Promise<Record<string, unknown>[]> {
+    override async pread(
+        query: string,
+        params: unknown[] = [],
+    ): Promise<Record<string, unknown>[]> {
         // SQLite is single-node — pread is identical to read
         return this.read(query, params);
     }
 
-    override async write (query: string, params: unknown[] = []): Promise<WriteResult> {
+    override async write(
+        query: string,
+        params: unknown[] = [],
+    ): Promise<WriteResult> {
         query = this.transformQuery(query);
         params = this.transformParams(params);
 
@@ -117,9 +128,11 @@ export class SqliteDatabaseClient extends DatabaseClient {
         };
     }
 
-    override async batchWrite (entries: { statement: string; values: unknown[] }[]): Promise<void> {
+    override async batchWrite(
+        entries: { statement: string; values: unknown[] }[],
+    ): Promise<void> {
         this.db.transaction(() => {
-            for ( let { statement, values } of entries ) {
+            for (let { statement, values } of entries) {
                 statement = this.transformQuery(statement);
                 values = this.transformParams(values);
                 this.db.prepare(statement).run(...values);
@@ -131,13 +144,13 @@ export class SqliteDatabaseClient extends DatabaseClient {
     // SQLite-specific transforms
     // ------------------------------------------------------------------
 
-    private transformQuery (query: string): string {
+    private transformQuery(query: string): string {
         return query.replace(/now\(\)/gi, "datetime('now')");
     }
 
-    private transformParams (params: unknown[]): unknown[] {
-        return params.map(p => {
-            if ( typeof p === 'boolean' ) return p ? 1 : 0;
+    private transformParams(params: unknown[]): unknown[] {
+        return params.map((p) => {
+            if (typeof p === 'boolean') return p ? 1 : 0;
             return p;
         });
     }
@@ -146,38 +159,45 @@ export class SqliteDatabaseClient extends DatabaseClient {
     // Migration system
     // ------------------------------------------------------------------
 
-    private async runMigrations (isNew: boolean): Promise<void> {
-        const highestVersion = AVAILABLE_MIGRATIONS[AVAILABLE_MIGRATIONS.length - 1][0] + 1;
-        const targetVersion = this.config.database?.targetVersion ?? highestVersion;
+    private async runMigrations(isNew: boolean): Promise<void> {
+        const highestVersion =
+            AVAILABLE_MIGRATIONS[AVAILABLE_MIGRATIONS.length - 1][0] + 1;
+        const targetVersion =
+            this.config.database?.targetVersion ?? highestVersion;
 
-        const userVersion = isNew
-            ? -1
-            : this.getEffectiveUserVersion();
+        const userVersion = isNew ? -1 : this.getEffectiveUserVersion();
 
         console.log(`[sqlite] database version: ${userVersion}`);
 
         const toApply: string[] = [];
-        for ( const [threshold, files] of AVAILABLE_MIGRATIONS ) {
-            if ( threshold + 1 >= targetVersion && targetVersion !== highestVersion ) {
-                console.warn(`[sqlite] early exit: target version set to ${targetVersion}`);
+        for (const [threshold, files] of AVAILABLE_MIGRATIONS) {
+            if (
+                threshold + 1 >= targetVersion &&
+                targetVersion !== highestVersion
+            ) {
+                console.warn(
+                    `[sqlite] early exit: target version set to ${targetVersion}`,
+                );
                 break;
             }
-            if ( userVersion <= threshold ) {
+            if (userVersion <= threshold) {
                 toApply.push(...files);
             }
         }
 
-        if ( toApply.length === 0 ) return;
+        if (toApply.length === 0) return;
 
-        console.log(`[sqlite] upgrading database: ${userVersion} -> ${targetVersion} (${toApply.length} migration files)`);
+        console.log(
+            `[sqlite] upgrading database: ${userVersion} -> ${targetVersion} (${toApply.length} migration files)`,
+        );
 
-        for ( const file of toApply ) {
+        for (const file of toApply) {
             const filePath = join(MIGRATIONS_DIR, file);
             const contents = readFileSync(filePath, 'utf8');
             const ext = extname(file);
             const name = basename(file);
 
-            switch ( ext ) {
+            switch (ext) {
                 case '.sql':
                     this.applySqlMigration(name, contents);
                     break;
@@ -185,7 +205,9 @@ export class SqliteDatabaseClient extends DatabaseClient {
                     await this.applyJsMigration(name, contents);
                     break;
                 default:
-                    throw new Error(`[sqlite] unrecognised migration type: ${file}`);
+                    throw new Error(
+                        `[sqlite] unrecognised migration type: ${file}`,
+                    );
             }
         }
 
@@ -193,27 +215,35 @@ export class SqliteDatabaseClient extends DatabaseClient {
         console.log(`[sqlite] database upgraded to version ${targetVersion}`);
     }
 
-    private getEffectiveUserVersion (): number {
-        const userVersion = (this.db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version;
-        if ( userVersion !== 0 ) return userVersion;
+    private getEffectiveUserVersion(): number {
+        const userVersion = (
+            this.db.prepare('PRAGMA user_version').get() as {
+                user_version: number;
+            }
+        ).user_version;
+        if (userVersion !== 0) return userVersion;
 
         const hasAppsTable = this.hasTable('apps');
         const hasUserTable = this.hasTable('user');
 
-        if ( !hasAppsTable || !hasUserTable ) {
-            console.warn('[sqlite] user_version=0 but bootstrap tables are missing; treating database as uninitialized');
+        if (!hasAppsTable || !hasUserTable) {
+            console.warn(
+                '[sqlite] user_version=0 but bootstrap tables are missing; treating database as uninitialized',
+            );
             return -1;
         }
 
         const inferredUserVersion = this.inferLegacyUserVersion();
-        if ( inferredUserVersion !== 0 ) {
-            console.warn(`[sqlite] user_version=0; inferred legacy schema version ${inferredUserVersion}`);
+        if (inferredUserVersion !== 0) {
+            console.warn(
+                `[sqlite] user_version=0; inferred legacy schema version ${inferredUserVersion}`,
+            );
         }
 
         return inferredUserVersion;
     }
 
-    private inferLegacyUserVersion (): number {
+    private inferLegacyUserVersion(): number {
         const markers: Array<{ version: number; check: () => boolean }> = [
             {
                 version: 1,
@@ -270,8 +300,7 @@ export class SqliteDatabaseClient extends DatabaseClient {
             {
                 version: 13,
                 check: () =>
-                    this.hasTable('group') &&
-                    this.hasTable('jct_user_group'),
+                    this.hasTable('group') && this.hasTable('jct_user_group'),
             },
             {
                 version: 14,
@@ -288,14 +317,26 @@ export class SqliteDatabaseClient extends DatabaseClient {
             {
                 version: 16,
                 check: () =>
-                    this.columnAllowsNull('audit_user_to_user_permissions', 'issuer_user_id') &&
-                    this.columnAllowsNull('audit_user_to_user_permissions', 'holder_user_id'),
+                    this.columnAllowsNull(
+                        'audit_user_to_user_permissions',
+                        'issuer_user_id',
+                    ) &&
+                    this.columnAllowsNull(
+                        'audit_user_to_user_permissions',
+                        'holder_user_id',
+                    ),
             },
             {
                 version: 17,
                 check: () =>
-                    this.columnAllowsNull('audit_user_to_group_permissions', 'user_id') &&
-                    this.columnAllowsNull('audit_user_to_group_permissions', 'group_id'),
+                    this.columnAllowsNull(
+                        'audit_user_to_group_permissions',
+                        'user_id',
+                    ) &&
+                    this.columnAllowsNull(
+                        'audit_user_to_group_permissions',
+                        'group_id',
+                    ),
             },
             {
                 version: 18,
@@ -395,8 +436,8 @@ export class SqliteDatabaseClient extends DatabaseClient {
 
         let inferredUserVersion = 0;
 
-        for ( const marker of markers ) {
-            if ( marker.check() ) {
+        for (const marker of markers) {
+            if (marker.check()) {
                 inferredUserVersion = marker.version;
             }
         }
@@ -404,35 +445,47 @@ export class SqliteDatabaseClient extends DatabaseClient {
         return inferredUserVersion;
     }
 
-    private hasTable (table: string): boolean {
-        return Boolean(this.db.prepare(
-            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
-        ).get(table));
+    private hasTable(table: string): boolean {
+        return Boolean(
+            this.db
+                .prepare(
+                    "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+                )
+                .get(table),
+        );
     }
 
-    private hasColumn (table: string, column: string): boolean {
-        return Boolean(this.db.prepare(
-            `SELECT 1 FROM pragma_table_info(${this.quoteSqlString(table)}) WHERE name = ?`,
-        ).get(column));
+    private hasColumn(table: string, column: string): boolean {
+        return Boolean(
+            this.db
+                .prepare(
+                    `SELECT 1 FROM pragma_table_info(${this.quoteSqlString(table)}) WHERE name = ?`,
+                )
+                .get(column),
+        );
     }
 
-    private columnAllowsNull (table: string, column: string): boolean {
-        const info = this.db.prepare(
-            `SELECT * FROM pragma_table_info(${this.quoteSqlString(table)}) WHERE name = ?`,
-        ).get(column) as { notnull: number } | undefined;
+    private columnAllowsNull(table: string, column: string): boolean {
+        const info = this.db
+            .prepare(
+                `SELECT * FROM pragma_table_info(${this.quoteSqlString(table)}) WHERE name = ?`,
+            )
+            .get(column) as { notnull: number } | undefined;
 
         return info?.notnull === 0;
     }
 
-    private columnTypeIs (table: string, column: string, type: string): boolean {
-        const info = this.db.prepare(
-            `SELECT type FROM pragma_table_info(${this.quoteSqlString(table)}) WHERE name = ?`,
-        ).get(column) as { type: string } | undefined;
+    private columnTypeIs(table: string, column: string, type: string): boolean {
+        const info = this.db
+            .prepare(
+                `SELECT type FROM pragma_table_info(${this.quoteSqlString(table)}) WHERE name = ?`,
+            )
+            .get(column) as { type: string } | undefined;
 
         return info?.type?.toUpperCase() === type.toUpperCase();
     }
 
-    private hasRow (query: string, params: unknown[] = []): boolean {
+    private hasRow(query: string, params: unknown[] = []): boolean {
         try {
             return Boolean(this.db.prepare(query).get(...params));
         } catch {
@@ -440,24 +493,30 @@ export class SqliteDatabaseClient extends DatabaseClient {
         }
     }
 
-    private quoteSqlString (value: string): string {
+    private quoteSqlString(value: string): string {
         return `'${value.replaceAll("'", "''")}'`;
     }
 
-    private applySqlMigration (name: string, contents: string): void {
+    private applySqlMigration(name: string, contents: string): void {
         const statements = contents.split(/;\s*\n/);
-        for ( let i = 0; i < statements.length; i++ ) {
+        for (let i = 0; i < statements.length; i++) {
             const stmt = statements[i].trim();
-            if ( stmt === '' ) continue;
+            if (stmt === '') continue;
             try {
                 this.db.exec(`${stmt};`);
-            } catch ( e ) {
-                throw new Error(`[sqlite] failed to apply ${name} at statement ${i}`, { cause: e });
+            } catch (e) {
+                throw new Error(
+                    `[sqlite] failed to apply ${name} at statement ${i}`,
+                    { cause: e },
+                );
             }
         }
     }
 
-    private async applyJsMigration (name: string, contents: string): Promise<void> {
+    private async applyJsMigration(
+        name: string,
+        contents: string,
+    ): Promise<void> {
         const wrapped = `(async () => {${contents}})()`;
         const ctx = createContext({
             read: this.read.bind(this),
@@ -467,7 +526,7 @@ export class SqliteDatabaseClient extends DatabaseClient {
         });
         try {
             await runInContext(wrapped, ctx);
-        } catch ( e ) {
+        } catch (e) {
             throw new Error(`[sqlite] failed to apply ${name}`, { cause: e });
         }
     }

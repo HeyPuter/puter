@@ -1,9 +1,9 @@
-export async function runWithConcurrencyLimit<TInput, TOutput> (
+export async function runWithConcurrencyLimit<TInput, TOutput>(
     values: TInput[],
     concurrency: number,
     worker: (value: TInput, index: number) => Promise<TOutput>,
 ): Promise<TOutput[]> {
-    if ( values.length === 0 ) {
+    if (values.length === 0) {
         return [];
     }
 
@@ -12,14 +12,14 @@ export async function runWithConcurrencyLimit<TInput, TOutput> (
     let nextIndex = 0;
 
     const runWorker = async () => {
-        while ( true ) {
+        while (true) {
             const index = nextIndex;
-            if ( index >= values.length ) {
+            if (index >= values.length) {
                 return;
             }
             nextIndex++;
             const value = values[index];
-            if ( value === undefined ) {
+            if (value === undefined) {
                 throw new Error(`Missing value at index ${index}`);
             }
             results[index] = await worker(value, index);
@@ -31,12 +31,12 @@ export async function runWithConcurrencyLimit<TInput, TOutput> (
     return results;
 }
 
-export async function runWithConcurrencyLimitSettled<TInput, TOutput> (
+export async function runWithConcurrencyLimitSettled<TInput, TOutput>(
     values: TInput[],
     concurrency: number,
     worker: (value: TInput, index: number) => Promise<TOutput>,
 ): Promise<PromiseSettledResult<TOutput>[]> {
-    if ( values.length === 0 ) {
+    if (values.length === 0) {
         return [];
     }
 
@@ -45,14 +45,14 @@ export async function runWithConcurrencyLimitSettled<TInput, TOutput> (
     let nextIndex = 0;
 
     const runWorker = async () => {
-        while ( true ) {
+        while (true) {
             const index = nextIndex;
-            if ( index >= values.length ) {
+            if (index >= values.length) {
                 return;
             }
             nextIndex++;
             const value = values[index];
-            if ( value === undefined ) {
+            if (value === undefined) {
                 throw new Error(`Missing value at index ${index}`);
             }
 
@@ -62,7 +62,7 @@ export async function runWithConcurrencyLimitSettled<TInput, TOutput> (
                     status: 'fulfilled',
                     value: output,
                 };
-            } catch ( error ) {
+            } catch (error) {
                 results[index] = {
                     status: 'rejected',
                     reason: error,

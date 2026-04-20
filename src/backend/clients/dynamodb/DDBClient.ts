@@ -1,4 +1,8 @@
-import { CreateTableCommand, CreateTableCommandInput, DynamoDBClient } from '@aws-sdk/client-dynamodb';
+import {
+    CreateTableCommand,
+    CreateTableCommandInput,
+    DynamoDBClient,
+} from '@aws-sdk/client-dynamodb';
 import {
     BatchGetCommand,
     BatchGetCommandInput,
@@ -26,18 +30,19 @@ const MAX_BATCH_WRITE_RETRIES = 8;
 const BATCH_WRITE_RETRY_BASE_MS = 25;
 
 const getDynalitePathKey = (path?: string) => {
-    if ( path === ':memory:' ) return LOCAL_DYNAMO_PATH_KEY;
+    if (path === ':memory:') return LOCAL_DYNAMO_PATH_KEY;
     return path || './volatile/runtime/puter-ddb';
 };
 
 const getOrCreateLocalDynaliteEndpoint = async (pathKey: string) => {
     let endpointPromise = localDynaliteEndpointPromises.get(pathKey);
-    if ( endpointPromise ) return endpointPromise;
+    if (endpointPromise) return endpointPromise;
 
     endpointPromise = (async () => {
-        const dynaliteOptions = pathKey === LOCAL_DYNAMO_PATH_KEY
-            ? { createTableMs: 0 }
-            : { createTableMs: 0, path: pathKey };
+        const dynaliteOptions =
+            pathKey === LOCAL_DYNAMO_PATH_KEY
+                ? { createTableMs: 0 }
+                : { createTableMs: 0, path: pathKey };
 
         const dynaliteInstance = dynalite(dynaliteOptions);
         const dynaliteServer = dynaliteInstance.listen(0, '127.0.0.1');
@@ -45,13 +50,16 @@ const getOrCreateLocalDynaliteEndpoint = async (pathKey: string) => {
         await once(dynaliteServer, 'listening');
 
         const address = dynaliteServer.address();
-        const port = (typeof address === 'object' && address ? address.port : undefined) || 4567;
+        const port =
+            (typeof address === 'object' && address
+                ? address.port
+                : undefined) || 4567;
         return `http://127.0.0.1:${port}`;
     })();
 
     localDynaliteEndpointPromises.set(pathKey, endpointPromise);
     endpointPromise.catch(() => {
-        if ( localDynaliteEndpointPromises.get(pathKey) === endpointPromise ) {
+        if (localDynaliteEndpointPromises.get(pathKey) === endpointPromise) {
             localDynaliteEndpointPromises.delete(pathKey);
         }
     });
@@ -60,12 +68,12 @@ const getOrCreateLocalDynaliteEndpoint = async (pathKey: string) => {
 };
 
 const chunkValues = <T>(values: T[], size: number): T[][] => {
-    if ( values.length === 0 ) {
+    if (values.length === 0) {
         return [];
     }
 
     const chunks: T[][] = [];
-    for ( let index = 0; index < values.length; index += size ) {
+    for (let index = 0; index < values.length; index += size) {
         chunks.push(values.slice(index, index + size));
     }
     return chunks;
@@ -80,11 +88,11 @@ export class DDBClient extends PuterClient {
     #localInitPromise: Promise<void> | null = null;
     #ddbConfig: IDynamoConfig;
 
-    constructor (config: IConfig) {
+    constructor(config: IConfig) {
         super(config);
         this.#ddbConfig = config.dynamo ?? {};
 
-        if ( this.#ddbConfig.aws ) {
+        if (this.#ddbConfig.aws) {
             this.#bindAwsClient();
             return;
         }
@@ -95,8 +103,8 @@ export class DDBClient extends PuterClient {
         });
     }
 
-    async recreateClient () {
-        if ( this.#ddbConfig.aws ) {
+    async recreateClient() {
+        if (this.#ddbConfig.aws) {
             this.#bindAwsClient();
             return;
         }
@@ -105,7 +113,11 @@ export class DDBClient extends PuterClient {
         await this.#localInitPromise;
     }
 
-    async get<T extends Record<string, unknown>> (table: string, key: T, consistentRead = false) {
+    async get<T extends Record<string, unknown>>(
+        table: string,
+        key: T,
+        consistentRead = false,
+    ) {
         const command = new GetCommand({
             TableName: table,
             Key: key,
@@ -117,7 +129,7 @@ export class DDBClient extends PuterClient {
         return client.send(command);
     }
 
-    async put<T extends Record<string, unknown>> (table: string, item: T) {
+    async put<T extends Record<string, unknown>>(table: string, item: T) {
         const command = new PutCommand({
             TableName: table,
             Item: item,
@@ -128,23 +140,30 @@ export class DDBClient extends PuterClient {
         return client.send(command);
     }
 
-    async batchGet (params: { table: string, items: Record<string, unknown> }[], consistentRead = false) {
-        const allRequestItemsPerTable = params.reduce((acc, curr) => {
-            if ( ! acc[curr.table] ) acc[curr.table] = [];
-            acc[curr.table].push(curr.items);
-            return acc;
-        }, {} as Record<string, Record<string, unknown>[]>);
-
-        const requestItems: BatchGetCommandInput['RequestItems'] = Object.entries(allRequestItemsPerTable).reduce(
-            (acc, [table, keyList]) => {
-                acc[table] = {
-                    Keys: keyList,
-                    ConsistentRead: consistentRead,
-                };
+    async batchGet(
+        params: { table: string; items: Record<string, unknown> }[],
+        consistentRead = false,
+    ) {
+        const allRequestItemsPerTable = params.reduce(
+            (acc, curr) => {
+                if (!acc[curr.table]) acc[curr.table] = [];
+                acc[curr.table].push(curr.items);
                 return acc;
             },
-            {} as NonNullable<BatchGetCommandInput['RequestItems']>,
+            {} as Record<string, Record<string, unknown>[]>,
         );
+
+        const requestItems: BatchGetCommandInput['RequestItems'] =
+            Object.entries(allRequestItemsPerTable).reduce(
+                (acc, [table, keyList]) => {
+                    acc[table] = {
+                        Keys: keyList,
+                        ConsistentRead: consistentRead,
+                    };
+                    return acc;
+                },
+                {} as NonNullable<BatchGetCommandInput['RequestItems']>,
+            );
 
         const command = new BatchGetCommand({
             RequestItems: requestItems,
@@ -155,29 +174,32 @@ export class DDBClient extends PuterClient {
         return client.send(command);
     }
 
-    async batchPut (params: { table: string, item: Record<string, unknown> }[]) {
+    async batchPut(params: { table: string; item: Record<string, unknown> }[]) {
         const consumedCapacityByTable = new Map<string, number>();
-        if ( params.length === 0 ) {
+        if (params.length === 0) {
             return { ConsumedCapacity: [] };
         }
 
         const accumulateConsumedCapacity = (
-            consumedCapacityEntries: Array<{ TableName?: string; CapacityUnits?: number }> | undefined,
+            consumedCapacityEntries:
+                | Array<{ TableName?: string; CapacityUnits?: number }>
+                | undefined,
         ) => {
-            if ( ! consumedCapacityEntries ) {
+            if (!consumedCapacityEntries) {
                 return;
             }
 
-            for ( const consumedCapacityEntry of consumedCapacityEntries ) {
+            for (const consumedCapacityEntry of consumedCapacityEntries) {
                 const table = consumedCapacityEntry.TableName;
-                if ( ! table ) {
+                if (!table) {
                     continue;
                 }
 
                 const existingUsage = consumedCapacityByTable.get(table) ?? 0;
                 consumedCapacityByTable.set(
                     table,
-                    existingUsage + Number(consumedCapacityEntry.CapacityUnits ?? 0),
+                    existingUsage +
+                        Number(consumedCapacityEntry.CapacityUnits ?? 0),
                 );
             }
         };
@@ -185,58 +207,76 @@ export class DDBClient extends PuterClient {
         const client = await this.#getDocumentClient();
         const chunks = chunkValues(params, MAX_BATCH_WRITE_ITEMS);
 
-        for ( const chunk of chunks ) {
-            let requestItems = chunk.reduce((acc, curr) => {
-                const tableRequests = acc[curr.table] ?? [];
-                tableRequests.push({
-                    PutRequest: {
-                        Item: curr.item,
-                    },
-                });
-                acc[curr.table] = tableRequests;
-                return acc;
-            }, {} as NonNullable<BatchWriteCommandInput['RequestItems']>);
+        for (const chunk of chunks) {
+            let requestItems = chunk.reduce(
+                (acc, curr) => {
+                    const tableRequests = acc[curr.table] ?? [];
+                    tableRequests.push({
+                        PutRequest: {
+                            Item: curr.item,
+                        },
+                    });
+                    acc[curr.table] = tableRequests;
+                    return acc;
+                },
+                {} as NonNullable<BatchWriteCommandInput['RequestItems']>,
+            );
 
-            for ( let attempt = 0; attempt <= MAX_BATCH_WRITE_RETRIES; attempt++ ) {
-                if ( Object.keys(requestItems).length === 0 ) {
+            for (
+                let attempt = 0;
+                attempt <= MAX_BATCH_WRITE_RETRIES;
+                attempt++
+            ) {
+                if (Object.keys(requestItems).length === 0) {
                     break;
                 }
 
-                const response = await client.send(new BatchWriteCommand({
-                    RequestItems: requestItems,
-                    ReturnConsumedCapacity: 'TOTAL',
-                }));
+                const response = await client.send(
+                    new BatchWriteCommand({
+                        RequestItems: requestItems,
+                        ReturnConsumedCapacity: 'TOTAL',
+                    }),
+                );
                 accumulateConsumedCapacity(
-                    response.ConsumedCapacity as Array<{ TableName?: string; CapacityUnits?: number }> | undefined,
+                    response.ConsumedCapacity as
+                        | Array<{ TableName?: string; CapacityUnits?: number }>
+                        | undefined,
                 );
 
                 const unprocessedItems = response.UnprocessedItems ?? {};
-                if ( Object.keys(unprocessedItems).length === 0 ) {
+                if (Object.keys(unprocessedItems).length === 0) {
                     requestItems = {};
                     break;
                 }
 
-                requestItems = unprocessedItems as NonNullable<BatchWriteCommandInput['RequestItems']>;
-                if ( attempt < MAX_BATCH_WRITE_RETRIES ) {
-                    const delayMs = Math.min(1000, BATCH_WRITE_RETRY_BASE_MS * (2 ** attempt));
+                requestItems = unprocessedItems as NonNullable<
+                    BatchWriteCommandInput['RequestItems']
+                >;
+                if (attempt < MAX_BATCH_WRITE_RETRIES) {
+                    const delayMs = Math.min(
+                        1000,
+                        BATCH_WRITE_RETRY_BASE_MS * 2 ** attempt,
+                    );
                     await sleep(delayMs);
                 }
             }
 
-            if ( Object.keys(requestItems).length > 0 ) {
+            if (Object.keys(requestItems).length > 0) {
                 throw new Error('Failed to batch write all items to DynamoDB');
             }
         }
 
         return {
-            ConsumedCapacity: Array.from(consumedCapacityByTable.entries()).map(([TableName, CapacityUnits]) => ({
-                TableName,
-                CapacityUnits,
-            })),
+            ConsumedCapacity: Array.from(consumedCapacityByTable.entries()).map(
+                ([TableName, CapacityUnits]) => ({
+                    TableName,
+                    CapacityUnits,
+                }),
+            ),
         };
     }
 
-    async del<T extends Record<string, unknown>> (table: string, key: T) {
+    async del<T extends Record<string, unknown>>(table: string, key: T) {
         const command = new DeleteCommand({
             TableName: table,
             Key: key,
@@ -247,7 +287,7 @@ export class DDBClient extends PuterClient {
         return client.send(command);
     }
 
-    async query<T extends Record<string, unknown>> (
+    async query<T extends Record<string, unknown>>(
         table: string,
         keys: T,
         limit = 0,
@@ -256,21 +296,32 @@ export class DDBClient extends PuterClient {
         consistentRead = false,
         options?: { beginsWith?: { key: string; value: string } },
     ) {
-        const keyExpressionParts = Object.keys(keys).map(key => `#${key} = :${key}`);
-        const expressionAttributeValues = Object.entries(keys).reduce((acc, [key, value]) => {
-            acc[`:${key}`] = value;
-            return acc;
-        }, {} as Record<string, unknown>);
-        const expressionAttributeNames = Object.keys(keys).reduce((acc, key) => {
-            acc[`#${key}`] = key;
-            return acc;
-        }, {} as Record<string, string>);
+        const keyExpressionParts = Object.keys(keys).map(
+            (key) => `#${key} = :${key}`,
+        );
+        const expressionAttributeValues = Object.entries(keys).reduce(
+            (acc, [key, value]) => {
+                acc[`:${key}`] = value;
+                return acc;
+            },
+            {} as Record<string, unknown>,
+        );
+        const expressionAttributeNames = Object.keys(keys).reduce(
+            (acc, key) => {
+                acc[`#${key}`] = key;
+                return acc;
+            },
+            {} as Record<string, string>,
+        );
 
-        if ( options?.beginsWith?.key && options.beginsWith.value !== '' ) {
+        if (options?.beginsWith?.key && options.beginsWith.value !== '') {
             const beginsKey = options.beginsWith.key;
             const beginsValueToken = `:${beginsKey}_begins_with`;
-            keyExpressionParts.push(`begins_with(#${beginsKey}, ${beginsValueToken})`);
-            expressionAttributeValues[beginsValueToken] = options.beginsWith.value;
+            keyExpressionParts.push(
+                `begins_with(#${beginsKey}, ${beginsValueToken})`,
+            );
+            expressionAttributeValues[beginsValueToken] =
+                options.beginsWith.value;
             expressionAttributeNames[`#${beginsKey}`] = beginsKey;
         }
 
@@ -290,20 +341,24 @@ export class DDBClient extends PuterClient {
         return client.send(command);
     }
 
-    async update<T extends Record<string, unknown>> (
+    async update<T extends Record<string, unknown>>(
         table: string,
         key: T,
         expression: string,
         expressionValues?: Record<string, unknown>,
         expressionNames?: Record<string, string>,
     ) {
-        const hasValues = !!expressionValues && Object.keys(expressionValues).length > 0;
-        const hasNames = !!expressionNames && Object.keys(expressionNames).length > 0;
+        const hasValues =
+            !!expressionValues && Object.keys(expressionValues).length > 0;
+        const hasNames =
+            !!expressionNames && Object.keys(expressionNames).length > 0;
         const command = new UpdateCommand({
             TableName: table,
             Key: key,
             UpdateExpression: expression,
-            ...(hasValues ? { ExpressionAttributeValues: expressionValues } : {}),
+            ...(hasValues
+                ? { ExpressionAttributeValues: expressionValues }
+                : {}),
             ...(hasNames ? { ExpressionAttributeNames: expressionNames } : {}),
             ReturnValues: 'ALL_NEW',
             ReturnConsumedCapacity: 'TOTAL',
@@ -312,54 +367,65 @@ export class DDBClient extends PuterClient {
         try {
             const client = await this.#getDocumentClient();
             return await client.send(command);
-        } catch ( error ) {
+        } catch (error) {
             console.error('DDB Update Error', error);
             throw error;
         }
     }
 
-    async createTableIfNotExists (params: CreateTableCommandInput, ttlAttribute?: string) {
-        if ( this.#ddbConfig.aws ) {
-            console.warn('Creating DynamoDB tables in AWS is disabled by default, but if needed, update DDBClient');
+    async createTableIfNotExists(
+        params: CreateTableCommandInput,
+        ttlAttribute?: string,
+    ) {
+        if (this.#ddbConfig.aws) {
+            console.warn(
+                'Creating DynamoDB tables in AWS is disabled by default, but if needed, update DDBClient',
+            );
             return;
         }
 
         try {
             const client = await this.#getDocumentClient();
             await client.send(new CreateTableCommand(params));
-        } catch ( error ) {
-            if ( (error as Error)?.name !== 'ResourceInUseException' ) {
+        } catch (error) {
+            if ((error as Error)?.name !== 'ResourceInUseException') {
                 throw error;
             }
         }
 
-        if ( ttlAttribute ) {
-            await this.#deleteExpiredItems(params.TableName!, params.KeySchema!, ttlAttribute);
+        if (ttlAttribute) {
+            await this.#deleteExpiredItems(
+                params.TableName!,
+                params.KeySchema!,
+                ttlAttribute,
+            );
         }
     }
 
-    async #getDocumentClient () {
-        if ( this.#documentClient ) {
+    async #getDocumentClient() {
+        if (this.#documentClient) {
             return this.#documentClient;
         }
 
-        if ( this.#localInitPromise ) {
+        if (this.#localInitPromise) {
             await this.#localInitPromise;
         }
 
-        if ( ! this.#documentClient ) {
+        if (!this.#documentClient) {
             throw new Error('DynamoDB document client is not initialized');
         }
 
         return this.#documentClient;
     }
 
-    #bindAwsClient () {
+    #bindAwsClient() {
         const accessKeyId = this.#ddbConfig.aws?.access_key;
         const secretAccessKey = this.#ddbConfig.aws?.secret_key;
 
-        if ( !accessKeyId || !secretAccessKey ) {
-            throw new Error('DynamoDB aws config requires both `access_key` and `secret_key`');
+        if (!accessKeyId || !secretAccessKey) {
+            throw new Error(
+                'DynamoDB aws config requires both `access_key` and `secret_key`',
+            );
         }
 
         const ddbClient = new DynamoDBClient({
@@ -373,7 +439,9 @@ export class DDBClient extends PuterClient {
                 requestTimeout: 5000,
                 httpsAgent: new httpsAgent({ keepAlive: true }),
             }),
-            ...(this.#ddbConfig.endpoint ? { endpoint: this.#ddbConfig.endpoint } : {}),
+            ...(this.#ddbConfig.endpoint
+                ? { endpoint: this.#ddbConfig.endpoint }
+                : {}),
             region: this.#ddbConfig.aws?.region || 'us-west-2',
         });
 
@@ -384,7 +452,7 @@ export class DDBClient extends PuterClient {
         });
     }
 
-    async #bindLocalClient () {
+    async #bindLocalClient() {
         const pathKey = getDynalitePathKey(this.#ddbConfig.path);
         const endpoint = await getOrCreateLocalDynaliteEndpoint(pathKey);
 
@@ -410,42 +478,60 @@ export class DDBClient extends PuterClient {
         });
     }
 
-    async #deleteExpiredItems (table: string, keySchema: NonNullable<CreateTableCommandInput['KeySchema']>, ttlAttribute: string) {
+    async #deleteExpiredItems(
+        table: string,
+        keySchema: NonNullable<CreateTableCommandInput['KeySchema']>,
+        ttlAttribute: string,
+    ) {
         const now = Math.floor(Date.now() / 1000);
-        const keyNames = keySchema.map(key => key.AttributeName!);
+        const keyNames = keySchema.map((key) => key.AttributeName!);
 
         let lastEvaluatedKey: Record<string, unknown> | undefined;
         const client = await this.#getDocumentClient();
 
         do {
-            const scan = await client.send(new ScanCommand({
-                TableName: table,
-                FilterExpression: '#ttl < :now',
-                ExpressionAttributeNames: {
-                    '#ttl': ttlAttribute,
-                    ...Object.fromEntries(keyNames.map(key => [`#k_${key}`, key])),
-                },
-                ExpressionAttributeValues: { ':now': now },
-                ProjectionExpression: keyNames.map(key => `#k_${key}`).join(', '),
-                ...(lastEvaluatedKey ? { ExclusiveStartKey: lastEvaluatedKey } : {}),
-            }));
+            const scan = await client.send(
+                new ScanCommand({
+                    TableName: table,
+                    FilterExpression: '#ttl < :now',
+                    ExpressionAttributeNames: {
+                        '#ttl': ttlAttribute,
+                        ...Object.fromEntries(
+                            keyNames.map((key) => [`#k_${key}`, key]),
+                        ),
+                    },
+                    ExpressionAttributeValues: { ':now': now },
+                    ProjectionExpression: keyNames
+                        .map((key) => `#k_${key}`)
+                        .join(', '),
+                    ...(lastEvaluatedKey
+                        ? { ExclusiveStartKey: lastEvaluatedKey }
+                        : {}),
+                }),
+            );
 
-            lastEvaluatedKey = scan.LastEvaluatedKey as Record<string, unknown> | undefined;
+            lastEvaluatedKey = scan.LastEvaluatedKey as
+                | Record<string, unknown>
+                | undefined;
             const items = scan.Items;
-            if ( !items || items.length === 0 ) continue;
+            if (!items || items.length === 0) continue;
 
             const chunks = chunkValues(items, MAX_BATCH_WRITE_ITEMS);
-            for ( const chunk of chunks ) {
-                await client.send(new BatchWriteCommand({
-                    RequestItems: {
-                        [table]: chunk.map(item => ({
-                            DeleteRequest: {
-                                Key: Object.fromEntries(keyNames.map(key => [key, item[key]])),
-                            },
-                        })),
-                    },
-                }));
+            for (const chunk of chunks) {
+                await client.send(
+                    new BatchWriteCommand({
+                        RequestItems: {
+                            [table]: chunk.map((item) => ({
+                                DeleteRequest: {
+                                    Key: Object.fromEntries(
+                                        keyNames.map((key) => [key, item[key]]),
+                                    ),
+                                },
+                            })),
+                        },
+                    }),
+                );
             }
-        } while ( lastEvaluatedKey );
+        } while (lastEvaluatedKey);
     }
 }

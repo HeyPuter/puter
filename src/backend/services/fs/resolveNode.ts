@@ -3,7 +3,6 @@ import { HttpError } from '../../core/http/HttpError.js';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
 import type { FSEntryStore } from '../../stores/fs/FSEntryStore.js';
 
-
 /**
  * Resolve an entry by one of several reference shapes (path, uid, id) to
  * a plain FSEntry row. Everything else (size, descendants, subdomains,
@@ -32,47 +31,63 @@ export interface ResolveNodeOptions {
     userId?: number;
 }
 
-function isNonEmptyString (value: unknown): value is string {
+function isNonEmptyString(value: unknown): value is string {
     return typeof value === 'string' && value.trim().length > 0;
 }
 
-export async function resolveNode (
+export async function resolveNode(
     fsEntryStore: FSEntryStore,
     ref: NodeRef,
     options: ResolveNodeOptions = {},
 ): Promise<FSEntry | null> {
-    if ( ref.entry ) return ref.entry;
+    if (ref.entry) return ref.entry;
 
     const uuid = ref.uid ?? ref.uuid;
-    if ( isNonEmptyString(uuid) ) {
+    if (isNonEmptyString(uuid)) {
         const entry = await fsEntryStore.getEntryByUuid(uuid);
-        if ( entry ) return entry;
-        return notFoundOrNull(options.required, `Entry not found: uuid=${uuid}`);
+        if (entry) return entry;
+        return notFoundOrNull(
+            options.required,
+            `Entry not found: uuid=${uuid}`,
+        );
     }
 
-    if ( ref.id !== undefined && ref.id !== null && String(ref.id).length > 0 ) {
+    if (ref.id !== undefined && ref.id !== null && String(ref.id).length > 0) {
         const numericId = Number(ref.id);
-        if ( ! Number.isFinite(numericId) ) {
+        if (!Number.isFinite(numericId)) {
             throw new HttpError(400, 'Invalid id');
         }
         const entry = await fsEntryStore.getEntryById(numericId);
-        if ( entry ) return entry;
-        return notFoundOrNull(options.required, `Entry not found: id=${numericId}`);
+        if (entry) return entry;
+        return notFoundOrNull(
+            options.required,
+            `Entry not found: id=${numericId}`,
+        );
     }
 
-    if ( isNonEmptyString(ref.path) ) {
-        const entry = options.userId !== undefined
-            ? await fsEntryStore.getEntryByPathForUser(ref.path, options.userId)
-            : await fsEntryStore.getEntryByPath(ref.path);
-        if ( entry ) return entry;
-        return notFoundOrNull(options.required, `Entry not found: path=${ref.path}`);
+    if (isNonEmptyString(ref.path)) {
+        const entry =
+            options.userId !== undefined
+                ? await fsEntryStore.getEntryByPathForUser(
+                      ref.path,
+                      options.userId,
+                  )
+                : await fsEntryStore.getEntryByPath(ref.path);
+        if (entry) return entry;
+        return notFoundOrNull(
+            options.required,
+            `Entry not found: path=${ref.path}`,
+        );
     }
 
-    throw new HttpError(400, 'Missing entry reference (expected one of: path, uid, id)');
+    throw new HttpError(
+        400,
+        'Missing entry reference (expected one of: path, uid, id)',
+    );
 }
 
-function notFoundOrNull (required: boolean | undefined, message: string): null {
-    if ( required ) throw new HttpError(404, message);
+function notFoundOrNull(required: boolean | undefined, message: string): null {
+    if (required) throw new HttpError(404, message);
     return null;
 }
 
@@ -82,9 +97,12 @@ function notFoundOrNull (required: boolean | undefined, message: string): null {
  * `{ parent, name }` selector style (parent resolves first, then we append
  * name to parent.path).
  */
-export function splitParentAndName (absolutePath: string): { parentPath: string; name: string } {
+export function splitParentAndName(absolutePath: string): {
+    parentPath: string;
+    name: string;
+} {
     const normalized = normalizeAbsolutePath(absolutePath);
-    if ( normalized === '/' ) {
+    if (normalized === '/') {
         throw new HttpError(400, 'Cannot derive parent of root');
     }
     const parentPath = pathPosix.dirname(normalized);
@@ -92,16 +110,16 @@ export function splitParentAndName (absolutePath: string): { parentPath: string;
     return { parentPath: parentPath === '.' ? '/' : parentPath, name };
 }
 
-export function normalizeAbsolutePath (path: string): string {
+export function normalizeAbsolutePath(path: string): string {
     const trimmed = typeof path === 'string' ? path.trim() : '';
-    if ( trimmed.length === 0 ) {
+    if (trimmed.length === 0) {
         throw new HttpError(400, 'Path cannot be empty');
     }
     let normalized = pathPosix.normalize(trimmed);
-    if ( ! normalized.startsWith('/') ) {
+    if (!normalized.startsWith('/')) {
         normalized = `/${normalized}`;
     }
-    if ( normalized.length > 1 && normalized.endsWith('/') ) {
+    if (normalized.length > 1 && normalized.endsWith('/')) {
         normalized = normalized.slice(0, -1);
     }
     return normalized;
@@ -111,11 +129,11 @@ export function normalizeAbsolutePath (path: string): string {
  * Build an absolute child path from a parent path + child name. Rejects names
  * containing `/`.
  */
-export function joinChildPath (parentPath: string, name: string): string {
-    if ( typeof name !== 'string' || name.length === 0 ) {
+export function joinChildPath(parentPath: string, name: string): string {
+    if (typeof name !== 'string' || name.length === 0) {
         throw new HttpError(400, 'Name cannot be empty');
     }
-    if ( name.includes('/') ) {
+    if (name.includes('/')) {
         throw new HttpError(400, 'Name cannot contain a slash');
     }
     const parent = normalizeAbsolutePath(parentPath);

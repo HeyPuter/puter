@@ -47,7 +47,7 @@ export interface IGenerateParams {
 }
 
 export interface IImageProvider {
-    generate (params: IGenerateParams): Promise<string>;
-    models (): Promise<IImageModel[]> | IImageModel[];
-    getDefaultModel (): string;
+    generate(params: IGenerateParams): Promise<string>;
+    models(): Promise<IImageModel[]> | IImageModel[];
+    getDefaultModel(): string;
 }

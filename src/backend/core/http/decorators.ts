@@ -32,7 +32,7 @@ interface DecoratedPrototype {
 }
 
 const getOrInitRoutes = (proto: DecoratedPrototype): CollectedRoute[] => {
-    if ( ! proto[ROUTES_METADATA_KEY] ) {
+    if (!proto[ROUTES_METADATA_KEY]) {
         proto[ROUTES_METADATA_KEY] = [];
     }
     return proto[ROUTES_METADATA_KEY]!;
@@ -57,37 +57,48 @@ const getOrInitRoutes = (proto: DecoratedPrototype): CollectedRoute[] => {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyCtor = new (...args: any[]) => any;
 
-export function Controller (prefix: string = '') {
-    return <T extends AnyCtor>(value: T, _context: ClassDecoratorContext<T>): void => {
+export function Controller(prefix: string = '') {
+    return <T extends AnyCtor>(
+        value: T,
+        _context: ClassDecoratorContext<T>,
+    ): void => {
         const proto = value.prototype as DecoratedPrototype;
         proto[PREFIX_METADATA_KEY] = prefix;
 
         // Only install the default walker if the class itself hasn't
         // defined registerRoutes. We check *own* properties (not inherited)
         // so a PuterController base-class default doesn't block us.
-        const hasOwnRegister = Object.prototype.hasOwnProperty.call(proto, 'registerRoutes');
-        if ( hasOwnRegister ) return;
+        const hasOwnRegister = Object.prototype.hasOwnProperty.call(
+            proto,
+            'registerRoutes',
+        );
+        if (hasOwnRegister) return;
 
         proto.registerRoutes = function (router: PuterRouter): void {
-            const routes = ((this as DecoratedPrototype)[ROUTES_METADATA_KEY] ?? []) as CollectedRoute[];
-            for ( const r of routes ) {
+            const routes = ((this as DecoratedPrototype)[ROUTES_METADATA_KEY] ??
+                []) as CollectedRoute[];
+            for (const r of routes) {
                 const bound = r.handler.bind(this) as RequestHandler;
-                if ( r.method === 'use' ) {
-                    if ( r.path !== undefined ) {
+                if (r.method === 'use') {
+                    if (r.path !== undefined) {
                         router.use(r.path, r.options, bound);
                     } else {
                         router.use(r.options, bound);
                     }
                     continue;
                 }
-                if ( r.path === undefined ) {
+                if (r.path === undefined) {
                     // A non-use method without a path is a mistake in the decorator
                     // call site; surface it loudly rather than silently dropping.
-                    throw new Error(`@${r.method.toUpperCase()} decorator missing path`);
+                    throw new Error(
+                        `@${r.method.toUpperCase()} decorator missing path`,
+                    );
                 }
                 // Delegate to the appropriately-named method on the router.
                 // The method set is enumerated in `RouteMethod` so this cast is safe.
-                const routerMethod = router[r.method as Exclude<RouteMethod, 'use'>] as (
+                const routerMethod = router[
+                    r.method as Exclude<RouteMethod, 'use'>
+                ] as (
                     path: RoutePath,
                     options: RouteOptions,
                     handler: RequestHandler,
@@ -110,7 +121,9 @@ const createMethodDecorator = (method: Exclude<RouteMethod, 'use'>) => {
             context: ClassMethodDecoratorContext,
         ): void => {
             context.addInitializer(function () {
-                const proto = Object.getPrototypeOf(this as object) as DecoratedPrototype;
+                const proto = Object.getPrototypeOf(
+                    this as object,
+                ) as DecoratedPrototype;
                 getOrInitRoutes(proto).push({
                     method,
                     path,

@@ -36,28 +36,37 @@ export class TogetherAIProvider implements IChatProvider {
 
     #kvKey = 'togetherai:models';
 
-    constructor (config: { apiKey: string }, meteringService: MeteringService) {
+    constructor(config: { apiKey: string }, meteringService: MeteringService) {
         this.#together = new Together({
             apiKey: config.apiKey,
         });
         this.#meteringService = meteringService;
     }
 
-    getDefaultModel () {
+    getDefaultModel() {
         return 'togetherai:meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo';
     }
 
-    async models () {
+    async models() {
         let models: IChatModel[] | undefined = kv.get(this.#kvKey);
-        if ( models ) return models;
+        if (models) return models;
 
         const apiModels = await this.#together.models.list();
         models = [];
-        for ( const model of apiModels ) {
-            if ( model.type === 'chat' || model.type === 'code' || model.type === 'language' || model.type === 'moderation' ) {
+        for (const model of apiModels) {
+            if (
+                model.type === 'chat' ||
+                model.type === 'code' ||
+                model.type === 'language' ||
+                model.type === 'moderation'
+            ) {
                 models.push({
                     id: `togetherai:${model.id}`,
-                    aliases: [model.id, `togetherai/${model.id}`, model.id.split('/').slice(1).join('/')],
+                    aliases: [
+                        model.id,
+                        `togetherai/${model.id}`,
+                        model.id.split('/').slice(1).join('/'),
+                    ],
                     name: model.display_name,
                     context: model.context_length,
                     description: model.display_name,
@@ -91,27 +100,38 @@ export class TogetherAIProvider implements IChatProvider {
         return models;
     }
 
-    async list () {
+    async list() {
         const models = await this.models();
         const modelIds: string[] = [];
-        for ( const model of models ) {
+        for (const model of models) {
             modelIds.push(model.id);
-            if ( model.aliases ) {
+            if (model.aliases) {
                 modelIds.push(...model.aliases);
             }
         }
         return modelIds;
     }
 
-    async complete ({ messages, stream, model, tools, max_tokens, temperature }: ICompleteArguments): ReturnType<IChatProvider['complete']> {
-        if ( model === 'model-fallback-test-1' ) {
+    async complete({
+        messages,
+        stream,
+        model,
+        tools,
+        max_tokens,
+        temperature,
+    }: ICompleteArguments): ReturnType<IChatProvider['complete']> {
+        if (model === 'model-fallback-test-1') {
             throw new Error('Model Fallback Test 1');
         }
 
         const actor = Context.get('actor');
         const models = await this.models();
-        const modelUsed = models.find(m => [m.id, ...(m.aliases || [])].includes(model)) || models.find(m => m.id === this.getDefaultModel())!;
-        const modelIdForParams = modelUsed.id.startsWith('togetherai:') ? modelUsed.id.slice('togetherai:'.length) : modelUsed.id;
+        const modelUsed =
+            models.find((m) => [m.id, ...(m.aliases || [])].includes(model)) ||
+            models.find((m) => m.id === this.getDefaultModel())!;
+        const modelIdForParams = modelUsed.id.startsWith('togetherai:')
+            ? modelUsed.id.slice('togetherai:'.length)
+            : modelUsed.id;
 
         messages = await OpenAIUtil.process_input_messages(messages);
 
@@ -121,9 +141,20 @@ export class TogetherAIProvider implements IChatProvider {
             stream,
             ...(tools ? { tools } : {}),
             // TODO: make this better but togetherai doesn't handle max tokens properly at all
-            ...(max_tokens ? { max_tokens: max_tokens - messages.reduce((acc, curr) => {
-                return acc + (curr.type === 'text' ? curr.text.length / 2 : 200);
-            }, 0) } : {}),
+            ...(max_tokens
+                ? {
+                      max_tokens:
+                          max_tokens -
+                          messages.reduce((acc, curr) => {
+                              return (
+                                  acc +
+                                  (curr.type === 'text'
+                                      ? curr.text.length / 2
+                                      : 200)
+                              );
+                          }, 0),
+                  }
+                : {}),
             ...(temperature ? { temperature } : {}),
             ...(stream ? { stream_options: { include_usage: true } } : {}),
         } as Together.Chat.Completions.CompletionCreateParamsNonStreaming);
@@ -131,12 +162,19 @@ export class TogetherAIProvider implements IChatProvider {
         return OpenAIUtil.handle_completion_output({
             usage_calculator: ({ usage }) => {
                 const trackedUsage = OpenAIUtil.extractMeteredUsage(usage);
-                const costsOverride = Object.fromEntries(Object.entries(trackedUsage).map(([k, v]) => {
-                    const mappedKey  = TOGETHER_AI_CHAT_COST_MAP[k] || k;
-                    return [k, v * (modelUsed.costs[mappedKey])];
-                }));
+                const costsOverride = Object.fromEntries(
+                    Object.entries(trackedUsage).map(([k, v]) => {
+                        const mappedKey = TOGETHER_AI_CHAT_COST_MAP[k] || k;
+                        return [k, v * modelUsed.costs[mappedKey]];
+                    }),
+                );
 
-                this.#meteringService.utilRecordUsageObject(trackedUsage, actor, `togetherai:${modelIdForParams}`, costsOverride);
+                this.#meteringService.utilRecordUsageObject(
+                    trackedUsage,
+                    actor,
+                    `togetherai:${modelIdForParams}`,
+                    costsOverride,
+                );
                 return trackedUsage;
             },
             stream,
@@ -144,7 +182,7 @@ export class TogetherAIProvider implements IChatProvider {
         });
     }
 
-    checkModeration (_text: string) {
+    checkModeration(_text: string) {
         throw new Error('Method not implemented.');
     }
 }

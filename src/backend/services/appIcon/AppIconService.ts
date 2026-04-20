@@ -33,49 +33,63 @@ export class AppIconService extends PuterService {
     #dirReady: Promise<void> | null = null;
     #ownerUserId: number | null = null;
 
-    override async onServerStart (): Promise<void> {
+    override async onServerStart(): Promise<void> {
         try {
             this.#sharp = (await import('sharp')).default;
         } catch {
-            console.warn('[app-icon] sharp not available — icon resizing disabled');
+            console.warn(
+                '[app-icon] sharp not available — icon resizing disabled',
+            );
         }
 
         this.#dirReady = this.ensureIconsDirectory();
 
-        this.clients.event.on('app.new-icon', async (_key: string, data: unknown) => {
-            try {
-                await this.#processIcon(data as Record<string, unknown>);
-            } catch ( err ) {
-                console.warn('[app-icon] icon processing failed', err);
-            }
-        });
+        this.clients.event.on(
+            'app.new-icon',
+            async (_key: string, data: unknown) => {
+                try {
+                    await this.#processIcon(data as Record<string, unknown>);
+                } catch (err) {
+                    console.warn('[app-icon] icon processing failed', err);
+                }
+            },
+        );
 
         // Apps written with a data URL icon outside this pipeline get
         // picked up lazily through `app.changed`. Guarded against the
         // `icon-migrated` action we emit ourselves.
-        this.clients.event.on('app.changed', async (_key: string, data: unknown) => {
-            const d = data as Record<string, unknown> | undefined;
-            if ( ! d?.app_uid ) return;
-            if ( d.action === 'icon-migrated' ) return;
-            const app = await this.stores.app.getByUid(String(d.app_uid));
-            const icon = (app as Record<string, unknown> | null)?.icon as string | undefined;
-            if ( icon?.startsWith('data:') ) {
-                await this.#processIcon({ app_uid: d.app_uid, data_url: icon });
-            }
-        });
+        this.clients.event.on(
+            'app.changed',
+            async (_key: string, data: unknown) => {
+                const d = data as Record<string, unknown> | undefined;
+                if (!d?.app_uid) return;
+                if (d.action === 'icon-migrated') return;
+                const app = await this.stores.app.getByUid(String(d.app_uid));
+                const icon = (app as Record<string, unknown> | null)?.icon as
+                    | string
+                    | undefined;
+                if (icon?.startsWith('data:')) {
+                    await this.#processIcon({
+                        app_uid: d.app_uid,
+                        data_url: icon,
+                    });
+                }
+            },
+        );
     }
 
     /** Public: canonical URL for an app's icon at a given size (CDN/subdomain-backed). */
-    getIconUrl (appUid: string, size: number): string | null {
+    getIconUrl(appUid: string, size: number): string | null {
         const cfg = this.config;
         const host = cfg.static_hosting_domain ?? cfg.static_hosting_domain_alt;
-        if ( ! host ) return null;
+        if (!host) return null;
         const protocol = cfg.protocol ?? 'https';
         // Externally-visible port. Mirrors what PuterHomepageService et al.
         // do — non-80/443 deployments (local dev, reverse-proxied setups on
         // non-standard ports) would otherwise get a hostname with no port.
         const pubPort = cfg.pub_port;
-        const portSuffix = (pubPort && pubPort !== 80 && pubPort !== 443) ? `:${pubPort}` : '';
+        const portSuffix =
+            pubPort && pubPort !== 80 && pubPort !== 443 ? `:${pubPort}` : '';
         const normalized = appUid.startsWith('app-') ? appUid : `app-${appUid}`;
         return `${protocol}://${APP_ICONS_SUBDOMAIN}.${host}${portSuffix}/${SIZED_ICON_FILENAME(normalized, size)}`;
     }
@@ -89,21 +103,25 @@ export class AppIconService extends PuterService {
      * its own `onServerStart` runs when no admin exists yet). Idempotent:
      * safe to call repeatedly.
      */
-    async ensureIconsDirectory (): Promise<void> {
+    async ensureIconsDirectory(): Promise<void> {
         // The admin user owns the icons directory. DefaultUserService
         // creates the admin on first boot; if it doesn't exist yet we
         // bail and try again the next time an icon is processed.
         const adminUser = await this.stores.user.getByUsername('admin');
-        if ( ! adminUser ) {
-            console.warn('[app-icon] admin user not found; deferring icons directory setup');
+        if (!adminUser) {
+            console.warn(
+                '[app-icon] admin user not found; deferring icons directory setup',
+            );
             return;
         }
         this.#ownerUserId = adminUser.id;
 
         // Ensure /system/app_icons/ exists.
-        const existing = await this.stores.fsEntry.getEntryByPath(APP_ICONS_PATH_PREFIX);
+        const existing = await this.stores.fsEntry.getEntryByPath(
+            APP_ICONS_PATH_PREFIX,
+        );
         let dirEntry = existing;
-        if ( ! dirEntry ) {
+        if (!dirEntry) {
             // Write an empty dir by writing a dummy file and removing it
             // isn't great — instead rely on `createMissingParents` when we
             // write the first icon. We still need a directory entry for
@@ -116,15 +134,16 @@ export class AppIconService extends PuterService {
             );
         }
 
-        if ( ! dirEntry ) {
+        if (!dirEntry) {
             console.warn('[app-icon] failed to ensure icons directory');
             return;
         }
 
         // Register the `puter-app-icons` subdomain pointing at that dir.
         // Idempotent: skip if it already exists.
-        const already = await this.stores.subdomain.existsBySubdomain(APP_ICONS_SUBDOMAIN);
-        if ( ! already ) {
+        const already =
+            await this.stores.subdomain.existsBySubdomain(APP_ICONS_SUBDOMAIN);
+        if (!already) {
             await this.stores.subdomain.create({
                 userId: adminUser.id,
                 subdomain: APP_ICONS_SUBDOMAIN,
@@ -135,36 +154,43 @@ export class AppIconService extends PuterService {
 
     // ── Icon pipeline ───────────────────────────────────────────────
 
-    async #processIcon (data: Record<string, unknown>): Promise<void> {
-        if ( this.#dirReady ) await this.#dirReady;
-        if ( ! this.#ownerUserId ) {
+    async #processIcon(data: Record<string, unknown>): Promise<void> {
+        if (this.#dirReady) await this.#dirReady;
+        if (!this.#ownerUserId) {
             // Retry the bootstrap — admin may have been created in the
             // meantime (e.g. first-boot race).
             await this.ensureIconsDirectory();
-            if ( ! this.#ownerUserId ) return;
+            if (!this.#ownerUserId) return;
         }
-        if ( ! this.#sharp ) return; // can't resize without sharp
+        if (!this.#sharp) return; // can't resize without sharp
 
         const dataUrl = (data.dataUrl ?? data.data_url) as string | undefined;
         let appUid = (data.appUid ?? data.app_uid) as string | undefined;
-        if ( !dataUrl || !appUid ) return;
-        if ( ! appUid.startsWith('app-') ) appUid = `app-${appUid}`;
+        if (!dataUrl || !appUid) return;
+        if (!appUid.startsWith('app-')) appUid = `app-${appUid}`;
 
         const commaIdx = dataUrl.indexOf(',');
-        if ( commaIdx === -1 ) return;
+        if (commaIdx === -1) return;
         const inputBuffer = Buffer.from(dataUrl.slice(commaIdx + 1), 'base64');
-        if ( inputBuffer.length === 0 ) return;
+        if (inputBuffer.length === 0) return;
 
         // Write the original alongside the sized variants so the CDN-backed
         // subdomain serves everything through the same path.
         const writes: Array<Promise<unknown>> = [];
 
         const originalPng = await this.#sharp(inputBuffer).png().toBuffer();
-        writes.push(this.#writeIcon(ORIGINAL_ICON_FILENAME(appUid), originalPng));
+        writes.push(
+            this.#writeIcon(ORIGINAL_ICON_FILENAME(appUid), originalPng),
+        );
 
-        for ( const size of ICON_SIZES ) {
-            const sizedPng = await this.#sharp(inputBuffer).resize(size).png().toBuffer();
-            writes.push(this.#writeIcon(SIZED_ICON_FILENAME(appUid, size), sizedPng));
+        for (const size of ICON_SIZES) {
+            const sizedPng = await this.#sharp(inputBuffer)
+                .resize(size)
+                .png()
+                .toBuffer();
+            writes.push(
+                this.#writeIcon(SIZED_ICON_FILENAME(appUid, size), sizedPng),
+            );
         }
         await Promise.all(writes);
 
@@ -173,22 +199,29 @@ export class AppIconService extends PuterService {
         // that falls back to the data URL if S3/CDN lookups miss. Using it
         // here keeps the icon column small and makes clients go through
         // the cached path.
-        const apiBase = String(this.config.api_base_url ?? '').replace(/\/+$/, '');
-        if ( apiBase ) {
+        const apiBase = String(this.config.api_base_url ?? '').replace(
+            /\/+$/,
+            '',
+        );
+        if (apiBase) {
             await this.clients.db.write(
                 "UPDATE `apps` SET `icon` = ? WHERE `uid` = ? AND `icon` LIKE 'data:%'",
                 [`${apiBase}/app-icon/${appUid}`, appUid],
             );
             await this.stores.app.invalidateByUid(appUid);
-            this.clients.event.emit('app.changed', {
-                app_uid: appUid,
-                action: 'icon-migrated',
-            }, {});
+            this.clients.event.emit(
+                'app.changed',
+                {
+                    app_uid: appUid,
+                    action: 'icon-migrated',
+                },
+                {},
+            );
         }
     }
 
-    async #writeIcon (filename: string, buffer: Buffer): Promise<void> {
-        if ( ! this.#ownerUserId ) return;
+    async #writeIcon(filename: string, buffer: Buffer): Promise<void> {
+        if (!this.#ownerUserId) return;
         await this.services.fsEntry.write(this.#ownerUserId, {
             fileMetadata: {
                 path: `${APP_ICONS_PATH_PREFIX}/${filename}`,

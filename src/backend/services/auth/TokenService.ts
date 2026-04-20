@@ -30,19 +30,23 @@ interface CompressionContext {
 
 const def = (o: Record<string, FieldInfoShorthand>): CompressionContext => {
     const fullkey_to_info: Record<string, FieldInfo> = {};
-    for ( const k in o ) {
+    for (const k in o) {
         const v = o[k];
         fullkey_to_info[k] = typeof v === 'string' ? { short: v } : v;
     }
-    const short_to_fullkey = Object.keys(fullkey_to_info).reduce<Record<string, string>>((acc, key) => {
+    const short_to_fullkey = Object.keys(fullkey_to_info).reduce<
+        Record<string, string>
+    >((acc, key) => {
         const short = fullkey_to_info[key].short;
-        if ( short ) acc[short] = key;
+        if (short) acc[short] = key;
         return acc;
     }, {});
     return { fullkey_to_info, short_to_fullkey };
 };
 
-const defv = (o: Record<string, string>): { to_short: Record<string, string>; to_long: Record<string, string> } => {
+const defv = (
+    o: Record<string, string>,
+): { to_short: Record<string, string>; to_long: Record<string, string> } => {
     return {
         to_short: o,
         to_long: Object.keys(o).reduce<Record<string, string>>((acc, key) => {
@@ -58,8 +62,8 @@ const defv = (o: Record<string, string>): { to_short: Record<string, string>; to
  */
 const uuidCompression = (prefix?: string) => ({
     encode: (v: string): string => {
-        if ( prefix ) {
-            if ( ! v.startsWith(prefix) ) {
+        if (prefix) {
+            if (!v.startsWith(prefix)) {
                 throw new Error(`Expected ${prefix} prefix`);
             }
             v = v.slice(prefix.length);
@@ -69,15 +73,18 @@ const uuidCompression = (prefix?: string) => ({
     },
     decode: (v: string): string => {
         // Already a uuid string → passthrough (for tokens minted pre-compression)
-        if ( v.includes('-') ) return v;
+        if (v.includes('-')) return v;
         const undecorated = Buffer.from(v, 'base64').toString('hex');
-        return (prefix ?? '') + [
-            undecorated.slice(0, 8),
-            undecorated.slice(8, 12),
-            undecorated.slice(12, 16),
-            undecorated.slice(16, 20),
-            undecorated.slice(20),
-        ].join('-');
+        return (
+            (prefix ?? '') +
+            [
+                undecorated.slice(0, 8),
+                undecorated.slice(8, 12),
+                undecorated.slice(12, 16),
+                undecorated.slice(16, 20),
+                undecorated.slice(20),
+            ].join('-')
+        );
     },
 });
 
@@ -88,7 +95,7 @@ const AUTH_COMPRESSION = def({
     type: {
         short: 't',
         values: defv({
-            'session': 's',
+            session: 's',
             'access-token': 't',
             'app-under-user': 'au',
         }),
@@ -113,9 +120,9 @@ const COMPRESSION: Record<string, CompressionContext> = {
 export class TokenService extends PuterService {
     #secret: string = '';
 
-    override onServerStart (): void {
+    override onServerStart(): void {
         const secret = this.config.jwt_secret;
-        if ( ! secret ) {
+        if (!secret) {
             throw new Error('TokenService requires `jwt_secret` in config');
         }
         this.#secret = secret;
@@ -126,7 +133,11 @@ export class TokenService extends PuterService {
      * is applied to the payload before signing, so what reaches the wire is
      * the short-key form.
      */
-    sign (scope: string, payload: Record<string, unknown>, options?: SignOptions): string {
+    sign(
+        scope: string,
+        payload: Record<string, unknown>,
+        options?: SignOptions,
+    ): string {
         const context = COMPRESSION[scope];
         const compressed = this.#compressPayload(context, payload);
         return jwt.sign(compressed, this.#secret, options ?? {});
@@ -137,30 +148,40 @@ export class TokenService extends PuterService {
      * (propagating `jsonwebtoken`'s errors). Callers in the auth probe should
      * catch and treat as "no actor".
      */
-    verify<T = Record<string, unknown>> (scope: string, token: string): T {
+    verify<T = Record<string, unknown>>(scope: string, token: string): T {
         const context = COMPRESSION[scope];
-        const payload = jwt.verify(token, this.#secret) as Record<string, unknown>;
+        const payload = jwt.verify(token, this.#secret) as Record<
+            string,
+            unknown
+        >;
         return this.#decompressPayload(context, payload) as unknown as T;
     }
 
     // ── Internals ───────────────────────────────────────────────────
 
-    #compressPayload (context: CompressionContext | undefined, payload: Record<string, unknown>): Record<string, unknown> {
-        if ( ! context ) return payload;
+    #compressPayload(
+        context: CompressionContext | undefined,
+        payload: Record<string, unknown>,
+    ): Record<string, unknown> {
+        if (!context) return payload;
         const { fullkey_to_info } = context;
         const out: Record<string, unknown> = {};
-        for ( const fullkey in payload ) {
+        for (const fullkey in payload) {
             const info = fullkey_to_info[fullkey];
-            if ( ! info ) {
+            if (!info) {
                 out[fullkey] = payload[fullkey];
                 continue;
             }
             let k = fullkey;
             let v = payload[fullkey];
-            if ( info.short ) k = info.short;
-            if ( info.values && typeof v === 'string' && info.values.to_short[v] !== undefined ) {
+            if (info.short) k = info.short;
+            if (
+                info.values &&
+                typeof v === 'string' &&
+                info.values.to_short[v] !== undefined
+            ) {
                 v = info.values.to_short[v];
-            } else if ( info.encode && typeof v === 'string' ) {
+            } else if (info.encode && typeof v === 'string') {
                 v = info.encode(v);
             }
             out[k] = v;
@@ -168,23 +189,30 @@ export class TokenService extends PuterService {
         return out;
     }
 
-    #decompressPayload (context: CompressionContext | undefined, payload: Record<string, unknown>): Record<string, unknown> {
-        if ( ! context ) return payload;
+    #decompressPayload(
+        context: CompressionContext | undefined,
+        payload: Record<string, unknown>,
+    ): Record<string, unknown> {
+        if (!context) return payload;
         const { fullkey_to_info, short_to_fullkey } = context;
         const out: Record<string, unknown> = {};
-        for ( const short in payload ) {
+        for (const short in payload) {
             const fullkey = short_to_fullkey[short];
-            if ( ! fullkey ) {
+            if (!fullkey) {
                 out[short] = payload[short];
                 continue;
             }
             const info = fullkey_to_info[fullkey];
             let k = short;
             let v = payload[short];
-            if ( info.short ) k = fullkey;
-            if ( info.values && typeof v === 'string' && info.values.to_long[v] !== undefined ) {
+            if (info.short) k = fullkey;
+            if (
+                info.values &&
+                typeof v === 'string' &&
+                info.values.to_long[v] !== undefined
+            ) {
                 v = info.values.to_long[v];
-            } else if ( info.decode && typeof v === 'string' ) {
+            } else if (info.decode && typeof v === 'string') {
                 v = info.decode(v);
             }
             out[k] = v;

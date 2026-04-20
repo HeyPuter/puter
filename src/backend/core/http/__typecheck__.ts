@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
 /**
  * Compile-time narrowing checks for PuterRouter type ergonomics.
  *

@@ -15,13 +15,13 @@ import { PuterStore } from '../types';
 const READ_ONLY_COLUMNS = new Set(['id', 'uuid', 'user_id', 'ts']);
 
 export class SubdomainStore extends PuterStore {
-
     // ── Reads ────────────────────────────────────────────────────────
 
-    async getByUuid (uuid, { userId } = {}) {
-        const where = userId !== undefined
-            ? 'WHERE `uuid` = ? AND `user_id` = ?'
-            : 'WHERE `uuid` = ?';
+    async getByUuid(uuid, { userId } = {}) {
+        const where =
+            userId !== undefined
+                ? 'WHERE `uuid` = ? AND `user_id` = ?'
+                : 'WHERE `uuid` = ?';
         const params = userId !== undefined ? [uuid, userId] : [uuid];
         const rows = await this.clients.db.read(
             `SELECT * FROM \`subdomains\` ${where} LIMIT 1`,
@@ -30,7 +30,7 @@ export class SubdomainStore extends PuterStore {
         return rows[0] ?? null;
     }
 
-    async getBySubdomain (subdomain) {
+    async getBySubdomain(subdomain) {
         const rows = await this.clients.db.read(
             'SELECT * FROM `subdomains` WHERE `subdomain` = ? LIMIT 1',
             [subdomain],
@@ -38,7 +38,7 @@ export class SubdomainStore extends PuterStore {
         return rows[0] ?? null;
     }
 
-    async listByUserId (userId, { limit = 500 } = {}) {
+    async listByUserId(userId, { limit = 500 } = {}) {
         const rows = await this.clients.db.read(
             `SELECT * FROM \`subdomains\` WHERE \`user_id\` = ? LIMIT ${limit}`,
             [userId],
@@ -46,7 +46,7 @@ export class SubdomainStore extends PuterStore {
         return rows;
     }
 
-    async existsBySubdomain (subdomain) {
+    async existsBySubdomain(subdomain) {
         const rows = await this.clients.db.read(
             'SELECT `id` FROM `subdomains` WHERE `subdomain` = ? LIMIT 1',
             [subdomain],
@@ -54,7 +54,7 @@ export class SubdomainStore extends PuterStore {
         return rows.length > 0;
     }
 
-    async countByUserId (userId) {
+    async countByUserId(userId) {
         const rows = await this.clients.db.read(
             'SELECT COUNT(*) AS n FROM `subdomains` WHERE `user_id` = ?',
             [userId],
@@ -62,7 +62,7 @@ export class SubdomainStore extends PuterStore {
         return rows[0]?.n ?? 0;
     }
 
-    async getByDomain (domain) {
+    async getByDomain(domain) {
         const rows = await this.clients.db.read(
             'SELECT * FROM `subdomains` WHERE `domain` = ? LIMIT 1',
             [domain],
@@ -70,14 +70,14 @@ export class SubdomainStore extends PuterStore {
         return rows[0] ?? null;
     }
 
-    async listByDomain (domain) {
+    async listByDomain(domain) {
         return this.clients.db.read(
             'SELECT * FROM `subdomains` WHERE `domain` = ?',
             [domain],
         );
     }
 
-    async listByUserIdAndPrefix (userId, prefix) {
+    async listByUserIdAndPrefix(userId, prefix) {
         const like = `${prefix}%`;
         return this.clients.db.read(
             'SELECT * FROM `subdomains` WHERE `user_id` = ? AND `subdomain` LIKE ?',
@@ -88,8 +88,14 @@ export class SubdomainStore extends PuterStore {
     // ── Writes ───────────────────────────────────────────────────────
 
     /** @param {{ userId: number, subdomain: string, rootDirId?: number|null, associatedAppId?: number|null, appOwner?: number|null }} opts */
-    async create ({ userId, subdomain, rootDirId = null, associatedAppId = null, appOwner = null }) {
-        if ( ! userId || ! subdomain ) {
+    async create({
+        userId,
+        subdomain,
+        rootDirId = null,
+        associatedAppId = null,
+        appOwner = null,
+    }) {
+        if (!userId || !subdomain) {
             throw new Error('create: userId and subdomain are required');
         }
         const uuid = uuidv4();
@@ -97,26 +103,34 @@ export class SubdomainStore extends PuterStore {
             `INSERT INTO \`subdomains\`
                 (\`uuid\`, \`subdomain\`, \`user_id\`, \`root_dir_id\`, \`associated_app_id\`, \`app_owner\`)
              VALUES (?, ?, ?, ?, ?, ?)`,
-            [uuid, subdomain, userId, rootDirId ?? null, associatedAppId, appOwner],
+            [
+                uuid,
+                subdomain,
+                userId,
+                rootDirId ?? null,
+                associatedAppId,
+                appOwner,
+            ],
         );
         return this.getByUuid(uuid);
     }
 
-    async update (uuid, patch, { userId } = {}) {
+    async update(uuid, patch, { userId } = {}) {
         const allowed = {};
-        for ( const [k, v] of Object.entries(patch) ) {
-            if ( READ_ONLY_COLUMNS.has(k) ) continue;
+        for (const [k, v] of Object.entries(patch)) {
+            if (READ_ONLY_COLUMNS.has(k)) continue;
             allowed[k] = v;
         }
         const keys = Object.keys(allowed);
-        if ( keys.length === 0 ) return this.getByUuid(uuid, { userId });
+        if (keys.length === 0) return this.getByUuid(uuid, { userId });
 
-        const setClause = keys.map(k => `\`${k}\` = ?`).join(', ');
-        const values = keys.map(k => allowed[k]);
+        const setClause = keys.map((k) => `\`${k}\` = ?`).join(', ');
+        const values = keys.map((k) => allowed[k]);
 
-        const where = userId !== undefined
-            ? 'WHERE `uuid` = ? AND `user_id` = ?'
-            : 'WHERE `uuid` = ?';
+        const where =
+            userId !== undefined
+                ? 'WHERE `uuid` = ? AND `user_id` = ?'
+                : 'WHERE `uuid` = ?';
         const whereParams = userId !== undefined ? [uuid, userId] : [uuid];
 
         await this.clients.db.write(
@@ -126,10 +140,11 @@ export class SubdomainStore extends PuterStore {
         return this.getByUuid(uuid, { userId });
     }
 
-    async deleteByUuid (uuid, { userId } = {}) {
-        const where = userId !== undefined
-            ? 'WHERE `uuid` = ? AND `user_id` = ?'
-            : 'WHERE `uuid` = ?';
+    async deleteByUuid(uuid, { userId } = {}) {
+        const where =
+            userId !== undefined
+                ? 'WHERE `uuid` = ? AND `user_id` = ?'
+                : 'WHERE `uuid` = ?';
         const params = userId !== undefined ? [uuid, userId] : [uuid];
 
         const result = await this.clients.db.write(

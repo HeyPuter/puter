@@ -52,7 +52,7 @@ export interface IGenerateVideoParams {
 }
 
 export interface IVideoProvider {
-    generate (params: IGenerateVideoParams): Promise<unknown>;
-    models (): Promise<IVideoModel[]> | IVideoModel[];
-    getDefaultModel (): string;
+    generate(params: IGenerateVideoParams): Promise<unknown>;
+    models(): Promise<IVideoModel[]> | IVideoModel[];
+    getDefaultModel(): string;
 }

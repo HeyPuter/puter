@@ -30,8 +30,8 @@ const default_implicit_user_app_permissions = {
     'driver:puter-apps': {},
     'driver:puter-subdomains': {},
     'driver:temp-email': {},
-    'service': {},
-    'feature': {},
+    service: {},
+    feature: {},
 };
 
 const implicit_user_app_permissions = [
@@ -119,19 +119,18 @@ const driverPolicies = {
     },
 };
 
-const clonePolicy = policy =>
-    JSON.parse(JSON.stringify(policy));
+const clonePolicy = (policy) => JSON.parse(JSON.stringify(policy));
 
-const getPolicyBySelector = selector => {
+const getPolicyBySelector = (selector) => {
     const [scope, policyName] = selector.split('.');
     const policy = driverPolicies[scope]?.[policyName];
-    if ( ! policy ) {
+    if (!policy) {
         throw new Error(`unknown driver policy selector: ${selector}`);
     }
     return policy;
 };
 
-const policyPerm = selector => ({
+const policyPerm = (selector) => ({
     policy: {
         ...clonePolicy(getPolicyBySelector(selector)),
     },
@@ -140,14 +139,14 @@ const policyPerm = selector => ({
 const hardcoded_user_group_permissions = {
     system: {
         'ca342a5e-b13d-4dee-9048-58b11a57cc55': {
-            'driver': {},
-            'service': {},
-            'feature': {},
+            driver: {},
+            service: {},
+            feature: {},
             'local-terminal:access': {},
         },
         'b7220104-7905-4985-b996-649fdcdb3c8f': {
-            'driver': {},
-            'service': {},
+            driver: {},
+            service: {},
             'service:hello-world:ii:hello-world': policyPerm('temp.es'),
             'service:puter-kvstore:ii:puter-kvstore': policyPerm('temp.kv'),
             'driver:puter-kvstore': policyPerm('temp.kv'),
@@ -161,8 +160,8 @@ const hardcoded_user_group_permissions = {
             'service:es\\Csubdomain:ii:crud-q': policyPerm('user.es'),
         },
         '78b1b1dd-c959-44d2-b02c-8735671f9997': {
-            'driver': {},
-            'service': {},
+            driver: {},
+            service: {},
             'service:hello-world:ii:hello-world': policyPerm('user.es'),
             'service:puter-kvstore:ii:puter-kvstore': policyPerm('user.kv'),
             'driver:puter-kvstore': policyPerm('user.kv'),

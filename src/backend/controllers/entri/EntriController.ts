@@ -16,19 +16,20 @@ import { PuterController } from '../types.js';
 @Controller('/entri')
 export class EntriController extends PuterController {
     @Post('/webhook', { subdomain: '*' })
-    async webhook (req: Request, res: Response): Promise<void> {
+    async webhook(req: Request, res: Response): Promise<void> {
         const entri = this.drivers.entri as unknown as EntriDriver | undefined;
-        if ( ! entri?.handleWebhook ) {
+        if (!entri?.handleWebhook) {
             res.status(503).json({ error: 'Entri driver not registered' });
             return;
         }
 
-        const signature = typeof req.headers['entri-signature'] === 'string'
-            ? req.headers['entri-signature']
-            : undefined;
+        const signature =
+            typeof req.headers['entri-signature'] === 'string'
+                ? req.headers['entri-signature']
+                : undefined;
 
         const result = await entri.handleWebhook(req.body ?? {}, signature);
-        if ( ! result.ok ) {
+        if (!result.ok) {
             res.status(401).json({ error: result.message ?? 'Invalid' });
             return;
         }

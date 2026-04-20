@@ -29,50 +29,65 @@ export class EntriDriver extends PuterDriver {
 
     // ── Driver methods ──────────────────────────────────────────────
 
-    async getConfig (args: Record<string, unknown>): Promise<unknown> {
+    async getConfig(args: Record<string, unknown>): Promise<unknown> {
         const domain = String(args.domain ?? '').trim();
         const userHostedSite = String(args.userHostedSite ?? '').trim();
-        if ( ! domain ) throw new HttpError(400, 'Missing `domain`');
-        if ( ! userHostedSite ) throw new HttpError(400, 'Missing `userHostedSite`');
+        if (!domain) throw new HttpError(400, 'Missing `domain`');
+        if (!userHostedSite)
+            throw new HttpError(400, 'Missing `userHostedSite`');
 
         const cfg = this.#entriConfig();
-        if ( !cfg.applicationId || !cfg.secret ) {
+        if (!cfg.applicationId || !cfg.secret) {
             throw new HttpError(503, 'Entri integration not configured');
         }
 
         // Check domain isn't already mapped (or in-progress) for a DIFFERENT subdomain
         const subdomainName = userHostedSite.replace('.puter.site', '');
-        const existing = await this.stores.subdomain.getByDomain(domain)
-            ?? await this.stores.subdomain.getByDomain(`in-progress:${domain}`);
-        if ( existing && existing.subdomain !== subdomainName ) {
-            throw new HttpError(409, 'Domain is already in use by another site');
+        const existing =
+            (await this.stores.subdomain.getByDomain(domain)) ??
+            (await this.stores.subdomain.getByDomain(`in-progress:${domain}`));
+        if (existing && existing.subdomain !== subdomainName) {
+            throw new HttpError(
+                409,
+                'Domain is already in use by another site',
+            );
         }
 
         // Detect root vs subdomain for DNS record shape
         let isRootDomain = true;
         try {
-            const parseDomain = (await nativeImport<typeof import('parse-domain')>('parse-domain')).parseDomain;
+            const parseDomain = (
+                await nativeImport<typeof import('parse-domain')>(
+                    'parse-domain',
+                )
+            ).parseDomain;
             const parsed = parseDomain(domain);
-            isRootDomain = ((parsed as { icann?: { subDomains?: string[] } })?.icann?.subDomains?.length ?? 0) === 0;
+            isRootDomain =
+                ((parsed as { icann?: { subDomains?: string[] } })?.icann
+                    ?.subDomains?.length ?? 0) === 0;
         } catch {
             // Fall back to root
         }
 
         const dnsRecords = isRootDomain
-            ? [{
-                type: 'A',
-                host: '@',
-                value: '{ENTRI_SERVERS}',
-                ttl: 300,
-                applicationUrl: userHostedSite,
-            }]
-            : [{
-                type: 'CNAME',
-                value: 'power.goentri.com',
-                host: '{SUBDOMAIN}',
-                ttl: 300,
-                applicationUrl: userHostedSite,
-            }];
+            ? [
+                  {
+                      type: 'A',
+                      host: '@',
+                      value: '{ENTRI_SERVERS}',
+                      ttl: 300,
+                      applicationUrl: userHostedSite,
+                  },
+              ]
+            : [
+                  {
+                      type: 'CNAME',
+                      value: 'power.goentri.com',
+                      host: '{SUBDOMAIN}',
+                      ttl: 300,
+                      applicationUrl: userHostedSite,
+                  },
+              ];
 
         // Get an Entri auth token
         const tokenRes = await fetch(ENTRI_TOKEN_URL, {
@@ -84,15 +99,17 @@ export class EntriDriver extends PuterDriver {
                 domain,
             }),
         });
-        const tokenData = await tokenRes.json() as { auth_token?: string };
-        if ( ! tokenData.auth_token ) {
+        const tokenData = (await tokenRes.json()) as { auth_token?: string };
+        if (!tokenData.auth_token) {
             throw new HttpError(502, 'Failed to obtain Entri token');
         }
 
         // Mark subdomain as in-progress
         const row = await this.stores.subdomain.getBySubdomain(subdomainName);
-        if ( row ) {
-            await this.stores.subdomain.update(row.uuid, { domain: `in-progress:${domain}` });
+        if (row) {
+            await this.stores.subdomain.update(row.uuid, {
+                domain: `in-progress:${domain}`,
+            });
         }
 
         return {
@@ -105,22 +122,23 @@ export class EntriDriver extends PuterDriver {
         };
     }
 
-    async deleteMapping (args: Record<string, unknown>): Promise<unknown> {
+    async deleteMapping(args: Record<string, unknown>): Promise<unknown> {
         const domain = String(args.domain ?? '').trim();
-        if ( ! domain ) throw new HttpError(400, 'Missing `domain`');
-        if ( domain.startsWith('in-progress') ) {
+        if (!domain) throw new HttpError(400, 'Missing `domain`');
+        if (domain.startsWith('in-progress')) {
             throw new HttpError(400, 'Invalid domain');
         }
 
         const cfg = this.#entriConfig();
-        if ( !cfg.applicationId || !cfg.secret ) {
+        if (!cfg.applicationId || !cfg.secret) {
             throw new HttpError(503, 'Entri integration not configured');
         }
 
         // Find the subdomain row by domain (or in-progress variant)
-        const row = await this.stores.subdomain.getByDomain(domain)
-            ?? await this.stores.subdomain.getByDomain(`in-progress:${domain}`);
-        if ( ! row ) throw new HttpError(404, 'Domain mapping not found');
+        const row =
+            (await this.stores.subdomain.getByDomain(domain)) ??
+            (await this.stores.subdomain.getByDomain(`in-progress:${domain}`));
+        if (!row) throw new HttpError(404, 'Domain mapping not found');
 
         // Clear the domain field
         await this.stores.subdomain.update(row.uuid, { domain: null });
@@ -136,7 +154,9 @@ export class EntriDriver extends PuterDriver {
                     secret: cfg.secret,
                 }),
             });
-            const { auth_token } = await tokenRes.json() as { auth_token?: string };
+            const { auth_token } = (await tokenRes.json()) as {
+                auth_token?: string;
+            };
 
             const delRes = await fetch(ENTRI_POWER_URL, {
                 method: 'DELETE',
@@ -147,17 +167,17 @@ export class EntriDriver extends PuterDriver {
                 },
                 body: JSON.stringify({ domain }),
             });
-            if ( delRes.status !== 200 ) {
+            if (delRes.status !== 200) {
                 errors.push(await delRes.text());
             }
-        } catch ( err ) {
+        } catch (err) {
             errors.push(String(err));
         }
 
         return { ok: true, errors };
     }
 
-    async fullyRegistered (_args: Record<string, unknown>): Promise<unknown> {
+    async fullyRegistered(_args: Record<string, unknown>): Promise<unknown> {
         // Stub — kept for interface compatibility. Fill in when Entri-side
         // confirmation is needed.
         return { ok: true };
@@ -169,30 +189,38 @@ export class EntriDriver extends PuterDriver {
      * Verify the Entri webhook signature and flip `in-progress:<domain>`
      * to the real domain on the subdomain row.
      */
-    async handleWebhook (body: Record<string, unknown>, signature: string | undefined): Promise<{ ok: boolean; message?: string }> {
+    async handleWebhook(
+        body: Record<string, unknown>,
+        signature: string | undefined,
+    ): Promise<{ ok: boolean; message?: string }> {
         const cfg = this.#entriConfig();
-        if ( ! cfg.secret ) return { ok: false, message: 'Not configured' };
+        if (!cfg.secret) return { ok: false, message: 'Not configured' };
 
         const expected = createHash('sha256')
             .update(String(body.id ?? '') + cfg.secret)
             .digest('hex');
-        if ( signature !== expected ) {
+        if (signature !== expected) {
             return { ok: false, message: 'Invalid signature' };
         }
 
         const data = body.data as Record<string, unknown> | undefined;
-        if ( ! data?.records_propagated ) return { ok: true };
+        if (!data?.records_propagated) return { ok: true };
 
         const propagated = data.records_propagated as Array<{ type?: string }>;
         const isRoot = propagated[0]?.type === 'A';
 
-        const realDomain = (isRoot ? '' : `${body.subdomain}.`) + String(body.domain ?? '');
-        if ( ! realDomain ) return { ok: true };
+        const realDomain =
+            (isRoot ? '' : `${body.subdomain}.`) + String(body.domain ?? '');
+        if (!realDomain) return { ok: true };
 
         // Find rows with in-progress domain and flip
-        const rows = await this.stores.subdomain.listByDomain(`in-progress:${realDomain}`);
-        for ( const row of rows ) {
-            await this.stores.subdomain.update(row.uuid, { domain: realDomain });
+        const rows = await this.stores.subdomain.listByDomain(
+            `in-progress:${realDomain}`,
+        );
+        for (const row of rows) {
+            await this.stores.subdomain.update(row.uuid, {
+                domain: realDomain,
+            });
         }
 
         return { ok: true };
@@ -200,7 +228,7 @@ export class EntriDriver extends PuterDriver {
 
     // ── Config ──────────────────────────────────────────────────────
 
-    #entriConfig (): NonNullable<typeof this.config.entri> {
+    #entriConfig(): NonNullable<typeof this.config.entri> {
         return this.config.entri ?? {};
     }
 }

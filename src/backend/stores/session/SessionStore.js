@@ -9,9 +9,8 @@ import { PuterStore } from '../types';
  * can be layered on later without changing the interface.
  */
 export class SessionStore extends PuterStore {
-
     /** Look up a session by its uuid. Returns `null` if not found. */
-    async getByUuid (uuid) {
+    async getByUuid(uuid) {
         const rows = await this.clients.db.read(
             'SELECT * FROM `sessions` WHERE `uuid` = ? LIMIT 1',
             [uuid],
@@ -20,12 +19,12 @@ export class SessionStore extends PuterStore {
     }
 
     /** Get all sessions for a user. */
-    async getByUserId (userId) {
+    async getByUserId(userId) {
         const rows = await this.clients.db.read(
             'SELECT * FROM `sessions` WHERE `user_id` = ?',
             [userId],
         );
-        return rows.map(r => this.#normalizeRow(r)).filter(Boolean);
+        return rows.map((r) => this.#normalizeRow(r)).filter(Boolean);
     }
 
     /**
@@ -35,7 +34,7 @@ export class SessionStore extends PuterStore {
      * @param meta - Metadata object (IP, user-agent, etc.)
      * @returns The created session row
      */
-    async create (userId, meta = {}) {
+    async create(userId, meta = {}) {
         const uuid = uuidv4();
         const now = Math.floor(Date.now() / 1000);
 
@@ -57,15 +56,14 @@ export class SessionStore extends PuterStore {
     }
 
     /** Delete a session by uuid. */
-    async removeByUuid (uuid) {
-        await this.clients.db.write(
-            'DELETE FROM `sessions` WHERE `uuid` = ?',
-            [uuid],
-        );
+    async removeByUuid(uuid) {
+        await this.clients.db.write('DELETE FROM `sessions` WHERE `uuid` = ?', [
+            uuid,
+        ]);
     }
 
     /** Update session activity timestamp and meta. */
-    async updateActivity (uuid, meta, lastActivity) {
+    async updateActivity(uuid, meta, lastActivity) {
         await this.clients.db.write(
             'UPDATE `sessions` SET `meta` = ?, `last_activity` = ? WHERE `uuid` = ? AND (`last_activity` IS NULL OR `last_activity` < ?)',
             [JSON.stringify(meta), lastActivity, uuid, lastActivity],
@@ -73,7 +71,7 @@ export class SessionStore extends PuterStore {
     }
 
     /** Update user-level last activity timestamp. */
-    async updateUserActivity (userId, lastActivityTs) {
+    async updateUserActivity(userId, lastActivityTs) {
         await this.clients.db.write(
             'UPDATE `user` SET `last_activity_ts` = ? WHERE `id` = ? AND (`last_activity_ts` IS NULL OR `last_activity_ts` < ?) LIMIT 1',
             [lastActivityTs, userId, lastActivityTs],
@@ -82,11 +80,15 @@ export class SessionStore extends PuterStore {
 
     // ── Internals ───────────────────────────────────────────────────
 
-    #normalizeRow (row) {
-        if ( ! row ) return null;
+    #normalizeRow(row) {
+        if (!row) return null;
         // Meta may be stored as JSON string (SQLite) or already parsed
-        if ( typeof row.meta === 'string' ) {
-            try { row.meta = JSON.parse(row.meta); } catch { row.meta = {}; }
+        if (typeof row.meta === 'string') {
+            try {
+                row.meta = JSON.parse(row.meta);
+            } catch {
+                row.meta = {};
+            }
         }
         return row;
     }

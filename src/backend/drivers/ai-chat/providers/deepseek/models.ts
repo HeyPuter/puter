@@ -5,7 +5,7 @@ export const DEEPSEEK_MODELS: IChatModel[] = [
     {
         puterId: 'deepseek:deepseek/deepseek-chat',
         id: 'deepseek-chat',
-        modalities: { 'input': ['text'], 'output': ['text'] },
+        modalities: { input: ['text'], output: ['text'] },
         open_weights: false,
         tool_call: true,
         knowledge: '2024-07',
@@ -27,7 +27,7 @@ export const DEEPSEEK_MODELS: IChatModel[] = [
     {
         puterId: 'deepseek:deepseek/deepseek-reasoner',
         id: 'deepseek-reasoner',
-        modalities: { 'input': ['text'], 'output': ['text'] },
+        modalities: { input: ['text'], output: ['text'] },
         open_weights: false,
         tool_call: true,
         knowledge: '2024-07',

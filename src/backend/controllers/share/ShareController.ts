@@ -16,13 +16,20 @@ const SHARE_TOKEN_EXPIRY = '14d';
  * an account, permissions are granted immediately and no row is stored.
  */
 export class ShareController extends PuterController {
-
-    registerRoutes (router: PuterRouter): void {
+    registerRoutes(router: PuterRouter): void {
         const api = { subdomain: 'api' } as const;
 
         router.post('/sharelink/check', api, this.#check);
-        router.post('/sharelink/apply', { ...api, requireAuth: true }, this.#apply);
-        router.post('/sharelink/request', { ...api, requireAuth: true }, this.#request);
+        router.post(
+            '/sharelink/apply',
+            { ...api, requireAuth: true },
+            this.#apply,
+        );
+        router.post(
+            '/sharelink/request',
+            { ...api, requireAuth: true },
+            this.#request,
+        );
         router.post('/share', { ...api, requireAuth: true }, this.#share);
     }
 
@@ -31,7 +38,7 @@ export class ShareController extends PuterController {
 
     #check = async (req: Request, res: Response): Promise<void> => {
         const token = req.body?.token;
-        if ( typeof token !== 'string' || token.length === 0 ) {
+        if (typeof token !== 'string' || token.length === 0) {
             throw new HttpError(400, 'Missing `token`');
         }
 
@@ -41,12 +48,12 @@ export class ShareController extends PuterController {
         } catch {
             throw new HttpError(400, 'Invalid or expired share token');
         }
-        if ( decoded.type !== `token:${SHARE_TOKEN_TYPE}` || !decoded.uid ) {
+        if (decoded.type !== `token:${SHARE_TOKEN_TYPE}` || !decoded.uid) {
             throw new HttpError(400, 'Invalid share token');
         }
 
         const share = await this.stores.share.getByUid(decoded.uid);
-        if ( ! share ) throw new HttpError(404, 'Share not found or expired');
+        if (!share) throw new HttpError(404, 'Share not found or expired');
 
         res.json({
             $: 'api:share',
@@ -60,35 +67,69 @@ export class ShareController extends PuterController {
 
     #apply = async (req: Request, res: Response): Promise<void> => {
         const uid = req.body?.uid;
-        if ( typeof uid !== 'string' ) throw new HttpError(400, 'Missing `uid`');
+        if (typeof uid !== 'string') throw new HttpError(400, 'Missing `uid`');
 
         const actor = req.actor;
-        if ( ! actor?.user ) throw new HttpError(401, 'Unauthorized');
+        if (!actor?.user) throw new HttpError(401, 'Unauthorized');
 
         const share = await this.stores.share.getByUid(uid);
-        if ( ! share ) throw new HttpError(404, 'Share not found or expired');
+        if (!share) throw new HttpError(404, 'Share not found or expired');
 
         // Issuer must still exist
         const issuer = await this.stores.user.getById(share.issuer_user_id);
-        if ( ! issuer ) throw new HttpError(410, 'Share expired — issuer account gone');
+        if (!issuer)
+            throw new HttpError(410, 'Share expired — issuer account gone');
 
         // Email must be confirmed
-        if ( actor.user.requires_email_confirmation && !actor.user.email_confirmed ) {
-            throw new HttpError(403, 'Please confirm your email before applying shares');
+        if (
+            actor.user.requires_email_confirmation &&
+            !actor.user.email_confirmed
+        ) {
+            throw new HttpError(
+                403,
+                'Please confirm your email before applying shares',
+            );
         }
 
         // Recipient email must match
-        if ( !actor.user.email || actor.user.email.toLowerCase() !== share.recipient_email.toLowerCase() ) {
-            throw new HttpError(403, 'This share was sent to a different email address');
+        if (
+            !actor.user.email ||
+            actor.user.email.toLowerCase() !==
+                share.recipient_email.toLowerCase()
+        ) {
+            throw new HttpError(
+                403,
+                'This share was sent to a different email address',
+            );
         }
 
         // Grant each permission
-        const issuerActor = { user: { id: issuer.id, uuid: issuer.uuid, username: issuer.username, email: issuer.email ?? null, suspended: false, email_confirmed: true, requires_email_confirmation: false } } as import('../../core/actor.js').Actor;
-        const data = (share.data ?? {}) as { permissions?: Array<{ permission: string; extra?: Record<string, unknown> }> };
-        for ( const perm of data.permissions ?? [] ) {
+        const issuerActor = {
+            user: {
+                id: issuer.id,
+                uuid: issuer.uuid,
+                username: issuer.username,
+                email: issuer.email ?? null,
+                suspended: false,
+                email_confirmed: true,
+                requires_email_confirmation: false,
+            },
+        } as import('../../core/actor.js').Actor;
+        const data = (share.data ?? {}) as {
+            permissions?: Array<{
+                permission: string;
+                extra?: Record<string, unknown>;
+            }>;
+        };
+        for (const perm of data.permissions ?? []) {
             try {
-                await this.services.permission.grantUserUserPermission(issuerActor, actor.user.username ?? '', perm.permission, perm.extra ?? {});
-            } catch ( err ) {
+                await this.services.permission.grantUserUserPermission(
+                    issuerActor,
+                    actor.user.username ?? '',
+                    perm.permission,
+                    perm.extra ?? {},
+                );
+            } catch (err) {
                 console.warn('[share] grant failed for', perm.permission, err);
             }
         }
@@ -104,25 +145,33 @@ export class ShareController extends PuterController {
 
     #request = async (req: Request, res: Response): Promise<void> => {
         const uid = req.body?.uid;
-        if ( typeof uid !== 'string' ) throw new HttpError(400, 'Missing `uid`');
+        if (typeof uid !== 'string') throw new HttpError(400, 'Missing `uid`');
 
         const actor = req.actor;
-        if ( ! actor?.user ) throw new HttpError(401, 'Unauthorized');
+        if (!actor?.user) throw new HttpError(401, 'Unauthorized');
 
         const share = await this.stores.share.getByUid(uid);
-        if ( ! share ) throw new HttpError(404, 'Share not found or expired');
+        if (!share) throw new HttpError(404, 'Share not found or expired');
 
         const issuer = await this.stores.user.getById(share.issuer_user_id);
-        if ( ! issuer ) throw new HttpError(410, 'Share expired — issuer account gone');
+        if (!issuer)
+            throw new HttpError(410, 'Share expired — issuer account gone');
 
         // If caller IS the intended recipient (confirmed email matches),
         // they should just /apply instead.
-        if ( actor.user.email_confirmed && actor.user.email?.toLowerCase() === share.recipient_email.toLowerCase() ) {
-            throw new HttpError(400, 'You are the intended recipient — use /sharelink/apply instead');
+        if (
+            actor.user.email_confirmed &&
+            actor.user.email?.toLowerCase() ===
+                share.recipient_email.toLowerCase()
+        ) {
+            throw new HttpError(
+                400,
+                'You are the intended recipient — use /sharelink/apply instead',
+            );
         }
 
         // Notify the issuer
-        if ( this.services.notification ) {
+        if (this.services.notification) {
             await this.services.notification.notify([issuer.id], {
                 source: 'sharing',
                 title: `User ${actor.user.username} is trying to open a share you sent to ${share.recipient_email}`,
@@ -130,7 +179,9 @@ export class ShareController extends PuterController {
                 fields: {
                     username: actor.user.username,
                     intended_recipient: share.recipient_email,
-                    permissions: (share.data as Record<string, unknown>)?.permissions ?? [],
+                    permissions:
+                        (share.data as Record<string, unknown>)?.permissions ??
+                        [],
                 },
             });
         }
@@ -143,63 +194,87 @@ export class ShareController extends PuterController {
 
     #share = async (req: Request, res: Response): Promise<void> => {
         const actor = req.actor;
-        if ( ! actor?.user ) throw new HttpError(401, 'Unauthorized');
+        if (!actor?.user) throw new HttpError(401, 'Unauthorized');
 
         const body = req.body ?? {};
         let recipients = body.recipients;
         let shares = body.shares;
         const dryRun = !!body.dry_run;
 
-        if ( ! recipients ) throw new HttpError(400, 'Missing `recipients`');
-        if ( ! shares ) throw new HttpError(400, 'Missing `shares`');
-        if ( ! Array.isArray(recipients) ) recipients = [recipients];
-        if ( ! Array.isArray(shares) ) shares = [shares];
+        if (!recipients) throw new HttpError(400, 'Missing `recipients`');
+        if (!shares) throw new HttpError(400, 'Missing `shares`');
+        if (!Array.isArray(recipients)) recipients = [recipients];
+        if (!Array.isArray(shares)) shares = [shares];
 
         // Build the permissions list from share declarations.
         const permissions = this.#resolvePermissions(shares as unknown[]);
 
         const recipientResults: unknown[] = [];
 
-        for ( const recipient of recipients as unknown[] ) {
-            const recipientStr = typeof recipient === 'string' ? recipient.trim() : '';
-            if ( ! recipientStr ) {
-                recipientResults.push({ $: 'error', message: 'empty recipient' });
+        for (const recipient of recipients as unknown[]) {
+            const recipientStr =
+                typeof recipient === 'string' ? recipient.trim() : '';
+            if (!recipientStr) {
+                recipientResults.push({
+                    $: 'error',
+                    message: 'empty recipient',
+                });
                 continue;
             }
 
             try {
                 // Try username first
-                const targetUser = await this.stores.user.getByUsername(recipientStr)
-                    ?? (recipientStr.includes('@') ? await this.stores.user.getByEmail(recipientStr) : null);
+                const targetUser =
+                    (await this.stores.user.getByUsername(recipientStr)) ??
+                    (recipientStr.includes('@')
+                        ? await this.stores.user.getByEmail(recipientStr)
+                        : null);
 
-                if ( targetUser ) {
+                if (targetUser) {
                     // Direct grant — user exists
-                    if ( ! dryRun ) {
-                        for ( const perm of permissions ) {
+                    if (!dryRun) {
+                        for (const perm of permissions) {
                             try {
-                                await this.services.permission.grantUserUserPermission(actor, targetUser.username ?? '', perm.permission, perm.extra ?? {});
-                            } catch ( err ) {
-                                console.warn('[share] grant to user failed', perm.permission, err);
+                                await this.services.permission.grantUserUserPermission(
+                                    actor,
+                                    targetUser.username ?? '',
+                                    perm.permission,
+                                    perm.extra ?? {},
+                                );
+                            } catch (err) {
+                                console.warn(
+                                    '[share] grant to user failed',
+                                    perm.permission,
+                                    err,
+                                );
                             }
                         }
 
                         // Notify
-                        if ( this.services.notification ) {
-                            await this.services.notification.notify([targetUser.id], {
-                                source: 'sharing',
-                                title: `${actor.user.username} shared items with you`,
-                                template: 'file-shared-with-you',
-                                fields: {
-                                    username: actor.user.username,
-                                    permissions: permissions.map(p => p.permission),
+                        if (this.services.notification) {
+                            await this.services.notification.notify(
+                                [targetUser.id],
+                                {
+                                    source: 'sharing',
+                                    title: `${actor.user.username} shared items with you`,
+                                    template: 'file-shared-with-you',
+                                    fields: {
+                                        username: actor.user.username,
+                                        permissions: permissions.map(
+                                            (p) => p.permission,
+                                        ),
+                                    },
                                 },
-                            });
+                            );
                         }
                     }
-                    recipientResults.push({ $: 'api:status-report', status: 'success' });
-                } else if ( recipientStr.includes('@') ) {
+                    recipientResults.push({
+                        $: 'api:status-report',
+                        status: 'success',
+                    });
+                } else if (recipientStr.includes('@')) {
                     // Email recipient — store pending share
-                    if ( ! dryRun ) {
+                    if (!dryRun) {
                         const share = await this.stores.share.create({
                             issuerUserId: actor.user.id,
                             recipientEmail: recipientStr.toLowerCase(),
@@ -210,10 +285,14 @@ export class ShareController extends PuterController {
                         });
 
                         // Sign a share token (14-day expiry)
-                        const token = this.services.token.sign(SHARE_TOKEN_TYPE, {
-                            type: `token:${SHARE_TOKEN_TYPE}`,
-                            uid: share.uid,
-                        }, { expiresIn: SHARE_TOKEN_EXPIRY });
+                        const token = this.services.token.sign(
+                            SHARE_TOKEN_TYPE,
+                            {
+                                type: `token:${SHARE_TOKEN_TYPE}`,
+                                uid: share.uid,
+                            },
+                            { expiresIn: SHARE_TOKEN_EXPIRY },
+                        );
 
                         // Email the share link
                         const origin = `https://${this.config.domain ?? 'puter.com'}`;
@@ -223,21 +302,31 @@ export class ShareController extends PuterController {
                                 subject: `${actor.user.username} shared something with you on Puter`,
                                 html: `<p>${actor.user.username} shared items with you.</p><p><a href="${origin}?share_token=${encodeURIComponent(token)}">Click here to accept</a></p>`,
                             });
-                        } catch ( err ) {
+                        } catch (err) {
                             console.warn('[share] email send failed', err);
                         }
                     }
-                    recipientResults.push({ $: 'api:status-report', status: 'success' });
+                    recipientResults.push({
+                        $: 'api:status-report',
+                        status: 'success',
+                    });
                 } else {
-                    recipientResults.push({ $: 'error', message: 'User not found' });
+                    recipientResults.push({
+                        $: 'error',
+                        message: 'User not found',
+                    });
                 }
-            } catch ( err ) {
+            } catch (err) {
                 recipientResults.push({ $: 'error', message: String(err) });
             }
         }
 
-        const allOk = recipientResults.every((r: unknown) => (r as Record<string, unknown>).status === 'success');
-        const anyOk = recipientResults.some((r: unknown) => (r as Record<string, unknown>).status === 'success');
+        const allOk = recipientResults.every(
+            (r: unknown) => (r as Record<string, unknown>).status === 'success',
+        );
+        const anyOk = recipientResults.some(
+            (r: unknown) => (r as Record<string, unknown>).status === 'success',
+        );
 
         res.json({
             $: 'api:share',
@@ -254,22 +343,32 @@ export class ShareController extends PuterController {
      * Convert share declarations into a flat permission list.
      * Supports `fs-share` ({ path, access }) and `app-share` ({ uid, name }).
      */
-    #resolvePermissions (shares: unknown[]): Array<{ permission: string; extra?: Record<string, unknown> }> {
-        const perms: Array<{ permission: string; extra?: Record<string, unknown> }> = [];
+    #resolvePermissions(
+        shares: unknown[],
+    ): Array<{ permission: string; extra?: Record<string, unknown> }> {
+        const perms: Array<{
+            permission: string;
+            extra?: Record<string, unknown>;
+        }> = [];
 
-        for ( const share of shares ) {
-            if ( !share || typeof share !== 'object' ) continue;
+        for (const share of shares) {
+            if (!share || typeof share !== 'object') continue;
             const s = share as Record<string, unknown>;
 
-            if ( s.$ === 'fs-share' || s.type === 'fs-share' || s.path ) {
+            if (s.$ === 'fs-share' || s.type === 'fs-share' || s.path) {
                 const path = String(s.path ?? '');
                 const access = String(s.access ?? 'read');
-                if ( path ) {
+                if (path) {
                     perms.push({ permission: `fs:${path}:${access}` });
                 }
-            } else if ( s.$ === 'app-share' || s.type === 'app-share' || s.uid || s.name ) {
+            } else if (
+                s.$ === 'app-share' ||
+                s.type === 'app-share' ||
+                s.uid ||
+                s.name
+            ) {
                 const appUid = String(s.uid ?? s.name ?? '');
-                if ( appUid ) {
+                if (appUid) {
                     perms.push({ permission: `app:uid#${appUid}:access` });
                 }
             }

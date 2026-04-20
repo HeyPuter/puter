@@ -13,7 +13,9 @@ export interface UsageRecord {
     units: number;
 }
 
-export type UsageByType = { total: number } & Partial<Record<Exclude<string, 'total'>, UsageRecord>>;
+export type UsageByType = { total: number } & Partial<
+    Record<Exclude<string, 'total'>, UsageRecord>
+>;
 
 export interface AppTotals {
     total: number;

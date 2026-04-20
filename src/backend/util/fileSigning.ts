@@ -34,11 +34,16 @@ export interface SignedFile {
     fsentry_created: number | null;
 }
 
-function sha256 (input: string): string {
+function sha256(input: string): string {
     return createHash('sha256').update(input).digest('hex');
 }
 
-function computeSignature (uid: string, action: SignAction, secret: string, expires: number): string {
+function computeSignature(
+    uid: string,
+    action: SignAction,
+    secret: string,
+    expires: number,
+): string {
     return sha256(`${uid}/${action}/${secret}/${expires}`);
 }
 
@@ -48,15 +53,25 @@ function computeSignature (uid: string, action: SignAction, secret: string, expi
  * default; callers that want shorter-lived signatures can pass their own
  * `ttlSeconds`.
  */
-export function signFile (
+export function signFile(
     entry: FSEntry,
     config: SigningConfig,
     options: { ttlSeconds?: number } = {},
 ): SignedFile {
     const ttl = options.ttlSeconds ?? 9_999_999_999_999;
     const expires = Math.ceil(Date.now() / 1000) + ttl;
-    const signature = computeSignature(entry.uuid, 'read', config.secret, expires);
-    const writeSignature = computeSignature(entry.uuid, 'write', config.secret, expires);
+    const signature = computeSignature(
+        entry.uuid,
+        'read',
+        config.secret,
+        expires,
+    );
+    const writeSignature = computeSignature(
+        entry.uuid,
+        'write',
+        config.secret,
+        expires,
+    );
 
     const sigParams = `uid=${entry.uuid}&expires=${expires}&signature=${signature}`;
     const writeParams = `uid=${entry.uuid}&expires=${expires}&signature=${writeSignature}`;
@@ -85,25 +100,37 @@ export function signFile (
  * signature also authorises `read`. Throws HttpError(403) on mismatch,
  * expired signatures, or missing params.
  */
-export function verifySignature (
+export function verifySignature(
     query: { uid?: string; expires?: string | number; signature?: string },
     action: SignAction,
     config: SigningConfig,
 ): void {
     const uid = typeof query.uid === 'string' ? query.uid : '';
-    const signature = typeof query.signature === 'string' ? query.signature : '';
+    const signature =
+        typeof query.signature === 'string' ? query.signature : '';
     const expires = Number(query.expires);
-    if ( ! uid ) throw new HttpError(403, '`uid` is required for signature-based auth');
-    if ( ! signature ) throw new HttpError(403, '`signature` is required for signature-based auth');
-    if ( ! Number.isFinite(expires) ) throw new HttpError(403, '`expires` is required for signature-based auth');
+    if (!uid)
+        throw new HttpError(403, '`uid` is required for signature-based auth');
+    if (!signature)
+        throw new HttpError(
+            403,
+            '`signature` is required for signature-based auth',
+        );
+    if (!Number.isFinite(expires))
+        throw new HttpError(
+            403,
+            '`expires` is required for signature-based auth',
+        );
 
-    if ( expires < Date.now() / 1000 ) {
+    if (expires < Date.now() / 1000) {
         throw new HttpError(403, 'Authentication failed. Signature expired.');
     }
 
     // Write signature satisfies any action.
-    if ( signature === computeSignature(uid, 'write', config.secret, expires) ) return;
-    if ( signature === computeSignature(uid, action, config.secret, expires) ) return;
+    if (signature === computeSignature(uid, 'write', config.secret, expires))
+        return;
+    if (signature === computeSignature(uid, action, config.secret, expires))
+        return;
 
     throw new HttpError(403, 'Authentication failed');
 }
@@ -113,7 +140,7 @@ export function verifySignature (
  * given action. Useful when callers want to attempt `write` auth and fall
  * back to `read` without triggering error propagation.
  */
-export function isSignatureValid (
+export function isSignatureValid(
     query: { uid?: string; expires?: string | number; signature?: string },
     action: SignAction,
     config: SigningConfig,
@@ -164,9 +191,9 @@ const MIME_BY_EXT: Record<string, string> = {
     csv: 'text/csv',
 };
 
-export function mimeFromName (name: string): string | null {
+export function mimeFromName(name: string): string | null {
     const dot = name.lastIndexOf('.');
-    if ( dot <= 0 ) return null;
+    if (dot <= 0) return null;
     const ext = name.slice(dot + 1).toLowerCase();
     return MIME_BY_EXT[ext] ?? null;
 }

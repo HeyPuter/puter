@@ -1,14 +1,19 @@
 import { compare as bcryptCompare } from 'bcrypt';
-import { posix as pathPosix } from 'node:path';
 import type { Request, Response } from 'express';
-import type { PuterRouter } from '../../core/http/PuterRouter.js';
-import { HttpError } from '../../core/http/HttpError.js';
+import { posix as pathPosix } from 'node:path';
 import type { Actor } from '../../core/actor.js';
+import { HttpError } from '../../core/http/HttpError.js';
+import type { PuterRouter } from '../../core/http/PuterRouter.js';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
 import { PuterController } from '../types.js';
 import {
-    createLock, deleteLock, refreshLock, getFileLocks,
-    getLockIfValid, hasWritePermission, extractLockToken,
+    createLock,
+    deleteLock,
+    extractLockToken,
+    getFileLocks,
+    getLockIfValid,
+    hasWritePermission,
+    refreshLock,
 } from './locks.js';
 
 const DAV_HEADERS = {
@@ -16,7 +21,8 @@ const DAV_HEADERS = {
     'MS-Author-Via': 'DAV',
 };
 
-const ALLOW_METHODS = 'OPTIONS, GET, HEAD, POST, PUT, DELETE, COPY, MOVE, MKCOL, PROPFIND, PROPPATCH, LOCK, UNLOCK, TRACE';
+const ALLOW_METHODS =
+    'OPTIONS, GET, HEAD, POST, PUT, DELETE, COPY, MOVE, MKCOL, PROPFIND, PROPPATCH, LOCK, UNLOCK, TRACE';
 
 // macOS creates these files; reject them to keep the FS clean.
 const MACOS_JUNK_REGEX = /(?:^\.DS_Store$|^\._)/;
@@ -33,84 +39,116 @@ const MACOS_JUNK_REGEX = /(?:^\.DS_Store$|^\._)/;
  * the global authProbe's `req.actor` if a session cookie is present.
  */
 export class WebDAVController extends PuterController {
-    registerRoutes (router: PuterRouter): void {
+    registerRoutes(router: PuterRouter): void {
         // Single catch-all on the `dav` subdomain. We dispatch by req.method
         // inside the handler because WebDAV uses non-standard HTTP verbs that
         // Express doesn't have first-class router methods for in all versions.
-        router.use({ subdomain: 'dav' }, async (req: Request, res: Response, next) => {
-            try {
-                await this.#dispatch(req, res);
-            } catch ( err ) {
-                if ( err instanceof HttpError ) {
-                    res.status(err.statusCode).send(err.message);
-                    return;
+        router.use(
+            { subdomain: 'dav' },
+            async (req: Request, res: Response, _next) => {
+                try {
+                    await this.#dispatch(req, res);
+                } catch (err) {
+                    if (err instanceof HttpError) {
+                        res.status(err.statusCode).send(err.message);
+                        return;
+                    }
+                    console.error('[webdav] unhandled error', err);
+                    res.status(500).send('Internal Server Error');
                 }
-                console.error('[webdav] unhandled error', err);
-                res.status(500).send('Internal Server Error');
-            }
-            // Don't call next — we always handle or error.
-        });
+                // Don't call next — we always handle or error.
+            },
+        );
     }
 
-    async #dispatch (req: Request, res: Response): Promise<void> {
+    async #dispatch(req: Request, res: Response): Promise<void> {
         // Authenticate
         const actor = await this.#resolveActor(req, res);
-        if ( ! actor ) return; // 401 already sent
+        if (!actor) return; // 401 already sent
 
         const davPath = decodeURIComponent(req.path);
         const redis = this.clients.redis;
         const lockToken = extractLockToken(
-            req.headers['if'] as string | undefined
-            ?? req.headers['lock-token'] as string | undefined,
+            (req.headers['if'] as string | undefined) ??
+                (req.headers['lock-token'] as string | undefined),
         );
 
-        switch ( req.method.toUpperCase() ) {
-            case 'OPTIONS': return this.#options(res);
+        switch (req.method.toUpperCase()) {
+            case 'OPTIONS':
+                return this.#options(res);
             case 'HEAD':
-            case 'GET': return this.#get(req, res, actor, davPath, req.method === 'HEAD');
-            case 'PROPFIND': return this.#propfind(req, res, actor, davPath);
-            case 'PROPPATCH': return this.#proppatch(res, davPath, redis, lockToken);
-            case 'MKCOL': return this.#mkcol(req, res, actor, davPath, redis, lockToken);
-            case 'PUT': return this.#put(req, res, actor, davPath, redis, lockToken);
-            case 'DELETE': return this.#delete(res, actor, davPath, redis, lockToken);
-            case 'COPY': return this.#copy(req, res, actor, davPath, redis, lockToken);
-            case 'MOVE': return this.#move(req, res, actor, davPath, redis, lockToken);
-            case 'LOCK': return this.#lock(req, res, davPath, redis, lockToken);
-            case 'UNLOCK': return this.#unlock(req, res, davPath, redis);
+            case 'GET':
+                return this.#get(
+                    req,
+                    res,
+                    actor,
+                    davPath,
+                    req.method === 'HEAD',
+                );
+            case 'PROPFIND':
+                return this.#propfind(req, res, actor, davPath);
+            case 'PROPPATCH':
+                return this.#proppatch(res, davPath, redis, lockToken);
+            case 'MKCOL':
+                return this.#mkcol(req, res, actor, davPath, redis, lockToken);
+            case 'PUT':
+                return this.#put(req, res, actor, davPath, redis, lockToken);
+            case 'DELETE':
+                return this.#delete(res, actor, davPath, redis, lockToken);
+            case 'COPY':
+                return this.#copy(req, res, actor, davPath, redis, lockToken);
+            case 'MOVE':
+                return this.#move(req, res, actor, davPath, redis, lockToken);
+            case 'LOCK':
+                return this.#lock(req, res, davPath, redis, lockToken);
+            case 'UNLOCK':
+                return this.#unlock(req, res, davPath, redis);
             default:
-                res.status(405).set('Allow', ALLOW_METHODS).send('Method Not Allowed');
+                res.status(405)
+                    .set('Allow', ALLOW_METHODS)
+                    .send('Method Not Allowed');
         }
     }
 
     // ── Auth ─────────────────────────────────────────────────────────
 
-    async #resolveActor (req: Request, res: Response): Promise<Actor | null> {
+    async #resolveActor(req: Request, res: Response): Promise<Actor | null> {
         // If the global authProbe already resolved an actor, use it.
-        if ( req.actor?.user ) return req.actor;
+        if (req.actor?.user) return req.actor;
 
         // Parse HTTP Basic
         const authHeader = req.headers.authorization;
-        if ( !authHeader || !authHeader.startsWith('Basic ') ) {
+        if (!authHeader || !authHeader.startsWith('Basic ')) {
             res.status(401)
-                .set({ 'WWW-Authenticate': 'Basic realm="WebDAV"', ...DAV_HEADERS })
+                .set({
+                    'WWW-Authenticate': 'Basic realm="WebDAV"',
+                    ...DAV_HEADERS,
+                })
                 .send('Authentication required');
             return null;
         }
 
-        const decoded = Buffer.from(authHeader.slice(6), 'base64').toString('utf-8');
+        const decoded = Buffer.from(authHeader.slice(6), 'base64').toString(
+            'utf-8',
+        );
         const colonIdx = decoded.indexOf(':');
-        if ( colonIdx < 0 ) {
-            res.status(401).set('WWW-Authenticate', 'Basic realm="WebDAV"').send('Invalid credentials');
+        if (colonIdx < 0) {
+            res.status(401)
+                .set('WWW-Authenticate', 'Basic realm="WebDAV"')
+                .send('Invalid credentials');
             return null;
         }
         const username = decoded.slice(0, colonIdx);
         const password = decoded.slice(colonIdx + 1);
 
         // `-token` username: password IS the auth token
-        if ( username === '-token' ) {
-            const actor = await this.services.auth.authenticateFromToken(password);
-            if ( ! actor ) {
-                res.status(401).set('WWW-Authenticate', 'Basic realm="WebDAV"').send('Invalid token');
+        if (username === '-token') {
+            const actor =
+                await this.services.auth.authenticateFromToken(password);
+            if (!actor) {
+                res.status(401)
+                    .set('WWW-Authenticate', 'Basic realm="WebDAV"')
+                    .send('Invalid token');
                 return null;
             }
             return actor;
@@ -118,47 +156,73 @@ export class WebDAVController extends PuterController {
 
         // Regular username + password (with optional 6-digit OTP suffix)
         const user = await this.stores.user.getByUsername(username);
-        if ( !user || !user.password ) {
-            res.status(401).set('WWW-Authenticate', 'Basic realm="WebDAV"').send('Invalid credentials');
+        if (!user || !user.password) {
+            res.status(401)
+                .set('WWW-Authenticate', 'Basic realm="WebDAV"')
+                .send('Invalid credentials');
             return null;
         }
 
         // Try full password first, then password minus trailing 6-digit OTP
         let passwordOk = await bcryptCompare(password, user.password);
-        if ( !passwordOk && password.length > 6 ) {
+        if (!passwordOk && password.length > 6) {
             const basePassword = password.slice(0, -6);
             passwordOk = await bcryptCompare(basePassword, user.password);
             // TODO: verify OTP digits via OTPService once ported
         }
 
-        if ( ! passwordOk ) {
-            res.status(401).set('WWW-Authenticate', 'Basic realm="WebDAV"').send('Invalid credentials');
+        if (!passwordOk) {
+            res.status(401)
+                .set('WWW-Authenticate', 'Basic realm="WebDAV"')
+                .send('Invalid credentials');
             return null;
         }
 
         // Build a session-less actor for the user
-        return { user: { id: user.id, uuid: user.uuid, username: user.username, email: user.email ?? null, suspended: user.suspended ?? false, email_confirmed: user.email_confirmed ?? false, requires_email_confirmation: user.requires_email_confirmation ?? false } };
+        return {
+            user: {
+                id: user.id,
+                uuid: user.uuid,
+                username: user.username,
+                email: user.email ?? null,
+                suspended: user.suspended ?? false,
+                email_confirmed: user.email_confirmed ?? false,
+                requires_email_confirmation:
+                    user.requires_email_confirmation ?? false,
+            },
+        };
     }
 
     // ── OPTIONS ──────────────────────────────────────────────────────
 
-    #options (res: Response): void {
-        res.status(200).set({
-            Allow: ALLOW_METHODS,
-            ...DAV_HEADERS,
-            'Accept-Ranges': 'bytes',
-            'Content-Type': 'text/plain; charset=utf-8',
-            'Cache-Control': 'no-cache',
-        }).send('');
+    #options(res: Response): void {
+        res.status(200)
+            .set({
+                Allow: ALLOW_METHODS,
+                ...DAV_HEADERS,
+                'Accept-Ranges': 'bytes',
+                'Content-Type': 'text/plain; charset=utf-8',
+                'Cache-Control': 'no-cache',
+            })
+            .send('');
     }
 
     // ── GET / HEAD ──────────────────────────────────────────────────
 
-    async #get (req: Request, res: Response, actor: Actor, davPath: string, headOnly: boolean): Promise<void> {
+    async #get(
+        req: Request,
+        res: Response,
+        actor: Actor,
+        davPath: string,
+        headOnly: boolean,
+    ): Promise<void> {
         const userId = actor.user!.id as number;
-        const entry = await this.stores.fsEntry.getEntryByPathForUser(davPath, userId);
-        if ( ! entry ) throw new HttpError(404, 'Not Found');
-        if ( entry.isDir ) throw new HttpError(400, 'Cannot GET a directory');
+        const entry = await this.stores.fsEntry.getEntryByPathForUser(
+            davPath,
+            userId,
+        );
+        if (!entry) throw new HttpError(404, 'Not Found');
+        if (entry.isDir) throw new HttpError(400, 'Cannot GET a directory');
 
         await this.#assertRead(actor, davPath);
 
@@ -168,11 +232,13 @@ export class WebDAVController extends PuterController {
         res.set({
             'Accept-Ranges': 'bytes',
             'Content-Length': String(size),
-            'Last-Modified': new Date(entry.modified ?? entry.created ?? 0).toUTCString(),
+            'Last-Modified': new Date(
+                entry.modified ?? entry.created ?? 0,
+            ).toUTCString(),
             ETag: etag,
         });
 
-        if ( headOnly ) {
+        if (headOnly) {
             res.status(200).end();
             return;
         }
@@ -181,8 +247,8 @@ export class WebDAVController extends PuterController {
         const result = await this.services.fsEntry.readContent(entry, {
             range: rangeHeader,
         });
-        if ( result.contentType ) res.set('Content-Type', result.contentType);
-        if ( result.contentRange ) {
+        if (result.contentType) res.set('Content-Type', result.contentType);
+        if (result.contentRange) {
             res.status(206).set({
                 'Content-Range': result.contentRange,
                 'Content-Length': String(result.contentLength ?? 0),
@@ -193,79 +259,146 @@ export class WebDAVController extends PuterController {
 
     // ── PROPFIND ────────────────────────────────────────────────────
 
-    async #propfind (req: Request, res: Response, actor: Actor, davPath: string): Promise<void> {
+    async #propfind(
+        req: Request,
+        res: Response,
+        actor: Actor,
+        davPath: string,
+    ): Promise<void> {
         const userId = actor.user!.id as number;
         const depth = req.headers.depth ?? '1';
 
-        const entry = davPath === '/'
-            ? null // root always exists
-            : await this.stores.fsEntry.getEntryByPathForUser(davPath, userId);
-        if ( davPath !== '/' && ! entry ) throw new HttpError(404, 'Not Found');
+        const entry =
+            davPath === '/'
+                ? null // root always exists
+                : await this.stores.fsEntry.getEntryByPathForUser(
+                      davPath,
+                      userId,
+                  );
+        if (davPath !== '/' && !entry) throw new HttpError(404, 'Not Found');
 
         await this.#assertRead(actor, davPath);
 
         const isDir = davPath === '/' || !!entry?.isDir;
         const responses = [propfindEntry(davPath, entry, isDir)];
 
-        if ( depth !== '0' && isDir && entry ) {
-            const children = await this.services.fsEntry.listDirectory(entry.uuid, {});
-            for ( const child of children ) {
+        if (depth !== '0' && isDir && entry) {
+            const children = await this.services.fsEntry.listDirectory(
+                entry.uuid,
+                {},
+            );
+            for (const child of children) {
                 responses.push(propfindEntry(child.path, child, child.isDir));
             }
-        } else if ( depth !== '0' && davPath === '/' ) {
+        } else if (depth !== '0' && davPath === '/') {
             // Root: list top-level user directories
-            const rootEntry = await this.stores.fsEntry.getEntryByPathForUser(`/${actor.user!.username}`, userId);
-            if ( rootEntry ) {
-                responses.push(propfindEntry(rootEntry.path, rootEntry, rootEntry.isDir));
+            const rootEntry = await this.stores.fsEntry.getEntryByPathForUser(
+                `/${actor.user!.username}`,
+                userId,
+            );
+            if (rootEntry) {
+                responses.push(
+                    propfindEntry(rootEntry.path, rootEntry, rootEntry.isDir),
+                );
             }
         }
 
-        res.status(207).set({ 'Content-Type': 'application/xml; charset=utf-8' })
+        res.status(207)
+            .set({ 'Content-Type': 'application/xml; charset=utf-8' })
             .send(wrapMultistatus(responses.join('\n')));
     }
 
     // ── PROPPATCH (stub — acknowledges but doesn't persist props) ───
 
-    async #proppatch (res: Response, davPath: string, redis: unknown, lockToken: string | null): Promise<void> {
-        if ( ! await hasWritePermission(redis as import('ioredis').Cluster, davPath, lockToken) ) {
+    async #proppatch(
+        res: Response,
+        davPath: string,
+        redis: unknown,
+        lockToken: string | null,
+    ): Promise<void> {
+        if (
+            !(await hasWritePermission(
+                redis as import('ioredis').Cluster,
+                davPath,
+                lockToken,
+            ))
+        ) {
             throw new HttpError(423, 'Locked');
         }
-        res.status(207).set({ 'Content-Type': 'application/xml; charset=utf-8' }).send(
-            `<?xml version="1.0" encoding="utf-8"?>\n<D:multistatus xmlns:D="DAV:"><D:response><D:href>${escapeXml(encodeURI(davPath))}</D:href><D:propstat><D:prop/><D:status>HTTP/1.1 200 OK</D:status></D:propstat></D:response></D:multistatus>`,
-        );
+        res.status(207)
+            .set({ 'Content-Type': 'application/xml; charset=utf-8' })
+            .send(
+                `<?xml version="1.0" encoding="utf-8"?>\n<D:multistatus xmlns:D="DAV:"><D:response><D:href>${escapeXml(encodeURI(davPath))}</D:href><D:propstat><D:prop/><D:status>HTTP/1.1 200 OK</D:status></D:propstat></D:response></D:multistatus>`,
+            );
     }
 
     // ── MKCOL ───────────────────────────────────────────────────────
 
-    async #mkcol (req: Request, res: Response, actor: Actor, davPath: string, redis: unknown, lockToken: string | null): Promise<void> {
-        if ( davPath === '/' ) throw new HttpError(403, 'Cannot create at root');
-        if ( req.headers['content-length'] && Number(req.headers['content-length']) > 0 ) {
+    async #mkcol(
+        req: Request,
+        res: Response,
+        actor: Actor,
+        davPath: string,
+        redis: unknown,
+        lockToken: string | null,
+    ): Promise<void> {
+        if (davPath === '/') throw new HttpError(403, 'Cannot create at root');
+        if (
+            req.headers['content-length'] &&
+            Number(req.headers['content-length']) > 0
+        ) {
             throw new HttpError(415, 'MKCOL must not have a body');
         }
-        if ( ! await hasWritePermission(redis as import('ioredis').Cluster, davPath, lockToken) ) {
+        if (
+            !(await hasWritePermission(
+                redis as import('ioredis').Cluster,
+                davPath,
+                lockToken,
+            ))
+        ) {
             throw new HttpError(423, 'Locked');
         }
         const userId = actor.user!.id as number;
         const parentPath = pathPosix.dirname(davPath);
         await this.#assertWrite(actor, parentPath);
 
-        const existing = await this.stores.fsEntry.getEntryByPathForUser(davPath, userId);
-        if ( existing ) throw new HttpError(405, 'Already exists');
+        const existing = await this.stores.fsEntry.getEntryByPathForUser(
+            davPath,
+            userId,
+        );
+        if (existing) throw new HttpError(405, 'Already exists');
 
-        const entry = await this.services.fsEntry.mkdir(userId, { path: davPath });
+        const entry = await this.services.fsEntry.mkdir(userId, {
+            path: davPath,
+        });
         this.#emitGuiEvent('outer.gui.item.added', entry);
-        res.status(201).set({ 'Content-Length': '0', Location: `${davPath}/` }).end();
+        res.status(201)
+            .set({ 'Content-Length': '0', Location: `${davPath}/` })
+            .end();
     }
 
     // ── PUT ─────────────────────────────────────────────────────────
 
-    async #put (req: Request, res: Response, actor: Actor, davPath: string, redis: unknown, lockToken: string | null): Promise<void> {
+    async #put(
+        req: Request,
+        res: Response,
+        actor: Actor,
+        davPath: string,
+        redis: unknown,
+        lockToken: string | null,
+    ): Promise<void> {
         const name = pathPosix.basename(davPath);
-        if ( MACOS_JUNK_REGEX.test(name) ) {
+        if (MACOS_JUNK_REGEX.test(name)) {
             res.status(422).send('Ignored macOS metadata file');
             return;
         }
-        if ( ! await hasWritePermission(redis as import('ioredis').Cluster, davPath, lockToken) ) {
+        if (
+            !(await hasWritePermission(
+                redis as import('ioredis').Cluster,
+                davPath,
+                lockToken,
+            ))
+        ) {
             throw new HttpError(423, 'Locked');
         }
 
@@ -273,15 +406,25 @@ export class WebDAVController extends PuterController {
         const parentPath = pathPosix.dirname(davPath);
         await this.#assertWrite(actor, parentPath);
 
-        const contentLength = Number(req.headers['content-length'] ?? req.headers['x-expected-entity-length'] ?? 0);
-        if ( !contentLength && contentLength !== 0 ) throw new HttpError(400, 'Missing Content-Length');
+        const contentLength = Number(
+            req.headers['content-length'] ??
+                req.headers['x-expected-entity-length'] ??
+                0,
+        );
+        if (!contentLength && contentLength !== 0)
+            throw new HttpError(400, 'Missing Content-Length');
 
         // Check if overwrite
-        const existing = await this.stores.fsEntry.getEntryByPathForUser(davPath, userId);
+        const existing = await this.stores.fsEntry.getEntryByPathForUser(
+            davPath,
+            userId,
+        );
 
         // Expect: 100-continue
-        if ( req.headers.expect === '100-continue' ) {
-            (req.socket as { write?: (s: string) => void }).write?.('HTTP/1.1 100 Continue\r\n\r\n');
+        if (req.headers.expect === '100-continue') {
+            (req.socket as { write?: (s: string) => void }).write?.(
+                'HTTP/1.1 100 Continue\r\n\r\n',
+            );
         }
 
         const writeResult = await this.services.fsEntry.write(userId, {
@@ -301,23 +444,42 @@ export class WebDAVController extends PuterController {
 
         const fe = writeResult.fsEntry;
         const etag = `"${fe.uuid}-${Math.floor(fe.modified ?? fe.created ?? 0)}"`;
-        res.status(existing ? 204 : 201).set({
-            ETag: etag,
-            'Last-Modified': new Date(fe.modified ?? fe.created ?? 0).toUTCString(),
-        }).end();
+        res.status(existing ? 204 : 201)
+            .set({
+                ETag: etag,
+                'Last-Modified': new Date(
+                    fe.modified ?? fe.created ?? 0,
+                ).toUTCString(),
+            })
+            .end();
     }
 
     // ── DELETE ───────────────────────────────────────────────────────
 
-    async #delete (res: Response, actor: Actor, davPath: string, redis: unknown, lockToken: string | null): Promise<void> {
-        if ( ! await hasWritePermission(redis as import('ioredis').Cluster, davPath, lockToken) ) {
+    async #delete(
+        res: Response,
+        actor: Actor,
+        davPath: string,
+        redis: unknown,
+        lockToken: string | null,
+    ): Promise<void> {
+        if (
+            !(await hasWritePermission(
+                redis as import('ioredis').Cluster,
+                davPath,
+                lockToken,
+            ))
+        ) {
             throw new HttpError(423, 'Locked');
         }
         const userId = actor.user!.id as number;
         await this.#assertWrite(actor, davPath);
 
-        const entry = await this.stores.fsEntry.getEntryByPathForUser(davPath, userId);
-        if ( ! entry ) throw new HttpError(404, 'Not Found');
+        const entry = await this.stores.fsEntry.getEntryByPathForUser(
+            davPath,
+            userId,
+        );
+        if (!entry) throw new HttpError(404, 'Not Found');
 
         await this.services.fsEntry.remove(userId, { entry, recursive: true });
         this.#emitGuiEvent('outer.gui.item.removed', entry);
@@ -326,9 +488,22 @@ export class WebDAVController extends PuterController {
 
     // ── COPY ────────────────────────────────────────────────────────
 
-    async #copy (req: Request, res: Response, actor: Actor, davPath: string, redis: unknown, lockToken: string | null): Promise<void> {
+    async #copy(
+        req: Request,
+        res: Response,
+        actor: Actor,
+        davPath: string,
+        redis: unknown,
+        lockToken: string | null,
+    ): Promise<void> {
         const destPath = this.#parseDestination(req);
-        if ( ! await hasWritePermission(redis as import('ioredis').Cluster, destPath, lockToken) ) {
+        if (
+            !(await hasWritePermission(
+                redis as import('ioredis').Cluster,
+                destPath,
+                lockToken,
+            ))
+        ) {
             throw new HttpError(423, 'Locked');
         }
 
@@ -336,15 +511,29 @@ export class WebDAVController extends PuterController {
         await this.#assertRead(actor, davPath);
         await this.#assertWrite(actor, pathPosix.dirname(destPath));
 
-        const source = await this.stores.fsEntry.getEntryByPathForUser(davPath, userId);
-        if ( ! source ) throw new HttpError(404, 'Source not found');
+        const source = await this.stores.fsEntry.getEntryByPathForUser(
+            davPath,
+            userId,
+        );
+        if (!source) throw new HttpError(404, 'Source not found');
 
         const overwrite = req.headers.overwrite !== 'F';
-        const destExists = await this.stores.fsEntry.getEntryByPathForUser(destPath, userId);
-        if ( destExists && !overwrite ) throw new HttpError(412, 'Destination exists and Overwrite=F');
+        const destExists = await this.stores.fsEntry.getEntryByPathForUser(
+            destPath,
+            userId,
+        );
+        if (destExists && !overwrite)
+            throw new HttpError(412, 'Destination exists and Overwrite=F');
 
-        const destParent = await this.stores.fsEntry.getEntryByPathForUser(pathPosix.dirname(destPath), userId);
-        if ( ! destParent?.isDir ) throw new HttpError(409, 'Destination parent missing or not a directory');
+        const destParent = await this.stores.fsEntry.getEntryByPathForUser(
+            pathPosix.dirname(destPath),
+            userId,
+        );
+        if (!destParent?.isDir)
+            throw new HttpError(
+                409,
+                'Destination parent missing or not a directory',
+            );
 
         const copy = await this.services.fsEntry.copy(userId, {
             source,
@@ -358,25 +547,48 @@ export class WebDAVController extends PuterController {
 
     // ── MOVE ────────────────────────────────────────────────────────
 
-    async #move (req: Request, res: Response, actor: Actor, davPath: string, redis: unknown, lockToken: string | null): Promise<void> {
+    async #move(
+        req: Request,
+        res: Response,
+        actor: Actor,
+        davPath: string,
+        redis: unknown,
+        lockToken: string | null,
+    ): Promise<void> {
         const destPath = this.#parseDestination(req);
         const r = redis as import('ioredis').Cluster;
-        if ( ! await hasWritePermission(r, davPath, lockToken) ) throw new HttpError(423, 'Locked');
-        if ( ! await hasWritePermission(r, destPath, lockToken) ) throw new HttpError(423, 'Locked');
+        if (!(await hasWritePermission(r, davPath, lockToken)))
+            throw new HttpError(423, 'Locked');
+        if (!(await hasWritePermission(r, destPath, lockToken)))
+            throw new HttpError(423, 'Locked');
 
         const userId = actor.user!.id as number;
         await this.#assertWrite(actor, davPath);
         await this.#assertWrite(actor, pathPosix.dirname(destPath));
 
-        const source = await this.stores.fsEntry.getEntryByPathForUser(davPath, userId);
-        if ( ! source ) throw new HttpError(404, 'Source not found');
+        const source = await this.stores.fsEntry.getEntryByPathForUser(
+            davPath,
+            userId,
+        );
+        if (!source) throw new HttpError(404, 'Source not found');
 
         const overwrite = req.headers.overwrite !== 'F';
-        const destExists = await this.stores.fsEntry.getEntryByPathForUser(destPath, userId);
-        if ( destExists && !overwrite ) throw new HttpError(412, 'Destination exists and Overwrite=F');
+        const destExists = await this.stores.fsEntry.getEntryByPathForUser(
+            destPath,
+            userId,
+        );
+        if (destExists && !overwrite)
+            throw new HttpError(412, 'Destination exists and Overwrite=F');
 
-        const destParent = await this.stores.fsEntry.getEntryByPathForUser(pathPosix.dirname(destPath), userId);
-        if ( ! destParent?.isDir ) throw new HttpError(409, 'Destination parent missing or not a directory');
+        const destParent = await this.stores.fsEntry.getEntryByPathForUser(
+            pathPosix.dirname(destPath),
+            userId,
+        );
+        if (!destParent?.isDir)
+            throw new HttpError(
+                409,
+                'Destination parent missing or not a directory',
+            );
 
         const moved = await this.services.fsEntry.move(userId, {
             source,
@@ -384,39 +596,52 @@ export class WebDAVController extends PuterController {
             newName: pathPosix.basename(destPath),
             overwrite,
         });
-        this.#emitGuiEvent('outer.gui.item.moved', moved, { old_path: davPath });
+        this.#emitGuiEvent('outer.gui.item.moved', moved, {
+            old_path: davPath,
+        });
         res.status(destExists ? 204 : 201).end();
     }
 
     // ── LOCK ────────────────────────────────────────────────────────
 
-    async #lock (req: Request, res: Response, davPath: string, redis: unknown, headerToken: string | null): Promise<void> {
+    async #lock(
+        req: Request,
+        res: Response,
+        davPath: string,
+        redis: unknown,
+        headerToken: string | null,
+    ): Promise<void> {
         const r = redis as import('ioredis').Cluster;
 
         // Refresh existing lock
-        if ( headerToken ) {
+        if (headerToken) {
             const existing = await getLockIfValid(r, headerToken);
-            if ( ! existing ) throw new HttpError(412, 'Lock token not found');
+            if (!existing) throw new HttpError(412, 'Lock token not found');
             await refreshLock(r, headerToken);
             res.status(200)
-                .set({ 'Content-Type': 'application/xml; charset=utf-8', ...DAV_HEADERS })
-                .send(lockResponseXml(headerToken, davPath, existing.lockScope));
+                .set({
+                    'Content-Type': 'application/xml; charset=utf-8',
+                    ...DAV_HEADERS,
+                })
+                .send(
+                    lockResponseXml(headerToken, davPath, existing.lockScope),
+                );
             return;
         }
 
         // Parse requested scope from XML body
         let lockScope: 'exclusive' | 'shared' = 'exclusive';
         const body = req.body as Record<string, unknown> | undefined;
-        if ( body?.lockinfo ) {
+        if (body?.lockinfo) {
             const info = body.lockinfo as Record<string, unknown>;
             const scope = info.lockscope as Record<string, unknown> | undefined;
-            if ( scope?.shared !== undefined ) lockScope = 'shared';
+            if (scope?.shared !== undefined) lockScope = 'shared';
         }
 
         // Check for conflicts
         const existingLocks = await getFileLocks(r, davPath);
-        for ( const lock of existingLocks ) {
-            if ( lockScope === 'exclusive' || lock.lockScope === 'exclusive' ) {
+        for (const lock of existingLocks) {
+            if (lockScope === 'exclusive' || lock.lockScope === 'exclusive') {
                 throw new HttpError(423, 'Locked — conflicting lock exists');
             }
         }
@@ -435,19 +660,25 @@ export class WebDAVController extends PuterController {
 
     // ── UNLOCK ──────────────────────────────────────────────────────
 
-    async #unlock (req: Request, res: Response, davPath: string, redis: unknown): Promise<void> {
+    async #unlock(
+        req: Request,
+        res: Response,
+        davPath: string,
+        redis: unknown,
+    ): Promise<void> {
         const r = redis as import('ioredis').Cluster;
         const tokenHeader = req.headers['lock-token'] as string | undefined;
         const token = extractLockToken(tokenHeader);
-        if ( ! token ) throw new HttpError(400, 'Missing Lock-Token header');
+        if (!token) throw new HttpError(400, 'Missing Lock-Token header');
 
         const lock = await getLockIfValid(r, token);
-        if ( ! lock ) {
+        if (!lock) {
             // Idempotent — if already expired, just 204.
             res.status(204).end();
             return;
         }
-        if ( lock.path !== davPath ) throw new HttpError(403, 'Lock token does not match this path');
+        if (lock.path !== davPath)
+            throw new HttpError(403, 'Lock token does not match this path');
 
         await deleteLock(r, token);
         res.status(204).end();
@@ -455,36 +686,42 @@ export class WebDAVController extends PuterController {
 
     // ── ACL helpers ─────────────────────────────────────────────────
 
-    async #assertRead (actor: Actor, path: string): Promise<void> {
+    async #assertRead(actor: Actor, path: string): Promise<void> {
         try {
             const descriptor = {
                 path,
-                resolveAncestors: () => this.services.fsEntry.getAncestorChain(path),
+                resolveAncestors: () =>
+                    this.services.fsEntry.getAncestorChain(path),
             };
             const ok = await this.services.acl.check(actor, descriptor, 'read');
-            if ( ! ok ) throw new HttpError(403, 'Permission denied');
-        } catch ( err ) {
-            if ( err instanceof HttpError ) throw err;
+            if (!ok) throw new HttpError(403, 'Permission denied');
+        } catch (err) {
+            if (err instanceof HttpError) throw err;
             // ACL service may not be fully wired — allow through for now
         }
     }
 
-    async #assertWrite (actor: Actor, path: string): Promise<void> {
+    async #assertWrite(actor: Actor, path: string): Promise<void> {
         try {
             const descriptor = {
                 path,
-                resolveAncestors: () => this.services.fsEntry.getAncestorChain(path),
+                resolveAncestors: () =>
+                    this.services.fsEntry.getAncestorChain(path),
             };
-            const ok = await this.services.acl.check(actor, descriptor, 'write');
-            if ( ! ok ) throw new HttpError(403, 'Permission denied');
-        } catch ( err ) {
-            if ( err instanceof HttpError ) throw err;
+            const ok = await this.services.acl.check(
+                actor,
+                descriptor,
+                'write',
+            );
+            if (!ok) throw new HttpError(403, 'Permission denied');
+        } catch (err) {
+            if (err instanceof HttpError) throw err;
         }
     }
 
     // ── Event emission ──────────────────────────────────────────────
 
-    #emitGuiEvent (
+    #emitGuiEvent(
         eventName: string,
         entry: FSEntry,
         extra?: Record<string, unknown>,
@@ -503,9 +740,9 @@ export class WebDAVController extends PuterController {
 
     // ── Misc helpers ────────────────────────────────────────────────
 
-    #parseDestination (req: Request): string {
+    #parseDestination(req: Request): string {
         const dest = req.headers.destination as string | undefined;
-        if ( ! dest ) throw new HttpError(400, 'Missing Destination header');
+        if (!dest) throw new HttpError(400, 'Missing Destination header');
         try {
             const url = new URL(dest, `http://${req.headers.host}`);
             return decodeURIComponent(url.pathname);
@@ -517,7 +754,7 @@ export class WebDAVController extends PuterController {
 
 // ── XML helpers ──────────────────────────────────────────────────────
 
-function escapeXml (text: string): string {
+function escapeXml(text: string): string {
     return text
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')
@@ -526,13 +763,19 @@ function escapeXml (text: string): string {
         .replace(/'/g, '&#39;');
 }
 
-function wrapMultistatus (inner: string): string {
+function wrapMultistatus(inner: string): string {
     return `<?xml version="1.0" encoding="utf-8"?>\n<D:multistatus xmlns:D="DAV:">\n${inner}\n</D:multistatus>`;
 }
 
-function propfindEntry (href: string, entry: FSEntry | null, isDir: boolean): string {
-    const encodedHref = encodeURI(href) + (isDir && !href.endsWith('/') ? '/' : '');
-    const modified = entry?.modified ?? entry?.created ?? '2025-01-01T00:00:00Z';
+function propfindEntry(
+    href: string,
+    entry: FSEntry | null,
+    isDir: boolean,
+): string {
+    const encodedHref =
+        encodeURI(href) + (isDir && !href.endsWith('/') ? '/' : '');
+    const modified =
+        entry?.modified ?? entry?.created ?? '2025-01-01T00:00:00Z';
     const created = entry?.created ?? '2025-01-01T00:00:00Z';
     const name = entry?.name ?? (pathPosix.basename(href) || '/');
     const uid = entry?.uuid ?? 'root';
@@ -551,7 +794,7 @@ function propfindEntry (href: string, entry: FSEntry | null, isDir: boolean): st
         <D:lockdiscovery/>
         <D:ishidden>0</D:ishidden>`;
 
-    if ( !isDir && entry ) {
+    if (!isDir && entry) {
         props += `\n        <D:getcontentlength>${entry.size ?? 0}</D:getcontentlength>`;
         const mime = mimeFromExt(pathPosix.extname(entry.name));
         props += `\n        <D:getcontenttype>${escapeXml(mime)}</D:getcontenttype>`;
@@ -593,11 +836,15 @@ const MIME_MAP: Record<string, string> = {
     '.wasm': 'application/wasm',
 };
 
-function mimeFromExt (ext: string): string {
+function mimeFromExt(ext: string): string {
     return MIME_MAP[ext.toLowerCase()] ?? 'application/octet-stream';
 }
 
-function lockResponseXml (token: string, path: string, scope: 'exclusive' | 'shared'): string {
+function lockResponseXml(
+    token: string,
+    path: string,
+    scope: 'exclusive' | 'shared',
+): string {
     return `<?xml version="1.0" encoding="utf-8"?>
 <D:prop xmlns:D="DAV:">
   <D:lockdiscovery>

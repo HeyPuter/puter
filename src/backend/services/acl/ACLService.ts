@@ -20,10 +20,17 @@ import { MANAGE_PERM_PREFIX } from '../permission/consts';
  */
 export interface ResourceDescriptor {
     path: string;
-    resolveAncestors: () => Promise<ReadonlyArray<{ uid: string; path: string }>>;
+    resolveAncestors: () => Promise<
+        ReadonlyArray<{ uid: string; path: string }>
+    >;
 }
 
-export type AclMode = 'see' | 'list' | 'read' | 'write' | typeof MANAGE_PERM_PREFIX;
+export type AclMode =
+    | 'see'
+    | 'list'
+    | 'read'
+    | 'write'
+    | typeof MANAGE_PERM_PREFIX;
 
 /** Duck-typed error shape compatible with APIError consumers (fsv2). */
 export interface AclError {
@@ -44,7 +51,11 @@ const MODES_ABOVE: Record<AclMode, AclMode[]> = {
     [MANAGE_PERM_PREFIX]: [MANAGE_PERM_PREFIX],
 };
 
-const PUBLIC_READ_MODES: ReadonlyArray<AclMode> = Object.freeze(['read', 'list', 'see']);
+const PUBLIC_READ_MODES: ReadonlyArray<AclMode> = Object.freeze([
+    'read',
+    'list',
+    'see',
+]);
 
 // ── ACLService ───────────────────────────────────────────────────────
 
@@ -71,19 +82,27 @@ export class ACLService extends PuterService {
     /**
      * Returns true iff `actor` is allowed to perform `mode` access on `resource`.
      */
-    async check (actor: Actor, resource: ResourceDescriptor, mode: AclMode): Promise<boolean> {
-        if ( isSystemActor(actor) ) return true;
+    async check(
+        actor: Actor,
+        resource: ResourceDescriptor,
+        mode: AclMode,
+    ): Promise<boolean> {
+        if (isSystemActor(actor)) return true;
 
-        if ( resource.path === '/' ) {
+        if (resource.path === '/') {
             return (PUBLIC_READ_MODES as AclMode[]).includes(mode);
         }
 
         const components = resource.path.slice(1).split('/');
 
         // Short-circuit: users accessing their own home directory.
-        if ( ! actor.app && ! actor.accessToken ) {
+        if (!actor.app && !actor.accessToken) {
             const username = actor.user.username;
-            if ( username && (resource.path === `/${username}` || resource.path.startsWith(`/${username}/`)) ) {
+            if (
+                username &&
+                (resource.path === `/${username}` ||
+                    resource.path.startsWith(`/${username}/`))
+            ) {
                 return true;
             }
         }
@@ -91,12 +110,15 @@ export class ACLService extends PuterService {
         // Short-circuit: apps accessing their own AppData directory (under
         // any user). Shared-appdata access is handled below via the
         // per-user-permission gate.
-        if ( actor.app && ! actor.accessToken ) {
+        if (actor.app && !actor.accessToken) {
             const username = actor.user.username;
             const appUid = actor.app.uid;
-            if ( username ) {
+            if (username) {
                 const appDataPath = `/${username}/AppData/${appUid}`;
-                if ( resource.path === appDataPath || resource.path.startsWith(`${appDataPath}/`) ) {
+                if (
+                    resource.path === appDataPath ||
+                    resource.path.startsWith(`${appDataPath}/`)
+                ) {
                     return true;
                 }
             }
@@ -104,15 +126,19 @@ export class ACLService extends PuterService {
 
         // Public folders: /<user>/Public with read-ish mode, owner must have
         // confirmed email (or be admin).
-        if ( this.config.enable_public_folders
-            && (PUBLIC_READ_MODES as AclMode[]).includes(mode)
-            && components.length > 1
-            && components[1] === 'Public'
+        if (
+            this.config.enable_public_folders &&
+            (PUBLIC_READ_MODES as AclMode[]).includes(mode) &&
+            components.length > 1 &&
+            components[1] === 'Public'
         ) {
             const ownerUsername = components[0];
             const owner = await this.stores.user.getByUsername(ownerUsername);
-            if ( owner ) {
-                if ( (owner.email_confirmed ?? false) || owner.username === 'admin' ) {
+            if (owner) {
+                if (
+                    (owner.email_confirmed ?? false) ||
+                    owner.username === 'admin'
+                ) {
                     return true;
                 }
             }
@@ -120,16 +146,26 @@ export class ACLService extends PuterService {
 
         // Access tokens: authorizer must have the permission, AND the token
         // itself must have it (or inherit it via an ancestor).
-        if ( actor.accessToken ) {
+        if (actor.accessToken) {
             const authorizer = actor.accessToken.issuer;
-            if ( ! await this.check(authorizer, resource, mode) ) return false;
+            if (!(await this.check(authorizer, resource, mode))) return false;
 
             const ancestors = await resource.resolveAncestors();
-            for ( const ancestor of ancestors ) {
-                const permission = mode === MANAGE_PERM_PREFIX
-                    ? PermissionUtil.join(MANAGE_PERM_PREFIX, 'fs', ancestor.uid)
-                    : PermissionUtil.join('fs', ancestor.uid, mode);
-                if ( await this.stores.permission.hasAccessTokenPerm(actor.accessToken.uid, permission) ) {
+            for (const ancestor of ancestors) {
+                const permission =
+                    mode === MANAGE_PERM_PREFIX
+                        ? PermissionUtil.join(
+                              MANAGE_PERM_PREFIX,
+                              'fs',
+                              ancestor.uid,
+                          )
+                        : PermissionUtil.join('fs', ancestor.uid, mode);
+                if (
+                    await this.stores.permission.hasAccessTokenPerm(
+                        actor.accessToken.uid,
+                        permission,
+                    )
+                ) {
                     return true;
                 }
             }
@@ -137,16 +173,17 @@ export class ACLService extends PuterService {
         }
 
         // App-under-user: underlying user must also hold the permission.
-        if ( actor.app ) {
+        if (actor.app) {
             const userActor: Actor = { user: actor.user };
-            if ( ! await this.check(userActor, resource, mode) ) return false;
+            if (!(await this.check(userActor, resource, mode))) return false;
 
             // Shared-appdata rule: an app accessing its AppData under a
             // *different* user is allowed iff that user has access (checked
             // above), i.e. the directory has been explicitly shared.
-            if ( components[0] !== actor.user.username
-                && components[1] === 'AppData'
-                && components[2] === actor.app.uid
+            if (
+                components[0] !== actor.user.username &&
+                components[1] === 'AppData' &&
+                components[2] === actor.app.uid
             ) {
                 return true;
             }
@@ -154,13 +191,20 @@ export class ACLService extends PuterService {
 
         // Fall back to the permission scan: walk ancestors, any hit wins.
         const ancestors = await resource.resolveAncestors();
-        for ( const ancestor of ancestors ) {
-            const permission = mode === MANAGE_PERM_PREFIX
-                ? PermissionUtil.join(MANAGE_PERM_PREFIX, 'fs', ancestor.uid)
-                : PermissionUtil.join('fs', ancestor.uid, mode);
-            const reading = await this.services.permission.scan(actor, [permission]);
+        for (const ancestor of ancestors) {
+            const permission =
+                mode === MANAGE_PERM_PREFIX
+                    ? PermissionUtil.join(
+                          MANAGE_PERM_PREFIX,
+                          'fs',
+                          ancestor.uid,
+                      )
+                    : PermissionUtil.join('fs', ancestor.uid, mode);
+            const reading = await this.services.permission.scan(actor, [
+                permission,
+            ]);
             const options = PermissionUtil.readingToOptions(reading);
-            if ( options.length > 0 ) return true;
+            if (options.length > 0) return true;
         }
 
         return false;
@@ -170,9 +214,13 @@ export class ACLService extends PuterService {
      * When a check fails, return a user-safe error: 404 if the actor can't
      * even `see` the resource (don't leak existence), 403 otherwise.
      */
-    async getSafeAclError (actor: Actor, resource: ResourceDescriptor, _mode: AclMode): Promise<AclError> {
+    async getSafeAclError(
+        actor: Actor,
+        resource: ResourceDescriptor,
+        _mode: AclMode,
+    ): Promise<AclError> {
         const canSee = await this.check(actor, resource, 'see');
-        if ( ! canSee ) {
+        if (!canSee) {
             return {
                 status: 404,
                 message: 'Subject does not exist',
@@ -193,20 +241,27 @@ export class ACLService extends PuterService {
      *
      * Caller (controller) validates that both actors are user-type.
      */
-    async statUserUser (
+    async statUserUser(
         issuer: Actor,
         holder: Actor,
         resource: ResourceDescriptor,
     ): Promise<StatPermissionsResult> {
-        if ( issuer.app || issuer.accessToken ) throw new Error('issuer must be a user actor');
-        if ( holder.app || holder.accessToken ) throw new Error('holder must be a user actor');
+        if (issuer.app || issuer.accessToken)
+            throw new Error('issuer must be a user actor');
+        if (holder.app || holder.accessToken)
+            throw new Error('holder must be a user actor');
 
         const out: StatPermissionsResult = {};
         const ancestors = await resource.resolveAncestors();
-        for ( const ancestor of ancestors ) {
+        for (const ancestor of ancestors) {
             const prefix = PermissionUtil.join('fs', ancestor.uid);
-            const perms = await this.services.permission.queryIssuerHolderPermissionsByPrefix(issuer, holder, prefix);
-            if ( perms.length > 0 ) out[ancestor.path] = perms;
+            const perms =
+                await this.services.permission.queryIssuerHolderPermissionsByPrefix(
+                    issuer,
+                    holder,
+                    prefix,
+                );
+            if (perms.length > 0) out[ancestor.path] = perms;
         }
         return out;
     }
@@ -219,28 +274,40 @@ export class ACLService extends PuterService {
      * Returns `false` when no write was necessary; `true` when a grant
      * (and possibly revokes) were issued.
      */
-    async setUserUser (
+    async setUserUser(
         issuer: Actor,
         holder: Actor,
         resource: ResourceDescriptor,
         mode: AclMode,
         options: { onlyIfHigher?: boolean } = {},
     ): Promise<boolean> {
-        if ( issuer.app || issuer.accessToken ) throw new Error('issuer must be a user actor');
-        if ( holder.app || holder.accessToken ) throw new Error('holder must be a user actor');
-        if ( ! holder.user.username ) throw new Error('holder is missing username');
+        if (issuer.app || issuer.accessToken)
+            throw new Error('issuer must be a user actor');
+        if (holder.app || holder.accessToken)
+            throw new Error('holder must be a user actor');
+        if (!holder.user.username)
+            throw new Error('holder is missing username');
 
         const stat = await this.statUserUser(issuer, holder, resource);
         const existing = stat[resource.path] ?? [];
 
-        const existingModes = existing.map(p =>
-            PermissionUtil.isManage(p) ? MANAGE_PERM_PREFIX : PermissionUtil.split(p).at(-1));
+        const existingModes = existing.map((p) =>
+            PermissionUtil.isManage(p)
+                ? MANAGE_PERM_PREFIX
+                : PermissionUtil.split(p).at(-1),
+        );
 
-        if ( existingModes.includes(mode) ) return false;
+        if (existingModes.includes(mode)) return false;
 
-        if ( options.onlyIfHigher ) {
+        if (options.onlyIfHigher) {
             const higher = MODES_ABOVE[mode] ?? [mode];
-            if ( existingModes.some(m => m === MANAGE_PERM_PREFIX || (m && higher.includes(m as AclMode))) ) {
+            if (
+                existingModes.some(
+                    (m) =>
+                        m === MANAGE_PERM_PREFIX ||
+                        (m && higher.includes(m as AclMode)),
+                )
+            ) {
                 return false;
             }
         }
@@ -249,22 +316,32 @@ export class ACLService extends PuterService {
         // chain is the resource itself (see ResourceDescriptor docstring).
         const ancestors = await resource.resolveAncestors();
         const self = ancestors[0];
-        if ( ! self ) throw new Error('resource has no ancestor chain (is it root?)');
+        if (!self)
+            throw new Error('resource has no ancestor chain (is it root?)');
         const uid = self.uid;
 
-        const newPerm = mode === MANAGE_PERM_PREFIX
-            ? PermissionUtil.join(MANAGE_PERM_PREFIX, 'fs', uid)
-            : PermissionUtil.join('fs', uid, mode);
-        await this.services.permission.grantUserUserPermission(issuer, holder.user.username, newPerm);
+        const newPerm =
+            mode === MANAGE_PERM_PREFIX
+                ? PermissionUtil.join(MANAGE_PERM_PREFIX, 'fs', uid)
+                : PermissionUtil.join('fs', uid, mode);
+        await this.services.permission.grantUserUserPermission(
+            issuer,
+            holder.user.username,
+            newPerm,
+        );
 
         // Revoke any other modes on the same node (ACL enforces one mode per
         // node per issuer/holder — higher modes supersede lower).
-        for ( const perm of existing ) {
+        for (const perm of existing) {
             const existingMode = PermissionUtil.isManage(perm)
                 ? MANAGE_PERM_PREFIX
                 : PermissionUtil.split(perm).at(-1);
-            if ( existingMode === mode ) continue;
-            await this.services.permission.revokeUserUserPermission(issuer, holder.user.username, perm);
+            if (existingMode === mode) continue;
+            await this.services.permission.revokeUserUserPermission(
+                issuer,
+                holder.user.username,
+                perm,
+            );
         }
         return true;
     }
@@ -275,12 +352,12 @@ export class ACLService extends PuterService {
      * hardcoding 'write', so additions (e.g., a future 'config' mode) don't
      * require sweeping call-site changes.
      */
-    getHighestMode (): AclMode {
+    getHighestMode(): AclMode {
         return 'write';
     }
 
     /** Modes that imply `mode`. */
-    higherModes (mode: AclMode): AclMode[] {
+    higherModes(mode: AclMode): AclMode[] {
         return MODES_ABOVE[mode] ?? [mode];
     }
 }

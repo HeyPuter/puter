@@ -20,10 +20,12 @@ import { SUB_POLICIES } from '../../data/subPolicies/index.js';
 
 type SubscriptionPolicy = (typeof SUB_POLICIES)[number];
 
-export type SubscriptionResolver = (actor: Actor) => Promise<string | null | undefined> | string | null | undefined;
+export type SubscriptionResolver = (
+    actor: Actor,
+) => Promise<string | null | undefined> | string | null | undefined;
 
 interface UsageInput {
-    usageType: (keyof typeof COST_MAPS) | (string & {});
+    usageType: keyof typeof COST_MAPS | (string & {});
     usageAmount: number;
     costOverride?: number;
 }
@@ -39,7 +41,6 @@ interface UsageInput {
  * out into several aggregated KV records.
  */
 export class MeteringService extends PuterService {
-
     static GLOBAL_SHARD_COUNT = 10000;
     static APP_SHARD_COUNT = 10000;
     static MAX_GLOBAL_USAGE_PER_MINUTE = toMicroCents(0.2);
@@ -51,17 +52,20 @@ export class MeteringService extends PuterService {
 
     // ── Lifecycle ────────────────────────────────────────────────────
 
-    override onServerStart (): void {
-        this.rateCheckTimer = setInterval(() => {
-            this.checkRateOfChange().catch((e) => {
-                console.error('[metering] rate-of-change check failed', e);
-            });
-        }, 1000 * 60 * 16);
+    override onServerStart(): void {
+        this.rateCheckTimer = setInterval(
+            () => {
+                this.checkRateOfChange().catch((e) => {
+                    console.error('[metering] rate-of-change check failed', e);
+                });
+            },
+            1000 * 60 * 16,
+        );
         this.rateCheckTimer.unref?.();
     }
 
-    override onServerShutdown (): void {
-        if ( this.rateCheckTimer ) {
+    override onServerShutdown(): void {
+        if (this.rateCheckTimer) {
             clearInterval(this.rateCheckTimer);
             this.rateCheckTimer = null;
         }
@@ -70,7 +74,7 @@ export class MeteringService extends PuterService {
     // ── Extension hooks ──────────────────────────────────────────────
 
     /** Register a policy that should be available to actors. */
-    registerPolicy (policy: SubscriptionPolicy): void {
+    registerPolicy(policy: SubscriptionPolicy): void {
         this.extraPolicies.push(policy);
     }
 
@@ -78,7 +82,7 @@ export class MeteringService extends PuterService {
      * Register a resolver that maps an actor to a subscription id. The first
      * resolver that returns a non-empty id wins; later resolvers are skipped.
      */
-    registerSubscriptionResolver (fn: SubscriptionResolver): void {
+    registerSubscriptionResolver(fn: SubscriptionResolver): void {
         this.subscriptionResolvers.push(fn);
     }
 
@@ -86,31 +90,38 @@ export class MeteringService extends PuterService {
      * Register a resolver that maps an actor to a *default* subscription id,
      * used when no explicit subscription is set. First non-empty wins.
      */
-    registerDefaultSubscriptionResolver (fn: SubscriptionResolver): void {
+    registerDefaultSubscriptionResolver(fn: SubscriptionResolver): void {
         this.defaultSubscriptionResolvers.push(fn);
     }
 
     // ── Public API: increment usage ──────────────────────────────────
 
-    utilRecordUsageObject<T extends Record<string, number>> (
+    utilRecordUsageObject<T extends Record<string, number>>(
         trackedUsageObject: T,
         actor: Actor,
         modelPrefix: string,
         costsOverrides?: Partial<Record<keyof T, number>>,
     ) {
-        return this.batchIncrementUsages(actor, Object.entries(trackedUsageObject).map(([usageKind, amount]) => {
-            const hasOverride = !!costsOverrides && Number.isFinite(costsOverrides[usageKind]);
-            return {
-                usageType: `${modelPrefix}:${usageKind}`,
-                usageAmount: amount,
-                costOverride: hasOverride ? costsOverrides![usageKind as keyof T] : undefined,
-            };
-        }));
+        return this.batchIncrementUsages(
+            actor,
+            Object.entries(trackedUsageObject).map(([usageKind, amount]) => {
+                const hasOverride =
+                    !!costsOverrides &&
+                    Number.isFinite(costsOverrides[usageKind]);
+                return {
+                    usageType: `${modelPrefix}:${usageKind}`,
+                    usageAmount: amount,
+                    costOverride: hasOverride
+                        ? costsOverrides![usageKind as keyof T]
+                        : undefined,
+                };
+            }),
+        );
     }
 
-    async incrementUsage (
+    async incrementUsage(
         actor: Actor,
-        usageType: (keyof typeof COST_MAPS) | (string & {}),
+        usageType: keyof typeof COST_MAPS | (string & {}),
         usageAmount: number,
         costOverride?: number,
     ): Promise<UsageByType> {
@@ -120,10 +131,10 @@ export class MeteringService extends PuterService {
         costOverride = !Number.isFinite(costOverride)
             ? undefined
             : (costOverride as number) < 0
-                ? 1
-                : costOverride;
+              ? 1
+              : costOverride;
 
-        if ( costOverrideRaw && costOverrideRaw < 0 ) {
+        if (costOverrideRaw && costOverrideRaw < 0) {
             this.clients.alarm.create(
                 `metering unexpected negative cost access to: ${usageType}`,
                 'negative cost abuse vector!',
@@ -139,16 +150,18 @@ export class MeteringService extends PuterService {
         }
 
         try {
-            if ( !usageAmount || !usageType || !actor ) return { total: 0 } as UsageByType;
-            if ( isSystemActor(actor) ) return { total: 0 } as UsageByType;
+            if (!usageAmount || !usageType || !actor)
+                return { total: 0 } as UsageByType;
+            if (isSystemActor(actor)) return { total: 0 } as UsageByType;
 
             const currentMonth = this.monthYearString();
 
             const mappedCost = COST_MAPS[usageType as keyof typeof COST_MAPS];
-            const totalCost = ((costOverride && costOverride < 0) ? 1 : costOverride)
-                ?? ((mappedCost || 0) * usageAmount);
+            const totalCost =
+                (costOverride && costOverride < 0 ? 1 : costOverride) ??
+                (mappedCost || 0) * usageAmount;
 
-            if ( totalCost === 0 && (mappedCost !== 0 && costOverride !== 0) ) {
+            if (totalCost === 0 && mappedCost !== 0 && costOverride !== 0) {
                 this.clients.alarm.create(
                     `metering unexpected 0 cost access to: ${usageType}`,
                     '0 cost abuse vector',
@@ -163,7 +176,10 @@ export class MeteringService extends PuterService {
                 );
             }
 
-            const escapedUsageType = String(usageType).replace(/\./g, PERIOD_ESCAPE);
+            const escapedUsageType = String(usageType).replace(
+                /\./g,
+                PERIOD_ESCAPE,
+            );
             const appId = actor.app?.uid || GLOBAL_APP_KEY;
             const userId = actor.user.uuid;
             const pathAndAmountMap = {
@@ -174,47 +190,65 @@ export class MeteringService extends PuterService {
             };
 
             const actorUsageKey = `${METRICS_PREFIX}:actor:${userId}:${currentMonth}`;
-            const actorUsagesPromise = this.stores.kv.incr({
-                key: actorUsageKey,
-                pathAndAmountMap,
-            }).then(r => r.res as unknown as UsageByType);
+            const actorUsagesPromise = this.stores.kv
+                .incr({
+                    key: actorUsageKey,
+                    pathAndAmountMap,
+                })
+                .then((r) => r.res as unknown as UsageByType);
 
             // Aux writes — fire and forget
-            this.fireAux(`puterConsumption ${userId}/${appId}`, this.stores.kv.incr({
-                key: this.globalUsageKey(userId, appId, currentMonth),
-                pathAndAmountMap,
-            }));
-
-            this.fireAux(`actorAppUsage ${userId}/${appId}`, this.stores.kv.incr({
-                key: `${METRICS_PREFIX}:actor:${userId}:app:${appId}:${currentMonth}`,
-                pathAndAmountMap,
-            }));
-
-            if ( appId !== GLOBAL_APP_KEY ) {
-                this.fireAux(`appUsage ${appId}/${userId}`, this.stores.kv.incr({
-                    key: this.appUsageKey(appId, userId, currentMonth),
+            this.fireAux(
+                `puterConsumption ${userId}/${appId}`,
+                this.stores.kv.incr({
+                    key: this.globalUsageKey(userId, appId, currentMonth),
                     pathAndAmountMap,
-                }));
+                }),
+            );
+
+            this.fireAux(
+                `actorAppUsage ${userId}/${appId}`,
+                this.stores.kv.incr({
+                    key: `${METRICS_PREFIX}:actor:${userId}:app:${appId}:${currentMonth}`,
+                    pathAndAmountMap,
+                }),
+            );
+
+            if (appId !== GLOBAL_APP_KEY) {
+                this.fireAux(
+                    `appUsage ${appId}/${userId}`,
+                    this.stores.kv.incr({
+                        key: this.appUsageKey(appId, userId, currentMonth),
+                        pathAndAmountMap,
+                    }),
+                );
             }
 
-            this.fireAux(`actorAppTotals ${userId}`, this.stores.kv.incr({
-                key: `${METRICS_PREFIX}:actor:${userId}:apps:${currentMonth}`,
-                pathAndAmountMap: {
-                    [`${appId}.total`]: totalCost,
-                    [`${appId}.count`]: 1,
-                },
-            }));
+            this.fireAux(
+                `actorAppTotals ${userId}`,
+                this.stores.kv.incr({
+                    key: `${METRICS_PREFIX}:actor:${userId}:apps:${currentMonth}`,
+                    pathAndAmountMap: {
+                        [`${appId}.total`]: totalCost,
+                        [`${appId}.count`]: 1,
+                    },
+                }),
+            );
 
-            this.fireAux('lastUpdated', this.stores.kv.set({
-                key: `${METRICS_PREFIX}:actor:${userId}:lastUpdated`,
-                value: Date.now(),
-            }));
+            this.fireAux(
+                'lastUpdated',
+                this.stores.kv.set({
+                    key: `${METRICS_PREFIX}:actor:${userId}:lastUpdated`,
+                    value: Date.now(),
+                }),
+            );
 
-            const [actorUsages, actorSubscription, actorAddons] = await Promise.all([
-                actorUsagesPromise,
-                this.getActorSubscription(actor),
-                this.getActorAddons(actor),
-            ]);
+            const [actorUsages, actorSubscription, actorAddons] =
+                await Promise.all([
+                    actorUsagesPromise,
+                    this.getActorSubscription(actor),
+                    this.getActorAddons(actor),
+                ]);
 
             await this.maybeConsumeAddonCredits(
                 userId,
@@ -237,8 +271,13 @@ export class MeteringService extends PuterService {
             });
 
             return actorUsages;
-        } catch ( e ) {
-            console.error('[metering] incrementUsage failed', { actor, usageType, usageAmount, error: e });
+        } catch (e) {
+            console.error('[metering] incrementUsage failed', {
+                actor,
+                usageType,
+                usageAmount,
+                error: e,
+            });
             this.clients.alarm.create(
                 `metering service error for user: ${actor.user?.username} app: ${actor.app?.uid}`,
                 (e as Error).message,
@@ -256,25 +295,38 @@ export class MeteringService extends PuterService {
         }
     }
 
-    async batchIncrementUsages (actor: Actor, usages: UsageInput[]): Promise<UsageByType> {
+    async batchIncrementUsages(
+        actor: Actor,
+        usages: UsageInput[],
+    ): Promise<UsageByType> {
         try {
-            if ( !usages || usages.length === 0 || !actor ) return { total: 0 } as UsageByType;
-            if ( isSystemActor(actor) ) return { total: 0 } as UsageByType;
+            if (!usages || usages.length === 0 || !actor)
+                return { total: 0 } as UsageByType;
+            if (isSystemActor(actor)) return { total: 0 } as UsageByType;
 
             const currentMonth = this.monthYearString();
             const aggregated: Record<string, number> = {};
             let totalBatchCost = 0;
             let hasZeroCostWarning = false;
 
-            for ( const { usageType, usageAmount: usageAmountRaw, costOverride: costOverrideRaw } of usages ) {
-                const usageAmount = (!Number.isFinite(usageAmountRaw) || usageAmountRaw < 0) ? 1 : usageAmountRaw;
+            for (const {
+                usageType,
+                usageAmount: usageAmountRaw,
+                costOverride: costOverrideRaw,
+            } of usages) {
+                const usageAmount =
+                    !Number.isFinite(usageAmountRaw) || usageAmountRaw < 0
+                        ? 1
+                        : usageAmountRaw;
                 const costOverride = !Number.isFinite(costOverrideRaw)
                     ? undefined
-                    : (costOverrideRaw as number) < 0 ? 1 : costOverrideRaw;
+                    : (costOverrideRaw as number) < 0
+                      ? 1
+                      : costOverrideRaw;
 
-                if ( !usageAmount || !usageType ) continue;
+                if (!usageAmount || !usageType) continue;
 
-                if ( costOverrideRaw && costOverrideRaw < 0 ) {
+                if (costOverrideRaw && costOverrideRaw < 0) {
                     this.clients.alarm.create(
                         `metering unexpected negative cost access to: ${usageType}`,
                         'negative cost abuse vector!',
@@ -290,11 +342,18 @@ export class MeteringService extends PuterService {
                     );
                 }
 
-                const mappedCost = COST_MAPS[usageType as keyof typeof COST_MAPS];
-                const totalCost = costOverride ?? ((mappedCost || 0) * usageAmount);
+                const mappedCost =
+                    COST_MAPS[usageType as keyof typeof COST_MAPS];
+                const totalCost =
+                    costOverride ?? (mappedCost || 0) * usageAmount;
                 totalBatchCost += totalCost;
 
-                if ( !hasZeroCostWarning && totalCost === 0 && (mappedCost !== 0 && costOverride !== 0) ) {
+                if (
+                    !hasZeroCostWarning &&
+                    totalCost === 0 &&
+                    mappedCost !== 0 &&
+                    costOverride !== 0
+                ) {
                     hasZeroCostWarning = true;
                     this.clients.alarm.create(
                         `metering unexpected 0 cost access to: ${usageType}`,
@@ -313,49 +372,70 @@ export class MeteringService extends PuterService {
 
                 const escaped = String(usageType).replace(/\./g, PERIOD_ESCAPE);
                 aggregated['total'] = (aggregated['total'] || 0) + totalCost;
-                aggregated[`${escaped}.units`] = (aggregated[`${escaped}.units`] || 0) + usageAmount;
-                aggregated[`${escaped}.cost`] = (aggregated[`${escaped}.cost`] || 0) + totalCost;
-                aggregated[`${escaped}.count`] = (aggregated[`${escaped}.count`] || 0) + 1;
+                aggregated[`${escaped}.units`] =
+                    (aggregated[`${escaped}.units`] || 0) + usageAmount;
+                aggregated[`${escaped}.cost`] =
+                    (aggregated[`${escaped}.cost`] || 0) + totalCost;
+                aggregated[`${escaped}.count`] =
+                    (aggregated[`${escaped}.count`] || 0) + 1;
             }
 
             const appId = actor.app?.uid || GLOBAL_APP_KEY;
             const userId = actor.user.uuid;
 
             const actorUsageKey = `${METRICS_PREFIX}:actor:${userId}:${currentMonth}`;
-            const actorUsagesPromise = this.stores.kv.incr({
-                key: actorUsageKey,
-                pathAndAmountMap: aggregated,
-            }).then(r => r.res as unknown as UsageByType);
+            const actorUsagesPromise = this.stores.kv
+                .incr({
+                    key: actorUsageKey,
+                    pathAndAmountMap: aggregated,
+                })
+                .then((r) => r.res as unknown as UsageByType);
 
-            this.fireAux(`puterConsumption ${userId}/${appId}`, this.stores.kv.incr({
-                key: this.globalUsageKey(userId, appId, currentMonth),
-                pathAndAmountMap: aggregated,
-            }));
-            this.fireAux(`actorAppUsage ${userId}/${appId}`, this.stores.kv.incr({
-                key: `${METRICS_PREFIX}:actor:${userId}:app:${appId}:${currentMonth}`,
-                pathAndAmountMap: aggregated,
-            }));
-            this.fireAux(`appUsage ${appId}/${userId}`, this.stores.kv.incr({
-                key: this.appUsageKey(appId, userId, currentMonth),
-                pathAndAmountMap: aggregated,
-            }));
-            this.fireAux(`actorAppTotals ${userId}`, this.stores.kv.incr({
-                key: `${METRICS_PREFIX}:actor:${userId}:apps:${currentMonth}`,
-                pathAndAmountMap: {
-                    [`${appId}.total`]: totalBatchCost,
-                    [`${appId}.count`]: usages.length,
-                },
-            }));
-            this.fireAux('lastUpdated', this.stores.kv.set({
-                key: `${METRICS_PREFIX}:actor:${userId}:lastUpdated`,
-                value: Date.now(),
-            }));
+            this.fireAux(
+                `puterConsumption ${userId}/${appId}`,
+                this.stores.kv.incr({
+                    key: this.globalUsageKey(userId, appId, currentMonth),
+                    pathAndAmountMap: aggregated,
+                }),
+            );
+            this.fireAux(
+                `actorAppUsage ${userId}/${appId}`,
+                this.stores.kv.incr({
+                    key: `${METRICS_PREFIX}:actor:${userId}:app:${appId}:${currentMonth}`,
+                    pathAndAmountMap: aggregated,
+                }),
+            );
+            this.fireAux(
+                `appUsage ${appId}/${userId}`,
+                this.stores.kv.incr({
+                    key: this.appUsageKey(appId, userId, currentMonth),
+                    pathAndAmountMap: aggregated,
+                }),
+            );
+            this.fireAux(
+                `actorAppTotals ${userId}`,
+                this.stores.kv.incr({
+                    key: `${METRICS_PREFIX}:actor:${userId}:apps:${currentMonth}`,
+                    pathAndAmountMap: {
+                        [`${appId}.total`]: totalBatchCost,
+                        [`${appId}.count`]: usages.length,
+                    },
+                }),
+            );
+            this.fireAux(
+                'lastUpdated',
+                this.stores.kv.set({
+                    key: `${METRICS_PREFIX}:actor:${userId}:lastUpdated`,
+                    value: Date.now(),
+                }),
+            );
 
-            const [actorUsages, actorSubscription, actorAddons] = await Promise.all([
-                actorUsagesPromise,
-                this.getActorSubscription(actor),
-                this.getActorAddons(actor),
-            ]);
+            const [actorUsages, actorSubscription, actorAddons] =
+                await Promise.all([
+                    actorUsagesPromise,
+                    this.getActorSubscription(actor),
+                    this.getActorAddons(actor),
+                ]);
 
             await this.maybeConsumeAddonCredits(
                 userId,
@@ -376,8 +456,12 @@ export class MeteringService extends PuterService {
             });
 
             return actorUsages;
-        } catch ( e ) {
-            console.error('[metering] batchIncrementUsages failed', { actor, usages, error: e });
+        } catch (e) {
+            console.error('[metering] batchIncrementUsages failed', {
+                actor,
+                usages,
+                error: e,
+            });
             this.clients.alarm.create(
                 `metering service error for user: ${actor.user?.username} app: ${actor.app?.uid}`,
                 (e as Error).message,
@@ -396,11 +480,12 @@ export class MeteringService extends PuterService {
 
     // ── Public API: read usage ───────────────────────────────────────
 
-    async getActorCurrentMonthUsageDetails (actor: Actor): Promise<{
+    async getActorCurrentMonthUsageDetails(actor: Actor): Promise<{
         usage: UsageByType;
         appTotals: Record<string, AppTotals>;
     }> {
-        if ( ! actor.user?.uuid ) throw new Error('Actor must be a user to get usage details');
+        if (!actor.user?.uuid)
+            throw new Error('Actor must be a user to get usage details');
 
         const currentMonth = this.monthYearString();
         const keys = [
@@ -409,33 +494,46 @@ export class MeteringService extends PuterService {
         ];
 
         const { res } = await this.stores.kv.get({ key: keys });
-        const [usage, appTotals] = (res ?? []) as [UsageByType | null, Record<string, AppTotals> | null];
+        const [usage, appTotals] = (res ?? []) as [
+            UsageByType | null,
+            Record<string, AppTotals> | null,
+        ];
 
         const appId = actor.app?.uid;
-        if ( appTotals && appId ) {
+        if (appTotals && appId) {
             const filtered: Record<string, AppTotals> = {};
             const others: AppTotals = {} as AppTotals;
             Object.entries(appTotals).forEach(([appKey, appUsage]) => {
-                if ( appKey === appId ) {
+                if (appKey === appId) {
                     filtered[appKey] = appUsage;
                 } else {
                     Object.entries(appUsage).forEach(([usageKind, amount]) => {
                         const key = usageKind as keyof AppTotals;
-                        if ( ! others[key] ) others[key] = 0;
+                        if (!others[key]) others[key] = 0;
                         others[key] += amount;
                     });
                 }
             });
-            if ( others ) filtered['others'] = others;
-            return { usage: usage || ({ total: 0 } as UsageByType), appTotals: filtered };
+            if (others) filtered['others'] = others;
+            return {
+                usage: usage || ({ total: 0 } as UsageByType),
+                appTotals: filtered,
+            };
         }
 
-        return { usage: usage || ({ total: 0 } as UsageByType), appTotals: appTotals || {} };
+        return {
+            usage: usage || ({ total: 0 } as UsageByType),
+            appTotals: appTotals || {},
+        };
     }
 
-    async setActorCurrentMonthUsageTotal (actor: Actor, totalCost: number): Promise<UsageByType> {
-        if ( ! actor.user?.uuid ) throw new Error('Actor must be a user to set usage details');
-        if ( !Number.isFinite(totalCost) || totalCost < 0 ) {
+    async setActorCurrentMonthUsageTotal(
+        actor: Actor,
+        totalCost: number,
+    ): Promise<UsageByType> {
+        if (!actor.user?.uuid)
+            throw new Error('Actor must be a user to set usage details');
+        if (!Number.isFinite(totalCost) || totalCost < 0) {
             throw new Error('Total cost must be a non-negative number');
         }
 
@@ -445,12 +543,14 @@ export class MeteringService extends PuterService {
         const appId = actor.app?.uid || GLOBAL_APP_KEY;
         const actorUsageKey = `${METRICS_PREFIX}:actor:${userId}:${currentMonth}`;
 
-        const { res: current } = await this.stores.kv.get({ key: actorUsageKey });
+        const { res: current } = await this.stores.kv.get({
+            key: actorUsageKey,
+        });
         const currentTotal = (current as UsageByType | null)?.total ?? 0;
         const delta = normalizedTotal - currentTotal;
 
-        if ( delta === 0 ) {
-            return (current as UsageByType) || { total: 0 } as UsageByType;
+        if (delta === 0) {
+            return (current as UsageByType) || ({ total: 0 } as UsageByType);
         }
 
         const pathAndAmountMap = {
@@ -460,111 +560,162 @@ export class MeteringService extends PuterService {
             'manual_adjustment.count': 1,
         };
 
-        const updated = (await this.stores.kv.incr({ key: actorUsageKey, pathAndAmountMap })).res as unknown as UsageByType;
+        const updated = (
+            await this.stores.kv.incr({ key: actorUsageKey, pathAndAmountMap })
+        ).res as unknown as UsageByType;
 
-        this.fireAux(`puterConsumption ${userId}/${appId}`, this.stores.kv.incr({
-            key: this.globalUsageKey(userId, appId, currentMonth),
-            pathAndAmountMap,
-        }));
-        this.fireAux(`actorAppUsage ${userId}/${appId}`, this.stores.kv.incr({
-            key: `${METRICS_PREFIX}:actor:${userId}:app:${appId}:${currentMonth}`,
-            pathAndAmountMap,
-        }));
-        this.fireAux(`actorAppTotals ${userId}`, this.stores.kv.incr({
-            key: `${METRICS_PREFIX}:actor:${userId}:apps:${currentMonth}`,
-            pathAndAmountMap: {
-                [`${appId}.total`]: delta,
-                [`${appId}.count`]: 1,
-            },
-        }));
-        this.fireAux('lastUpdated', this.stores.kv.set({
-            key: `${METRICS_PREFIX}:actor:${userId}:lastUpdated`,
-            value: Date.now(),
-        }));
+        this.fireAux(
+            `puterConsumption ${userId}/${appId}`,
+            this.stores.kv.incr({
+                key: this.globalUsageKey(userId, appId, currentMonth),
+                pathAndAmountMap,
+            }),
+        );
+        this.fireAux(
+            `actorAppUsage ${userId}/${appId}`,
+            this.stores.kv.incr({
+                key: `${METRICS_PREFIX}:actor:${userId}:app:${appId}:${currentMonth}`,
+                pathAndAmountMap,
+            }),
+        );
+        this.fireAux(
+            `actorAppTotals ${userId}`,
+            this.stores.kv.incr({
+                key: `${METRICS_PREFIX}:actor:${userId}:apps:${currentMonth}`,
+                pathAndAmountMap: {
+                    [`${appId}.total`]: delta,
+                    [`${appId}.count`]: 1,
+                },
+            }),
+        );
+        this.fireAux(
+            'lastUpdated',
+            this.stores.kv.set({
+                key: `${METRICS_PREFIX}:actor:${userId}:lastUpdated`,
+                value: Date.now(),
+            }),
+        );
 
         return updated;
     }
 
-    async getActorCurrentMonthAppUsageDetails (actor: Actor, appId?: string): Promise<UsageByType> {
-        if ( ! actor.user?.uuid ) throw new Error('Actor must be a user to get usage details');
+    async getActorCurrentMonthAppUsageDetails(
+        actor: Actor,
+        appId?: string,
+    ): Promise<UsageByType> {
+        if (!actor.user?.uuid)
+            throw new Error('Actor must be a user to get usage details');
 
         const resolvedAppId = appId || actor.app?.uid || GLOBAL_APP_KEY;
 
         const actorAppId = actor.app?.uid;
-        if ( actorAppId && actorAppId !== resolvedAppId && resolvedAppId !== GLOBAL_APP_KEY ) {
-            throw new Error('Actor can only get usage details for their own app or global app');
+        if (
+            actorAppId &&
+            actorAppId !== resolvedAppId &&
+            resolvedAppId !== GLOBAL_APP_KEY
+        ) {
+            throw new Error(
+                'Actor can only get usage details for their own app or global app',
+            );
         }
 
         const currentMonth = this.monthYearString();
         const key = `${METRICS_PREFIX}:actor:${actor.user.uuid}:app:${resolvedAppId}:${currentMonth}`;
         const { res } = await this.stores.kv.get({ key });
-        return (res as UsageByType) || { total: 0 } as UsageByType;
+        return (res as UsageByType) || ({ total: 0 } as UsageByType);
     }
 
-    async getRemainingUsage (actor: Actor): Promise<number> {
+    async getRemainingUsage(actor: Actor): Promise<number> {
         const { remaining } = await this.getAllowedUsage(actor);
         return remaining || 0;
     }
 
-    async getAllowedUsage (actor: Actor): Promise<{
+    async getAllowedUsage(actor: Actor): Promise<{
         remaining: number;
         monthUsageAllowance: number;
         addons: UsageAddons;
     }> {
-        const [userSubscription, addons, currentMonthUsage] = await Promise.all([
-            this.getActorSubscription(actor),
-            this.getActorAddons(actor),
-            this.getActorCurrentMonthUsageDetails(actor),
-        ]);
+        const [userSubscription, addons, currentMonthUsage] = await Promise.all(
+            [
+                this.getActorSubscription(actor),
+                this.getActorAddons(actor),
+                this.getActorCurrentMonthUsageDetails(actor),
+            ],
+        );
 
         const remaining = Math.max(
             0,
-            (userSubscription.monthUsageAllowance || 0)
-            + (addons?.purchasedCredits || 0)
-            - (currentMonthUsage.usage.total || 0)
-            - (addons?.consumedPurchaseCredits || 0),
+            (userSubscription.monthUsageAllowance || 0) +
+                (addons?.purchasedCredits || 0) -
+                (currentMonthUsage.usage.total || 0) -
+                (addons?.consumedPurchaseCredits || 0),
         );
 
-        return { remaining, monthUsageAllowance: userSubscription.monthUsageAllowance, addons };
+        return {
+            remaining,
+            monthUsageAllowance: userSubscription.monthUsageAllowance,
+            addons,
+        };
     }
 
-    async hasAnyUsage (actor: Actor): Promise<boolean> {
+    async hasAnyUsage(actor: Actor): Promise<boolean> {
         return (await this.getRemainingUsage(actor)) > 0;
     }
 
-    async hasEnoughCreditsFor (actor: Actor, usageType: keyof typeof COST_MAPS, usageAmount: number): Promise<boolean> {
+    async hasEnoughCreditsFor(
+        actor: Actor,
+        usageType: keyof typeof COST_MAPS,
+        usageAmount: number,
+    ): Promise<boolean> {
         const remaining = await this.getRemainingUsage(actor);
-        const cost = (COST_MAPS[usageType] || 0) * (usageAmount < 0 ? 1 : usageAmount);
+        const cost =
+            (COST_MAPS[usageType] || 0) * (usageAmount < 0 ? 1 : usageAmount);
         return remaining >= cost;
     }
 
-    async hasEnoughCredits (actor: Actor, amount: number): Promise<boolean> {
+    async hasEnoughCredits(actor: Actor, amount: number): Promise<boolean> {
         return (await this.getRemainingUsage(actor)) >= amount;
     }
 
-    async getActorSubscription (actor: Actor): Promise<SubscriptionPolicy> {
-        if ( ! actor.user?.uuid ) throw new Error('Actor must be a user to get policy');
+    async getActorSubscription(actor: Actor): Promise<SubscriptionPolicy> {
+        if (!actor.user?.uuid)
+            throw new Error('Actor must be a user to get policy');
 
-        const fallbackDefault = actor.user.email ? DEFAULT_FREE_SUBSCRIPTION : DEFAULT_TEMP_SUBSCRIPTION;
+        const fallbackDefault = actor.user.email
+            ? DEFAULT_FREE_SUBSCRIPTION
+            : DEFAULT_TEMP_SUBSCRIPTION;
 
-        const resolvedDefault = (await this.firstResolver(this.defaultSubscriptionResolvers, actor)) || fallbackDefault;
-        const resolvedUser = (await this.firstResolver(this.subscriptionResolvers, actor)) || resolvedDefault;
+        const resolvedDefault =
+            (await this.firstResolver(
+                this.defaultSubscriptionResolvers,
+                actor,
+            )) || fallbackDefault;
+        const resolvedUser =
+            (await this.firstResolver(this.subscriptionResolvers, actor)) ||
+            resolvedDefault;
 
-        const availablePolicies: SubscriptionPolicy[] = [...this.extraPolicies, ...SUB_POLICIES];
-        return availablePolicies.find(p => p.id === resolvedUser)
-            ?? availablePolicies.find(p => p.id === resolvedDefault)!;
+        const availablePolicies: SubscriptionPolicy[] = [
+            ...this.extraPolicies,
+            ...SUB_POLICIES,
+        ];
+        return (
+            availablePolicies.find((p) => p.id === resolvedUser) ??
+            availablePolicies.find((p) => p.id === resolvedDefault)!
+        );
     }
 
-    async getActorAddons (actor: Actor): Promise<UsageAddons> {
-        if ( ! actor.user?.uuid ) throw new Error('Actor must be a user to get policy addons');
+    async getActorAddons(actor: Actor): Promise<UsageAddons> {
+        if (!actor.user?.uuid)
+            throw new Error('Actor must be a user to get policy addons');
         const key = `${POLICY_PREFIX}:actor:${actor.user.uuid}:addons`;
         const { res } = await this.stores.kv.get({ key });
         return (res ?? {}) as UsageAddons;
     }
 
-    async getActorAppUsage (actor: Actor, appId: string): Promise<UsageByType> {
-        if ( ! actor.user?.uuid ) throw new Error('Actor must be a user to get app usage');
-        if ( actor.app?.uid && actor.app.uid !== appId ) {
+    async getActorAppUsage(actor: Actor, appId: string): Promise<UsageByType> {
+        if (!actor.user?.uuid)
+            throw new Error('Actor must be a user to get app usage');
+        if (actor.app?.uid && actor.app.uid !== appId) {
             throw new Error('Actor can only get usage for their own app');
         }
 
@@ -574,11 +725,15 @@ export class MeteringService extends PuterService {
         return (res ?? { total: 0 }) as UsageByType;
     }
 
-    async getGlobalUsage (): Promise<UsageByType> {
+    async getGlobalUsage(): Promise<UsageByType> {
         const currentMonth = this.monthYearString();
         const keyPrefix = `${METRICS_PREFIX}:puter:`;
         const keys: string[] = [];
-        for ( let shard = 0; shard < MeteringService.GLOBAL_SHARD_COUNT; shard++ ) {
+        for (
+            let shard = 0;
+            shard < MeteringService.GLOBAL_SHARD_COUNT;
+            shard++
+        ) {
             keys.push(`${keyPrefix}${shard}:${currentMonth}`);
         }
         keys.push(`${keyPrefix}${currentMonth}`);
@@ -590,22 +745,31 @@ export class MeteringService extends PuterService {
         usages.filter(Boolean).forEach((entry = {} as UsageByType) => {
             const { total, ...rest } = entry;
             aggregated.total += total || 0;
-            Object.entries(rest as Record<string, UsageRecord>).forEach(([usageKind, record]) => {
-                if ( ! aggregated[usageKind] ) {
-                    aggregated[usageKind] = { cost: 0, units: 0, count: 0 } as UsageRecord;
-                }
-                const agg = aggregated[usageKind] as UsageRecord;
-                agg.cost += record.cost;
-                agg.count += record.count;
-                agg.units += record.units;
-            });
+            Object.entries(rest as Record<string, UsageRecord>).forEach(
+                ([usageKind, record]) => {
+                    if (!aggregated[usageKind]) {
+                        aggregated[usageKind] = {
+                            cost: 0,
+                            units: 0,
+                            count: 0,
+                        } as UsageRecord;
+                    }
+                    const agg = aggregated[usageKind] as UsageRecord;
+                    agg.cost += record.cost;
+                    agg.count += record.count;
+                    agg.units += record.units;
+                },
+            );
         });
 
         return aggregated;
     }
 
-    async updateAddonCredit (userId: string, tokenAmount: number): Promise<void> {
-        if ( ! userId ) throw new Error('User needed to update extra credits');
+    async updateAddonCredit(
+        userId: string,
+        tokenAmount: number,
+    ): Promise<void> {
+        if (!userId) throw new Error('User needed to update extra credits');
         await this.stores.kv.incr({
             key: `${POLICY_PREFIX}:actor:${userId}:addons`,
             pathAndAmountMap: { purchasedCredits: tokenAmount },
@@ -614,7 +778,7 @@ export class MeteringService extends PuterService {
 
     // ── Internals ────────────────────────────────────────────────────
 
-    private monthYearString (): string {
+    private monthYearString(): string {
         const now = new Date();
         return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
     }
@@ -622,77 +786,115 @@ export class MeteringService extends PuterService {
     /**
      * Randomized shard key to spread writes across the global consumption bucket.
      */
-    private globalUsageKey (userId: string, appId: string, currentMonth: string): string {
-        const hash = murmurhash.v3(`${userId}:${appId}`) % MeteringService.GLOBAL_SHARD_COUNT;
+    private globalUsageKey(
+        userId: string,
+        appId: string,
+        currentMonth: string,
+    ): string {
+        const hash =
+            murmurhash.v3(`${userId}:${appId}`) %
+            MeteringService.GLOBAL_SHARD_COUNT;
         return `${METRICS_PREFIX}:puter:${hash}:${currentMonth}`;
     }
 
-    private appUsageKey (appId: string, userId: string, currentMonth: string): string {
-        const hash = murmurhash.v3(`${appId}${userId}`) % MeteringService.APP_SHARD_COUNT;
+    private appUsageKey(
+        appId: string,
+        userId: string,
+        currentMonth: string,
+    ): string {
+        const hash =
+            murmurhash.v3(`${appId}${userId}`) %
+            MeteringService.APP_SHARD_COUNT;
         return `${METRICS_PREFIX}:app:${appId}:${hash}:${currentMonth}`;
     }
 
-    private fireAux (label: string, promise: Promise<unknown>): void {
+    private fireAux(label: string, promise: Promise<unknown>): void {
         promise.catch((e: Error) => {
-            console.warn(`[metering] aux write failed (${label}): ${e.message}`);
+            console.warn(
+                `[metering] aux write failed (${label}): ${e.message}`,
+            );
         });
     }
 
-    private async firstResolver (resolvers: SubscriptionResolver[], actor: Actor): Promise<string | null> {
-        for ( const resolver of resolvers ) {
+    private async firstResolver(
+        resolvers: SubscriptionResolver[],
+        actor: Actor,
+    ): Promise<string | null> {
+        for (const resolver of resolvers) {
             try {
                 const result = await resolver(actor);
-                if ( result ) return result;
-            } catch ( e ) {
+                if (result) return result;
+            } catch (e) {
                 console.warn('[metering] subscription resolver failed', e);
             }
         }
         return null;
     }
 
-    private async maybeConsumeAddonCredits (
+    private async maybeConsumeAddonCredits(
         userId: string,
         totalUsage: number,
         monthUsageAllowance: number,
         addons: UsageAddons,
         incrementCost: number,
     ): Promise<void> {
-        if ( totalUsage <= monthUsageAllowance ) return;
-        if ( ! addons.purchasedCredits ) return;
-        if ( addons.purchasedCredits <= (addons.consumedPurchaseCredits || 0) ) return;
+        if (totalUsage <= monthUsageAllowance) return;
+        if (!addons.purchasedCredits) return;
+        if (addons.purchasedCredits <= (addons.consumedPurchaseCredits || 0))
+            return;
 
-        const withinBoundsUsage = Math.max(0, monthUsageAllowance - totalUsage + incrementCost);
+        const withinBoundsUsage = Math.max(
+            0,
+            monthUsageAllowance - totalUsage + incrementCost,
+        );
         const overageUsage = incrementCost - withinBoundsUsage;
-        if ( overageUsage <= 0 ) return;
+        if (overageUsage <= 0) return;
 
-        const toConsume = Math.min(overageUsage, addons.purchasedCredits - (addons.consumedPurchaseCredits || 0));
+        const toConsume = Math.min(
+            overageUsage,
+            addons.purchasedCredits - (addons.consumedPurchaseCredits || 0),
+        );
         await this.stores.kv.incr({
             key: `${POLICY_PREFIX}:actor:${userId}:addons`,
             pathAndAmountMap: { consumedPurchaseCredits: toConsume },
         });
     }
 
-    private maybeAlertOveruse (ctx: {
+    private maybeAlertOveruse(ctx: {
         actor: Actor;
         userId: string;
         actorUsages: UsageByType;
         actorSubscription: SubscriptionPolicy;
         actorAddons: UsageAddons;
         incrementCost: number;
-        usageType?: (keyof typeof COST_MAPS) | string;
+        usageType?: keyof typeof COST_MAPS | string;
         usageAmount?: number;
         costOverride?: number;
         batchUsages?: UsageInput[];
     }): void {
-        const { actor, userId, actorUsages, actorSubscription, actorAddons, incrementCost } = ctx;
+        const {
+            actor,
+            userId,
+            actorUsages,
+            actorSubscription,
+            actorAddons,
+            incrementCost,
+        } = ctx;
 
-        const allowedMultiple = Math.floor(actorUsages.total / actorSubscription.monthUsageAllowance);
-        const previousMultiple = Math.floor((actorUsages.total - incrementCost) / actorSubscription.monthUsageAllowance);
+        const allowedMultiple = Math.floor(
+            actorUsages.total / actorSubscription.monthUsageAllowance,
+        );
+        const previousMultiple = Math.floor(
+            (actorUsages.total - incrementCost) /
+                actorSubscription.monthUsageAllowance,
+        );
         const isOver2x = allowedMultiple >= 2;
         const crossedThreshold = previousMultiple < allowedMultiple;
-        const hasNoAddonCredit = (actorAddons.purchasedCredits || 0) <= (actorAddons.consumedPurchaseCredits || 0);
+        const hasNoAddonCredit =
+            (actorAddons.purchasedCredits || 0) <=
+            (actorAddons.consumedPurchaseCredits || 0);
 
-        if ( ! (isOver2x && crossedThreshold && hasNoAddonCredit) ) return;
+        if (!(isOver2x && crossedThreshold && hasNoAddonCredit)) return;
 
         this.clients.alarm.create(
             `metering usage exceeded by user: ${actor.user?.username}`,
@@ -711,29 +913,35 @@ export class MeteringService extends PuterService {
         );
     }
 
-    private async checkRateOfChange (): Promise<void> {
+    private async checkRateOfChange(): Promise<void> {
         const now = Date.now();
         const lastChangeKey = `${METRICS_PREFIX}:lastGlobalUsageCheck`;
-        const { res: lastChangeRaw } = await this.stores.kv.get({ key: lastChangeKey });
-        const lastChange = lastChangeRaw as { total: number; timestamp: number } | null;
+        const { res: lastChangeRaw } = await this.stores.kv.get({
+            key: lastChangeKey,
+        });
+        const lastChange = lastChangeRaw as {
+            total: number;
+            timestamp: number;
+        } | null;
 
-        if ( lastChange && (now - lastChange.timestamp) <= 14 * 60 * 1000 ) return;
+        if (lastChange && now - lastChange.timestamp <= 14 * 60 * 1000) return;
 
         const globalUsage = await this.getGlobalUsage();
         const currTotal = globalUsage.total;
 
-        if ( lastChange ) {
+        if (lastChange) {
             const timeDelta = now - lastChange.timestamp;
             const usageDelta = currTotal - lastChange.total;
             const usagePerMinute = usageDelta / (timeDelta / 60000);
 
-            if ( usagePerMinute > MeteringService.MAX_GLOBAL_USAGE_PER_MINUTE ) {
+            if (usagePerMinute > MeteringService.MAX_GLOBAL_USAGE_PER_MINUTE) {
                 this.clients.alarm.create(
                     'metering:excessiveGlobalUsageRate',
                     `Global usage rate is excessive: ${usagePerMinute} micro-cents per minute`,
                     {
                         usagePerMinute,
-                        maxAllowedPerMinute: MeteringService.MAX_GLOBAL_USAGE_PER_MINUTE,
+                        maxAllowedPerMinute:
+                            MeteringService.MAX_GLOBAL_USAGE_PER_MINUTE,
                     },
                 );
             }

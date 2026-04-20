@@ -1,4 +1,8 @@
-export { DatabaseClient, type WriteResult, type BatchEntry } from './DatabaseClient';
+export {
+    DatabaseClient,
+    type WriteResult,
+    type BatchEntry,
+} from './DatabaseClient';
 export { SqliteDatabaseClient } from './SqliteDatabaseClient';
 export { MySQLDatabaseClient } from './MySQLDatabaseClient';
 
@@ -13,9 +17,9 @@ import { SqliteDatabaseClient } from './SqliteDatabaseClient';
  * concrete subclass selected by `config.database.engine`.
  */
 export const DatabaseClientFactory = class DatabaseClientFactory {
-    constructor (config: IConfig) {
+    constructor(config: IConfig) {
         const engine = config.database?.engine ?? 'sqlite';
-        switch ( engine ) {
+        switch (engine) {
             case 'mysql':
                 return new MySQLDatabaseClient(config);
             case 'sqlite':

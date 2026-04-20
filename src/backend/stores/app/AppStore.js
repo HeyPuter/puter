@@ -29,20 +29,19 @@ const READ_ONLY_COLUMNS = new Set([
 ]);
 
 export class AppStore extends PuterStore {
-
     // ── Reads ────────────────────────────────────────────────────────
 
-    async getByUid (uid) {
+    async getByUid(uid) {
         return this.#getByProperty('uid', uid);
     }
-    async getById (id) {
+    async getById(id) {
         return this.#getByProperty('id', id);
     }
-    async getByName (name) {
+    async getByName(name) {
         return this.#getByProperty('name', name);
     }
 
-    async existsByName (name) {
+    async existsByName(name) {
         const rows = await this.clients.db.read(
             'SELECT `id` FROM `apps` WHERE `name` = ? LIMIT 1',
             [name],
@@ -50,7 +49,7 @@ export class AppStore extends PuterStore {
         return rows.length > 0;
     }
 
-    async existsByIndexUrl (indexUrl) {
+    async existsByIndexUrl(indexUrl) {
         const rows = await this.clients.db.read(
             'SELECT `id` FROM `apps` WHERE `index_url` = ? LIMIT 1',
             [indexUrl],
@@ -69,19 +68,19 @@ export class AppStore extends PuterStore {
      * @param {string} [filters.name] — exact name match
      * @param {number} [filters.limit=500]
      */
-    async list (filters = {}) {
+    async list(filters = {}) {
         const where = [];
         const params = [];
 
-        if ( filters.ownerUserId !== undefined ) {
+        if (filters.ownerUserId !== undefined) {
             where.push('`owner_user_id` = ?');
             params.push(filters.ownerUserId);
         }
-        if ( filters.appOwner !== undefined ) {
+        if (filters.appOwner !== undefined) {
             where.push('`app_owner` = ?');
             params.push(filters.appOwner);
         }
-        if ( filters.name !== undefined ) {
+        if (filters.name !== undefined) {
             where.push('`name` = ?');
             params.push(filters.name);
         }
@@ -93,7 +92,7 @@ export class AppStore extends PuterStore {
             `SELECT * FROM \`apps\` ${whereClause} LIMIT ${limit}`,
             params,
         );
-        return rows.map(r => this.#normalizeRow(r));
+        return rows.map((r) => this.#normalizeRow(r));
     }
 
     // ── Writes ───────────────────────────────────────────────────────
@@ -104,21 +103,22 @@ export class AppStore extends PuterStore {
      *
      * Returns the created app row.
      */
-    async create (fields) {
+    async create(fields) {
         const uid = fields.uid ?? `app-${uuidv4()}`;
         const allowed = this.#filterEditable(fields);
         const columns = ['uid', ...Object.keys(allowed)];
         const values = [uid, ...Object.values(allowed)];
 
         const placeholders = columns.map(() => '?').join(', ');
-        const colList = columns.map(c => `\`${c}\``).join(', ');
+        const colList = columns.map((c) => `\`${c}\``).join(', ');
 
         const result = await this.clients.db.write(
             `INSERT INTO \`apps\` (${colList}) VALUES (${placeholders})`,
             values,
         );
         const insertId = result?.insertId;
-        if ( ! insertId ) throw new Error('Failed to create app — no insertId returned');
+        if (!insertId)
+            throw new Error('Failed to create app — no insertId returned');
 
         return this.getById(insertId);
     }
@@ -129,13 +129,13 @@ export class AppStore extends PuterStore {
      *
      * Invalidates cache. Returns the updated row.
      */
-    async update (appId, patch) {
+    async update(appId, patch) {
         const allowed = this.#filterEditable(patch);
         const keys = Object.keys(allowed);
-        if ( keys.length === 0 ) return this.getById(appId);
+        if (keys.length === 0) return this.getById(appId);
 
-        const setClause = keys.map(k => `\`${k}\` = ?`).join(', ');
-        const values = keys.map(k => allowed[k]);
+        const setClause = keys.map((k) => `\`${k}\` = ?`).join(', ');
+        const values = keys.map((k) => allowed[k]);
 
         await this.clients.db.write(
             `UPDATE \`apps\` SET ${setClause} WHERE \`id\` = ?`,
@@ -149,33 +149,32 @@ export class AppStore extends PuterStore {
      * Delete an app row. Also deletes its filetype associations.
      * Invalidates cache.
      */
-    async delete (appId) {
+    async delete(appId) {
         const app = await this.getById(appId);
-        if ( ! app ) return false;
+        if (!app) return false;
 
         await this.clients.db.write(
             'DELETE FROM `app_filetype_association` WHERE `app_id` = ?',
             [appId],
         );
-        await this.clients.db.write(
-            'DELETE FROM `apps` WHERE `id` = ?',
-            [appId],
-        );
+        await this.clients.db.write('DELETE FROM `apps` WHERE `id` = ?', [
+            appId,
+        ]);
         await this.invalidate(app);
         return true;
     }
 
     // ── Filetype associations ────────────────────────────────────────
 
-    async getFiletypeAssociations (appId) {
+    async getFiletypeAssociations(appId) {
         const rows = await this.clients.db.read(
             'SELECT `type` FROM `app_filetype_association` WHERE `app_id` = ?',
             [appId],
         );
-        return rows.map(r => r.type);
+        return rows.map((r) => r.type);
     }
 
-    async getAppsByFiletype (extension) {
+    async getAppsByFiletype(extension) {
         // Cache-on-read: first request after a miss pays the join, subsequent
         // reads inside the TTL window hit redis. `setFiletypeAssociations`
         // invalidates the affected extension explicitly so changes show up
@@ -183,9 +182,9 @@ export class AppStore extends PuterStore {
         const cacheKey = `${FILETYPE_CACHE_KEY_PREFIX}:${extension}`;
         try {
             const cached = await this.clients.redis.get(cacheKey);
-            if ( cached ) {
+            if (cached) {
                 const parsed = JSON.parse(cached);
-                if ( Array.isArray(parsed) ) return parsed;
+                if (Array.isArray(parsed)) return parsed;
             }
         } catch {
             // Fall through to DB on any cache failure.
@@ -197,21 +196,23 @@ export class AppStore extends PuterStore {
              WHERE fa.\`type\` = ?`,
             [extension],
         );
-        const apps = rows.map(r => this.#normalizeRow(r));
+        const apps = rows.map((r) => this.#normalizeRow(r));
 
-        this.clients.redis.set(
-            cacheKey,
-            JSON.stringify(apps),
-            'EX',
-            FILETYPE_CACHE_TTL_SECONDS,
-        ).catch(() => {
-            // Best-effort cache write.
-        });
+        this.clients.redis
+            .set(
+                cacheKey,
+                JSON.stringify(apps),
+                'EX',
+                FILETYPE_CACHE_TTL_SECONDS,
+            )
+            .catch(() => {
+                // Best-effort cache write.
+            });
 
         return apps;
     }
 
-    async getRecentAppOpens (userId, { limit = 10 } = {}) {
+    async getRecentAppOpens(userId, { limit = 10 } = {}) {
         const rows = await this.clients.db.read(
             `SELECT DISTINCT \`app_uid\` FROM \`app_opens\`
              WHERE \`user_id\` = ?
@@ -220,10 +221,10 @@ export class AppStore extends PuterStore {
              LIMIT ${limit}`,
             [userId],
         );
-        return rows.map(r => r.app_uid);
+        return rows.map((r) => r.app_uid);
     }
 
-    async setFiletypeAssociations (appId, types) {
+    async setFiletypeAssociations(appId, types) {
         // Replace-all semantics. Capture the previous extension set so we
         // can drop their cached app lists in addition to the new ones.
         const previous = await this.getFiletypeAssociations(appId);
@@ -231,8 +232,8 @@ export class AppStore extends PuterStore {
             'DELETE FROM `app_filetype_association` WHERE `app_id` = ?',
             [appId],
         );
-        if ( Array.isArray(types) && types.length > 0 ) {
-            for ( const type of types ) {
+        if (Array.isArray(types) && types.length > 0) {
+            for (const type of types) {
                 await this.clients.db.write(
                     'INSERT INTO `app_filetype_association` (`app_id`, `type`) VALUES (?, ?)',
                     [appId, type],
@@ -241,8 +242,10 @@ export class AppStore extends PuterStore {
         }
 
         const affected = new Set([...previous, ...(types ?? [])]);
-        if ( affected.size === 0 ) return;
-        const keys = [...affected].map(t => `${FILETYPE_CACHE_KEY_PREFIX}:${t}`);
+        if (affected.size === 0) return;
+        const keys = [...affected].map(
+            (t) => `${FILETYPE_CACHE_KEY_PREFIX}:${t}`,
+        );
         try {
             await this.clients.redis.del(...keys);
         } catch {
@@ -252,9 +255,9 @@ export class AppStore extends PuterStore {
 
     // ── Cache invalidation ───────────────────────────────────────────
 
-    async invalidate (app) {
+    async invalidate(app) {
         const keys = this.#cacheKeysForApp(app);
-        if ( keys.length === 0 ) return;
+        if (keys.length === 0) return;
         try {
             await this.clients.redis.del(...keys);
         } catch {
@@ -262,34 +265,37 @@ export class AppStore extends PuterStore {
         }
     }
 
-    async invalidateById (id) {
+    async invalidateById(id) {
         const cached = await this.#readCache('id', id);
-        if ( cached ) await this.invalidate(cached);
+        if (cached) await this.invalidate(cached);
     }
 
-    async invalidateByUid (uid) {
+    async invalidateByUid(uid) {
         const cached = await this.#readCache('uid', uid);
-        if ( cached ) await this.invalidate(cached);
+        if (cached) await this.invalidate(cached);
     }
 
     /** Resolve an app by either uid or name; tries uid first, then name. */
-    async resolveApp (identifier) {
-        return (await this.getByUid(identifier)) ?? (await this.getByName(identifier));
+    async resolveApp(identifier) {
+        return (
+            (await this.getByUid(identifier)) ??
+            (await this.getByName(identifier))
+        );
     }
 
     // ── Internals ────────────────────────────────────────────────────
 
-    async #getByProperty (prop, value) {
-        if ( value === undefined || value === null ) return null;
+    async #getByProperty(prop, value) {
+        if (value === undefined || value === null) return null;
 
         const cached = await this.#readCache(prop, value);
-        if ( cached ) return cached;
+        if (cached) return cached;
 
         const rows = await this.clients.db.read(
             `SELECT * FROM \`apps\` WHERE \`${prop}\` = ? LIMIT 1`,
             [value],
         );
-        if ( rows.length === 0 ) return null;
+        if (rows.length === 0) return null;
 
         const normalized = this.#normalizeRow(rows[0]);
         this.#writeCache(normalized).catch(() => {
@@ -298,56 +304,68 @@ export class AppStore extends PuterStore {
         return normalized;
     }
 
-    #cacheKey (prop, value) {
+    #cacheKey(prop, value) {
         return `${CACHE_KEY_PREFIX}:${prop}:${value}`;
     }
 
-    #cacheKeysForApp (app) {
+    #cacheKeysForApp(app) {
         const keys = [];
-        for ( const prop of APP_ID_PROPERTIES ) {
-            if ( app[prop] !== undefined && app[prop] !== null ) {
+        for (const prop of APP_ID_PROPERTIES) {
+            if (app[prop] !== undefined && app[prop] !== null) {
                 keys.push(this.#cacheKey(prop, app[prop]));
             }
         }
         return keys;
     }
 
-    async #readCache (prop, value) {
+    async #readCache(prop, value) {
         try {
-            const raw = await this.clients.redis.get(this.#cacheKey(prop, value));
+            const raw = await this.clients.redis.get(
+                this.#cacheKey(prop, value),
+            );
             return raw ? JSON.parse(raw) : null;
         } catch {
             return null;
         }
     }
 
-    async #writeCache (app) {
+    async #writeCache(app) {
         const keys = this.#cacheKeysForApp(app);
-        if ( keys.length === 0 ) return;
+        if (keys.length === 0) return;
         const serialized = JSON.stringify(app);
-        await Promise.all(keys.map(k =>
-            this.clients.redis.set(k, serialized, 'EX', CACHE_TTL_SECONDS)));
+        await Promise.all(
+            keys.map((k) =>
+                this.clients.redis.set(k, serialized, 'EX', CACHE_TTL_SECONDS),
+            ),
+        );
     }
 
-    #filterEditable (fields) {
+    #filterEditable(fields) {
         const out = {};
-        for ( const [k, v] of Object.entries(fields) ) {
-            if ( READ_ONLY_COLUMNS.has(k) ) continue;
+        for (const [k, v] of Object.entries(fields)) {
+            if (READ_ONLY_COLUMNS.has(k)) continue;
             out[k] = v;
         }
         return out;
     }
 
-    #normalizeRow (row) {
-        if ( ! row ) return null;
+    #normalizeRow(row) {
+        if (!row) return null;
         // Coerce booleans
-        for ( const key of ['godmode', 'background', 'maximize_on_start', 'protected',
-            'is_private', 'approved_for_listing', 'approved_for_opening_items',
-            'approved_for_incentive_program'] ) {
-            if ( row[key] !== undefined ) row[key] = Boolean(row[key]);
+        for (const key of [
+            'godmode',
+            'background',
+            'maximize_on_start',
+            'protected',
+            'is_private',
+            'approved_for_listing',
+            'approved_for_opening_items',
+            'approved_for_incentive_program',
+        ]) {
+            if (row[key] !== undefined) row[key] = Boolean(row[key]);
         }
         // Parse metadata
-        if ( typeof row.metadata === 'string' ) {
+        if (typeof row.metadata === 'string') {
             try {
                 row.metadata = JSON.parse(row.metadata);
             } catch {
@@ -355,7 +373,7 @@ export class AppStore extends PuterStore {
             }
         }
         // Alias created_at
-        if ( row.timestamp !== undefined && row.created_at === undefined ) {
+        if (row.timestamp !== undefined && row.created_at === undefined) {
             row.created_at = row.timestamp;
         }
         return row;

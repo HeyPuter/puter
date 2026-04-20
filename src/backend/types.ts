@@ -495,6 +495,7 @@ export type IConfig = Partial<IConfigOptional> & {
     port: number;
 };
 
+// eslint-disable-next-line @typescript-eslint/no-wrapper-object-types
 export interface WithLifecycle extends Object {
     onServerStart?: () => Promise<void> | void;
     onServerShutdown?: () => Promise<void> | void;
@@ -505,8 +506,12 @@ export interface WithControllerRegistration extends WithLifecycle {
     registerRoutes: (router: PuterRouter) => void;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type LayerInstances<T extends Record<string, (new (...args: any[]) => any) | any>> = {
+export type LayerInstances<
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    [K in keyof T]: T[K] extends new (...args: any[]) => any ? InstanceType<T[K]> : T[K];
+    T extends Record<string, (new (...args: any[]) => any) | any>,
+> = {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    [K in keyof T]: T[K] extends new (...args: any[]) => any
+        ? InstanceType<T[K]>
+        : T[K];
 };

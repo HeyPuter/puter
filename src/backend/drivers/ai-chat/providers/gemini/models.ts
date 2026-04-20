@@ -5,7 +5,10 @@ export const GEMINI_MODELS: IChatModel[] = [
     {
         puterId: 'google:google/gemini-2.0-flash',
         id: 'gemini-2.0-flash',
-        modalities: { 'input': ['text', 'image', 'audio', 'video', 'pdf'], 'output': ['text'] },
+        modalities: {
+            input: ['text', 'image', 'audio', 'video', 'pdf'],
+            output: ['text'],
+        },
         open_weights: false,
         tool_call: true,
         knowledge: '2024-06',
@@ -21,14 +24,16 @@ export const GEMINI_MODELS: IChatModel[] = [
             prompt_tokens: 10,
             completion_tokens: 40,
             cached_tokens: 3,
-
         },
         max_tokens: 8192,
     },
     {
         puterId: 'google:google/gemini-2.0-flash-lite',
         id: 'gemini-2.0-flash-lite',
-        modalities: { 'input': ['text', 'image', 'audio', 'video', 'pdf'], 'output': ['text'] },
+        modalities: {
+            input: ['text', 'image', 'audio', 'video', 'pdf'],
+            output: ['text'],
+        },
         open_weights: false,
         tool_call: true,
         knowledge: '2024-06',
@@ -49,7 +54,10 @@ export const GEMINI_MODELS: IChatModel[] = [
     {
         puterId: 'google:google/gemini-2.5-flash',
         id: 'gemini-2.5-flash',
-        modalities: { 'input': ['text', 'image', 'audio', 'video', 'pdf'], 'output': ['text'] },
+        modalities: {
+            input: ['text', 'image', 'audio', 'video', 'pdf'],
+            output: ['text'],
+        },
         open_weights: false,
         tool_call: true,
         knowledge: '2025-01',
@@ -71,7 +79,10 @@ export const GEMINI_MODELS: IChatModel[] = [
     {
         puterId: 'google:google/gemini-2.5-flash-lite',
         id: 'gemini-2.5-flash-lite',
-        modalities: { 'input': ['text', 'image', 'audio', 'video', 'pdf'], 'output': ['text'] },
+        modalities: {
+            input: ['text', 'image', 'audio', 'video', 'pdf'],
+            output: ['text'],
+        },
         open_weights: false,
         tool_call: true,
         knowledge: '2025-01',
@@ -93,7 +104,10 @@ export const GEMINI_MODELS: IChatModel[] = [
     {
         puterId: 'google:google/gemini-2.5-pro',
         id: 'gemini-2.5-pro',
-        modalities: { 'input': ['text', 'image', 'audio', 'video', 'pdf'], 'output': ['text'] },
+        modalities: {
+            input: ['text', 'image', 'audio', 'video', 'pdf'],
+            output: ['text'],
+        },
         open_weights: false,
         tool_call: true,
         knowledge: '2025-01',
@@ -115,7 +129,10 @@ export const GEMINI_MODELS: IChatModel[] = [
     {
         puterId: 'google:google/gemini-3.1-pro-preview',
         id: 'gemini-3.1-pro-preview',
-        modalities: { 'input': ['text', 'image', 'video', 'audio', 'pdf'], 'output': ['text'] },
+        modalities: {
+            input: ['text', 'image', 'video', 'audio', 'pdf'],
+            output: ['text'],
+        },
         open_weights: false,
         tool_call: true,
         knowledge: '2025-01',
@@ -137,7 +154,10 @@ export const GEMINI_MODELS: IChatModel[] = [
     {
         puterId: 'google:google/gemini-3-flash-preview',
         id: 'gemini-3-flash-preview',
-        modalities: { 'input': ['text', 'image', 'video', 'audio', 'pdf'], 'output': ['text'] },
+        modalities: {
+            input: ['text', 'image', 'video', 'audio', 'pdf'],
+            output: ['text'],
+        },
         open_weights: false,
         tool_call: true,
         knowledge: '2025-01',
@@ -159,7 +179,10 @@ export const GEMINI_MODELS: IChatModel[] = [
     {
         puterId: 'google:google/gemini-3.1-flash-lite-preview',
         id: 'gemini-3.1-flash-lite-preview',
-        modalities: { 'input': ['text', 'image', 'video', 'audio', 'pdf'], 'output': ['text'] },
+        modalities: {
+            input: ['text', 'image', 'video', 'audio', 'pdf'],
+            output: ['text'],
+        },
         open_weights: false,
         tool_call: true,
         knowledge: '2025-01',

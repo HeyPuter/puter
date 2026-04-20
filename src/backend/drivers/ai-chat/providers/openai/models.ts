@@ -7,7 +7,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
     {
         puterId: 'openai:openai/gpt-5.4',
         id: 'gpt-5.4-2026-03-05',
-        modalities: { 'input': ['text', 'image'], 'output': ['text'] },
+        modalities: { input: ['text', 'image'], output: ['text'] },
         open_weights: false,
         tool_call: true,
         knowledge: '2025-08-31',
@@ -28,7 +28,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
     {
         puterId: 'openai:openai/gpt-5.3-codex',
         id: 'gpt-5.3-codex',
-        modalities: { 'input': ['text', 'image'], 'output': ['text'] },
+        modalities: { input: ['text', 'image'], output: ['text'] },
         open_weights: false,
         tool_call: true,
         knowledge: '2025-08-31',
@@ -49,7 +49,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
     {
         puterId: 'openai:openai/gpt-5.2-codex',
         id: 'gpt-5.2-codex',
-        modalities: { 'input': ['text', 'image', 'pdf'], 'output': ['text'] },
+        modalities: { input: ['text', 'image', 'pdf'], output: ['text'] },
         open_weights: false,
         tool_call: true,
         knowledge: '2025-08-31',
@@ -71,7 +71,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
     {
         puterId: 'openai:openai/gpt-5.2-chat',
         id: 'gpt-5.2-chat-latest',
-        modalities: { 'input': ['text', 'image'], 'output': ['text'] },
+        modalities: { input: ['text', 'image'], output: ['text'] },
         open_weights: false,
         tool_call: true,
         knowledge: '2025-08-31',
@@ -92,7 +92,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
     {
         puterId: 'openai:openai/gpt-5.2-pro',
         id: 'gpt-5.2-pro-2025-12-11',
-        modalities: { 'input': ['text', 'image'], 'output': ['text'] },
+        modalities: { input: ['text', 'image'], output: ['text'] },
         open_weights: false,
         tool_call: true,
         knowledge: '2025-08-31',
@@ -113,7 +113,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
     {
         puterId: 'openai:openai/gpt-5.2',
         id: 'gpt-5.2-2025-12-11',
-        modalities: { 'input': ['text', 'image'], 'output': ['text'] },
+        modalities: { input: ['text', 'image'], output: ['text'] },
         open_weights: false,
         tool_call: true,
         knowledge: '2025-08-31',
@@ -134,7 +134,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
     {
         puterId: 'openai:openai/gpt-5.1',
         id: 'gpt-5.1',
-        modalities: { 'input': ['text', 'image'], 'output': ['text'] },
+        modalities: { input: ['text', 'image'], output: ['text'] },
         open_weights: false,
         tool_call: true,
         knowledge: '2024-09-30',
@@ -155,7 +155,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
     {
         puterId: 'openai:openai/gpt-5.1-codex',
         id: 'gpt-5.1-codex',
-        modalities: { 'input': ['text', 'image'], 'output': ['text'] },
+        modalities: { input: ['text', 'image'], output: ['text'] },
         open_weights: false,
         tool_call: true,
         knowledge: '2024-09-30',
@@ -177,7 +177,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
     {
         puterId: 'openai:openai/gpt-5.1-codex-mini',
         id: 'gpt-5.1-codex-mini',
-        modalities: { 'input': ['text', 'image'], 'output': ['text'] },
+        modalities: { input: ['text', 'image'], output: ['text'] },
         open_weights: false,
         tool_call: true,
         knowledge: '2024-09-30',
@@ -199,7 +199,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
     {
         puterId: 'openai:openai/gpt-5.1-chat',
         id: 'gpt-5.1-chat-latest',
-        modalities: { 'input': ['text', 'image'], 'output': ['text'] },
+        modalities: { input: ['text', 'image'], output: ['text'] },
         open_weights: false,
         tool_call: true,
         knowledge: '2024-09-30',
@@ -220,7 +220,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
     {
         puterId: 'openai:openai/gpt-5',
         id: 'gpt-5-2025-08-07',
-        modalities: { 'input': ['text', 'image'], 'output': ['text'] },
+        modalities: { input: ['text', 'image'], output: ['text'] },
         open_weights: false,
         tool_call: true,
         knowledge: '2024-09-30',
@@ -241,7 +241,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
     {
         puterId: 'openai:openai/gpt-5-mini',
         id: 'gpt-5-mini-2025-08-07',
-        modalities: { 'input': ['text', 'image'], 'output': ['text'] },
+        modalities: { input: ['text', 'image'], output: ['text'] },
         open_weights: false,
         tool_call: true,
         knowledge: '2024-05-30',
@@ -262,7 +262,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
     {
         puterId: 'openai:openai/gpt-5-nano',
         id: 'gpt-5-nano-2025-08-07',
-        modalities: { 'input': ['text', 'image'], 'output': ['text'] },
+        modalities: { input: ['text', 'image'], output: ['text'] },
         open_weights: false,
         tool_call: true,
         knowledge: '2024-05-30',
@@ -283,7 +283,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
     {
         puterId: 'openai:openai/gpt-5-chat',
         id: 'gpt-5-chat-latest',
-        modalities: { 'input': ['text', 'image'], 'output': ['text'] },
+        modalities: { input: ['text', 'image'], output: ['text'] },
         open_weights: false,
         tool_call: false,
         knowledge: '2024-09-30',
@@ -304,7 +304,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
     {
         puterId: 'openai:openai/gpt-4o',
         id: 'gpt-4o',
-        modalities: { 'input': ['text', 'image'], 'output': ['text'] },
+        modalities: { input: ['text', 'image'], output: ['text'] },
         open_weights: false,
         tool_call: true,
         knowledge: '2023-09',
@@ -325,7 +325,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
     {
         puterId: 'openai:openai/gpt-4o-mini',
         id: 'gpt-4o-mini',
-        modalities: { 'input': ['text', 'image'], 'output': ['text'] },
+        modalities: { input: ['text', 'image'], output: ['text'] },
         open_weights: false,
         tool_call: true,
         knowledge: '2023-09',
@@ -346,7 +346,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
     {
         puterId: 'openai:openai/o1',
         id: 'o1',
-        modalities: { 'input': ['text', 'image'], 'output': ['text'] },
+        modalities: { input: ['text', 'image'], output: ['text'] },
         open_weights: false,
         tool_call: true,
         knowledge: '2023-09',
@@ -367,7 +367,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
     {
         puterId: 'openai:openai/o1-mini',
         id: 'o1-mini',
-        modalities: { 'input': ['text'], 'output': ['text'] },
+        modalities: { input: ['text'], output: ['text'] },
         open_weights: false,
         tool_call: false,
         knowledge: '2023-09',
@@ -387,7 +387,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
     {
         puterId: 'openai:openai/o1-pro',
         id: 'o1-pro',
-        modalities: { 'input': ['text', 'image'], 'output': ['text'] },
+        modalities: { input: ['text', 'image'], output: ['text'] },
         open_weights: false,
         tool_call: true,
         knowledge: '2023-09',
@@ -407,7 +407,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
     {
         puterId: 'openai:openai/o3',
         id: 'o3',
-        modalities: { 'input': ['text', 'image'], 'output': ['text'] },
+        modalities: { input: ['text', 'image'], output: ['text'] },
         open_weights: false,
         tool_call: true,
         knowledge: '2024-05',
@@ -428,7 +428,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
     {
         puterId: 'openai:openai/o3-pro',
         id: 'o3-pro',
-        modalities: { 'input': ['text', 'image'], 'output': ['text'] },
+        modalities: { input: ['text', 'image'], output: ['text'] },
         open_weights: false,
         tool_call: true,
         knowledge: '2024-05',
@@ -450,7 +450,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
     {
         puterId: 'openai:openai/o3-mini',
         id: 'o3-mini',
-        modalities: { 'input': ['text'], 'output': ['text'] },
+        modalities: { input: ['text'], output: ['text'] },
         open_weights: false,
         tool_call: true,
         knowledge: '2024-05',
@@ -471,7 +471,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
     {
         puterId: 'openai:openai/o4-mini',
         id: 'o4-mini',
-        modalities: { 'input': ['text', 'image'], 'output': ['text'] },
+        modalities: { input: ['text', 'image'], output: ['text'] },
         open_weights: false,
         tool_call: true,
         knowledge: '2024-05',
@@ -491,7 +491,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
     {
         puterId: 'openai:openai/gpt-4.1',
         id: 'gpt-4.1',
-        modalities: { 'input': ['text', 'image'], 'output': ['text'] },
+        modalities: { input: ['text', 'image'], output: ['text'] },
         open_weights: false,
         tool_call: true,
         knowledge: '2024-04',
@@ -512,7 +512,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
     {
         puterId: 'openai:openai/gpt-4.1-mini',
         id: 'gpt-4.1-mini',
-        modalities: { 'input': ['text', 'image'], 'output': ['text'] },
+        modalities: { input: ['text', 'image'], output: ['text'] },
         open_weights: false,
         tool_call: true,
         knowledge: '2024-04',
@@ -533,7 +533,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
     {
         puterId: 'openai:openai/gpt-4.1-nano',
         id: 'gpt-4.1-nano',
-        modalities: { 'input': ['text', 'image'], 'output': ['text'] },
+        modalities: { input: ['text', 'image'], output: ['text'] },
         open_weights: false,
         tool_call: true,
         knowledge: '2024-04',

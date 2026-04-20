@@ -64,10 +64,10 @@ interface Layers {
     services: LayerInstances<typeof puterServices>;
 }
 
-function normalizeHost (value: string | undefined | null): string | null {
-    if ( typeof value !== 'string' ) return null;
+function normalizeHost(value: string | undefined | null): string | null {
+    if (typeof value !== 'string') return null;
     const trimmed = value.trim().toLowerCase().replace(/^\./, '');
-    if ( ! trimmed ) return null;
+    if (!trimmed) return null;
     return trimmed.split(':')[0] || null;
 }
 
@@ -83,32 +83,34 @@ export const createPuterSiteMiddleware = (
         normalizeHost(config.private_app_hosting_domain_alt),
     ].filter((d): d is string => !!d);
 
-    if ( hostingDomains.length === 0 ) {
+    if (hostingDomains.length === 0) {
         return (_req, _res, next) => next();
     }
 
     // Longest-first so `foo.bar.puter.site` matches `bar.puter.site` before
     // falling back to `puter.site`.
-    const sortedHostingDomains = [...hostingDomains].sort((a, b) => b.length - a.length);
+    const sortedHostingDomains = [...hostingDomains].sort(
+        (a, b) => b.length - a.length,
+    );
 
     const matchHostingDomain = (host: string): string | null => {
-        for ( const d of sortedHostingDomains ) {
-            if ( host === d ) return d;
-            if ( host.endsWith(`.${d}`) ) return d;
+        for (const d of sortedHostingDomains) {
+            if (host === d) return d;
+            if (host.endsWith(`.${d}`)) return d;
         }
         return null;
     };
 
     return async (req, res, next) => {
         const host = normalizeHost(req.hostname);
-        if ( !host ) return next();
+        if (!host) return next();
 
         const matched = matchHostingDomain(host);
-        if ( ! matched ) return next();
+        if (!matched) return next();
 
         // Bare hosting domain (e.g. `puter.site`) → redirect to the main site.
-        if ( host === matched ) {
-            if ( domain ) {
+        if (host === matched) {
+            if (domain) {
                 res.redirect(302, `${req.protocol}://${domain}`);
                 return;
             }
@@ -120,8 +122,8 @@ export const createPuterSiteMiddleware = (
         const prefix = host.slice(0, host.length - matched.length - 1);
         const subdomain = prefix.split('.')[0] || '';
 
-        if ( ! subdomain || subdomain === 'www' ) {
-            if ( domain ) {
+        if (!subdomain || subdomain === 'www') {
+            if (domain) {
                 res.redirect(302, `${req.protocol}://${domain}`);
                 return;
             }
@@ -129,15 +131,19 @@ export const createPuterSiteMiddleware = (
             return;
         }
 
-        const site = await layers.stores.subdomain.getBySubdomain(subdomain) as unknown as SubdomainRow | null;
-        if ( ! site || site.user_id === null || site.user_id === undefined ) {
+        const site = (await layers.stores.subdomain.getBySubdomain(
+            subdomain,
+        )) as unknown as SubdomainRow | null;
+        if (!site || site.user_id === null || site.user_id === undefined) {
             res.status(404).type('text/plain').send('Subdomain not found');
             return;
         }
 
         // Suspended owner 404s — don't leak the suspension reason.
-        const owner = await layers.stores.user.getById(site.user_id) as unknown as UserRow | null;
-        if ( ! owner || owner.suspended ) {
+        const owner = (await layers.stores.user.getById(
+            site.user_id,
+        )) as unknown as UserRow | null;
+        if (!owner || owner.suspended) {
             res.status(404).type('text/plain').send('Subdomain not found');
             return;
         }
@@ -146,11 +152,18 @@ export const createPuterSiteMiddleware = (
         // `app.privateAccess.check` and flips `result.allowed` when the
         // actor owns a valid entitlement.
         let associatedApp: AppRow | null = null;
-        if ( site.associated_app_id !== null && site.associated_app_id !== undefined ) {
-            associatedApp = await layers.stores.app.getById(site.associated_app_id) as unknown as AppRow | null;
+        if (
+            site.associated_app_id !== null &&
+            site.associated_app_id !== undefined
+        ) {
+            associatedApp = (await layers.stores.app.getById(
+                site.associated_app_id,
+            )) as unknown as AppRow | null;
         }
-        if ( associatedApp?.is_private ) {
-            const userUid = (req as { actor?: { user?: { uuid?: string } } }).actor?.user?.uuid ?? null;
+        if (associatedApp?.is_private) {
+            const userUid =
+                (req as { actor?: { user?: { uuid?: string } } }).actor?.user
+                    ?.uuid ?? null;
             const checkEvent = {
                 appUid: associatedApp.uid,
                 userUid,
@@ -158,14 +171,23 @@ export const createPuterSiteMiddleware = (
                 requestPath: req.path,
                 result: {
                     allowed: false,
-                } as { allowed: boolean; reason?: string; redirectUrl?: string; checkedBy?: string },
+                } as {
+                    allowed: boolean;
+                    reason?: string;
+                    redirectUrl?: string;
+                    checkedBy?: string;
+                },
             };
             try {
-                await layers.clients.event.emitAndWait('app.privateAccess.check', checkEvent, {});
-            } catch ( e ) {
+                await layers.clients.event.emitAndWait(
+                    'app.privateAccess.check',
+                    checkEvent,
+                    {},
+                );
+            } catch (e) {
                 console.error('[puter-site] privateAccess.check threw', e);
             }
-            if ( ! checkEvent.result.allowed ) {
+            if (!checkEvent.result.allowed) {
                 const fallback = domain
                     ? `${req.protocol}://${domain}/app/app-center/?item=${encodeURIComponent(associatedApp.uid)}`
                     : '/';
@@ -174,60 +196,80 @@ export const createPuterSiteMiddleware = (
             }
         }
 
-        if ( site.root_dir_id === null || site.root_dir_id === undefined ) {
-            res.status(502).type('text/plain').send('Subdomain is not pointing to a directory');
+        if (site.root_dir_id === null || site.root_dir_id === undefined) {
+            res.status(502)
+                .type('text/plain')
+                .send('Subdomain is not pointing to a directory');
             return;
         }
 
-        const rootEntry = await layers.stores.fsEntry.getEntryById(site.root_dir_id);
-        if ( ! rootEntry ) {
-            res.status(502).type('text/plain').send('Subdomain is pointing to deleted directory');
+        const rootEntry = await layers.stores.fsEntry.getEntryById(
+            site.root_dir_id,
+        );
+        if (!rootEntry) {
+            res.status(502)
+                .type('text/plain')
+                .send('Subdomain is pointing to deleted directory');
             return;
         }
-        if ( ! rootEntry.isDir ) {
-            res.status(502).type('text/plain').send('Subdomain is pointing to non-directory');
+        if (!rootEntry.isDir) {
+            res.status(502)
+                .type('text/plain')
+                .send('Subdomain is pointing to non-directory');
             return;
         }
 
         // Resolve URL path → absolute FS path under the site root.
         let urlPath = req.path || '/';
-        if ( urlPath.endsWith('/') ) urlPath += 'index.html';
+        if (urlPath.endsWith('/')) urlPath += 'index.html';
         const decoded = decodeURIComponent(urlPath);
         // pathPosix.normalize strips `..` segments; the join with '/' anchors
         // it so traversal can't escape the site root.
-        const resolvedUrlPath = pathPosix.normalize(pathPosix.join('/', decoded));
+        const resolvedUrlPath = pathPosix.normalize(
+            pathPosix.join('/', decoded),
+        );
         const rootPath = rootEntry.path.replace(/\/+$/, '');
-        if ( ! rootPath || rootPath === '/' ) {
+        if (!rootPath || rootPath === '/') {
             res.status(403).type('text/plain').send('Forbidden');
             return;
         }
         const filePath = rootPath + resolvedUrlPath;
 
         const entry = await layers.stores.fsEntry.getEntryByPath(filePath);
-        if ( ! entry || entry.isDir ) {
-            res.status(404).type('text/html; charset=UTF-8').send('<h1>404</h1><p>Not Found</p>');
+        if (!entry || entry.isDir) {
+            res.status(404)
+                .type('text/html; charset=UTF-8')
+                .send('<h1>404</h1><p>Not Found</p>');
             return;
         }
 
         // Stream the file. `fsEntry.readContent` honours Range + emits
         // ETag/Last-Modified when the S3 layer returns them.
-        const range = typeof req.headers.range === 'string' ? req.headers.range : undefined;
+        const range =
+            typeof req.headers.range === 'string'
+                ? req.headers.range
+                : undefined;
         let download;
         try {
-            download = await layers.services.fsEntry.readContent(entry, { range });
-        } catch ( e ) {
+            download = await layers.services.fsEntry.readContent(entry, {
+                range,
+            });
+        } catch (e) {
             console.error('[puter-site] readContent failed', e);
             return next(e);
         }
 
-        const mime = contentTypeFromMime(entry.name) || 'application/octet-stream';
+        const mime =
+            contentTypeFromMime(entry.name) || 'application/octet-stream';
         res.setHeader('Content-Type', mime);
-        if ( download.contentLength !== null ) {
+        if (download.contentLength !== null) {
             res.setHeader('Content-Length', String(download.contentLength));
         }
-        if ( download.contentRange ) res.setHeader('Content-Range', download.contentRange);
-        if ( download.etag ) res.setHeader('ETag', download.etag);
-        if ( download.lastModified ) res.setHeader('Last-Modified', download.lastModified.toUTCString());
+        if (download.contentRange)
+            res.setHeader('Content-Range', download.contentRange);
+        if (download.etag) res.setHeader('ETag', download.etag);
+        if (download.lastModified)
+            res.setHeader('Last-Modified', download.lastModified.toUTCString());
         res.setHeader('Accept-Ranges', 'bytes');
         res.setHeader('Access-Control-Allow-Origin', '*');
         res.status(range ? 206 : 200);

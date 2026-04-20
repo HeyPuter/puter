@@ -1,4 +1,8 @@
-import type { IVideoModel, IVideoProvider, IGenerateVideoParams } from '../types.js';
+import type {
+    IVideoModel,
+    IVideoProvider,
+    IGenerateVideoParams,
+} from '../types.js';
 
 /**
  * Abstract base for AI video providers. Each provider wraps a single
@@ -6,13 +10,13 @@ import type { IVideoModel, IVideoProvider, IGenerateVideoParams } from '../types
  * `IVideoProvider` contract.
  */
 export class VideoProvider implements IVideoProvider {
-    getDefaultModel (): string {
+    getDefaultModel(): string {
         return '';
     }
-    models (): IVideoModel[] | Promise<IVideoModel[]> {
+    models(): IVideoModel[] | Promise<IVideoModel[]> {
         return [];
     }
-    async generate (_params: IGenerateVideoParams): Promise<unknown> {
+    async generate(_params: IGenerateVideoParams): Promise<unknown> {
         throw new Error('Method not implemented.');
     }
 }

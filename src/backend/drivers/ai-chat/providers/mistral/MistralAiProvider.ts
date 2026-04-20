@@ -23,7 +23,11 @@ import { Context } from '../../../../core/context.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 // TODO: OpenAIUtil needs to be ported to v2
 import * as OpenAIUtil from '../../utils/OpenAIUtil.js';
-import type { IChatProvider, ICompleteArguments, IChatCompleteResult } from '../../types.js';
+import type {
+    IChatProvider,
+    ICompleteArguments,
+    IChatCompleteResult,
+} from '../../types.js';
 import { MISTRAL_MODELS } from './models.js';
 
 export class MistralAIProvider implements IChatProvider {
@@ -31,48 +35,58 @@ export class MistralAIProvider implements IChatProvider {
 
     #meteringService: MeteringService;
 
-    constructor (config: { apiKey: string }, meteringService: MeteringService) {
+    constructor(config: { apiKey: string }, meteringService: MeteringService) {
         this.#client = new Mistral({
             apiKey: config.apiKey,
         });
         this.#meteringService = meteringService;
     }
 
-    getDefaultModel () {
+    getDefaultModel() {
         return 'mistral-small-2506';
     }
 
-    async models () {
+    async models() {
         return MISTRAL_MODELS;
     }
 
-    async list () {
+    async list() {
         const models = await this.models();
         const ids: string[] = [];
-        for ( const model of models ) {
+        for (const model of models) {
             ids.push(model.id);
-            if ( model.aliases ) {
+            if (model.aliases) {
                 ids.push(...model.aliases);
             }
         }
         return ids;
     }
 
-    async complete ({ messages, stream, model, tools, max_tokens, temperature }: ICompleteArguments): Promise<IChatCompleteResult> {
-
+    async complete({
+        messages,
+        stream,
+        model,
+        tools,
+        max_tokens,
+        temperature,
+    }: ICompleteArguments): Promise<IChatCompleteResult> {
         messages = await OpenAIUtil.process_input_messages(messages);
-        for ( const message of messages ) {
-            if ( message.tool_calls ) {
+        for (const message of messages) {
+            if (message.tool_calls) {
                 message.toolCalls = message.tool_calls;
                 delete message.tool_calls;
             }
-            if ( message.tool_call_id ) {
+            if (message.tool_call_id) {
                 message.toolCallId = message.tool_call_id;
                 delete message.tool_call_id;
             }
         }
 
-        const selectedModel = (await this.models()).find(m => [m.id, ...(m.aliases || [])].includes(model)) || (await this.models()).find(m => m.id === this.getDefaultModel())!;
+        const selectedModel =
+            (await this.models()).find((m) =>
+                [m.id, ...(m.aliases || [])].includes(model),
+            ) ||
+            (await this.models()).find((m) => m.id === this.getDefaultModel())!;
         const actor = Context.get('actor');
         const completion = await this.#client.chat[
             stream ? 'stream' : 'complete'
@@ -86,20 +100,25 @@ export class MistralAIProvider implements IChatProvider {
 
         return await OpenAIUtil.handle_completion_output({
             deviations: {
-                index_usage_from_stream_chunk: chunk => {
-                    if ( ! chunk.usage ) return;
+                index_usage_from_stream_chunk: (chunk) => {
+                    if (!chunk.usage) return;
 
                     const snake_usage = {};
-                    for ( const key in chunk.usage ) {
-                        const snakeKey = key.replace(/([A-Z])/g, '_$1').toLowerCase();
+                    for (const key in chunk.usage) {
+                        const snakeKey = key
+                            .replace(/([A-Z])/g, '_$1')
+                            .toLowerCase();
                         snake_usage[snakeKey] = chunk.usage[key];
                     }
 
                     return snake_usage;
                 },
-                chunk_but_like_actually: chunk => (chunk as any).data,
-                index_tool_calls_from_stream_choice: choice => (choice.delta as any).toolCalls,
-                coerce_completion_usage: (completion: ChatCompletionResponse) => ({
+                chunk_but_like_actually: (chunk) => (chunk as any).data,
+                index_tool_calls_from_stream_choice: (choice) =>
+                    (choice.delta as any).toolCalls,
+                coerce_completion_usage: (
+                    completion: ChatCompletionResponse,
+                ) => ({
                     prompt_tokens: completion.usage.promptTokens,
                     completion_tokens: completion.usage.completionTokens,
                 }),
@@ -108,16 +127,25 @@ export class MistralAIProvider implements IChatProvider {
             stream,
             usage_calculator: ({ usage }) => {
                 const trackedUsage = OpenAIUtil.extractMeteredUsage(usage);
-                const costsOverrideFromModel = Object.fromEntries(Object.entries(trackedUsage).map(([k, v]) => {
-                    return [k, v * (selectedModel.costs[k])];
-                }));
-                this.#meteringService.utilRecordUsageObject(trackedUsage, actor, `mistral:${selectedModel.id}`, costsOverrideFromModel);
+                const costsOverrideFromModel = Object.fromEntries(
+                    Object.entries(trackedUsage).map(([k, v]) => {
+                        return [k, v * selectedModel.costs[k]];
+                    }),
+                );
+                this.#meteringService.utilRecordUsageObject(
+                    trackedUsage,
+                    actor,
+                    `mistral:${selectedModel.id}`,
+                    costsOverrideFromModel,
+                );
                 return trackedUsage;
             },
         });
     }
 
-    checkModeration (_text: string): ReturnType<IChatProvider['checkModeration']> {
+    checkModeration(
+        _text: string,
+    ): ReturnType<IChatProvider['checkModeration']> {
         throw new Error('Method not implemented.');
     }
 }

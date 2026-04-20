@@ -9,11 +9,11 @@ import { generate_random_code } from '../../util/identifier.js';
  *
  * The code is also written as the user's `referral_code` column.
  */
-export async function generateReferralCode (userStore, user) {
-    if ( ! user?.id ) throw new Error('user with id required');
+export async function generateReferralCode(userStore, user) {
+    if (!user?.id) throw new Error('user with id required');
     const TRIES = 5;
     let lastError = null;
-    for ( let i = 0; i < TRIES; i++ ) {
+    for (let i = 0; i < TRIES; i++) {
         const code = generate_random_code(8);
         try {
             await userStore.update(user.id, { referral_code: code });
@@ -22,6 +22,9 @@ export async function generateReferralCode (userStore, user) {
             lastError = e;
         }
     }
-    console.warn('[referral] failed to generate unique code after retries:', lastError);
+    console.warn(
+        '[referral] failed to generate unique code after retries:',
+        lastError,
+    );
     return null;
 }

@@ -5,7 +5,12 @@ import type { IConfig } from '../../../types';
 
 /** Native-app subdomains served via `nativeAppStatic`. */
 const NATIVE_APP_SUBDOMAINS = [
-    'about', 'developer', 'docs', 'editor', 'markus', 'pdf',
+    'about',
+    'developer',
+    'docs',
+    'editor',
+    'markus',
+    'pdf',
 ] as const;
 
 /** Subset served out of a `dist/` subdirectory rather than the app root. */
@@ -36,8 +41,8 @@ export const createWwwRedirect = (config: IConfig): RequestHandler => {
     const domain = (config.domain ?? '').toLowerCase();
     return (req, res, next) => {
         const active = req.subdomains?.[req.subdomains.length - 1] ?? '';
-        if ( active !== 'www' ) return next();
-        if ( ! domain ) return next();
+        if (active !== 'www') return next();
+        if (!domain) return next();
         res.redirect(`${req.protocol}://${domain}`);
     };
 };
@@ -52,18 +57,22 @@ export const createWwwRedirect = (config: IConfig): RequestHandler => {
  *   - host doesn't end in `config.domain` (custom domains, other hosts)
  *   - `static_hosting_domain` isn't configured
  */
-export const createUserSubdomainRedirect = (config: IConfig): RequestHandler => {
+export const createUserSubdomainRedirect = (
+    config: IConfig,
+): RequestHandler => {
     const domain = (config.domain ?? '').toLowerCase();
     const target = (config.static_hosting_domain ?? '').toLowerCase();
-    if ( !domain || !target ) {
+    if (!domain || !target) {
         return (_req, _res, next) => next();
     }
     return (req, res, next) => {
-        const active = (req.subdomains?.[req.subdomains.length - 1] ?? '').toLowerCase();
-        if ( active === '' || RESERVED_SUBDOMAINS.has(active) ) return next();
+        const active = (
+            req.subdomains?.[req.subdomains.length - 1] ?? ''
+        ).toLowerCase();
+        if (active === '' || RESERVED_SUBDOMAINS.has(active)) return next();
 
         const host = (req.headers.host ?? '').toLowerCase();
-        if ( ! host.endsWith(domain) ) return next();
+        if (!host.endsWith(domain)) return next();
 
         // host ends in domain — swap the domain suffix for the hosting one,
         // preserving the subdomain prefix and any port.
@@ -86,12 +95,14 @@ export const createUserSubdomainRedirect = (config: IConfig): RequestHandler => 
 export const createNativeAppStatic = (config: IConfig): RequestHandler => {
     const root = config.native_apps_root;
     const apps = new Set<string>(NATIVE_APP_SUBDOMAINS);
-    if ( ! root ) {
+    if (!root) {
         return (_req, _res, next) => next();
     }
     return async (req, res, next) => {
-        const active = (req.subdomains?.[req.subdomains.length - 1] ?? '').toLowerCase();
-        if ( ! apps.has(active) ) return next();
+        const active = (
+            req.subdomains?.[req.subdomains.length - 1] ?? ''
+        ).toLowerCase();
+        if (!apps.has(active)) return next();
 
         const appRoot = NATIVE_APPS_WITH_DIST.has(active)
             ? path.join(root, active, 'dist')
@@ -105,7 +116,7 @@ export const createNativeAppStatic = (config: IConfig): RequestHandler => {
 
         try {
             const info = await stat(absolute);
-            if ( info.isDirectory() && !req.path.endsWith('/') ) {
+            if (info.isDirectory() && !req.path.endsWith('/')) {
                 const search = req.originalUrl.slice(req.path.length);
                 res.redirect(307, `${req.path}/${search}`);
                 return;
@@ -115,7 +126,7 @@ export const createNativeAppStatic = (config: IConfig): RequestHandler => {
         }
 
         res.sendFile(requested, { root: appRoot }, (err) => {
-            if ( err ) next();
+            if (err) next();
         });
     };
 };

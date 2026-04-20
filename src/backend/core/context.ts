@@ -64,14 +64,16 @@ export class Context {
      * request scope or when the key hasn't been set.
      */
     /** Get the entire context store (no-arg form). */
-    static get (): ContextStore | undefined;
-    static get<K extends keyof KnownContextFields> (key: K): KnownContextFields[K] | undefined;
-    static get (key: string): unknown;
-    static get (key?: string): unknown {
-        if ( key === undefined ) return als.getStore();
+    static get(): ContextStore | undefined;
+    static get<K extends keyof KnownContextFields>(
+        key: K,
+    ): KnownContextFields[K] | undefined;
+    static get(key: string): unknown;
+    static get(key?: string): unknown {
+        if (key === undefined) return als.getStore();
         const store = als.getStore();
-        if ( ! store ) return undefined;
-        if ( key in store.known ) {
+        if (!store) return undefined;
+        if (key in store.known) {
             return (store.known as Record<string, unknown>)[key];
         }
         return store.extra.get(key);
@@ -82,14 +84,19 @@ export class Context {
      *
      * Well-known keys are type-checked; arbitrary keys accept `unknown`.
      */
-    static set<K extends keyof KnownContextFields> (key: K, value: KnownContextFields[K]): void;
-    static set (key: string, value: unknown): void;
-    static set (key: string, value: unknown): void {
+    static set<K extends keyof KnownContextFields>(
+        key: K,
+        value: KnownContextFields[K],
+    ): void;
+    static set(key: string, value: unknown): void;
+    static set(key: string, value: unknown): void {
         const store = als.getStore();
-        if ( ! store ) {
-            throw new Error(`Context.set('${key}', ...) called outside a request scope`);
+        if (!store) {
+            throw new Error(
+                `Context.set('${key}', ...) called outside a request scope`,
+            );
         }
-        if ( key === 'actor' || key === 'req' || key === 'requestId' ) {
+        if (key === 'actor' || key === 'req' || key === 'requestId') {
             (store.known as Record<string, unknown>)[key] = value;
         } else {
             store.extra.set(key, value);
@@ -100,7 +107,7 @@ export class Context {
      * Returns the full context store, or `undefined` when called outside a
      * request scope. Prefer `.get(key)` for individual lookups.
      */
-    static current (): ContextStore | undefined {
+    static current(): ContextStore | undefined {
         return als.getStore();
     }
 }

@@ -20,10 +20,12 @@
 const insert = async (tbl, subject) => {
     const keys = Object.keys(subject);
 
-    await write(`INSERT INTO \`${ tbl }\` ` +
-        `(${ keys.map(key => key).join(', ') }) ` +
-        `VALUES (${ keys.map(() => '?').join(', ') })`,
-    keys.map(key => subject[key]));
+    await write(
+        `INSERT INTO \`${tbl}\` ` +
+            `(${keys.map((key) => key).join(', ')}) ` +
+            `VALUES (${keys.map(() => '?').join(', ')})`,
+        keys.map((key) => subject[key]),
+    );
 };
 
 await insert('apps', {

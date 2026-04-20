@@ -25,8 +25,8 @@ const tokens = new Map();
 // Cleanup every 15 minutes
 const cleanupTimer = setInterval(() => {
     const now = Date.now();
-    for ( const [k, v] of tokens.entries() ) {
-        if ( v.expiresAt < now ) tokens.delete(k);
+    for (const [k, v] of tokens.entries()) {
+        if (v.expiresAt < now) tokens.delete(k);
     }
 }, 15 * 60_000);
 cleanupTimer.unref?.();
@@ -34,8 +34,8 @@ cleanupTimer.unref?.();
 // ── Public API ──────────────────────────────────────────────────────
 
 /** Generate a captcha image + token pair. */
-export async function generateCaptcha (difficulty = 'medium') {
-    if ( ! svgCaptcha ) throw new Error('svg-captcha not available');
+export async function generateCaptcha(difficulty = 'medium') {
+    if (!svgCaptcha) throw new Error('svg-captcha not available');
     const opts = DIFFICULTY[difficulty] || DIFFICULTY.medium;
     const captcha = svgCaptcha.create({
         ...opts,
@@ -52,11 +52,11 @@ export async function generateCaptcha (difficulty = 'medium') {
 }
 
 /** Verify a captcha answer. One-time use — token is consumed. */
-export function verifyCaptcha (token, answer) {
+export function verifyCaptcha(token, answer) {
     const entry = tokens.get(token);
-    if ( ! entry ) return false;
+    if (!entry) return false;
     tokens.delete(token);
-    if ( entry.expiresAt < Date.now() ) return false;
+    if (entry.expiresAt < Date.now()) return false;
     return entry.text === answer.toLowerCase().trim();
 }
 
@@ -70,15 +70,15 @@ export function verifyCaptcha (token, answer) {
  *
  * Pass `enabled` from config — when false, the gate is a no-op.
  */
-export function captchaGate (enabled) {
+export function captchaGate(enabled) {
     return (req, _res, next) => {
-        if ( ! enabled ) return next();
+        if (!enabled) return next();
 
         const { captchaToken, captchaAnswer } = req.body ?? {};
-        if ( !captchaToken || !captchaAnswer ) {
+        if (!captchaToken || !captchaAnswer) {
             return next(new HttpError(400, 'Captcha verification required.'));
         }
-        if ( ! verifyCaptcha(captchaToken, captchaAnswer) ) {
+        if (!verifyCaptcha(captchaToken, captchaAnswer)) {
             return next(new HttpError(400, 'Invalid captcha response.'));
         }
         next();

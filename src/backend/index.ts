@@ -32,12 +32,14 @@ const loadConfig = (): IConfig => {
     // bind port (can differ when behind a reverse proxy). Code paths that
     // build self-referential URLs (GUI bootstrap, email links, OIDC callbacks)
     // depend on `origin` having the right port baked in.
-    if ( config.pub_port === undefined ) config.pub_port = config.port;
-    if ( config.origin === undefined ) {
+    if (config.pub_port === undefined) config.pub_port = config.port;
+    if (config.origin === undefined) {
         const protocol = config.protocol ?? 'http';
         const domain = config.domain ?? 'localhost';
-        const suffix = config.pub_port === 80 || config.pub_port === 443
-            ? '' : `:${config.pub_port}`;
+        const suffix =
+            config.pub_port === 80 || config.pub_port === 443
+                ? ''
+                : `:${config.pub_port}`;
         config.origin = `${protocol}://${domain}${suffix}`;
     }
 
@@ -46,26 +48,36 @@ const loadConfig = (): IConfig => {
     // module file (dist/src/backend/server.js) — not cwd — so unresolved
     // paths like `./dist/extensions` break even when the process is started
     // from the repo root.
-    if ( Array.isArray(config.extensions) ) {
-        config.extensions = config.extensions.map(
-            p => path.isAbsolute(p) ? p : path.resolve(RUNTIME_ROOT, p),
+    if (Array.isArray(config.extensions)) {
+        config.extensions = config.extensions.map((p) =>
+            path.isAbsolute(p) ? p : path.resolve(RUNTIME_ROOT, p),
         );
     }
     return config;
 };
 
 // if called directly, start the server
-if ( require.main === module ) {
+if (require.main === module) {
     const config = loadConfig();
-    const server = new PuterServer(config, puterClients, puterStores, puterServices, puterControllers, puterDrivers);
+    const server = new PuterServer(
+        config,
+        puterClients,
+        puterStores,
+        puterServices,
+        puterControllers,
+        puterDrivers,
+    );
     server.start();
     // listen for shutdown signals to gracefully stop the server
     const shutDownProcess = async () => {
         await server.prepareShutdown();
-        setTimeout( async () => {
-            await server.shutdown();
-            process.exit(0);
-        }, config.serverId ? 1000 * 90 : 1);
+        setTimeout(
+            async () => {
+                await server.shutdown();
+                process.exit(0);
+            },
+            config.serverId ? 1000 * 90 : 1,
+        );
     };
     process.on('SIGINT', shutDownProcess);
     process.on('SIGTERM', shutDownProcess);

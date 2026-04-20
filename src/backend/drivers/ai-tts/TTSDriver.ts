@@ -5,7 +5,12 @@ import { PuterDriver } from '../types.js';
 import { AWSPollyTTSProvider } from './providers/awsPolly/AWSPollyTTSProvider.js';
 import { ElevenLabsTTSProvider } from './providers/elevenlabs/ElevenLabsTTSProvider.js';
 import { OpenAITTSProvider } from './providers/openai/OpenAITTSProvider.js';
-import type { ISynthesizeArgs, ITTSEngine, ITTSProvider, ITTSVoice } from './types.js';
+import type {
+    ISynthesizeArgs,
+    ITTSEngine,
+    ITTSProvider,
+    ITTSVoice,
+} from './types.js';
 
 /**
  * Driver implementing the `puter-tts` interface.
@@ -22,7 +27,7 @@ export class TTSDriver extends PuterDriver {
 
     #providers: Record<string, ITTSProvider> = {};
 
-    override onServerStart () {
+    override onServerStart() {
         this.#registerProviders();
     }
 
@@ -31,17 +36,17 @@ export class TTSDriver extends PuterDriver {
     /**
      * List all available voices across all configured providers.
      */
-    async list_voices (args?: Record<string, unknown>): Promise<ITTSVoice[]> {
+    async list_voices(args?: Record<string, unknown>): Promise<ITTSVoice[]> {
         const provider = args?.provider as string | undefined;
 
-        if ( provider ) {
+        if (provider) {
             const p = this.#providers[provider];
-            if ( ! p ) return [];
+            if (!p) return [];
             return p.listVoices(args);
         }
 
         const allVoices: ITTSVoice[] = [];
-        for ( const p of Object.values(this.#providers) ) {
+        for (const p of Object.values(this.#providers)) {
             const voices = await p.listVoices(args);
             allVoices.push(...voices);
         }
@@ -51,17 +56,17 @@ export class TTSDriver extends PuterDriver {
     /**
      * List all available engines/models across all configured providers.
      */
-    async list_engines (args?: Record<string, unknown>): Promise<ITTSEngine[]> {
+    async list_engines(args?: Record<string, unknown>): Promise<ITTSEngine[]> {
         const provider = args?.provider as string | undefined;
 
-        if ( provider ) {
+        if (provider) {
             const p = this.#providers[provider];
-            if ( ! p ) return [];
+            if (!p) return [];
             return p.listEngines();
         }
 
         const allEngines: ITTSEngine[] = [];
-        for ( const p of Object.values(this.#providers) ) {
+        for (const p of Object.values(this.#providers)) {
             const engines = await p.listEngines();
             allEngines.push(...engines);
         }
@@ -71,7 +76,7 @@ export class TTSDriver extends PuterDriver {
     /**
      * List provider names that are currently configured.
      */
-    async list (): Promise<string[]> {
+    async list(): Promise<string[]> {
         return Object.keys(this.#providers);
     }
 
@@ -80,40 +85,52 @@ export class TTSDriver extends PuterDriver {
      * based on the `provider` argument, or falls back to the first
      * available provider.
      */
-    async synthesize (args: ISynthesizeArgs): Promise<DriverStreamResult | { url: string; content_type: string }> {
+    async synthesize(
+        args: ISynthesizeArgs,
+    ): Promise<DriverStreamResult | { url: string; content_type: string }> {
         const actor = Context.get('actor');
-        if ( ! actor ) throw new HttpError(401, 'Authentication required');
+        if (!actor) throw new HttpError(401, 'Authentication required');
 
         const providerName = args.provider || this.#getDefaultProviderName();
-        if ( ! providerName ) {
+        if (!providerName) {
             throw new HttpError(500, 'No TTS providers configured');
         }
 
         const provider = this.#providers[providerName];
-        if ( ! provider ) {
-            throw new HttpError(400, `TTS provider not found: ${providerName}. Available: ${Object.keys(this.#providers).join(', ')}`);
+        if (!provider) {
+            throw new HttpError(
+                400,
+                `TTS provider not found: ${providerName}. Available: ${Object.keys(this.#providers).join(', ')}`,
+            );
         }
 
-        return provider.synthesize(args) as Promise<DriverStreamResult | { url: string; content_type: string }>;
+        return provider.synthesize(args) as Promise<
+            DriverStreamResult | { url: string; content_type: string }
+        >;
     }
 
     // ── Provider registration ───────────────────────────────────────
 
-    #registerProviders () {
+    #registerProviders() {
         const providers = this.config.providers ?? {};
         const m = this.services.metering;
 
         const openai = providers['openai'];
-        if ( openai?.apiKey ) {
+        if (openai?.apiKey) {
             try {
-                this.#providers['openai'] = new OpenAITTSProvider(m, { apiKey: openai.apiKey });
+                this.#providers['openai'] = new OpenAITTSProvider(m, {
+                    apiKey: openai.apiKey,
+                });
             } catch (e) {
-                console.warn('[TTSDriver] Failed to init OpenAI TTS provider:', (e as Error).message);
+                console.warn(
+                    '[TTSDriver] Failed to init OpenAI TTS provider:',
+                    (e as Error).message,
+                );
             }
         }
 
         const elevenlabs = providers['elevenlabs'];
-        if ( elevenlabs?.apiKey ) {
+        if (elevenlabs?.apiKey) {
             try {
                 this.#providers['elevenlabs'] = new ElevenLabsTTSProvider(m, {
                     apiKey: elevenlabs.apiKey,
@@ -121,14 +138,17 @@ export class TTSDriver extends PuterDriver {
                     defaultVoiceId: elevenlabs.defaultVoiceId,
                 });
             } catch (e) {
-                console.warn('[TTSDriver] Failed to init ElevenLabs TTS provider:', (e as Error).message);
+                console.warn(
+                    '[TTSDriver] Failed to init ElevenLabs TTS provider:',
+                    (e as Error).message,
+                );
             }
         }
 
         // AWS Polly is configured under `providers['aws-polly']` with flat
         // `access_key`/`secret_key`/`region` fields (no `aws:` wrapper).
         const polly = providers['aws-polly'];
-        if ( polly?.access_key && polly?.secret_key ) {
+        if (polly?.access_key && polly?.secret_key) {
             try {
                 this.#providers['aws-polly'] = new AWSPollyTTSProvider(m, {
                     access_key: polly.access_key as string,
@@ -136,17 +156,20 @@ export class TTSDriver extends PuterDriver {
                     region: polly.region as string | undefined,
                 });
             } catch (e) {
-                console.warn('[TTSDriver] Failed to init AWS Polly TTS provider:', (e as Error).message);
+                console.warn(
+                    '[TTSDriver] Failed to init AWS Polly TTS provider:',
+                    (e as Error).message,
+                );
             }
         }
     }
 
-    #getDefaultProviderName (): string | null {
+    #getDefaultProviderName(): string | null {
         const names = Object.keys(this.#providers);
-        if ( names.length === 0 ) return null;
+        if (names.length === 0) return null;
         // Prefer openai, then elevenlabs, then aws-polly
-        if ( this.#providers['openai'] ) return 'openai';
-        if ( this.#providers['elevenlabs'] ) return 'elevenlabs';
+        if (this.#providers['openai']) return 'openai';
+        if (this.#providers['elevenlabs']) return 'elevenlabs';
         return names[0];
     }
 }

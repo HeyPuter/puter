@@ -1,4 +1,4 @@
-import { extension } from "@heyputer/backend/src/extensions";
+import { extension } from '@heyputer/backend/src/extensions';
 
 const page = `
 <!doctype html>
@@ -89,6 +89,10 @@ const page = `
 </html>
 `;
 
-extension.get('/', { requireAuth: false, subdomain: 'worker-sandbox' }, (_req, res) => {
-    res.type('html').send(page);
-});
+extension.get(
+    '/',
+    { requireAuth: false, subdomain: 'worker-sandbox' },
+    (_req, res) => {
+        res.type('html').send(page);
+    },
+);

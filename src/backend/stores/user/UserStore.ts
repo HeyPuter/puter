@@ -33,8 +33,14 @@ export interface UserRow {
  * property is as simple as adding a key here — lookups + cache fan-out
  * follow automatically.
  */
-export const USER_ID_PROPERTIES = ['id', 'uuid', 'username', 'email', 'referral_code'] as const;
-export type UserIdProperty = typeof USER_ID_PROPERTIES[number];
+export const USER_ID_PROPERTIES = [
+    'id',
+    'uuid',
+    'username',
+    'email',
+    'referral_code',
+] as const;
+export type UserIdProperty = (typeof USER_ID_PROPERTIES)[number];
 
 // ── Constants ────────────────────────────────────────────────────────
 
@@ -55,26 +61,40 @@ const CACHE_TTL_SECONDS = 15 * 60;
  *   add the property to that tuple.
  */
 export class UserStore extends PuterStore {
-
     // ── Reads ────────────────────────────────────────────────────────
 
-    async getById (id: number, opts: { cached?: boolean; force?: boolean } = {}): Promise<UserRow | null> {
+    async getById(
+        id: number,
+        opts: { cached?: boolean; force?: boolean } = {},
+    ): Promise<UserRow | null> {
         return this.getByProperty('id', id, opts);
     }
 
-    async getByUuid (uuid: string, opts: { cached?: boolean; force?: boolean } = {}): Promise<UserRow | null> {
+    async getByUuid(
+        uuid: string,
+        opts: { cached?: boolean; force?: boolean } = {},
+    ): Promise<UserRow | null> {
         return this.getByProperty('uuid', uuid, opts);
     }
 
-    async getByUsername (username: string, opts: { cached?: boolean; force?: boolean } = {}): Promise<UserRow | null> {
+    async getByUsername(
+        username: string,
+        opts: { cached?: boolean; force?: boolean } = {},
+    ): Promise<UserRow | null> {
         return this.getByProperty('username', username, opts);
     }
 
-    async getByEmail (email: string, opts: { cached?: boolean; force?: boolean } = {}): Promise<UserRow | null> {
+    async getByEmail(
+        email: string,
+        opts: { cached?: boolean; force?: boolean } = {},
+    ): Promise<UserRow | null> {
         return this.getByProperty('email', email, opts);
     }
 
-    async getByReferralCode (code: string, opts: { cached?: boolean; force?: boolean } = {}): Promise<UserRow | null> {
+    async getByReferralCode(
+        code: string,
+        opts: { cached?: boolean; force?: boolean } = {},
+    ): Promise<UserRow | null> {
         return this.getByProperty('referral_code', code, opts);
     }
 
@@ -85,7 +105,7 @@ export class UserStore extends PuterStore {
      *
      * `force: true` bypasses cache both on read and on replication.
      */
-    async getByProperty (
+    async getByProperty(
         prop: UserIdProperty,
         value: unknown,
         options: { cached?: boolean; force?: boolean } = {},
@@ -93,9 +113,9 @@ export class UserStore extends PuterStore {
         const cached = options.cached ?? true;
         const force = options.force ?? false;
 
-        if ( cached && !force ) {
+        if (cached && !force) {
             const hit = await this.#readCache(prop, value);
-            if ( hit ) return hit;
+            if (hit) return hit;
         }
 
         // Replication-aware read: on `force`, go straight to the primary
@@ -107,7 +127,7 @@ export class UserStore extends PuterStore {
             ? await this.clients.db.pread(sql, [value])
             : await this.clients.db.tryHardRead(sql, [value]);
         const row = rows[0];
-        if ( ! row ) return null;
+        if (!row) return null;
 
         const user = this.#normalizeRow(row);
         // Fire-and-forget cache write — don't block the caller on redis.
@@ -130,7 +150,7 @@ export class UserStore extends PuterStore {
      * Returns the created user (by id). Password must already be hashed.
      * Pass `null` for temporary users (no email, no password).
      */
-    async create (fields: {
+    async create(fields: {
         username: string;
         uuid: string;
         password: string | null;
@@ -165,7 +185,9 @@ export class UserStore extends PuterStore {
                 fields.requires_email_confirmation ? 1 : 0,
                 fields.email_confirm_code ?? null,
                 fields.email_confirm_token ?? null,
-                fields.audit_metadata ? JSON.stringify(fields.audit_metadata) : null,
+                fields.audit_metadata
+                    ? JSON.stringify(fields.audit_metadata)
+                    : null,
                 fields.signup_ip ?? null,
                 fields.signup_ip_forwarded ?? null,
                 fields.signup_user_agent ?? null,
@@ -174,10 +196,11 @@ export class UserStore extends PuterStore {
         );
 
         const insertId = (result as unknown as { insertId?: number }).insertId;
-        if ( ! insertId ) throw new Error('Failed to create user — no insertId returned');
+        if (!insertId)
+            throw new Error('Failed to create user — no insertId returned');
 
         const user = await this.getById(insertId, { force: true });
-        if ( ! user ) throw new Error('Failed to fetch created user');
+        if (!user) throw new Error('Failed to fetch created user');
         return user;
     }
 
@@ -188,12 +211,15 @@ export class UserStore extends PuterStore {
      * column names for ergonomic call sites. Never take column names from
      * request bodies.
      */
-    async update (userId: number, patch: Record<string, unknown>): Promise<void> {
+    async update(
+        userId: number,
+        patch: Record<string, unknown>,
+    ): Promise<void> {
         const keys = Object.keys(patch);
-        if ( keys.length === 0 ) return;
+        if (keys.length === 0) return;
 
-        const setClause = keys.map(k => `\`${k}\` = ?`).join(', ');
-        const values = keys.map(k => patch[k]);
+        const setClause = keys.map((k) => `\`${k}\` = ?`).join(', ');
+        const values = keys.map((k) => patch[k]);
 
         await this.clients.db.write(
             `UPDATE \`user\` SET ${setClause} WHERE \`id\` = ?`,
@@ -202,7 +228,10 @@ export class UserStore extends PuterStore {
         await this.invalidateById(userId);
     }
 
-    async updateMetadata (userId: number, patch: Record<string, unknown>): Promise<void> {
+    async updateMetadata(
+        userId: number,
+        patch: Record<string, unknown>,
+    ): Promise<void> {
         const user = await this.getById(userId);
         const current: Record<string, unknown> = user?.metadata ?? {};
         const merged = { ...current, ...patch };
@@ -211,13 +240,13 @@ export class UserStore extends PuterStore {
             'UPDATE `user` SET `metadata` = ? WHERE `id` = ?',
             [JSON.stringify(merged), userId],
         );
-        if ( user ) await this.invalidate(user);
+        if (user) await this.invalidate(user);
     }
 
     /** Remove every cache key pointing at the given user. Call after any DB write. */
-    async invalidate (user: UserRow): Promise<void> {
+    async invalidate(user: UserRow): Promise<void> {
         const keys = this.#cacheKeysForUser(user);
-        if ( keys.length === 0 ) return;
+        if (keys.length === 0) return;
         try {
             await this.clients.redis.del(...keys);
         } catch {
@@ -226,31 +255,36 @@ export class UserStore extends PuterStore {
     }
 
     /** Invalidate by id — fetches the cached row first so we know all its keys. */
-    async invalidateById (id: number): Promise<void> {
+    async invalidateById(id: number): Promise<void> {
         const cached = await this.#readCache('id', id);
-        if ( cached ) await this.invalidate(cached);
+        if (cached) await this.invalidate(cached);
     }
 
     // ── Internals ────────────────────────────────────────────────────
 
-    #cacheKey (prop: UserIdProperty, value: unknown): string {
+    #cacheKey(prop: UserIdProperty, value: unknown): string {
         return `${CACHE_KEY_PREFIX}:${prop}:${String(value)}`;
     }
 
-    #cacheKeysForUser (user: UserRow): string[] {
+    #cacheKeysForUser(user: UserRow): string[] {
         const keys: string[] = [];
-        for ( const prop of USER_ID_PROPERTIES ) {
+        for (const prop of USER_ID_PROPERTIES) {
             const value = user[prop];
-            if ( value === undefined || value === null || value === '' ) continue;
+            if (value === undefined || value === null || value === '') continue;
             keys.push(this.#cacheKey(prop, value));
         }
         return keys;
     }
 
-    async #readCache (prop: UserIdProperty, value: unknown): Promise<UserRow | null> {
+    async #readCache(
+        prop: UserIdProperty,
+        value: unknown,
+    ): Promise<UserRow | null> {
         try {
-            const raw = await this.clients.redis.get(this.#cacheKey(prop, value));
-            if ( ! raw ) return null;
+            const raw = await this.clients.redis.get(
+                this.#cacheKey(prop, value),
+            );
+            if (!raw) return null;
             const parsed = JSON.parse(raw) as UserRow;
             // Cached rows were normalized on the write path, so booleans are booleans.
             return parsed;
@@ -259,12 +293,20 @@ export class UserStore extends PuterStore {
         }
     }
 
-    async #writeCache (user: UserRow): Promise<void> {
+    async #writeCache(user: UserRow): Promise<void> {
         const keys = this.#cacheKeysForUser(user);
-        if ( keys.length === 0 ) return;
+        if (keys.length === 0) return;
         const serialized = JSON.stringify(user);
-        await Promise.all(keys.map(key =>
-            this.clients.redis.set(key, serialized, 'EX', CACHE_TTL_SECONDS)));
+        await Promise.all(
+            keys.map((key) =>
+                this.clients.redis.set(
+                    key,
+                    serialized,
+                    'EX',
+                    CACHE_TTL_SECONDS,
+                ),
+            ),
+        );
     }
 
     /**
@@ -272,20 +314,22 @@ export class UserStore extends PuterStore {
      * BOOLEAN/TINYINT as 0|1; SQLite returns INTEGER. JSON columns come as
      * strings on SQLite, parsed objects on MySQL.
      */
-    #normalizeRow (row: Record<string, unknown>): UserRow {
+    #normalizeRow(row: Record<string, unknown>): UserRow {
         const asBool = (v: unknown): boolean | undefined => {
-            if ( v === null || v === undefined ) return undefined;
-            if ( typeof v === 'boolean' ) return v;
-            if ( typeof v === 'number' ) return v !== 0;
-            if ( typeof v === 'string' ) return v !== '0' && v.toLowerCase() !== 'false' && v !== '';
+            if (v === null || v === undefined) return undefined;
+            if (typeof v === 'boolean') return v;
+            if (typeof v === 'number') return v !== 0;
+            if (typeof v === 'string')
+                return v !== '0' && v.toLowerCase() !== 'false' && v !== '';
             return Boolean(v);
         };
 
         const metadata = this.clients.db.case<() => Record<string, unknown>>({
             mysql: () => (row.metadata as Record<string, unknown>) ?? {},
             otherwise: () => {
-                if ( row.metadata == null ) return {};
-                if ( typeof row.metadata === 'object' ) return row.metadata as Record<string, unknown>;
+                if (row.metadata == null) return {};
+                if (typeof row.metadata === 'object')
+                    return row.metadata as Record<string, unknown>;
                 try {
                     return JSON.parse(String(row.metadata));
                 } catch {
@@ -302,8 +346,11 @@ export class UserStore extends PuterStore {
             email: row.email == null ? null : String(row.email),
             suspended: asBool(row.suspended),
             email_confirmed: asBool(row.email_confirmed),
-            requires_email_confirmation: asBool(row.requires_email_confirmation),
-            referral_code: row.referral_code == null ? null : String(row.referral_code),
+            requires_email_confirmation: asBool(
+                row.requires_email_confirmation,
+            ),
+            referral_code:
+                row.referral_code == null ? null : String(row.referral_code),
             metadata,
         };
     }

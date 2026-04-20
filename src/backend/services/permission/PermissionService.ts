@@ -9,7 +9,10 @@ import {
     type PermissionImplicator,
     type PermissionExploder,
 } from './permissionUtil';
-import { MANAGE_PERM_PREFIX, PERMISSION_SCAN_CACHE_TTL_SECONDS } from './consts';
+import {
+    MANAGE_PERM_PREFIX,
+    PERMISSION_SCAN_CACHE_TTL_SECONDS,
+} from './consts';
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore — hardcoded-permissions.js is plain JS
@@ -51,7 +54,10 @@ export class PermissionService extends PuterService {
      * `hardcoded_user_group_permissions.system` map during the hc-user-group
      * scan.
      */
-    private readonly systemGrantsByGroupUid: Record<string, Record<string, unknown>> = {};
+    private readonly systemGrantsByGroupUid: Record<
+        string,
+        Record<string, unknown>
+    > = {};
 
     // ── Extension hooks ──────────────────────────────────────────────
     //
@@ -59,15 +65,15 @@ export class PermissionService extends PuterService {
     // driver *could* register too, but typically the owning service for a
     // permission namespace (fs, app, site, ...) is the right place.
 
-    registerRewriter (rewriter: PermissionRewriter): void {
+    registerRewriter(rewriter: PermissionRewriter): void {
         this.rewriters.push(rewriter);
     }
 
-    registerImplicator (implicator: PermissionImplicator): void {
+    registerImplicator(implicator: PermissionImplicator): void {
         this.implicators.push(implicator);
     }
 
-    registerExploder (exploder: PermissionExploder): void {
+    registerExploder(exploder: PermissionExploder): void {
         this.exploders.push(exploder);
     }
 
@@ -77,24 +83,27 @@ export class PermissionService extends PuterService {
      *
      * Call from an owning service's `onServerStart` (or later).
      */
-    registerSystemGrantForEveryone (permission: string, data: unknown = {}): void {
+    registerSystemGrantForEveryone(
+        permission: string,
+        data: unknown = {},
+    ): void {
         const userGroup = this.config.default_user_group;
         const tempGroup = this.config.default_temp_group;
-        if ( userGroup ) this.#addSystemGrant(userGroup, permission, data);
-        if ( tempGroup ) this.#addSystemGrant(tempGroup, permission, data);
+        if (userGroup) this.#addSystemGrant(userGroup, permission, data);
+        if (tempGroup) this.#addSystemGrant(tempGroup, permission, data);
     }
 
     /**
      * Grant a permission (as issued by `system`) to non-temp users only —
      * members of the default user group, but not the default temp group.
      */
-    registerSystemGrantForUsers (permission: string, data: unknown = {}): void {
+    registerSystemGrantForUsers(permission: string, data: unknown = {}): void {
         const userGroup = this.config.default_user_group;
-        if ( userGroup ) this.#addSystemGrant(userGroup, permission, data);
+        if (userGroup) this.#addSystemGrant(userGroup, permission, data);
     }
 
-    #addSystemGrant (groupUid: string, permission: string, data: unknown): void {
-        if ( ! this.systemGrantsByGroupUid[groupUid] ) {
+    #addSystemGrant(groupUid: string, permission: string, data: unknown): void {
+        if (!this.systemGrantsByGroupUid[groupUid]) {
             this.systemGrantsByGroupUid[groupUid] = {};
         }
         this.systemGrantsByGroupUid[groupUid][permission] = data;
@@ -102,34 +111,34 @@ export class PermissionService extends PuterService {
 
     // ── Rewrite / explode (pure-ish helpers) ────────────────────────
 
-    async rewritePermission (permission: string): Promise<string> {
-        for ( const rewriter of this.rewriters ) {
-            if ( ! rewriter.matches(permission) ) continue;
+    async rewritePermission(permission: string): Promise<string> {
+        for (const rewriter of this.rewriters) {
+            if (!rewriter.matches(permission)) continue;
             permission = await rewriter.rewrite(permission);
         }
         return permission;
     }
 
     /** Return the given permission plus all parents and their exploder expansions. */
-    async getHigherPermissions (permission: string): Promise<string[]> {
+    async getHigherPermissions(permission: string): Promise<string[]> {
         const higher = new Set<string>();
         higher.add(permission);
-        for ( const parent of this.getParentPermissions(permission) ) {
+        for (const parent of this.getParentPermissions(permission)) {
             higher.add(parent);
-            for ( const exploder of this.exploders ) {
-                if ( ! exploder.matches(parent) ) continue;
+            for (const exploder of this.exploders) {
+                if (!exploder.matches(parent)) continue;
                 const more = await exploder.explode({ permission: parent });
-                for ( const p of more ) higher.add(p);
+                for (const p of more) higher.add(p);
             }
         }
         return [...higher];
     }
 
-    getParentPermissions (permission: string): string[] {
+    getParentPermissions(permission: string): string[] {
         // Keep components escaped — we match against stored permission strings verbatim.
         const parts = permission.split(':');
         const parents: string[] = [];
-        for ( let i = 0; i < parts.length; i++ ) {
+        for (let i = 0; i < parts.length; i++) {
             parents.push(parts.slice(0, i + 1).join(':'));
         }
         parents.reverse();
@@ -138,14 +147,29 @@ export class PermissionService extends PuterService {
 
     // ── Public check / scan API ──────────────────────────────────────
 
-    async check (actor: Actor, permissionOptions: string | string[], scanOptions?: ScanOptions): Promise<boolean> {
-        const reading = await this.scan(actor, permissionOptions, undefined, scanOptions);
+    async check(
+        actor: Actor,
+        permissionOptions: string | string[],
+        scanOptions?: ScanOptions,
+    ): Promise<boolean> {
+        const reading = await this.scan(
+            actor,
+            permissionOptions,
+            undefined,
+            scanOptions,
+        );
         const options = PermissionUtil.readingToOptions(reading);
         return options.length > 0;
     }
 
-    async canManagePermission (actor: Actor, permission: string): Promise<boolean> {
-        const managePerm = PermissionUtil.join(MANAGE_PERM_PREFIX, ...PermissionUtil.split(permission));
+    async canManagePermission(
+        actor: Actor,
+        permission: string,
+    ): Promise<boolean> {
+        const managePerm = PermissionUtil.join(
+            MANAGE_PERM_PREFIX,
+            ...PermissionUtil.split(permission),
+        );
         return await this.check(actor, managePerm);
     }
 
@@ -154,27 +178,32 @@ export class PermissionService extends PuterService {
      * options. Returns a tree-shaped "reading". Use
      * `PermissionUtil.readingToOptions()` to flatten to a yes/no answer.
      */
-    async scan (
+    async scan(
         actor: Actor,
         permissionOptions: string | string[],
         state?: ScanState,
         scanOptions: ScanOptions = {},
     ): Promise<ReadingNode[]> {
-        let options = Array.isArray(permissionOptions) ? [...permissionOptions] : [permissionOptions];
+        let options = Array.isArray(permissionOptions)
+            ? [...permissionOptions]
+            : [permissionOptions];
         const reading: ReadingNode[] = [];
         const workingState: ScanState = state ?? { antiCycleActors: [actor] };
 
         // ── Redis scan cache ──
-        const cacheKey = this.stores.permission.buildScanCacheKey(actorUid(actor), options);
-        if ( ! scanOptions.noCache ) {
+        const cacheKey = this.stores.permission.buildScanCacheKey(
+            actorUid(actor),
+            options,
+        );
+        if (!scanOptions.noCache) {
             const cached = await this.stores.permission.getScanCache(cacheKey);
-            if ( cached ) return cached as ReadingNode[];
+            if (cached) return cached as ReadingNode[];
         }
 
         const startTs = Date.now();
 
         // ── grant_if_system short-circuit ──
-        if ( isSystemActor(actor) ) {
+        if (isSystemActor(actor)) {
             reading.push({
                 $: 'option',
                 key: 'sys',
@@ -189,21 +218,21 @@ export class PermissionService extends PuterService {
         }
 
         // ── rewrite ──
-        for ( let i = 0; i < options.length; i++ ) {
+        for (let i = 0; i < options.length; i++) {
             const old = options[i];
             const rewritten = await this.rewritePermission(old);
-            if ( rewritten === old ) continue;
+            if (rewritten === old) continue;
             options[i] = rewritten;
             reading.push({ $: 'rewrite', from: old, to: rewritten });
         }
 
         // ── explode (parents + exploders) ──
         const exploded: string[][] = [];
-        for ( let i = 0; i < options.length; i++ ) {
+        for (let i = 0; i < options.length; i++) {
             const perm = options[i];
             const higher = await this.getHigherPermissions(perm);
             exploded[i] = higher;
-            if ( higher.length > 1 ) {
+            if (higher.length > 1) {
                 reading.push({ $: 'explode', from: perm, to: higher });
             }
         }
@@ -211,27 +240,29 @@ export class PermissionService extends PuterService {
 
         // ── shortcut implicators ──
         let shortCircuit = false;
-        for ( const permission of options ) {
-            for ( const implicator of this.implicators ) {
-                if ( ! implicator.shortcut ) continue;
-                if ( ! implicator.matches(permission) ) continue;
+        for (const permission of options) {
+            for (const implicator of this.implicators) {
+                if (!implicator.shortcut) continue;
+                if (!implicator.matches(permission)) continue;
                 const implied = await implicator.check({ actor, permission });
-                if ( ! implied ) continue;
+                if (!implied) continue;
                 reading.push({
                     $: 'option',
                     permission,
                     source: 'implied',
                     by: implicator.id,
                     data: implied,
-                    ...(actor.user?.username ? { holder_username: actor.user.username } : {}),
+                    ...(actor.user?.username
+                        ? { holder_username: actor.user.username }
+                        : {}),
                 });
                 shortCircuit = true;
                 break;
             }
-            if ( shortCircuit ) break;
+            if (shortCircuit) break;
         }
 
-        if ( ! shortCircuit ) {
+        if (!shortCircuit) {
             // ── scanners (formerly PERMISSION_SCANNERS) ──
             await this.#scanNonShortcutImplicators(actor, options, reading);
             await this.#scanAccessToken(actor, options, reading);
@@ -248,9 +279,16 @@ export class PermissionService extends PuterService {
         return reading;
     }
 
-    async #maybeCacheScan (cacheKey: string, reading: ReadingNode[]): Promise<void> {
+    async #maybeCacheScan(
+        cacheKey: string,
+        reading: ReadingNode[],
+    ): Promise<void> {
         try {
-            await this.stores.permission.setScanCache(cacheKey, reading, PERMISSION_SCAN_CACHE_TTL_SECONDS);
+            await this.stores.permission.setScanCache(
+                cacheKey,
+                reading,
+                PERMISSION_SCAN_CACHE_TTL_SECONDS,
+            );
         } catch {
             // cache write failures should never block a permission decision
         }
@@ -258,31 +296,45 @@ export class PermissionService extends PuterService {
 
     // ── Scanners (inlined, no Sequence) ──────────────────────────────
 
-    async #scanNonShortcutImplicators (actor: Actor, options: string[], reading: ReadingNode[]): Promise<void> {
-        for ( const permission of options ) {
-            for ( const implicator of this.implicators ) {
-                if ( implicator.shortcut ) continue;
-                if ( ! implicator.matches(permission) ) continue;
+    async #scanNonShortcutImplicators(
+        actor: Actor,
+        options: string[],
+        reading: ReadingNode[],
+    ): Promise<void> {
+        for (const permission of options) {
+            for (const implicator of this.implicators) {
+                if (implicator.shortcut) continue;
+                if (!implicator.matches(permission)) continue;
                 const implied = await implicator.check({ actor, permission });
-                if ( ! implied ) continue;
+                if (!implied) continue;
                 reading.push({
                     $: 'option',
                     permission,
                     source: 'implied',
                     by: implicator.id,
                     data: implied,
-                    ...(actor.user?.username ? { holder_username: actor.user.username } : {}),
+                    ...(actor.user?.username
+                        ? { holder_username: actor.user.username }
+                        : {}),
                 });
             }
         }
     }
 
-    async #scanAccessToken (actor: Actor, options: string[], reading: ReadingNode[]): Promise<void> {
-        if ( ! actor.accessToken ) return;
+    async #scanAccessToken(
+        actor: Actor,
+        options: string[],
+        reading: ReadingNode[],
+    ): Promise<void> {
+        if (!actor.accessToken) return;
         const issuerActor = actor.accessToken.issuer;
-        for ( const permission of options ) {
-            const hasTokenPerm = await this.stores.permission.hasAccessTokenPerm(actor.accessToken.uid, permission);
-            if ( ! hasTokenPerm ) continue;
+        for (const permission of options) {
+            const hasTokenPerm =
+                await this.stores.permission.hasAccessTokenPerm(
+                    actor.accessToken.uid,
+                    permission,
+                );
+            if (!hasTokenPerm) continue;
             const issuerReading = await this.scan(issuerActor, permission);
             reading.push({
                 $: 'path',
@@ -294,9 +346,18 @@ export class PermissionService extends PuterService {
         }
     }
 
-    async #scanUserUser (actor: Actor, options: string[], reading: ReadingNode[], state: ScanState): Promise<void> {
-        if ( actor.app || actor.accessToken ) return;
-        const subReadings = await this.validateUserPerms({ actor, permissions: options, state });
+    async #scanUserUser(
+        actor: Actor,
+        options: string[],
+        reading: ReadingNode[],
+        state: ScanState,
+    ): Promise<void> {
+        if (actor.app || actor.accessToken) return;
+        const subReadings = await this.validateUserPerms({
+            actor,
+            permissions: options,
+            state,
+        });
         reading.push(...subReadings);
     }
 
@@ -306,45 +367,73 @@ export class PermissionService extends PuterService {
      * `hardcoded-permissions.js`, merged with any runtime grants registered
      * through `registerSystemGrantForEveryone` / `registerSystemGrantForUsers`.
      */
-    async #scanHcUserGroupUser (actor: Actor, options: string[], reading: ReadingNode[]): Promise<void> {
-        if ( actor.app || actor.accessToken ) return;
-        if ( ! actor.user?.id ) return;
+    async #scanHcUserGroupUser(
+        actor: Actor,
+        options: string[],
+        reading: ReadingNode[],
+    ): Promise<void> {
+        if (actor.app || actor.accessToken) return;
+        if (!actor.user?.id) return;
 
-        const memberGroups = await this.stores.group.listGroupsWithMember(actor.user.id);
-        if ( memberGroups.length === 0 ) return;
+        const memberGroups = await this.stores.group.listGroupsWithMember(
+            actor.user.id,
+        );
+        if (memberGroups.length === 0) return;
 
         const groupByUid: Record<string, { id: number; uid: string }> = {};
-        for ( const g of memberGroups ) {
+        for (const g of memberGroups) {
             groupByUid[g.uid] = { id: g.id, uid: g.uid };
         }
 
         // Compose the effective issuer → group → permission → data map by
         // merging the imported hardcoded data with runtime-registered system
         // grants. Runtime grants are always attributed to the `system` issuer.
-        const hcMap = hardcoded_user_group_permissions as Record<string, Record<string, Record<string, unknown>>>;
-        const hasRuntimeGrants = Object.keys(this.systemGrantsByGroupUid).length > 0;
-        const byIssuer: Record<string, Record<string, Record<string, unknown>>> = hasRuntimeGrants
+        const hcMap = hardcoded_user_group_permissions as Record<
+            string,
+            Record<string, Record<string, unknown>>
+        >;
+        const hasRuntimeGrants =
+            Object.keys(this.systemGrantsByGroupUid).length > 0;
+        const byIssuer: Record<
+            string,
+            Record<string, Record<string, unknown>>
+        > = hasRuntimeGrants
             ? { ...hcMap, system: { ...(hcMap.system ?? {}) } }
             : hcMap;
-        if ( hasRuntimeGrants ) {
-            for ( const [gUid, perms] of Object.entries(this.systemGrantsByGroupUid) ) {
-                byIssuer.system[gUid] = { ...(byIssuer.system[gUid] ?? {}), ...perms };
+        if (hasRuntimeGrants) {
+            for (const [gUid, perms] of Object.entries(
+                this.systemGrantsByGroupUid,
+            )) {
+                byIssuer.system[gUid] = {
+                    ...(byIssuer.system[gUid] ?? {}),
+                    ...perms,
+                };
             }
         }
 
-        for ( const issuerUsername of Object.keys(byIssuer) ) {
-            const issuerUser = await this.stores.user.getByUsername(issuerUsername);
-            if ( ! issuerUser ) continue;
+        for (const issuerUsername of Object.keys(byIssuer)) {
+            const issuerUser =
+                await this.stores.user.getByUsername(issuerUsername);
+            if (!issuerUser) continue;
             const issuerActor = this.#userToActor(issuerUser);
             const issuerGroups = byIssuer[issuerUsername];
 
-            for ( const groupUid of Object.keys(issuerGroups) ) {
-                if ( ! groupByUid[groupUid] ) continue;
+            for (const groupUid of Object.keys(issuerGroups)) {
+                if (!groupByUid[groupUid]) continue;
                 const issuerGroupPerms = issuerGroups[groupUid];
 
-                for ( const permission of options ) {
-                    if ( ! Object.prototype.hasOwnProperty.call(issuerGroupPerms, permission) ) continue;
-                    const issuerReading = await this.scan(issuerActor, permission);
+                for (const permission of options) {
+                    if (
+                        !Object.prototype.hasOwnProperty.call(
+                            issuerGroupPerms,
+                            permission,
+                        )
+                    )
+                        continue;
+                    const issuerReading = await this.scan(
+                        issuerActor,
+                        permission,
+                    );
                     reading.push({
                         $: 'path',
                         via: 'hc-user-group',
@@ -361,14 +450,21 @@ export class PermissionService extends PuterService {
         }
     }
 
-    async #scanUserGroup (actor: Actor, options: string[], reading: ReadingNode[]): Promise<void> {
-        if ( actor.app || actor.accessToken ) return;
-        if ( ! actor.user?.id ) return;
+    async #scanUserGroup(
+        actor: Actor,
+        options: string[],
+        reading: ReadingNode[],
+    ): Promise<void> {
+        if (actor.app || actor.accessToken) return;
+        if (!actor.user?.id) return;
 
-        const rows = await this.stores.permission.readUserGroupPerms(actor.user.id, options);
-        for ( const row of rows ) {
+        const rows = await this.stores.permission.readUserGroupPerms(
+            actor.user.id,
+            options,
+        );
+        for (const row of rows) {
             const issuerUser = await this.stores.user.getById(row.user_id);
-            if ( ! issuerUser ) continue;
+            if (!issuerUser) continue;
             const issuerActor = this.#userToActor(issuerUser);
             const issuerReading = await this.scan(issuerActor, row.permission);
             reading.push({
@@ -385,16 +481,22 @@ export class PermissionService extends PuterService {
         }
     }
 
-    async #scanUserAppImplied (actor: Actor, options: string[], reading: ReadingNode[]): Promise<void> {
-        if ( ! actor.app ) return;
+    async #scanUserAppImplied(
+        actor: Actor,
+        options: string[],
+        reading: ReadingNode[],
+    ): Promise<void> {
+        if (!actor.app) return;
         const issuerActor = userRelatedActor(actor);
         const issuerReading = await this.scan(issuerActor, options);
         const hasTerminal = readingHasTerminal(issuerReading);
         const appUid = actor.app.uid;
 
-        for ( const permission of options ) {
-            const implied = (default_implicit_user_app_permissions as Record<string, unknown>)[permission];
-            if ( implied ) {
+        for (const permission of options) {
+            const implied = (
+                default_implicit_user_app_permissions as Record<string, unknown>
+            )[permission];
+            if (implied) {
                 reading.push({
                     $: 'path',
                     permission,
@@ -409,12 +511,15 @@ export class PermissionService extends PuterService {
 
             // per-app hardcoded overrides
             const hits: Record<string, unknown> = {};
-            for ( const bucket of (implicit_user_app_permissions as Array<{ apps: string[]; permissions: Record<string, unknown> }>) ) {
-                if ( bucket.apps.includes(appUid) ) {
+            for (const bucket of implicit_user_app_permissions as Array<{
+                apps: string[];
+                permissions: Record<string, unknown>;
+            }>) {
+                if (bucket.apps.includes(appUid)) {
                     hits[permission] = bucket.permissions[permission];
                 }
             }
-            if ( hits[permission] ) {
+            if (hits[permission]) {
                 reading.push({
                     $: 'path',
                     permission,
@@ -429,11 +534,19 @@ export class PermissionService extends PuterService {
         }
     }
 
-    async #scanUserApp (actor: Actor, options: string[], reading: ReadingNode[]): Promise<void> {
-        if ( !actor.app || !actor.user?.id || !actor.app.id ) return;
-        const rows = await this.stores.permission.readUserAppPerms(actor.user.id, actor.app.id, options);
+    async #scanUserApp(
+        actor: Actor,
+        options: string[],
+        reading: ReadingNode[],
+    ): Promise<void> {
+        if (!actor.app || !actor.user?.id || !actor.app.id) return;
+        const rows = await this.stores.permission.readUserAppPerms(
+            actor.user.id,
+            actor.app.id,
+            options,
+        );
         const row = rows[0];
-        if ( ! row ) return;
+        if (!row) return;
 
         const issuerActor = userRelatedActor(actor);
         const issuerReading = await this.scan(issuerActor, row.permission);
@@ -448,14 +561,21 @@ export class PermissionService extends PuterService {
         });
     }
 
-    async #scanDevApp (actor: Actor, options: string[], reading: ReadingNode[]): Promise<void> {
-        if ( !actor.app || !actor.app.id ) return;
-        const rows = await this.stores.permission.readDevAppPerms(actor.app.id, options);
+    async #scanDevApp(
+        actor: Actor,
+        options: string[],
+        reading: ReadingNode[],
+    ): Promise<void> {
+        if (!actor.app || !actor.app.id) return;
+        const rows = await this.stores.permission.readDevAppPerms(
+            actor.app.id,
+            options,
+        );
         const row = rows[0];
-        if ( ! row ) return;
+        if (!row) return;
 
         const issuerUser = await this.stores.user.getById(row.user_id);
-        if ( ! issuerUser ) return;
+        if (!issuerUser) return;
         const issuerActor = this.#userToActor(issuerUser);
         const issuerReading = await this.scan(issuerActor, row.permission);
         reading.push({
@@ -477,12 +597,16 @@ export class PermissionService extends PuterService {
      * falls back to a SQL traversal of `user_to_user_permissions` and
      * warms the flat KV cache as a side-effect.
      */
-    async validateUserPerms ({ actor, permissions, state }: {
+    async validateUserPerms({
+        actor,
+        permissions,
+        state,
+    }: {
         actor: Actor;
         permissions: string[];
         state?: ScanState;
     }): Promise<ReadingNode[]> {
-        if ( ! actor.user?.id ) return [];
+        if (!actor.user?.id) return [];
 
         const flatPromise = this.#flatValidateUserPerms(actor, permissions);
         const linkedPromise = this.#linkedValidateUserPerms(
@@ -492,7 +616,7 @@ export class PermissionService extends PuterService {
         );
 
         const flatReading = await flatPromise;
-        if ( flatReading.length > 0 ) {
+        if (flatReading.length > 0) {
             return flatReading[0].deleted ? [] : flatReading;
         }
 
@@ -500,67 +624,91 @@ export class PermissionService extends PuterService {
         const flatOptions = PermissionUtil.readingToOptions(linkedReading);
 
         // Warm flat KV cache for future hits (fire-and-forget, don't block result)
-        for ( const opt of flatOptions ) {
-            if ( ! opt.permission ) continue;
+        for (const opt of flatOptions) {
+            if (!opt.permission) continue;
             const data = Array.isArray(opt.data) ? opt.data : [opt.data];
-            const issuerUserId = (data[0] as { issuer_user_id?: number })?.issuer_user_id;
-            this.stores.permission.setFlatUserPerm(actor.user.id, opt.permission, {
-                permission: opt.permission,
-                issuer_user_id: issuerUserId,
-                data,
-            }).catch(() => {
-                /* swallow — this is a cache warm */
-            });
+            const issuerUserId = (data[0] as { issuer_user_id?: number })
+                ?.issuer_user_id;
+            this.stores.permission
+                .setFlatUserPerm(actor.user.id, opt.permission, {
+                    permission: opt.permission,
+                    issuer_user_id: issuerUserId,
+                    data,
+                })
+                .catch(() => {
+                    /* swallow — this is a cache warm */
+                });
         }
 
         return flatReading;
     }
 
-    async #flatValidateUserPerms (actor: Actor, permissions: string[]): Promise<ReadingNode[]> {
-        if ( ! actor.user?.id ) return [];
-        const values = await this.stores.permission.getFlatUserPerms(actor.user.id, permissions);
+    async #flatValidateUserPerms(
+        actor: Actor,
+        permissions: string[],
+    ): Promise<ReadingNode[]> {
+        if (!actor.user?.id) return [];
+        const values = await this.stores.permission.getFlatUserPerms(
+            actor.user.id,
+            permissions,
+        );
 
         let anyDeleted = false;
-        for ( const v of values ) {
-            if ( v.deleted ) {
-                anyDeleted = true; continue;
+        for (const v of values) {
+            if (v.deleted) {
+                anyDeleted = true;
+                continue;
             }
             const { permission, issuer_user_id, ...extra } = v;
-            if ( ! permission ) continue;
-            const issuer = issuer_user_id ? await this.stores.user.getById(issuer_user_id) : null;
-            return [{
-                $: 'option',
-                via: 'user',
-                has_terminal: true,
-                permission,
-                data: extra,
-                holder_username: actor.user.username,
-                issuer_username: issuer?.username,
-                issuer_user_id: issuer?.uuid,
-                reading: [],
-            }];
+            if (!permission) continue;
+            const issuer = issuer_user_id
+                ? await this.stores.user.getById(issuer_user_id)
+                : null;
+            return [
+                {
+                    $: 'option',
+                    via: 'user',
+                    has_terminal: true,
+                    permission,
+                    data: extra,
+                    holder_username: actor.user.username,
+                    issuer_username: issuer?.username,
+                    issuer_user_id: issuer?.uuid,
+                    reading: [],
+                },
+            ];
         }
         return anyDeleted ? [{ $: 'option', deleted: true }] : [];
     }
 
-    async #linkedValidateUserPerms (actor: Actor, permissions: string[], state: ScanState): Promise<ReadingNode[]> {
-        if ( ! actor.user?.id ) return [];
-        const rows = await this.stores.permission.readLinkedUserUserPerms(actor.user.id, permissions);
+    async #linkedValidateUserPerms(
+        actor: Actor,
+        permissions: string[],
+        state: ScanState,
+    ): Promise<ReadingNode[]> {
+        if (!actor.user?.id) return [];
+        const rows = await this.stores.permission.readLinkedUserUserPerms(
+            actor.user.id,
+            permissions,
+        );
 
         const out: ReadingNode[] = [];
-        for ( const row of rows ) {
-            const issuerUser = await this.stores.user.getById(row.issuer_user_id);
-            if ( ! issuerUser ) continue;
+        for (const row of rows) {
+            const issuerUser = await this.stores.user.getById(
+                row.issuer_user_id,
+            );
+            if (!issuerUser) continue;
             const issuerActor = this.#userToActor(issuerUser);
 
             // anti-cycle
             let skip = false;
-            for ( const seen of state.antiCycleActors ) {
-                if ( seen.user?.id === issuerActor.user.id ) {
-                    skip = true; break;
+            for (const seen of state.antiCycleActors) {
+                if (seen.user?.id === issuerActor.user.id) {
+                    skip = true;
+                    break;
                 }
             }
-            if ( skip ) continue;
+            if (skip) continue;
 
             const issuerReading = await this.scan(issuerActor, row.permission, {
                 antiCycleActors: [...state.antiCycleActors, issuerActor],
@@ -583,16 +731,24 @@ export class PermissionService extends PuterService {
 
     // ── Grant / revoke orchestration ─────────────────────────────────
 
-    async grantUserUserPermission (actor: Actor, username: string, permission: string, extra: Record<string, unknown> = {}, meta: GrantMeta = {}): Promise<void> {
+    async grantUserUserPermission(
+        actor: Actor,
+        username: string,
+        permission: string,
+        extra: Record<string, unknown> = {},
+        meta: GrantMeta = {},
+    ): Promise<void> {
         permission = await this.rewritePermission(permission);
         const user = await this.stores.user.getByUsername(username);
-        if ( ! user ) throw new Error(`user_does_not_exist: ${username}`);
-        if ( user.id === actor.user?.id ) throw new Error('cannot grant permissions to yourself');
+        if (!user) throw new Error(`user_does_not_exist: ${username}`);
+        if (user.id === actor.user?.id)
+            throw new Error('cannot grant permissions to yourself');
 
-        if ( ! (await this.canManagePermission(actor, permission)) ) {
+        if (!(await this.canManagePermission(actor, permission))) {
             throw new Error(`permission_denied: ${permission}`);
         }
-        if ( ! actor.user?.id ) throw new Error('grantUserUserPermission: actor lacks user.id');
+        if (!actor.user?.id)
+            throw new Error('grantUserUserPermission: actor lacks user.id');
         const issuerId = actor.user.id;
 
         // Flat upsert (awaited so callers see immediate effect)
@@ -604,231 +760,402 @@ export class PermissionService extends PuterService {
         });
 
         // Linked upsert + audit fire-and-forget.
-        this.stores.permission.upsertUserUserPerm(user.id, issuerId, permission, extra).catch(() => {
-        });
-        this.stores.permission.auditUserUserPerm({
-            holder_user_id: user.id,
-            issuer_user_id: issuerId,
-            permission,
-            action: 'grant',
-            reason: meta.reason ?? 'granted via PermissionService',
-        }).catch(() => {
-        });
+        this.stores.permission
+            .upsertUserUserPerm(user.id, issuerId, permission, extra)
+            .catch(() => {});
+        this.stores.permission
+            .auditUserUserPerm({
+                holder_user_id: user.id,
+                issuer_user_id: issuerId,
+                permission,
+                action: 'grant',
+                reason: meta.reason ?? 'granted via PermissionService',
+            })
+            .catch(() => {});
     }
 
-    async revokeUserUserPermission (actor: Actor, username: string, permission: string, meta: GrantMeta = {}): Promise<void> {
+    async revokeUserUserPermission(
+        actor: Actor,
+        username: string,
+        permission: string,
+        meta: GrantMeta = {},
+    ): Promise<void> {
         permission = await this.rewritePermission(permission);
         const user = await this.stores.user.getByUsername(username);
-        if ( ! user ) throw new Error(`user_does_not_exist: ${username}`);
+        if (!user) throw new Error(`user_does_not_exist: ${username}`);
 
-        if ( ! (await this.canManagePermission(actor, permission)) ) {
+        if (!(await this.canManagePermission(actor, permission))) {
             throw new Error(`permission_denied: ${permission}`);
         }
-        if ( ! actor.user?.id ) throw new Error('revokeUserUserPermission: actor lacks user.id');
+        if (!actor.user?.id)
+            throw new Error('revokeUserUserPermission: actor lacks user.id');
         const issuerId = actor.user.id;
 
         await this.stores.permission.delFlatUserPerm(user.id, permission);
-        this.stores.permission.deleteUserUserPermByHolder(user.id, permission).catch(() => {
-        });
-        this.stores.permission.auditUserUserPerm({
-            holder_user_id: user.id,
-            issuer_user_id: issuerId,
-            permission,
-            action: 'revoke',
-            reason: meta.reason ?? 'revoked via PermissionService',
-        }).catch(() => {
-        });
+        this.stores.permission
+            .deleteUserUserPermByHolder(user.id, permission)
+            .catch(() => {});
+        this.stores.permission
+            .auditUserUserPerm({
+                holder_user_id: user.id,
+                issuer_user_id: issuerId,
+                permission,
+                action: 'revoke',
+                reason: meta.reason ?? 'revoked via PermissionService',
+            })
+            .catch(() => {});
     }
 
-    async grantUserAppPermission (actor: Actor, appIdentifier: string, permission: string, extra: Record<string, unknown> = {}, meta: GrantMeta = {}): Promise<void> {
+    async grantUserAppPermission(
+        actor: Actor,
+        appIdentifier: string,
+        permission: string,
+        extra: Record<string, unknown> = {},
+        meta: GrantMeta = {},
+    ): Promise<void> {
         permission = await this.rewritePermission(permission);
         const app = await this.stores.app.resolveApp(appIdentifier);
-        if ( ! app ) throw new Error(`entity_not_found: app:${appIdentifier}`);
-        if ( ! actor.user?.id ) throw new Error('grantUserAppPermission: actor lacks user.id');
+        if (!app) throw new Error(`entity_not_found: app:${appIdentifier}`);
+        if (!actor.user?.id)
+            throw new Error('grantUserAppPermission: actor lacks user.id');
 
         // Skip redundant upserts (saves db roundtrip + cache invalidation)
-        if ( await this.stores.permission.hasUserAppPerm(actor.user.id, app.id, permission) ) return;
+        if (
+            await this.stores.permission.hasUserAppPerm(
+                actor.user.id,
+                app.id,
+                permission,
+            )
+        )
+            return;
 
-        await this.stores.permission.upsertUserAppPerm(actor.user.id, app.id, permission, extra);
-        this.stores.permission.auditUserAppPerm({
-            user_id: actor.user.id,
-            app_id: app.id,
+        await this.stores.permission.upsertUserAppPerm(
+            actor.user.id,
+            app.id,
             permission,
-            action: 'grant',
-            reason: meta.reason ?? 'granted via PermissionService',
-        }).catch(() => {
-        });
+            extra,
+        );
+        this.stores.permission
+            .auditUserAppPerm({
+                user_id: actor.user.id,
+                app_id: app.id,
+                permission,
+                action: 'grant',
+                reason: meta.reason ?? 'granted via PermissionService',
+            })
+            .catch(() => {});
 
         // Invalidate app-under-user scan cache so the grant takes effect immediately
-        await this.invalidatePermissionScanCacheForAppUnderUser(actor.user.uuid, app.uid, permission);
-    }
-
-    async revokeUserAppPermission (actor: Actor, appIdentifier: string, permission: string, meta: GrantMeta = {}): Promise<void> {
-        permission = await this.rewritePermission(permission);
-        if ( actor.app ) throw new Error('actor must be a user');
-        const app = await this.stores.app.resolveApp(appIdentifier);
-        if ( ! app ) throw new Error(`entity_not_found: app${appIdentifier}`);
-        if ( ! actor.user?.id ) throw new Error('revokeUserAppPermission: actor lacks user.id');
-
-        await this.stores.permission.deleteUserAppPerm(actor.user.id, app.id, permission);
-        this.stores.permission.auditUserAppPerm({
-            user_id: actor.user.id,
-            app_id: app.id,
+        await this.invalidatePermissionScanCacheForAppUnderUser(
+            actor.user.uuid,
+            app.uid,
             permission,
-            action: 'revoke',
-            reason: meta.reason ?? 'revoked via PermissionService',
-        }).catch(() => {
-        });
+        );
     }
 
-    async revokeUserAppAll (actor: Actor, appIdentifier: string, meta: GrantMeta = {}): Promise<void> {
-        if ( actor.app ) throw new Error('actor must be a user');
+    async revokeUserAppPermission(
+        actor: Actor,
+        appIdentifier: string,
+        permission: string,
+        meta: GrantMeta = {},
+    ): Promise<void> {
+        permission = await this.rewritePermission(permission);
+        if (actor.app) throw new Error('actor must be a user');
         const app = await this.stores.app.resolveApp(appIdentifier);
-        if ( ! app ) throw new Error(`entity_not_found: app${appIdentifier}`);
-        if ( ! actor.user?.id ) throw new Error('revokeUserAppAll: actor lacks user.id');
+        if (!app) throw new Error(`entity_not_found: app${appIdentifier}`);
+        if (!actor.user?.id)
+            throw new Error('revokeUserAppPermission: actor lacks user.id');
+
+        await this.stores.permission.deleteUserAppPerm(
+            actor.user.id,
+            app.id,
+            permission,
+        );
+        this.stores.permission
+            .auditUserAppPerm({
+                user_id: actor.user.id,
+                app_id: app.id,
+                permission,
+                action: 'revoke',
+                reason: meta.reason ?? 'revoked via PermissionService',
+            })
+            .catch(() => {});
+    }
+
+    async revokeUserAppAll(
+        actor: Actor,
+        appIdentifier: string,
+        meta: GrantMeta = {},
+    ): Promise<void> {
+        if (actor.app) throw new Error('actor must be a user');
+        const app = await this.stores.app.resolveApp(appIdentifier);
+        if (!app) throw new Error(`entity_not_found: app${appIdentifier}`);
+        if (!actor.user?.id)
+            throw new Error('revokeUserAppAll: actor lacks user.id');
 
         await this.stores.permission.deleteUserAppAll(actor.user.id, app.id);
-        this.stores.permission.auditUserAppPerm({
-            user_id: actor.user.id,
-            app_id: app.id,
-            permission: '*',
-            action: 'revoke',
-            reason: meta.reason ?? 'revoked all via PermissionService',
-        }).catch(() => {
-        });
+        this.stores.permission
+            .auditUserAppPerm({
+                user_id: actor.user.id,
+                app_id: app.id,
+                permission: '*',
+                action: 'revoke',
+                reason: meta.reason ?? 'revoked all via PermissionService',
+            })
+            .catch(() => {});
     }
 
-    async grantDevAppPermission (actor: Actor, appIdentifier: string, permission: string, extra: Record<string, unknown> = {}, meta: GrantMeta = {}): Promise<void> {
+    async grantDevAppPermission(
+        actor: Actor,
+        appIdentifier: string,
+        permission: string,
+        extra: Record<string, unknown> = {},
+        meta: GrantMeta = {},
+    ): Promise<void> {
         permission = await this.rewritePermission(permission);
         const app = await this.stores.app.resolveApp(appIdentifier);
-        if ( ! app ) throw new Error(`entity_not_found: app:${appIdentifier}`);
-        if ( ! (await this.canManagePermission(actor, permission)) ) throw new Error(`permission_denied: ${permission}`);
-        if ( ! actor.user?.id ) throw new Error('grantDevAppPermission: actor lacks user.id');
+        if (!app) throw new Error(`entity_not_found: app:${appIdentifier}`);
+        if (!(await this.canManagePermission(actor, permission)))
+            throw new Error(`permission_denied: ${permission}`);
+        if (!actor.user?.id)
+            throw new Error('grantDevAppPermission: actor lacks user.id');
 
-        await this.stores.permission.upsertDevAppPerm(actor.user.id, app.id, permission, extra);
-        this.stores.permission.auditDevAppPerm({
-            user_id: actor.user.id,
-            app_id: app.id,
+        await this.stores.permission.upsertDevAppPerm(
+            actor.user.id,
+            app.id,
             permission,
-            action: 'grant',
-            reason: meta.reason ?? 'granted via PermissionService',
-        }).catch(() => {
-        });
+            extra,
+        );
+        this.stores.permission
+            .auditDevAppPerm({
+                user_id: actor.user.id,
+                app_id: app.id,
+                permission,
+                action: 'grant',
+                reason: meta.reason ?? 'granted via PermissionService',
+            })
+            .catch(() => {});
     }
 
-    async revokeDevAppPermission (actor: Actor, appIdentifier: string, permission: string, meta: GrantMeta = {}): Promise<void> {
+    async revokeDevAppPermission(
+        actor: Actor,
+        appIdentifier: string,
+        permission: string,
+        meta: GrantMeta = {},
+    ): Promise<void> {
         permission = await this.rewritePermission(permission);
-        if ( actor.app ) throw new Error('actor must be a user');
+        if (actor.app) throw new Error('actor must be a user');
         const app = await this.stores.app.resolveApp(appIdentifier);
-        if ( ! app ) throw new Error(`entity_not_found: app${appIdentifier}`);
-        if ( ! actor.user?.id ) throw new Error('revokeDevAppPermission: actor lacks user.id');
+        if (!app) throw new Error(`entity_not_found: app${appIdentifier}`);
+        if (!actor.user?.id)
+            throw new Error('revokeDevAppPermission: actor lacks user.id');
 
-        await this.stores.permission.deleteDevAppPerm(actor.user.id, app.id, permission);
-        this.stores.permission.auditDevAppPerm({
-            user_id: actor.user.id,
-            app_id: app.id,
+        await this.stores.permission.deleteDevAppPerm(
+            actor.user.id,
+            app.id,
             permission,
-            action: 'revoke',
-            reason: meta.reason ?? 'revoked via PermissionService',
-        }).catch(() => {
-        });
+        );
+        this.stores.permission
+            .auditDevAppPerm({
+                user_id: actor.user.id,
+                app_id: app.id,
+                permission,
+                action: 'revoke',
+                reason: meta.reason ?? 'revoked via PermissionService',
+            })
+            .catch(() => {});
     }
 
-    async revokeDevAppAll (actor: Actor, appIdentifier: string, meta: GrantMeta = {}): Promise<void> {
-        if ( actor.app ) throw new Error('actor must be a user');
+    async revokeDevAppAll(
+        actor: Actor,
+        appIdentifier: string,
+        meta: GrantMeta = {},
+    ): Promise<void> {
+        if (actor.app) throw new Error('actor must be a user');
         const app = await this.stores.app.resolveApp(appIdentifier);
-        if ( ! app ) throw new Error(`entity_not_found: app${appIdentifier}`);
-        if ( ! actor.user?.id ) throw new Error('revokeDevAppAll: actor lacks user.id');
+        if (!app) throw new Error(`entity_not_found: app${appIdentifier}`);
+        if (!actor.user?.id)
+            throw new Error('revokeDevAppAll: actor lacks user.id');
 
         await this.stores.permission.deleteDevAppAll(actor.user.id, app.id);
-        this.stores.permission.auditDevAppPerm({
-            user_id: actor.user.id,
-            app_id: app.id,
-            permission: '*',
-            action: 'revoke',
-            reason: meta.reason ?? 'revoked all via PermissionService',
-        }).catch(() => {
-        });
+        this.stores.permission
+            .auditDevAppPerm({
+                user_id: actor.user.id,
+                app_id: app.id,
+                permission: '*',
+                action: 'revoke',
+                reason: meta.reason ?? 'revoked all via PermissionService',
+            })
+            .catch(() => {});
     }
 
-    async grantUserGroupPermission (actor: Actor, group: { id: number; uid: string }, permission: string, extra: Record<string, unknown> = {}, meta: GrantMeta = {}): Promise<void> {
+    async grantUserGroupPermission(
+        actor: Actor,
+        group: { id: number; uid: string },
+        permission: string,
+        extra: Record<string, unknown> = {},
+        meta: GrantMeta = {},
+    ): Promise<void> {
         permission = await this.rewritePermission(permission);
-        if ( ! (await this.canManagePermission(actor, permission)) ) throw new Error(`permission_denied: ${permission}`);
-        if ( ! actor.user?.id ) throw new Error('grantUserGroupPermission: actor lacks user.id');
+        if (!(await this.canManagePermission(actor, permission)))
+            throw new Error(`permission_denied: ${permission}`);
+        if (!actor.user?.id)
+            throw new Error('grantUserGroupPermission: actor lacks user.id');
 
-        await this.stores.permission.upsertUserGroupPerm(actor.user.id, group.id, permission, extra);
-        this.stores.permission.auditUserGroupPerm({
-            user_id: actor.user.id,
-            group_id: group.id,
+        await this.stores.permission.upsertUserGroupPerm(
+            actor.user.id,
+            group.id,
             permission,
-            action: 'grant',
-            reason: meta.reason ?? 'granted via PermissionService',
-        }).catch(() => {
-        });
+            extra,
+        );
+        this.stores.permission
+            .auditUserGroupPerm({
+                user_id: actor.user.id,
+                group_id: group.id,
+                permission,
+                action: 'grant',
+                reason: meta.reason ?? 'granted via PermissionService',
+            })
+            .catch(() => {});
     }
 
-    async revokeUserGroupPermission (actor: Actor, group: { id: number; uid: string }, permission: string, meta: GrantMeta = {}): Promise<void> {
+    async revokeUserGroupPermission(
+        actor: Actor,
+        group: { id: number; uid: string },
+        permission: string,
+        meta: GrantMeta = {},
+    ): Promise<void> {
         permission = await this.rewritePermission(permission);
-        if ( ! actor.user?.id ) throw new Error('revokeUserGroupPermission: actor lacks user.id');
+        if (!actor.user?.id)
+            throw new Error('revokeUserGroupPermission: actor lacks user.id');
 
-        await this.stores.permission.deleteUserGroupPerm(actor.user.id, group.id, permission);
-        this.stores.permission.auditUserGroupPerm({
-            user_id: actor.user.id,
-            group_id: group.id,
+        await this.stores.permission.deleteUserGroupPerm(
+            actor.user.id,
+            group.id,
             permission,
-            action: 'revoke',
-            reason: meta.reason ?? 'revoked via PermissionService',
-        }).catch(() => {
-        });
+        );
+        this.stores.permission
+            .auditUserGroupPerm({
+                user_id: actor.user.id,
+                group_id: group.id,
+                permission,
+                action: 'revoke',
+                reason: meta.reason ?? 'revoked via PermissionService',
+            })
+            .catch(() => {});
     }
 
     // ── Issuer queries (share discovery et al) ───────────────────────
 
-    async listUserPermissionIssuers (user: { id: number }): Promise<Array<UserRowSummary | null>> {
-        const ids = await this.stores.permission.listUserPermissionIssuerIds(user.id);
+    async listUserPermissionIssuers(user: {
+        id: number;
+    }): Promise<Array<UserRowSummary | null>> {
+        const ids = await this.stores.permission.listUserPermissionIssuerIds(
+            user.id,
+        );
         const users: Array<UserRowSummary | null> = [];
-        for ( const id of ids ) {
+        for (const id of ids) {
             const u = await this.stores.user.getById(id);
-            users.push(u ? { id: u.id, uuid: u.uuid, username: u.username, email: u.email } : null);
+            users.push(
+                u
+                    ? {
+                          id: u.id,
+                          uuid: u.uuid,
+                          username: u.username,
+                          email: u.email,
+                      }
+                    : null,
+            );
         }
         return users;
     }
 
-    async queryIssuerPermissionsByPrefix (issuer: { id: number }, prefix: string): Promise<{
+    async queryIssuerPermissionsByPrefix(
+        issuer: { id: number },
+        prefix: string,
+    ): Promise<{
         users: Array<{ user: UserRowSummary | null; permission: string }>;
-        apps: Array<{ app: { id: number; uid: string; name?: string } | null; permission: string }>;
+        apps: Array<{
+            app: { id: number; uid: string; name?: string } | null;
+            permission: string;
+        }>;
     }> {
         const [userRows, appRows] = await Promise.all([
-            this.stores.permission.queryIssuerUserPermsByPrefix(issuer.id, prefix),
-            this.stores.permission.queryIssuerAppPermsByPrefix(issuer.id, prefix),
+            this.stores.permission.queryIssuerUserPermsByPrefix(
+                issuer.id,
+                prefix,
+            ),
+            this.stores.permission.queryIssuerAppPermsByPrefix(
+                issuer.id,
+                prefix,
+            ),
         ]);
-        const users = await Promise.all(userRows.map(async r => {
-            const u = await this.stores.user.getById(r.holder_user_id);
-            return { user: u ? { id: u.id, uuid: u.uuid, username: u.username, email: u.email } : null, permission: r.permission };
-        }));
-        const apps = await Promise.all(appRows.map(async r => {
-            const a = await this.stores.app.getById(r.app_id);
-            return { app: a ? { id: a.id, uid: a.uid, name: a.name } : null, permission: r.permission };
-        })) as Array<{ app: { id: number; uid: string; name?: string } | null; permission: string }>;;
+        const users = await Promise.all(
+            userRows.map(async (r) => {
+                const u = await this.stores.user.getById(r.holder_user_id);
+                return {
+                    user: u
+                        ? {
+                              id: u.id,
+                              uuid: u.uuid,
+                              username: u.username,
+                              email: u.email,
+                          }
+                        : null,
+                    permission: r.permission,
+                };
+            }),
+        );
+        const apps = (await Promise.all(
+            appRows.map(async (r) => {
+                const a = await this.stores.app.getById(r.app_id);
+                return {
+                    app: a ? { id: a.id, uid: a.uid, name: a.name } : null,
+                    permission: r.permission,
+                };
+            }),
+        )) as Array<{
+            app: { id: number; uid: string; name?: string } | null;
+            permission: string;
+        }>;
         return { users, apps };
     }
 
-    async queryIssuerHolderPermissionsByPrefix (issuer: Actor, holder: Actor, prefix: string): Promise<string[]> {
-        if ( !issuer.user?.id || !holder.user?.id ) return [];
-        return this.stores.permission.queryIssuerHolderPermsByPrefix(issuer.user.id, holder.user.id, prefix);
+    async queryIssuerHolderPermissionsByPrefix(
+        issuer: Actor,
+        holder: Actor,
+        prefix: string,
+    ): Promise<string[]> {
+        if (!issuer.user?.id || !holder.user?.id) return [];
+        return this.stores.permission.queryIssuerHolderPermsByPrefix(
+            issuer.user.id,
+            holder.user.id,
+            prefix,
+        );
     }
 
     // ── Cache invalidation ───────────────────────────────────────────
 
-    async invalidatePermissionScanCacheForAppUnderUser (userUuid: string, appUid: string, permission: string): Promise<void> {
+    async invalidatePermissionScanCacheForAppUnderUser(
+        userUuid: string,
+        appUid: string,
+        permission: string,
+    ): Promise<void> {
         const actorUid = `app-under-user:${userUuid}:${appUid}`;
-        const cacheKey = this.stores.permission.buildScanCacheKey(actorUid, [permission]);
+        const cacheKey = this.stores.permission.buildScanCacheKey(actorUid, [
+            permission,
+        ]);
         await this.stores.permission.invalidateScanCache(cacheKey);
     }
 
     // ── Internals ────────────────────────────────────────────────────
 
-    #userToActor (user: { id: number; uuid: string; username: string; email?: string | null }): Actor {
+    #userToActor(user: {
+        id: number;
+        uuid: string;
+        username: string;
+        email?: string | null;
+    }): Actor {
         const actorUser: ActorUser = {
             uuid: user.uuid,
             id: user.id,

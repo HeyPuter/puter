@@ -209,12 +209,17 @@ export const PREFIX_METADATA_KEY = '__puterControllerPrefix' as const;
  * Branches match readonly *and* mutable arrays so callers don't need
  * `as const` on every options literal.
  */
-export type AuthRequired<O extends RouteOptions> =
-    O extends { requireAuth: true } ? true
-        : O extends { requireUserActor: true } ? true
-            : O extends { adminOnly: true | readonly string[] | string[] } ? true
-                : O extends { allowedAppIds: readonly string[] | string[] } ? true
-                    : false;
+export type AuthRequired<O extends RouteOptions> = O extends {
+    requireAuth: true;
+}
+    ? true
+    : O extends { requireUserActor: true }
+      ? true
+      : O extends { adminOnly: true | readonly string[] | string[] }
+        ? true
+        : O extends { allowedAppIds: readonly string[] | string[] }
+          ? true
+          : false;
 
 /** Express `Request` with `actor` narrowed based on the route's options. */
 export type TypedRequest<O extends RouteOptions> = Omit<Request, 'actor'> & {

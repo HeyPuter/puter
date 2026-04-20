@@ -5,7 +5,12 @@
  */
 
 import type { MeteringService } from '../../../services/metering/MeteringService.js';
-import type { ITTSProvider, ITTSVoice, ITTSEngine, ISynthesizeArgs } from '../types.js';
+import type {
+    ITTSProvider,
+    ITTSVoice,
+    ITTSEngine,
+    ISynthesizeArgs,
+} from '../types.js';
 
 export abstract class TTSProvider implements ITTSProvider {
     abstract readonly providerName: string;
@@ -15,20 +20,20 @@ export abstract class TTSProvider implements ITTSProvider {
     protected providerConfig: any;
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    constructor (meteringService: MeteringService, config: any) {
+    constructor(meteringService: MeteringService, config: any) {
         this.meteringService = meteringService;
         this.providerConfig = config;
     }
 
-    async listVoices (_args?: Record<string, unknown>): Promise<ITTSVoice[]> {
+    async listVoices(_args?: Record<string, unknown>): Promise<ITTSVoice[]> {
         return [];
     }
 
-    async listEngines (): Promise<ITTSEngine[]> {
+    async listEngines(): Promise<ITTSEngine[]> {
         return [];
     }
 
-    async synthesize (_args: ISynthesizeArgs): Promise<unknown> {
+    async synthesize(_args: ISynthesizeArgs): Promise<unknown> {
         throw new Error('Method not implemented.');
     }
 }

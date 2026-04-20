@@ -20,7 +20,11 @@
 import { Together } from 'together-ai';
 import { Context } from '../../../../core/context.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
-import type { IGenerateParams, IImageModel, IImageProvider } from '../../types.js';
+import type {
+    IGenerateParams,
+    IImageModel,
+    IImageProvider,
+} from '../../types.js';
 import { TOGETHER_IMAGE_GENERATION_MODELS } from './models.js';
 
 const TOGETHER_DEFAULT_RATIO = { w: 1024, h: 1024 };
@@ -49,41 +53,41 @@ export class TogetherImageProvider implements IImageProvider {
     #client: Together;
     #meteringService: MeteringService;
 
-    constructor (config: { apiKey: string }, meteringService: MeteringService) {
-        if ( ! config.apiKey ) {
+    constructor(config: { apiKey: string }, meteringService: MeteringService) {
+        if (!config.apiKey) {
             throw new Error('Together AI image generation requires an API key');
         }
         this.#meteringService = meteringService;
         this.#client = new Together({ apiKey: config.apiKey });
     }
 
-    models (): IImageModel[] {
+    models(): IImageModel[] {
         return TOGETHER_IMAGE_GENERATION_MODELS;
     }
 
-    getDefaultModel (): string {
+    getDefaultModel(): string {
         return DEFAULT_MODEL;
     }
 
-    async generate (params: IGenerateParams): Promise<string> {
+    async generate(params: IGenerateParams): Promise<string> {
         const { prompt, test_mode } = params;
         let { model, ratio, quality } = params;
         const options = params as TogetherGenerateParams;
 
         const selectedModel = this.#getModel(model);
 
-        if ( test_mode ) {
+        if (test_mode) {
             return 'https://puter-sample-data.puter.site/image_example.png';
         }
 
-        if ( typeof prompt !== 'string' || prompt.trim().length === 0 ) {
+        if (typeof prompt !== 'string' || prompt.trim().length === 0) {
             throw new Error('`prompt` must be a non-empty string');
         }
 
         ratio = ratio || TOGETHER_DEFAULT_RATIO;
 
         const actor = Context.get('actor');
-        if ( ! actor ) {
+        if (!actor) {
             throw new Error('actor not found in context');
         }
 
@@ -93,20 +97,23 @@ export class TogetherImageProvider implements IImageProvider {
         let usageAmount: number;
         let usageKey: string;
 
-        if ( pricingUnit === 'per-image' ) {
+        if (pricingUnit === 'per-image') {
             const centsPerImage = selectedModel.costs['per-image'];
-            if ( centsPerImage === undefined ) {
-                throw new Error(`Model ${selectedModel.id} missing 'per-image' cost`);
+            if (centsPerImage === undefined) {
+                throw new Error(
+                    `Model ${selectedModel.id} missing 'per-image' cost`,
+                );
             }
             costInMicroCents = centsPerImage * 1_000_000;
             usageAmount = 1;
             usageKey = 'per-image';
-        } else if ( pricingUnit === 'per-tier' ) {
-            const tierKey = quality && selectedModel.costs[quality] !== undefined
-                ? quality
-                : Object.keys(selectedModel.costs)[0];
+        } else if (pricingUnit === 'per-tier') {
+            const tierKey =
+                quality && selectedModel.costs[quality] !== undefined
+                    ? quality
+                    : Object.keys(selectedModel.costs)[0];
             const centsPerImage = selectedModel.costs[tierKey];
-            if ( centsPerImage === undefined ) {
+            if (centsPerImage === undefined) {
                 throw new Error(`Model ${selectedModel.id} missing tier cost`);
             }
             costInMicroCents = centsPerImage * 1_000_000;
@@ -114,7 +121,7 @@ export class TogetherImageProvider implements IImageProvider {
             usageKey = tierKey;
         } else {
             const centsPerMP = selectedModel.costs['1MP'];
-            if ( centsPerMP === undefined ) {
+            if (centsPerMP === undefined) {
                 throw new Error(`Model ${selectedModel.id} missing '1MP' cost`);
             }
             const MP = (ratio.h * ratio.w) / 1_000_000;
@@ -125,51 +132,84 @@ export class TogetherImageProvider implements IImageProvider {
 
         const usageType = `${selectedModel.id}:${usageKey}`;
 
-        const usageAllowed = await this.#meteringService.hasEnoughCredits(actor, costInMicroCents);
+        const usageAllowed = await this.#meteringService.hasEnoughCredits(
+            actor,
+            costInMicroCents,
+        );
 
-        if ( ! usageAllowed ) {
+        if (!usageAllowed) {
             throw new Error('Insufficient credits for image generation');
         }
 
         // Resolve abstract aspect ratios (e.g. 1:1, 16:9) to concrete pixel
         // dimensions via the model's own resolution_map.
         let resolvedRatio = ratio;
-        if ( pricingUnit === 'per-tier' && quality && selectedModel.resolution_map ) {
+        if (
+            pricingUnit === 'per-tier' &&
+            quality &&
+            selectedModel.resolution_map
+        ) {
             const ratioKey = `${ratio.w}:${ratio.h}`;
-            const resolutionEntry = selectedModel.resolution_map[ratioKey]?.[quality];
-            if ( resolutionEntry ) {
+            const resolutionEntry =
+                selectedModel.resolution_map[ratioKey]?.[quality];
+            if (resolutionEntry) {
                 resolvedRatio = resolutionEntry;
             }
         }
 
-        const request = this.#buildRequest(prompt, { ...options, ratio: resolvedRatio, model: selectedModel.id.replace('togetherai:', '') }) as unknown as Together.Images.ImageGenerateParams;
+        const request = this.#buildRequest(prompt, {
+            ...options,
+            ratio: resolvedRatio,
+            model: selectedModel.id.replace('togetherai:', ''),
+        }) as unknown as Together.Images.ImageGenerateParams;
 
         try {
             const response = await this.#client.images.generate(request);
-            if ( ! response?.data?.length ) {
-                throw new Error('Together AI response did not include image data');
+            if (!response?.data?.length) {
+                throw new Error(
+                    'Together AI response did not include image data',
+                );
             }
 
-            this.#meteringService.incrementUsage(actor, usageType, usageAmount, costInMicroCents);
+            this.#meteringService.incrementUsage(
+                actor,
+                usageType,
+                usageAmount,
+                costInMicroCents,
+            );
 
-            const first = response.data[0] as { url?: string; b64_json?: string };
-            const url = first.url || (first.b64_json ? `data:image/png;base64,${ first.b64_json}` : undefined);
+            const first = response.data[0] as {
+                url?: string;
+                b64_json?: string;
+            };
+            const url =
+                first.url ||
+                (first.b64_json
+                    ? `data:image/png;base64,${first.b64_json}`
+                    : undefined);
 
-            if ( ! url ) {
-                throw new Error('Together AI response did not include an image URL');
+            if (!url) {
+                throw new Error(
+                    'Together AI response did not include an image URL',
+                );
             }
 
             return url;
-        } catch ( error ) {
-            throw new Error(`Together AI image generation error: ${(error as Error).message}`);
+        } catch (error) {
+            throw new Error(
+                `Together AI image generation error: ${(error as Error).message}`,
+            );
         }
     }
 
-    #getModel (model?: string) {
-        return this.models().find(m => m.id === model) || this.models().find(m => m.id === DEFAULT_MODEL)!;
+    #getModel(model?: string) {
+        return (
+            this.models().find((m) => m.id === model) ||
+            this.models().find((m) => m.id === DEFAULT_MODEL)!
+        );
     }
 
-    #buildRequest (prompt: string, options: TogetherGenerateParams) {
+    #buildRequest(prompt: string, options: TogetherGenerateParams) {
         const {
             ratio,
             model,
@@ -192,45 +232,67 @@ export class TogetherImageProvider implements IImageProvider {
             n: 1,
         };
 
-        const requiresConditionImage = this.#modelRequiresConditionImage(request.model as string);
+        const requiresConditionImage = this.#modelRequiresConditionImage(
+            request.model as string,
+        );
 
         const ratioWidth = ratio?.w !== undefined ? Number(ratio.w) : undefined;
-        const ratioHeight = ratio?.h !== undefined ? Number(ratio.h) : undefined;
+        const ratioHeight =
+            ratio?.h !== undefined ? Number(ratio.h) : undefined;
 
-        const normalizedWidth = this.#normalizeDimension((ratioWidth ?? TOGETHER_DEFAULT_RATIO.w));
-        const normalizedHeight = this.#normalizeDimension((ratioHeight ?? TOGETHER_DEFAULT_RATIO.h));
+        const normalizedWidth = this.#normalizeDimension(
+            ratioWidth ?? TOGETHER_DEFAULT_RATIO.w,
+        );
+        const normalizedHeight = this.#normalizeDimension(
+            ratioHeight ?? TOGETHER_DEFAULT_RATIO.h,
+        );
 
-        if ( normalizedWidth ) request.width = normalizedWidth;
-        if ( normalizedHeight ) request.height = normalizedHeight;
+        if (normalizedWidth) request.width = normalizedWidth;
+        if (normalizedHeight) request.height = normalizedHeight;
 
-        if ( typeof steps === 'number' && Number.isFinite(steps) ) {
+        if (typeof steps === 'number' && Number.isFinite(steps)) {
             request.steps = Math.max(1, Math.min(50, Math.round(steps)));
         }
-        if ( typeof seed === 'number' && Number.isFinite(seed) ) request.seed = Math.round(seed);
-        if ( typeof negative_prompt === 'string' ) request.negative_prompt = negative_prompt;
-        if ( disable_safety_checker ) {
+        if (typeof seed === 'number' && Number.isFinite(seed))
+            request.seed = Math.round(seed);
+        if (typeof negative_prompt === 'string')
+            request.negative_prompt = negative_prompt;
+        if (disable_safety_checker) {
             request.disable_safety_checker = true;
         }
-        if ( typeof response_format === 'string' ) request.response_format = response_format;
+        if (typeof response_format === 'string')
+            request.response_format = response_format;
 
-        const resolvedImageBase64 = typeof image_base64 === 'string'
-            ? image_base64
-            : (typeof input_image === 'string' ? input_image : undefined);
+        const resolvedImageBase64 =
+            typeof image_base64 === 'string'
+                ? image_base64
+                : typeof input_image === 'string'
+                  ? input_image
+                  : undefined;
 
-        if ( typeof image_url === 'string' ) request.image_url = image_url;
-        if ( resolvedImageBase64 ) request.image_base64 = resolvedImageBase64;
-        if ( typeof mask_image_url === 'string' ) request.mask_image_url = mask_image_url;
-        if ( typeof mask_image_base64 === 'string' ) request.mask_image_base64 = mask_image_base64;
-        if ( typeof prompt_strength === 'number' && Number.isFinite(prompt_strength) ) {
+        if (typeof image_url === 'string') request.image_url = image_url;
+        if (resolvedImageBase64) request.image_base64 = resolvedImageBase64;
+        if (typeof mask_image_url === 'string')
+            request.mask_image_url = mask_image_url;
+        if (typeof mask_image_base64 === 'string')
+            request.mask_image_base64 = mask_image_base64;
+        if (
+            typeof prompt_strength === 'number' &&
+            Number.isFinite(prompt_strength)
+        ) {
             request.prompt_strength = Math.max(0, Math.min(1, prompt_strength));
         }
-        if ( requiresConditionImage ) {
+        if (requiresConditionImage) {
             const conditionSource = resolvedImageBase64
                 ? resolvedImageBase64
-                : (typeof image_url === 'string' ? image_url : undefined);
+                : typeof image_url === 'string'
+                  ? image_url
+                  : undefined;
 
-            if ( ! conditionSource ) {
-                throw new Error(`Model ${request.model} requires an image_url or image_base64 input`);
+            if (!conditionSource) {
+                throw new Error(
+                    `Model ${request.model} requires an image_url or image_base64 input`,
+                );
             }
 
             request.condition_image = conditionSource;
@@ -239,19 +301,21 @@ export class TogetherImageProvider implements IImageProvider {
         return request;
     }
 
-    #normalizeDimension (value?: number) {
-        if ( typeof value !== 'number' || Number.isNaN(value) ) return undefined;
+    #normalizeDimension(value?: number) {
+        if (typeof value !== 'number' || Number.isNaN(value)) return undefined;
         const rounded = Math.max(64, Math.round(value));
         // Flux models expect multiples of 8. Snap to the nearest multiple without going below 64.
         return Math.max(64, Math.round(rounded / 8) * 8);
     }
 
-    #modelRequiresConditionImage (modelId?: string) {
-        if ( typeof modelId !== 'string' || modelId.trim() === '' ) {
+    #modelRequiresConditionImage(modelId?: string) {
+        if (typeof modelId !== 'string' || modelId.trim() === '') {
             return false;
         }
 
         const normalized = modelId.toLowerCase();
-        return CONDITION_IMAGE_MODELS.some(required => normalized === required);
+        return CONDITION_IMAGE_MODELS.some(
+            (required) => normalized === required,
+        );
     }
 }

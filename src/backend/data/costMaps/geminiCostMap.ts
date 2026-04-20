@@ -1,4 +1,3 @@
-
 // TODO DS: these should be loaded from config or db eventually
 /**
  * flat cost map based on usage types, numbers are in microcents (1/1 millionth of a cent)

@@ -77,7 +77,7 @@ interface BatchStartSignedWriteResult {
 export class FSEntryService extends PuterService {
     declare protected stores: LayerInstances<typeof puterStores>;
 
-    override onServerStart (): void {
+    override onServerStart(): void {
         // Wire cache invalidation: listens to events emitted by FS
         // mutations and invalidates Redis-cached fsentries.
         new FSEntryCacheInvalidationEventHandler(
@@ -86,61 +86,65 @@ export class FSEntryService extends PuterService {
         );
     }
 
-    #normalizePath (path: string): string {
+    #normalizePath(path: string): string {
         const trimmedPath = path.trim();
-        if ( trimmedPath.length === 0 ) {
+        if (trimmedPath.length === 0) {
             throw new HttpError(400, 'Path cannot be empty');
         }
-        if ( trimmedPath === '~' || trimmedPath.startsWith('~/') ) {
+        if (trimmedPath === '~' || trimmedPath.startsWith('~/')) {
             throw new HttpError(400, 'Home path must be resolved before write');
         }
 
         let normalizedPath = pathPosix.normalize(trimmedPath);
-        if ( ! normalizedPath.startsWith('/') ) {
+        if (!normalizedPath.startsWith('/')) {
             normalizedPath = `/${normalizedPath}`;
         }
-        if ( normalizedPath.length > 1 && normalizedPath.endsWith('/') ) {
+        if (normalizedPath.length > 1 && normalizedPath.endsWith('/')) {
             normalizedPath = normalizedPath.slice(0, -1);
         }
         return normalizedPath;
     }
 
-    #resolveBucket (metadata: FSEntryWriteInput): string {
-        const bucket = metadata.bucket ?? this.config.s3_bucket ?? 'puter-local';
-        if ( typeof bucket !== 'string' || bucket.length === 0 ) {
+    #resolveBucket(metadata: FSEntryWriteInput): string {
+        const bucket =
+            metadata.bucket ?? this.config.s3_bucket ?? 'puter-local';
+        if (typeof bucket !== 'string' || bucket.length === 0) {
             throw new HttpError(500, 'Missing S3 bucket configuration');
         }
         return bucket;
     }
 
-    #resolveBucketRegion (metadata: FSEntryWriteInput): string {
-        const bucketRegion = metadata.bucketRegion
-            ?? this.config.s3_region
-            ?? this.config.region
-            ?? 'us-west-2';
+    #resolveBucketRegion(metadata: FSEntryWriteInput): string {
+        const bucketRegion =
+            metadata.bucketRegion ??
+            this.config.s3_region ??
+            this.config.region ??
+            'us-west-2';
 
-        if ( typeof bucketRegion !== 'string' || bucketRegion.length === 0 ) {
+        if (typeof bucketRegion !== 'string' || bucketRegion.length === 0) {
             throw new HttpError(500, 'Missing S3 region configuration');
         }
 
         return bucketRegion;
     }
 
-    #normalizeWriteInput (userId: number, metadata: FSEntryWriteInput): NormalizedWriteInput {
+    #normalizeWriteInput(
+        userId: number,
+        metadata: FSEntryWriteInput,
+    ): NormalizedWriteInput {
         const normalizedPath = this.#normalizePath(metadata.path);
-        if ( normalizedPath === '/' ) {
+        if (normalizedPath === '/') {
             throw new HttpError(400, 'Cannot write to root path');
         }
 
         const size = Number(metadata.size);
-        if ( Number.isNaN(size) || size < 0 ) {
+        if (Number.isNaN(size) || size < 0) {
             throw new HttpError(400, 'Invalid file size');
         }
 
         const metadataRecord = metadata as unknown as Record<string, unknown>;
         const dedupeName = Boolean(
-            metadata.dedupeName
-            ?? metadataRecord.dedupe_name,
+            metadata.dedupeName ?? metadataRecord.dedupe_name,
         );
 
         return {
@@ -163,7 +167,7 @@ export class FSEntryService extends PuterService {
         };
     }
 
-    async #findDedupedPath (
+    async #findDedupedPath(
         targetPath: string,
         reservedPaths: Set<string>,
         loadExistingEntry: (path: string) => Promise<FSEntry | null>,
@@ -172,13 +176,16 @@ export class FSEntryService extends PuterService {
         const extension = pathPosix.extname(targetPath);
         const fileName = pathPosix.basename(targetPath, extension);
 
-        for ( let suffix = 1; suffix < 100_000; suffix++ ) {
-            const dedupedPath = pathPosix.join(parentPath, `${fileName} (${suffix})${extension}`);
-            if ( reservedPaths.has(dedupedPath) ) {
+        for (let suffix = 1; suffix < 100_000; suffix++) {
+            const dedupedPath = pathPosix.join(
+                parentPath,
+                `${fileName} (${suffix})${extension}`,
+            );
+            if (reservedPaths.has(dedupedPath)) {
                 continue;
             }
             const existingEntry = await loadExistingEntry(dedupedPath);
-            if ( ! existingEntry ) {
+            if (!existingEntry) {
                 return dedupedPath;
             }
         }
@@ -186,51 +193,63 @@ export class FSEntryService extends PuterService {
         throw new HttpError(409, 'Unable to resolve deduped file path');
     }
 
-    async #resolveWriteTargets (
+    async #resolveWriteTargets(
         userId: number,
         inputs: WriteTargetResolutionInput[],
     ): Promise<WriteTargetResolutionResult[]> {
         const reservedPaths = new Set<string>();
         const existingEntryCache = new Map<string, Promise<FSEntry | null>>();
-        const initialPaths = Array.from(new Set(inputs.map((input) => input.normalizedInput.path)));
-        const initialEntries = await this.stores.fsEntry.getEntriesByPathsForUser(
-            userId,
-            initialPaths,
-            {
-                useTryHardRead: true,
-                skipCache: true,
-            },
+        const initialPaths = Array.from(
+            new Set(inputs.map((input) => input.normalizedInput.path)),
         );
-        for ( let index = 0; index < initialPaths.length; index++ ) {
+        const initialEntries =
+            await this.stores.fsEntry.getEntriesByPathsForUser(
+                userId,
+                initialPaths,
+                {
+                    useTryHardRead: true,
+                    skipCache: true,
+                },
+            );
+        for (let index = 0; index < initialPaths.length; index++) {
             const path = initialPaths[index];
-            if ( ! path ) {
+            if (!path) {
                 continue;
             }
-            existingEntryCache.set(path, Promise.resolve(initialEntries[index] ?? null));
+            existingEntryCache.set(
+                path,
+                Promise.resolve(initialEntries[index] ?? null),
+            );
         }
 
-        const loadExistingEntry = async (path: string): Promise<FSEntry | null> => {
+        const loadExistingEntry = async (
+            path: string,
+        ): Promise<FSEntry | null> => {
             const cachedPromise = existingEntryCache.get(path);
-            if ( cachedPromise ) {
+            if (cachedPromise) {
                 return await cachedPromise;
             }
 
-            const readPromise = this.stores.fsEntry.getEntryByPathForUser(path, userId, {
-                useTryHardRead: true,
-                skipCache: true,
-            });
+            const readPromise = this.stores.fsEntry.getEntryByPathForUser(
+                path,
+                userId,
+                {
+                    useTryHardRead: true,
+                    skipCache: true,
+                },
+            );
             existingEntryCache.set(path, readPromise);
             return await readPromise;
         };
 
         const results: WriteTargetResolutionResult[] = [];
-        for ( const input of inputs ) {
+        for (const input of inputs) {
             let normalizedInput = input.normalizedInput;
             let existingEntry = await loadExistingEntry(normalizedInput.path);
             const pathReservedInBatch = reservedPaths.has(normalizedInput.path);
 
-            if ( pathReservedInBatch || existingEntry ) {
-                if ( normalizedInput.dedupeName ) {
+            if (pathReservedInBatch || existingEntry) {
+                if (normalizedInput.dedupeName) {
                     const dedupedPath = await this.#findDedupedPath(
                         normalizedInput.path,
                         reservedPaths,
@@ -241,16 +260,25 @@ export class FSEntryService extends PuterService {
                         path: dedupedPath,
                     };
                     existingEntry = await loadExistingEntry(dedupedPath);
-                } else if ( pathReservedInBatch ) {
-                    throw new HttpError(409, `Batch contains duplicate target path: ${normalizedInput.path}`);
+                } else if (pathReservedInBatch) {
+                    throw new HttpError(
+                        409,
+                        `Batch contains duplicate target path: ${normalizedInput.path}`,
+                    );
                 }
             }
 
-            if ( existingEntry && existingEntry.isDir ) {
-                throw new HttpError(409, 'Cannot overwrite an existing directory');
+            if (existingEntry && existingEntry.isDir) {
+                throw new HttpError(
+                    409,
+                    'Cannot overwrite an existing directory',
+                );
             }
-            if ( existingEntry && !normalizedInput.overwrite ) {
-                throw new HttpError(409, 'A file already exists at this path and overwrite was not requested');
+            if (existingEntry && !normalizedInput.overwrite) {
+                throw new HttpError(
+                    409,
+                    'A file already exists at this path and overwrite was not requested',
+                );
             }
 
             reservedPaths.add(normalizedInput.path);
@@ -265,7 +293,10 @@ export class FSEntryService extends PuterService {
         return results;
     }
 
-    #toCreateInput (normalizedInput: NormalizedWriteInput, objectKey: string): FSEntryCreateInput {
+    #toCreateInput(
+        normalizedInput: NormalizedWriteInput,
+        objectKey: string,
+    ): FSEntryCreateInput {
         return {
             userId: normalizedInput.userId,
             uuid: objectKey,
@@ -286,92 +317,112 @@ export class FSEntryService extends PuterService {
         };
     }
 
-    #determineUploadMode (requestUploadMode: UploadMode | 'auto' | undefined, size: number): UploadMode {
-        const maxSingleUploadSize = this.stores.s3Object.getMaxSingleUploadSize();
-        if ( requestUploadMode === 'multipart' ) {
+    #determineUploadMode(
+        requestUploadMode: UploadMode | 'auto' | undefined,
+        size: number,
+    ): UploadMode {
+        const maxSingleUploadSize =
+            this.stores.s3Object.getMaxSingleUploadSize();
+        if (requestUploadMode === 'multipart') {
             return 'multipart';
         }
-        if ( requestUploadMode === 'single' ) {
+        if (requestUploadMode === 'single') {
             return size > maxSingleUploadSize ? 'multipart' : 'single';
         }
         return size > maxSingleUploadSize ? 'multipart' : 'single';
     }
 
-    #resolveStorageMax (
+    #resolveStorageMax(
         allowanceMax: number,
         storageAllowanceMaxOverride?: number,
     ): number {
-        if ( allowanceMax === Number.MAX_SAFE_INTEGER ) {
+        if (allowanceMax === Number.MAX_SAFE_INTEGER) {
             return allowanceMax;
         }
-        if ( storageAllowanceMaxOverride === undefined ) {
+        if (storageAllowanceMaxOverride === undefined) {
             return allowanceMax;
         }
-        if ( !Number.isFinite(storageAllowanceMaxOverride) || storageAllowanceMaxOverride < 0 ) {
+        if (
+            !Number.isFinite(storageAllowanceMaxOverride) ||
+            storageAllowanceMaxOverride < 0
+        ) {
             return allowanceMax;
         }
         return Math.max(allowanceMax, storageAllowanceMaxOverride);
     }
 
-    async #assertStorageAllowance (
+    async #assertStorageAllowance(
         userId: number,
         incomingSize: number,
         existingSize = 0,
         storageAllowanceMaxOverride?: number,
     ): Promise<void> {
-        const allowance = await this.stores.fsEntry.getUserStorageAllowance(userId);
-        const maxStorage = this.#resolveStorageMax(allowance.max, storageAllowanceMaxOverride);
-        if ( maxStorage === Number.MAX_SAFE_INTEGER ) {
+        const allowance =
+            await this.stores.fsEntry.getUserStorageAllowance(userId);
+        const maxStorage = this.#resolveStorageMax(
+            allowance.max,
+            storageAllowanceMaxOverride,
+        );
+        if (maxStorage === Number.MAX_SAFE_INTEGER) {
             return;
         }
 
         const projectedUsage = allowance.curr - existingSize + incomingSize;
-        if ( projectedUsage > maxStorage ) {
+        if (projectedUsage > maxStorage) {
             throw new HttpError(413, 'Storage limit reached');
         }
     }
 
-    async #assertStorageAllowanceForBatch (
+    async #assertStorageAllowanceForBatch(
         userId: number,
         sizeChanges: Array<{ incomingSize: number; existingSize: number }>,
         storageAllowanceMaxOverride?: number,
     ): Promise<void> {
-        if ( sizeChanges.length === 0 ) {
+        if (sizeChanges.length === 0) {
             return;
         }
 
-        const allowance = await this.stores.fsEntry.getUserStorageAllowance(userId);
-        const maxStorage = this.#resolveStorageMax(allowance.max, storageAllowanceMaxOverride);
-        if ( maxStorage === Number.MAX_SAFE_INTEGER ) {
+        const allowance =
+            await this.stores.fsEntry.getUserStorageAllowance(userId);
+        const maxStorage = this.#resolveStorageMax(
+            allowance.max,
+            storageAllowanceMaxOverride,
+        );
+        if (maxStorage === Number.MAX_SAFE_INTEGER) {
             return;
         }
 
         let projectedUsage = allowance.curr;
-        for ( const sizeChange of sizeChanges ) {
-            projectedUsage = projectedUsage - sizeChange.existingSize + sizeChange.incomingSize;
+        for (const sizeChange of sizeChanges) {
+            projectedUsage =
+                projectedUsage -
+                sizeChange.existingSize +
+                sizeChange.incomingSize;
         }
 
-        if ( projectedUsage > maxStorage ) {
+        if (projectedUsage > maxStorage) {
             throw new HttpError(413, 'Storage limit reached');
         }
     }
 
-    #toErrorMessage (error: unknown): string {
-        if ( error instanceof Error ) {
+    #toErrorMessage(error: unknown): string {
+        if (error instanceof Error) {
             return error.message;
         }
         return 'Unknown error';
     }
 
-    #toError (error: unknown, fallbackMessage: string): Error {
-        if ( error instanceof Error ) {
+    #toError(error: unknown, fallbackMessage: string): Error {
+        if (error instanceof Error) {
             return error;
         }
         return new Error(fallbackMessage);
     }
 
-    #toMultipartParts (parts: CompleteWriteRequest['parts']): MultipartCompletePart[] {
-        if ( !parts || parts.length === 0 ) {
+    #toMultipartParts(
+        parts: CompleteWriteRequest['parts'],
+    ): MultipartCompletePart[] {
+        if (!parts || parts.length === 0) {
             return [];
         }
         return parts.map((part) => ({
@@ -380,12 +431,14 @@ export class FSEntryService extends PuterService {
         }));
     }
 
-    #parseSessionMetadata (session: PendingUploadSession): FSEntryCreateInput {
-        if ( ! session.metadataJson ) {
+    #parseSessionMetadata(session: PendingUploadSession): FSEntryCreateInput {
+        if (!session.metadataJson) {
             throw new HttpError(500, 'Upload session metadata is missing');
         }
 
-        const parsedMetadata = JSON.parse(session.metadataJson) as FSEntryCreateInput;
+        const parsedMetadata = JSON.parse(
+            session.metadataJson,
+        ) as FSEntryCreateInput;
         return {
             ...parsedMetadata,
             userId: session.userId,
@@ -400,41 +453,57 @@ export class FSEntryService extends PuterService {
         };
     }
 
-    #isBinaryPayload (value: unknown): value is BinaryPayload {
+    #isBinaryPayload(value: unknown): value is BinaryPayload {
         return Boolean(
-            value
-            && typeof value === 'object'
-            && 'base64' in value
-            && typeof (value as BinaryPayload).base64 === 'string',
+            value &&
+            typeof value === 'object' &&
+            'base64' in value &&
+            typeof (value as BinaryPayload).base64 === 'string',
         );
     }
 
-    #isNodeStream (value: unknown): value is Readable {
-        return Boolean(value && typeof value === 'object' && typeof (value as Readable).pipe === 'function');
+    #isNodeStream(value: unknown): value is Readable {
+        return Boolean(
+            value &&
+            typeof value === 'object' &&
+            typeof (value as Readable).pipe === 'function',
+        );
     }
 
-    #isWebReadableStream (value: unknown): value is ReadableStream {
-        return Boolean(value && typeof value === 'object' && typeof (value as ReadableStream).getReader === 'function');
+    #isWebReadableStream(value: unknown): value is ReadableStream {
+        return Boolean(
+            value &&
+            typeof value === 'object' &&
+            typeof (value as ReadableStream).getReader === 'function',
+        );
     }
 
-    #createCountingStream (
+    #createCountingStream(
         source: Readable,
         uploadTracker?: UploadProgressTrackerLike,
-    ): { stream: Readable; uploadedSize: () => number; contentHashSha256: () => string } {
+    ): {
+        stream: Readable;
+        uploadedSize: () => number;
+        contentHashSha256: () => string;
+    } {
         let uploadedBytes = 0;
         const hash = createHash('sha256');
         const countingStream = new Transform({
-            transform (chunk: unknown, _encoding: string, callback: TransformCallback) {
+            transform(
+                chunk: unknown,
+                _encoding: string,
+                callback: TransformCallback,
+            ) {
                 let chunkLength = 0;
-                if ( Buffer.isBuffer(chunk) || chunk instanceof Uint8Array ) {
+                if (Buffer.isBuffer(chunk) || chunk instanceof Uint8Array) {
                     chunkLength = chunk.byteLength;
                     hash.update(chunk);
-                } else if ( typeof chunk === 'string' ) {
+                } else if (typeof chunk === 'string') {
                     chunkLength = Buffer.byteLength(chunk);
                     hash.update(chunk);
                 }
                 uploadedBytes += chunkLength;
-                if ( chunkLength > 0 && uploadTracker ) {
+                if (chunkLength > 0 && uploadTracker) {
                     uploadTracker.add(chunkLength);
                 }
                 callback(null, chunk as Buffer | Uint8Array | string);
@@ -453,12 +522,12 @@ export class FSEntryService extends PuterService {
         };
     }
 
-    async #toUploadBody (
+    async #toUploadBody(
         content: WriteRequest['fileContent'],
         encoding: WriteRequest['encoding'],
         uploadTracker?: UploadProgressTrackerLike,
     ): Promise<UploadPayload> {
-        if ( Buffer.isBuffer(content) ) {
+        if (Buffer.isBuffer(content)) {
             const hash = createHash('sha256');
             hash.update(content);
             return {
@@ -468,7 +537,7 @@ export class FSEntryService extends PuterService {
                 contentHashSha256: hash.digest('hex'),
             };
         }
-        if ( this.#isBinaryPayload(content) ) {
+        if (this.#isBinaryPayload(content)) {
             const buffer = Buffer.from(content.base64, 'base64');
             const hash = createHash('sha256');
             hash.update(buffer);
@@ -479,8 +548,8 @@ export class FSEntryService extends PuterService {
                 contentHashSha256: hash.digest('hex'),
             };
         }
-        if ( typeof content === 'string' ) {
-            if ( encoding === 'base64' ) {
+        if (typeof content === 'string') {
+            if (encoding === 'base64') {
                 const buffer = Buffer.from(content, 'base64');
                 const hash = createHash('sha256');
                 hash.update(buffer);
@@ -501,7 +570,7 @@ export class FSEntryService extends PuterService {
                 contentHashSha256: hash.digest('hex'),
             };
         }
-        if ( content instanceof Uint8Array ) {
+        if (content instanceof Uint8Array) {
             const hash = createHash('sha256');
             hash.update(content);
             return {
@@ -511,7 +580,7 @@ export class FSEntryService extends PuterService {
                 contentHashSha256: hash.digest('hex'),
             };
         }
-        if ( content instanceof ArrayBuffer ) {
+        if (content instanceof ArrayBuffer) {
             const buffer = Buffer.from(content);
             const hash = createHash('sha256');
             hash.update(buffer);
@@ -522,25 +591,33 @@ export class FSEntryService extends PuterService {
                 contentHashSha256: hash.digest('hex'),
             };
         }
-        if ( this.#isNodeStream(content) ) {
-            const streamPayload = this.#createCountingStream(content, uploadTracker);
+        if (this.#isNodeStream(content)) {
+            const streamPayload = this.#createCountingStream(
+                content,
+                uploadTracker,
+            );
             return {
                 body: streamPayload.stream,
                 uploadedSize: streamPayload.uploadedSize,
                 contentHashSha256: null,
-                finalizeContentHashSha256: () => streamPayload.contentHashSha256(),
+                finalizeContentHashSha256: () =>
+                    streamPayload.contentHashSha256(),
             };
         }
-        if ( this.#isWebReadableStream(content) ) {
+        if (this.#isWebReadableStream(content)) {
             const reader = content.getReader();
             const asyncIterable = {
-                async *[Symbol.asyncIterator] (): AsyncGenerator<Uint8Array, void, void> {
-                    while ( true ) {
+                async *[Symbol.asyncIterator](): AsyncGenerator<
+                    Uint8Array,
+                    void,
+                    void
+                > {
+                    while (true) {
                         const readResult = await reader.read();
-                        if ( readResult.done ) {
+                        if (readResult.done) {
                             return;
                         }
-                        if ( readResult.value ) {
+                        if (readResult.value) {
                             yield readResult.value;
                         }
                     }
@@ -554,19 +631,24 @@ export class FSEntryService extends PuterService {
                 body: streamPayload.stream,
                 uploadedSize: streamPayload.uploadedSize,
                 contentHashSha256: null,
-                finalizeContentHashSha256: () => streamPayload.contentHashSha256(),
+                finalizeContentHashSha256: () =>
+                    streamPayload.contentHashSha256(),
             };
         }
-        if ( content instanceof Blob ) {
+        if (content instanceof Blob) {
             const reader = content.stream().getReader();
             const asyncIterable = {
-                async *[Symbol.asyncIterator] (): AsyncGenerator<Uint8Array, void, void> {
-                    while ( true ) {
+                async *[Symbol.asyncIterator](): AsyncGenerator<
+                    Uint8Array,
+                    void,
+                    void
+                > {
+                    while (true) {
                         const readResult = await reader.read();
-                        if ( readResult.done ) {
+                        if (readResult.done) {
                             return;
                         }
-                        if ( readResult.value ) {
+                        if (readResult.value) {
                             yield readResult.value;
                         }
                     }
@@ -578,84 +660,114 @@ export class FSEntryService extends PuterService {
             );
             return {
                 body: streamPayload.stream,
-                contentLength: Number.isFinite(content.size) ? content.size : undefined,
+                contentLength: Number.isFinite(content.size)
+                    ? content.size
+                    : undefined,
                 uploadedSize: streamPayload.uploadedSize,
                 contentHashSha256: null,
-                finalizeContentHashSha256: () => streamPayload.contentHashSha256(),
+                finalizeContentHashSha256: () =>
+                    streamPayload.contentHashSha256(),
             };
         }
 
         throw new HttpError(400, 'Unsupported file content payload');
     }
 
-    async #cleanupPreparedBatchUploads (
+    async #cleanupPreparedBatchUploads(
         preparedBatch: PreparedBatchWrite,
         uploadedItems: UploadedBatchWriteItem[],
     ): Promise<void> {
-        const cleanupTargets = uploadedItems.map((uploadedItem) => {
-            const preparedItem = preparedBatch.itemsByIndex.get(uploadedItem.index);
-            if ( !preparedItem || preparedItem.wasOverwrite ) {
-                return null;
-            }
+        const cleanupTargets = uploadedItems
+            .map((uploadedItem) => {
+                const preparedItem = preparedBatch.itemsByIndex.get(
+                    uploadedItem.index,
+                );
+                if (!preparedItem || preparedItem.wasOverwrite) {
+                    return null;
+                }
 
-            return {
-                bucket: preparedItem.normalizedInput.bucket,
-                bucketRegion: preparedItem.normalizedInput.bucketRegion,
-                objectKey: uploadedItem.objectKey,
-            };
-        }).filter((target): target is {
-            bucket: string;
-            bucketRegion: string;
-            objectKey: string;
-        } => Boolean(target));
+                return {
+                    bucket: preparedItem.normalizedInput.bucket,
+                    bucketRegion: preparedItem.normalizedInput.bucketRegion,
+                    objectKey: uploadedItem.objectKey,
+                };
+            })
+            .filter(
+                (
+                    target,
+                ): target is {
+                    bucket: string;
+                    bucketRegion: string;
+                    objectKey: string;
+                } => Boolean(target),
+            );
 
-        if ( cleanupTargets.length === 0 ) {
+        if (cleanupTargets.length === 0) {
             return;
         }
 
-        const cleanupResults = await Promise.allSettled(cleanupTargets.map((target) => {
-            return this.stores.s3Object.deleteObject(
-                target.bucket,
-                target.objectKey,
-                target.bucketRegion,
-            );
-        }));
+        const cleanupResults = await Promise.allSettled(
+            cleanupTargets.map((target) => {
+                return this.stores.s3Object.deleteObject(
+                    target.bucket,
+                    target.objectKey,
+                    target.bucketRegion,
+                );
+            }),
+        );
 
-        const cleanupFailures = cleanupResults.filter((result) => result.status === 'rejected');
-        if ( cleanupFailures.length > 0 ) {
-            console.error('prodfsv2 failed to clean up batch upload objects', cleanupFailures);
+        const cleanupFailures = cleanupResults.filter(
+            (result) => result.status === 'rejected',
+        );
+        if (cleanupFailures.length > 0) {
+            console.error(
+                'prodfsv2 failed to clean up batch upload objects',
+                cleanupFailures,
+            );
         }
     }
 
-    getMaxSingleUploadSize (): number {
+    getMaxSingleUploadSize(): number {
         return this.stores.s3Object.getMaxSingleUploadSize();
     }
 
-    async #cleanupSignedMultipartUploads (uploads: SignedMultipartCleanupTarget[]): Promise<void> {
-        if ( uploads.length === 0 ) {
+    async #cleanupSignedMultipartUploads(
+        uploads: SignedMultipartCleanupTarget[],
+    ): Promise<void> {
+        if (uploads.length === 0) {
             return;
         }
 
-        const cleanupResults = await Promise.allSettled(uploads.map((upload) => {
-            if ( upload.signedUploadResult.uploadMode !== 'multipart' || !upload.signedUploadResult.multipartUploadId ) {
-                return Promise.resolve();
-            }
+        const cleanupResults = await Promise.allSettled(
+            uploads.map((upload) => {
+                if (
+                    upload.signedUploadResult.uploadMode !== 'multipart' ||
+                    !upload.signedUploadResult.multipartUploadId
+                ) {
+                    return Promise.resolve();
+                }
 
-            return this.stores.s3Object.abortMutipartUpload(
-                upload.signedUploadResult.multipartUploadId,
-                upload.bucketRegion,
-                upload.bucket,
-                upload.objectKey,
+                return this.stores.s3Object.abortMutipartUpload(
+                    upload.signedUploadResult.multipartUploadId,
+                    upload.bucketRegion,
+                    upload.bucket,
+                    upload.objectKey,
+                );
+            }),
+        );
+
+        const cleanupFailures = cleanupResults.filter(
+            (result) => result.status === 'rejected',
+        );
+        if (cleanupFailures.length > 0) {
+            console.error(
+                'prodfsv2 failed to abort signed multipart uploads',
+                cleanupFailures,
             );
-        }));
-
-        const cleanupFailures = cleanupResults.filter((result) => result.status === 'rejected');
-        if ( cleanupFailures.length > 0 ) {
-            console.error('prodfsv2 failed to abort signed multipart uploads', cleanupFailures);
         }
     }
 
-    #toSignedMultipartCleanupTargets (
+    #toSignedMultipartCleanupTargets(
         items: Array<{
             index: number;
             normalizedInput: NormalizedWriteInput;
@@ -663,23 +775,27 @@ export class FSEntryService extends PuterService {
         objectKeys: string[],
         signedResultsByIndex: Map<number, SignedUploadResult>,
     ): SignedMultipartCleanupTarget[] {
-        return items.map((item, index) => {
-            const signedUploadResult = signedResultsByIndex.get(item.index);
-            const objectKey = objectKeys[index];
-            if ( !signedUploadResult || !objectKey ) {
-                return null;
-            }
+        return items
+            .map((item, index) => {
+                const signedUploadResult = signedResultsByIndex.get(item.index);
+                const objectKey = objectKeys[index];
+                if (!signedUploadResult || !objectKey) {
+                    return null;
+                }
 
-            return {
-                bucket: item.normalizedInput.bucket,
-                bucketRegion: item.normalizedInput.bucketRegion,
-                objectKey,
-                signedUploadResult,
-            };
-        }).filter((upload): upload is SignedMultipartCleanupTarget => Boolean(upload));
+                return {
+                    bucket: item.normalizedInput.bucket,
+                    bucketRegion: item.normalizedInput.bucketRegion,
+                    objectKey,
+                    signedUploadResult,
+                };
+            })
+            .filter((upload): upload is SignedMultipartCleanupTarget =>
+                Boolean(upload),
+            );
     }
 
-    #toSignedWriteResponse (
+    #toSignedWriteResponse(
         sessionId: string,
         normalizedInput: NormalizedWriteInput,
         objectKey: string,
@@ -694,14 +810,22 @@ export class FSEntryService extends PuterService {
             contentType: normalizedInput.contentType,
             expiresAt: signedUploadResult.expiresAt,
             ...(signedUploadResult.url ? { url: signedUploadResult.url } : {}),
-            ...(signedUploadResult.multipartUploadId ? { multipartUploadId: signedUploadResult.multipartUploadId } : {}),
-            ...(signedUploadResult.multipartPartSize ? { multipartPartSize: signedUploadResult.multipartPartSize } : {}),
-            ...(signedUploadResult.multipartPartCount ? { multipartPartCount: signedUploadResult.multipartPartCount } : {}),
-            ...(signedUploadResult.multipartPartUrls ? { multipartPartUrls: signedUploadResult.multipartPartUrls } : {}),
+            ...(signedUploadResult.multipartUploadId
+                ? { multipartUploadId: signedUploadResult.multipartUploadId }
+                : {}),
+            ...(signedUploadResult.multipartPartSize
+                ? { multipartPartSize: signedUploadResult.multipartPartSize }
+                : {}),
+            ...(signedUploadResult.multipartPartCount
+                ? { multipartPartCount: signedUploadResult.multipartPartCount }
+                : {}),
+            ...(signedUploadResult.multipartPartUrls
+                ? { multipartPartUrls: signedUploadResult.multipartPartUrls }
+                : {}),
         };
     }
 
-    #toDirectorySignedWriteResponse (
+    #toDirectorySignedWriteResponse(
         fsEntry: FSEntry,
         directoryCreated: boolean,
     ): SignedWriteResponse {
@@ -718,48 +842,57 @@ export class FSEntryService extends PuterService {
         };
     }
 
-    async entryExistsByPath (path: string): Promise<boolean> {
+    async entryExistsByPath(path: string): Promise<boolean> {
         const entry = await this.stores.fsEntry.getEntryByPath(path);
         return entry !== null;
     }
 
-    async getAncestorChain (path: string): Promise<Array<{ uid: string; path: string }>> {
+    async getAncestorChain(
+        path: string,
+    ): Promise<Array<{ uid: string; path: string }>> {
         const paths: string[] = [];
         let cursor = this.#normalizePath(path);
-        while ( cursor !== '/' ) {
+        while (cursor !== '/') {
             paths.push(cursor);
             cursor = pathPosix.dirname(cursor);
         }
 
-        const entriesByPath = await this.stores.fsEntry.getEntriesByPaths(paths);
+        const entriesByPath =
+            await this.stores.fsEntry.getEntriesByPaths(paths);
 
         const ancestors: Array<{ uid: string; path: string }> = [];
-        for ( const p of paths ) {
+        for (const p of paths) {
             const entry = entriesByPath.get(p);
-            if ( entry ) {
+            if (entry) {
                 ancestors.push({ uid: entry.uid, path: entry.path });
             }
         }
         return ancestors;
     }
 
-    async prepareBatchWrites (
+    async prepareBatchWrites(
         userId: number,
         writeRequests: BatchWritePrepareRequest[],
         storageAllowanceMax?: number,
     ): Promise<PreparedBatchWrite> {
-        if ( writeRequests.length === 0 ) {
+        if (writeRequests.length === 0) {
             return {
                 userId,
                 items: [],
                 itemsByIndex: new Map(),
-                ...(storageAllowanceMax !== undefined ? { storageAllowanceMax } : {}),
+                ...(storageAllowanceMax !== undefined
+                    ? { storageAllowanceMax }
+                    : {}),
             };
         }
 
         const normalizedRequests = writeRequests.map((writeRequest, index) => {
-            const normalizedInput = this.#normalizeWriteInput(userId, writeRequest.fileMetadata);
-            const requestedThumbnail = writeRequest.thumbnailData ?? normalizedInput.thumbnail ?? null;
+            const normalizedInput = this.#normalizeWriteInput(
+                userId,
+                writeRequest.fileMetadata,
+            );
+            const requestedThumbnail =
+                writeRequest.thumbnailData ?? normalizedInput.thumbnail ?? null;
             normalizedInput.thumbnail = null;
             return {
                 index,
@@ -777,12 +910,17 @@ export class FSEntryService extends PuterService {
             })),
         );
         const resolvedTargetMap = new Map<number, WriteTargetResolutionResult>(
-            resolvedTargets.map((resolvedTarget) => [resolvedTarget.index, resolvedTarget]),
+            resolvedTargets.map((resolvedTarget) => [
+                resolvedTarget.index,
+                resolvedTarget,
+            ]),
         );
         const resolvedRequests = normalizedRequests.map((request) => {
             const resolvedTarget = resolvedTargetMap.get(request.index);
-            if ( ! resolvedTarget ) {
-                throw new Error(`Failed to resolve write target for index ${request.index}`);
+            if (!resolvedTarget) {
+                throw new Error(
+                    `Failed to resolve write target for index ${request.index}`,
+                );
             }
             return {
                 ...request,
@@ -810,7 +948,7 @@ export class FSEntryService extends PuterService {
             guiMetadata: item.guiMetadata,
         }));
         const itemsByIndex = new Map<number, (typeof items)[number]>();
-        for ( const item of items ) {
+        for (const item of items) {
             itemsByIndex.set(item.index, item);
         }
 
@@ -818,22 +956,24 @@ export class FSEntryService extends PuterService {
             userId,
             items,
             itemsByIndex,
-            ...(storageAllowanceMax !== undefined ? { storageAllowanceMax } : {}),
+            ...(storageAllowanceMax !== undefined
+                ? { storageAllowanceMax }
+                : {}),
         };
     }
 
-    async assertStorageAllowanceForPreparedBatch (
+    async assertStorageAllowanceForPreparedBatch(
         preparedBatch: PreparedBatchWrite,
         uploadedItems?: UploadedBatchWriteItem[],
         storageAllowanceMaxOverride?: number,
     ): Promise<void> {
-        if ( preparedBatch.items.length === 0 ) {
+        if (preparedBatch.items.length === 0) {
             return;
         }
 
         const uploadedItemMap = new Map<number, UploadedBatchWriteItem>();
-        if ( uploadedItems ) {
-            for ( const uploadedItem of uploadedItems ) {
+        if (uploadedItems) {
+            for (const uploadedItem of uploadedItems) {
                 uploadedItemMap.set(uploadedItem.index, uploadedItem);
             }
         }
@@ -841,21 +981,33 @@ export class FSEntryService extends PuterService {
         const sizeChanges = preparedBatch.items.map((item) => {
             const uploadedItem = uploadedItemMap.get(item.index);
             return {
-                incomingSize: uploadedItem ? uploadedItem.uploadedSize : item.normalizedInput.size,
+                incomingSize: uploadedItem
+                    ? uploadedItem.uploadedSize
+                    : item.normalizedInput.size,
                 existingSize: item.existingEntry?.size ?? 0,
             };
         });
 
-        const storageAllowanceMax = storageAllowanceMaxOverride ?? preparedBatch.storageAllowanceMax;
-        await this.#assertStorageAllowanceForBatch(preparedBatch.userId, sizeChanges, storageAllowanceMax);
+        const storageAllowanceMax =
+            storageAllowanceMaxOverride ?? preparedBatch.storageAllowanceMax;
+        await this.#assertStorageAllowanceForBatch(
+            preparedBatch.userId,
+            sizeChanges,
+            storageAllowanceMax,
+        );
     }
 
-    async uploadPreparedBatchItem (
+    async uploadPreparedBatchItem(
         input: UploadPreparedBatchItemInput,
     ): Promise<UploadedBatchWriteItem> {
-        const preparedItem = input.preparedBatch.itemsByIndex.get(input.itemIndex);
-        if ( ! preparedItem ) {
-            throw new HttpError(400, `Batch metadata was not found for index ${input.itemIndex}`);
+        const preparedItem = input.preparedBatch.itemsByIndex.get(
+            input.itemIndex,
+        );
+        if (!preparedItem) {
+            throw new HttpError(
+                400,
+                `Batch metadata was not found for index ${input.itemIndex}`,
+            );
         }
 
         const uploadBody = await this.#toUploadBody(
@@ -864,21 +1016,28 @@ export class FSEntryService extends PuterService {
             input.uploadTracker,
         );
 
-        await this.stores.s3Object.uploadFromServer({
-            bucket: preparedItem.normalizedInput.bucket,
-            objectKey: preparedItem.objectKey,
-            contentType: preparedItem.normalizedInput.contentType,
-            body: uploadBody.body,
-            ...(uploadBody.contentLength !== undefined ? { contentLength: uploadBody.contentLength } : {}),
-            ...(Number.isFinite(preparedItem.normalizedInput.size)
-                ? { sizeHint: preparedItem.normalizedInput.size }
-                : {}),
-        }, preparedItem.normalizedInput.bucketRegion);
+        await this.stores.s3Object.uploadFromServer(
+            {
+                bucket: preparedItem.normalizedInput.bucket,
+                objectKey: preparedItem.objectKey,
+                contentType: preparedItem.normalizedInput.contentType,
+                body: uploadBody.body,
+                ...(uploadBody.contentLength !== undefined
+                    ? { contentLength: uploadBody.contentLength }
+                    : {}),
+                ...(Number.isFinite(preparedItem.normalizedInput.size)
+                    ? { sizeHint: preparedItem.normalizedInput.size }
+                    : {}),
+            },
+            preparedItem.normalizedInput.bucketRegion,
+        );
 
         const uploadedSize = uploadBody.uploadedSize();
-        if ( input.uploadTracker ) {
-            const currentTrackedSize = Number(input.uploadTracker.progress ?? 0);
-            if ( uploadedSize > currentTrackedSize ) {
+        if (input.uploadTracker) {
+            const currentTrackedSize = Number(
+                input.uploadTracker.progress ?? 0,
+            );
+            if (uploadedSize > currentTrackedSize) {
                 input.uploadTracker.add(uploadedSize - currentTrackedSize);
             }
         }
@@ -893,36 +1052,53 @@ export class FSEntryService extends PuterService {
         };
     }
 
-    async finalizePreparedBatchWrites (
+    async finalizePreparedBatchWrites(
         preparedBatch: PreparedBatchWrite,
         uploadedItems: UploadedBatchWriteItem[],
     ): Promise<WriteResponse[]> {
         try {
-            if ( preparedBatch.items.length !== uploadedItems.length ) {
-                throw new HttpError(400, 'Some batch files were missing upload content');
+            if (preparedBatch.items.length !== uploadedItems.length) {
+                throw new HttpError(
+                    400,
+                    'Some batch files were missing upload content',
+                );
             }
 
-            await this.assertStorageAllowanceForPreparedBatch(preparedBatch, uploadedItems);
+            await this.assertStorageAllowanceForPreparedBatch(
+                preparedBatch,
+                uploadedItems,
+            );
 
             const uploadedItemMap = new Map<number, UploadedBatchWriteItem>();
-            for ( const uploadedItem of uploadedItems ) {
+            for (const uploadedItem of uploadedItems) {
                 uploadedItemMap.set(uploadedItem.index, uploadedItem);
             }
 
             const createInputs = preparedBatch.items.map((item) => {
                 const uploadedItem = uploadedItemMap.get(item.index);
-                if ( ! uploadedItem ) {
-                    throw new HttpError(400, `Missing uploaded file content for index ${item.index}`);
+                if (!uploadedItem) {
+                    throw new HttpError(
+                        400,
+                        `Missing uploaded file content for index ${item.index}`,
+                    );
                 }
                 item.normalizedInput.size = uploadedItem.uploadedSize;
-                return this.#toCreateInput(item.normalizedInput, uploadedItem.objectKey);
+                return this.#toCreateInput(
+                    item.normalizedInput,
+                    uploadedItem.objectKey,
+                );
             });
 
-            const fsEntries = await this.stores.fsEntry.batchCreateEntries(createInputs, true);
+            const fsEntries = await this.stores.fsEntry.batchCreateEntries(
+                createInputs,
+                true,
+            );
             return preparedBatch.items.map((item, index) => {
                 const fsEntry = fsEntries[index];
-                if ( ! fsEntry ) {
-                    throw new Error(`Failed to resolve batch write result at index ${index}`);
+                if (!fsEntry) {
+                    throw new Error(
+                        `Failed to resolve batch write result at index ${index}`,
+                    );
                 }
                 const uploadedItem = uploadedItemMap.get(item.index);
                 this.#emitFsEvent(
@@ -936,13 +1112,16 @@ export class FSEntryService extends PuterService {
                     contentHashSha256: uploadedItem?.contentHashSha256 ?? null,
                 };
             });
-        } catch ( error ) {
-            await this.#cleanupPreparedBatchUploads(preparedBatch, uploadedItems);
+        } catch (error) {
+            await this.#cleanupPreparedBatchUploads(
+                preparedBatch,
+                uploadedItems,
+            );
             throw error;
         }
     }
 
-    async startUrlWrite (
+    async startUrlWrite(
         userId: number,
         signedWriteRequest: SignedWriteRequest,
         storageAllowanceMax?: number,
@@ -955,28 +1134,35 @@ export class FSEntryService extends PuterService {
         return result.response;
     }
 
-    async startUrlWriteWithCreatedDirectories (
+    async startUrlWriteWithCreatedDirectories(
         userId: number,
         signedWriteRequest: SignedWriteRequest,
         storageAllowanceMax?: number,
     ): Promise<StartSignedWriteResult> {
-        let normalizedInput = this.#normalizeWriteInput(userId, signedWriteRequest.fileMetadata);
-        if ( signedWriteRequest.directory ) {
-            const {
-                entries,
-                createdDirectoryEntries,
-            } = await this.stores.fsEntry.ensureDirectoriesForUserWithCreated(
-                userId,
-                [{
-                    path: normalizedInput.path,
-                    createPaths: normalizedInput.createMissingParents,
-                }],
-            );
+        let normalizedInput = this.#normalizeWriteInput(
+            userId,
+            signedWriteRequest.fileMetadata,
+        );
+        if (signedWriteRequest.directory) {
+            const { entries, createdDirectoryEntries } =
+                await this.stores.fsEntry.ensureDirectoriesForUserWithCreated(
+                    userId,
+                    [
+                        {
+                            path: normalizedInput.path,
+                            createPaths: normalizedInput.createMissingParents,
+                        },
+                    ],
+                );
             const [directoryEntry] = entries;
-            if ( ! directoryEntry ) {
-                throw new Error('Failed to resolve directory entry after start write');
+            if (!directoryEntry) {
+                throw new Error(
+                    'Failed to resolve directory entry after start write',
+                );
             }
-            const createdDirectoryPathSet = new Set(createdDirectoryEntries.map((entry) => entry.path));
+            const createdDirectoryPathSet = new Set(
+                createdDirectoryEntries.map((entry) => entry.path),
+            );
             return {
                 response: this.#toDirectorySignedWriteResponse(
                     directoryEntry,
@@ -986,11 +1172,13 @@ export class FSEntryService extends PuterService {
             };
         }
 
-        const [resolvedTarget] = await this.#resolveWriteTargets(userId, [{
-            index: 0,
-            normalizedInput,
-        }]);
-        if ( ! resolvedTarget ) {
+        const [resolvedTarget] = await this.#resolveWriteTargets(userId, [
+            {
+                index: 0,
+                normalizedInput,
+            },
+        ]);
+        if (!resolvedTarget) {
             throw new Error('Failed to resolve write target');
         }
         normalizedInput = resolvedTarget.normalizedInput;
@@ -998,38 +1186,54 @@ export class FSEntryService extends PuterService {
 
         const existingSize = existingEntry?.size ?? 0;
         const parentPath = pathPosix.dirname(normalizedInput.path);
-        const [, {
-            parentEntries,
-            createdDirectoryEntries,
-        }] = await Promise.all([
-            this.#assertStorageAllowance(userId, normalizedInput.size, existingSize, storageAllowanceMax),
-            this.stores.fsEntry.resolveParentDirectoriesBatchWithCreated(
-                userId,
-                [{
-                    parentPath,
-                    createPaths: normalizedInput.createMissingParents,
-                }],
-            ),
-        ]);
+        const [, { parentEntries, createdDirectoryEntries }] =
+            await Promise.all([
+                this.#assertStorageAllowance(
+                    userId,
+                    normalizedInput.size,
+                    existingSize,
+                    storageAllowanceMax,
+                ),
+                this.stores.fsEntry.resolveParentDirectoriesBatchWithCreated(
+                    userId,
+                    [
+                        {
+                            parentPath,
+                            createPaths: normalizedInput.createMissingParents,
+                        },
+                    ],
+                ),
+            ]);
         const [parentEntry] = parentEntries;
-        if ( ! parentEntry ) {
-            throw new Error('Failed to resolve parent directory for signed write');
+        if (!parentEntry) {
+            throw new Error(
+                'Failed to resolve parent directory for signed write',
+            );
         }
 
         const objectKey = existingEntry?.uuid ?? uuidv4();
-        const uploadMode = this.#determineUploadMode(signedWriteRequest.uploadMode, normalizedInput.size);
-        const expiresInSeconds = signedWriteRequest.expiresInSeconds ?? DEFAULT_SIGNED_UPLOAD_EXPIRY_SECONDS;
+        const uploadMode = this.#determineUploadMode(
+            signedWriteRequest.uploadMode,
+            normalizedInput.size,
+        );
+        const expiresInSeconds =
+            signedWriteRequest.expiresInSeconds ??
+            DEFAULT_SIGNED_UPLOAD_EXPIRY_SECONDS;
         const createInput = this.#toCreateInput(normalizedInput, objectKey);
 
-        const signedUploadResult = await this.stores.s3Object.createSignedUploadUrl({
-            bucket: normalizedInput.bucket,
-            objectKey,
-            size: normalizedInput.size,
-            contentType: normalizedInput.contentType,
-            uploadMode,
-            expiresInSeconds,
-            multipartPartSize: normalizedInput.multipartPartSize,
-        }, normalizedInput.bucketRegion);
+        const signedUploadResult =
+            await this.stores.s3Object.createSignedUploadUrl(
+                {
+                    bucket: normalizedInput.bucket,
+                    objectKey,
+                    size: normalizedInput.size,
+                    contentType: normalizedInput.contentType,
+                    uploadMode,
+                    expiresInSeconds,
+                    multipartPartSize: normalizedInput.multipartPartSize,
+                },
+                normalizedInput.bucketRegion,
+            );
 
         const sessionId = uuidv4();
         const pendingUploadInput: PendingUploadCreateInput = {
@@ -1058,23 +1262,30 @@ export class FSEntryService extends PuterService {
 
         try {
             await this.stores.fsEntry.createPendingEntry(pendingUploadInput);
-        } catch ( error ) {
-            await this.#cleanupSignedMultipartUploads([{
-                bucket: normalizedInput.bucket,
-                bucketRegion: normalizedInput.bucketRegion,
-                objectKey,
-                signedUploadResult,
-            }]);
+        } catch (error) {
+            await this.#cleanupSignedMultipartUploads([
+                {
+                    bucket: normalizedInput.bucket,
+                    bucketRegion: normalizedInput.bucketRegion,
+                    objectKey,
+                    signedUploadResult,
+                },
+            ]);
             throw error;
         }
 
         return {
-            response: this.#toSignedWriteResponse(sessionId, normalizedInput, objectKey, signedUploadResult),
+            response: this.#toSignedWriteResponse(
+                sessionId,
+                normalizedInput,
+                objectKey,
+                signedUploadResult,
+            ),
             createdDirectoryEntries,
         };
     }
 
-    async batchStartUrlWrites (
+    async batchStartUrlWrites(
         userId: number,
         signedWriteRequests: SignedWriteRequest[],
         storageAllowanceMax?: number,
@@ -1087,37 +1298,47 @@ export class FSEntryService extends PuterService {
         return result.responses;
     }
 
-    async batchStartUrlWritesWithCreatedDirectories (
+    async batchStartUrlWritesWithCreatedDirectories(
         userId: number,
         signedWriteRequests: SignedWriteRequest[],
         storageAllowanceMax?: number,
     ): Promise<BatchStartSignedWriteResult> {
-        if ( signedWriteRequests.length === 0 ) {
+        if (signedWriteRequests.length === 0) {
             return {
                 responses: [],
                 createdDirectoryEntries: [],
             };
         }
 
-        const normalizedRequests = signedWriteRequests.map((signedWriteRequest, index) => ({
-            index,
-            request: signedWriteRequest,
-            isDirectory: Boolean(signedWriteRequest.directory),
-            normalizedInput: this.#normalizeWriteInput(userId, signedWriteRequest.fileMetadata),
-        }));
+        const normalizedRequests = signedWriteRequests.map(
+            (signedWriteRequest, index) => ({
+                index,
+                request: signedWriteRequest,
+                isDirectory: Boolean(signedWriteRequest.directory),
+                normalizedInput: this.#normalizeWriteInput(
+                    userId,
+                    signedWriteRequest.fileMetadata,
+                ),
+            }),
+        );
         const responsesByIndex = new Map<number, SignedWriteResponse>();
         const createdDirectoryEntriesByPath = new Map<string, FSEntry>();
 
-        const directoryItems = normalizedRequests.filter((item) => item.isDirectory);
+        const directoryItems = normalizedRequests.filter(
+            (item) => item.isDirectory,
+        );
         const directoryPathSet = new Set<string>();
-        for ( const directoryItem of directoryItems ) {
+        for (const directoryItem of directoryItems) {
             const targetPath = directoryItem.normalizedInput.path;
-            if ( directoryPathSet.has(targetPath) ) {
-                throw new HttpError(409, `Batch contains duplicate target path: ${targetPath}`);
+            if (directoryPathSet.has(targetPath)) {
+                throw new HttpError(
+                    409,
+                    `Batch contains duplicate target path: ${targetPath}`,
+                );
             }
             directoryPathSet.add(targetPath);
         }
-        if ( directoryItems.length > 0 ) {
+        if (directoryItems.length > 0) {
             const {
                 entries: ensuredDirectoryEntries,
                 createdDirectoryEntries,
@@ -1128,28 +1349,37 @@ export class FSEntryService extends PuterService {
                     createPaths: item.normalizedInput.createMissingParents,
                 })),
             );
-            for ( const createdDirectoryEntry of createdDirectoryEntries ) {
-                createdDirectoryEntriesByPath.set(createdDirectoryEntry.path, createdDirectoryEntry);
+            for (const createdDirectoryEntry of createdDirectoryEntries) {
+                createdDirectoryEntriesByPath.set(
+                    createdDirectoryEntry.path,
+                    createdDirectoryEntry,
+                );
             }
 
-            for ( let index = 0; index < directoryItems.length; index++ ) {
+            for (let index = 0; index < directoryItems.length; index++) {
                 const item = directoryItems[index];
                 const directoryEntry = ensuredDirectoryEntries[index];
-                if ( !item || !directoryEntry ) {
-                    throw new Error('Failed to build directory response from batch start data');
+                if (!item || !directoryEntry) {
+                    throw new Error(
+                        'Failed to build directory response from batch start data',
+                    );
                 }
                 responsesByIndex.set(
                     item.index,
                     this.#toDirectorySignedWriteResponse(
                         directoryEntry,
-                        createdDirectoryEntriesByPath.has(item.normalizedInput.path),
+                        createdDirectoryEntriesByPath.has(
+                            item.normalizedInput.path,
+                        ),
                     ),
                 );
             }
         }
 
-        const fileItems = normalizedRequests.filter((item) => !item.isDirectory);
-        if ( fileItems.length > 0 ) {
+        const fileItems = normalizedRequests.filter(
+            (item) => !item.isDirectory,
+        );
+        if (fileItems.length > 0) {
             const resolvedTargets = await this.#resolveWriteTargets(
                 userId,
                 fileItems.map((item) => ({
@@ -1157,13 +1387,21 @@ export class FSEntryService extends PuterService {
                     normalizedInput: item.normalizedInput,
                 })),
             );
-            const resolvedTargetMap = new Map<number, WriteTargetResolutionResult>(
-                resolvedTargets.map((resolvedTarget) => [resolvedTarget.index, resolvedTarget]),
+            const resolvedTargetMap = new Map<
+                number,
+                WriteTargetResolutionResult
+            >(
+                resolvedTargets.map((resolvedTarget) => [
+                    resolvedTarget.index,
+                    resolvedTarget,
+                ]),
             );
             const resolvedFileItems = fileItems.map((item) => {
                 const resolvedTarget = resolvedTargetMap.get(item.index);
-                if ( ! resolvedTarget ) {
-                    throw new Error(`Failed to resolve write target for batch index ${item.index}`);
+                if (!resolvedTarget) {
+                    throw new Error(
+                        `Failed to resolve write target for batch index ${item.index}`,
+                    );
                 }
 
                 return {
@@ -1173,57 +1411,83 @@ export class FSEntryService extends PuterService {
                 };
             });
 
-            const allowanceChecks: Array<{ incomingSize: number; existingSize: number }> = [];
-            for ( const item of resolvedFileItems ) {
+            const allowanceChecks: Array<{
+                incomingSize: number;
+                existingSize: number;
+            }> = [];
+            for (const item of resolvedFileItems) {
                 allowanceChecks.push({
                     incomingSize: item.normalizedInput.size,
                     existingSize: item.existingEntry?.size ?? 0,
                 });
             }
-            const [, {
-                parentEntries,
-                createdDirectoryEntries: createdParentDirectoryEntries,
-            }] = await Promise.all([
-                this.#assertStorageAllowanceForBatch(userId, allowanceChecks, storageAllowanceMax),
+            const [
+                ,
+                {
+                    parentEntries,
+                    createdDirectoryEntries: createdParentDirectoryEntries,
+                },
+            ] = await Promise.all([
+                this.#assertStorageAllowanceForBatch(
+                    userId,
+                    allowanceChecks,
+                    storageAllowanceMax,
+                ),
                 this.stores.fsEntry.resolveParentDirectoriesBatchWithCreated(
                     userId,
                     resolvedFileItems.map((item) => ({
-                        parentPath: pathPosix.dirname(item.normalizedInput.path),
+                        parentPath: pathPosix.dirname(
+                            item.normalizedInput.path,
+                        ),
                         createPaths: item.normalizedInput.createMissingParents,
                     })),
                 ),
             ]);
-            for ( const createdParentDirectoryEntry of createdParentDirectoryEntries ) {
-                createdDirectoryEntriesByPath.set(createdParentDirectoryEntry.path, createdParentDirectoryEntry);
+            for (const createdParentDirectoryEntry of createdParentDirectoryEntries) {
+                createdDirectoryEntriesByPath.set(
+                    createdParentDirectoryEntry.path,
+                    createdParentDirectoryEntry,
+                );
             }
 
             const objectKeys = resolvedFileItems.map((item) => {
                 return item.existingEntry?.uuid ?? uuidv4();
             });
             const uploadModes = resolvedFileItems.map((item) => {
-                return this.#determineUploadMode(item.request.uploadMode, item.normalizedInput.size);
+                return this.#determineUploadMode(
+                    item.request.uploadMode,
+                    item.normalizedInput.size,
+                );
             });
             const sessionIds = resolvedFileItems.map(() => uuidv4());
 
             const signedResultsByIndex = new Map<number, SignedUploadResult>();
-            const writesByRegion = new Map<string, Array<{ requestIndex: number;
-                input: {
-                    bucket: string;
-                    objectKey: string;
-                    size: number;
-                    contentType: string;
-                    uploadMode: UploadMode;
-                    expiresInSeconds: number;
-                    multipartPartSize?: number;
-                } }>>();
-            for ( let index = 0; index < resolvedFileItems.length; index++ ) {
+            const writesByRegion = new Map<
+                string,
+                Array<{
+                    requestIndex: number;
+                    input: {
+                        bucket: string;
+                        objectKey: string;
+                        size: number;
+                        contentType: string;
+                        uploadMode: UploadMode;
+                        expiresInSeconds: number;
+                        multipartPartSize?: number;
+                    };
+                }>
+            >();
+            for (let index = 0; index < resolvedFileItems.length; index++) {
                 const item = resolvedFileItems[index];
                 const objectKey = objectKeys[index];
                 const uploadMode = uploadModes[index];
-                if ( !item || !objectKey || !uploadMode ) {
-                    throw new Error('Failed to build batch signed upload request');
+                if (!item || !objectKey || !uploadMode) {
+                    throw new Error(
+                        'Failed to build batch signed upload request',
+                    );
                 }
-                const regionEntries = writesByRegion.get(item.normalizedInput.bucketRegion) ?? [];
+                const regionEntries =
+                    writesByRegion.get(item.normalizedInput.bucketRegion) ?? [];
                 regionEntries.push({
                     requestIndex: item.index,
                     input: {
@@ -1232,74 +1496,123 @@ export class FSEntryService extends PuterService {
                         size: item.normalizedInput.size,
                         contentType: item.normalizedInput.contentType,
                         uploadMode,
-                        expiresInSeconds: item.request.expiresInSeconds ?? DEFAULT_SIGNED_UPLOAD_EXPIRY_SECONDS,
-                        multipartPartSize: item.normalizedInput.multipartPartSize,
+                        expiresInSeconds:
+                            item.request.expiresInSeconds ??
+                            DEFAULT_SIGNED_UPLOAD_EXPIRY_SECONDS,
+                        multipartPartSize:
+                            item.normalizedInput.multipartPartSize,
                     },
                 });
-                writesByRegion.set(item.normalizedInput.bucketRegion, regionEntries);
+                writesByRegion.set(
+                    item.normalizedInput.bucketRegion,
+                    regionEntries,
+                );
             }
 
-            const regionResults = await Promise.allSettled(Array.from(writesByRegion.entries()).map(async ([region, regionWrites]) => {
-                const signedResults = await this.stores.s3Object.batchCreateSignedUploadUrls(
-                    regionWrites.map((item) => item.input),
-                    region,
-                );
-                for ( let index = 0; index < regionWrites.length; index++ ) {
-                    const regionWrite = regionWrites[index];
-                    const signedResult = signedResults[index];
-                    if ( !regionWrite || !signedResult ) {
-                        throw new Error('Failed to map signed upload result to request');
-                    }
-                    signedResultsByIndex.set(regionWrite.requestIndex, signedResult);
-                }
-            }));
-            const signedMultipartCleanupTargets = this.#toSignedMultipartCleanupTargets(
-                resolvedFileItems,
-                objectKeys,
-                signedResultsByIndex,
+            const regionResults = await Promise.allSettled(
+                Array.from(writesByRegion.entries()).map(
+                    async ([region, regionWrites]) => {
+                        const signedResults =
+                            await this.stores.s3Object.batchCreateSignedUploadUrls(
+                                regionWrites.map((item) => item.input),
+                                region,
+                            );
+                        for (
+                            let index = 0;
+                            index < regionWrites.length;
+                            index++
+                        ) {
+                            const regionWrite = regionWrites[index];
+                            const signedResult = signedResults[index];
+                            if (!regionWrite || !signedResult) {
+                                throw new Error(
+                                    'Failed to map signed upload result to request',
+                                );
+                            }
+                            signedResultsByIndex.set(
+                                regionWrite.requestIndex,
+                                signedResult,
+                            );
+                        }
+                    },
+                ),
             );
+            const signedMultipartCleanupTargets =
+                this.#toSignedMultipartCleanupTargets(
+                    resolvedFileItems,
+                    objectKeys,
+                    signedResultsByIndex,
+                );
 
-            const failedRegionResult = regionResults.find((result) => result.status === 'rejected');
-            if ( failedRegionResult?.status === 'rejected' ) {
-                await this.#cleanupSignedMultipartUploads(signedMultipartCleanupTargets);
+            const failedRegionResult = regionResults.find(
+                (result) => result.status === 'rejected',
+            );
+            if (failedRegionResult?.status === 'rejected') {
+                await this.#cleanupSignedMultipartUploads(
+                    signedMultipartCleanupTargets,
+                );
 
-                throw this.#toError(failedRegionResult.reason, 'Failed to create batch signed upload urls');
+                throw this.#toError(
+                    failedRegionResult.reason,
+                    'Failed to create batch signed upload urls',
+                );
             }
 
             try {
                 const pendingInputs: PendingUploadCreateInput[] = [];
-                for ( let index = 0; index < resolvedFileItems.length; index++ ) {
+                for (let index = 0; index < resolvedFileItems.length; index++) {
                     const item = resolvedFileItems[index];
                     const parentEntry = parentEntries[index];
                     const objectKey = objectKeys[index];
                     const sessionId = sessionIds[index];
                     const uploadMode = uploadModes[index];
                     const existingEntry = item?.existingEntry;
-                    if ( !item || !parentEntry || !objectKey || !sessionId || !uploadMode ) {
-                        throw new Error('Failed to build pending upload input from batch start data');
+                    if (
+                        !item ||
+                        !parentEntry ||
+                        !objectKey ||
+                        !sessionId ||
+                        !uploadMode
+                    ) {
+                        throw new Error(
+                            'Failed to build pending upload input from batch start data',
+                        );
                     }
-                    const signedUploadResult = signedResultsByIndex.get(item.index);
-                    if ( ! signedUploadResult ) {
-                        throw new Error('Failed to resolve signed upload result for batch start data');
+                    const signedUploadResult = signedResultsByIndex.get(
+                        item.index,
+                    );
+                    if (!signedUploadResult) {
+                        throw new Error(
+                            'Failed to resolve signed upload result for batch start data',
+                        );
                     }
 
-                    const createInput = this.#toCreateInput(item.normalizedInput, objectKey);
+                    const createInput = this.#toCreateInput(
+                        item.normalizedInput,
+                        objectKey,
+                    );
                     pendingInputs.push({
                         sessionId,
                         userId,
                         appId: item.normalizedInput.associatedAppId ?? null,
                         parentUid: parentEntry.uuid,
                         parentPath: parentEntry.path,
-                        targetName: pathPosix.basename(item.normalizedInput.path),
+                        targetName: pathPosix.basename(
+                            item.normalizedInput.path,
+                        ),
                         targetPath: item.normalizedInput.path,
                         overwriteTargetUid: existingEntry?.uuid ?? null,
                         contentType: item.normalizedInput.contentType,
                         size: item.normalizedInput.size,
-                        checksumSha256: item.normalizedInput.checksumSha256 ?? null,
+                        checksumSha256:
+                            item.normalizedInput.checksumSha256 ?? null,
                         uploadMode,
-                        multipartUploadId: signedUploadResult.multipartUploadId ?? null,
-                        multipartPartSize: signedUploadResult.multipartPartSize ?? null,
-                        multipartPartCount: signedUploadResult.multipartPartCount ?? null,
+                        multipartUploadId:
+                            signedUploadResult.multipartUploadId ?? null,
+                        multipartPartSize:
+                            signedUploadResult.multipartPartSize ?? null,
+                        multipartPartCount:
+                            signedUploadResult.multipartPartCount ?? null,
                         storageProvider: 's3',
                         bucket: item.normalizedInput.bucket,
                         bucketRegion: item.normalizedInput.bucketRegion,
@@ -1309,102 +1622,155 @@ export class FSEntryService extends PuterService {
                     });
                 }
 
-                await this.stores.fsEntry.batchCreatePendingEntries(pendingInputs);
+                await this.stores.fsEntry.batchCreatePendingEntries(
+                    pendingInputs,
+                );
 
-                for ( let index = 0; index < resolvedFileItems.length; index++ ) {
+                for (let index = 0; index < resolvedFileItems.length; index++) {
                     const item = resolvedFileItems[index];
                     const sessionId = sessionIds[index];
                     const objectKey = objectKeys[index];
-                    if ( !item || !sessionId || !objectKey ) {
-                        throw new Error('Failed to build signed write response from batch start data');
+                    if (!item || !sessionId || !objectKey) {
+                        throw new Error(
+                            'Failed to build signed write response from batch start data',
+                        );
                     }
-                    const signedUploadResult = signedResultsByIndex.get(item.index);
-                    if ( ! signedUploadResult ) {
-                        throw new Error('Failed to resolve signed upload result for batch response data');
+                    const signedUploadResult = signedResultsByIndex.get(
+                        item.index,
+                    );
+                    if (!signedUploadResult) {
+                        throw new Error(
+                            'Failed to resolve signed upload result for batch response data',
+                        );
                     }
-                    responsesByIndex.set(item.index, this.#toSignedWriteResponse(
-                        sessionId,
-                        item.normalizedInput,
-                        objectKey,
-                        signedUploadResult,
-                    ));
+                    responsesByIndex.set(
+                        item.index,
+                        this.#toSignedWriteResponse(
+                            sessionId,
+                            item.normalizedInput,
+                            objectKey,
+                            signedUploadResult,
+                        ),
+                    );
                 }
-            } catch ( error ) {
-                await this.#cleanupSignedMultipartUploads(signedMultipartCleanupTargets);
+            } catch (error) {
+                await this.#cleanupSignedMultipartUploads(
+                    signedMultipartCleanupTargets,
+                );
                 throw error;
             }
         }
 
         const responses = normalizedRequests.map((request) => {
             const response = responsesByIndex.get(request.index);
-            if ( ! response ) {
-                throw new Error(`Failed to resolve signed batch response for index ${request.index}`);
+            if (!response) {
+                throw new Error(
+                    `Failed to resolve signed batch response for index ${request.index}`,
+                );
             }
             return response;
         });
         return {
             responses,
-            createdDirectoryEntries: Array.from(createdDirectoryEntriesByPath.values()),
+            createdDirectoryEntries: Array.from(
+                createdDirectoryEntriesByPath.values(),
+            ),
         };
     }
 
-    async signMultipartParts (
+    async signMultipartParts(
         userId: number,
         request: SignMultipartPartsRequest,
     ): Promise<SignMultipartPartsResponse> {
-        if ( ! request?.uploadId ) {
+        if (!request?.uploadId) {
             throw new HttpError(400, 'Missing uploadId');
         }
-        if ( !Array.isArray(request.partNumbers) || request.partNumbers.length === 0 ) {
+        if (
+            !Array.isArray(request.partNumbers) ||
+            request.partNumbers.length === 0
+        ) {
             throw new HttpError(400, 'Missing partNumbers');
         }
 
-        const uniquePartNumbers = Array.from(new Set(request.partNumbers.map((value) => Number(value))));
-        if ( uniquePartNumbers.some((partNumber) => !Number.isInteger(partNumber) || partNumber <= 0) ) {
+        const uniquePartNumbers = Array.from(
+            new Set(request.partNumbers.map((value) => Number(value))),
+        );
+        if (
+            uniquePartNumbers.some(
+                (partNumber) =>
+                    !Number.isInteger(partNumber) || partNumber <= 0,
+            )
+        ) {
             throw new HttpError(400, 'Invalid partNumbers');
         }
 
-        const session = await this.stores.fsEntry.getPendingEntryBySessionId(request.uploadId);
-        if ( ! session ) {
+        const session = await this.stores.fsEntry.getPendingEntryBySessionId(
+            request.uploadId,
+        );
+        if (!session) {
             throw new HttpError(404, 'Upload session was not found');
         }
-        if ( session.userId !== userId ) {
+        if (session.userId !== userId) {
             throw new HttpError(403, 'Upload session access denied');
         }
-        if ( session.status !== 'pending' ) {
-            throw new HttpError(409, `Upload session is not pending (status=${session.status})`);
+        if (session.status !== 'pending') {
+            throw new HttpError(
+                409,
+                `Upload session is not pending (status=${session.status})`,
+            );
         }
-        if ( session.expiresAt < Date.now() ) {
-            await this.stores.fsEntry.markPendingEntryFailed(session.sessionId, 'Upload session expired');
+        if (session.expiresAt < Date.now()) {
+            await this.stores.fsEntry.markPendingEntryFailed(
+                session.sessionId,
+                'Upload session expired',
+            );
             throw new HttpError(400, 'Upload session expired');
         }
-        if ( session.uploadMode !== 'multipart' ) {
+        if (session.uploadMode !== 'multipart') {
             throw new HttpError(400, 'Upload session is not multipart');
         }
-        if ( ! session.multipartUploadId ) {
-            throw new HttpError(400, 'Multipart upload id missing from session');
+        if (!session.multipartUploadId) {
+            throw new HttpError(
+                400,
+                'Multipart upload id missing from session',
+            );
         }
         const multipartPartCount = session.multipartPartCount;
         if (
-            multipartPartCount !== null
-            && uniquePartNumbers.some((partNumber) => partNumber > multipartPartCount)
+            multipartPartCount !== null &&
+            uniquePartNumbers.some(
+                (partNumber) => partNumber > multipartPartCount,
+            )
         ) {
-            throw new HttpError(400, 'Part number exceeds multipart part count');
+            throw new HttpError(
+                400,
+                'Part number exceeds multipart part count',
+            );
         }
-        if ( !session.bucket || !session.bucketRegion ) {
-            throw new HttpError(500, 'Upload session storage metadata is missing');
+        if (!session.bucket || !session.bucketRegion) {
+            throw new HttpError(
+                500,
+                'Upload session storage metadata is missing',
+            );
         }
 
-        const expiresInSeconds = request.expiresInSeconds ?? DEFAULT_SIGNED_UPLOAD_EXPIRY_SECONDS;
-        const multipartPartUrls = await this.stores.s3Object.createSignedMultipartPartUrls({
-            bucket: session.bucket,
-            objectKey: session.objectKey,
-            multipartUploadId: session.multipartUploadId,
-            partNumbers: uniquePartNumbers,
-            expiresInSeconds,
-        }, session.bucketRegion);
+        const expiresInSeconds =
+            request.expiresInSeconds ?? DEFAULT_SIGNED_UPLOAD_EXPIRY_SECONDS;
+        const multipartPartUrls =
+            await this.stores.s3Object.createSignedMultipartPartUrls(
+                {
+                    bucket: session.bucket,
+                    objectKey: session.objectKey,
+                    multipartUploadId: session.multipartUploadId,
+                    partNumbers: uniquePartNumbers,
+                    expiresInSeconds,
+                },
+                session.bucketRegion,
+            );
 
-        const expiresAt = Date.now() + Math.max(60, Math.min(60 * 60, expiresInSeconds)) * 1000;
+        const expiresAt =
+            Date.now() +
+            Math.max(60, Math.min(60 * 60, expiresInSeconds)) * 1000;
 
         return {
             uploadId: session.sessionId,
@@ -1417,46 +1783,77 @@ export class FSEntryService extends PuterService {
         };
     }
 
-    async completeUrlWrite (userId: number, completeWriteRequest: CompleteWriteRequest): Promise<CompleteWriteResponse> {
-        const session = await this.stores.fsEntry.getPendingEntryBySessionId(completeWriteRequest.uploadId);
-        if ( ! session ) {
+    async completeUrlWrite(
+        userId: number,
+        completeWriteRequest: CompleteWriteRequest,
+    ): Promise<CompleteWriteResponse> {
+        const session = await this.stores.fsEntry.getPendingEntryBySessionId(
+            completeWriteRequest.uploadId,
+        );
+        if (!session) {
             throw new HttpError(404, 'Upload session was not found');
         }
-        if ( session.userId !== userId ) {
+        if (session.userId !== userId) {
             throw new HttpError(403, 'Upload session access denied');
         }
-        if ( session.status !== 'pending' ) {
-            throw new HttpError(409, `Upload session is not pending (status=${session.status})`);
+        if (session.status !== 'pending') {
+            throw new HttpError(
+                409,
+                `Upload session is not pending (status=${session.status})`,
+            );
         }
-        if ( session.expiresAt < Date.now() ) {
-            await this.stores.fsEntry.markPendingEntryFailed(session.sessionId, 'Upload session expired');
+        if (session.expiresAt < Date.now()) {
+            await this.stores.fsEntry.markPendingEntryFailed(
+                session.sessionId,
+                'Upload session expired',
+            );
             throw new HttpError(400, 'Upload session expired');
         }
 
         const createInput = this.#parseSessionMetadata(session);
-        const requestedThumbnail = completeWriteRequest.thumbnailData ?? createInput.thumbnail ?? null;
+        const requestedThumbnail =
+            completeWriteRequest.thumbnailData ?? createInput.thumbnail ?? null;
         createInput.thumbnail = null;
 
         try {
-            if ( session.uploadMode === 'multipart' ) {
-                if ( ! session.multipartUploadId ) {
-                    throw new HttpError(400, 'Multipart upload id missing from session');
+            if (session.uploadMode === 'multipart') {
+                if (!session.multipartUploadId) {
+                    throw new HttpError(
+                        400,
+                        'Multipart upload id missing from session',
+                    );
                 }
 
-                const completeParts = this.#toMultipartParts(completeWriteRequest.parts);
-                if ( completeParts.length === 0 ) {
-                    throw new HttpError(400, 'Multipart upload completion requires parts');
+                const completeParts = this.#toMultipartParts(
+                    completeWriteRequest.parts,
+                );
+                if (completeParts.length === 0) {
+                    throw new HttpError(
+                        400,
+                        'Multipart upload completion requires parts',
+                    );
                 }
 
-                await this.stores.s3Object.completeMultipartUpload({
-                    bucket: session.bucket ?? createInput.bucket ?? this.#resolveBucket(createInput),
-                    objectKey: session.objectKey,
-                    multipartUploadId: session.multipartUploadId,
-                    parts: completeParts,
-                }, session.bucketRegion ?? createInput.bucketRegion ?? this.#resolveBucketRegion(createInput));
+                await this.stores.s3Object.completeMultipartUpload(
+                    {
+                        bucket:
+                            session.bucket ??
+                            createInput.bucket ??
+                            this.#resolveBucket(createInput),
+                        objectKey: session.objectKey,
+                        multipartUploadId: session.multipartUploadId,
+                        parts: completeParts,
+                    },
+                    session.bucketRegion ??
+                        createInput.bucketRegion ??
+                        this.#resolveBucketRegion(createInput),
+                );
             }
 
-            const fsEntry = await this.stores.fsEntry.completePendingEntry(session.sessionId, createInput);
+            const fsEntry = await this.stores.fsEntry.completePendingEntry(
+                session.sessionId,
+                createInput,
+            );
             this.#emitFsEvent(
                 session.overwriteTargetUid ? 'fs.write.file' : 'fs.create.file',
                 fsEntry,
@@ -1467,30 +1864,38 @@ export class FSEntryService extends PuterService {
                 wasOverwrite: Boolean(session.overwriteTargetUid),
                 requestedThumbnail,
             };
-        } catch ( error ) {
+        } catch (error) {
             await this.stores.fsEntry.markPendingEntryFailed(
                 session.sessionId,
-                error instanceof Error ? error.message : 'Unknown error while completing upload',
+                error instanceof Error
+                    ? error.message
+                    : 'Unknown error while completing upload',
             );
             throw error;
         }
     }
 
-    async batchCompleteUrlWrite (
+    async batchCompleteUrlWrite(
         userId: number,
         completeWriteRequests: CompleteWriteRequest[],
     ): Promise<CompleteWriteResponse[]> {
-        if ( completeWriteRequests.length === 0 ) {
+        if (completeWriteRequests.length === 0) {
             return [];
         }
 
-        const uploadIds = completeWriteRequests.map((request) => request.uploadId);
+        const uploadIds = completeWriteRequests.map(
+            (request) => request.uploadId,
+        );
         const uniqueUploadIds = new Set(uploadIds);
-        if ( uniqueUploadIds.size !== uploadIds.length ) {
-            throw new HttpError(409, 'Batch contains duplicate upload session ids');
+        if (uniqueUploadIds.size !== uploadIds.length) {
+            throw new HttpError(
+                409,
+                'Batch contains duplicate upload session ids',
+            );
         }
 
-        const sessions = await this.stores.fsEntry.getPendingEntriesBySessionIds(uploadIds);
+        const sessions =
+            await this.stores.fsEntry.getPendingEntriesBySessionIds(uploadIds);
         const completionItems: Array<{
             index: number;
             request: CompleteWriteRequest;
@@ -1500,25 +1905,29 @@ export class FSEntryService extends PuterService {
         }> = [];
         const expiredSessionIds: string[] = [];
 
-        for ( let index = 0; index < completeWriteRequests.length; index++ ) {
+        for (let index = 0; index < completeWriteRequests.length; index++) {
             const request = completeWriteRequests[index];
             const session = sessions[index];
-            if ( !request || !session ) {
+            if (!request || !session) {
                 throw new HttpError(404, 'Upload session was not found');
             }
-            if ( session.userId !== userId ) {
+            if (session.userId !== userId) {
                 throw new HttpError(403, 'Upload session access denied');
             }
-            if ( session.status !== 'pending' ) {
-                throw new HttpError(409, `Upload session is not pending (status=${session.status})`);
+            if (session.status !== 'pending') {
+                throw new HttpError(
+                    409,
+                    `Upload session is not pending (status=${session.status})`,
+                );
             }
-            if ( session.expiresAt < Date.now() ) {
+            if (session.expiresAt < Date.now()) {
                 expiredSessionIds.push(session.sessionId);
                 continue;
             }
 
             const finalData = this.#parseSessionMetadata(session);
-            const requestedThumbnail = request.thumbnailData ?? finalData.thumbnail ?? null;
+            const requestedThumbnail =
+                request.thumbnailData ?? finalData.thumbnail ?? null;
             finalData.thumbnail = null;
             completionItems.push({
                 index,
@@ -1529,35 +1938,61 @@ export class FSEntryService extends PuterService {
             });
         }
 
-        if ( expiredSessionIds.length > 0 ) {
-            await this.stores.fsEntry.markPendingEntriesFailed(expiredSessionIds, 'Upload session expired');
+        if (expiredSessionIds.length > 0) {
+            await this.stores.fsEntry.markPendingEntriesFailed(
+                expiredSessionIds,
+                'Upload session expired',
+            );
             throw new HttpError(400, 'Upload session expired');
         }
 
-        const multipartItems = completionItems.filter((item) => item.session.uploadMode === 'multipart');
-        const multipartCompletions = await Promise.allSettled(multipartItems.map(async (item) => {
-            if ( ! item.session.multipartUploadId ) {
-                throw new HttpError(400, 'Multipart upload id missing from session');
-            }
+        const multipartItems = completionItems.filter(
+            (item) => item.session.uploadMode === 'multipart',
+        );
+        const multipartCompletions = await Promise.allSettled(
+            multipartItems.map(async (item) => {
+                if (!item.session.multipartUploadId) {
+                    throw new HttpError(
+                        400,
+                        'Multipart upload id missing from session',
+                    );
+                }
 
-            const completeParts = this.#toMultipartParts(item.request.parts);
-            if ( completeParts.length === 0 ) {
-                throw new HttpError(400, 'Multipart upload completion requires parts');
-            }
+                const completeParts = this.#toMultipartParts(
+                    item.request.parts,
+                );
+                if (completeParts.length === 0) {
+                    throw new HttpError(
+                        400,
+                        'Multipart upload completion requires parts',
+                    );
+                }
 
-            await this.stores.s3Object.completeMultipartUpload({
-                bucket: item.session.bucket ?? item.finalData.bucket ?? this.#resolveBucket(item.finalData),
-                objectKey: item.session.objectKey,
-                multipartUploadId: item.session.multipartUploadId,
-                parts: completeParts,
-            }, item.session.bucketRegion ?? item.finalData.bucketRegion ?? this.#resolveBucketRegion(item.finalData));
-        }));
+                await this.stores.s3Object.completeMultipartUpload(
+                    {
+                        bucket:
+                            item.session.bucket ??
+                            item.finalData.bucket ??
+                            this.#resolveBucket(item.finalData),
+                        objectKey: item.session.objectKey,
+                        multipartUploadId: item.session.multipartUploadId,
+                        parts: completeParts,
+                    },
+                    item.session.bucketRegion ??
+                        item.finalData.bucketRegion ??
+                        this.#resolveBucketRegion(item.finalData),
+                );
+            }),
+        );
 
-        const failedMultipartItems: Array<{ sessionId: string; reason: unknown }> = [];
-        for ( let index = 0; index < multipartCompletions.length; index++ ) {
+        const failedMultipartItems: Array<{
+            sessionId: string;
+            reason: unknown;
+        }> = [];
+        for (let index = 0; index < multipartCompletions.length; index++) {
             const completion = multipartCompletions[index];
             const multipartItem = multipartItems[index];
-            if ( completion?.status === 'rejected' && multipartItem ) {
+            if (completion?.status === 'rejected' && multipartItem) {
                 failedMultipartItems.push({
                     sessionId: multipartItem.session.sessionId,
                     reason: completion.reason,
@@ -1565,73 +2000,91 @@ export class FSEntryService extends PuterService {
             }
         }
 
-        if ( failedMultipartItems.length > 0 ) {
-            await Promise.all(failedMultipartItems.map((item) => {
-                return this.stores.fsEntry.markPendingEntryFailed(item.sessionId, this.#toErrorMessage(item.reason));
-            }));
+        if (failedMultipartItems.length > 0) {
+            await Promise.all(
+                failedMultipartItems.map((item) => {
+                    return this.stores.fsEntry.markPendingEntryFailed(
+                        item.sessionId,
+                        this.#toErrorMessage(item.reason),
+                    );
+                }),
+            );
 
             const firstReason = failedMultipartItems[0]?.reason;
-            if ( firstReason instanceof HttpError ) {
+            if (firstReason instanceof HttpError) {
                 throw firstReason;
             }
-            if ( firstReason instanceof Error ) {
+            if (firstReason instanceof Error) {
                 throw firstReason;
             }
             throw new Error('Failed to complete multipart upload');
         }
 
-        const completedEntries = await this.stores.fsEntry.batchCompletePendingEntries(
-            completionItems.map((item) => ({
-                sessionId: item.session.sessionId,
-                finalData: item.finalData,
-            })),
-        );
+        const completedEntries =
+            await this.stores.fsEntry.batchCompletePendingEntries(
+                completionItems.map((item) => ({
+                    sessionId: item.session.sessionId,
+                    finalData: item.finalData,
+                })),
+            );
 
         const responseByIndex = new Map<number, CompleteWriteResponse>();
-        for ( let index = 0; index < completionItems.length; index++ ) {
+        for (let index = 0; index < completionItems.length; index++) {
             const completionItem = completionItems[index];
             const completedEntry = completedEntries[index];
-            if ( !completionItem || !completedEntry ) {
-                throw new Error('Failed to build completed batch write response');
+            if (!completionItem || !completedEntry) {
+                throw new Error(
+                    'Failed to build completed batch write response',
+                );
             }
 
             this.#emitFsEvent(
-                completionItem.session.overwriteTargetUid ? 'fs.write.file' : 'fs.create.file',
+                completionItem.session.overwriteTargetUid
+                    ? 'fs.write.file'
+                    : 'fs.create.file',
                 completedEntry,
             );
             responseByIndex.set(completionItem.index, {
                 sessionId: completionItem.session.sessionId,
                 fsEntry: completedEntry,
-                wasOverwrite: Boolean(completionItem.session.overwriteTargetUid),
+                wasOverwrite: Boolean(
+                    completionItem.session.overwriteTargetUid,
+                ),
                 requestedThumbnail: completionItem.requestedThumbnail,
             });
         }
 
         const response: CompleteWriteResponse[] = [];
-        for ( let index = 0; index < completeWriteRequests.length; index++ ) {
+        for (let index = 0; index < completeWriteRequests.length; index++) {
             const result = responseByIndex.get(index);
-            if ( ! result ) {
-                throw new Error(`Failed to resolve completed batch response for index ${index}`);
+            if (!result) {
+                throw new Error(
+                    `Failed to resolve completed batch response for index ${index}`,
+                );
             }
             response.push(result);
         }
         return response;
     }
 
-    async abortUrlWrite (userId: number, uploadId: string): Promise<void> {
-        const session = await this.stores.fsEntry.getPendingEntryBySessionId(uploadId);
-        if ( ! session ) {
+    async abortUrlWrite(userId: number, uploadId: string): Promise<void> {
+        const session =
+            await this.stores.fsEntry.getPendingEntryBySessionId(uploadId);
+        if (!session) {
             return;
         }
-        if ( session.userId !== userId ) {
+        if (session.userId !== userId) {
             throw new HttpError(403, 'Upload session access denied');
         }
 
         try {
             const bucket = session.bucket;
             const bucketRegion = session.bucketRegion;
-            if ( bucket && bucketRegion ) {
-                if ( session.uploadMode === 'multipart' && session.multipartUploadId ) {
+            if (bucket && bucketRegion) {
+                if (
+                    session.uploadMode === 'multipart' &&
+                    session.multipartUploadId
+                ) {
                     await this.stores.s3Object.abortMutipartUpload(
                         session.multipartUploadId,
                         bucketRegion,
@@ -1639,36 +2092,53 @@ export class FSEntryService extends PuterService {
                         session.objectKey,
                     );
                 } else {
-                    await this.stores.s3Object.deleteObject(bucket, session.objectKey, bucketRegion);
+                    await this.stores.s3Object.deleteObject(
+                        bucket,
+                        session.objectKey,
+                        bucketRegion,
+                    );
                 }
             }
         } finally {
-            await this.stores.fsEntry.abortPendingEntry(session.sessionId, 'Upload aborted by caller');
+            await this.stores.fsEntry.abortPendingEntry(
+                session.sessionId,
+                'Upload aborted by caller',
+            );
         }
     }
 
-    async write (
+    async write(
         userId: number,
         writeRequest: WriteRequest,
         uploadTracker?: UploadProgressTrackerLike,
         storageAllowanceMax?: number,
     ): Promise<WriteResponse> {
-
-        let normalizedInput = this.#normalizeWriteInput(userId, writeRequest.fileMetadata);
-        const [resolvedTarget] = await this.#resolveWriteTargets(userId, [{
-            index: 0,
-            normalizedInput,
-        }]);
-        if ( ! resolvedTarget ) {
+        let normalizedInput = this.#normalizeWriteInput(
+            userId,
+            writeRequest.fileMetadata,
+        );
+        const [resolvedTarget] = await this.#resolveWriteTargets(userId, [
+            {
+                index: 0,
+                normalizedInput,
+            },
+        ]);
+        if (!resolvedTarget) {
             throw new Error('Failed to resolve write target');
         }
         normalizedInput = resolvedTarget.normalizedInput;
         const existingEntry = resolvedTarget.existingEntry;
-        const requestedThumbnail = writeRequest.thumbnailData ?? normalizedInput.thumbnail ?? null;
+        const requestedThumbnail =
+            writeRequest.thumbnailData ?? normalizedInput.thumbnail ?? null;
         normalizedInput.thumbnail = null;
 
         const existingSize = existingEntry?.size ?? 0;
-        await this.#assertStorageAllowance(userId, normalizedInput.size, existingSize, storageAllowanceMax);
+        await this.#assertStorageAllowance(
+            userId,
+            normalizedInput.size,
+            existingSize,
+            storageAllowanceMax,
+        );
 
         const uploadBody = await this.#toUploadBody(
             writeRequest.fileContent,
@@ -1676,26 +2146,36 @@ export class FSEntryService extends PuterService {
             uploadTracker,
         );
         const objectKey = existingEntry?.uuid ?? uuidv4();
-        await this.stores.s3Object.uploadFromServer({
-            bucket: normalizedInput.bucket,
-            objectKey,
-            contentType: normalizedInput.contentType,
-            body: uploadBody.body,
-            ...(uploadBody.contentLength !== undefined ? { contentLength: uploadBody.contentLength } : {}),
-            ...(Number.isFinite(normalizedInput.size)
-                ? { sizeHint: normalizedInput.size }
-                : {}),
-        }, normalizedInput.bucketRegion);
+        await this.stores.s3Object.uploadFromServer(
+            {
+                bucket: normalizedInput.bucket,
+                objectKey,
+                contentType: normalizedInput.contentType,
+                body: uploadBody.body,
+                ...(uploadBody.contentLength !== undefined
+                    ? { contentLength: uploadBody.contentLength }
+                    : {}),
+                ...(Number.isFinite(normalizedInput.size)
+                    ? { sizeHint: normalizedInput.size }
+                    : {}),
+            },
+            normalizedInput.bucketRegion,
+        );
 
         const uploadedSize = uploadBody.uploadedSize();
-        if ( uploadTracker ) {
+        if (uploadTracker) {
             const currentTrackedSize = Number(uploadTracker.progress ?? 0);
-            if ( uploadedSize > currentTrackedSize ) {
+            if (uploadedSize > currentTrackedSize) {
                 uploadTracker.add(uploadedSize - currentTrackedSize);
             }
         }
-        if ( uploadedSize > normalizedInput.size ) {
-            await this.#assertStorageAllowance(userId, uploadedSize, existingSize, storageAllowanceMax);
+        if (uploadedSize > normalizedInput.size) {
+            await this.#assertStorageAllowance(
+                userId,
+                uploadedSize,
+                existingSize,
+                storageAllowanceMax,
+            );
         }
         normalizedInput.size = uploadedSize;
         const contentHashSha256 = uploadBody.finalizeContentHashSha256
@@ -1721,12 +2201,12 @@ export class FSEntryService extends PuterService {
         };
     }
 
-    async batchWrites (
+    async batchWrites(
         userId: number,
         writeRequests: WriteRequest[],
         storageAllowanceMax?: number,
     ): Promise<WriteResponse[]> {
-        if ( writeRequests.length === 0 ) {
+        if (writeRequests.length === 0) {
             return [];
         }
         const preparedBatch = await this.prepareBatchWrites(
@@ -1738,7 +2218,11 @@ export class FSEntryService extends PuterService {
             })),
             storageAllowanceMax,
         );
-        await this.assertStorageAllowanceForPreparedBatch(preparedBatch, undefined, storageAllowanceMax);
+        await this.assertStorageAllowanceForPreparedBatch(
+            preparedBatch,
+            undefined,
+            storageAllowanceMax,
+        );
 
         const uploadResults = await runWithConcurrencyLimitSettled(
             writeRequests,
@@ -1753,31 +2237,47 @@ export class FSEntryService extends PuterService {
             },
         );
         const uploadedItems = uploadResults
-            .filter((result): result is PromiseFulfilledResult<UploadedBatchWriteItem> => result.status === 'fulfilled')
+            .filter(
+                (
+                    result,
+                ): result is PromiseFulfilledResult<UploadedBatchWriteItem> =>
+                    result.status === 'fulfilled',
+            )
             .map((result) => result.value);
-        const failedUpload = uploadResults.find((result) => result.status === 'rejected');
-        if ( failedUpload?.status === 'rejected' ) {
-            await this.#cleanupPreparedBatchUploads(preparedBatch, uploadedItems);
-            throw this.#toError(failedUpload.reason, 'Failed to upload batch write item');
+        const failedUpload = uploadResults.find(
+            (result) => result.status === 'rejected',
+        );
+        if (failedUpload?.status === 'rejected') {
+            await this.#cleanupPreparedBatchUploads(
+                preparedBatch,
+                uploadedItems,
+            );
+            throw this.#toError(
+                failedUpload.reason,
+                'Failed to upload batch write item',
+            );
         }
 
         return this.finalizePreparedBatchWrites(preparedBatch, uploadedItems);
     }
 
-    async cleanupPreparedBatchUploads (
+    async cleanupPreparedBatchUploads(
         preparedBatch: PreparedBatchWrite,
         uploadedItems: UploadedBatchWriteItem[],
     ): Promise<void> {
         await this.#cleanupPreparedBatchUploads(preparedBatch, uploadedItems);
     }
 
-    async updateEntryThumbnail (
+    async updateEntryThumbnail(
         userId: number,
         entryUuid: string,
         thumbnail: string | null,
     ): Promise<FSEntry> {
-        if ( typeof entryUuid !== 'string' || entryUuid.length === 0 ) {
-            throw new HttpError(400, 'Invalid file entry identifier for thumbnail update');
+        if (typeof entryUuid !== 'string' || entryUuid.length === 0) {
+            throw new HttpError(
+                400,
+                'Invalid file entry identifier for thumbnail update',
+            );
         }
 
         return this.stores.fsEntry.updateEntryThumbnailByUuidForUser(
@@ -1787,9 +2287,12 @@ export class FSEntryService extends PuterService {
         );
     }
 
-    async getUsersStorageAllowance (userId: string | number): Promise<{ curr: number; max: number }> {
-        const numericUserId = typeof userId === 'string' ? Number(userId) : userId;
-        if ( Number.isNaN(numericUserId) ) {
+    async getUsersStorageAllowance(
+        userId: string | number,
+    ): Promise<{ curr: number; max: number }> {
+        const numericUserId =
+            typeof userId === 'string' ? Number(userId) : userId;
+        if (Number.isNaN(numericUserId)) {
             throw new HttpError(400, 'Invalid user id');
         }
         return this.stores.fsEntry.getUserStorageAllowance(numericUserId);
@@ -1802,12 +2305,15 @@ export class FSEntryService extends PuterService {
      * check on the parent (usually 'list' mode). Returns entries in the
      * requested sort order.
      */
-    async listDirectory (parentUid: string, options: {
-        limit?: number;
-        offset?: number;
-        sortBy?: 'name' | 'modified' | 'type' | 'size' | null;
-        sortOrder?: 'asc' | 'desc' | null;
-    } = {}): Promise<FSEntry[]> {
+    async listDirectory(
+        parentUid: string,
+        options: {
+            limit?: number;
+            offset?: number;
+            sortBy?: 'name' | 'modified' | 'type' | 'size' | null;
+            sortOrder?: 'asc' | 'desc' | null;
+        } = {},
+    ): Promise<FSEntry[]> {
         return this.stores.fsEntry.listChildren(parentUid, options);
     }
 
@@ -1815,7 +2321,11 @@ export class FSEntryService extends PuterService {
      * Search by file name for a user. Linear-scan with LIKE — cheap for
      * typical library sizes, revisit if we need full-text.
      */
-    async searchByName (userId: number, query: string, limit = 200): Promise<FSEntry[]> {
+    async searchByName(
+        userId: number,
+        query: string,
+        limit = 200,
+    ): Promise<FSEntry[]> {
         return this.stores.fsEntry.searchByNameForUser(userId, query, limit);
     }
 
@@ -1825,7 +2335,7 @@ export class FSEntryService extends PuterService {
      * method for the perf caveat — this is O(descendants) and should get a
      * materialized counter eventually.
      */
-    async getSubtreeSize (userId: number, path: string): Promise<number> {
+    async getSubtreeSize(userId: number, path: string): Promise<number> {
         return this.stores.fsEntry.getSubtreeSize(userId, path);
     }
 
@@ -1837,7 +2347,10 @@ export class FSEntryService extends PuterService {
      * Throws 400 if the entry isn't a file, 500 if the entry has no backing
      * bucket (should never happen for real files).
      */
-    async readContent (entry: FSEntry, options: { range?: string } = {}): Promise<{
+    async readContent(
+        entry: FSEntry,
+        options: { range?: string } = {},
+    ): Promise<{
         body: Readable;
         contentLength: number | null;
         contentType: string | null;
@@ -1845,14 +2358,17 @@ export class FSEntryService extends PuterService {
         etag: string | null;
         lastModified: Date | null;
     }> {
-        if ( entry.isDir ) {
+        if (entry.isDir) {
             throw new HttpError(400, 'Cannot read content of a directory');
         }
-        if ( entry.isSymlink || entry.isShortcut ) {
+        if (entry.isSymlink || entry.isShortcut) {
             // Caller should resolve the link target before calling readContent.
-            throw new HttpError(400, 'Cannot read content of a symlink or shortcut directly');
+            throw new HttpError(
+                400,
+                'Cannot read content of a symlink or shortcut directly',
+            );
         }
-        if ( !entry.bucket || !entry.bucketRegion ) {
+        if (!entry.bucket || !entry.bucketRegion) {
             throw new HttpError(500, 'Entry has no backing storage');
         }
 
@@ -1869,11 +2385,15 @@ export class FSEntryService extends PuterService {
     // Objects written by fsv2 use the pending-session's objectKey, which is
     // persisted in FSEntry.metadata JSON under `objectKey`. Falls back to the
     // entry uuid for entries that didn't record it (older data).
-    #deriveObjectKeyFromEntry (entry: FSEntry): string {
-        if ( entry.metadata ) {
+    #deriveObjectKeyFromEntry(entry: FSEntry): string {
+        if (entry.metadata) {
             try {
                 const parsed = JSON.parse(entry.metadata);
-                if ( parsed && typeof parsed.objectKey === 'string' && parsed.objectKey.length > 0 ) {
+                if (
+                    parsed &&
+                    typeof parsed.objectKey === 'string' &&
+                    parsed.objectKey.length > 0
+                ) {
                     return parsed.objectKey;
                 }
             } catch {
@@ -1890,18 +2410,30 @@ export class FSEntryService extends PuterService {
      * `name` already exists. Mirrors the deduping convention used by
      * `#findDedupedPath` but operates on the parent+name shape.
      */
-    async #findDedupedName (parentEntry: FSEntry, name: string): Promise<string> {
+    async #findDedupedName(
+        parentEntry: FSEntry,
+        name: string,
+    ): Promise<string> {
         const repo = this.stores.fsEntry;
         const parentPath = parentEntry.path;
         const ext = pathPosix.extname(name);
         const base = pathPosix.basename(name, ext);
-        for ( let suffix = 1; suffix < 100_000; suffix++ ) {
+        for (let suffix = 1; suffix < 100_000; suffix++) {
             const candidate = `${base} (${suffix})${ext}`;
-            const candidatePath = parentPath === '/' ? `/${candidate}` : `${parentPath}/${candidate}`;
-            const existing = await repo.getEntryByPathForUser(candidatePath, parentEntry.userId);
-            if ( ! existing ) return candidate;
+            const candidatePath =
+                parentPath === '/'
+                    ? `/${candidate}`
+                    : `${parentPath}/${candidate}`;
+            const existing = await repo.getEntryByPathForUser(
+                candidatePath,
+                parentEntry.userId,
+            );
+            if (!existing) return candidate;
         }
-        throw new HttpError(500, 'Could not dedupe name within 100000 attempts');
+        throw new HttpError(
+            500,
+            'Could not dedupe name within 100000 attempts',
+        );
     }
 
     /**
@@ -1909,12 +2441,22 @@ export class FSEntryService extends PuterService {
      * the parent entry. Throws 400 if the path has no parent (root) or 404
      * when parents are missing and create is disabled.
      */
-    async #resolveOrCreateParent (userId: number, targetPath: string, createMissingParents: boolean): Promise<FSEntry> {
+    async #resolveOrCreateParent(
+        userId: number,
+        targetPath: string,
+        createMissingParents: boolean,
+    ): Promise<FSEntry> {
         const normalized = targetPath.trim();
-        if ( normalized === '/' ) throw new HttpError(400, 'Cannot operate on root');
+        if (normalized === '/')
+            throw new HttpError(400, 'Cannot operate on root');
         const parentPath = pathPosix.dirname(normalized);
-        if ( parentPath === '/' ) throw new HttpError(400, 'Cannot operate at root');
-        return this.stores.fsEntry.resolveParentDirectory(userId, parentPath, createMissingParents);
+        if (parentPath === '/')
+            throw new HttpError(400, 'Cannot operate at root');
+        return this.stores.fsEntry.resolveParentDirectory(
+            userId,
+            parentPath,
+            createMissingParents,
+        );
     }
 
     /**
@@ -1925,29 +2467,45 @@ export class FSEntryService extends PuterService {
      *
      * Returns the created (or existing-on-dedupe-false-no-conflict) entry.
      */
-    async mkdir (userId: number, input: {
-        path: string;
-        overwrite?: boolean;
-        dedupeName?: boolean;
-        createMissingParents?: boolean;
-    }): Promise<FSEntry> {
+    async mkdir(
+        userId: number,
+        input: {
+            path: string;
+            overwrite?: boolean;
+            dedupeName?: boolean;
+            createMissingParents?: boolean;
+        },
+    ): Promise<FSEntry> {
         const targetPath = input.path.trim();
-        const parent = await this.#resolveOrCreateParent(userId, targetPath, !!input.createMissingParents);
+        const parent = await this.#resolveOrCreateParent(
+            userId,
+            targetPath,
+            !!input.createMissingParents,
+        );
 
         let name = pathPosix.basename(targetPath);
-        const existing = await this.stores.fsEntry.getEntryByPathForUser(targetPath, userId);
-        if ( existing ) {
-            if ( existing.isDir ) {
+        const existing = await this.stores.fsEntry.getEntryByPathForUser(
+            targetPath,
+            userId,
+        );
+        if (existing) {
+            if (existing.isDir) {
                 // A directory already exists at path: idempotent success.
                 return existing;
             }
-            if ( input.overwrite ) {
+            if (input.overwrite) {
                 // Remove the non-directory occupant then create the dir.
-                await this.remove(userId, { entry: existing, recursive: false });
-            } else if ( input.dedupeName ) {
+                await this.remove(userId, {
+                    entry: existing,
+                    recursive: false,
+                });
+            } else if (input.dedupeName) {
                 name = await this.#findDedupedName(parent, name);
             } else {
-                throw new HttpError(409, `An entry already exists at ${targetPath}`);
+                throw new HttpError(
+                    409,
+                    `An entry already exists at ${targetPath}`,
+                );
             }
         }
 
@@ -1965,18 +2523,28 @@ export class FSEntryService extends PuterService {
      * Touch: create an empty file at `path` if missing; otherwise bump
      * timestamps.
      */
-    async touch (userId: number, input: {
-        path: string;
-        setAccessed?: boolean;
-        setModified?: boolean;
-        setCreated?: boolean;
-        createMissingParents?: boolean;
-    }): Promise<FSEntry> {
+    async touch(
+        userId: number,
+        input: {
+            path: string;
+            setAccessed?: boolean;
+            setModified?: boolean;
+            setCreated?: boolean;
+            createMissingParents?: boolean;
+        },
+    ): Promise<FSEntry> {
         const targetPath = input.path.trim();
-        const parent = await this.#resolveOrCreateParent(userId, targetPath, !!input.createMissingParents);
+        const parent = await this.#resolveOrCreateParent(
+            userId,
+            targetPath,
+            !!input.createMissingParents,
+        );
         const name = pathPosix.basename(targetPath);
-        const existing = await this.stores.fsEntry.getEntryByPathForUser(targetPath, userId);
-        if ( existing ) {
+        const existing = await this.stores.fsEntry.getEntryByPathForUser(
+            targetPath,
+            userId,
+        );
+        if (existing) {
             return this.stores.fsEntry.touchEntryTimestamps(existing.uuid, {
                 setAccessed: input.setAccessed,
                 setModified: input.setModified,
@@ -1997,17 +2565,23 @@ export class FSEntryService extends PuterService {
      * Rename an entry in place. The name changes and path rewrites; if the
      * entry is a directory, descendant paths are rewritten too.
      */
-    async rename (entry: FSEntry, newName: string): Promise<FSEntry> {
-        if ( newName.includes('/') ) throw new HttpError(400, 'Name cannot contain a slash');
-        if ( newName.trim().length === 0 ) throw new HttpError(400, 'Name cannot be empty');
-        if ( entry.name === newName ) return entry;
+    async rename(entry: FSEntry, newName: string): Promise<FSEntry> {
+        if (newName.includes('/'))
+            throw new HttpError(400, 'Name cannot contain a slash');
+        if (newName.trim().length === 0)
+            throw new HttpError(400, 'Name cannot be empty');
+        if (entry.name === newName) return entry;
 
         const parentPath = pathPosix.dirname(entry.path);
-        const newPath = parentPath === '/' ? `/${newName}` : `${parentPath}/${newName}`;
+        const newPath =
+            parentPath === '/' ? `/${newName}` : `${parentPath}/${newName}`;
 
         // Reject if another entry already owns the target path.
-        const collision = await this.stores.fsEntry.getEntryByPathForUser(newPath, entry.userId);
-        if ( collision && collision.uuid !== entry.uuid ) {
+        const collision = await this.stores.fsEntry.getEntryByPathForUser(
+            newPath,
+            entry.userId,
+        );
+        if (collision && collision.uuid !== entry.uuid) {
             throw new HttpError(409, `An entry already exists at ${newPath}`);
         }
 
@@ -2016,8 +2590,12 @@ export class FSEntryService extends PuterService {
             path: newPath,
         });
 
-        if ( entry.isDir ) {
-            await this.stores.fsEntry.updatePathPrefixForUser(entry.userId, entry.path, newPath);
+        if (entry.isDir) {
+            await this.stores.fsEntry.updatePathPrefixForUser(
+                entry.userId,
+                entry.path,
+                newPath,
+            );
         }
         this.#emitFsEvent('fs.rename', updated, {
             old_name: entry.name,
@@ -2032,20 +2610,32 @@ export class FSEntryService extends PuterService {
      * Create a shortcut pointing at `target`. Shortcuts are FS entries with
      * `is_shortcut = 1` and `shortcut_to = target.id`.
      */
-    async mkshortcut (userId: number, input: {
-        parent: FSEntry;
-        name: string;
-        target: FSEntry;
-        dedupeName?: boolean;
-    }): Promise<FSEntry> {
+    async mkshortcut(
+        userId: number,
+        input: {
+            parent: FSEntry;
+            name: string;
+            target: FSEntry;
+            dedupeName?: boolean;
+        },
+    ): Promise<FSEntry> {
         let name = input.name;
-        const childPath = input.parent.path === '/' ? `/${name}` : `${input.parent.path}/${name}`;
-        const collision = await this.stores.fsEntry.getEntryByPathForUser(childPath, userId);
-        if ( collision ) {
-            if ( input.dedupeName ) {
+        const childPath =
+            input.parent.path === '/'
+                ? `/${name}`
+                : `${input.parent.path}/${name}`;
+        const collision = await this.stores.fsEntry.getEntryByPathForUser(
+            childPath,
+            userId,
+        );
+        if (collision) {
+            if (input.dedupeName) {
                 name = await this.#findDedupedName(input.parent, name);
             } else {
-                throw new HttpError(409, `An entry already exists at ${childPath}`);
+                throw new HttpError(
+                    409,
+                    `An entry already exists at ${childPath}`,
+                );
             }
         }
         const created = await this.stores.fsEntry.createNonFileEntry({
@@ -2064,20 +2654,32 @@ export class FSEntryService extends PuterService {
      * `targetPath`. No verification that target resolves — broken links
      * are allowed by design.
      */
-    async mklink (userId: number, input: {
-        parent: FSEntry;
-        name: string;
-        targetPath: string;
-        dedupeName?: boolean;
-    }): Promise<FSEntry> {
+    async mklink(
+        userId: number,
+        input: {
+            parent: FSEntry;
+            name: string;
+            targetPath: string;
+            dedupeName?: boolean;
+        },
+    ): Promise<FSEntry> {
         let name = input.name;
-        const childPath = input.parent.path === '/' ? `/${name}` : `${input.parent.path}/${name}`;
-        const collision = await this.stores.fsEntry.getEntryByPathForUser(childPath, userId);
-        if ( collision ) {
-            if ( input.dedupeName ) {
+        const childPath =
+            input.parent.path === '/'
+                ? `/${name}`
+                : `${input.parent.path}/${name}`;
+        const collision = await this.stores.fsEntry.getEntryByPathForUser(
+            childPath,
+            userId,
+        );
+        if (collision) {
+            if (input.dedupeName) {
                 name = await this.#findDedupedName(input.parent, name);
             } else {
-                throw new HttpError(409, `An entry already exists at ${childPath}`);
+                throw new HttpError(
+                    409,
+                    `An entry already exists at ${childPath}`,
+                );
             }
         }
         const created = await this.stores.fsEntry.createNonFileEntry({
@@ -2100,33 +2702,42 @@ export class FSEntryService extends PuterService {
      *
      * Does NOT enforce ACL — caller (controller) performs the `write` check.
      */
-    async remove (userId: number, input: {
-        entry: FSEntry;
-        recursive?: boolean;
-        descendantsOnly?: boolean;
-    }): Promise<void> {
+    async remove(
+        userId: number,
+        input: {
+            entry: FSEntry;
+            recursive?: boolean;
+            descendantsOnly?: boolean;
+        },
+    ): Promise<void> {
         const { entry } = input;
-        if ( entry.userId !== userId ) {
+        if (entry.userId !== userId) {
             // Defensive — only the owner should be hitting this path; higher
             // layers grant access via ACL, not raw ownership, but we still
             // want to avoid a misrouted call taking out someone else's tree.
-            throw new HttpError(403, 'Cannot remove an entry owned by another user');
+            throw new HttpError(
+                403,
+                'Cannot remove an entry owned by another user',
+            );
         }
 
-        if ( entry.isDir ) {
-            const descendants = await this.stores.fsEntry.listDescendantsByPath(userId, entry.path);
-            if ( descendants.length > 0 && !input.recursive ) {
+        if (entry.isDir) {
+            const descendants = await this.stores.fsEntry.listDescendantsByPath(
+                userId,
+                entry.path,
+            );
+            if (descendants.length > 0 && !input.recursive) {
                 throw new HttpError(409, 'Directory is not empty');
             }
 
             // Delete descendants first (depth-descending). S3 objects are
             // batched per bucket+region for efficiency.
             await this.#removeDescendantsStorage(descendants);
-            if ( descendants.length > 0 ) {
+            if (descendants.length > 0) {
                 await this.stores.fsEntry.deleteEntries(descendants);
             }
 
-            if ( ! input.descendantsOnly ) {
+            if (!input.descendantsOnly) {
                 await this.stores.fsEntry.deleteEntry(entry);
                 this.#emitRemoveEvent(entry);
             }
@@ -2134,7 +2745,12 @@ export class FSEntryService extends PuterService {
         }
 
         // File / shortcut / symlink: delete backing S3 object (if any) then the row.
-        if ( entry.bucket && entry.bucketRegion && !entry.isShortcut && !entry.isSymlink ) {
+        if (
+            entry.bucket &&
+            entry.bucketRegion &&
+            !entry.isShortcut &&
+            !entry.isSymlink
+        ) {
             try {
                 await this.stores.s3Object.deleteObject(
                     entry.bucket,
@@ -2161,52 +2777,76 @@ export class FSEntryService extends PuterService {
      * sense that orphaned S3 objects may linger if a write races us; the DB
      * state always converges to "user has no entries".
      */
-    async removeAllForUser (userId: number): Promise<void> {
+    async removeAllForUser(userId: number): Promise<void> {
         const pageSize = 5000;
         // Files-first loop: delete backing S3 objects in batches, then DB rows.
-        for ( ; ; ) {
-            const files = await this.clients.db.read(
+        for (;;) {
+            const files = (await this.clients.db.read(
                 `SELECT uuid, bucket, bucket_region FROM fsentries
                  WHERE user_id = ? AND is_dir = 0 AND (is_shortcut = 0 OR is_shortcut IS NULL) AND (is_symlink = 0 OR is_symlink IS NULL)
                  LIMIT ${pageSize}`,
                 [userId],
-            ) as Array<{ uuid: string; bucket: string | null; bucket_region: string | null }>;
+            )) as Array<{
+                uuid: string;
+                bucket: string | null;
+                bucket_region: string | null;
+            }>;
 
-            if ( files.length === 0 ) break;
+            if (files.length === 0) break;
 
             // Group by bucket+region so one S3 DeleteObjects call covers each.
-            const grouped = new Map<string, { bucket: string; region: string; keys: string[] }>();
-            for ( const f of files ) {
-                if ( !f.bucket || !f.bucket_region ) continue;
+            const grouped = new Map<
+                string,
+                { bucket: string; region: string; keys: string[] }
+            >();
+            for (const f of files) {
+                if (!f.bucket || !f.bucket_region) continue;
                 const groupKey = `${f.bucket_region}::${f.bucket}`;
-                const group = grouped.get(groupKey) ?? { bucket: f.bucket, region: f.bucket_region, keys: [] };
+                const group = grouped.get(groupKey) ?? {
+                    bucket: f.bucket,
+                    region: f.bucket_region,
+                    keys: [],
+                };
                 group.keys.push(f.uuid);
                 grouped.set(groupKey, group);
             }
             await Promise.allSettled(
-                Array.from(grouped.values()).map(g =>
-                    this.stores.s3Object.deleteObjects({ bucket: g.bucket, objectKeys: g.keys }, g.region)),
+                Array.from(grouped.values()).map((g) =>
+                    this.stores.s3Object.deleteObjects(
+                        { bucket: g.bucket, objectKeys: g.keys },
+                        g.region,
+                    ),
+                ),
             );
 
             const uuidPlaceholders = files.map(() => '?').join(', ');
             await this.clients.db.write(
                 `DELETE FROM fsentries WHERE user_id = ? AND uuid IN (${uuidPlaceholders})`,
-                [userId, ...files.map(f => f.uuid)],
+                [userId, ...files.map((f) => f.uuid)],
             );
         }
 
         // Sweep remaining non-file rows (dirs, shortcuts, symlinks).
-        await this.clients.db.write('DELETE FROM fsentries WHERE user_id = ?', [userId]);
+        await this.clients.db.write('DELETE FROM fsentries WHERE user_id = ?', [
+            userId,
+        ]);
     }
 
-    async #removeDescendantsStorage (descendants: FSEntry[]): Promise<void> {
+    async #removeDescendantsStorage(descendants: FSEntry[]): Promise<void> {
         // Group file descendants by bucket+region for batch delete.
-        const grouped = new Map<string, { bucket: string; region: string; keys: string[] }>();
-        for ( const child of descendants ) {
-            if ( child.isDir || child.isShortcut || child.isSymlink ) continue;
-            if ( !child.bucket || !child.bucketRegion ) continue;
+        const grouped = new Map<
+            string,
+            { bucket: string; region: string; keys: string[] }
+        >();
+        for (const child of descendants) {
+            if (child.isDir || child.isShortcut || child.isSymlink) continue;
+            if (!child.bucket || !child.bucketRegion) continue;
             const groupKey = `${child.bucketRegion}::${child.bucket}`;
-            const group = grouped.get(groupKey) ?? { bucket: child.bucket, region: child.bucketRegion, keys: [] };
+            const group = grouped.get(groupKey) ?? {
+                bucket: child.bucket,
+                region: child.bucketRegion,
+                keys: [],
+            };
             group.keys.push(this.#deriveObjectKeyFromEntry(child));
             grouped.set(groupKey, group);
             // Fire individual removal events so thumbnail extension can clean up.
@@ -2214,17 +2854,25 @@ export class FSEntryService extends PuterService {
         }
         await Promise.allSettled(
             Array.from(grouped.values()).map((group) =>
-                this.stores.s3Object.deleteObjects({ bucket: group.bucket, objectKeys: group.keys }, group.region)),
+                this.stores.s3Object.deleteObjects(
+                    { bucket: group.bucket, objectKeys: group.keys },
+                    group.region,
+                ),
+            ),
         );
     }
 
-    #emitRemoveEvent (entry: FSEntry): void {
+    #emitRemoveEvent(entry: FSEntry): void {
         // Ship the entry under every alias existing handlers use — `node`,
         // `entry`, `target`. The thumbnails extension destructures
         // `{ target }`, and the bare `{ node, entry }` shape landed
         // `target: undefined` → crash on `target.thumbnail`.
         try {
-            this.clients.event.emit('fs.remove.node', { node: entry, entry, target: entry }, {});
+            this.clients.event.emit(
+                'fs.remove.node',
+                { node: entry, entry, target: entry },
+                {},
+            );
         } catch {
             // Non-critical.
         }
@@ -2245,14 +2893,22 @@ export class FSEntryService extends PuterService {
      * issue time) and per-flavor `fs.move.file` (move already emits
      * `fs.move.node`).
      */
-    #emitFsEvent (name: string, entry: FSEntry, extras: Record<string, unknown> = {}): void {
+    #emitFsEvent(
+        name: string,
+        entry: FSEntry,
+        extras: Record<string, unknown> = {},
+    ): void {
         try {
-            this.clients.event.emit(name, {
-                node: entry,
-                entry,
-                uid: entry.uuid,
-                ...extras,
-            }, {});
+            this.clients.event.emit(
+                name,
+                {
+                    node: entry,
+                    entry,
+                    uid: entry.uuid,
+                    ...extras,
+                },
+                {},
+            );
         } catch {
             // Non-critical — the response is the source of truth.
         }
@@ -2263,57 +2919,78 @@ export class FSEntryService extends PuterService {
      * Works for files and directories. Updates descendant paths when moving
      * a directory.
      */
-    async move (userId: number, input: {
-        source: FSEntry;
-        destinationParent: FSEntry;
-        newName?: string;
-        overwrite?: boolean;
-        dedupeName?: boolean;
-        /**
-         * Optional metadata to overwrite on the moved entry. Callers use this
-         * for trash/restore: when moving into Trash the GUI stores
-         * `{ original_name, original_path, trashed_ts }` here so the restore
-         * path and trash listing can recover the pre-trash name.
-         */
-        newMetadata?: Record<string, unknown> | null;
-    }): Promise<FSEntry> {
+    async move(
+        userId: number,
+        input: {
+            source: FSEntry;
+            destinationParent: FSEntry;
+            newName?: string;
+            overwrite?: boolean;
+            dedupeName?: boolean;
+            /**
+             * Optional metadata to overwrite on the moved entry. Callers use this
+             * for trash/restore: when moving into Trash the GUI stores
+             * `{ original_name, original_path, trashed_ts }` here so the restore
+             * path and trash listing can recover the pre-trash name.
+             */
+            newMetadata?: Record<string, unknown> | null;
+        },
+    ): Promise<FSEntry> {
         const { source, destinationParent } = input;
-        if ( source.userId !== userId ) {
-            throw new HttpError(403, 'Cannot move an entry owned by another user');
+        if (source.userId !== userId) {
+            throw new HttpError(
+                403,
+                'Cannot move an entry owned by another user',
+            );
         }
-        if ( ! destinationParent.isDir ) {
+        if (!destinationParent.isDir) {
             throw new HttpError(400, 'Destination parent is not a directory');
         }
-        if ( source.isDir && destinationParent.path.startsWith(`${source.path }/`) ) {
+        if (
+            source.isDir &&
+            destinationParent.path.startsWith(`${source.path}/`)
+        ) {
             throw new HttpError(400, 'Cannot move a directory into itself');
         }
 
         let name = input.newName ?? source.name;
-        const targetPath = destinationParent.path === '/'
-            ? `/${name}`
-            : `${destinationParent.path}/${name}`;
+        const targetPath =
+            destinationParent.path === '/'
+                ? `/${name}`
+                : `${destinationParent.path}/${name}`;
 
-        const collision = await this.stores.fsEntry.getEntryByPathForUser(targetPath, userId);
-        if ( collision && collision.uuid !== source.uuid ) {
-            if ( input.overwrite ) {
-                await this.remove(userId, { entry: collision, recursive: true });
-            } else if ( input.dedupeName ) {
+        const collision = await this.stores.fsEntry.getEntryByPathForUser(
+            targetPath,
+            userId,
+        );
+        if (collision && collision.uuid !== source.uuid) {
+            if (input.overwrite) {
+                await this.remove(userId, {
+                    entry: collision,
+                    recursive: true,
+                });
+            } else if (input.dedupeName) {
                 name = await this.#findDedupedName(destinationParent, name);
             } else {
-                throw new HttpError(409, `An entry already exists at ${targetPath}`);
+                throw new HttpError(
+                    409,
+                    `An entry already exists at ${targetPath}`,
+                );
             }
         }
 
-        const finalPath = destinationParent.path === '/'
-            ? `/${name}`
-            : `${destinationParent.path}/${name}`;
+        const finalPath =
+            destinationParent.path === '/'
+                ? `/${name}`
+                : `${destinationParent.path}/${name}`;
 
         // `metadata` column is a TEXT field; serialize when the caller sends
         // an object, pass-through a bare string, and `null` clears it.
         // `undefined` leaves the column untouched.
         let metadataPatch: string | null | undefined;
-        if ( input.newMetadata === null ) metadataPatch = null;
-        else if ( typeof input.newMetadata === 'object' ) metadataPatch = JSON.stringify(input.newMetadata);
+        if (input.newMetadata === null) metadataPatch = null;
+        else if (typeof input.newMetadata === 'object')
+            metadataPatch = JSON.stringify(input.newMetadata);
 
         const updated = await this.stores.fsEntry.updateEntry(source.uuid, {
             name,
@@ -2323,16 +3000,24 @@ export class FSEntryService extends PuterService {
             ...(metadataPatch !== undefined ? { metadata: metadataPatch } : {}),
         });
 
-        if ( source.isDir && source.path !== finalPath ) {
-            await this.stores.fsEntry.updatePathPrefixForUser(userId, source.path, finalPath);
+        if (source.isDir && source.path !== finalPath) {
+            await this.stores.fsEntry.updatePathPrefixForUser(
+                userId,
+                source.path,
+                finalPath,
+            );
         }
 
         try {
-            this.clients.event.emit('fs.move.node', {
-                node: updated,
-                fromPath: source.path,
-                toPath: finalPath,
-            }, {});
+            this.clients.event.emit(
+                'fs.move.node',
+                {
+                    node: updated,
+                    fromPath: source.path,
+                    toPath: finalPath,
+                },
+                {},
+            );
         } catch {
             // ignore — non-critical.
         }
@@ -2346,43 +3031,70 @@ export class FSEntryService extends PuterService {
      * `fs.copy.node` so it can duplicate the backing S3 object (otherwise
      * deleting one copy would nuke the other's thumbnail).
      */
-    async copy (userId: number, input: {
-        source: FSEntry;
-        destinationParent: FSEntry;
-        newName?: string;
-        overwrite?: boolean;
-        dedupeName?: boolean;
-    }): Promise<FSEntry> {
+    async copy(
+        userId: number,
+        input: {
+            source: FSEntry;
+            destinationParent: FSEntry;
+            newName?: string;
+            overwrite?: boolean;
+            dedupeName?: boolean;
+        },
+    ): Promise<FSEntry> {
         const { source, destinationParent } = input;
-        if ( ! destinationParent.isDir ) {
+        if (!destinationParent.isDir) {
             throw new HttpError(400, 'Destination parent is not a directory');
         }
-        if ( source.isDir && (destinationParent.path === source.path || destinationParent.path.startsWith(`${source.path }/`)) ) {
-            throw new HttpError(400, 'Cannot copy a directory into itself or a descendant');
+        if (
+            source.isDir &&
+            (destinationParent.path === source.path ||
+                destinationParent.path.startsWith(`${source.path}/`))
+        ) {
+            throw new HttpError(
+                400,
+                'Cannot copy a directory into itself or a descendant',
+            );
         }
 
         let name = input.newName ?? source.name;
-        const targetPath = destinationParent.path === '/'
-            ? `/${name}`
-            : `${destinationParent.path}/${name}`;
+        const targetPath =
+            destinationParent.path === '/'
+                ? `/${name}`
+                : `${destinationParent.path}/${name}`;
 
-        const collision = await this.stores.fsEntry.getEntryByPathForUser(targetPath, userId);
-        if ( collision ) {
-            if ( input.overwrite ) {
-                await this.remove(userId, { entry: collision, recursive: true });
-            } else if ( input.dedupeName ) {
+        const collision = await this.stores.fsEntry.getEntryByPathForUser(
+            targetPath,
+            userId,
+        );
+        if (collision) {
+            if (input.overwrite) {
+                await this.remove(userId, {
+                    entry: collision,
+                    recursive: true,
+                });
+            } else if (input.dedupeName) {
                 name = await this.#findDedupedName(destinationParent, name);
             } else {
-                throw new HttpError(409, `An entry already exists at ${targetPath}`);
+                throw new HttpError(
+                    409,
+                    `An entry already exists at ${targetPath}`,
+                );
             }
         }
 
-        const finalPath = destinationParent.path === '/'
-            ? `/${name}`
-            : `${destinationParent.path}/${name}`;
+        const finalPath =
+            destinationParent.path === '/'
+                ? `/${name}`
+                : `${destinationParent.path}/${name}`;
 
-        if ( ! source.isDir ) {
-            return this.#copyLeafEntry(userId, source, destinationParent, name, finalPath);
+        if (!source.isDir) {
+            return this.#copyLeafEntry(
+                userId,
+                source,
+                destinationParent,
+                name,
+                finalPath,
+            );
         }
 
         // Recursive directory copy:
@@ -2400,7 +3112,10 @@ export class FSEntryService extends PuterService {
             isPublic: source.isPublic,
         });
 
-        const descendants = await this.stores.fsEntry.listDescendantsByPath(source.userId, source.path);
+        const descendants = await this.stores.fsEntry.listDescendantsByPath(
+            source.userId,
+            source.path,
+        );
         // Sort shallow-first so parents exist before children.
         descendants.sort((a, b) => a.path.length - b.path.length);
 
@@ -2409,31 +3124,33 @@ export class FSEntryService extends PuterService {
         const newByOldPath = new Map<string, FSEntry>();
         newByOldPath.set(source.path, newRoot);
 
-        for ( const descendant of descendants ) {
+        for (const descendant of descendants) {
             const oldParentPath = pathPosix.dirname(descendant.path);
             const newParent = newByOldPath.get(oldParentPath);
-            if ( ! newParent ) {
+            if (!newParent) {
                 // Parent wasn't copied — skip (shouldn't happen with sort).
                 continue;
             }
             const copied = descendant.isDir
                 ? await this.stores.fsEntry.createNonFileEntry({
-                    userId,
-                    parent: newParent,
-                    name: descendant.name,
-                    kind: 'directory',
-                    metadata: descendant.metadata,
-                    thumbnail: descendant.thumbnail,
-                    associatedAppId: descendant.associatedAppId,
-                    isPublic: descendant.isPublic,
-                })
+                      userId,
+                      parent: newParent,
+                      name: descendant.name,
+                      kind: 'directory',
+                      metadata: descendant.metadata,
+                      thumbnail: descendant.thumbnail,
+                      associatedAppId: descendant.associatedAppId,
+                      isPublic: descendant.isPublic,
+                  })
                 : await this.#copyLeafEntry(
-                    userId,
-                    descendant,
-                    newParent,
-                    descendant.name,
-                    newParent.path === '/' ? `/${descendant.name}` : `${newParent.path}/${descendant.name}`,
-                );
+                      userId,
+                      descendant,
+                      newParent,
+                      descendant.name,
+                      newParent.path === '/'
+                          ? `/${descendant.name}`
+                          : `${newParent.path}/${descendant.name}`,
+                  );
             newByOldPath.set(descendant.path, copied);
         }
 
@@ -2443,14 +3160,14 @@ export class FSEntryService extends PuterService {
     // Internal helper: copies a single non-directory entry. Handles files,
     // shortcuts, and symlinks. Files trigger S3 CopyObject; shortcuts/symlinks
     // are pure metadata clones.
-    async #copyLeafEntry (
+    async #copyLeafEntry(
         userId: number,
         source: FSEntry,
         destinationParent: FSEntry,
         newName: string,
         _newPath: string,
     ): Promise<FSEntry> {
-        if ( source.isSymlink ) {
+        if (source.isSymlink) {
             return this.stores.fsEntry.createNonFileEntry({
                 userId,
                 parent: destinationParent,
@@ -2461,7 +3178,7 @@ export class FSEntryService extends PuterService {
                 associatedAppId: source.associatedAppId,
             });
         }
-        if ( source.isShortcut ) {
+        if (source.isShortcut) {
             return this.stores.fsEntry.createNonFileEntry({
                 userId,
                 parent: destinationParent,
@@ -2475,7 +3192,7 @@ export class FSEntryService extends PuterService {
 
         // Regular file: duplicate the S3 object under a new key (the new
         // entry's uuid), then insert the DB row pointing at it.
-        if ( !source.bucket || !source.bucketRegion ) {
+        if (!source.bucket || !source.bucketRegion) {
             throw new HttpError(500, 'Source file has no backing storage');
         }
 
@@ -2492,35 +3209,50 @@ export class FSEntryService extends PuterService {
         );
 
         // Re-serialize metadata, swapping in the new objectKey.
-        const nextMetadata = this.#metadataWithObjectKey(source.metadata, newUuid);
+        const nextMetadata = this.#metadataWithObjectKey(
+            source.metadata,
+            newUuid,
+        );
 
         // Insert as a file row. We reuse the files INSERT path (batchCreateEntries)
         // since it handles bucket/metadata correctly. A single-row call is fine.
-        const [created] = await this.stores.fsEntry.batchCreateEntries([{
-            userId,
-            uuid: newUuid,
-            path: destinationParent.path === '/' ? `/${newName}` : `${destinationParent.path}/${newName}`,
-            size: source.size ?? 0,
-            contentType: undefined,
-            metadata: nextMetadata,
-            thumbnail: source.thumbnail,
-            associatedAppId: source.associatedAppId,
-            immutable: source.immutable,
-            isPublic: source.isPublic,
-            bucket: source.bucket,
-            bucketRegion: source.bucketRegion,
-        } as FSEntryCreateInput], false);
-        if ( ! created ) {
+        const [created] = await this.stores.fsEntry.batchCreateEntries(
+            [
+                {
+                    userId,
+                    uuid: newUuid,
+                    path:
+                        destinationParent.path === '/'
+                            ? `/${newName}`
+                            : `${destinationParent.path}/${newName}`,
+                    size: source.size ?? 0,
+                    contentType: undefined,
+                    metadata: nextMetadata,
+                    thumbnail: source.thumbnail,
+                    associatedAppId: source.associatedAppId,
+                    immutable: source.immutable,
+                    isPublic: source.isPublic,
+                    bucket: source.bucket,
+                    bucketRegion: source.bucketRegion,
+                } as FSEntryCreateInput,
+            ],
+            false,
+        );
+        if (!created) {
             throw new HttpError(500, 'Failed to copy file entry');
         }
 
         try {
-            this.clients.event.emit('fs.copy.node', {
-                source,
-                copy: created,
-                sourceObjectKey,
-                copyObjectKey: newUuid,
-            }, {});
+            this.clients.event.emit(
+                'fs.copy.node',
+                {
+                    source,
+                    copy: created,
+                    sourceObjectKey,
+                    copyObjectKey: newUuid,
+                },
+                {},
+            );
         } catch {
             // ignore — non-critical.
         }
@@ -2528,12 +3260,16 @@ export class FSEntryService extends PuterService {
     }
 
     // Preserves existing metadata JSON fields, overriding only objectKey.
-    #metadataWithObjectKey (metadata: string | null, objectKey: string): string {
+    #metadataWithObjectKey(metadata: string | null, objectKey: string): string {
         let parsed: Record<string, unknown> = {};
-        if ( metadata ) {
+        if (metadata) {
             try {
                 const tentative = JSON.parse(metadata);
-                if ( tentative && typeof tentative === 'object' && !Array.isArray(tentative) ) {
+                if (
+                    tentative &&
+                    typeof tentative === 'object' &&
+                    !Array.isArray(tentative)
+                ) {
                     parsed = tentative as Record<string, unknown>;
                 }
             } catch {

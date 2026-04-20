@@ -31,7 +31,7 @@ type CheckFn = () => Promise<unknown> | unknown;
 type FailHandler = (err: unknown) => Promise<void> | void;
 
 interface Chainable {
-    onFail (handler: FailHandler): Chainable;
+    onFail(handler: FailHandler): Chainable;
 }
 
 interface RegisteredCheck {
@@ -66,13 +66,13 @@ export class ServerHealthService extends PuterService {
     #intervalHandle: NodeJS.Timeout | null = null;
     #draining = false;
 
-    override onServerStart (): void {
+    override onServerStart(): void {
         this.#registerDefaultChecks();
         this.#startLoop();
     }
 
-    override onServerPrepareShutdown (): void {
-        if ( this.#draining ) return;
+    override onServerPrepareShutdown(): void {
+        if (this.#draining) return;
         this.#draining = true;
         this.#failures = [];
         this.#lastCycleCompletedAt = Date.now();
@@ -84,8 +84,8 @@ export class ServerHealthService extends PuterService {
         console.log('[server-health] entering drain mode');
     }
 
-    override onServerShutdown (): void {
-        if ( this.#intervalHandle ) {
+    override onServerShutdown(): void {
+        if (this.#intervalHandle) {
             clearInterval(this.#intervalHandle);
             this.#intervalHandle = null;
         }
@@ -96,7 +96,7 @@ export class ServerHealthService extends PuterService {
      * `onFail(fn)` so callers can hook self-heal logic (e.g., recreating
      * a pooled DB client after a liveness drop).
      */
-    addCheck (name: string, fn: CheckFn): Chainable {
+    addCheck(name: string, fn: CheckFn): Chainable {
         const registered: RegisteredCheck = { name, fn, onFailHandlers: [] };
         this.#checks.push(registered);
         const chainable: Chainable = {
@@ -112,12 +112,12 @@ export class ServerHealthService extends PuterService {
      * Current health status. Results are cached in Redis for 5 seconds
      * so a busy /healthcheck endpoint doesn't hammer the DB on every hit.
      */
-    async getStatus (): Promise<HealthStatus> {
-        if ( this.#draining ) return { ok: false, failed: ['draining'] };
+    async getStatus(): Promise<HealthStatus> {
+        if (this.#draining) return { ok: false, failed: ['draining'] };
 
         try {
             const cached = await this.clients.redis.get(STATUS_CACHE_KEY);
-            if ( cached ) {
+            if (cached) {
                 try {
                     return JSON.parse(cached) as HealthStatus;
                 } catch {
@@ -125,13 +125,17 @@ export class ServerHealthService extends PuterService {
                 }
             }
         } catch (e) {
-            console.warn('[server-health] status cache read failed:', (e as Error).message);
+            console.warn(
+                '[server-health] status cache read failed:',
+                (e as Error).message,
+            );
         }
 
         const failures = this.#collectFailures();
-        const status: HealthStatus = failures.length === 0
-            ? { ok: true }
-            : { ok: false, failed: failures };
+        const status: HealthStatus =
+            failures.length === 0
+                ? { ok: true }
+                : { ok: false, failed: failures };
 
         try {
             await this.clients.redis.set(
@@ -141,29 +145,32 @@ export class ServerHealthService extends PuterService {
                 STATUS_CACHE_TTL_SECONDS,
             );
         } catch (e) {
-            console.warn('[server-health] status cache write failed:', (e as Error).message);
+            console.warn(
+                '[server-health] status cache write failed:',
+                (e as Error).message,
+            );
         }
 
         return status;
     }
 
-    #registerDefaultChecks (): void {
-        const latencyFailMs = Number(
-            this.config.server_health?.db_liveness_latency_fail_ms,
-        ) || DEFAULT_DB_LIVENESS_LATENCY_FAIL_MS;
+    #registerDefaultChecks(): void {
+        const latencyFailMs =
+            Number(this.config.server_health?.db_liveness_latency_fail_ms) ||
+            DEFAULT_DB_LIVENESS_LATENCY_FAIL_MS;
 
         const db = this.clients.db;
-        if ( db && typeof db.read === 'function' ) {
+        if (db && typeof db.read === 'function') {
             this.addCheck('database-liveness', async () => {
                 const startedAt = Date.now();
-                const rows = await db.read('SELECT 1 AS ok') as unknown[];
+                const rows = (await db.read('SELECT 1 AS ok')) as unknown[];
                 const durationMs = Date.now() - startedAt;
                 this.#stats.database_liveness_latency_ms = durationMs;
 
-                if ( !Array.isArray(rows) || rows.length === 0 ) {
+                if (!Array.isArray(rows) || rows.length === 0) {
                     throw new Error('database liveness query returned no rows');
                 }
-                if ( durationMs > latencyFailMs ) {
+                if (durationMs > latencyFailMs) {
                     throw new Error(
                         `database liveness latency ${durationMs}ms > threshold ${latencyFailMs}ms`,
                     );
@@ -172,22 +179,22 @@ export class ServerHealthService extends PuterService {
         }
 
         const socket = this.services.socket as SocketService | undefined;
-        if ( socket ) {
+        if (socket) {
             this.addCheck('socket-initialized', () => {
                 // Attach happens in `attachHttpServer`, called by PuterServer
                 // after http is ready. If the internal io hasn't been set
                 // by the time checks start running, something is wrong.
                 const check = socket as unknown as { hasIO?: () => boolean };
-                if ( typeof check.hasIO === 'function' && !check.hasIO() ) {
+                if (typeof check.hasIO === 'function' && !check.hasIO()) {
                     throw new Error('socket.io is not initialized');
                 }
             });
         }
     }
 
-    #startLoop (): void {
+    #startLoop(): void {
         this.#intervalHandle = setInterval(() => {
-            if ( this.#loopRunning ) return; // reentrancy guard
+            if (this.#loopRunning) return; // reentrancy guard
             this.#loopRunning = true;
             this.#runCycle().finally(() => {
                 this.#loopRunning = false;
@@ -197,10 +204,11 @@ export class ServerHealthService extends PuterService {
         this.#intervalHandle.unref?.();
     }
 
-    async #runCycle (): Promise<void> {
-        if ( this.#draining ) {
+    async #runCycle(): Promise<void> {
+        if (this.#draining) {
             this.#lastCycleCompletedAt = Date.now();
-            this.#stats.last_check_cycle_completed_at = this.#lastCycleCompletedAt;
+            this.#stats.last_check_cycle_completed_at =
+                this.#lastCycleCompletedAt;
             this.#stats.check_durations_ms = {};
             this.#stats.failed_checks = [];
             return;
@@ -209,34 +217,45 @@ export class ServerHealthService extends PuterService {
         const newFailures: { name: string }[] = [];
         const durations: Record<string, number> = {};
 
-        for ( const check of this.#checks ) {
+        for (const check of this.#checks) {
             const startedAt = Date.now();
             let timeoutHandle: NodeJS.Timeout | null = null;
             try {
                 await new Promise<void>((resolve, reject) => {
-                    timeoutHandle = setTimeout(() => reject(new Error('Health check timed out')), CHECK_TIMEOUT_MS);
+                    timeoutHandle = setTimeout(
+                        () => reject(new Error('Health check timed out')),
+                        CHECK_TIMEOUT_MS,
+                    );
                     Promise.resolve(check.fn()).then(() => resolve(), reject);
                 });
-            } catch ( err ) {
+            } catch (err) {
                 newFailures.push({ name: check.name });
-                const alreadyFailing = this.#failures.some(f => f.name === check.name);
-                if ( ! alreadyFailing ) {
+                const alreadyFailing = this.#failures.some(
+                    (f) => f.name === check.name,
+                );
+                if (!alreadyFailing) {
                     this.clients.alarm?.create(
                         'health-check-failure',
                         `Health check ${check.name} failed`,
                         { error: err as Error },
                     );
-                    for ( const handler of check.onFailHandlers ) {
+                    for (const handler of check.onFailHandlers) {
                         try {
                             await handler(err);
-                        } catch ( hErr ) {
-                            console.error(`[server-health] onFail handler for ${check.name} threw:`, hErr);
+                        } catch (hErr) {
+                            console.error(
+                                `[server-health] onFail handler for ${check.name} threw:`,
+                                hErr,
+                            );
                         }
                     }
                 }
-                console.error(`[server-health] check "${check.name}" failed:`, err);
+                console.error(
+                    `[server-health] check "${check.name}" failed:`,
+                    err,
+                );
             } finally {
-                if ( timeoutHandle ) clearTimeout(timeoutHandle);
+                if (timeoutHandle) clearTimeout(timeoutHandle);
                 durations[check.name] = Date.now() - startedAt;
             }
         }
@@ -245,34 +264,37 @@ export class ServerHealthService extends PuterService {
         this.#lastCycleCompletedAt = Date.now();
         this.#stats.last_check_cycle_completed_at = this.#lastCycleCompletedAt;
         this.#stats.check_durations_ms = durations;
-        this.#stats.failed_checks = newFailures.map(f => f.name);
+        this.#stats.failed_checks = newFailures.map((f) => f.name);
     }
 
-    #collectFailures (): string[] {
-        const names = this.#failures.map(f => f.name);
+    #collectFailures(): string[] {
+        const names = this.#failures.map((f) => f.name);
         const stale = this.#staleLoopFailure();
-        if ( stale ) names.push(stale);
+        if (stale) names.push(stale);
         return names;
     }
 
-    #staleLoopFailure (): string | null {
-        const staleAfterMs = Number(
-            this.config.server_health?.stale_health_loop_fail_ms,
-        ) || (CHECK_INTERVAL_MS * HEALTH_LOOP_STALE_MULTIPLIER);
+    #staleLoopFailure(): string | null {
+        const staleAfterMs =
+            Number(this.config.server_health?.stale_health_loop_fail_ms) ||
+            CHECK_INTERVAL_MS * HEALTH_LOOP_STALE_MULTIPLIER;
         const now = Date.now();
 
-        if ( this.#lastCycleCompletedAt === 0 ) {
-            return (now - this.#healthStartedAt) > staleAfterMs
+        if (this.#lastCycleCompletedAt === 0) {
+            return now - this.#healthStartedAt > staleAfterMs
                 ? 'health-check-loop-not-running'
                 : null;
         }
-        return (now - this.#lastCycleCompletedAt) > staleAfterMs
+        return now - this.#lastCycleCompletedAt > staleAfterMs
             ? 'health-check-loop-stale'
             : null;
     }
 
     /** Snapshot of per-cycle timing + DB latency. */
-    getStats (): HealthStats {
-        return { ...this.#stats, check_durations_ms: { ...this.#stats.check_durations_ms } };
+    getStats(): HealthStats {
+        return {
+            ...this.#stats,
+            check_durations_ms: { ...this.#stats.check_durations_ms },
+        };
     }
 }

@@ -23,15 +23,15 @@ import { AIChatStream } from '../utils/Streaming.js';
 import { IChatProvider, ICompleteArguments, PuterMessage } from '../types.js';
 
 export class FakeChatProvider implements IChatProvider {
-    checkModeration (_text: string) {
+    checkModeration(_text: string) {
         throw new Error('Method not implemented.');
     }
 
-    getDefaultModel () {
+    getDefaultModel() {
         return 'fake';
     }
 
-    async models () {
+    async models() {
         return [
             {
                 id: 'fake',
@@ -42,7 +42,6 @@ export class FakeChatProvider implements IChatProvider {
                     'output-tokens': 0,
                 },
                 max_tokens: 8192,
-
             },
             {
                 id: 'costly',
@@ -66,25 +65,41 @@ export class FakeChatProvider implements IChatProvider {
             },
         ];
     }
-    async list () {
+    async list() {
         return ['fake', 'costly', 'abuse'];
     }
-    async complete ({ messages, stream, model, max_tokens, custom }: ICompleteArguments): ReturnType<IChatProvider['complete']> {
-
+    async complete({
+        messages,
+        stream,
+        model,
+        max_tokens,
+        custom,
+    }: ICompleteArguments): ReturnType<IChatProvider['complete']> {
         // Determine token counts based on messages and model
         const usedModel = model || this.getDefaultModel();
 
         // For the costly model, simulate actual token counting
-        const resp = this.getFakeResponse(usedModel, custom, messages, max_tokens);
+        const resp = this.getFakeResponse(
+            usedModel,
+            custom,
+            messages,
+            max_tokens,
+        );
 
-        if ( stream ) {
+        if (stream) {
             return {
-                init_chat_stream: async ({ chatStream }: { chatStream: AIChatStream }) => {
-                    await new Promise(rslv => setTimeout(rslv, 500));
-                    chatStream.stream.write(`${JSON.stringify({
-                        type: 'text',
-                        text: (await resp).message.content[0].text,
-                    }) }\n`);
+                init_chat_stream: async ({
+                    chatStream,
+                }: {
+                    chatStream: AIChatStream;
+                }) => {
+                    await new Promise((rslv) => setTimeout(rslv, 500));
+                    chatStream.stream.write(
+                        `${JSON.stringify({
+                            type: 'text',
+                            text: (await resp).message.content[0].text,
+                        })}\n`,
+                    );
                     chatStream.end({});
                 },
                 stream: true,
@@ -96,20 +111,27 @@ export class FakeChatProvider implements IChatProvider {
 
         return resp;
     }
-    async getFakeResponse (modelId: string, custom: unknown, messages: PuterMessage[], maxTokens: number = 8192): ReturnType<IChatProvider['complete']> {
+    async getFakeResponse(
+        modelId: string,
+        custom: unknown,
+        messages: PuterMessage[],
+        maxTokens: number = 8192,
+    ): ReturnType<IChatProvider['complete']> {
         let inputTokens = 0;
         let outputTokens = 0;
 
-        if ( modelId === 'costly' ) {
+        if (modelId === 'costly') {
             // Simple token estimation: roughly 4 chars per token for input
-            if ( messages && messages.length > 0 ) {
-                for ( const message of messages ) {
-                    if ( typeof message.content === 'string' ) {
+            if (messages && messages.length > 0) {
+                for (const message of messages) {
+                    if (typeof message.content === 'string') {
                         inputTokens += Math.ceil(message.content.length / 4);
-                    } else if ( Array.isArray(message.content) ) {
-                        for ( const content of message.content ) {
-                            if ( content.type === 'text' ) {
-                                inputTokens += Math.ceil(content.text.length / 4);
+                    } else if (Array.isArray(message.content)) {
+                        for (const content of message.content) {
+                            if (content.type === 'text') {
+                                inputTokens += Math.ceil(
+                                    content.text.length / 4,
+                                );
                             }
                         }
                     }
@@ -117,13 +139,15 @@ export class FakeChatProvider implements IChatProvider {
             }
 
             // Generate random output token count between 50 and 200
-            outputTokens = Math.floor(Math.min((Math.random() * 150) + 50, maxTokens));
+            outputTokens = Math.floor(
+                Math.min(Math.random() * 150 + 50, maxTokens),
+            );
             // outputTokens = Math.floor(Math.random() * 150) + 50;
         }
 
         // Generate the response text
         let responseText;
-        if ( modelId === 'abuse' ) {
+        if (modelId === 'abuse') {
             responseText = dedent(`
                 <h2>Free AI and Cloud for everyone!</h2><br />
                 Come on down to <a href="https://puter.com">puter.com</a> and try it out!
@@ -145,28 +169,28 @@ export class FakeChatProvider implements IChatProvider {
 
         // Report usage based on model
         const usage = {
-            'input_tokens': modelId === 'costly' ? inputTokens : 0,
-            'output_tokens': modelId === 'costly' ? outputTokens : 1,
+            input_tokens: modelId === 'costly' ? inputTokens : 0,
+            output_tokens: modelId === 'costly' ? outputTokens : 1,
         };
 
         return {
             message: {
-                'id': '00000000-0000-0000-0000-000000000000',
-                'type': 'message',
-                'role': 'assistant',
-                'model': modelId,
-                'content': [
+                id: '00000000-0000-0000-0000-000000000000',
+                type: 'message',
+                role: 'assistant',
+                model: modelId,
+                content: [
                     {
-                        'type': 'text',
-                        'text': responseText,
+                        type: 'text',
+                        text: responseText,
                     },
                 ],
-                'stop_reason': 'end_turn',
-                'stop_sequence': null,
-                'usage': usage,
+                stop_reason: 'end_turn',
+                stop_sequence: null,
+                usage: usage,
             },
-            'usage': usage,
-            'finish_reason': 'stop',
+            usage: usage,
+            finish_reason: 'stop',
         };
     }
 }

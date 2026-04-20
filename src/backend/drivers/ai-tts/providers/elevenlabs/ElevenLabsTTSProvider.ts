@@ -29,11 +29,14 @@ export class ElevenLabsTTSProvider extends TTSProvider {
     private baseUrl: string;
     private defaultVoiceId: string;
 
-    constructor (meteringService: MeteringService, config: {
-        apiKey: string;
-        apiBaseUrl?: string;
-        defaultVoiceId?: string;
-    }) {
+    constructor(
+        meteringService: MeteringService,
+        config: {
+            apiKey: string;
+            apiBaseUrl?: string;
+            defaultVoiceId?: string;
+        },
+    ) {
         super(meteringService, config);
 
         this.apiKey = config.apiKey;
@@ -41,7 +44,14 @@ export class ElevenLabsTTSProvider extends TTSProvider {
         this.defaultVoiceId = config.defaultVoiceId ?? DEFAULT_VOICE_ID;
     }
 
-    private async request (path: string, opts: { method?: string; body?: unknown; headers?: Record<string, string> } = {}): Promise<Response> {
+    private async request(
+        path: string,
+        opts: {
+            method?: string;
+            body?: unknown;
+            headers?: Record<string, string>;
+        } = {},
+    ): Promise<Response> {
         const { method = 'GET', body, headers = {} } = opts;
 
         const response = await fetch(`${this.baseUrl}${path}`, {
@@ -54,7 +64,7 @@ export class ElevenLabsTTSProvider extends TTSProvider {
             body: body ? JSON.stringify(body) : undefined,
         });
 
-        if ( response.ok ) {
+        if (response.ok) {
             return response;
         }
 
@@ -65,35 +75,49 @@ export class ElevenLabsTTSProvider extends TTSProvider {
             // ignore
         }
 
-        console.error('[ElevenLabsTTSProvider] request failed', { path, status: response.status, detail });
-        throw new HttpError(502, `ElevenLabs request failed (status ${response.status})`, {
-            fields: { provider: 'elevenlabs', status: response.status },
+        console.error('[ElevenLabsTTSProvider] request failed', {
+            path,
+            status: response.status,
+            detail,
         });
+        throw new HttpError(
+            502,
+            `ElevenLabs request failed (status ${response.status})`,
+            {
+                fields: { provider: 'elevenlabs', status: response.status },
+            },
+        );
     }
 
-    async listVoices (): Promise<ITTSVoice[]> {
+    async listVoices(): Promise<ITTSVoice[]> {
         const res = await this.request('/v1/voices');
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const data: any = await res.json();
-        const voices = Array.isArray(data?.voices) ? data.voices : Array.isArray(data) ? data : [];
+        const voices = Array.isArray(data?.voices)
+            ? data.voices
+            : Array.isArray(data)
+              ? data
+              : [];
 
-        return voices
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            .map((voice: any) => ({
-                id: voice.voice_id || voice.voiceId || voice.id,
-                name: voice.name,
-                description: voice.description,
-                category: voice.category,
-                provider: 'elevenlabs' as const,
-                labels: voice.labels,
-                supported_models: ELEVENLABS_TTS_MODELS.map(m => m.id),
-            }))
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            .filter((v: any) => v.id && v.name);
+        return (
+            voices
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                .map((voice: any) => ({
+                    id: voice.voice_id || voice.voiceId || voice.id,
+                    name: voice.name,
+                    description: voice.description,
+                    category: voice.category,
+                    provider: 'elevenlabs' as const,
+                    labels: voice.labels,
+                    supported_models: ELEVENLABS_TTS_MODELS.map((m) => m.id),
+                }))
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                .filter((v: any) => v.id && v.name)
+        );
     }
 
-    async listEngines (): Promise<ITTSEngine[]> {
-        return ELEVENLABS_TTS_MODELS.map(model => ({
+    async listEngines(): Promise<ITTSEngine[]> {
+        return ELEVENLABS_TTS_MODELS.map((model) => ({
             id: model.id,
             name: model.name,
             provider: 'elevenlabs',
@@ -101,7 +125,9 @@ export class ElevenLabsTTSProvider extends TTSProvider {
         }));
     }
 
-    async synthesize (args: ISynthesizeArgs): Promise<DriverStreamResult | { url: string; content_type: string }> {
+    async synthesize(
+        args: ISynthesizeArgs,
+    ): Promise<DriverStreamResult | { url: string; content_type: string }> {
         const {
             text,
             voice: voiceArg,
@@ -113,25 +139,34 @@ export class ElevenLabsTTSProvider extends TTSProvider {
             test_mode,
         } = args;
 
-        if ( test_mode ) {
+        if (test_mode) {
             return { url: SAMPLE_AUDIO_URL, content_type: 'audio' };
         }
 
-        if ( typeof text !== 'string' || !text.trim() ) {
-            throw new HttpError(400, 'Missing required field: text', { legacyCode: 'field_required', fields: { key: 'text' } });
+        if (typeof text !== 'string' || !text.trim()) {
+            throw new HttpError(400, 'Missing required field: text', {
+                legacyCode: 'field_required',
+                fields: { key: 'text' },
+            });
         }
 
         const voiceId = voiceArg || this.defaultVoiceId;
         const modelId = modelArg || DEFAULT_MODEL;
-        const desiredFormat = output_format || response_format || DEFAULT_OUTPUT_FORMAT;
+        const desiredFormat =
+            output_format || response_format || DEFAULT_OUTPUT_FORMAT;
 
         const actor = Context.get('actor')!;
         const usageKey = `elevenlabs:${modelId}:character`;
 
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const usageAllowed = await this.meteringService.hasEnoughCreditsFor(actor, usageKey as any, text.length);
-        if ( ! usageAllowed ) {
-            throw new HttpError(402, 'Insufficient funds', { legacyCode: 'insufficient_funds' });
+        const usageAllowed = await this.meteringService.hasEnoughCreditsFor(
+            actor,
+            usageKey as any,
+            text.length,
+        );
+        if (!usageAllowed) {
+            throw new HttpError(402, 'Insufficient funds', {
+                legacyCode: 'insufficient_funds',
+            });
         }
 
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -142,7 +177,7 @@ export class ElevenLabsTTSProvider extends TTSProvider {
         };
 
         const finalVoiceSettings = voice_settings ?? voiceSettings;
-        if ( finalVoiceSettings ) {
+        if (finalVoiceSettings) {
             payload.voice_settings = finalVoiceSettings;
         }
 
@@ -157,7 +192,8 @@ export class ElevenLabsTTSProvider extends TTSProvider {
 
         this.meteringService.incrementUsage(actor, usageKey, text.length);
 
-        const contentType = response.headers.get('content-type') || 'audio/mpeg';
+        const contentType =
+            response.headers.get('content-type') || 'audio/mpeg';
 
         return {
             dataType: 'stream',

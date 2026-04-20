@@ -12,10 +12,9 @@ import { PuterStore } from '../types';
  * row is deleted.
  */
 export class ShareStore extends PuterStore {
-
     // ── Reads ────────────────────────────────────────────────────────
 
-    async getByUid (uid) {
+    async getByUid(uid) {
         const rows = await this.clients.db.read(
             'SELECT * FROM `share` WHERE `uid` = ? LIMIT 1',
             [uid],
@@ -23,30 +22,33 @@ export class ShareStore extends PuterStore {
         return this.#normalizeRow(rows[0]) ?? null;
     }
 
-    async listByRecipientEmail (email) {
+    async listByRecipientEmail(email) {
         const rows = await this.clients.db.read(
             'SELECT * FROM `share` WHERE `recipient_email` = ? ORDER BY `created_at` DESC',
             [email],
         );
-        return rows.map(r => this.#normalizeRow(r));
+        return rows.map((r) => this.#normalizeRow(r));
     }
 
-    async listByIssuer (issuerUserId) {
+    async listByIssuer(issuerUserId) {
         const rows = await this.clients.db.read(
             'SELECT * FROM `share` WHERE `issuer_user_id` = ? ORDER BY `created_at` DESC',
             [issuerUserId],
         );
-        return rows.map(r => this.#normalizeRow(r));
+        return rows.map((r) => this.#normalizeRow(r));
     }
 
     // ── Writes ───────────────────────────────────────────────────────
 
-    async create ({ issuerUserId, recipientEmail, data }) {
-        if ( ! issuerUserId || ! recipientEmail ) {
-            throw new Error('create: issuerUserId and recipientEmail are required');
+    async create({ issuerUserId, recipientEmail, data }) {
+        if (!issuerUserId || !recipientEmail) {
+            throw new Error(
+                'create: issuerUserId and recipientEmail are required',
+            );
         }
         const uid = uuidv4();
-        const serialized = typeof data === 'string' ? data : JSON.stringify(data ?? {});
+        const serialized =
+            typeof data === 'string' ? data : JSON.stringify(data ?? {});
         await this.clients.db.write(
             'INSERT INTO `share` (`uid`, `issuer_user_id`, `recipient_email`, `data`) VALUES (?, ?, ?, ?)',
             [uid, issuerUserId, recipientEmail, serialized],
@@ -54,7 +56,7 @@ export class ShareStore extends PuterStore {
         return this.getByUid(uid);
     }
 
-    async deleteByUid (uid) {
+    async deleteByUid(uid) {
         const result = await this.clients.db.write(
             'DELETE FROM `share` WHERE `uid` = ?',
             [uid],
@@ -62,7 +64,7 @@ export class ShareStore extends PuterStore {
         return (result?.affectedRows ?? result?.changes ?? 0) > 0;
     }
 
-    async deleteByRecipientEmail (email) {
+    async deleteByRecipientEmail(email) {
         const result = await this.clients.db.write(
             'DELETE FROM `share` WHERE `recipient_email` = ?',
             [email],
@@ -72,10 +74,14 @@ export class ShareStore extends PuterStore {
 
     // ── Internals ────────────────────────────────────────────────────
 
-    #normalizeRow (row) {
-        if ( ! row ) return null;
-        if ( typeof row.data === 'string' ) {
-            try { row.data = JSON.parse(row.data); } catch { /* keep string */ }
+    #normalizeRow(row) {
+        if (!row) return null;
+        if (typeof row.data === 'string') {
+            try {
+                row.data = JSON.parse(row.data);
+            } catch {
+                /* keep string */
+            }
         }
         return row;
     }

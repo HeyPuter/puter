@@ -1,6 +1,9 @@
 import type { Readable } from 'node:stream';
 import type { FSEntry, FSEntryWriteInput } from '../../stores/fs/FSEntry.js';
-import type { WriteGuiMetadata, WriteRequest } from '../../controllers/fs/requestTypes.js';
+import type {
+    WriteGuiMetadata,
+    WriteRequest,
+} from '../../controllers/fs/requestTypes.js';
 
 export interface NormalizedWriteInput {
     userId: number;

@@ -33,20 +33,20 @@ export const createAuthProbe = (opts: AuthProbeOptions): RequestHandler => {
     const { authService, cookieName } = opts;
     return async (req, _res, next): Promise<void> => {
         // If something upstream already attached an actor, respect it.
-        if ( req.actor ) {
+        if (req.actor) {
             next();
             return;
         }
 
         const token = extractToken(req, cookieName);
-        if ( ! token ) {
+        if (!token) {
             next();
             return;
         }
 
         try {
             const actor = await authService.authenticateFromToken(token);
-            if ( actor ) {
+            if (actor) {
                 req.actor = actor;
                 req.token = token;
             }
@@ -63,21 +63,25 @@ export const createAuthProbe = (opts: AuthProbeOptions): RequestHandler => {
  */
 const extractToken = (req: Request, cookieName?: string): string | null => {
     // 1. Body (`{ "auth_token": "..." }`)
-    const bodyToken = (req.body as { auth_token?: unknown } | undefined)?.auth_token;
-    if ( typeof bodyToken === 'string' && bodyToken.length > 0 ) {
+    const bodyToken = (req.body as { auth_token?: unknown } | undefined)
+        ?.auth_token;
+    if (typeof bodyToken === 'string' && bodyToken.length > 0) {
         return stripBearer(bodyToken);
     }
 
     // 2. Authorization header. Reject `Basic ...` (not our scheme) and
     // the bare word `Bearer` (sent by some Office clients as a placeholder).
-    const authHeader = typeof req.header === 'function' ? req.header('Authorization') : undefined;
+    const authHeader =
+        typeof req.header === 'function'
+            ? req.header('Authorization')
+            : undefined;
     if (
-        typeof authHeader === 'string'
-        && ! authHeader.startsWith('Basic ')
-        && authHeader !== 'Bearer'
+        typeof authHeader === 'string' &&
+        !authHeader.startsWith('Basic ') &&
+        authHeader !== 'Bearer'
     ) {
         const stripped = authHeader.replace(/^Bearer\s+/i, '').trim();
-        if ( stripped.length > 0 && stripped !== 'undefined' ) {
+        if (stripped.length > 0 && stripped !== 'undefined') {
             return stripped;
         }
     }
@@ -85,31 +89,35 @@ const extractToken = (req: Request, cookieName?: string): string | null => {
     // 3. `x-api-key` header — some third-party SDKs (Anthropic's in
     // particular) send their API key in this header. Accepted globally
     // so every route gated on auth works uniformly for those clients.
-    const xApiKey = typeof req.header === 'function' ? req.header('x-api-key') : undefined;
-    if ( typeof xApiKey === 'string' && xApiKey.length > 0 ) {
+    const xApiKey =
+        typeof req.header === 'function' ? req.header('x-api-key') : undefined;
+    if (typeof xApiKey === 'string' && xApiKey.length > 0) {
         return stripBearer(xApiKey);
     }
 
     // 4. Cookie (set by login flow for session tokens). We parse the
     // Cookie header directly rather than depending on `cookie-parser`
     // middleware — the probe only needs one named value.
-    if ( cookieName ) {
+    if (cookieName) {
         const cookieToken = readCookie(req, cookieName);
-        if ( cookieToken ) {
+        if (cookieToken) {
             return stripBearer(cookieToken);
         }
     }
 
     // 5. Query string (used by e.g. QR login, asset URLs).
-    const queryToken = (req.query as { auth_token?: unknown } | undefined)?.auth_token;
-    if ( typeof queryToken === 'string' && queryToken.length > 0 ) {
+    const queryToken = (req.query as { auth_token?: unknown } | undefined)
+        ?.auth_token;
+    if (typeof queryToken === 'string' && queryToken.length > 0) {
         return stripBearer(queryToken);
     }
 
     // 6. Socket handshake (for websocket upgrades that pass through HTTP).
-    const handshake = (req as unknown as { handshake?: { query?: { auth_token?: unknown } } }).handshake;
+    const handshake = (
+        req as unknown as { handshake?: { query?: { auth_token?: unknown } } }
+    ).handshake;
     const handshakeToken = handshake?.query?.auth_token;
-    if ( typeof handshakeToken === 'string' && handshakeToken.length > 0 ) {
+    if (typeof handshakeToken === 'string' && handshakeToken.length > 0) {
         return stripBearer(handshakeToken);
     }
 
@@ -123,14 +131,15 @@ const stripBearer = (t: string): string => t.replace(/^Bearer\s+/i, '').trim();
  * lookup the probe needs. Handles quoted values and URL-decodes the result.
  */
 const readCookie = (req: Request, name: string): string | null => {
-    const header = typeof req.header === 'function' ? req.header('cookie') : undefined;
-    if ( ! header || typeof header !== 'string' ) return null;
+    const header =
+        typeof req.header === 'function' ? req.header('cookie') : undefined;
+    if (!header || typeof header !== 'string') return null;
     const target = `${name}=`;
-    for ( const rawPair of header.split(';') ) {
+    for (const rawPair of header.split(';')) {
         const pair = rawPair.trim();
-        if ( ! pair.startsWith(target) ) continue;
+        if (!pair.startsWith(target)) continue;
         let value = pair.slice(target.length);
-        if ( value.startsWith('"') && value.endsWith('"') ) {
+        if (value.startsWith('"') && value.endsWith('"')) {
             value = value.slice(1, -1);
         }
         try {

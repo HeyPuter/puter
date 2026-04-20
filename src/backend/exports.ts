@@ -7,18 +7,9 @@ import type { IConfig, LayerInstances } from './types';
 
 export const configContainer: IConfig = {} as IConfig;
 
-export const clientsContainers: LayerInstances<IPuterClientRegistry> = {
-
-};
-export const storesContainers: LayerInstances<IPuterStoreRegistry> = {
-
-};
-export const servicesContainers: LayerInstances<IPuterServiceRegistry> = {
-
-};
-export const controllersContainers: LayerInstances<IPuterControllerRegistry> = {
-
-};
-export const driversContainers: LayerInstances<IPuterDriverRegistry> = {
-
-};
+export const clientsContainers: LayerInstances<IPuterClientRegistry> = {};
+export const storesContainers: LayerInstances<IPuterStoreRegistry> = {};
+export const servicesContainers: LayerInstances<IPuterServiceRegistry> = {};
+export const controllersContainers: LayerInstances<IPuterControllerRegistry> =
+    {};
+export const driversContainers: LayerInstances<IPuterDriverRegistry> = {};

@@ -23,21 +23,39 @@ import {
 import { createNotFoundHandler } from './core/http/middleware/notFoundHandler';
 import { requireAntiCsrf } from './core/http/middleware/antiCsrf';
 import { captchaGate } from './core/http/middleware/captcha';
-import { rateLimitGate, configureRateLimit } from './core/http/middleware/rateLimit';
-import { createWwwRedirect, createUserSubdomainRedirect, createNativeAppStatic } from './core/http/middleware/hostRedirects';
+import {
+    rateLimitGate,
+    configureRateLimit,
+} from './core/http/middleware/rateLimit';
+import {
+    createWwwRedirect,
+    createUserSubdomainRedirect,
+    createNativeAppStatic,
+} from './core/http/middleware/hostRedirects';
 import { createPuterSiteMiddleware } from './core/http/middleware/puterSite';
 import { PuterRouter } from './core/http/PuterRouter';
 import { PREFIX_METADATA_KEY, type RouteDescriptor } from './core/http/types';
 import type { AuthService } from './services/auth/AuthService';
 import { puterDrivers } from './drivers';
-import { clientsContainers, configContainer, controllersContainers, driversContainers, servicesContainers, storesContainers } from './exports';
+import {
+    clientsContainers,
+    configContainer,
+    controllersContainers,
+    driversContainers,
+    servicesContainers,
+    storesContainers,
+} from './exports';
 import { extensionStore } from './extensions';
 import { puterServices } from './services';
 import { puterStores } from './stores';
-import type { IConfig, LayerInstances, WithControllerRegistration, WithLifecycle } from './types';
+import type {
+    IConfig,
+    LayerInstances,
+    WithControllerRegistration,
+    WithLifecycle,
+} from './types';
 
 export class PuterServer {
-
     clients!: LayerInstances<typeof puterClients>;
     stores!: LayerInstances<typeof puterStores>;
     services!: LayerInstances<typeof puterServices>;
@@ -49,47 +67,106 @@ export class PuterServer {
 
     #ready: Promise<boolean>;
 
-    constructor (config: IConfig, clients: typeof puterClients, stores: typeof puterStores, services: typeof puterServices, controllers: typeof puterControllers, drivers: typeof puterDrivers) {
-
+    constructor(
+        config: IConfig,
+        clients: typeof puterClients,
+        stores: typeof puterStores,
+        services: typeof puterServices,
+        controllers: typeof puterControllers,
+        drivers: typeof puterDrivers,
+    ) {
         this.#config = config;
         // Expose config to the extension API (extension.config)
         Object.assign(configContainer, config);
-        this.#ready = this.#setupServer(clients, stores, services, controllers, drivers);
+        this.#ready = this.#setupServer(
+            clients,
+            stores,
+            services,
+            controllers,
+            drivers,
+        );
     }
 
-    async #setupServer (clients: typeof puterClients, stores: typeof puterStores, services: typeof puterServices, controllers: typeof puterControllers, drivers: typeof puterDrivers) {
-
+    async #setupServer(
+        clients: typeof puterClients,
+        stores: typeof puterStores,
+        services: typeof puterServices,
+        controllers: typeof puterControllers,
+        drivers: typeof puterDrivers,
+    ) {
         // Load prod extensions from configured directories (dynamic)
         const extensionDirs = this.#config.extensions;
         await this.#importExtensions(extensionDirs);
 
         this.clients = {} as typeof this.clients;
-        for ( const [clientName, ClientClass] of Object.entries(clients) ) {
-            this.clients[clientName] = (typeof ClientClass === 'object' ? ClientClass : (new (ClientClass as any)(this.#config)) as any);
+        for (const [clientName, ClientClass] of Object.entries(clients)) {
+            this.clients[clientName] =
+                typeof ClientClass === 'object'
+                    ? ClientClass
+                    : (new (ClientClass as any)(this.#config) as any);
             clientsContainers[clientName] = this.clients[clientName];
         }
-        for ( const [clientName, ClientClass] of Object.entries(extensionStore.clients) ) {
-            this.clients[clientName] = (typeof ClientClass === 'object' ? ClientClass : (new (ClientClass as any)(this.#config)) as any);
+        for (const [clientName, ClientClass] of Object.entries(
+            extensionStore.clients,
+        )) {
+            this.clients[clientName] =
+                typeof ClientClass === 'object'
+                    ? ClientClass
+                    : (new (ClientClass as any)(this.#config) as any);
             clientsContainers[clientName] = this.clients[clientName];
         }
 
         this.stores = {} as typeof this.stores;
-        for ( const [storeName, StoreClass] of Object.entries(stores) ) {
-            this.stores[storeName] = (typeof StoreClass === 'object' ? StoreClass : (new (StoreClass as any)(this.#config, this.clients, this.stores)) as any);
+        for (const [storeName, StoreClass] of Object.entries(stores)) {
+            this.stores[storeName] =
+                typeof StoreClass === 'object'
+                    ? StoreClass
+                    : (new (StoreClass as any)(
+                          this.#config,
+                          this.clients,
+                          this.stores,
+                      ) as any);
             storesContainers[storeName] = this.stores[storeName];
         }
-        for ( const [storeName, StoreClass] of Object.entries(extensionStore.stores) ) {
-            this.stores[storeName] = (typeof StoreClass === 'object' ? StoreClass : (new (StoreClass as any)(this.#config, this.clients, this.stores)) as any);
+        for (const [storeName, StoreClass] of Object.entries(
+            extensionStore.stores,
+        )) {
+            this.stores[storeName] =
+                typeof StoreClass === 'object'
+                    ? StoreClass
+                    : (new (StoreClass as any)(
+                          this.#config,
+                          this.clients,
+                          this.stores,
+                      ) as any);
             storesContainers[storeName] = this.stores[storeName];
         }
 
         this.services = {} as typeof this.services;
-        for ( const [serviceName, ServiceClass] of Object.entries(services) ) {
-            this.services[serviceName] = (typeof ServiceClass === 'object' ? ServiceClass : (new (ServiceClass as any)(this.#config, this.clients, this.stores, this.services)) as any);
+        for (const [serviceName, ServiceClass] of Object.entries(services)) {
+            this.services[serviceName] =
+                typeof ServiceClass === 'object'
+                    ? ServiceClass
+                    : (new (ServiceClass as any)(
+                          this.#config,
+                          this.clients,
+                          this.stores,
+                          this.services,
+                      ) as any);
             servicesContainers[serviceName] = this.services[serviceName];
         }
-        for ( const [serviceName, ServiceClass] of Object.entries(extensionStore.services) ) {
-            this.services[serviceName] = (typeof ServiceClass === 'object' ? ServiceClass : (new (ServiceClass as any)(this.#config, this.clients, this.stores, this.services)) as any);
+        for (const [serviceName, ServiceClass] of Object.entries(
+            extensionStore.services,
+        )) {
+            this.services[serviceName] =
+                typeof ServiceClass === 'object'
+                    ? ServiceClass
+                    : (new (ServiceClass as any)(
+                          this.#config,
+                          this.clients,
+                          this.stores,
+                          this.services,
+                      ) as any);
             servicesContainers[serviceName] = this.services[serviceName];
         }
 
@@ -111,28 +188,60 @@ export class PuterServer {
             ...Object.entries(drivers),
             ...Object.entries(extensionStore.drivers),
         ];
-        for ( const [driverKey, DriverClass] of allDriverSources ) {
-            const instance = (typeof DriverClass === 'object'
-                ? DriverClass
-                : (new (DriverClass as any)(this.#config, this.clients, this.stores, this.services)) as any);
+        for (const [driverKey, DriverClass] of allDriverSources) {
+            const instance =
+                typeof DriverClass === 'object'
+                    ? DriverClass
+                    : (new (DriverClass as any)(
+                          this.#config,
+                          this.clients,
+                          this.stores,
+                          this.services,
+                      ) as any);
             this.drivers[driverKey] = instance;
             driversContainers[driverKey] = instance;
         }
 
         this.controllers = {} as typeof this.controllers;
-        for ( const [controllerName, ControllerClass] of Object.entries(controllers) ) {
-            this.controllers[controllerName] = (typeof ControllerClass === 'object'
-                ? ControllerClass
-                : (new (ControllerClass as any)(this.#config, this.clients, this.stores, this.services, this.drivers)) as any);
-            this.#registerControllerRoutes(controllerName, this.controllers[controllerName]);
-            controllersContainers[controllerName] = this.controllers[controllerName];
+        for (const [controllerName, ControllerClass] of Object.entries(
+            controllers,
+        )) {
+            this.controllers[controllerName] =
+                typeof ControllerClass === 'object'
+                    ? ControllerClass
+                    : (new (ControllerClass as any)(
+                          this.#config,
+                          this.clients,
+                          this.stores,
+                          this.services,
+                          this.drivers,
+                      ) as any);
+            this.#registerControllerRoutes(
+                controllerName,
+                this.controllers[controllerName],
+            );
+            controllersContainers[controllerName] =
+                this.controllers[controllerName];
         }
-        for ( const [controllerName, ControllerClass] of Object.entries(extensionStore.controllers) ) {
-            this.controllers[controllerName] = (typeof ControllerClass === 'object'
-                ? ControllerClass
-                : (new (ControllerClass as any)(this.#config, this.clients, this.stores, this.services, this.drivers)) as any);
-            this.#registerControllerRoutes(controllerName, this.controllers[controllerName]);
-            controllersContainers[controllerName] = this.controllers[controllerName];
+        for (const [controllerName, ControllerClass] of Object.entries(
+            extensionStore.controllers,
+        )) {
+            this.controllers[controllerName] =
+                typeof ControllerClass === 'object'
+                    ? ControllerClass
+                    : (new (ControllerClass as any)(
+                          this.#config,
+                          this.clients,
+                          this.stores,
+                          this.services,
+                          this.drivers,
+                      ) as any);
+            this.#registerControllerRoutes(
+                controllerName,
+                this.controllers[controllerName],
+            );
+            controllersContainers[controllerName] =
+                this.controllers[controllerName];
         }
 
         // Register extension event listeners. Extensions opted for a
@@ -140,8 +249,12 @@ export class PuterServer {
         // `(key, data, meta)`. Drop `key` in the adapter so extension
         // code stays stable.
         Object.entries(extensionStore.events).forEach(([event, handlers]) => {
-            handlers.forEach(handler => {
-                this.clients.event.on(event, (_key: string, data: unknown, meta: object) => handler(data, meta));
+            handlers.forEach((handler) => {
+                this.clients.event.on(
+                    event,
+                    (_key: string, data: unknown, meta: object) =>
+                        handler(data, meta),
+                );
             });
         });
 
@@ -150,7 +263,7 @@ export class PuterServer {
         // option → middleware translation (subdomain, auth, body parsers, …).
         // The extension-layer "prefix" is always empty; extensions compose
         // their own path strings.
-        for ( const route of extensionStore.routeHandlers ) {
+        for (const route of extensionStore.routeHandlers) {
             this.#materializeRoute(this.#app, '', route);
         }
 
@@ -170,7 +283,7 @@ export class PuterServer {
      * or misconfigured backends fall back to memory with a warning so a
      * typo doesn't take the server down.
      */
-    #configureRateLimiter () {
+    #configureRateLimiter() {
         // Default to `redis` — the redis client is always present (falls
         // back to ioredis-mock in dev when no nodes are configured), and
         // sorted-set rate limiting scales across nodes for free. Set
@@ -182,8 +295,11 @@ export class PuterServer {
                 redis: this.clients.redis,
                 kv: this.stores.kv,
             });
-        } catch ( e ) {
-            console.warn(`[rate-limit] ${backend} backend unavailable, falling back to memory:`, (e as Error).message);
+        } catch (e) {
+            console.warn(
+                `[rate-limit] ${backend} backend unavailable, falling back to memory:`,
+                (e as Error).message,
+            );
             configureRateLimit();
         }
     }
@@ -198,7 +314,7 @@ export class PuterServer {
      *   - Per-route gate middleware (requireAuth, adminOnly, ...) lands in
      *     `#materializeRoute` as those options ship.
      */
-    #installGlobalMiddleware () {
+    #installGlobalMiddleware() {
         // ── Cookie parsing ──────────────────────────────────────────
         this.#app.use(cookieParser());
 
@@ -226,11 +342,11 @@ export class PuterServer {
         // parser mostly avoids these, but when `extended` qs is enabled
         // (or a client tricks the parser) arrays/objects can sneak in.
         this.#app.use((req, _res, next) => {
-            if ( req.query ) {
+            if (req.query) {
                 const allowed = ['string', 'number', 'boolean'];
-                for ( const k of Object.keys(req.query) ) {
+                for (const k of Object.keys(req.query)) {
                     const v = req.query[k];
-                    if ( v != null && !allowed.includes(typeof v) ) {
+                    if (v != null && !allowed.includes(typeof v)) {
                         delete req.query[k];
                     }
                 }
@@ -241,7 +357,7 @@ export class PuterServer {
         // ── UA parsing ──────────────────────────────────────────────
         this.#app.use((req, _res, next) => {
             const header = req.headers['user-agent'];
-            if ( header ) {
+            if (header) {
                 req.ua = uaParser(header);
             }
             next();
@@ -265,7 +381,7 @@ export class PuterServer {
         this.#installCors();
 
         // ── IP validation ───────────────────────────────────────────
-        if ( this.#config.enable_ip_validation ) {
+        if (this.#config.enable_ip_validation) {
             this.#installIpValidation();
         }
 
@@ -275,23 +391,30 @@ export class PuterServer {
         });
 
         // ── Body parsing (JSON + text-as-json shim) ─────────────────
-        const captureRawBody: NonNullable<Parameters<typeof express.json>[0]>['verify'] = (req, _res, buf) => {
+        const captureRawBody: NonNullable<
+            Parameters<typeof express.json>[0]
+        >['verify'] = (req, _res, buf) => {
             (req as { rawBody?: Buffer }).rawBody = Buffer.from(buf);
         };
         this.#app.use(express.json({ limit: '50mb', verify: captureRawBody }));
-        this.#app.use(express.json({
-            limit: '50mb',
-            type: (req) => req.headers['content-type'] === 'text/plain;actually=json',
-            verify: captureRawBody,
-        }));
+        this.#app.use(
+            express.json({
+                limit: '50mb',
+                type: (req) =>
+                    req.headers['content-type'] === 'text/plain;actually=json',
+                verify: captureRawBody,
+            }),
+        );
 
         // ── Auth probe ──────────────────────────────────────────────
         const authService = this.services.auth as AuthService | undefined;
-        if ( authService ) {
-            this.#app.use(createAuthProbe({
-                authService,
-                cookieName: this.#config.cookie_name,
-            }));
+        if (authService) {
+            this.#app.use(
+                createAuthProbe({
+                    authService,
+                    cookieName: this.#config.cookie_name,
+                }),
+            );
         }
 
         // ── Per-request ALS context ─────────────────────────────────
@@ -303,22 +426,26 @@ export class PuterServer {
         // Short-circuits hosting-domain hosts before any API/GUI
         // controller route has a chance to match. Needs DI layers for
         // subdomain lookup, private-app gate, and file streaming.
-        this.#app.use(createPuterSiteMiddleware(this.#config, {
-            clients: this.clients,
-            stores: this.stores,
-            services: this.services,
-        }));
+        this.#app.use(
+            createPuterSiteMiddleware(this.#config, {
+                clients: this.clients,
+                stores: this.stores,
+                services: this.services,
+            }),
+        );
     }
 
     // ── Host header validation ──────────────────────────────────────
 
-    #installHostValidation () {
+    #installHostValidation() {
         const config = this.#config;
 
         // Hostname missing — malformed request from a broken client.
         this.#app.use((req, res, next) => {
-            if ( req.hostname === undefined ) {
-                res.status(400).send('Please verify your browser is up-to-date.');
+            if (req.hostname === undefined) {
+                res.status(400).send(
+                    'Please verify your browser is up-to-date.',
+                );
                 return;
             }
             next();
@@ -326,31 +453,36 @@ export class PuterServer {
 
         // Build the allowed-domain set from config.
         this.#app.use((req, res, next) => {
-            if ( config.allow_all_host_values ) {
+            if (config.allow_all_host_values) {
                 next();
                 return;
             }
 
-            if ( !config.allow_no_host_header && !req.headers.host ) {
+            if (!config.allow_no_host_header && !req.headers.host) {
                 res.status(400).send('Missing Host header.');
                 return;
             }
 
             // /healthcheck is always reachable regardless of host.
-            if ( req.path === '/healthcheck' ) {
+            if (req.path === '/healthcheck') {
                 next();
                 return;
             }
 
-            const hostName = (req.headers.host ?? '').split(':')[0].trim().toLowerCase();
+            const hostName = (req.headers.host ?? '')
+                .split(':')[0]
+                .trim()
+                .toLowerCase();
             const allowed = this.#getAllowedDomains();
 
-            if ( allowed.some(d => PuterServer.#hostMatchesDomain(hostName, d)) ) {
+            if (
+                allowed.some((d) => PuterServer.#hostMatchesDomain(hostName, d))
+            ) {
                 next();
                 return;
             }
 
-            if ( config.custom_domains_enabled ) {
+            if (config.custom_domains_enabled) {
                 req.is_custom_domain = true;
                 next();
                 return;
@@ -362,8 +494,8 @@ export class PuterServer {
 
     #allowedDomainsCache: string[] | null = null;
 
-    #getAllowedDomains (): string[] {
-        if ( this.#allowedDomainsCache ) return this.#allowedDomainsCache;
+    #getAllowedDomains(): string[] {
+        if (this.#allowedDomainsCache) return this.#allowedDomainsCache;
         const cfg = this.#config;
         const raw = [
             cfg.domain,
@@ -372,9 +504,11 @@ export class PuterServer {
             cfg.private_app_hosting_domain,
             cfg.private_app_hosting_domain_alt,
         ];
-        const staticDomain = PuterServer.#normalizeDomain(cfg.static_hosting_domain);
-        if ( staticDomain ) raw.push(`at.${staticDomain}`);
-        if ( cfg.allow_nipio_domains ) raw.push('nip.io');
+        const staticDomain = PuterServer.#normalizeDomain(
+            cfg.static_hosting_domain,
+        );
+        if (staticDomain) raw.push(`at.${staticDomain}`);
+        if (cfg.allow_nipio_domains) raw.push('nip.io');
 
         this.#allowedDomainsCache = raw
             .map(PuterServer.#normalizeDomain)
@@ -382,25 +516,36 @@ export class PuterServer {
         return this.#allowedDomainsCache;
     }
 
-    static #normalizeDomain (d: string | undefined | null): string | null {
-        if ( !d || typeof d !== 'string' ) return null;
+    static #normalizeDomain(d: string | undefined | null): string | null {
+        if (!d || typeof d !== 'string') return null;
         const trimmed = d.trim().toLowerCase();
         return trimmed.length > 0 ? trimmed : null;
     }
 
-    static #hostMatchesDomain (hostname: string, domain: string): boolean {
+    static #hostMatchesDomain(hostname: string, domain: string): boolean {
         return hostname === domain || hostname.endsWith(`.${domain}`);
     }
 
     // ── CORS headers ─────────────────────────────────────────────────
 
-    #installCors () {
+    #installCors() {
         const config = this.#config;
-        const allowedMethods = 'GET, POST, OPTIONS, PUT, PATCH, DELETE, PROPFIND, PROPPATCH, MKCOL, COPY, MOVE, LOCK, UNLOCK';
+        const allowedMethods =
+            'GET, POST, OPTIONS, PUT, PATCH, DELETE, PROPFIND, PROPPATCH, MKCOL, COPY, MOVE, LOCK, UNLOCK';
         const allowedHeaders = [
-            'Origin', 'X-Requested-With', 'Content-Type', 'Accept',
-            'Authorization', 'sentry-trace', 'baggage',
-            'Depth', 'Destination', 'Overwrite', 'If', 'Lock-Token', 'DAV',
+            'Origin',
+            'X-Requested-With',
+            'Content-Type',
+            'Accept',
+            'Authorization',
+            'sentry-trace',
+            'baggage',
+            'Depth',
+            'Destination',
+            'Overwrite',
+            'If',
+            'Lock-Token',
+            'DAV',
             'stripe-signature',
         ].join(', ');
 
@@ -409,19 +554,19 @@ export class PuterServer {
             const subdomain = req.subdomains?.[req.subdomains.length - 1];
             const isApiOrDav = subdomain === 'api' || subdomain === 'dav';
             const isCrossOriginAuthRoute =
-                req.path === '/signup'
-                || req.path === '/login'
-                || req.path.startsWith('/extensions/')
-                || req.path.startsWith('/auth/oidc');
+                req.path === '/signup' ||
+                req.path === '/login' ||
+                req.path.startsWith('/extensions/') ||
+                req.path.startsWith('/auth/oidc');
 
             // Allow-Origin for API/DAV + auth routes
-            if ( isCrossOriginAuthRoute || isApiOrDav ) {
+            if (isCrossOriginAuthRoute || isApiOrDav) {
                 res.setHeader('Access-Control-Allow-Origin', origin ?? '*');
-                if ( origin ) res.vary('Origin');
+                if (origin) res.vary('Origin');
             }
 
             // Credentials on API/DAV cross-origin
-            if ( isApiOrDav && origin ) {
+            if (isApiOrDav && origin) {
                 res.setHeader('Access-Control-Allow-Credentials', 'true');
             }
 
@@ -429,7 +574,7 @@ export class PuterServer {
             res.setHeader('Access-Control-Allow-Headers', allowedHeaders);
 
             // Disable iframes on the main domain
-            if ( req.hostname === config.domain ) {
+            if (req.hostname === config.domain) {
                 res.setHeader('X-Frame-Options', 'SAMEORIGIN');
             }
 
@@ -439,15 +584,16 @@ export class PuterServer {
 
     // ── IP validation ───────────────────────────────────────────────
 
-    #installIpValidation () {
+    #installIpValidation() {
         this.#app.use(async (req, res, next) => {
-            const ip = req.headers?.['x-forwarded-for'] ?? req.socket?.remoteAddress;
+            const ip =
+                req.headers?.['x-forwarded-for'] ?? req.socket?.remoteAddress;
             const event = { allow: true, ip };
             // emitAndWait so listeners that do async work (IP-reputation
             // lookups, Redis checks) can complete before we read
             // `event.allow` and decide the gate.
             await this.clients.event.emitAndWait('ip.validate', event, {});
-            if ( ! event.allow ) {
+            if (!event.allow) {
                 res.status(403).send('Forbidden');
                 return;
             }
@@ -464,7 +610,7 @@ export class PuterServer {
      *      thrown errors (sync and async), so handlers can `throw new HttpError(...)`
      *      without `next(err)` ceremony.
      */
-    #installTerminalMiddleware () {
+    #installTerminalMiddleware() {
         this.#app.use(createNotFoundHandler());
         this.#app.use(createErrorHandler());
     }
@@ -476,23 +622,34 @@ export class PuterServer {
      * options, they get wired in at this single point without touching any
      * controller call site.
      */
-    #registerControllerRoutes (controllerName: string, controller: WithControllerRegistration) {
-        if ( ! controller.registerRoutes ) {
-            throw new Error(`Controller ${controllerName} does not have registerRoutes method`);
+    #registerControllerRoutes(
+        controllerName: string,
+        controller: WithControllerRegistration,
+    ) {
+        if (!controller.registerRoutes) {
+            throw new Error(
+                `Controller ${controllerName} does not have registerRoutes method`,
+            );
         }
 
         // Controllers annotated with `@Controller('/prefix')` carry the prefix
         // on their prototype; bare (imperative) controllers default to ''.
-        const prefix = (controller as unknown as Record<string, unknown>)[PREFIX_METADATA_KEY] as string | undefined;
+        const prefix = (controller as unknown as Record<string, unknown>)[
+            PREFIX_METADATA_KEY
+        ] as string | undefined;
         const router = new PuterRouter(prefix ?? '');
         controller.registerRoutes(router);
 
-        for ( const route of router.routes ) {
+        for (const route of router.routes) {
             this.#materializeRoute(this.#app, router.prefix, route);
         }
     }
 
-    #materializeRoute (app: Application, routerPrefix: string, route: RouteDescriptor) {
+    #materializeRoute(
+        app: Application,
+        routerPrefix: string,
+        route: RouteDescriptor,
+    ) {
         const mwChain: RequestHandler[] = [];
         const opts = route.options;
 
@@ -507,16 +664,16 @@ export class PuterServer {
         // chains). We handle subdomain gating by wrapping the handler for
         // `use` routes further down — don't push `subdomainGate` here.
         const isUse = route.method === 'use';
-        if ( opts.subdomain !== undefined ) {
-            if ( opts.subdomain !== '*' && !isUse ) {
+        if (opts.subdomain !== undefined) {
+            if (opts.subdomain !== '*' && !isUse) {
                 mwChain.push(subdomainGate(opts.subdomain));
             }
             // subdomain: '*' → no gate, match any subdomain
-        } else if ( ! isUse ) {
+        } else if (!isUse) {
             // No subdomain specified + not a `use()` middleware → root only.
             // Root = no subdomain present (req.subdomains is empty).
             mwChain.push((req, _res, next) => {
-                if ( req.subdomains && req.subdomains.length > 0 ) {
+                if (req.subdomains && req.subdomains.length > 0) {
                     next('route');
                     return;
                 }
@@ -530,52 +687,56 @@ export class PuterServer {
         //   requireUserActor => requireAuth
         // Dedupe: only push requireAuthGate once when *any* of these are set.
         const needsAuth = Boolean(
-            opts.requireAuth
-            || opts.requireUserActor
-            || opts.adminOnly
-            || opts.allowedAppIds
-            || opts.requireVerified,
+            opts.requireAuth ||
+            opts.requireUserActor ||
+            opts.adminOnly ||
+            opts.allowedAppIds ||
+            opts.requireVerified,
         );
-        if ( needsAuth ) mwChain.push(requireAuthGate());
+        if (needsAuth) mwChain.push(requireAuthGate());
 
         const needsUserActor = Boolean(
             opts.requireUserActor || opts.adminOnly || opts.requireVerified,
         );
-        if ( needsUserActor ) mwChain.push(requireUserActorGate());
+        if (needsUserActor) mwChain.push(requireUserActorGate());
 
-        if ( opts.adminOnly ) {
+        if (opts.adminOnly) {
             const extras = Array.isArray(opts.adminOnly) ? opts.adminOnly : [];
             mwChain.push(adminOnlyGate(extras));
         }
 
-        if ( opts.allowedAppIds ) {
+        if (opts.allowedAppIds) {
             mwChain.push(allowedAppIdsGate(opts.allowedAppIds));
         }
 
         // 2a. Email verification. Keyed off `strict_email_verification_required`
         // so self-hosted boxes without SMTP don't break every fs route.
-        if ( opts.requireVerified ) {
-            mwChain.push(requireVerifiedGate(
-                Boolean(this.#config.strict_email_verification_required),
-            ));
+        if (opts.requireVerified) {
+            mwChain.push(
+                requireVerifiedGate(
+                    Boolean(this.#config.strict_email_verification_required),
+                ),
+            );
         }
 
         // 2b. Rate limiting. Runs after auth so 'user' key strategy
         // has access to req.actor.
-        if ( opts.rateLimit ) {
-            mwChain.push(rateLimitGate(opts.rateLimit) as unknown as RequestHandler);
+        if (opts.rateLimit) {
+            mwChain.push(
+                rateLimitGate(opts.rateLimit) as unknown as RequestHandler,
+            );
         }
 
         // 2c. Captcha verification. Reads captchaToken + captchaAnswer
         // from req.body — body is already parsed by the global JSON
         // middleware at this point.
-        if ( opts.captcha ) {
+        if (opts.captcha) {
             const enabled = Boolean(this.#config.captcha?.enabled);
             mwChain.push(captchaGate(enabled) as unknown as RequestHandler);
         }
 
         // 2d. Anti-CSRF token consumption.
-        if ( opts.antiCsrf ) {
+        if (opts.antiCsrf) {
             mwChain.push(requireAntiCsrf() as unknown as RequestHandler);
         }
 
@@ -587,59 +748,71 @@ export class PuterServer {
         // to override JSON limits on a hot path.
         // bodyJson is `false | { limit?, type? }`. Truthiness check excludes
         // both `undefined` (no opt) and `false` (explicit opt-out).
-        if ( opts.bodyJson ) {
-            mwChain.push(express.json({
-                limit: opts.bodyJson.limit,
-                type: opts.bodyJson.type,
-            }));
+        if (opts.bodyJson) {
+            mwChain.push(
+                express.json({
+                    limit: opts.bodyJson.limit,
+                    type: opts.bodyJson.type,
+                }),
+            );
         }
 
-        if ( opts.bodyRaw ) {
+        if (opts.bodyRaw) {
             const raw = opts.bodyRaw === true ? {} : opts.bodyRaw;
-            mwChain.push(express.raw({
-                limit: raw.limit,
-                type: raw.type,
-            }));
+            mwChain.push(
+                express.raw({
+                    limit: raw.limit,
+                    type: raw.type,
+                }),
+            );
         }
 
-        if ( opts.bodyText ) {
+        if (opts.bodyText) {
             const text = opts.bodyText === true ? {} : opts.bodyText;
-            mwChain.push(express.text({
-                limit: text.limit,
-                type: text.type,
-            }));
+            mwChain.push(
+                express.text({
+                    limit: text.limit,
+                    type: text.type,
+                }),
+            );
         }
 
-        if ( opts.bodyUrlencoded ) {
+        if (opts.bodyUrlencoded) {
             const ue = opts.bodyUrlencoded === true ? {} : opts.bodyUrlencoded;
-            mwChain.push(express.urlencoded({
-                limit: ue.limit,
-                extended: ue.extended ?? true,
-            }));
+            mwChain.push(
+                express.urlencoded({
+                    limit: ue.limit,
+                    extended: ue.extended ?? true,
+                }),
+            );
         }
 
         // 4. Caller-supplied middleware runs after gates + parsers, before the handler.
-        if ( opts.middleware ) mwChain.push(...opts.middleware);
+        if (opts.middleware) mwChain.push(...opts.middleware);
 
-        const fullPath = route.path !== undefined
-            ? PuterServer.#joinPath(routerPrefix, route.path)
-            : undefined;
+        const fullPath =
+            route.path !== undefined
+                ? PuterServer.#joinPath(routerPrefix, route.path)
+                : undefined;
 
-        if ( route.method === 'use' ) {
+        if (route.method === 'use') {
             // Subdomain check for `use` middleware lives INSIDE the handler
             // wrapper — `next('route')` from a stand-alone subdomainGate
             // doesn't reliably skip a `use` handler in Express 5.
             let handler = route.handler;
-            if ( opts.subdomain !== undefined && opts.subdomain !== '*' ) {
-                const allowList = Array.isArray(opts.subdomain) ? opts.subdomain : [opts.subdomain];
+            if (opts.subdomain !== undefined && opts.subdomain !== '*') {
+                const allowList = Array.isArray(opts.subdomain)
+                    ? opts.subdomain
+                    : [opts.subdomain];
                 const original = handler;
                 handler = (req, res, next) => {
-                    const active = req.subdomains?.[req.subdomains.length - 1] ?? '';
-                    if ( ! allowList.includes(active) ) return next();
+                    const active =
+                        req.subdomains?.[req.subdomains.length - 1] ?? '';
+                    if (!allowList.includes(active)) return next();
                     return original(req, res, next);
                 };
             }
-            if ( fullPath !== undefined ) {
+            if (fullPath !== undefined) {
                 app.use(fullPath as any, ...mwChain, handler);
             } else {
                 app.use(...mwChain, handler);
@@ -647,17 +820,24 @@ export class PuterServer {
             return;
         }
 
-        if ( fullPath === undefined ) {
+        if (fullPath === undefined) {
             throw new Error(`Route method '${route.method}' requires a path`);
         }
 
         // All express + WebDAV verbs accept the same (path, ...handlers) shape.
         // The `RouteMethod` union is the allowlist of method names we expose.
         const method = app[route.method as keyof Application] as unknown;
-        if ( typeof method !== 'function' ) {
-            throw new Error(`Express app does not support method: ${route.method}`);
+        if (typeof method !== 'function') {
+            throw new Error(
+                `Express app does not support method: ${route.method}`,
+            );
         }
-        (method as (...args: unknown[]) => unknown).call(app, fullPath, ...mwChain, route.handler);
+        (method as (...args: unknown[]) => unknown).call(
+            app,
+            fullPath,
+            ...mwChain,
+            route.handler,
+        );
     }
 
     /**
@@ -665,54 +845,62 @@ export class PuterServer {
      * passed through unprefixed (consistent with express's behavior; decorator
      * paths are assumed to be strings).
      */
-    static #joinPath (prefix: string, path: NonNullable<RouteDescriptor['path']>): string | RegExp | Array<string | RegExp> {
-        if ( typeof path !== 'string' ) return path;
-        if ( ! prefix ) return path;
+    static #joinPath(
+        prefix: string,
+        path: NonNullable<RouteDescriptor['path']>,
+    ): string | RegExp | Array<string | RegExp> {
+        if (typeof path !== 'string') return path;
+        if (!prefix) return path;
         return `${prefix}/${path}`.replace(/\/+/g, '/');
     }
 
-    async #importExtensions (extensionDirs: string[]) {
-        for ( const extDir of extensionDirs ) {
+    async #importExtensions(extensionDirs: string[]) {
+        for (const extDir of extensionDirs) {
             // `withFileTypes: true` gives us `Dirent` objects so we can
             // distinguish files from directories without extra stat calls
             // (and without relying on a dot-in-name heuristic, which breaks
             // for data-bearing sidecar dirs like `pages.assets/`).
-            for ( const entry of readdirSync(extDir, { withFileTypes: true }) ) {
+            for (const entry of readdirSync(extDir, { withFileTypes: true })) {
                 const entryPath = `${extDir}/${entry.name}`;
 
-                if ( entry.isFile() ) {
-                    if ( /\.(js|mjs|cjs)$/.test(entry.name) ) {
+                if (entry.isFile()) {
+                    if (/\.(js|mjs|cjs)$/.test(entry.name)) {
                         console.log(`Importing extension file ${entryPath}`);
                         await import(entryPath);
                     }
                     continue;
                 }
 
-                if ( ! entry.isDirectory() ) continue; // symlinks, etc. — skip
+                if (!entry.isDirectory()) continue; // symlinks, etc. — skip
 
                 // Prefer package.json "main"; fall back to index.{js,mjs,cjs}.
                 // Dirs that match neither (e.g. data-only sidecars) are
                 // silently ignored rather than crashing the boot.
                 let mainPath: string | null = null;
                 const pkgPath = `${entryPath}/package.json`;
-                if ( existsSync(pkgPath) ) {
+                if (existsSync(pkgPath)) {
                     try {
-                        const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8')) as { main?: string };
-                        if ( pkg.main ) mainPath = `${entryPath}/${pkg.main}`;
-                    } catch ( e ) {
-                        console.warn(`[extensions] invalid package.json at ${pkgPath}:`, e);
+                        const pkg = JSON.parse(
+                            readFileSync(pkgPath, 'utf-8'),
+                        ) as { main?: string };
+                        if (pkg.main) mainPath = `${entryPath}/${pkg.main}`;
+                    } catch (e) {
+                        console.warn(
+                            `[extensions] invalid package.json at ${pkgPath}:`,
+                            e,
+                        );
                         continue;
                     }
                 }
-                if ( ! mainPath ) {
-                    for ( const cand of ['index.js', 'index.mjs', 'index.cjs'] ) {
-                        if ( existsSync(`${entryPath}/${cand}`) ) {
+                if (!mainPath) {
+                    for (const cand of ['index.js', 'index.mjs', 'index.cjs']) {
+                        if (existsSync(`${entryPath}/${cand}`)) {
                             mainPath = `${entryPath}/${cand}`;
                             break;
                         }
                     }
                 }
-                if ( ! mainPath ) continue;
+                if (!mainPath) continue;
 
                 console.log(`Importing extension file ${mainPath}`);
                 await import(mainPath);
@@ -720,7 +908,7 @@ export class PuterServer {
         }
     }
 
-    async start () {
+    async start() {
         await this.#ready;
 
         // Create the http server explicitly (instead of `app.listen()`) so we
@@ -728,86 +916,117 @@ export class PuterServer {
         // to hook into the raw server (socket.io upgrades, WebSockets, …) runs
         // its `attachHttpServer(server)` here, pre-listen.
         const httpServer = http.createServer(this.#app);
-        for ( const service of Object.values(this.services) as Array<WithLifecycle & { attachHttpServer?: (s: http.Server) => void | Promise<void> }> ) {
-            if ( typeof service.attachHttpServer === 'function' ) {
+        for (const service of Object.values(this.services) as Array<
+            WithLifecycle & {
+                attachHttpServer?: (s: http.Server) => void | Promise<void>;
+            }
+        >) {
+            if (typeof service.attachHttpServer === 'function') {
                 await service.attachHttpServer(httpServer);
             }
         }
 
         this.#server = httpServer.listen(this.#config.port, async () => {
             const cfg = this.#config;
-            const liveUrl = cfg.origin
-                ?? `${cfg.protocol ?? 'http'}://${cfg.domain ?? 'localhost'}:${this.#config.port}`;
-            console.log('\n************************************************************');
+            const liveUrl =
+                cfg.origin ??
+                `${cfg.protocol ?? 'http'}://${cfg.domain ?? 'localhost'}:${this.#config.port}`;
+            console.log(
+                '\n************************************************************',
+            );
             console.log(`* Puter is now live at: ${liveUrl}`);
-            console.log('************************************************************\n');
+            console.log(
+                '************************************************************\n',
+            );
 
-            for ( const client of Object.values(this.clients) as WithLifecycle[] ) {
-                if ( client.onServerStart ) {
+            for (const client of Object.values(
+                this.clients,
+            ) as WithLifecycle[]) {
+                if (client.onServerStart) {
                     await client.onServerStart();
                 }
             }
-            for ( const store of Object.values(this.stores) as WithLifecycle[] ) {
-                if ( store.onServerStart ) {
+            for (const store of Object.values(this.stores) as WithLifecycle[]) {
+                if (store.onServerStart) {
                     await store.onServerStart();
                 }
             }
-            for ( const service of Object.values(this.services) as WithLifecycle[] ) {
-                if ( service.onServerStart ) {
+            for (const service of Object.values(
+                this.services,
+            ) as WithLifecycle[]) {
+                if (service.onServerStart) {
                     await service.onServerStart();
                 }
             }
-            for ( const controller of Object.values(this.controllers) as WithLifecycle[] ) {
-                if ( controller.onServerStart ) {
+            for (const controller of Object.values(
+                this.controllers,
+            ) as WithLifecycle[]) {
+                if (controller.onServerStart) {
                     await controller.onServerStart();
                 }
             }
-            for ( const driver of Object.values(this.drivers) as WithLifecycle[] ) {
-                if ( driver.onServerStart ) {
+            for (const driver of Object.values(
+                this.drivers,
+            ) as WithLifecycle[]) {
+                if (driver.onServerStart) {
                     await driver.onServerStart();
                 }
             }
             console.log('PuterServer has fully booted.');
             // Auto-launch the browser on dev boot (matches v1 WebServerService).
             // Opt out via `no_browser_launch: true` in config.
-            if ( this.#config.env === 'dev' && !cfg.no_browser_launch ) {
+            if (this.#config.env === 'dev' && !cfg.no_browser_launch) {
                 try {
                     const openModule = await import('open');
                     await openModule.default(liveUrl);
-                } catch ( e ) {
-                    console.log('[server] could not auto-open browser:', (e as Error).message);
+                } catch (e) {
+                    console.log(
+                        '[server] could not auto-open browser:',
+                        (e as Error).message,
+                    );
                 }
             }
         });
-
     }
 
-    async prepareShutdown () {
-        if ( this.#server ) {
+    async prepareShutdown() {
+        if (this.#server) {
             this.#server.close(async () => {
-                console.log('PuterServer has stopped accepting new connections');
-                for ( const client of Object.values(this.clients) as WithLifecycle[] ) {
-                    if ( client.onServerPrepareShutdown ) {
+                console.log(
+                    'PuterServer has stopped accepting new connections',
+                );
+                for (const client of Object.values(
+                    this.clients,
+                ) as WithLifecycle[]) {
+                    if (client.onServerPrepareShutdown) {
                         await client.onServerPrepareShutdown();
                     }
                 }
-                for ( const store of Object.values(this.stores) as WithLifecycle[] ) {
-                    if ( store.onServerPrepareShutdown ) {
+                for (const store of Object.values(
+                    this.stores,
+                ) as WithLifecycle[]) {
+                    if (store.onServerPrepareShutdown) {
                         await store.onServerPrepareShutdown();
                     }
                 }
-                for ( const service of Object.values(this.services) as WithLifecycle[] ) {
-                    if ( service.onServerPrepareShutdown ) {
+                for (const service of Object.values(
+                    this.services,
+                ) as WithLifecycle[]) {
+                    if (service.onServerPrepareShutdown) {
                         await service.onServerPrepareShutdown();
                     }
                 }
-                for ( const controller of Object.values(this.controllers) as WithLifecycle[] ) {
-                    if ( controller.onServerPrepareShutdown ) {
+                for (const controller of Object.values(
+                    this.controllers,
+                ) as WithLifecycle[]) {
+                    if (controller.onServerPrepareShutdown) {
                         await controller.onServerPrepareShutdown();
                     }
                 }
-                for ( const driver of Object.values(this.drivers) as WithLifecycle[] ) {
-                    if ( driver.onServerPrepareShutdown ) {
+                for (const driver of Object.values(
+                    this.drivers,
+                ) as WithLifecycle[]) {
+                    if (driver.onServerPrepareShutdown) {
                         await driver.onServerPrepareShutdown();
                     }
                 }
@@ -815,32 +1034,40 @@ export class PuterServer {
         }
     }
 
-    async shutdown () {
-        if ( this.#server ) {
+    async shutdown() {
+        if (this.#server) {
             console.log('PuterServer is shutting down');
             this.#server.closeAllConnections();
-            for ( const client of Object.values(this.clients) as WithLifecycle[] ) {
-                if ( client.onServerShutdown ) {
+            for (const client of Object.values(
+                this.clients,
+            ) as WithLifecycle[]) {
+                if (client.onServerShutdown) {
                     await client.onServerShutdown();
                 }
             }
-            for ( const store of Object.values(this.stores) as WithLifecycle[] ) {
-                if ( store.onServerShutdown ) {
+            for (const store of Object.values(this.stores) as WithLifecycle[]) {
+                if (store.onServerShutdown) {
                     await store.onServerShutdown();
                 }
             }
-            for ( const service of Object.values(this.services) as WithLifecycle[] ) {
-                if ( service.onServerShutdown ) {
+            for (const service of Object.values(
+                this.services,
+            ) as WithLifecycle[]) {
+                if (service.onServerShutdown) {
                     await service.onServerShutdown();
                 }
             }
-            for ( const controller of Object.values(this.controllers) as WithLifecycle[] ) {
-                if ( controller.onServerShutdown ) {
+            for (const controller of Object.values(
+                this.controllers,
+            ) as WithLifecycle[]) {
+                if (controller.onServerShutdown) {
                     await controller.onServerShutdown();
                 }
             }
-            for ( const driver of Object.values(this.drivers) as WithLifecycle[] ) {
-                if ( driver.onServerShutdown ) {
+            for (const driver of Object.values(
+                this.drivers,
+            ) as WithLifecycle[]) {
+                if (driver.onServerShutdown) {
                     await driver.onServerShutdown();
                 }
             }

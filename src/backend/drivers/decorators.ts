@@ -1,4 +1,8 @@
-import { DRIVER_DEFAULT_KEY, DRIVER_INTERFACE_KEY, DRIVER_NAME_KEY } from './meta';
+import {
+    DRIVER_DEFAULT_KEY,
+    DRIVER_INTERFACE_KEY,
+    DRIVER_NAME_KEY,
+} from './meta';
 
 /**
  * Options for the `@Driver` class decorator.
@@ -34,8 +38,11 @@ export interface DriverOptions {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyCtor = new (...args: any[]) => any;
 
-export function Driver (interfaceName: string, opts: DriverOptions = {}) {
-    return <T extends AnyCtor>(value: T, _context: ClassDecoratorContext<T>): void => {
+export function Driver(interfaceName: string, opts: DriverOptions = {}) {
+    return <T extends AnyCtor>(
+        value: T,
+        _context: ClassDecoratorContext<T>,
+    ): void => {
         const proto = value.prototype as Record<string, unknown>;
         proto[DRIVER_INTERFACE_KEY] = interfaceName;
         proto[DRIVER_NAME_KEY] = opts.name ?? value.name;

@@ -34,13 +34,15 @@ const unescape_permission_component = (component: string): string => {
     let out = '';
     const ESCAPES: Record<string, string> = { C: ':' };
     let escaping = false;
-    for ( let i = 0; i < component.length; i++ ) {
+    for (let i = 0; i < component.length; i++) {
         const c = component[i];
-        if ( ! escaping ) {
-            if ( c === '\\' ) escaping = true;
+        if (!escaping) {
+            if (c === '\\') escaping = true;
             else out += c;
         } else {
-            out += Object.prototype.hasOwnProperty.call(ESCAPES, c) ? ESCAPES[c] : c;
+            out += Object.prototype.hasOwnProperty.call(ESCAPES, c)
+                ? ESCAPES[c]
+                : c;
             escaping = false;
         }
     }
@@ -49,9 +51,9 @@ const unescape_permission_component = (component: string): string => {
 
 const escape_permission_component = (component: string): string => {
     let out = '';
-    for ( let i = 0; i < component.length; i++ ) {
+    for (let i = 0; i < component.length; i++) {
         const c = component[i];
-        if ( c === ':' ) {
+        if (c === ':') {
             out += '\\C';
             continue;
         }
@@ -68,20 +70,27 @@ export const PermissionUtil = {
     unescape_permission_component,
     escape_permission_component,
 
-    split (permission: string): string[] {
+    split(permission: string): string[] {
         return permission.split(':').map(unescape_permission_component);
     },
 
-    join (...components: string[]): string {
+    join(...components: string[]): string {
         return components.map(escape_permission_component).join(':');
     },
 
-    permission_scan_cache_prefix_for_app_under_user (user_uuid: string, app_uid: string): string {
+    permission_scan_cache_prefix_for_app_under_user(
+        user_uuid: string,
+        app_uid: string,
+    ): string {
         const actor_uid = `app-under-user:${user_uuid}:${app_uid}`;
-        return PermissionUtil.join('permission-scan', actor_uid, 'options-list');
+        return PermissionUtil.join(
+            'permission-scan',
+            actor_uid,
+            'options-list',
+        );
     },
 
-    readingToOptions (
+    readingToOptions(
         reading: ReadingNode[],
         _parameters: Record<string, unknown> = {},
         options: ReadingOption[] = [],
@@ -93,29 +102,32 @@ export const PermissionUtil = {
             holder: finding.holder_username,
             data: finding.data,
         });
-        for ( const finding of reading ) {
-            if ( finding.$ === 'option' ) {
+        for (const finding of reading) {
+            if (finding.$ === 'option') {
                 const nextPath = [toPathItem(finding), ...path];
                 options.push({
                     ...finding,
-                    data: [
-                        ...(finding.data ? [finding.data] : []),
-                        ...extras,
-                    ],
+                    data: [...(finding.data ? [finding.data] : []), ...extras],
                     path: nextPath,
                 });
             }
-            if ( finding.$ === 'path' ) {
-                if ( finding.has_terminal === false ) continue;
+            if (finding.$ === 'path') {
+                if (finding.has_terminal === false) continue;
                 const newExtras = finding.data ? [finding.data, ...extras] : [];
                 const newPath = [toPathItem(finding), ...path];
-                PermissionUtil.readingToOptions(finding.reading ?? [], _parameters, options, newExtras, newPath);
+                PermissionUtil.readingToOptions(
+                    finding.reading ?? [],
+                    _parameters,
+                    options,
+                    newExtras,
+                    newPath,
+                );
             }
         }
         return options;
     },
 
-    isManage (permission: string): boolean {
+    isManage(permission: string): boolean {
         return permission.startsWith(`${MANAGE_PERM_PREFIX}:`);
     },
 };
@@ -125,9 +137,9 @@ export const PermissionUtil = {
  * `path` that itself transitively terminates).
  */
 export const readingHasTerminal = (reading: ReadingNode[]): boolean => {
-    for ( const node of reading ) {
-        if ( node.has_terminal ) return true;
-        if ( node.$ === 'option' ) return true;
+    for (const node of reading) {
+        if (node.has_terminal) return true;
+        if (node.$ === 'option') return true;
     }
     return false;
 };
@@ -161,5 +173,8 @@ export interface PermissionImplicator {
 export interface PermissionExploder {
     id?: string;
     matches: (permission: string) => boolean;
-    explode: (input: { actor?: Actor; permission: string }) => Promise<string[]> | string[];
+    explode: (input: {
+        actor?: Actor;
+        permission: string;
+    }) => Promise<string[]> | string[];
 }

@@ -108,7 +108,7 @@ export class DriverController extends PuterController {
     /** iface → default driver name */
     #defaults = new Map<string, string>();
 
-    constructor (...args: ConstructorParameters<typeof PuterController>) {
+    constructor(...args: ConstructorParameters<typeof PuterController>) {
         super(...args);
         this.#buildIfaceMap();
     }
@@ -116,34 +116,50 @@ export class DriverController extends PuterController {
     // ── Lookup API (used by tests / internals) ──────────────────────
 
     /** Resolve a driver by interface + optional name (default when omitted). */
-    resolve (interfaceName: string, driverName?: string): DriverInstance | null {
+    resolve(interfaceName: string, driverName?: string): DriverInstance | null {
         const ifaceMap = this.#drivers.get(interfaceName);
-        if ( ! ifaceMap ) return null;
+        if (!ifaceMap) return null;
         const name = driverName ?? this.#defaults.get(interfaceName);
-        if ( ! name ) return null;
+        if (!name) return null;
         return ifaceMap.get(name) ?? null;
     }
 
-    listInterfaces (): string[] {
+    listInterfaces(): string[] {
         return [...this.#drivers.keys()];
     }
 
-    listDrivers (interfaceName: string): string[] {
+    listDrivers(interfaceName: string): string[] {
         const ifaceMap = this.#drivers.get(interfaceName);
         return ifaceMap ? [...ifaceMap.keys()] : [];
     }
 
-    getDefault (interfaceName: string): string | undefined {
+    getDefault(interfaceName: string): string | undefined {
         return this.#defaults.get(interfaceName);
     }
 
     // ── Route registration ──────────────────────────────────────────
 
-    registerRoutes (router: PuterRouter): void {
-        router.post('/call', { subdomain: 'api', requireAuth: true }, this.#handleCall);
-        router.get('/list-interfaces', { subdomain: 'api', requireAuth: true }, this.#handleListInterfaces);
-        router.get('/xd', { subdomain: 'api', requireAuth: true }, this.#handleXd);
-        router.get('/usage', { subdomain: 'api', requireAuth: true }, this.#handleUsage);
+    registerRoutes(router: PuterRouter): void {
+        router.post(
+            '/call',
+            { subdomain: 'api', requireAuth: true },
+            this.#handleCall,
+        );
+        router.get(
+            '/list-interfaces',
+            { subdomain: 'api', requireAuth: true },
+            this.#handleListInterfaces,
+        );
+        router.get(
+            '/xd',
+            { subdomain: 'api', requireAuth: true },
+            this.#handleXd,
+        );
+        router.get(
+            '/usage',
+            { subdomain: 'api', requireAuth: true },
+            this.#handleUsage,
+        );
     }
 
     // ── Handlers ────────────────────────────────────────────────────
@@ -156,56 +172,77 @@ export class DriverController extends PuterController {
             args = {},
         } = (req.body ?? {}) as Record<string, unknown>;
 
-        if ( !ifaceName || typeof ifaceName !== 'string' ) {
+        if (!ifaceName || typeof ifaceName !== 'string') {
             throw new HttpError(400, 'Missing or invalid `interface`');
         }
-        if ( !method || typeof method !== 'string' ) {
+        if (!method || typeof method !== 'string') {
             throw new HttpError(400, 'Missing or invalid `method`');
         }
-        const requestedDriver = typeof driverName === 'string' ? driverName : undefined;
+        const requestedDriver =
+            typeof driverName === 'string' ? driverName : undefined;
 
         const driver = this.resolve(ifaceName, requestedDriver);
-        if ( ! driver ) {
+        if (!driver) {
             const resolvedName = requestedDriver ?? this.getDefault(ifaceName);
-            throw new HttpError(404, `Driver not found: ${ifaceName}:${resolvedName ?? '(no default)'}`);
+            throw new HttpError(
+                404,
+                `Driver not found: ${ifaceName}:${resolvedName ?? '(no default)'}`,
+            );
         }
 
         const fn = driver[method];
-        if ( typeof fn !== 'function' ) {
-            throw new HttpError(404, `Method '${method}' not found on driver '${ifaceName}'`);
+        if (typeof fn !== 'function') {
+            throw new HttpError(
+                404,
+                `Method '${method}' not found on driver '${ifaceName}'`,
+            );
         }
 
         // Resolve the concrete driver name for permission keys, falling
         // back through prototype metadata → instance field → requested name.
-        const resolvedDriverName = (driver as Record<string, unknown>).driverName
-            ?? (Object.getPrototypeOf(driver) as Record<string, unknown>).__driverName
-            ?? requestedDriver
-            ?? 'unknown';
+        const resolvedDriverName =
+            (driver as Record<string, unknown>).driverName ??
+            (Object.getPrototypeOf(driver) as Record<string, unknown>)
+                .__driverName ??
+            requestedDriver ??
+            'unknown';
 
-        if ( req.actor ) {
-            const permService = this.services.permission as unknown as PermissionService | undefined;
-            if ( permService ) {
+        if (req.actor) {
+            const permService = this.services.permission as unknown as
+                | PermissionService
+                | undefined;
+            if (permService) {
                 const permKey = `service:${resolvedDriverName}:ii:${ifaceName}`;
-                const hasPermission = await permService.check(req.actor, permKey);
-                if ( ! hasPermission ) {
-                    throw new HttpError(403, `Permission denied for ${ifaceName}:${method}`, {
-                        legacyCode: 'forbidden',
-                    });
+                const hasPermission = await permService.check(
+                    req.actor,
+                    permKey,
+                );
+                if (!hasPermission) {
+                    throw new HttpError(
+                        403,
+                        `Permission denied for ${ifaceName}:${method}`,
+                        {
+                            legacyCode: 'forbidden',
+                        },
+                    );
                 }
             }
         }
 
-        if ( ! await checkDriverRateLimit(req, ifaceName, method) ) {
+        if (!(await checkDriverRateLimit(req, ifaceName, method))) {
             throw new HttpError(429, 'Too many requests.');
         }
 
         // Drivers read actor/context via the Context API — no drilled args.
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const result = await (fn as (...x: unknown[]) => any).call(driver, args);
+        const result = await (fn as (...x: unknown[]) => any).call(
+            driver,
+            args,
+        );
 
-        if ( isDriverStreamResult(result) ) {
+        if (isDriverStreamResult(result)) {
             res.setHeader('Content-Type', result.content_type);
-            if ( result.chunked ) {
+            if (result.chunked) {
                 res.setHeader('Transfer-Encoding', 'chunked');
             }
             result.stream.pipe(res);
@@ -221,8 +258,11 @@ export class DriverController extends PuterController {
 
     #handleListInterfaces = (_req: Request, res: Response): void => {
         const interfaces = this.listInterfaces();
-        const out: Record<string, { drivers: string[]; default: string | undefined }> = {};
-        for ( const iface of interfaces ) {
+        const out: Record<
+            string,
+            { drivers: string[]; default: string | undefined }
+        > = {};
+        for (const iface of interfaces) {
             out[iface] = {
                 drivers: this.listDrivers(iface),
                 default: this.getDefault(iface),
@@ -239,7 +279,8 @@ export class DriverController extends PuterController {
     /** GET /drivers/usage — monthly driver usage for the authenticated actor. */
     #handleUsage = async (req: Request, res: Response): Promise<void> => {
         const actor = req.actor;
-        if ( ! actor?.user?.id ) throw new HttpError(401, 'Authentication required');
+        if (!actor?.user?.id)
+            throw new HttpError(401, 'Authentication required');
 
         const userId = actor.user.id;
         const db = this.clients.db;
@@ -270,9 +311,11 @@ export class DriverController extends PuterController {
 
         // Group app rows by app name
         const apps: Record<string, Array<Record<string, unknown>>> = {};
-        for ( const row of appRows ) {
-            const name = String((row as Record<string, unknown>).app_name ?? 'unknown');
-            if ( ! apps[name] ) apps[name] = [];
+        for (const row of appRows) {
+            const name = String(
+                (row as Record<string, unknown>).app_name ?? 'unknown',
+            );
+            if (!apps[name]) apps[name] = [];
             apps[name].push(row as Record<string, unknown>);
         }
 
@@ -281,25 +324,27 @@ export class DriverController extends PuterController {
 
     // ── Internals ───────────────────────────────────────────────────
 
-    #buildIfaceMap (): void {
+    #buildIfaceMap(): void {
         const bag = this.drivers as unknown as Record<string, DriverInstance>;
-        for ( const instance of Object.values(bag) ) {
+        for (const instance of Object.values(bag)) {
             const meta = resolveDriverMeta(instance);
-            if ( meta ) this.#registerDriver(meta, instance);
+            if (meta) this.#registerDriver(meta, instance);
         }
     }
 
-    #registerDriver (meta: DriverMeta, instance: DriverInstance): void {
+    #registerDriver(meta: DriverMeta, instance: DriverInstance): void {
         let ifaceMap = this.#drivers.get(meta.interfaceName);
-        if ( ! ifaceMap ) {
+        if (!ifaceMap) {
             ifaceMap = new Map();
             this.#drivers.set(meta.interfaceName, ifaceMap);
         }
-        if ( ifaceMap.has(meta.driverName) ) {
-            console.warn(`[driver-controller] overwriting driver ${meta.interfaceName}:${meta.driverName}`);
+        if (ifaceMap.has(meta.driverName)) {
+            console.warn(
+                `[driver-controller] overwriting driver ${meta.interfaceName}:${meta.driverName}`,
+            );
         }
         ifaceMap.set(meta.driverName, instance);
-        if ( meta.isDefault || !this.#defaults.has(meta.interfaceName) ) {
+        if (meta.isDefault || !this.#defaults.has(meta.interfaceName)) {
             this.#defaults.set(meta.interfaceName, meta.driverName);
         }
     }

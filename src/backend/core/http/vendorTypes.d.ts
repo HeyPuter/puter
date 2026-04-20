@@ -5,18 +5,21 @@
  */
 declare module 'cookie-parser' {
     import type { RequestHandler } from 'express';
-    function cookieParser (secret?: string | string[], options?: object): RequestHandler;
+    function cookieParser(
+        secret?: string | string[],
+        options?: object,
+    ): RequestHandler;
     export = cookieParser;
 }
 
 declare module 'compression' {
     import type { RequestHandler } from 'express';
-    function compression (options?: object): RequestHandler;
+    function compression(options?: object): RequestHandler;
     export = compression;
 }
 
 declare module 'ua-parser-js' {
-    function UAParser (ua?: string): {
+    function UAParser(ua?: string): {
         browser: { name?: string; version?: string; major?: string };
         engine: { name?: string; version?: string };
         os: { name?: string; version?: string };

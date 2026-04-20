@@ -1,16 +1,15 @@
 import { PuterClient } from './types';
 
 export class EventClient extends PuterClient {
-
     #eventListeners = {};
 
-    onServerStart () {
+    onServerStart() {
         this.emit('serverStart', {}, {});
     }
-    onServerPrepareShutdown () {
+    onServerPrepareShutdown() {
         this.emit('serverPrepareShutdown', {}, {});
     }
-    onServerShutdown () {
+    onServerShutdown() {
         this.emit('serverShutdown', {}, {});
     }
 
@@ -35,15 +34,16 @@ export class EventClient extends PuterClient {
      * @param {unknown} data
      * @param {object} meta
      */
-    emit (key, data, meta) {
+    emit(key, data, meta) {
         const parts = key.split('.');
-        for ( let i = 0; i < parts.length; i++ ) {
-            const matchKey = i === parts.length - 1
-                ? key
-                : `${parts.slice(0, i + 1).join('.')}.*`;
+        for (let i = 0; i < parts.length; i++) {
+            const matchKey =
+                i === parts.length - 1
+                    ? key
+                    : `${parts.slice(0, i + 1).join('.')}.*`;
             const listeners = this.#eventListeners[matchKey];
-            if ( ! listeners ) continue;
-            for ( const listener of listeners ) {
+            if (!listeners) continue;
+            for (const listener of listeners) {
                 this.#emitEvent(listener, key, data, meta);
             }
         }
@@ -67,18 +67,19 @@ export class EventClient extends PuterClient {
      * @param {object} meta
      * @returns {Promise<void>}
      */
-    async emitAndWait (key, data, meta) {
+    async emitAndWait(key, data, meta) {
         const parts = key.split('.');
-        for ( let i = 0; i < parts.length; i++ ) {
-            const matchKey = i === parts.length - 1
-                ? key
-                : `${parts.slice(0, i + 1).join('.')}.*`;
+        for (let i = 0; i < parts.length; i++) {
+            const matchKey =
+                i === parts.length - 1
+                    ? key
+                    : `${parts.slice(0, i + 1).join('.')}.*`;
             const listeners = this.#eventListeners[matchKey];
-            if ( ! listeners ) continue;
-            for ( const listener of listeners ) {
+            if (!listeners) continue;
+            for (const listener of listeners) {
                 try {
                     await listener(key, data, meta);
-                } catch ( e ) {
+                } catch (e) {
                     console.error('Error in event listener for event', key, e);
                 }
             }
@@ -100,14 +101,14 @@ export class EventClient extends PuterClient {
      * @param {string} key
      * @param {(key: string, data: unknown, meta: object) => void} callback
      */
-    on (key, callback) {
-        if ( ! this.#eventListeners[key] ) {
+    on(key, callback) {
+        if (!this.#eventListeners[key]) {
             this.#eventListeners[key] = [];
         }
         this.#eventListeners[key].push(callback);
     }
 
-    async #emitEvent (listener, key, data, meta) {
+    async #emitEvent(listener, key, data, meta) {
         try {
             await listener(key, data, meta);
         } catch (e) {

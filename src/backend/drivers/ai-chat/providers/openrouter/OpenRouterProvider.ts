@@ -26,22 +26,28 @@ import type { MeteringService } from '../../../../services/metering/MeteringServ
 import { kv } from '../../../../util/kvSingleton.js';
 // TODO: OpenAIUtil needs to be ported to v2
 import * as OpenAIUtil from '../../utils/OpenAIUtil.js';
-import type { IChatModel, IChatProvider, IChatCompleteResult } from '../../types.js';
+import type {
+    IChatModel,
+    IChatProvider,
+    IChatCompleteResult,
+} from '../../types.js';
 import { OPEN_ROUTER_MODEL_OVERRIDES } from './modelOverrides.js';
 
 type OpenrouterUsage = OpenAI.Completions.CompletionUsage & {
-    cost?: number
+    cost?: number;
 };
 
 export class OpenRouterProvider implements IChatProvider {
-
     #meteringService: MeteringService;
 
     #openai: OpenAI;
 
     #apiBaseUrl: string = 'https://openrouter.ai/api/v1';
 
-    constructor (config: { apiBaseUrl?: string, apiKey: string }, meteringService: MeteringService) {
+    constructor(
+        config: { apiBaseUrl?: string; apiKey: string },
+        meteringService: MeteringService,
+    ) {
         this.#apiBaseUrl = config.apiBaseUrl || 'https://openrouter.ai/api/v1';
         this.#openai = new OpenAI({
             apiKey: config.apiKey,
@@ -50,43 +56,59 @@ export class OpenRouterProvider implements IChatProvider {
         this.#meteringService = meteringService;
     }
 
-    getDefaultModel () {
+    getDefaultModel() {
         return 'openrouter:openai/gpt-5-nano';
     }
     /**
-            * Returns a list of available model names including their aliases
-            * @returns {Promise<string[]>} Array of model identifiers and their aliases
-            * @description Retrieves all available model IDs and their aliases,
-            * flattening them into a single array of strings that can be used for model selection
-            */
-    async list () {
+     * Returns a list of available model names including their aliases
+     * @returns {Promise<string[]>} Array of model identifiers and their aliases
+     * @description Retrieves all available model IDs and their aliases,
+     * flattening them into a single array of strings that can be used for model selection
+     */
+    async list() {
         const models = await this.models();
         const model_names: string[] = [];
-        for ( const model of models ) {
+        for (const model of models) {
             model_names.push(model.id);
         }
         return model_names;
     }
 
     /**
-             * AI Chat completion method.
-             * See AIChatService for more details.
-             */
-    async complete ({ messages, stream, model, tools, max_tokens, temperature }): Promise<IChatCompleteResult> {
+     * AI Chat completion method.
+     * See AIChatService for more details.
+     */
+    async complete({
+        messages,
+        stream,
+        model,
+        tools,
+        max_tokens,
+        temperature,
+    }): Promise<IChatCompleteResult> {
+        const modelUsed =
+            (await this.models()).find((m) =>
+                [m.id, ...(m.aliases || [])].includes(model),
+            ) ||
+            (await this.models()).find((m) => m.id === this.getDefaultModel())!;
 
-        const modelUsed = (await this.models()).find(m => [m.id, ...(m.aliases || [])].includes(model)) || (await this.models()).find(m => m.id === this.getDefaultModel())!;
+        const modelIdForParams = modelUsed.id.startsWith('openrouter:')
+            ? modelUsed.id.slice('openrouter:'.length)
+            : modelUsed.id;
 
-        const modelIdForParams = modelUsed.id.startsWith('openrouter:') ? modelUsed.id.slice('openrouter:'.length) : modelUsed.id;
-
-        if ( model === 'openrouter/auto' ) {
-            throw new HttpError(400, "The model 'openrouter/auto' is not allowed", {
-                legacyCode: 'field_invalid',
-                fields: {
-                    key: 'model',
-                    expected: 'allowed model',
-                    got: 'disallowed model',
+        if (model === 'openrouter/auto') {
+            throw new HttpError(
+                400,
+                "The model 'openrouter/auto' is not allowed",
+                {
+                    legacyCode: 'field_invalid',
+                    fields: {
+                        key: 'model',
+                        expected: 'allowed model',
+                        got: 'disallowed model',
+                    },
                 },
-            });
+            );
         }
 
         const actor = Context.get('actor');
@@ -100,23 +122,36 @@ export class OpenRouterProvider implements IChatProvider {
             max_tokens,
             temperature: temperature, // default to 1.0
             stream,
-            ...(stream ? {
-                stream_options: { include_usage: true },
-            } : {}),
+            ...(stream
+                ? {
+                      stream_options: { include_usage: true },
+                  }
+                : {}),
             usage: { include: true },
         } as ChatCompletionCreateParams;
 
         let completion;
         try {
-            completion = await this.#openai.chat.completions.create(completionParams);
-        } catch ( e: unknown ) {
+            completion =
+                await this.#openai.chat.completions.create(completionParams);
+        } catch (e: unknown) {
             // If you overestimate allowed max_tokens on openrouter then it will throw an error.
             // Since we know the user has enough for the query anyways, we should reexecute the
             // request without max_tokens.
             const err = e as { error: Error };
-            if ( err && err.error && err.error.message && err.error.message.startsWith("This endpoint's maximum context length is ") ) {
+            if (
+                err &&
+                err.error &&
+                err.error.message &&
+                err.error.message.startsWith(
+                    "This endpoint's maximum context length is ",
+                )
+            ) {
                 delete completionParams.max_tokens;
-                completion = await this.#openai.chat.completions.create(completionParams);
+                completion =
+                    await this.#openai.chat.completions.create(
+                        completionParams,
+                    );
             } else {
                 console.log('Openarouter error: ', err.error.message);
                 throw e;
@@ -125,45 +160,68 @@ export class OpenRouterProvider implements IChatProvider {
 
         return OpenAIUtil.handle_completion_output({
             usage_calculator: ({ usage }: { usage: OpenrouterUsage }) => {
-                if ( typeof usage.cost === 'number' ) {
+                if (typeof usage.cost === 'number') {
                     // custom open router logic because they're pricing are weird
                     const trackedUsage = {
-                        prompt: (usage.prompt_tokens ?? 0 ) - (usage.prompt_tokens_details?.cached_tokens ?? 0),
+                        prompt:
+                            (usage.prompt_tokens ?? 0) -
+                            (usage.prompt_tokens_details?.cached_tokens ?? 0),
                         completion: usage.completion_tokens ?? 0,
-                        input_cache_read: usage.prompt_tokens_details?.cached_tokens ?? 0,
-                        request: (usage as unknown as Record<string, number>).request || 1,
+                        input_cache_read:
+                            usage.prompt_tokens_details?.cached_tokens ?? 0,
+                        request:
+                            (usage as unknown as Record<string, number>)
+                                .request || 1,
                         billedUsage: 1,
                     };
-                    const costOverwrites = Object.fromEntries(Object.keys(trackedUsage).map((k) => {
-                        return ([k, 0]); // make everything else 0 if they don't respect their own pricing
-                    }));
-                    costOverwrites.billedUsage = (usage.cost * 100_000_000) || 1;
-                    this.#meteringService.utilRecordUsageObject(trackedUsage, actor, modelUsed.id, costOverwrites);
+                    const costOverwrites = Object.fromEntries(
+                        Object.keys(trackedUsage).map((k) => {
+                            return [k, 0]; // make everything else 0 if they don't respect their own pricing
+                        }),
+                    );
+                    costOverwrites.billedUsage = usage.cost * 100_000_000 || 1;
+                    this.#meteringService.utilRecordUsageObject(
+                        trackedUsage,
+                        actor,
+                        modelUsed.id,
+                        costOverwrites,
+                    );
                     return trackedUsage;
                 } else {
                     // custom open router logic because they're pricing are weird
                     const trackedUsage = {
-                        prompt: (usage.prompt_tokens ?? 0 ) - (usage.prompt_tokens_details?.cached_tokens ?? 0),
+                        prompt:
+                            (usage.prompt_tokens ?? 0) -
+                            (usage.prompt_tokens_details?.cached_tokens ?? 0),
                         completion: usage.completion_tokens ?? 0,
-                        input_cache_read: usage.prompt_tokens_details?.cached_tokens ?? 0,
-                        request: (usage as unknown as Record<string, number>).request || 1,
+                        input_cache_read:
+                            usage.prompt_tokens_details?.cached_tokens ?? 0,
+                        request:
+                            (usage as unknown as Record<string, number>)
+                                .request || 1,
                     };
-                    const costOverwrites = Object.fromEntries(Object.keys(trackedUsage).map((k) => {
-                        return ([k, (modelUsed.costs[k]) * trackedUsage[k]]);
-                    }));
-                    this.#meteringService.utilRecordUsageObject(trackedUsage, actor, modelUsed.id, costOverwrites);
+                    const costOverwrites = Object.fromEntries(
+                        Object.keys(trackedUsage).map((k) => {
+                            return [k, modelUsed.costs[k] * trackedUsage[k]];
+                        }),
+                    );
+                    this.#meteringService.utilRecordUsageObject(
+                        trackedUsage,
+                        actor,
+                        modelUsed.id,
+                        costOverwrites,
+                    );
                     return trackedUsage;
                 }
-
             },
             stream,
             completion,
         });
     }
 
-    async models () {
+    async models() {
         let models = kv.get('openrouterChat:models');
-        if ( ! models ) {
+        if (!models) {
             try {
                 const resp = await axios.request({
                     method: 'GET',
@@ -176,21 +234,37 @@ export class OpenRouterProvider implements IChatProvider {
                 console.log(e);
             }
         }
-        if ( ! models ) return [];
+        if (!models) return [];
         const coerced_models: IChatModel[] = [];
-        for ( const model of models ) {
-            if ( (model.id as string).includes('openrouter/auto') ) {
+        for (const model of models) {
+            if ((model.id as string).includes('openrouter/auto')) {
                 continue;
             }
-            const overridenModel = OPEN_ROUTER_MODEL_OVERRIDES.find(m => m.id === `openrouter:${model.id}`);
-            const microcentCosts = Object.fromEntries(Object.entries(model.pricing).map(([k, v]) => [k, Math.round((v as number < 0 ? 1 : v as number) * 1_000_000 * 100)])) ;
-            if ( ! microcentCosts.request ) {
+            const overridenModel = OPEN_ROUTER_MODEL_OVERRIDES.find(
+                (m) => m.id === `openrouter:${model.id}`,
+            );
+            const microcentCosts = Object.fromEntries(
+                Object.entries(model.pricing).map(([k, v]) => [
+                    k,
+                    Math.round(
+                        ((v as number) < 0 ? 1 : (v as number)) *
+                            1_000_000 *
+                            100,
+                    ),
+                ]),
+            );
+            if (!microcentCosts.request) {
                 microcentCosts.request = 0;
             }
             coerced_models.push({
                 id: `openrouter:${model.id}`,
                 name: `${model.name} (OpenRouter)`,
-                aliases: [model.id, model.name, `openrouter/${model.id}`, model.id.split('/').slice(1).join('/')],
+                aliases: [
+                    model.id,
+                    model.name,
+                    `openrouter/${model.id}`,
+                    model.id.split('/').slice(1).join('/'),
+                ],
                 context: model.context_length,
                 max_tokens: model.top_provider.max_completion_tokens,
                 costs_currency: 'usd-cents',
@@ -205,7 +279,9 @@ export class OpenRouterProvider implements IChatProvider {
         }
         return coerced_models;
     }
-    checkModeration (_text: string): ReturnType<IChatProvider['checkModeration']> {
+    checkModeration(
+        _text: string,
+    ): ReturnType<IChatProvider['checkModeration']> {
         throw new Error('Method not implemented.');
     }
 }

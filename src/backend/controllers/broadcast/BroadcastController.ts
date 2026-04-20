@@ -26,34 +26,36 @@ import { PuterController } from '../types.js';
 @Controller('/broadcast')
 export class BroadcastController extends PuterController {
     @Post('/webhook', { subdomain: '*' })
-    async webhook (req: Request, res: Response): Promise<void> {
-        const broadcast = this.services.broadcast as unknown as BroadcastService | undefined;
-        if ( ! broadcast ) {
-            res.status(503).json({ error: { message: 'Broadcast service not registered' } });
+    async webhook(req: Request, res: Response): Promise<void> {
+        const broadcast = this.services.broadcast as unknown as
+            | BroadcastService
+            | undefined;
+        if (!broadcast) {
+            res.status(503).json({
+                error: { message: 'Broadcast service not registered' },
+            });
             return;
         }
 
         const headerOnce = (name: string): string | undefined => {
             const value = req.headers[name];
-            if ( Array.isArray(value) ) return value[0];
+            if (Array.isArray(value)) return value[0];
             return value;
         };
 
-        const result = await broadcast.verifyAndEmit(
-            req.rawBody,
-            req.body,
-            {
-                peerId: headerOnce('x-broadcast-peer-id'),
-                timestamp: headerOnce('x-broadcast-timestamp'),
-                nonce: headerOnce('x-broadcast-nonce'),
-                signature: headerOnce('x-broadcast-signature'),
-            },
-        );
+        const result = await broadcast.verifyAndEmit(req.rawBody, req.body, {
+            peerId: headerOnce('x-broadcast-peer-id'),
+            timestamp: headerOnce('x-broadcast-timestamp'),
+            nonce: headerOnce('x-broadcast-nonce'),
+            signature: headerOnce('x-broadcast-signature'),
+        });
 
-        if ( result.ok ) {
+        if (result.ok) {
             res.status(200).json({ ok: true, ...(result.info ?? {}) });
             return;
         }
-        res.status(result.status ?? 400).json({ error: { message: result.message ?? 'Bad request' } });
+        res.status(result.status ?? 400).json({
+            error: { message: result.message ?? 'Bad request' },
+        });
     }
 }

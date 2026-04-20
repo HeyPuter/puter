@@ -57,7 +57,7 @@ declare module 'express-serve-static-core' {
     }
 }
 
-async function buildRevalidateFields (
+async function buildRevalidateFields(
     config: IConfig,
     oidcService: OIDCService,
     user: UserRow,
@@ -65,7 +65,7 @@ async function buildRevalidateFields (
     const origin = (config.origin ?? '').replace(/\/$/, '');
     const providers = await oidcService.getEnabledProviderIds();
     const provider = providers && providers[0];
-    if ( !provider || !origin ) return undefined;
+    if (!provider || !origin) return undefined;
     return {
         revalidate_url: `${origin}/auth/oidc/${provider}/start?flow=revalidate&user_id=${user.id}`,
     };
@@ -82,8 +82,10 @@ export const createUserProtectedGate = (
     // 1. Session cookie only.
     const requireSessionCookie: RequestHandler = (req, _res, next) => {
         const cookieValue = req.cookies?.[cookieName];
-        if ( !cookieValue || (req.token && req.token !== cookieValue) ) {
-            throw new HttpError(401, 'Session cookie required', { legacyCode: 'session_required' });
+        if (!cookieValue || (req.token && req.token !== cookieValue)) {
+            throw new HttpError(401, 'Session cookie required', {
+                legacyCode: 'session_required',
+            });
         }
         next();
     };
@@ -91,12 +93,21 @@ export const createUserProtectedGate = (
     // 2. Fresh user row (bypass cache to catch just-suspended accounts).
     // `getById` doesn't take options; go through `getByProperty` with
     // `{ force: true }` to force a primary read.
-    const refreshUser: RequestHandler = async (req: Request, _res: Response, next: NextFunction) => {
+    const refreshUser: RequestHandler = async (
+        req: Request,
+        _res: Response,
+        next: NextFunction,
+    ) => {
         const actor = req.actor;
-        if ( ! actor?.user?.id ) throw new HttpError(401, 'User required');
-        const user = await userStore.getByProperty('id', actor.user.id, { force: true });
-        if ( ! user ) throw new HttpError(404, 'User not found');
-        if ( user.suspended ) throw new HttpError(403, 'Account is suspended', { legacyCode: 'account_suspended' });
+        if (!actor?.user?.id) throw new HttpError(401, 'User required');
+        const user = await userStore.getByProperty('id', actor.user.id, {
+            force: true,
+        });
+        if (!user) throw new HttpError(404, 'User not found');
+        if (user.suspended)
+            throw new HttpError(403, 'Account is suspended', {
+                legacyCode: 'account_suspended',
+            });
         req.userProtected = { user };
         next();
     };
@@ -111,20 +122,31 @@ export const createUserProtectedGate = (
     //   - Otherwise accept a valid `puter_revalidation` cookie. Expiry,
     //     `purpose === 'revalidate'`, matching `user_id` all required.
     //   - Password account, neither credential → 403 `password_required`.
-    const verifyIdentity: RequestHandler = async (req: Request, _res: Response, next: NextFunction) => {
+    const verifyIdentity: RequestHandler = async (
+        req: Request,
+        _res: Response,
+        next: NextFunction,
+    ) => {
         const user = req.userProtected?.user;
-        if ( ! user ) throw new HttpError(500, 'user-protected state missing');
+        if (!user) throw new HttpError(500, 'user-protected state missing');
 
         const isTemp = user.password === null && user.email === null;
-        if ( isTemp ) {
-            if ( allowTemp ) return next();
-            throw new HttpError(403, 'Temporary account', { legacyCode: 'temporary_account' });
+        if (isTemp) {
+            if (allowTemp) return next();
+            throw new HttpError(403, 'Temporary account', {
+                legacyCode: 'temporary_account',
+            });
         }
 
-        const bodyPassword = typeof req.body?.password === 'string' ? req.body.password : null;
-        if ( bodyPassword ) {
-            if ( user.password === null ) {
-                const fields = await buildRevalidateFields(config, oidcService, user);
+        const bodyPassword =
+            typeof req.body?.password === 'string' ? req.body.password : null;
+        if (bodyPassword) {
+            if (user.password === null) {
+                const fields = await buildRevalidateFields(
+                    config,
+                    oidcService,
+                    user,
+                );
                 throw new HttpError(403, 'OIDC revalidation required', {
                     legacyCode: 'oidc_revalidation_required',
                     fields,
@@ -132,19 +154,31 @@ export const createUserProtectedGate = (
             }
             let match = false;
             try {
-                match = await bcrypt.compare(bodyPassword, String(user.password));
+                match = await bcrypt.compare(
+                    bodyPassword,
+                    String(user.password),
+                );
             } catch {
                 match = false;
             }
-            if ( ! match ) throw new HttpError(400, 'Password mismatch', { legacyCode: 'password_mismatch' });
+            if (!match)
+                throw new HttpError(400, 'Password mismatch', {
+                    legacyCode: 'password_mismatch',
+                });
             return next();
         }
 
         const cookieValue = req.cookies?.[REVALIDATION_COOKIE_NAME];
-        if ( cookieValue ) {
+        if (cookieValue) {
             try {
-                const payload = tokenService.verify<RevalidationPayload>('oidc-state', cookieValue);
-                if ( payload?.purpose === 'revalidate' && payload.user_id === user.id ) {
+                const payload = tokenService.verify<RevalidationPayload>(
+                    'oidc-state',
+                    cookieValue,
+                );
+                if (
+                    payload?.purpose === 'revalidate' &&
+                    payload.user_id === user.id
+                ) {
                     return next();
                 }
             } catch {
@@ -152,14 +186,20 @@ export const createUserProtectedGate = (
             }
         }
 
-        if ( user.password === null ) {
-            const fields = await buildRevalidateFields(config, oidcService, user);
+        if (user.password === null) {
+            const fields = await buildRevalidateFields(
+                config,
+                oidcService,
+                user,
+            );
             throw new HttpError(403, 'OIDC revalidation required', {
                 legacyCode: 'oidc_revalidation_required',
                 fields,
             });
         }
-        throw new HttpError(403, 'Password required', { legacyCode: 'password_required' });
+        throw new HttpError(403, 'Password required', {
+            legacyCode: 'password_required',
+        });
     };
 
     return [requireSessionCookie, refreshUser, verifyIdentity];

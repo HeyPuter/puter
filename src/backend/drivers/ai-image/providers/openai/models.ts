@@ -30,7 +30,11 @@ export const OPEN_AI_IMAGE_GENERATION_MODELS: IImageModel[] = [
             'high:1536x1024': 20,
         },
         allowedQualityLevels: ['low', 'medium', 'high'],
-        allowedRatios: [{ w: 1024, h: 1024 }, { w: 1024, h: 1536 }, { w: 1536, h: 1024 }],
+        allowedRatios: [
+            { w: 1024, h: 1024 },
+            { w: 1024, h: 1536 },
+            { w: 1536, h: 1024 },
+        ],
     },
     {
         puterId: 'openai:openai/gpt-image-1-mini',
@@ -60,7 +64,11 @@ export const OPEN_AI_IMAGE_GENERATION_MODELS: IImageModel[] = [
             'high:1536x1024': 5.2,
         },
         allowedQualityLevels: ['low', 'medium', 'high'],
-        allowedRatios: [{ w: 1024, h: 1024 }, { w: 1024, h: 1536 }, { w: 1536, h: 1024 }],
+        allowedRatios: [
+            { w: 1024, h: 1024 },
+            { w: 1024, h: 1536 },
+            { w: 1536, h: 1024 },
+        ],
     },
     {
         puterId: 'openai:openai/gpt-image-1',
@@ -90,7 +98,11 @@ export const OPEN_AI_IMAGE_GENERATION_MODELS: IImageModel[] = [
             'high:1536x1024': 25,
         },
         allowedQualityLevels: ['low', 'medium', 'high'],
-        allowedRatios: [{ w: 1024, h: 1024 }, { w: 1024, h: 1536 }, { w: 1536, h: 1024 }],
+        allowedRatios: [
+            { w: 1024, h: 1024 },
+            { w: 1024, h: 1536 },
+            { w: 1536, h: 1024 },
+        ],
     },
     {
         puterId: 'openai:openai/dall-e-3',
@@ -109,7 +121,11 @@ export const OPEN_AI_IMAGE_GENERATION_MODELS: IImageModel[] = [
             'hd:1792x1024': 12,
         },
         allowedQualityLevels: ['', 'hd'],
-        allowedRatios: [{ w: 1024, h: 1024 }, { w: 1024, h: 1792 }, { w: 1792, h: 1024 }],
+        allowedRatios: [
+            { w: 1024, h: 1024 },
+            { w: 1024, h: 1792 },
+            { w: 1792, h: 1024 },
+        ],
     },
     {
         puterId: 'openai:openai/dall-e-2',
@@ -124,6 +140,10 @@ export const OPEN_AI_IMAGE_GENERATION_MODELS: IImageModel[] = [
             '512x512': 1.8,
             '1024x1024': 2,
         },
-        allowedRatios: [{ w: 256, h: 256 }, { w: 512, h: 512 }, { w: 1024, h: 1024 }],
+        allowedRatios: [
+            { w: 256, h: 256 },
+            { w: 512, h: 512 },
+            { w: 1024, h: 1024 },
+        ],
     },
 ];

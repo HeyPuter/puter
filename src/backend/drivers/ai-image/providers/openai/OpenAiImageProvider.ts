@@ -18,10 +18,17 @@
  */
 
 import openai, { OpenAI } from 'openai';
-import { ImageGenerateParamsNonStreaming, ImagesResponse } from 'openai/resources/images.js';
+import {
+    ImageGenerateParamsNonStreaming,
+    ImagesResponse,
+} from 'openai/resources/images.js';
 import { Context } from '../../../../core/context.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
-import type { IGenerateParams, IImageModel, IImageProvider } from '../../types.js';
+import type {
+    IGenerateParams,
+    IImageModel,
+    IImageProvider,
+} from '../../types.js';
 import { OPEN_AI_IMAGE_GENERATION_MODELS } from './models.js';
 
 interface OpenAIImageUsage {
@@ -35,9 +42,9 @@ interface OpenAIImageUsage {
 }
 
 /**
-* OpenAI image generation provider for v2.
-* Supports DALL-E 2/3 and GPT Image models.
-*/
+ * OpenAI image generation provider for v2.
+ * Supports DALL-E 2/3 and GPT Image models.
+ */
 export class OpenAiImageProvider implements IImageProvider {
     #meteringService: MeteringService;
     #openai: OpenAI;
@@ -51,76 +58,103 @@ export class OpenAiImageProvider implements IImageProvider {
         'image_output',
     ];
 
-    constructor (config: { apiKey: string }, meteringService: MeteringService) {
+    constructor(config: { apiKey: string }, meteringService: MeteringService) {
         this.#meteringService = meteringService;
         this.#openai = new openai.OpenAI({
             apiKey: config.apiKey,
         });
     }
 
-    models () {
+    models() {
         return OPEN_AI_IMAGE_GENERATION_MODELS;
     }
 
-    getDefaultModel (): string {
+    getDefaultModel(): string {
         return 'dall-e-2';
     }
 
-    async generate ({ prompt, quality, test_mode, model, ratio }: IGenerateParams) {
+    async generate({
+        prompt,
+        quality,
+        test_mode,
+        model,
+        ratio,
+    }: IGenerateParams) {
+        const selectedModel =
+            this.models().find((m) => m.id === model) ||
+            this.models().find((m) => m.id === this.getDefaultModel())!;
 
-        const selectedModel = this.models().find(m => m.id === model) || this.models().find(m => m.id === this.getDefaultModel())!;
-
-        if ( test_mode ) {
+        if (test_mode) {
             return 'https://puter-sample-data.puter.site/image_example.png';
         }
 
-        if ( typeof prompt !== 'string' ) {
+        if (typeof prompt !== 'string') {
             throw new Error('`prompt` must be a string');
         }
 
         const validRations = selectedModel?.allowedRatios;
-        if ( validRations && (!ratio || !validRations.some(r => r.w === ratio.w && r.h === ratio.h)) ) {
+        if (
+            validRations &&
+            (!ratio ||
+                !validRations.some((r) => r.w === ratio.w && r.h === ratio.h))
+        ) {
             ratio = validRations[0]; // Default to the first allowed ratio
         }
 
-        if ( ! ratio ) {
+        if (!ratio) {
             ratio = { w: 1024, h: 1024 }; // Fallback ratio
         }
 
         const validQualities = selectedModel?.allowedQualityLevels;
-        if ( validQualities && (!quality || !validQualities.includes(quality)) ) {
+        if (validQualities && (!quality || !validQualities.includes(quality))) {
             quality = validQualities[0]; // Default to the first allowed quality
         }
 
         const size = `${ratio.w}x${ratio.h}`;
         const price_key = this.#buildPriceKey(selectedModel.id, quality!, size);
         const outputPriceInCents = selectedModel?.costs[price_key];
-        if ( outputPriceInCents === undefined ) {
-            const availableSizes = Object.keys(selectedModel?.costs)
-                .filter(key => !OpenAiImageProvider.#NON_SIZE_COST_KEYS.includes(key));
-            throw new Error(`Invalid size/quality combination. Expected one of: ${ availableSizes.join(', ')}. Got: ${price_key}`);
+        if (outputPriceInCents === undefined) {
+            const availableSizes = Object.keys(selectedModel?.costs).filter(
+                (key) => !OpenAiImageProvider.#NON_SIZE_COST_KEYS.includes(key),
+            );
+            throw new Error(
+                `Invalid size/quality combination. Expected one of: ${availableSizes.join(', ')}. Got: ${price_key}`,
+            );
         }
 
         const actor = Context.get('actor');
         const user_private_uid = actor?.private_uid ?? 'UNKNOWN';
-        if ( user_private_uid === 'UNKNOWN' ) {
-            console.error(new Error('openai-image-generation:unknown-user - failed to get a user ID for an OpenAI request'));
+        if (user_private_uid === 'UNKNOWN') {
+            console.error(
+                new Error(
+                    'openai-image-generation:unknown-user - failed to get a user ID for an OpenAI request',
+                ),
+            );
         }
 
-        const estimatedPromptTokenCount = this.#estimatePromptTokenCount(prompt);
-        const estimatedInputCostInCents = this.#calculateInputCostInCents(selectedModel, {
-            inputTokens: estimatedPromptTokenCount,
-            inputTextTokens: estimatedPromptTokenCount,
-            inputImageTokens: 0,
-            cachedInputTokens: 0,
-            cachedInputTextTokens: 0,
-            cachedInputImageTokens: 0,
-        } as OpenAIImageUsage);
+        const estimatedPromptTokenCount =
+            this.#estimatePromptTokenCount(prompt);
+        const estimatedInputCostInCents = this.#calculateInputCostInCents(
+            selectedModel,
+            {
+                inputTokens: estimatedPromptTokenCount,
+                inputTextTokens: estimatedPromptTokenCount,
+                inputImageTokens: 0,
+                cachedInputTokens: 0,
+                cachedInputTextTokens: 0,
+                cachedInputImageTokens: 0,
+            } as OpenAIImageUsage,
+        );
         const estimatedOutputCostInCents = outputPriceInCents;
-        const estimatedTotalCostInMicroCents = this.#toMicroCents(estimatedInputCostInCents + estimatedOutputCostInCents);
-        const usageAllowed = await this.#meteringService.hasEnoughCredits(actor, estimatedTotalCostInMicroCents);
+        const estimatedTotalCostInMicroCents = this.#toMicroCents(
+            estimatedInputCostInCents + estimatedOutputCostInCents,
+        );
+        const usageAllowed = await this.#meteringService.hasEnoughCredits(
+            actor,
+            estimatedTotalCostInMicroCents,
+        );
 
-        if ( ! usageAllowed ) {
+        if (!usageAllowed) {
             throw new Error('Insufficient credits for image generation');
         }
 
@@ -139,65 +173,91 @@ export class OpenAiImageProvider implements IImageProvider {
             usage.inputTokens > 0 ||
             usage.inputTextTokens > 0 ||
             usage.inputImageTokens > 0;
-        const hasOutputTokenUsage = usage.outputTokens > 0;
 
-        const billableUsage = hasInputTokenUsage ? usage : {
-            ...usage,
-            inputTokens: estimatedPromptTokenCount,
-            inputTextTokens: estimatedPromptTokenCount,
-        };
+        const billableUsage = hasInputTokenUsage
+            ? usage
+            : {
+                  ...usage,
+                  inputTokens: estimatedPromptTokenCount,
+                  inputTextTokens: estimatedPromptTokenCount,
+              };
 
         const inputCostInCents = hasInputTokenUsage
             ? this.#calculateInputCostInCents(selectedModel, billableUsage)
             : estimatedInputCostInCents;
-        const outputCostInCents = this.#calculateOutputCostInCents(selectedModel, usage, outputPriceInCents);
+        const outputCostInCents = this.#calculateOutputCostInCents(
+            selectedModel,
+            usage,
+            outputPriceInCents,
+        );
 
         const usageType = `openai:${selectedModel.id}:${price_key}`;
-        const usageEntries: Array<{ usageType: string; usageAmount: number; costOverride: number }> = [];
-        if ( inputCostInCents > 0 ) {
+        const usageEntries: Array<{
+            usageType: string;
+            usageAmount: number;
+            costOverride: number;
+        }> = [];
+        if (inputCostInCents > 0) {
             usageEntries.push({
                 usageType: `${usageType}:input`,
-                usageAmount: Math.max(billableUsage.inputTokens || estimatedPromptTokenCount, 1),
+                usageAmount: Math.max(
+                    billableUsage.inputTokens || estimatedPromptTokenCount,
+                    1,
+                ),
                 costOverride: this.#toMicroCents(inputCostInCents),
             });
         }
-        if ( outputCostInCents > 0 ) {
+        if (outputCostInCents > 0) {
             usageEntries.push({
                 usageType: `${usageType}:output`,
                 usageAmount: Math.max(usage.outputTokens, 1),
                 costOverride: this.#toMicroCents(outputCostInCents),
             });
         }
-        if ( usageEntries.length ) {
+        if (usageEntries.length) {
             this.#meteringService.batchIncrementUsages(actor, usageEntries);
         }
 
-        const url = result.data?.[0]?.url || (result.data?.[0]?.b64_json ? `data:image/png;base64,${ result.data[0].b64_json}` : null);
+        const url =
+            result.data?.[0]?.url ||
+            (result.data?.[0]?.b64_json
+                ? `data:image/png;base64,${result.data[0].b64_json}`
+                : null);
 
-        if ( ! url ) {
+        if (!url) {
             throw new Error('Failed to extract image URL from OpenAI response');
         }
 
         return url;
     }
 
-    #extractUsage (result: ImagesResponse): OpenAIImageUsage {
-        const usage = (result.usage ?? {}) as ImagesResponse.Usage & Record<string, unknown>;
+    #extractUsage(result: ImagesResponse): OpenAIImageUsage {
+        const usage = (result.usage ?? {}) as ImagesResponse.Usage &
+            Record<string, unknown>;
         const inputTokens = this.#toSafeCount(usage.input_tokens);
         const outputTokens = this.#toSafeCount(usage.output_tokens);
 
-        const inputDetails = (usage.input_tokens_details ?? {}) as unknown as Record<string, unknown>;
+        const inputDetails = (usage.input_tokens_details ??
+            {}) as unknown as Record<string, unknown>;
         const inputTextTokens = this.#toSafeCount(inputDetails.text_tokens);
         const inputImageTokens = this.#toSafeCount(inputDetails.image_tokens);
 
         const cachedInputTokens = Math.max(
-            this.#toSafeCount((usage as Record<string, unknown>).cached_input_tokens),
+            this.#toSafeCount(
+                (usage as Record<string, unknown>).cached_input_tokens,
+            ),
             this.#toSafeCount(inputDetails.cached_tokens),
         );
 
-        const cachedDetails = ((inputDetails.cached_tokens_details || inputDetails.cache_tokens_details) ?? {}) as Record<string, unknown>;
-        const cachedInputTextTokens = this.#toSafeCount(cachedDetails.text_tokens);
-        const cachedInputImageTokens = this.#toSafeCount(cachedDetails.image_tokens);
+        const cachedDetails = ((inputDetails.cached_tokens_details ||
+            inputDetails.cache_tokens_details) ??
+            {}) as Record<string, unknown>;
+        const cachedInputTextTokens = this.#toSafeCount(
+            cachedDetails.text_tokens,
+        );
+        const cachedInputImageTokens = this.#toSafeCount(
+            cachedDetails.image_tokens,
+        );
 
         return {
             inputTokens,
@@ -210,134 +270,189 @@ export class OpenAiImageProvider implements IImageProvider {
         };
     }
 
-    #calculateInputCostInCents (selectedModel: IImageModel, usage: OpenAIImageUsage): number {
-        if ( ! this.#isGptImageModel(selectedModel.id) ) {
+    #calculateInputCostInCents(
+        selectedModel: IImageModel,
+        usage: OpenAIImageUsage,
+    ): number {
+        if (!this.#isGptImageModel(selectedModel.id)) {
             return 0;
         }
 
         const textInputRate = this.#getCostRate(selectedModel, 'text_input');
-        const textCachedInputRate = this.#getCostRate(selectedModel, 'text_cached_input') ?? textInputRate;
+        const textCachedInputRate =
+            this.#getCostRate(selectedModel, 'text_cached_input') ??
+            textInputRate;
         const imageInputRate = this.#getCostRate(selectedModel, 'image_input');
-        const imageCachedInputRate = this.#getCostRate(selectedModel, 'image_cached_input') ?? imageInputRate;
+        const imageCachedInputRate =
+            this.#getCostRate(selectedModel, 'image_cached_input') ??
+            imageInputRate;
 
-        if ( textInputRate === undefined && imageInputRate === undefined ) {
+        if (textInputRate === undefined && imageInputRate === undefined) {
             return 0;
         }
 
-        const totalInputTokens = Math.max(usage.inputTokens, usage.inputTextTokens + usage.inputImageTokens);
+        const totalInputTokens = Math.max(
+            usage.inputTokens,
+            usage.inputTextTokens + usage.inputImageTokens,
+        );
         let textTokens = usage.inputTextTokens;
-        let imageTokens = usage.inputImageTokens;
+        const imageTokens = usage.inputImageTokens;
 
         // Current image generate calls are usually text-only prompts.
-        if ( textTokens + imageTokens === 0 && totalInputTokens > 0 ) {
+        if (textTokens + imageTokens === 0 && totalInputTokens > 0) {
             textTokens = totalInputTokens;
         }
 
         const knownInputTokens = textTokens + imageTokens;
-        const cachedInputTokens = Math.min(usage.cachedInputTokens, knownInputTokens || totalInputTokens);
+        const cachedInputTokens = Math.min(
+            usage.cachedInputTokens,
+            knownInputTokens || totalInputTokens,
+        );
 
-        let cachedTextTokens = Math.min(usage.cachedInputTextTokens, textTokens);
-        let cachedImageTokens = Math.min(usage.cachedInputImageTokens, imageTokens);
+        let cachedTextTokens = Math.min(
+            usage.cachedInputTextTokens,
+            textTokens,
+        );
+        let cachedImageTokens = Math.min(
+            usage.cachedInputImageTokens,
+            imageTokens,
+        );
 
-        let cachedRemaining = Math.max(0, cachedInputTokens - (cachedTextTokens + cachedImageTokens));
-        if ( cachedRemaining > 0 ) {
+        let cachedRemaining = Math.max(
+            0,
+            cachedInputTokens - (cachedTextTokens + cachedImageTokens),
+        );
+        if (cachedRemaining > 0) {
             const availableText = Math.max(textTokens - cachedTextTokens, 0);
             const availableImage = Math.max(imageTokens - cachedImageTokens, 0);
             const availableTotal = availableText + availableImage;
 
-            if ( availableTotal > 0 ) {
-                const proportionalText = Math.min(availableText, Math.round((availableText / availableTotal) * cachedRemaining));
+            if (availableTotal > 0) {
+                const proportionalText = Math.min(
+                    availableText,
+                    Math.round(
+                        (availableText / availableTotal) * cachedRemaining,
+                    ),
+                );
                 cachedTextTokens += proportionalText;
                 cachedRemaining -= proportionalText;
 
-                const proportionalImage = Math.min(availableImage, cachedRemaining);
+                const proportionalImage = Math.min(
+                    availableImage,
+                    cachedRemaining,
+                );
                 cachedImageTokens += proportionalImage;
                 cachedRemaining -= proportionalImage;
             }
 
-            if ( cachedRemaining > 0 && textTokens > cachedTextTokens ) {
-                const extraText = Math.min(textTokens - cachedTextTokens, cachedRemaining);
+            if (cachedRemaining > 0 && textTokens > cachedTextTokens) {
+                const extraText = Math.min(
+                    textTokens - cachedTextTokens,
+                    cachedRemaining,
+                );
                 cachedTextTokens += extraText;
                 cachedRemaining -= extraText;
             }
 
-            if ( cachedRemaining > 0 && imageTokens > cachedImageTokens ) {
-                const extraImage = Math.min(imageTokens - cachedImageTokens, cachedRemaining);
+            if (cachedRemaining > 0 && imageTokens > cachedImageTokens) {
+                const extraImage = Math.min(
+                    imageTokens - cachedImageTokens,
+                    cachedRemaining,
+                );
                 cachedImageTokens += extraImage;
                 cachedRemaining -= extraImage;
             }
         }
 
         const uncachedTextTokens = Math.max(textTokens - cachedTextTokens, 0);
-        const uncachedImageTokens = Math.max(imageTokens - cachedImageTokens, 0);
+        const uncachedImageTokens = Math.max(
+            imageTokens - cachedImageTokens,
+            0,
+        );
 
-        return this.#costForTokens(uncachedTextTokens, textInputRate)
-            + this.#costForTokens(cachedTextTokens, textCachedInputRate)
-            + this.#costForTokens(uncachedImageTokens, imageInputRate)
-            + this.#costForTokens(cachedImageTokens, imageCachedInputRate);
+        return (
+            this.#costForTokens(uncachedTextTokens, textInputRate) +
+            this.#costForTokens(cachedTextTokens, textCachedInputRate) +
+            this.#costForTokens(uncachedImageTokens, imageInputRate) +
+            this.#costForTokens(cachedImageTokens, imageCachedInputRate)
+        );
     }
 
-    #calculateOutputCostInCents (selectedModel: IImageModel, usage: OpenAIImageUsage, fallbackPriceInCents: number): number {
-        if ( ! this.#isGptImageModel(selectedModel.id) ) {
+    #calculateOutputCostInCents(
+        selectedModel: IImageModel,
+        usage: OpenAIImageUsage,
+        fallbackPriceInCents: number,
+    ): number {
+        if (!this.#isGptImageModel(selectedModel.id)) {
             return fallbackPriceInCents;
         }
 
-        if ( usage.outputTokens <= 0 ) {
+        if (usage.outputTokens <= 0) {
             return fallbackPriceInCents;
         }
 
-        const imageOutputRate = this.#getCostRate(selectedModel, 'image_output');
-        if ( imageOutputRate !== undefined ) {
+        const imageOutputRate = this.#getCostRate(
+            selectedModel,
+            'image_output',
+        );
+        if (imageOutputRate !== undefined) {
             return this.#costForTokens(usage.outputTokens, imageOutputRate);
         }
 
         const textOutputRate = this.#getCostRate(selectedModel, 'text_output');
-        if ( textOutputRate !== undefined ) {
+        if (textOutputRate !== undefined) {
             return this.#costForTokens(usage.outputTokens, textOutputRate);
         }
 
         return fallbackPriceInCents;
     }
 
-    #estimatePromptTokenCount (prompt: string): number {
+    #estimatePromptTokenCount(prompt: string): number {
         const text = prompt.trim();
-        if ( text.length === 0 ) return 0;
+        if (text.length === 0) return 0;
 
         // Same approximation used by chat and Gemini image billing flows.
-        return Math.max(1, Math.floor(((text.length / 4) + (text.split(/\s+/).length * (4 / 3))) / 2));
+        return Math.max(
+            1,
+            Math.floor(
+                (text.length / 4 + text.split(/\s+/).length * (4 / 3)) / 2,
+            ),
+        );
     }
 
-    #getCostRate (selectedModel: IImageModel, key: string): number | undefined {
+    #getCostRate(selectedModel: IImageModel, key: string): number | undefined {
         const value = selectedModel.costs[key];
-        if ( ! Number.isFinite(value) ) {
+        if (!Number.isFinite(value)) {
             return undefined;
         }
         return value;
     }
 
-    #costForTokens (tokenCount: number, centsPerMillion?: number): number {
-        if ( !Number.isFinite(tokenCount) || tokenCount <= 0 ) return 0;
-        if ( !Number.isFinite(centsPerMillion) || (centsPerMillion ?? 0) <= 0 ) return 0;
+    #costForTokens(tokenCount: number, centsPerMillion?: number): number {
+        if (!Number.isFinite(tokenCount) || tokenCount <= 0) return 0;
+        if (!Number.isFinite(centsPerMillion) || (centsPerMillion ?? 0) <= 0)
+            return 0;
         return (tokenCount / 1_000_000) * (centsPerMillion as number);
     }
 
-    #toMicroCents (cents: number): number {
-        if ( !Number.isFinite(cents) || cents <= 0 ) return 1;
+    #toMicroCents(cents: number): number {
+        if (!Number.isFinite(cents) || cents <= 0) return 1;
         return Math.ceil(cents * 1_000_000);
     }
 
-    #toSafeCount (value: unknown): number {
-        if ( typeof value !== 'number' || !Number.isFinite(value) || value < 0 ) return 0;
+    #toSafeCount(value: unknown): number {
+        if (typeof value !== 'number' || !Number.isFinite(value) || value < 0)
+            return 0;
         return Math.floor(value);
     }
 
-    #isGptImageModel (model: string) {
+    #isGptImageModel(model: string) {
         // Covers gpt-image-1, gpt-image-1-mini, gpt-image-1.5 and future variants.
         return model.startsWith('gpt-image-1');
     }
 
-    #buildPriceKey (model: string, quality: string, size: string) {
-        if ( this.#isGptImageModel(model) ) {
+    #buildPriceKey(model: string, quality: string, size: string) {
+        if (this.#isGptImageModel(model)) {
             // GPT image models use format: "quality:size" - default to low if not specified
             const qualityLevel = quality || 'low';
             return `${qualityLevel}:${size}`;
@@ -347,14 +462,17 @@ export class OpenAiImageProvider implements IImageProvider {
         return (quality === 'hd' ? 'hd:' : '') + size;
     }
 
-    #buildApiParams (model: string, baseParams: Partial<ImageGenerateParamsNonStreaming>): ImageGenerateParamsNonStreaming {
+    #buildApiParams(
+        model: string,
+        baseParams: Partial<ImageGenerateParamsNonStreaming>,
+    ): ImageGenerateParamsNonStreaming {
         const apiParams = {
             user: baseParams.user,
             prompt: baseParams.prompt,
             size: baseParams.size,
         } as ImageGenerateParamsNonStreaming;
 
-        if ( this.#isGptImageModel(model) ) {
+        if (this.#isGptImageModel(model)) {
             // GPT image models require the model parameter and use quality mapping
             apiParams.model = model;
             // Default to low quality if not specified, consistent with _buildPriceKey
@@ -362,7 +480,7 @@ export class OpenAiImageProvider implements IImageProvider {
         } else {
             // dall-e models
             apiParams.model = model;
-            if ( baseParams.quality === 'hd' ) {
+            if (baseParams.quality === 'hd') {
                 apiParams.quality = 'hd';
             }
         }

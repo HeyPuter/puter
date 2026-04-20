@@ -1,20 +1,21 @@
+export const normalize_json_schema = (schema) => {
+    if (!schema) return schema;
 
-export const normalize_json_schema =  (schema) => {
-    if ( ! schema ) return schema;
-
-    if ( schema.type === 'object' ) {
-        if ( ! schema.properties ) {
+    if (schema.type === 'object') {
+        if (!schema.properties) {
             return schema;
         }
 
         const keys = Object.keys(schema.properties);
-        for ( const key of keys ) {
-            schema.properties[key] = normalize_json_schema(schema.properties[key]);
+        for (const key of keys) {
+            schema.properties[key] = normalize_json_schema(
+                schema.properties[key],
+            );
         }
     }
 
-    if ( schema.type === 'array' ) {
-        if ( ! schema.items ) {
+    if (schema.type === 'array') {
+        if (!schema.items) {
             schema.items = {};
         } else {
             schema.items = normalize_json_schema(schema.items);
@@ -25,64 +26,62 @@ export const normalize_json_schema =  (schema) => {
 };
 
 /**
-     * Normalizes the 'tools' object in-place.
-     *
-     * This function will accept an array of tools provided by the
-     * user, and produce a normalized object that can then be
-     * converted to the apprpriate representation for another
-     * service.
-     *
-     * We will accept conventions from either service that a user
-     * might expect to work, prioritizing the OpenAI convention
-     * when conflicting conventions are present.
-     *
-     * @param {*} tools
-     */
-export const normalize_tools_object =  (tools) => {
-    for ( let i = 0 ; i < tools.length ; i++ ) {
+ * Normalizes the 'tools' object in-place.
+ *
+ * This function will accept an array of tools provided by the
+ * user, and produce a normalized object that can then be
+ * converted to the apprpriate representation for another
+ * service.
+ *
+ * We will accept conventions from either service that a user
+ * might expect to work, prioritizing the OpenAI convention
+ * when conflicting conventions are present.
+ *
+ * @param {*} tools
+ */
+export const normalize_tools_object = (tools) => {
+    for (let i = 0; i < tools.length; i++) {
         const tool = tools[i];
 
-        if ( tool.type === 'web_search' ) {
+        if (tool.type === 'web_search') {
             // OpenAI Responses specific
             continue;
         }
         let normalized_tool = {};
 
-        const normalize_function = fn => {
+        const normalize_function = (fn) => {
             const normal_fn = {};
-            let parameters =
-                fn.parameters ||
-                fn.input_schema;
+            let parameters = fn.parameters || fn.input_schema;
 
-            if ( !parameters || typeof parameters !== 'object' ) {
+            if (!parameters || typeof parameters !== 'object') {
                 parameters = { type: 'object' };
-            } else if ( ! parameters.type ) {
+            } else if (!parameters.type) {
                 parameters.type = 'object';
             }
 
             normal_fn.parameters = parameters;
 
-            if ( parameters.properties ) {
+            if (parameters.properties) {
                 parameters = normalize_json_schema(parameters);
             }
 
-            if ( fn.name ) {
+            if (fn.name) {
                 normal_fn.name = fn.name;
             }
 
-            if ( fn.description ) {
+            if (fn.description) {
                 normal_fn.description = fn.description;
             }
 
             return normal_fn;
         };
 
-        if ( tool.input_schema ) {
+        if (tool.input_schema) {
             normalized_tool = {
                 type: 'function',
                 function: normalize_function(tool),
             };
-        } else if ( tool.type === 'function' ) {
+        } else if (tool.type === 'function') {
             normalized_tool = {
                 type: 'function',
                 function: normalize_function(tool.function || tool),
@@ -100,26 +99,26 @@ export const normalize_tools_object =  (tools) => {
 };
 
 /**
-     * This function will convert a normalized tools object to the
-     * format expected by OpenAI.
-     *
-     * @param {*} tools
-     * @returns
-     */
-export const make_openai_tools =  (tools) => {
+ * This function will convert a normalized tools object to the
+ * format expected by OpenAI.
+ *
+ * @param {*} tools
+ * @returns
+ */
+export const make_openai_tools = (tools) => {
     return tools;
 };
 
 /**
-     * This function will convert a normalized tools object to the
-     * format expected by Claude.
-     *
-     * @param {*} tools
-     * @returns
-     */
-export const make_claude_tools =  (tools) => {
-    if ( ! tools ) return undefined;
-    return tools.map(tool => {
+ * This function will convert a normalized tools object to the
+ * format expected by Claude.
+ *
+ * @param {*} tools
+ * @returns
+ */
+export const make_claude_tools = (tools) => {
+    if (!tools) return undefined;
+    return tools.map((tool) => {
         const { name, description, parameters } = tool.function;
         return {
             name,

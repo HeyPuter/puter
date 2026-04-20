@@ -1,4 +1,3 @@
-
 import dedent from 'dedent';
 import handlebars, { template } from 'handlebars';
 import nodemailer from 'nodemailer';
@@ -82,12 +81,13 @@ const DOMAIN_ALIASES: Record<string, string> = {
  *   - Policy + extensible validation (via `validate`)
  */
 export class EmailClient extends PuterClient {
-
     private transport: NodemailerTransport | null = null;
-    private compiledTemplates: Partial<Record<EmailTemplateName, CompiledTemplate>> = {};
+    private compiledTemplates: Partial<
+        Record<EmailTemplateName, CompiledTemplate>
+    > = {};
     private validators: EmailValidator[] = [];
 
-    constructor (config: IConfig) {
+    constructor(config: IConfig) {
         super(config);
         this.registerHandlebarsHelpers();
         this.compileTemplates();
@@ -95,10 +95,12 @@ export class EmailClient extends PuterClient {
 
     // ── Lifecycle ────────────────────────────────────────────────────
 
-    override onServerStart (): void {
+    override onServerStart(): void {
         const emailConf = this.config.email;
-        if ( ! emailConf ) {
-            console.warn('[email] no email transport configured — send() will fail until configured');
+        if (!emailConf) {
+            console.warn(
+                '[email] no email transport configured — send() will fail until configured',
+            );
             return;
         }
 
@@ -107,7 +109,7 @@ export class EmailClient extends PuterClient {
         console.log('[email] transport configured');
     }
 
-    override onServerShutdown (): void {
+    override onServerShutdown(): void {
         this.transport?.close?.();
         this.transport = null;
     }
@@ -117,13 +119,13 @@ export class EmailClient extends PuterClient {
     /**
      * Render a template and send it to `to`.
      */
-    async send<T extends EmailTemplateName> (
+    async send<T extends EmailTemplateName>(
         to: string,
         template: T,
         values: Record<string, unknown> = {},
     ): Promise<void> {
         const compiled = this.compiledTemplates[template];
-        if ( ! compiled ) {
+        if (!compiled) {
             throw new Error(`Unknown email template: ${template}`);
         }
 
@@ -139,8 +141,8 @@ export class EmailClient extends PuterClient {
      * Raw send — bypasses the template system. Useful for one-off
      * admin emails that don't warrant a named template.
      */
-    async sendRaw (options: SendMailOptions): Promise<void> {
-        if ( ! this.transport ) {
+    async sendRaw(options: SendMailOptions): Promise<void> {
+        if (!this.transport) {
             throw new Error('EmailClient transport is not configured');
         }
         await this.transport.sendMail({
@@ -156,11 +158,11 @@ export class EmailClient extends PuterClient {
      * Applies provider-specific rules (e.g. Gmail ignores dots in
      * the local part) plus generic subaddressing removal.
      */
-    clean (email: string): string {
+    clean(email: string): string {
         let [local, domain] = email.split('@');
-        if ( !local || !domain ) return email;
+        if (!local || !domain) return email;
 
-        if ( DOMAIN_ALIASES[domain] ) {
+        if (DOMAIN_ALIASES[domain]) {
             domain = DOMAIN_ALIASES[domain];
         }
 
@@ -169,13 +171,13 @@ export class EmailClient extends PuterClient {
         const provider = DOMAIN_TO_PROVIDER[domain];
         const rules = provider ? PROVIDER_RULES[provider] : undefined;
 
-        if ( rules ) {
-            rules.apply.forEach(r => ruleNames.add(r));
-            rules.skip.forEach(r => ruleNames.delete(r));
+        if (rules) {
+            rules.apply.forEach((r) => ruleNames.add(r));
+            rules.skip.forEach((r) => ruleNames.delete(r));
         }
 
         let parts = { local, domain };
-        for ( const name of ruleNames ) {
+        for (const name of ruleNames) {
             parts = CLEAN_RULES[name](parts);
         }
 
@@ -187,21 +189,21 @@ export class EmailClient extends PuterClient {
      * blocklist plus any registered validators (services can call
      * `addValidator()` to register custom policy hooks).
      */
-    async validate (email: string): Promise<boolean> {
-        if ( this.config.env === 'dev' ) return true;
+    async validate(email: string): Promise<boolean> {
+        if (this.config.env === 'dev') return true;
 
         const cleaned = this.clean(email);
 
         const blocked = this.config.blockedEmailDomains;
-        if ( Array.isArray(blocked) ) {
-            for ( const suffix of blocked ) {
-                if ( cleaned.endsWith(suffix) ) return false;
+        if (Array.isArray(blocked)) {
+            for (const suffix of blocked) {
+                if (cleaned.endsWith(suffix)) return false;
             }
         }
 
-        for ( const validator of this.validators ) {
+        for (const validator of this.validators) {
             const ok = await validator(cleaned);
-            if ( ! ok ) return false;
+            if (!ok) return false;
         }
 
         return true;
@@ -212,19 +214,19 @@ export class EmailClient extends PuterClient {
      * during their startup to veto specific emails (e.g. a
      * disposable-email service).
      */
-    addValidator (fn: EmailValidator): void {
+    addValidator(fn: EmailValidator): void {
         this.validators.push(fn);
     }
 
     // ── Internals ────────────────────────────────────────────────────
 
-    private defaultFrom (): string {
+    private defaultFrom(): string {
         return this.config.email?.from ?? '"Puter" no-reply@puter.com';
     }
 
-    private registerHandlebarsHelpers (): void {
+    private registerHandlebarsHelpers(): void {
         handlebars.registerHelper('nl2br', (text: unknown) => {
-            if ( text == null ) return '';
+            if (text == null) return '';
             const escaped = String(text)
                 .replace(/&/g, '&amp;')
                 .replace(/</g, '&lt;')
@@ -234,8 +236,8 @@ export class EmailClient extends PuterClient {
         });
     }
 
-    private compileTemplates (): void {
-        for ( const [name, template] of Object.entries(EMAIL_TEMPLATES) ) {
+    private compileTemplates(): void {
+        for (const [name, template] of Object.entries(EMAIL_TEMPLATES)) {
             this.compiledTemplates[name as EmailTemplateName] = {
                 subject: handlebars.compile(template.subject),
                 html: handlebars.compile(dedent(template.html)),

@@ -19,10 +19,13 @@ import '../expressAugmentation';
  */
 export const createRequestContextMiddleware = (): RequestHandler => {
     return (req, _res, next) => {
-        runWithContext({
-            actor: req.actor,
-            req,
-            requestId: uuidv4(),
-        }, () => next());
+        runWithContext(
+            {
+                actor: req.actor,
+                req,
+                requestId: uuidv4(),
+            },
+            () => next(),
+        );
     };
 };

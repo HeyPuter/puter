@@ -34,14 +34,19 @@ type RouterCache = Map<string, RequestHandler | null>;
 
 const additionalRoutePaths: Record<string, string> = {};
 
-async function loadAdditionalRouter (key: string): Promise<RequestHandler | null> {
+async function loadAdditionalRouter(
+    key: string,
+): Promise<RequestHandler | null> {
     const path = additionalRoutePaths[key];
-    if ( ! path ) return null;
+    if (!path) return null;
     try {
         const mod = await import(path);
         return (mod.default ?? mod) as RequestHandler;
-    } catch ( err ) {
-        console.error(`[legacy-fs] failed to load additional route module '${key}':`, err);
+    } catch (err) {
+        console.error(
+            `[legacy-fs] failed to load additional route module '${key}':`,
+            err,
+        );
         return null;
     }
 }
@@ -51,7 +56,7 @@ async function loadAdditionalRouter (key: string): Promise<RequestHandler | null
 export class LegacyFSController extends PuterController {
     #additionalCache: RouterCache = new Map();
 
-    registerRoutes (router: PuterRouter): void {
+    registerRoutes(router: PuterRouter): void {
         const apiOptions = { subdomain: 'api', requireVerified: true } as const;
 
         // Core filesystem_api routes — direct handlers over the FS service.
@@ -75,30 +80,52 @@ export class LegacyFSController extends PuterController {
         router.get('/file', apiOptions, this.file);
         router.all('/df', apiOptions, this.df);
         router.post('/open_item', apiOptions, this.openItem);
-        router.post('/auth/request-app-root-dir', apiOptions, this.requestAppRootDir);
+        router.post(
+            '/auth/request-app-root-dir',
+            apiOptions,
+            this.requestAppRootDir,
+        );
         router.post('/auth/check-app-acl', apiOptions, this.checkAppAcl);
 
         // Redirect /down → /file?download=true to consolidate download paths.
         router.post('/down', apiOptions, this.redirectToFile);
         // /itemMetadata is deprecated; not called by puter-js. Return 410 Gone.
         router.get('/itemMetadata', apiOptions, (_req, res) => {
-            res.status(410).json({ error: 'itemMetadata is deprecated; use /fs/stat' });
+            res.status(410).json({
+                error: 'itemMetadata is deprecated; use /fs/stat',
+            });
         });
 
         router.get('/get-launch-apps', apiOptions, async (req, res) => {
-            const recommendedSvc = this.services.recommendedApps as unknown as { getRecommendedApps?: () => Promise<unknown[]> } | undefined;
+            const recommendedSvc = this.services.recommendedApps as unknown as
+                | { getRecommendedApps?: () => Promise<unknown[]> }
+                | undefined;
             const recommended = recommendedSvc?.getRecommendedApps
                 ? await recommendedSvc.getRecommendedApps()
                 : [];
 
             let recent: unknown[] = [];
             const userId = req.actor?.user?.id;
-            if ( userId ) {
-                const recentUids = await (this.stores.app as unknown as { getRecentAppOpens?: (id: number, opts?: { limit?: number }) => Promise<string[]> }).getRecentAppOpens?.(userId, { limit: 10 }) ?? [];
+            if (userId) {
+                const recentUids =
+                    (await (
+                        this.stores.app as unknown as {
+                            getRecentAppOpens?: (
+                                id: number,
+                                opts?: { limit?: number },
+                            ) => Promise<string[]>;
+                        }
+                    ).getRecentAppOpens?.(userId, { limit: 10 })) ?? [];
                 const apps: unknown[] = [];
-                for ( const uid of recentUids ) {
-                    const app = await (this.stores.app as unknown as { getByUid: (uid: string) => Promise<Record<string, unknown> | null> }).getByUid(uid);
-                    if ( app ) {
+                for (const uid of recentUids) {
+                    const app = await (
+                        this.stores.app as unknown as {
+                            getByUid: (
+                                uid: string,
+                            ) => Promise<Record<string, unknown> | null>;
+                        }
+                    ).getByUid(uid);
+                    if (app) {
                         apps.push({
                             uuid: app.uid,
                             name: app.name,
@@ -117,8 +144,15 @@ export class LegacyFSController extends PuterController {
         });
 
         router.post('/suggest_apps', apiOptions, async (req, res) => {
-            const suggestSvc = this.services.suggestedApps as unknown as { getSuggestedApps?: (entry: { name?: string; path?: string }) => Promise<unknown[]> } | undefined;
-            if ( ! suggestSvc?.getSuggestedApps ) {
+            const suggestSvc = this.services.suggestedApps as unknown as
+                | {
+                      getSuggestedApps?: (entry: {
+                          name?: string;
+                          path?: string;
+                      }) => Promise<unknown[]>;
+                  }
+                | undefined;
+            if (!suggestSvc?.getSuggestedApps) {
                 res.json([]);
                 return;
             }
@@ -128,9 +162,13 @@ export class LegacyFSController extends PuterController {
             const userId = req.actor?.user?.id;
             let entryName: string | undefined;
             let entryPath: string | undefined;
-            if ( body.uid || body.path ) {
+            if (body.uid || body.path) {
                 try {
-                    const entry = await resolveV1Selector(this.stores.fsEntry, body, userId ?? NaN);
+                    const entry = await resolveV1Selector(
+                        this.stores.fsEntry,
+                        body,
+                        userId ?? NaN,
+                    );
                     entryName = entry?.name;
                     entryPath = entry?.path;
                 } catch {
@@ -147,55 +185,91 @@ export class LegacyFSController extends PuterController {
         // puter-js polls this to decide whether to purge its in-memory FS
         // cache. SocketService bumps a per-user Redis key on every
         // `outer.gui.item.*` mutation — read it back here.
-        router.get('/cache/last-change-timestamp', apiOptions, async (req, res) => {
-            const userId = req.actor?.user?.id;
-            if ( ! userId ) {
-                res.json({ timestamp: 0 });
-                return;
-            }
-            const socket = this.services.socket as unknown as { getLastChangeTimestamp?: (id: number) => Promise<number> } | undefined;
-            const timestamp = socket?.getLastChangeTimestamp ? await socket.getLastChangeTimestamp(userId) : 0;
-            res.json({ timestamp });
-        });
+        router.get(
+            '/cache/last-change-timestamp',
+            apiOptions,
+            async (req, res) => {
+                const userId = req.actor?.user?.id;
+                if (!userId) {
+                    res.json({ timestamp: 0 });
+                    return;
+                }
+                const socket = this.services.socket as unknown as
+                    | {
+                          getLastChangeTimestamp?: (
+                              id: number,
+                          ) => Promise<number>;
+                      }
+                    | undefined;
+                const timestamp = socket?.getLastChangeTimestamp
+                    ? await socket.getLastChangeTimestamp(userId)
+                    : 0;
+                res.json({ timestamp });
+            },
+        );
 
         // ── POST /readdir-subdomains ────────────────────────────────
-        router.post('/readdir-subdomains', apiOptions, async (req: Request, res: Response) => {
-            const userId = req.actor?.user?.id;
-            if ( ! userId ) throw new HttpError(401, 'Authentication required');
-            const rows = await this.clients.db.read(
-                'SELECT `subdomain`, `root_dir_id`, `uuid`, `ts` FROM `subdomains` WHERE `user_id` = ?',
-                [userId],
-            );
-            res.json(rows);
-        });
+        router.post(
+            '/readdir-subdomains',
+            apiOptions,
+            async (req: Request, res: Response) => {
+                const userId = req.actor?.user?.id;
+                if (!userId)
+                    throw new HttpError(401, 'Authentication required');
+                const rows = await this.clients.db.read(
+                    'SELECT `subdomain`, `root_dir_id`, `uuid`, `ts` FROM `subdomains` WHERE `user_id` = ?',
+                    [userId],
+                );
+                res.json(rows);
+            },
+        );
 
         // ── POST /update-fsentry-thumbnail ──────────────────────────
-        router.post('/update-fsentry-thumbnail', apiOptions, async (req: Request, res: Response) => {
-            const userId = req.actor?.user?.id;
-            if ( ! userId ) throw new HttpError(401, 'Authentication required');
-            const { uid, thumbnail } = (req.body ?? {}) as { uid?: string; thumbnail?: string };
-            if ( ! uid ) throw new HttpError(400, 'Missing `uid`');
-            if ( ! thumbnail ) throw new HttpError(400, 'Missing `thumbnail`');
+        router.post(
+            '/update-fsentry-thumbnail',
+            apiOptions,
+            async (req: Request, res: Response) => {
+                const userId = req.actor?.user?.id;
+                if (!userId)
+                    throw new HttpError(401, 'Authentication required');
+                const { uid, thumbnail } = (req.body ?? {}) as {
+                    uid?: string;
+                    thumbnail?: string;
+                };
+                if (!uid) throw new HttpError(400, 'Missing `uid`');
+                if (!thumbnail) throw new HttpError(400, 'Missing `thumbnail`');
 
-            const entry = await this.stores.fsEntry.getEntryByUuid(uid);
-            if ( !entry || entry.userId !== userId ) throw new HttpError(403, 'Access denied');
+                const entry = await this.stores.fsEntry.getEntryByUuid(uid);
+                if (!entry || entry.userId !== userId)
+                    throw new HttpError(403, 'Access denied');
 
-            // Emit thumbnail.created so the thumbnails extension can S3-upload.
-            // emitAndWait is required — the extension rewrites `event.url`
-            // from a data URL to an `s3://` pointer, and the DB write below
-            // needs to see that rewrite.
-            const event = { url: thumbnail };
-            await this.clients.event.emitAndWait('thumbnail.created', event, {});
+                // Emit thumbnail.created so the thumbnails extension can S3-upload.
+                // emitAndWait is required — the extension rewrites `event.url`
+                // from a data URL to an `s3://` pointer, and the DB write below
+                // needs to see that rewrite.
+                const event = { url: thumbnail };
+                await this.clients.event.emitAndWait(
+                    'thumbnail.created',
+                    event,
+                    {},
+                );
 
-            await this.clients.db.write(
-                'UPDATE `fsentries` SET `thumbnail` = ? WHERE `uuid` = ?',
-                [event.url, uid],
+                await this.clients.db.write(
+                    'UPDATE `fsentries` SET `thumbnail` = ? WHERE `uuid` = ?',
+                    [event.url, uid],
+                );
+                res.json({ thumbnail: event.url });
+            },
+        );
+
+        for (const key of Object.keys(additionalRoutePaths)) {
+            router.use(
+                this.#createLazyHandler(
+                    key,
+                    this.#additionalCache,
+                    loadAdditionalRouter,
+                ),
             );
-            res.json({ thumbnail: event.url });
-        });
-
-        for ( const key of Object.keys(additionalRoutePaths) ) {
-            router.use(this.#createLazyHandler(key, this.#additionalCache, loadAdditionalRouter));
         }
     }
 
@@ -210,24 +284,38 @@ export class LegacyFSController extends PuterController {
         const userId = this.#getActorUserId(req);
         const body = asRecord(req.body);
 
-        const entry = await resolveV1Selector(this.stores.fsEntry, body, userId);
-        await assertAccess(this.services.acl, this.services.fsEntry, actor, entry.path, 'see');
+        const entry = await resolveV1Selector(
+            this.stores.fsEntry,
+            body,
+            userId,
+        );
+        await assertAccess(
+            this.services.acl,
+            this.services.fsEntry,
+            actor,
+            entry.path,
+            'see',
+        );
 
         const shaped = await toLegacyEntry(this.clients.event, entry);
 
         // Optional hydrations:
-        if ( entry.isDir && getBoolean(body, 'return_size') ) {
-            shaped.size = await this.services.fsEntry.getSubtreeSize(userId, entry.path);
+        if (entry.isDir && getBoolean(body, 'return_size')) {
+            shaped.size = await this.services.fsEntry.getSubtreeSize(
+                userId,
+                entry.path,
+            );
         }
-        if ( getBoolean(body, 'return_subdomains') ) {
+        if (getBoolean(body, 'return_subdomains')) {
             shaped.subdomains = await this.#listSubdomainsForEntry(entry.uuid);
         }
         // Legacy clients sometimes ask for `return_versions`, `return_owner`,
         // `return_shares`. We don't have parity for these yet — return empty
         // arrays/null to avoid breaking `response.x.forEach(...)` patterns.
-        if ( getBoolean(body, 'return_versions') ) shaped.versions = [];
-        if ( getBoolean(body, 'return_shares') ) shaped.shares = [];
-        if ( getBoolean(body, 'return_owner') ) shaped.owner = { user_id: entry.userId };
+        if (getBoolean(body, 'return_versions')) shaped.versions = [];
+        if (getBoolean(body, 'return_shares')) shaped.shares = [];
+        if (getBoolean(body, 'return_owner'))
+            shaped.owner = { user_id: entry.userId };
 
         res.json(shaped);
     };
@@ -237,18 +325,33 @@ export class LegacyFSController extends PuterController {
         const userId = this.#getActorUserId(req);
         const body = asRecord(req.body);
 
-        const parent = await resolveV1Selector(this.stores.fsEntry, body, userId);
-        if ( ! parent.isDir ) {
+        const parent = await resolveV1Selector(
+            this.stores.fsEntry,
+            body,
+            userId,
+        );
+        if (!parent.isDir) {
             throw new HttpError(400, 'Target is not a directory');
         }
-        await assertAccess(this.services.acl, this.services.fsEntry, actor, parent.path, 'list');
+        await assertAccess(
+            this.services.acl,
+            this.services.fsEntry,
+            actor,
+            parent.path,
+            'list',
+        );
 
-        const children = await this.services.fsEntry.listDirectory(parent.uuid, {
-            sortBy: this.#parseSortBy(body),
-            sortOrder: this.#parseSortOrder(body),
-        });
+        const children = await this.services.fsEntry.listDirectory(
+            parent.uuid,
+            {
+                sortBy: this.#parseSortBy(body),
+                sortOrder: this.#parseSortOrder(body),
+            },
+        );
 
-        const shaped = await Promise.all(children.map((c) => toLegacyEntry(this.clients.event, c)));
+        const shaped = await Promise.all(
+            children.map((c) => toLegacyEntry(this.clients.event, c)),
+        );
         res.json(shaped);
     };
 
@@ -257,16 +360,25 @@ export class LegacyFSController extends PuterController {
         const userId = this.#getActorUserId(req);
         const body = asRecord(req.body);
         const rawPath = getString(body, 'path');
-        if ( ! rawPath ) throw new HttpError(400, '`path` is required');
+        if (!rawPath) throw new HttpError(400, '`path` is required');
 
         // Supports `{ parent, path }` where `path` is a relative suffix.
         let targetPath = rawPath;
-        if ( body.parent !== undefined && !rawPath.startsWith('/') ) {
-            const parent = await resolveV1Selector(this.stores.fsEntry, body.parent, userId);
-            targetPath = parent.path === '/' ? `/${rawPath}` : `${parent.path}/${rawPath}`;
+        if (body.parent !== undefined && !rawPath.startsWith('/')) {
+            const parent = await resolveV1Selector(
+                this.stores.fsEntry,
+                body.parent,
+                userId,
+            );
+            targetPath =
+                parent.path === '/'
+                    ? `/${rawPath}`
+                    : `${parent.path}/${rawPath}`;
         }
 
-        const parentPath = pathPosix.dirname(targetPath.startsWith('/') ? targetPath : `/${targetPath}`);
+        const parentPath = pathPosix.dirname(
+            targetPath.startsWith('/') ? targetPath : `/${targetPath}`,
+        );
         await assertAccess(
             this.services.acl,
             this.services.fsEntry,
@@ -279,7 +391,12 @@ export class LegacyFSController extends PuterController {
             path: targetPath,
             overwrite: getBoolean(body, 'overwrite') ?? false,
             dedupeName: getBoolean(body, 'dedupe_name', 'change_name') ?? false,
-            createMissingParents: getBoolean(body, 'create_missing_parents', 'create_missing_ancestors') ?? false,
+            createMissingParents:
+                getBoolean(
+                    body,
+                    'create_missing_parents',
+                    'create_missing_ancestors',
+                ) ?? false,
         });
         await this.#emitGuiEvent('outer.gui.item.added', entry);
 
@@ -291,11 +408,31 @@ export class LegacyFSController extends PuterController {
         const userId = this.#getActorUserId(req);
         const body = asRecord(req.body);
 
-        const source = await resolveV1Selector(this.stores.fsEntry, body.source, userId);
-        const destinationParent = await resolveV1Selector(this.stores.fsEntry, body.destination, userId);
+        const source = await resolveV1Selector(
+            this.stores.fsEntry,
+            body.source,
+            userId,
+        );
+        const destinationParent = await resolveV1Selector(
+            this.stores.fsEntry,
+            body.destination,
+            userId,
+        );
 
-        await assertAccess(this.services.acl, this.services.fsEntry, actor, source.path, 'read');
-        await assertAccess(this.services.acl, this.services.fsEntry, actor, destinationParent.path, 'write');
+        await assertAccess(
+            this.services.acl,
+            this.services.fsEntry,
+            actor,
+            source.path,
+            'read',
+        );
+        await assertAccess(
+            this.services.acl,
+            this.services.fsEntry,
+            actor,
+            destinationParent.path,
+            'write',
+        );
 
         const copy = await this.services.fsEntry.copy(userId, {
             source,
@@ -315,11 +452,31 @@ export class LegacyFSController extends PuterController {
         const userId = this.#getActorUserId(req);
         const body = asRecord(req.body);
 
-        const source = await resolveV1Selector(this.stores.fsEntry, body.source, userId);
-        const destinationParent = await resolveV1Selector(this.stores.fsEntry, body.destination, userId);
+        const source = await resolveV1Selector(
+            this.stores.fsEntry,
+            body.source,
+            userId,
+        );
+        const destinationParent = await resolveV1Selector(
+            this.stores.fsEntry,
+            body.destination,
+            userId,
+        );
 
-        await assertAccess(this.services.acl, this.services.fsEntry, actor, source.path, 'write');
-        await assertAccess(this.services.acl, this.services.fsEntry, actor, destinationParent.path, 'write');
+        await assertAccess(
+            this.services.acl,
+            this.services.fsEntry,
+            actor,
+            source.path,
+            'write',
+        );
+        await assertAccess(
+            this.services.acl,
+            this.services.fsEntry,
+            actor,
+            destinationParent.path,
+            'write',
+        );
 
         const moved = await this.services.fsEntry.move(userId, {
             source,
@@ -331,9 +488,14 @@ export class LegacyFSController extends PuterController {
             // `{ original_name, original_path, trashed_ts }` when moving into
             // Trash, and `null`/`{}` when restoring. See
             // `src/gui/src/helpers.js` → `window.move_items`.
-            newMetadata: (body.new_metadata ?? undefined) as Record<string, unknown> | null | undefined,
+            newMetadata: (body.new_metadata ?? undefined) as
+                | Record<string, unknown>
+                | null
+                | undefined,
         });
-        await this.#emitGuiEvent('outer.gui.item.moved', moved, { old_path: source.path });
+        await this.#emitGuiEvent('outer.gui.item.moved', moved, {
+            old_path: source.path,
+        });
 
         res.json(await toLegacyEntry(this.clients.event, moved));
     };
@@ -345,25 +507,48 @@ export class LegacyFSController extends PuterController {
 
         // /delete can take `paths: []` for bulk delete, or a single selector.
         const pathsArray = Array.isArray(body.paths) ? body.paths : null;
-        if ( pathsArray ) {
+        if (pathsArray) {
             const removedEntries: unknown[] = [];
-            for ( const raw of pathsArray ) {
-                const entry = await resolveV1Selector(this.stores.fsEntry, raw, userId);
-                await assertAccess(this.services.acl, this.services.fsEntry, actor, entry.path, 'write');
+            for (const raw of pathsArray) {
+                const entry = await resolveV1Selector(
+                    this.stores.fsEntry,
+                    raw,
+                    userId,
+                );
+                await assertAccess(
+                    this.services.acl,
+                    this.services.fsEntry,
+                    actor,
+                    entry.path,
+                    'write',
+                );
                 await this.services.fsEntry.remove(userId, {
                     entry,
                     recursive: getBoolean(body, 'recursive') ?? true,
-                    descendantsOnly: getBoolean(body, 'descendants_only') ?? false,
+                    descendantsOnly:
+                        getBoolean(body, 'descendants_only') ?? false,
                 });
                 await this.#emitGuiEvent('outer.gui.item.removed', entry);
-                removedEntries.push(await toLegacyEntry(this.clients.event, entry));
+                removedEntries.push(
+                    await toLegacyEntry(this.clients.event, entry),
+                );
             }
             res.json(removedEntries);
             return;
         }
 
-        const entry = await resolveV1Selector(this.stores.fsEntry, body, userId);
-        await assertAccess(this.services.acl, this.services.fsEntry, actor, entry.path, 'write');
+        const entry = await resolveV1Selector(
+            this.stores.fsEntry,
+            body,
+            userId,
+        );
+        await assertAccess(
+            this.services.acl,
+            this.services.fsEntry,
+            actor,
+            entry.path,
+            'write',
+        );
         await this.services.fsEntry.remove(userId, {
             entry,
             recursive: getBoolean(body, 'recursive') ?? true,
@@ -379,10 +564,20 @@ export class LegacyFSController extends PuterController {
         const body = asRecord(req.body);
 
         const newName = getString(body, 'new_name');
-        if ( ! newName ) throw new HttpError(400, '`new_name` is required');
+        if (!newName) throw new HttpError(400, '`new_name` is required');
 
-        const entry = await resolveV1Selector(this.stores.fsEntry, body, userId);
-        await assertAccess(this.services.acl, this.services.fsEntry, actor, entry.path, 'write');
+        const entry = await resolveV1Selector(
+            this.stores.fsEntry,
+            body,
+            userId,
+        );
+        await assertAccess(
+            this.services.acl,
+            this.services.fsEntry,
+            actor,
+            entry.path,
+            'write',
+        );
 
         const renamed = await this.services.fsEntry.rename(entry, newName);
         await this.#emitGuiEvent('outer.gui.item.updated', renamed);
@@ -395,20 +590,29 @@ export class LegacyFSController extends PuterController {
         const body = asRecord(req.body);
 
         const rawPath = getString(body, 'path');
-        if ( ! rawPath ) throw new HttpError(400, '`path` is required');
+        if (!rawPath) throw new HttpError(400, '`path` is required');
 
-        const parentPath = pathPosix.dirname(rawPath.startsWith('/') ? rawPath : `/${rawPath}`);
-        if ( parentPath === '/' ) {
+        const parentPath = pathPosix.dirname(
+            rawPath.startsWith('/') ? rawPath : `/${rawPath}`,
+        );
+        if (parentPath === '/') {
             throw new HttpError(400, 'Cannot touch in root');
         }
-        await assertAccess(this.services.acl, this.services.fsEntry, actor, parentPath, 'write');
+        await assertAccess(
+            this.services.acl,
+            this.services.fsEntry,
+            actor,
+            parentPath,
+            'write',
+        );
 
         await this.services.fsEntry.touch(userId, {
             path: rawPath,
             setAccessed: getBoolean(body, 'set_accessed_to_now') ?? false,
             setModified: getBoolean(body, 'set_modified_to_now') ?? false,
             setCreated: getBoolean(body, 'set_created_to_now') ?? false,
-            createMissingParents: getBoolean(body, 'create_missing_parents') ?? false,
+            createMissingParents:
+                getBoolean(body, 'create_missing_parents') ?? false,
         });
         // /touch historically returns an empty body.
         res.send('');
@@ -419,10 +623,17 @@ export class LegacyFSController extends PuterController {
         const userId = this.#getActorUserId(req);
         const body = asRecord(req.body);
         const query = getString(body, 'query', 'text') ?? '';
-        if ( query.trim().length === 0 ) throw new HttpError(400, '`query` is required');
+        if (query.trim().length === 0)
+            throw new HttpError(400, '`query` is required');
 
-        const results = await this.services.fsEntry.searchByName(userId, query, 200);
-        const shaped = await Promise.all(results.map((r) => toLegacyEntry(this.clients.event, r)));
+        const results = await this.services.fsEntry.searchByName(
+            userId,
+            query,
+            200,
+        );
+        const shaped = await Promise.all(
+            results.map((r) => toLegacyEntry(this.clients.event, r)),
+        );
         res.json(shaped);
     };
 
@@ -431,35 +642,64 @@ export class LegacyFSController extends PuterController {
         const userId = this.#getActorUserId(req);
         const query = asRecord(req.query);
 
-        const entry = await resolveV1Selector(this.stores.fsEntry, query, userId);
-        await assertAccess(this.services.acl, this.services.fsEntry, actor, entry.path, 'read');
+        const entry = await resolveV1Selector(
+            this.stores.fsEntry,
+            query,
+            userId,
+        );
+        await assertAccess(
+            this.services.acl,
+            this.services.fsEntry,
+            actor,
+            entry.path,
+            'read',
+        );
 
-        if ( entry.isDir ) {
+        if (entry.isDir) {
             throw new HttpError(400, 'Cannot read a directory');
         }
 
-        const range = typeof req.headers.range === 'string' ? req.headers.range : undefined;
-        const download = await this.services.fsEntry.readContent(entry, { range });
+        const range =
+            typeof req.headers.range === 'string'
+                ? req.headers.range
+                : undefined;
+        const download = await this.services.fsEntry.readContent(entry, {
+            range,
+        });
 
-        if ( download.contentType ) res.setHeader('Content-Type', download.contentType);
-        if ( download.contentLength !== null ) res.setHeader('Content-Length', String(download.contentLength));
-        if ( download.contentRange ) res.setHeader('Content-Range', download.contentRange);
-        if ( download.etag ) res.setHeader('ETag', download.etag);
-        if ( download.lastModified ) res.setHeader('Last-Modified', download.lastModified.toUTCString());
-        res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(entry.name)}"`);
+        if (download.contentType)
+            res.setHeader('Content-Type', download.contentType);
+        if (download.contentLength !== null)
+            res.setHeader('Content-Length', String(download.contentLength));
+        if (download.contentRange)
+            res.setHeader('Content-Range', download.contentRange);
+        if (download.etag) res.setHeader('ETag', download.etag);
+        if (download.lastModified)
+            res.setHeader('Last-Modified', download.lastModified.toUTCString());
+        res.setHeader(
+            'Content-Disposition',
+            `inline; filename="${encodeURIComponent(entry.name)}"`,
+        );
         res.status(range ? 206 : 200);
 
         // Best-effort egress metering.
-        const metering = this.services.metering as {
-            batchIncrementUsages?: (actor: unknown, entries: unknown[]) => void;
-        } | undefined;
-        if ( metering?.batchIncrementUsages && download.contentLength ) {
+        const metering = this.services.metering as
+            | {
+                  batchIncrementUsages?: (
+                      actor: unknown,
+                      entries: unknown[],
+                  ) => void;
+              }
+            | undefined;
+        if (metering?.batchIncrementUsages && download.contentLength) {
             download.body.once('end', () => {
                 try {
-                    metering.batchIncrementUsages!(actor, [{
-                        usageType: 'filesystem:egress:bytes',
-                        usageAmount: download.contentLength!,
-                    }]);
+                    metering.batchIncrementUsages!(actor, [
+                        {
+                            usageType: 'filesystem:egress:bytes',
+                            usageAmount: download.contentLength!,
+                        },
+                    ]);
                 } catch {
                     // ignore — non-critical.
                 }
@@ -484,64 +724,88 @@ export class LegacyFSController extends PuterController {
         const userId = this.#getActorUserId(req);
         const body = asRecord(req.body);
         const items = Array.isArray(body.items) ? body.items : [];
-        if ( items.length === 0 ) throw new HttpError(400, '`items` is required');
+        if (items.length === 0) throw new HttpError(400, '`items` is required');
 
         const isApp = Boolean((actor as { app?: unknown }).app);
         const signingCfg = signingConfigFromAppConfig(this.config);
 
         // Apps can only sign inside their AppData root.
         let appDataRoot: string | null = null;
-        if ( isApp ) {
-            const username = (actor as { user?: { username?: string } }).user?.username;
+        if (isApp) {
+            const username = (actor as { user?: { username?: string } }).user
+                ?.username;
             const appUid = (actor as { app?: { uid?: string } }).app?.uid;
-            if ( !username || !appUid ) throw new HttpError(403, 'Forbidden');
+            if (!username || !appUid) throw new HttpError(403, 'Forbidden');
             appDataRoot = `/${username}/AppData/${appUid}`;
         }
 
-        type SignedOrEmpty = SignedFile & { path?: string } | Record<string, never>;
-        const result: { signatures: SignedOrEmpty[]; token?: string } = { signatures: [] };
+        type SignedOrEmpty =
+            | (SignedFile & { path?: string })
+            | Record<string, never>;
+        const result: { signatures: SignedOrEmpty[]; token?: string } = {
+            signatures: [],
+        };
 
         // Optional app grant: provide app_uid to grant permissions + token.
         let grantApp: { uid: string } | null = null;
-        if ( typeof body.app_uid === 'string' && body.app_uid.length > 0 ) {
+        if (typeof body.app_uid === 'string' && body.app_uid.length > 0) {
             const app = await this.stores.app.getByUid(body.app_uid);
-            if ( ! app ) throw new HttpError(404, 'App not found');
+            if (!app) throw new HttpError(404, 'App not found');
             grantApp = { uid: app.uid };
             result.token = this.services.auth.getUserAppToken(actor, app.uid);
         }
 
-        for ( const rawItem of items ) {
+        for (const rawItem of items) {
             const item = asRecord(rawItem);
             const uid = typeof item.uid === 'string' ? item.uid : undefined;
             const path = typeof item.path === 'string' ? item.path : undefined;
-            const action = typeof item.action === 'string' ? item.action : 'read';
-            if ( !uid && !path ) {
+            const action =
+                typeof item.action === 'string' ? item.action : 'read';
+            if (!uid && !path) {
                 result.signatures.push({});
                 continue;
             }
             try {
-                const entry = await resolveV1Selector(this.stores.fsEntry, { uid, path }, userId);
+                const entry = await resolveV1Selector(
+                    this.stores.fsEntry,
+                    { uid, path },
+                    userId,
+                );
 
                 // App-sandbox check.
                 const withinAppRoot = appDataRoot
-                    ? entry.path === appDataRoot || entry.path.startsWith(`${appDataRoot}/`)
+                    ? entry.path === appDataRoot ||
+                      entry.path.startsWith(`${appDataRoot}/`)
                     : true;
-                if ( ! withinAppRoot ) {
+                if (!withinAppRoot) {
                     throw new HttpError(403, 'Forbidden');
                 }
 
                 // ACL: always require read; downgrade write→read silently.
-                await assertAccess(this.services.acl, this.services.fsEntry, actor, entry.path, 'read');
+                await assertAccess(
+                    this.services.acl,
+                    this.services.fsEntry,
+                    actor,
+                    entry.path,
+                    'read',
+                );
                 let finalAction: 'read' | 'write' = 'read';
-                if ( action === 'write' ) {
-                    const writeOk = await this.services.acl.check(actor, {
-                        path: entry.path,
-                        resolveAncestors: () => this.services.fsEntry.getAncestorChain(entry.path),
-                    }, 'write');
+                if (action === 'write') {
+                    const writeOk = await this.services.acl.check(
+                        actor,
+                        {
+                            path: entry.path,
+                            resolveAncestors: () =>
+                                this.services.fsEntry.getAncestorChain(
+                                    entry.path,
+                                ),
+                        },
+                        'write',
+                    );
                     finalAction = writeOk ? 'write' : 'read';
                 }
 
-                if ( grantApp ) {
+                if (grantApp) {
                     // Grant the app the permission the user is signing for.
                     await this.services.permission.grantUserAppPermission(
                         actor,
@@ -573,36 +837,60 @@ export class LegacyFSController extends PuterController {
         const query = asRecord(req.query);
         const signingCfg = signingConfigFromAppConfig(this.config);
         verifySignature(
-            { uid: query.uid as string, expires: query.expires as string, signature: query.signature as string },
+            {
+                uid: query.uid as string,
+                expires: query.expires as string,
+                signature: query.signature as string,
+            },
             'write',
             signingCfg,
         );
 
         const uid = typeof query.uid === 'string' ? query.uid : '';
-        const targetEntry = await resolveV1Selector(this.stores.fsEntry, { uid }, NaN);
-        if ( ! targetEntry ) throw new HttpError(404, 'Item not found');
+        const targetEntry = await resolveV1Selector(
+            this.stores.fsEntry,
+            { uid },
+            NaN,
+        );
+        if (!targetEntry) throw new HttpError(404, 'Item not found');
 
         // Owner suspension check.
         const owner = await this.stores.user.getById(targetEntry.userId);
-        if ( ! owner ) throw new HttpError(500, 'Owner not found');
-        if ( (owner as { suspended?: unknown }).suspended ) throw new HttpError(401, 'Account suspended');
+        if (!owner) throw new HttpError(500, 'Owner not found');
+        if ((owner as { suspended?: unknown }).suspended)
+            throw new HttpError(401, 'Account suspended');
 
         const userId = targetEntry.userId;
-        const operation = typeof query.operation === 'string' ? query.operation : 'write';
+        const operation =
+            typeof query.operation === 'string' ? query.operation : 'write';
 
         // `write` — multipart upload, streamed directly to the v2 write path.
-        if ( operation === 'write' ) {
+        if (operation === 'write') {
             const body = asRecord(req.body);
             const parentEntry = targetEntry.isDir
                 ? targetEntry
                 : await this.#resolveParentOfEntry(targetEntry);
-            const name = typeof body.name === 'string' ? body.name
-                : (targetEntry.isDir ? `upload-${Date.now()}` : targetEntry.name);
-            const targetPath = parentEntry.path === '/' ? `/${name}` : `${parentEntry.path}/${name}`;
+            const name =
+                typeof body.name === 'string'
+                    ? body.name
+                    : targetEntry.isDir
+                      ? `upload-${Date.now()}`
+                      : targetEntry.name;
+            const targetPath =
+                parentEntry.path === '/'
+                    ? `/${name}`
+                    : `${parentEntry.path}/${name}`;
 
             // Parse multipart and pipe the first `file` part into fsEntryService.write.
-            const uploadResult = await this.#multipartWrite(req, userId, targetPath);
-            await this.#emitGuiEvent('outer.gui.item.added', uploadResult.fsEntry);
+            const uploadResult = await this.#multipartWrite(
+                req,
+                userId,
+                targetPath,
+            );
+            await this.#emitGuiEvent(
+                'outer.gui.item.added',
+                uploadResult.fsEntry,
+            );
             const signed = signEntry(uploadResult.fsEntry, signingCfg);
             res.json({ ...signed, path: uploadResult.fsEntry.path });
             return;
@@ -610,8 +898,11 @@ export class LegacyFSController extends PuterController {
 
         // Non-write operations: route to existing service methods and sign the result.
         const record = asRecord(req.body);
-        if ( operation === 'mkdir' ) {
-            const folderName = typeof record.name === 'string' ? record.name : `folder-${Date.now()}`;
+        if (operation === 'mkdir') {
+            const folderName =
+                typeof record.name === 'string'
+                    ? record.name
+                    : `folder-${Date.now()}`;
             const entry = await this.services.fsEntry.mkdir(userId, {
                 path: targetEntry.isDir
                     ? `${targetEntry.path === '/' ? '' : targetEntry.path}/${folderName}`
@@ -622,44 +913,68 @@ export class LegacyFSController extends PuterController {
             res.json({ ...signEntry(entry, signingCfg), path: entry.path });
             return;
         }
-        if ( operation === 'rename' ) {
-            const newName = typeof record.new_name === 'string' ? record.new_name : '';
-            if ( ! newName ) throw new HttpError(400, '`new_name` required');
-            const renamed = await this.services.fsEntry.rename(targetEntry, newName);
+        if (operation === 'rename') {
+            const newName =
+                typeof record.new_name === 'string' ? record.new_name : '';
+            if (!newName) throw new HttpError(400, '`new_name` required');
+            const renamed = await this.services.fsEntry.rename(
+                targetEntry,
+                newName,
+            );
             await this.#emitGuiEvent('outer.gui.item.updated', renamed);
             res.json({ ...signEntry(renamed, signingCfg), path: renamed.path });
             return;
         }
-        if ( operation === 'delete' || operation === 'trash' ) {
+        if (operation === 'delete' || operation === 'trash') {
             // Treat trash == delete (recursive). Most clients just call delete
             // directly; if a trash folder becomes important we can revisit.
-            await this.services.fsEntry.remove(userId, { entry: targetEntry, recursive: true });
+            await this.services.fsEntry.remove(userId, {
+                entry: targetEntry,
+                recursive: true,
+            });
             await this.#emitGuiEvent('outer.gui.item.removed', targetEntry);
             res.json({ ok: true, uid: targetEntry.uuid });
             return;
         }
-        if ( operation === 'copy' || operation === 'move' ) {
-            const destRef = record.destination ?? record.destination_uid ?? record.dest_path;
-            if ( ! destRef ) throw new HttpError(400, '`destination` required');
-            const destinationParent = await resolveV1Selector(this.stores.fsEntry, destRef, userId);
+        if (operation === 'copy' || operation === 'move') {
+            const destRef =
+                record.destination ??
+                record.destination_uid ??
+                record.dest_path;
+            if (!destRef) throw new HttpError(400, '`destination` required');
+            const destinationParent = await resolveV1Selector(
+                this.stores.fsEntry,
+                destRef,
+                userId,
+            );
             const method = operation === 'copy' ? 'copy' : 'move';
             const result = await this.services.fsEntry[method](userId, {
                 source: targetEntry,
                 destinationParent,
-                newName: typeof record.new_name === 'string' ? record.new_name : undefined,
+                newName:
+                    typeof record.new_name === 'string'
+                        ? record.new_name
+                        : undefined,
                 overwrite: getBoolean(record, 'overwrite') ?? false,
                 dedupeName: getBoolean(record, 'dedupe_name') ?? false,
             });
             await this.#emitGuiEvent(
-                operation === 'copy' ? 'outer.gui.item.added' : 'outer.gui.item.moved',
+                operation === 'copy'
+                    ? 'outer.gui.item.added'
+                    : 'outer.gui.item.moved',
                 result,
-                operation === 'move' ? { old_path: targetEntry.path } : undefined,
+                operation === 'move'
+                    ? { old_path: targetEntry.path }
+                    : undefined,
             );
             res.json({ ...signEntry(result, signingCfg), path: result.path });
             return;
         }
 
-        throw new HttpError(400, `Unsupported writeFile operation: '${operation}'`);
+        throw new HttpError(
+            400,
+            `Unsupported writeFile operation: '${operation}'`,
+        );
     };
 
     /**
@@ -672,17 +987,27 @@ export class LegacyFSController extends PuterController {
         const query = asRecord(req.query);
         const signingCfg = signingConfigFromAppConfig(this.config);
         verifySignature(
-            { uid: query.uid as string, expires: query.expires as string, signature: query.signature as string },
+            {
+                uid: query.uid as string,
+                expires: query.expires as string,
+                signature: query.signature as string,
+            },
             'read',
             signingCfg,
         );
 
         const uid = typeof query.uid === 'string' ? query.uid : '';
-        const entry = await resolveV1Selector(this.stores.fsEntry, { uid }, NaN);
+        const entry = await resolveV1Selector(
+            this.stores.fsEntry,
+            { uid },
+            NaN,
+        );
 
         // Directory: return a signed listing of direct children.
-        if ( entry.isDir ) {
-            const children = await this.services.fsEntry.listDirectory(entry.uuid);
+        if (entry.isDir) {
+            const children = await this.services.fsEntry.listDirectory(
+                entry.uuid,
+            );
             const signedChildren = children.map((child) => ({
                 ...signEntry(child, signingCfg),
                 path: child.path,
@@ -692,15 +1017,27 @@ export class LegacyFSController extends PuterController {
         }
 
         // File: stream bytes with Range support.
-        const range = typeof req.headers.range === 'string' ? req.headers.range : undefined;
-        const download = await this.services.fsEntry.readContent(entry, { range });
-        const wantsAttachment = query.download === 'true' || query.download === '1' || query.download === true;
+        const range =
+            typeof req.headers.range === 'string'
+                ? req.headers.range
+                : undefined;
+        const download = await this.services.fsEntry.readContent(entry, {
+            range,
+        });
+        const wantsAttachment =
+            query.download === 'true' ||
+            query.download === '1' ||
+            query.download === true;
 
-        if ( download.contentType ) res.setHeader('Content-Type', download.contentType);
-        if ( download.contentLength !== null ) res.setHeader('Content-Length', String(download.contentLength));
-        if ( download.contentRange ) res.setHeader('Content-Range', download.contentRange);
-        if ( download.etag ) res.setHeader('ETag', download.etag);
-        if ( download.lastModified ) res.setHeader('Last-Modified', download.lastModified.toUTCString());
+        if (download.contentType)
+            res.setHeader('Content-Type', download.contentType);
+        if (download.contentLength !== null)
+            res.setHeader('Content-Length', String(download.contentLength));
+        if (download.contentRange)
+            res.setHeader('Content-Range', download.contentRange);
+        if (download.etag) res.setHeader('ETag', download.etag);
+        if (download.lastModified)
+            res.setHeader('Last-Modified', download.lastModified.toUTCString());
         res.setHeader(
             'Content-Disposition',
             `${wantsAttachment ? 'attachment' : 'inline'}; filename="${encodeURIComponent(entry.name)}"`,
@@ -717,7 +1054,8 @@ export class LegacyFSController extends PuterController {
     df = async (req: Request, res: Response): Promise<void> => {
         this.#requireActor(req);
         const userId = this.#getActorUserId(req);
-        const allowance = await this.services.fsEntry.getUsersStorageAllowance(userId);
+        const allowance =
+            await this.services.fsEntry.getUsersStorageAllowance(userId);
         res.json({
             used: allowance.curr,
             capacity: allowance.max,
@@ -733,9 +1071,19 @@ export class LegacyFSController extends PuterController {
         const actor = this.#requireActor(req);
         const userId = this.#getActorUserId(req);
         const body = asRecord(req.body);
-        const entry = await resolveV1Selector(this.stores.fsEntry, body, userId);
+        const entry = await resolveV1Selector(
+            this.stores.fsEntry,
+            body,
+            userId,
+        );
 
-        await assertAccess(this.services.acl, this.services.fsEntry, actor, entry.path, 'read');
+        await assertAccess(
+            this.services.acl,
+            this.services.fsEntry,
+            actor,
+            entry.path,
+            'read',
+        );
 
         const signingCfg = signingConfigFromAppConfig(this.config);
         const signature = { ...signEntry(entry, signingCfg), path: entry.path };
@@ -754,15 +1102,19 @@ export class LegacyFSController extends PuterController {
         const actor = this.#requireActor(req);
         const body = asRecord(req.body);
         const appUid = getString(body, 'app_uid');
-        if ( ! appUid ) throw new HttpError(400, '`app_uid` is required');
+        if (!appUid) throw new HttpError(400, '`app_uid` is required');
 
         const actorApp = (actor as { app?: { uid?: string } }).app;
-        if ( !actorApp?.uid || actorApp.uid !== appUid ) {
-            throw new HttpError(403, 'Only the app itself may request its root dir');
+        if (!actorApp?.uid || actorApp.uid !== appUid) {
+            throw new HttpError(
+                403,
+                'Only the app itself may request its root dir',
+            );
         }
         const userId = this.#getActorUserId(req);
-        const username = (actor as { user?: { username?: string } }).user?.username;
-        if ( ! username ) throw new HttpError(401, 'Unauthorized');
+        const username = (actor as { user?: { username?: string } }).user
+            ?.username;
+        if (!username) throw new HttpError(401, 'Unauthorized');
 
         const rootPath = `/${username}/AppData/${appUid}`;
         // Auto-create the AppData/<uid> tree on first call.
@@ -784,15 +1136,26 @@ export class LegacyFSController extends PuterController {
 
         const subjectRef = body.subject;
         const appRef = body.app;
-        const mode = (getString(body, 'mode') ?? 'read') as 'see' | 'list' | 'read' | 'write';
-        if ( !subjectRef || !appRef ) throw new HttpError(400, '`subject` and `app` are required');
+        const mode = (getString(body, 'mode') ?? 'read') as
+            | 'see'
+            | 'list'
+            | 'read'
+            | 'write';
+        if (!subjectRef || !appRef)
+            throw new HttpError(400, '`subject` and `app` are required');
 
-        const subject = await resolveV1Selector(this.stores.fsEntry, subjectRef, userId);
+        const subject = await resolveV1Selector(
+            this.stores.fsEntry,
+            subjectRef,
+            userId,
+        );
         let app: { uid: string } | null = null;
-        if ( typeof appRef === 'string' ) {
-            app = (await this.stores.app.getByUid(appRef)) ?? (await this.stores.app.getByName(appRef));
+        if (typeof appRef === 'string') {
+            app =
+                (await this.stores.app.getByUid(appRef)) ??
+                (await this.stores.app.getByName(appRef));
         }
-        if ( ! app ) throw new HttpError(404, 'App not found');
+        if (!app) throw new HttpError(404, 'App not found');
 
         // Build an actor-under-user shape for the check.
         const actorForApp = {
@@ -801,9 +1164,14 @@ export class LegacyFSController extends PuterController {
         } as unknown as Actor;
         const descriptor = {
             path: subject.path,
-            resolveAncestors: () => this.services.fsEntry.getAncestorChain(subject.path),
+            resolveAncestors: () =>
+                this.services.fsEntry.getAncestorChain(subject.path),
         };
-        const allowed = await (this.services.acl as ACLService).check(actorForApp, descriptor, mode);
+        const allowed = await (this.services.acl as ACLService).check(
+            actorForApp,
+            descriptor,
+            mode,
+        );
         res.json({ allowed });
     };
 
@@ -826,8 +1194,12 @@ export class LegacyFSController extends PuterController {
     // own emissions because the service layer deliberately doesn't emit GUI
     // events (that's a controller concern).
 
-    async #emitGuiEvent (
-        eventName: 'outer.gui.item.added' | 'outer.gui.item.updated' | 'outer.gui.item.removed' | 'outer.gui.item.moved',
+    async #emitGuiEvent(
+        eventName:
+            | 'outer.gui.item.added'
+            | 'outer.gui.item.updated'
+            | 'outer.gui.item.removed'
+            | 'outer.gui.item.moved',
         entry: import('../../stores/fs/FSEntry.js').FSEntry,
         extra?: Record<string, unknown>,
     ): Promise<void> {
@@ -838,26 +1210,38 @@ export class LegacyFSController extends PuterController {
         // per-op extras (e.g. `old_path` for moves).
         try {
             const response = {
-                ...await toLegacyEntry(this.clients.event, entry),
+                ...(await toLegacyEntry(this.clients.event, entry)),
                 ...extra,
                 from_new_service: true,
             };
-            await this.clients.event.emit(eventName, {
-                user_id_list: [entry.userId],
-                response,
-            }, {});
+            await this.clients.event.emit(
+                eventName,
+                {
+                    user_id_list: [entry.userId],
+                    response,
+                },
+                {},
+            );
         } catch {
             // Non-critical — GUI event failure must never break the HTTP response.
         }
     }
 
-    async #resolveParentOfEntry (entry: { path: string; userId: number }) {
+    async #resolveParentOfEntry(entry: { path: string; userId: number }) {
         const parentPath = pathPosix.dirname(entry.path);
-        const parent = await resolveV1Selector(this.stores.fsEntry, { path: parentPath }, entry.userId);
+        const parent = await resolveV1Selector(
+            this.stores.fsEntry,
+            { path: parentPath },
+            entry.userId,
+        );
         return parent;
     }
 
-    async #multipartWrite (req: Request, userId: number, targetPath: string): Promise<{ fsEntry: import('../../stores/fs/FSEntry.js').FSEntry }> {
+    async #multipartWrite(
+        req: Request,
+        userId: number,
+        targetPath: string,
+    ): Promise<{ fsEntry: import('../../stores/fs/FSEntry.js').FSEntry }> {
         // Parse the first `file` part via busboy and stream it into write.
         const { Readable: NodeReadable } = await import('node:stream');
         return new Promise((resolve, reject) => {
@@ -870,13 +1254,13 @@ export class LegacyFSController extends PuterController {
                 // Fields are ignored — only the file stream matters here.
             });
             bb.on('file', (_fieldName, fileStream, info) => {
-                if ( dispatched ) {
+                if (dispatched) {
                     fileStream.resume();
                     return;
                 }
                 dispatched = true;
                 const passthrough = new NodeReadable({
-                    read () {
+                    read() {
                         // no-op; data pushed from the busboy file stream.
                     },
                 });
@@ -885,27 +1269,35 @@ export class LegacyFSController extends PuterController {
                     passthrough.push(chunk);
                 });
                 fileStream.on('end', () => passthrough.push(null));
-                fileStream.on('error', (err: Error) => passthrough.destroy(err));
+                fileStream.on('error', (err: Error) =>
+                    passthrough.destroy(err),
+                );
 
-                const contentType = (info && typeof info.mimeType === 'string') ? info.mimeType : undefined;
-                writePromise = this.services.fsEntry.write(userId, {
-                    fileMetadata: {
-                        path: targetPath,
-                        size: 0, // real size accumulates as stream drains
-                        ...(contentType ? { contentType } : {}),
-                        overwrite: true,
-                    },
-                    fileContent: passthrough,
-                }).then((response) => {
-                    resolve({ fsEntry: response.fsEntry });
-                }).catch(reject);
+                const contentType =
+                    info && typeof info.mimeType === 'string'
+                        ? info.mimeType
+                        : undefined;
+                writePromise = this.services.fsEntry
+                    .write(userId, {
+                        fileMetadata: {
+                            path: targetPath,
+                            size: 0, // real size accumulates as stream drains
+                            ...(contentType ? { contentType } : {}),
+                            overwrite: true,
+                        },
+                        fileContent: passthrough,
+                    })
+                    .then((response) => {
+                        resolve({ fsEntry: response.fsEntry });
+                    })
+                    .catch(reject);
             });
             bb.on('close', () => {
-                if ( ! dispatched ) {
+                if (!dispatched) {
                     reject(new HttpError(400, 'No file uploaded'));
                     return;
                 }
-                if ( ! writePromise ) {
+                if (!writePromise) {
                     reject(new HttpError(500, 'Write did not dispatch'));
                 }
                 // size is logged only; fsEntryService.write handles quota/size.
@@ -930,7 +1322,10 @@ export class LegacyFSController extends PuterController {
         this.#requireActor(req);
         const userId = this.#getActorUserId(req);
         const actor = req.actor!;
-        const contentType = typeof req.headers['content-type'] === 'string' ? req.headers['content-type'] : '';
+        const contentType =
+            typeof req.headers['content-type'] === 'string'
+                ? req.headers['content-type']
+                : '';
 
         // Parse the request. We support both multipart/form-data (the
         // canonical client shape) and JSON bodies (handy for ad-hoc
@@ -942,17 +1337,37 @@ export class LegacyFSController extends PuterController {
         const results: unknown[] = [];
         let hasError = false;
 
-        for ( const spec of operationSpecs ) {
+        for (const spec of operationSpecs) {
             try {
                 const record = asRecord(spec);
                 const op = typeof record.op === 'string' ? record.op : '';
                 let shaped: unknown;
 
-                if ( op === 'move' ) {
-                    const source = await resolveV1Selector(this.stores.fsEntry, record.source, userId);
-                    const destinationParent = await resolveV1Selector(this.stores.fsEntry, record.destination, userId);
-                    await assertAccess(this.services.acl, this.services.fsEntry, actor, source.path, 'write');
-                    await assertAccess(this.services.acl, this.services.fsEntry, actor, destinationParent.path, 'write');
+                if (op === 'move') {
+                    const source = await resolveV1Selector(
+                        this.stores.fsEntry,
+                        record.source,
+                        userId,
+                    );
+                    const destinationParent = await resolveV1Selector(
+                        this.stores.fsEntry,
+                        record.destination,
+                        userId,
+                    );
+                    await assertAccess(
+                        this.services.acl,
+                        this.services.fsEntry,
+                        actor,
+                        source.path,
+                        'write',
+                    );
+                    await assertAccess(
+                        this.services.acl,
+                        this.services.fsEntry,
+                        actor,
+                        destinationParent.path,
+                        'write',
+                    );
                     const moved = await this.services.fsEntry.move(userId, {
                         source,
                         destinationParent,
@@ -960,23 +1375,32 @@ export class LegacyFSController extends PuterController {
                         overwrite: getBoolean(record, 'overwrite') ?? false,
                         dedupeName: getBoolean(record, 'dedupe_name') ?? false,
                     });
-                    await this.#emitGuiEvent('outer.gui.item.moved', moved, { old_path: source.path });
+                    await this.#emitGuiEvent('outer.gui.item.moved', moved, {
+                        old_path: source.path,
+                    });
                     shaped = await toLegacyEntry(this.clients.event, moved);
-                } else if ( op === 'delete' ) {
+                } else if (op === 'delete') {
                     const entry = await resolveV1Selector(
                         this.stores.fsEntry,
                         getString(record, 'path') ?? record,
                         userId,
                     );
-                    await assertAccess(this.services.acl, this.services.fsEntry, actor, entry.path, 'write');
+                    await assertAccess(
+                        this.services.acl,
+                        this.services.fsEntry,
+                        actor,
+                        entry.path,
+                        'write',
+                    );
                     await this.services.fsEntry.remove(userId, {
                         entry,
                         recursive: getBoolean(record, 'recursive') ?? true,
-                        descendantsOnly: getBoolean(record, 'descendants_only') ?? false,
+                        descendantsOnly:
+                            getBoolean(record, 'descendants_only') ?? false,
                     });
                     await this.#emitGuiEvent('outer.gui.item.removed', entry);
                     shaped = { ok: true, uid: entry.uuid };
-                } else if ( op === 'symlink' ) {
+                } else if (op === 'symlink') {
                     const parent = await resolveV1Selector(
                         this.stores.fsEntry,
                         getString(record, 'path') ?? record.parent,
@@ -984,9 +1408,20 @@ export class LegacyFSController extends PuterController {
                     );
                     const name = getString(record, 'name');
                     const target = getString(record, 'target');
-                    if ( ! name ) throw new HttpError(400, 'symlink: `name` is required');
-                    if ( ! target ) throw new HttpError(400, 'symlink: `target` is required');
-                    await assertAccess(this.services.acl, this.services.fsEntry, actor, parent.path, 'write');
+                    if (!name)
+                        throw new HttpError(400, 'symlink: `name` is required');
+                    if (!target)
+                        throw new HttpError(
+                            400,
+                            'symlink: `target` is required',
+                        );
+                    await assertAccess(
+                        this.services.acl,
+                        this.services.fsEntry,
+                        actor,
+                        parent.path,
+                        'write',
+                    );
                     const link = await this.services.fsEntry.mklink(userId, {
                         parent,
                         name,
@@ -999,7 +1434,7 @@ export class LegacyFSController extends PuterController {
                     throw new HttpError(400, `Unsupported batch op: '${op}'`);
                 }
                 results.push(shaped);
-            } catch ( err ) {
+            } catch (err) {
                 hasError = true;
                 results.push(this.#serializeBatchError(err));
             }
@@ -1008,18 +1443,19 @@ export class LegacyFSController extends PuterController {
         res.status(hasError ? 218 : 200).json({ results });
     };
 
-    async #parseMultipartBatch (req: Request): Promise<unknown[]> {
+    async #parseMultipartBatch(req: Request): Promise<unknown[]> {
         return new Promise<unknown[]>((resolve, reject) => {
             const ops: unknown[] = [];
             let parseError: Error | null = null;
             const bb = Busboy({ headers: req.headers });
 
             bb.on('field', (fieldName, value) => {
-                if ( fieldName !== 'operation' ) return;
+                if (fieldName !== 'operation') return;
                 try {
                     ops.push(JSON.parse(value));
-                } catch ( err ) {
-                    parseError = err instanceof Error ? err : new Error(String(err));
+                } catch (err) {
+                    parseError =
+                        err instanceof Error ? err : new Error(String(err));
                 }
             });
 
@@ -1030,7 +1466,7 @@ export class LegacyFSController extends PuterController {
             });
 
             bb.on('close', () => {
-                if ( parseError ) reject(parseError);
+                if (parseError) reject(parseError);
                 else resolve(ops);
             });
             bb.on('error', (err) => reject(err));
@@ -1039,15 +1475,15 @@ export class LegacyFSController extends PuterController {
         });
     }
 
-    #parseJsonBatch (req: Request): unknown[] {
+    #parseJsonBatch(req: Request): unknown[] {
         const body = asRecord(req.body);
-        if ( Array.isArray(body.operations) ) return body.operations;
-        if ( Array.isArray(body.ops) ) return body.ops;
+        if (Array.isArray(body.operations)) return body.operations;
+        if (Array.isArray(body.ops)) return body.ops;
         return [];
     }
 
-    #serializeBatchError (err: unknown): Record<string, unknown> {
-        if ( err instanceof HttpError ) {
+    #serializeBatchError(err: unknown): Record<string, unknown> {
+        if (err instanceof HttpError) {
             return {
                 error: true,
                 status: err.statusCode,
@@ -1055,7 +1491,7 @@ export class LegacyFSController extends PuterController {
                 code: err.legacyCode ?? err.code,
             };
         }
-        if ( err instanceof Error ) {
+        if (err instanceof Error) {
             return { error: true, status: 500, message: err.message };
         }
         return { error: true, status: 500, message: 'Unknown batch error' };
@@ -1063,47 +1499,55 @@ export class LegacyFSController extends PuterController {
 
     // ── Helpers ─────────────────────────────────────────────────────────
 
-    #requireActor (req: Request) {
+    #requireActor(req: Request) {
         const actor = req.actor;
-        if ( ! actor ) {
+        if (!actor) {
             throw new HttpError(401, 'Unauthorized');
         }
         return actor;
     }
 
-    #getActorUserId (req: Request): number {
+    #getActorUserId(req: Request): number {
         const requestUser = (req as Request & { user?: { id?: unknown } }).user;
         const actorUser = req.actor?.user;
         const candidate = requestUser?.id ?? actorUser?.id;
-        if ( candidate === undefined || candidate === null ) {
+        if (candidate === undefined || candidate === null) {
             throw new HttpError(401, 'Unauthorized');
         }
         const numeric = Number(candidate);
-        if ( Number.isNaN(numeric) ) throw new HttpError(401, 'Unauthorized');
+        if (Number.isNaN(numeric)) throw new HttpError(401, 'Unauthorized');
         return numeric;
     }
 
-    #parseSortBy (body: Record<string, unknown>): 'name' | 'modified' | 'type' | 'size' | null {
+    #parseSortBy(
+        body: Record<string, unknown>,
+    ): 'name' | 'modified' | 'type' | 'size' | null {
         const raw = getString(body, 'sort_by');
-        if ( ! raw ) return null;
+        if (!raw) return null;
         const normalized = raw.toLowerCase();
-        return (['name', 'modified', 'type', 'size'] as const).find((v) => v === normalized) ?? null;
+        return (
+            (['name', 'modified', 'type', 'size'] as const).find(
+                (v) => v === normalized,
+            ) ?? null
+        );
     }
 
-    #parseSortOrder (body: Record<string, unknown>): 'asc' | 'desc' | null {
+    #parseSortOrder(body: Record<string, unknown>): 'asc' | 'desc' | null {
         const raw = getString(body, 'sort_order');
-        if ( ! raw ) return null;
+        if (!raw) return null;
         const normalized = raw.toLowerCase();
         return (['asc', 'desc'] as const).find((v) => v === normalized) ?? null;
     }
 
-    async #listSubdomainsForEntry (entryUuid: string): Promise<unknown[]> {
-        const subdomainStore = this.stores.subdomain as unknown as {
-            listByRootDirUid?: (uid: string) => Promise<unknown[]>;
-        } | undefined;
-        if ( typeof subdomainStore?.listByRootDirUid === 'function' ) {
+    async #listSubdomainsForEntry(entryUuid: string): Promise<unknown[]> {
+        const subdomainStore = this.stores.subdomain as unknown as
+            | {
+                  listByRootDirUid?: (uid: string) => Promise<unknown[]>;
+              }
+            | undefined;
+        if (typeof subdomainStore?.listByRootDirUid === 'function') {
             try {
-                return await subdomainStore.listByRootDirUid(entryUuid) ?? [];
+                return (await subdomainStore.listByRootDirUid(entryUuid)) ?? [];
             } catch {
                 return [];
             }
@@ -1112,18 +1556,18 @@ export class LegacyFSController extends PuterController {
     }
 
     // Reserved escape hatch for lazy-loading auxiliary route handlers.
-    #createLazyHandler (
+    #createLazyHandler(
         key: string,
         cache: RouterCache,
         loader: (key: string) => Promise<RequestHandler | null>,
     ): RequestHandler {
         return async (req, res, next) => {
             let handler = cache.get(key);
-            if ( handler === undefined ) {
+            if (handler === undefined) {
                 handler = await loader(key);
                 cache.set(key, handler);
             }
-            if ( ! handler ) {
+            if (!handler) {
                 next();
                 return;
             }

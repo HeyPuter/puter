@@ -1,4 +1,9 @@
-import type { IChatModel, IChatProvider, ICompleteArguments, IChatCompleteResult } from '../types.js';
+import type {
+    IChatModel,
+    IChatProvider,
+    ICompleteArguments,
+    IChatCompleteResult,
+} from '../types.js';
 
 /**
  * Abstract base for AI chat providers. Each provider wraps a single
@@ -6,16 +11,16 @@ import type { IChatModel, IChatProvider, ICompleteArguments, IChatCompleteResult
  * `IChatProvider` contract.
  */
 export class ChatProvider implements IChatProvider {
-    getDefaultModel (): string {
+    getDefaultModel(): string {
         return '';
     }
-    models (): IChatModel[] | Promise<IChatModel[]> {
+    models(): IChatModel[] | Promise<IChatModel[]> {
         return [];
     }
-    list (): string[] | Promise<string[]> {
+    list(): string[] | Promise<string[]> {
         return [];
     }
-    async complete (_arg: ICompleteArguments): Promise<IChatCompleteResult> {
+    async complete(_arg: ICompleteArguments): Promise<IChatCompleteResult> {
         throw new Error('Method not implemented.');
     }
 }

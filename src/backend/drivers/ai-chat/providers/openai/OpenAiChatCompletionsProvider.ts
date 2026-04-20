@@ -17,29 +17,25 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import mime from 'mime-types';
 import { OpenAI } from 'openai';
 import { ChatCompletionCreateParams } from 'openai/resources/index.js';
-// TODO: file upload functionality.
 import { Context } from '../../../../core/context.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
+import type { FSEntryStore } from '../../../../stores/fs/FSEntryStore.js';
+import type { S3ObjectStore } from '../../../../stores/fs/S3ObjectStore.js';
+import type { IChatProvider, ICompleteArguments } from '../../types.js';
 import * as OpenAiUtil from '../../utils/OpenAIUtil.js';
-import type { IChatProvider, ICompleteArguments, IChatCompleteResult } from '../../types.js';
+import { processPuterPathUploads } from './fileUpload.js';
 import { OPEN_AI_MODELS } from './models.js';
-
-;
-
-// We're capping at 5MB, which sucks, but Chat Completions doesn't suuport
-// file inputs.
-const MAX_FILE_SIZE = 5 * 1_000_000;
+import type { OpenAiResponsesChatProvider } from './OpenAiChatResponsesProvider.js';
 
 /**
-* OpenAICompletionService class provides an interface to OpenAI's chat completion API.
-* Extends BaseService to handle chat completions, message moderation, token counting,
-* and streaming responses. Implements the puter-chat-completion interface and manages
-* OpenAI API interactions with support for multiple models including GPT-4 variants.
-* Handles usage tracking, spending records, and content moderation.
-*/
+ * OpenAICompletionService class provides an interface to OpenAI's chat completion API.
+ * Extends BaseService to handle chat completions, message moderation, token counting,
+ * and streaming responses. Implements the puter-chat-completion interface and manages
+ * OpenAI API interactions with support for multiple models including GPT-4 variants.
+ * Handles usage tracking, spending records, and content moderation.
+ */
 export class OpenAiChatProvider implements IChatProvider {
     /**
      * @type {import('openai').OpenAI}
@@ -50,57 +46,89 @@ export class OpenAiChatProvider implements IChatProvider {
 
     #meteringService: MeteringService;
 
-    constructor (
+    #stores: { fsEntry: FSEntryStore; s3Object: S3ObjectStore };
+
+    #responsesProvider: OpenAiResponsesChatProvider | null = null;
+
+    constructor(
         meteringService: MeteringService,
+        stores: { fsEntry: FSEntryStore; s3Object: S3ObjectStore },
         config: { apiKey: string },
     ) {
         this.#meteringService = meteringService;
+        this.#stores = stores;
         this.#openAi = new OpenAI({ apiKey: config.apiKey });
     }
 
-    /**
-    * Returns an array of available AI models with their pricing information.
-    * Each model object includes an ID and cost details (currency, tokens, input/output rates).
-    */
-    models () {
-        return OPEN_AI_MODELS.filter(e => !e.responses_api_only);
+    // Wired up by the driver after both OpenAI providers are built, so the
+    // Chat Completions path can delegate `web_search` tool calls (Responses-only)
+    // to the sibling provider without a circular constructor dependency.
+    setResponsesProvider(provider: OpenAiResponsesChatProvider): void {
+        this.#responsesProvider = provider;
     }
 
-    list () {
-        const models =  this.models();
+    /**
+     * Returns an array of available AI models with their pricing information.
+     * Each model object includes an ID and cost details (currency, tokens, input/output rates).
+     */
+    models() {
+        return OPEN_AI_MODELS.filter((e) => !e.responses_api_only);
+    }
+
+    list() {
+        const models = this.models();
         const modelNames: string[] = [];
-        for ( const model of models ) {
+        for (const model of models) {
             modelNames.push(model.id);
-            if ( model.aliases ) {
+            if (model.aliases) {
                 modelNames.push(...model.aliases);
             }
         }
         return modelNames;
     }
 
-    getDefaultModel () {
+    getDefaultModel() {
         return this.#defaultModel;
     }
 
-    async complete (params: ICompleteArguments): ReturnType<IChatProvider['complete']>
-    {
-        let { messages, model, max_tokens, moderation, tools, verbosity, stream, reasoning, reasoning_effort, temperature, text } = params;
-        if ( tools?.filter((e: any) => e.type === 'web_search').length ) {
-            // User is trying to use openai-responses only tool web_search.
-            // We should pass it to that service
-            const aiChat = (Context.get('services') as any).get('ai-chat');
-            const openAIresponses = aiChat.getProvider('openai-responses')!;
-            return await openAIresponses.complete!(params);
+    async complete(
+        params: ICompleteArguments,
+    ): ReturnType<IChatProvider['complete']> {
+        const {
+            max_tokens,
+            moderation,
+            tools,
+            verbosity,
+            stream,
+            reasoning,
+            reasoning_effort,
+            temperature,
+            text,
+        } = params;
+        let { messages, model } = params;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        if (tools?.filter((e: any) => e.type === 'web_search').length) {
+            // web_search is a Responses-API-only tool — hand the whole call
+            // off to the sibling provider when the user requested it.
+            if (!this.#responsesProvider) {
+                throw new Error(
+                    'web_search tool requires the OpenAI Responses provider, which is not configured',
+                );
+            }
+            return await this.#responsesProvider.complete(params);
         }
         // Validate messages
-        if ( ! Array.isArray(messages) ) {
+        if (!Array.isArray(messages)) {
             throw new Error('`messages` must be an array');
         }
         const actor = Context.get('actor');
 
         model = model ?? this.#defaultModel;
 
-        const modelUsed = (this.models()).find(m => [m.id, ...(m.aliases || [])].includes(model)) || (this.models()).find(m => m.id === this.getDefaultModel())!;
+        const modelUsed =
+            this.models().find((m) =>
+                [m.id, ...(m.aliases || [])].includes(model),
+            ) || this.models().find((m) => m.id === this.getDefaultModel())!;
 
         // messages.unshift({
         //     role: 'system',
@@ -108,18 +136,18 @@ export class OpenAiChatProvider implements IChatProvider {
         // })
 
         const user_private_uid = actor?.private_uid ?? 'UNKNOWN';
-        if ( user_private_uid === 'UNKNOWN' ) {
-            console.error(new Error('chat-completion-service:unknown-user - failed to get a user ID for an OpenAI request'));
+        if (user_private_uid === 'UNKNOWN') {
+            console.error(
+                new Error(
+                    'chat-completion-service:unknown-user - failed to get a user ID for an OpenAI request',
+                ),
+            );
         }
 
-        // TODO: file upload functionality — requires FSNodeParam, LLRead, stream_to_buffer
-        // File upload processing has been removed pending v2 filesystem integration.
-        // Previously this section performed:
-        //   - Iterating message content parts for puter_path references
-        //   - Resolving FSNode via FSNodeParam
-        //   - Reading file contents via LLRead
-        //   - Converting to base64 data URLs for image/audio inputs
-        //   - Enforcing MAX_FILE_SIZE limits
+        // Resolve any `puter_path` content parts into inline base64 data URLs.
+        // Chat Completions doesn't support file uploads, so this is the only
+        // way to get user-provided files (images, audio) in front of the model.
+        await processPuterPathUploads(messages, this.#stores, actor);
 
         // Here's something fun; the documentation shows `type: 'image_url'` in
         // objects that contain an image url, but everything still works if
@@ -128,7 +156,8 @@ export class OpenAiChatProvider implements IChatProvider {
 
         const requestedReasoningEffort = reasoning_effort ?? reasoning?.effort;
         const requestedVerbosity = verbosity ?? text?.verbosity;
-        const supportsReasoningControls = typeof model === 'string' && model.startsWith('gpt-5');
+        const supportsReasoningControls =
+            typeof model === 'string' && model.startsWith('gpt-5');
 
         const completionParams: ChatCompletionCreateParams = {
             user: user_private_uid,
@@ -139,32 +168,49 @@ export class OpenAiChatProvider implements IChatProvider {
             ...(max_tokens ? { max_completion_tokens: max_tokens } : {}),
             ...(temperature ? { temperature } : {}),
             stream: !!stream,
-            ...(stream ? {
-                stream_options: { include_usage: true },
-            } : {}),
-            ...(supportsReasoningControls ? {} :
-                {
-                    ...(requestedReasoningEffort ? { reasoning_effort: requestedReasoningEffort } : {}),
-                    ...(requestedVerbosity ? { verbosity: requestedVerbosity } : {}),
-                }
-            ),
+            ...(stream
+                ? {
+                      stream_options: { include_usage: true },
+                  }
+                : {}),
+            ...(supportsReasoningControls
+                ? {}
+                : {
+                      ...(requestedReasoningEffort
+                          ? { reasoning_effort: requestedReasoningEffort }
+                          : {}),
+                      ...(requestedVerbosity
+                          ? { verbosity: requestedVerbosity }
+                          : {}),
+                  }),
         } as ChatCompletionCreateParams;
 
-        const completion = await this.#openAi.chat.completions.create(completionParams);
+        const completion =
+            await this.#openAi.chat.completions.create(completionParams);
 
         return OpenAiUtil.handle_completion_output({
             usage_calculator: ({ usage }) => {
                 const trackedUsage = {
-                    prompt_tokens: (usage.prompt_tokens ?? 0) - (usage.prompt_tokens_details?.cached_tokens ?? 0),
+                    prompt_tokens:
+                        (usage.prompt_tokens ?? 0) -
+                        (usage.prompt_tokens_details?.cached_tokens ?? 0),
                     completion_tokens: usage.completion_tokens ?? 0,
-                    cached_tokens: usage.prompt_tokens_details?.cached_tokens ?? 0,
+                    cached_tokens:
+                        usage.prompt_tokens_details?.cached_tokens ?? 0,
                 };
 
-                const costsOverrideFromModel = Object.fromEntries(Object.entries(trackedUsage).map(([k, v]) => {
-                    return [k, v * (modelUsed.costs[k])];
-                }));
+                const costsOverrideFromModel = Object.fromEntries(
+                    Object.entries(trackedUsage).map(([k, v]) => {
+                        return [k, v * modelUsed.costs[k]];
+                    }),
+                );
 
-                this.#meteringService.utilRecordUsageObject(trackedUsage, actor, `openai:${modelUsed?.id}`, costsOverrideFromModel);
+                this.#meteringService.utilRecordUsageObject(
+                    trackedUsage,
+                    actor,
+                    `openai:${modelUsed?.id}`,
+                    costsOverrideFromModel,
+                );
                 return trackedUsage;
             },
             stream,
@@ -173,7 +219,7 @@ export class OpenAiChatProvider implements IChatProvider {
         });
     }
 
-    async checkModeration (text: string) {
+    async checkModeration(text: string) {
         // create moderation
         const results = await this.#openAi.moderations.create({
             model: 'omni-moderation-latest',
@@ -182,11 +228,12 @@ export class OpenAiChatProvider implements IChatProvider {
 
         let flagged = false;
 
-        for ( const result of results?.results ?? [] ) {
-
+        for (const result of results?.results ?? []) {
             // OpenAI does a crazy amount of false positives. We filter by their 80% interval
-            const veryFlaggedEntries = Object.entries(result.category_scores).filter(e => e[1] > 0.8);
-            if ( veryFlaggedEntries.length > 0 ) {
+            const veryFlaggedEntries = Object.entries(
+                result.category_scores,
+            ).filter((e) => e[1] > 0.8);
+            if (veryFlaggedEntries.length > 0) {
                 flagged = true;
                 break;
             }

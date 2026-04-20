@@ -14,8 +14,12 @@ interface Parts {
 }
 
 const RULES: Record<RuleName, (p: Parts) => void> = {
-    dots_dont_matter: (p) => { p.local = p.local.replace(/\./g, ''); },
-    remove_subaddressing: (p) => { p.local = p.local.split('+')[0]; },
+    dots_dont_matter: (p) => {
+        p.local = p.local.replace(/\./g, '');
+    },
+    remove_subaddressing: (p) => {
+        p.local = p.local.split('+')[0];
+    },
 };
 
 /**
@@ -23,11 +27,12 @@ const RULES: Record<RuleName, (p: Parts) => void> = {
  * `rules` are added on top of the default `remove_subaddressing`; `rmrules`
  * are subtracted (Yahoo permits `+` in local parts).
  */
-const PROVIDERS: Record<string, { rules?: RuleName[]; rmrules?: RuleName[] }> = {
-    gmail: { rules: ['dots_dont_matter'] },
-    icloud: { rules: ['dots_dont_matter'] },
-    yahoo: { rmrules: ['remove_subaddressing'] },
-};
+const PROVIDERS: Record<string, { rules?: RuleName[]; rmrules?: RuleName[] }> =
+    {
+        gmail: { rules: ['dots_dont_matter'] },
+        icloud: { rules: ['dots_dont_matter'] },
+        yahoo: { rmrules: ['remove_subaddressing'] },
+    };
 
 const DOMAIN_TO_PROVIDER: Record<string, string> = {
     'gmail.com': 'gmail',
@@ -51,10 +56,10 @@ const DOMAIN_NONDISTINCT: Record<string, string> = {
  * detection. Lowercases, collapses nondistinct domains, strips provider-
  * insignificant characters.
  */
-export function cleanEmail (email: string): string {
+export function cleanEmail(email: string): string {
     const lower = email.toLowerCase();
     const [localRaw, domainRaw] = lower.split('@');
-    if ( ! domainRaw ) return lower;
+    if (!domainRaw) return lower;
 
     const parts: Parts = {
         local: localRaw,
@@ -63,11 +68,11 @@ export function cleanEmail (email: string): string {
 
     const applied = new Set<RuleName>(['remove_subaddressing']);
     const provider = PROVIDERS[DOMAIN_TO_PROVIDER[parts.domain] ?? ''];
-    if ( provider ) {
-        for ( const r of provider.rules ?? [] ) applied.add(r);
-        for ( const r of provider.rmrules ?? [] ) applied.delete(r);
+    if (provider) {
+        for (const r of provider.rules ?? []) applied.add(r);
+        for (const r of provider.rmrules ?? []) applied.delete(r);
     }
-    for ( const rule of applied ) RULES[rule](parts);
+    for (const rule of applied) RULES[rule](parts);
 
     return `${parts.local}@${parts.domain}`;
 }
@@ -76,8 +81,11 @@ export function cleanEmail (email: string): string {
  * Returns true when the (cleaned) email matches any of the blocked domain
  * suffixes. Suffix-match so `mailinator.com` blocks `foo@bar.mailinator.com`.
  */
-export function isBlockedEmail (email: string, blockedDomains: readonly string[] | undefined): boolean {
-    if ( ! blockedDomains || blockedDomains.length === 0 ) return false;
+export function isBlockedEmail(
+    email: string,
+    blockedDomains: readonly string[] | undefined,
+): boolean {
+    if (!blockedDomains || blockedDomains.length === 0) return false;
     const clean = cleanEmail(email);
-    return blockedDomains.some(suffix => clean.endsWith(suffix));
+    return blockedDomains.some((suffix) => clean.endsWith(suffix));
 }
