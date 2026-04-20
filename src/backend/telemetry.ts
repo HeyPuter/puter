@@ -1,7 +1,7 @@
 import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node';
 import { OTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-grpc';
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-grpc';
-import { resourceFromAttributes } from '@opentelemetry/resources';
+import { Resource } from '@opentelemetry/resources';
 import { PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics';
 import { NodeSDK } from '@opentelemetry/sdk-node';
 import {
@@ -18,7 +18,7 @@ const endpoint =
 const sampleRatio = Number(process.env.OTEL_TRACE_SAMPLE_RATIO ?? 0.05);
 
 const sdk = new NodeSDK({
-    resource: resourceFromAttributes({
+    resource: new Resource({
         [ATTR_SERVICE_NAME]: process.env.OTEL_SERVICE_NAME ?? 'puter-backend',
         [ATTR_SERVICE_VERSION]: process.env.npm_package_version ?? '0.0.0',
         'deployment.environment': process.env.NODE_ENV ?? 'development',
