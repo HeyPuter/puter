@@ -9,19 +9,21 @@
  *   --input  /volatile/config/config.json
  *   --output <repo>/packages/puter/servers.json
  *
- * Input file must contain both the prod base doc and a `{ servers: [...] }`
- * overrides doc (either concatenated into a single file, or just the
- * servers doc alone if the base has already been migrated — in that case
- * pass the base via --base).
+ * Input file must contain a `{ servers: [...] }` doc (either on its own or
+ * concatenated with the base; the base is ignored — only per-server kernel
+ * overrides are transformed).
  *
- * Output: an array where each entry is a v2 config = base ⊕ kernel-override.
+ * Output: an array of per-server *deltas* in v2 shape. The runtime deep-merges
+ * the matching entry onto `config.json` at boot — so this file holds only the
+ * values that differ between nodes (s3 bucket, region, replica DB, broadcast
+ * peer list, etc).
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 
-import { deepMerge, loadDocs, pickBaseDoc, pickServersDoc, transformToV2 } from './lib/configMigration.mjs';
+import { loadDocs, pickServersDoc, transformToV2 } from './lib/configMigration.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -33,7 +35,6 @@ const { values: args } = parseArgs({
     options: {
         input:  { type: 'string', short: 'i', default: DEFAULT_INPUT },
         output: { type: 'string', short: 'o', default: DEFAULT_OUTPUT },
-        base:   { type: 'string' },
     },
 });
 
@@ -46,31 +47,18 @@ if ( ! serversDoc ) {
     process.exit(1);
 }
 
-// Base may live in the same file (concatenated) or in a separate file.
-let baseDoc;
-if ( args.base ) {
-    const baseRaw = readFileSync(args.base, 'utf8');
-    const baseDocs = loadDocs(baseRaw);
-    baseDoc = pickBaseDoc(baseDocs);
-} else {
-    baseDoc = pickBaseDoc(docs);
-}
-if ( ! baseDoc ) {
-    console.error('No base config doc found. Pass --base <path> if base lives in another file.');
-    process.exit(1);
-}
-
 const migrated = serversDoc.servers.map(server => {
     const { kernel, ...serverMeta } = server;
-    const merged = deepMerge(baseDoc, kernel ?? {});
-    // Hoist server-level metadata (id, region, host) onto the merged config
-    // so it survives transformation.
-    for ( const k of ['id', 'region', 'host'] ) {
-        if ( serverMeta[k] !== undefined && merged[k] === undefined ) {
-            merged[k] = serverMeta[k];
+    // Start from just the kernel override so the output is a *delta*, not a
+    // full merged config. Server-level metadata (id, region) gets hoisted in
+    // first so transformToV2 maps `id` → `serverId` and keeps `region`.
+    const src = { ...(kernel ?? {}) };
+    for ( const k of ['id', 'region'] ) {
+        if ( serverMeta[k] !== undefined && src[k] === undefined ) {
+            src[k] = serverMeta[k];
         }
     }
-    return transformToV2(merged);
+    return transformToV2(src);
 });
 
 writeFileSync(args.output, JSON.stringify(migrated, null, 2) + '\n');

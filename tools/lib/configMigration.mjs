@@ -138,6 +138,10 @@ export const transformToV2 = (source) => {
     // per key, so in prod files where both appear we typically only see the
     // object. Promote object-shape entries onto top-level keys (scoped npm
     // names → camelCase: `@heyputer/app-store-and-purchases` → `appStoreAndPurchases`).
+    // v1 also had `mod_directories: string[]` with `{repo}/...` placeholders.
+    // v2 uses `extensions: string[]` of plain directory paths; post-cutover the
+    // only dir that survives is the repo-root `./extensions`, so synthesize that
+    // when only the config-bag (object) or mod_directories form is present.
     if ( Array.isArray(source.extensions) ) {
         out.extensions = source.extensions;
     } else if ( source.extensions && typeof source.extensions === 'object' ) {
@@ -146,6 +150,12 @@ export const transformToV2 = (source) => {
             const camel = bare.replace(/-([a-z])/g, (_, ch) => ch.toUpperCase());
             if ( out[camel] === undefined ) out[camel] = v;
         }
+    }
+    if ( out.extensions === undefined && (
+        Array.isArray(source.mod_directories) ||
+        (source.extensions && typeof source.extensions === 'object')
+    ) ) {
+        out.extensions = ['./extensions'];
     }
 
     // Port: http_port → port. Drop string "auto" (v2 requires numeric).
@@ -263,7 +273,10 @@ export const transformToV2 = (source) => {
     if ( svc.broadcast )         out.broadcast = svc.broadcast;
     if ( svc['worker-service'] ) out.workers   = svc['worker-service'];
     if ( svc['entri-service'] )  out.entri     = svc['entri-service'];
-    if ( svc.thumbnails )        out.thumbnailStore = svc.thumbnails;
+    // v1's services.thumbnails wrapped the bucket config in `.bucket` and also
+    // carried an unrelated `engine`/`host` pointer to the thumbnail HTTP
+    // service. v2's IThumbnailStoreConfig is strictly the bucket — unwrap.
+    if ( svc.thumbnails?.bucket ) out.thumbnailStore = svc.thumbnails.bucket;
 
     // AI / integration providers: v1 kept each under `services.<id>` (plus a
     // top-level `openai` shortcut in some configs). v2 unifies them under
@@ -303,6 +316,22 @@ export const transformToV2 = (source) => {
     if ( source.openai && providers.openai === undefined ) {
         providers.openai = normalizeProvider(source.openai);
     }
+    // Backward-compat fan-out: v1 had a single `openai` / `gemini` / `together-ai`
+    // / `xai` entry used for chat + image + video. v2 drivers look up split ids
+    // (e.g. `openai-completion`, `openai-image-generation`), so seed each
+    // split id from the base id when the split key isn't already set.
+    const FAN_OUT = {
+        openai:        ['openai-completion', 'openai-responses', 'openai-image-generation', 'openai-video-generation'],
+        gemini:        ['gemini-image-generation', 'gemini-video-generation'],
+        'together-ai': ['together-image-generation', 'together-video-generation'],
+        xai:           ['xai-image-generation'],
+    };
+    for ( const [base, splits] of Object.entries(FAN_OUT) ) {
+        if ( ! providers[base] ) continue;
+        for ( const split of splits ) {
+            if ( providers[split] === undefined ) providers[split] = providers[base];
+        }
+    }
     if ( Object.keys(providers).length ) out.providers = providers;
 
     // Anything left in `services` that we didn't claim above is promoted to
@@ -333,7 +362,7 @@ export const transformToV2 = (source) => {
         'blocked_email_domains', 'toConsole', 'is_storage_limited',
         'legacy_token_migrate', 'forwarded', 'cross_origin_isolation',
         'enable_public_folders', 'cookie_name', 'jwt_secret', 'url_signature_secret',
-        'extensions',
+        'extensions', 'mod_directories',
         'db_host', 'db_port', 'db_user', 'db_password', 'db_database',
         'db_waitForConnections', 'db_connectionLimit', 'db_enableKeepAlive',
         'db_queueLimit', 'db_read_replica_wait', 'read_replica_db',
