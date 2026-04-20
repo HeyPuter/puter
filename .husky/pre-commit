@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 
 files=$(git diff --cached --name-only --diff-filter=ACMR | \
-  grep -E '^(src/backend|extensions)/.*\.(js|mjs|cjs|ts)$')
+  grep -E '^(src/backend|extensions)/.*\.(js|mjs|cjs|ts)$' || true)
 
 if [ -z "$files" ]; then
   exit 0
