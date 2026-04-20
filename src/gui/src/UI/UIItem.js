@@ -1115,10 +1115,12 @@ async function UIItem (options) {
                             buttons: [
                                 {
                                     label: i18n('delete'),
+                                    value: 'Delete',
                                     type: 'primary',
                                 },
                                 {
                                     label: i18n('cancel'),
+                                    value: 'Cancel',
                                 },
                             ],
                         });
