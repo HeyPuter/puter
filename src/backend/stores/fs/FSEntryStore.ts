@@ -1,4 +1,5 @@
 import { posix as pathPosix } from 'node:path';
+import { statfs } from 'node:fs/promises';
 import { v4 as uuidv4 } from 'uuid';
 import {
     FSEntry,
@@ -2064,12 +2065,26 @@ export class FSEntryStore extends PuterStore {
             const availableDeviceStorage = Number(
                 this.#config.available_device_storage ?? 0,
             );
-            max =
-                availableDeviceStorage > 0
-                    ? availableDeviceStorage
-                    : Number.MAX_SAFE_INTEGER;
+            if (availableDeviceStorage > 0) {
+                max = availableDeviceStorage;
+            } else {
+                const freeOnDisk = await this.#getFreeDeviceBytes();
+                max =
+                    freeOnDisk !== null
+                        ? curr + freeOnDisk
+                        : Number.MAX_SAFE_INTEGER;
+            }
         }
 
         return { curr, max };
+    }
+
+    async #getFreeDeviceBytes(): Promise<number | null> {
+        try {
+            const stats = await statfs(process.cwd());
+            return Number(stats.bavail) * Number(stats.bsize);
+        } catch {
+            return null;
+        }
     }
 }
