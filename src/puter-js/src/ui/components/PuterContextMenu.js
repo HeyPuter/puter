@@ -92,7 +92,9 @@ class PuterContextMenu extends PuterWebComponent {
             }
             .divider hr {
                 border: none;
-                border-top: 1px solid rgba(0, 0, 0, 0.08);
+                background: #ccc;
+                height: 1px;
+                width: 100%;
                 margin: 0;
             }
             .icon {
@@ -222,7 +224,7 @@ class PuterContextMenu extends PuterWebComponent {
                 .menu-item.danger .icon { color: #f87171; }
                 .menu-item.disabled { color: #666; }
                 .icon, .check, .submenu-arrow { color: #aaa; }
-                .divider hr { border-top-color: rgba(255, 255, 255, 0.10); }
+                .divider hr { background: rgba(255, 255, 255, 0.10); }
                 .shortcut { color: #888; }
             }
         `;
@@ -343,9 +345,10 @@ class PuterContextMenu extends PuterWebComponent {
             }
             .divider hr {
                 border: none;
-                margin-top: 0;
-                margin-bottom: 0;
-                border-top: 1px solid #00000033;
+                background: #ccc;
+                height: 1px;
+                width: 100%;
+                margin: 0;
             }
 
             /* .context-menu-item-icon — lines 1760-1767 */
