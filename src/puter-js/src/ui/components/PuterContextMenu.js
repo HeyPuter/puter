@@ -198,6 +198,93 @@ class PuterContextMenu extends PuterWebComponent {
                 font-size: 11px;
                 color: #999;
             }
+
+            /* === iOS-style action sheet (mobile) ========================= */
+            :host(.sheet-mode) {
+                left: 0 !important;
+                right: 0 !important;
+                top: auto !important;
+                bottom: 0 !important;
+                padding: 0 8px calc(8px + env(safe-area-inset-bottom)) 8px;
+                box-sizing: border-box;
+                animation: puter-sheet-in 260ms cubic-bezier(0.22, 1, 0.36, 1);
+            }
+
+            :host(.sheet-mode.sheet-closing) {
+                animation: puter-sheet-out 240ms cubic-bezier(0.4, 0, 1, 1) forwards;
+            }
+
+            @keyframes puter-sheet-in {
+                from { transform: translateY(100%); }
+                to   { transform: translateY(0); }
+            }
+
+            @keyframes puter-sheet-out {
+                from { transform: translateY(0); }
+                to   { transform: translateY(100%); }
+            }
+
+            :host(.sheet-mode) .context-menu {
+                min-width: 0;
+                width: 100%;
+                border-radius: 14px;
+                padding: 6px 0;
+                background-color: rgb(255 255 255 / 96%);
+                border: none;
+                box-shadow: 0 -6px 24px rgba(0, 0, 0, 0.18);
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+                             Helvetica, Arial, sans-serif;
+                -webkit-font-smoothing: antialiased;
+            }
+
+            :host(.sheet-mode) .menu-item {
+                height: auto;
+                min-height: 48px;
+                padding: 12px 16px;
+                font-size: 16px;
+                border-radius: 0;
+            }
+
+            :host(.sheet-mode) .menu-item:hover:not(.disabled):not(.divider) {
+                background-color: rgba(0, 122, 255, 0.1);
+                color: inherit;
+                border-radius: 0;
+            }
+            :host(.sheet-mode) .menu-item:active:not(.disabled):not(.divider) {
+                background-color: rgba(0, 122, 255, 0.2);
+            }
+            :host(.sheet-mode) .menu-item:hover:not(.disabled):not(.divider) .label,
+            :host(.sheet-mode) .menu-item:hover:not(.disabled):not(.divider) .icon,
+            :host(.sheet-mode) .menu-item:active:not(.disabled):not(.divider) .label,
+            :host(.sheet-mode) .menu-item:active:not(.disabled):not(.divider) .icon {
+                color: #333;
+            }
+            :host(.sheet-mode) .menu-item:hover .icon svg,
+            :host(.sheet-mode) .menu-item:active .icon svg,
+            :host(.sheet-mode) .menu-item:hover .icon img,
+            :host(.sheet-mode) .menu-item:active .icon img {
+                filter: none;
+            }
+
+            :host(.sheet-mode) .divider {
+                min-height: 24px;
+                padding: 0;
+                display: flex;
+                align-items: center;
+            }
+            :host(.sheet-mode) .divider hr {
+                background: rgba(60, 60, 67, 0.2);
+            }
+
+            :host(.sheet-mode) .icon {
+                width: 24px;
+                margin-right: 12px;
+            }
+            :host(.sheet-mode) .icon svg,
+            :host(.sheet-mode) .icon img {
+                width: 20px;
+                height: 20px;
+            }
         `;
     }
 
