@@ -24,7 +24,6 @@ export interface UserRow {
     requires_email_confirmation?: boolean;
     /** Metadata JSON blob; decoded on read when the DB returns it as a string. */
     metadata?: Record<string, unknown>;
-    referral_code?: string | null;
     [k: string]: unknown;
 }
 
@@ -33,13 +32,7 @@ export interface UserRow {
  * property is as simple as adding a key here — lookups + cache fan-out
  * follow automatically.
  */
-export const USER_ID_PROPERTIES = [
-    'id',
-    'uuid',
-    'username',
-    'email',
-    'referral_code',
-] as const;
+export const USER_ID_PROPERTIES = ['id', 'uuid', 'username', 'email'] as const;
 export type UserIdProperty = (typeof USER_ID_PROPERTIES)[number];
 
 // ── Constants ────────────────────────────────────────────────────────
@@ -89,13 +82,6 @@ export class UserStore extends PuterStore {
         opts: { cached?: boolean; force?: boolean } = {},
     ): Promise<UserRow | null> {
         return this.getByProperty('email', email, opts);
-    }
-
-    async getByReferralCode(
-        code: string,
-        opts: { cached?: boolean; force?: boolean } = {},
-    ): Promise<UserRow | null> {
-        return this.getByProperty('referral_code', code, opts);
     }
 
     /**
@@ -157,7 +143,6 @@ export class UserStore extends PuterStore {
         email: string | null;
         clean_email?: string | null;
         free_storage?: number | null;
-        referred_by?: number | null;
         requires_email_confirmation?: boolean;
         email_confirm_code?: string | null;
         email_confirm_token?: string | null;
@@ -170,10 +155,10 @@ export class UserStore extends PuterStore {
         const result = await this.clients.db.write(
             `INSERT INTO \`user\`
             (username, email, clean_email, password, uuid, free_storage,
-             referred_by, requires_email_confirmation, email_confirm_code,
-             email_confirm_token, audit_metadata, signup_ip, signup_ip_forwarded,
+             requires_email_confirmation, email_confirm_code, email_confirm_token,
+             audit_metadata, signup_ip, signup_ip_forwarded,
              signup_user_agent, signup_origin)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
                 fields.username,
                 fields.email,
@@ -181,7 +166,6 @@ export class UserStore extends PuterStore {
                 fields.password,
                 fields.uuid,
                 fields.free_storage ?? null,
-                fields.referred_by ?? null,
                 fields.requires_email_confirmation ? 1 : 0,
                 fields.email_confirm_code ?? null,
                 fields.email_confirm_token ?? null,
@@ -315,6 +299,7 @@ export class UserStore extends PuterStore {
      * strings on SQLite, parsed objects on MySQL.
      */
     #normalizeRow(row: Record<string, unknown>): UserRow {
+        const { referral_code: _referralCode, ...rest } = row;
         const asBool = (v: unknown): boolean | undefined => {
             if (v === null || v === undefined) return undefined;
             if (typeof v === 'boolean') return v;
@@ -339,18 +324,16 @@ export class UserStore extends PuterStore {
         })();
 
         return {
-            ...row,
-            id: Number(row.id),
-            uuid: String(row.uuid),
-            username: String(row.username),
-            email: row.email == null ? null : String(row.email),
-            suspended: asBool(row.suspended),
-            email_confirmed: asBool(row.email_confirmed),
+            ...rest,
+            id: Number(rest.id),
+            uuid: String(rest.uuid),
+            username: String(rest.username),
+            email: rest.email == null ? null : String(rest.email),
+            suspended: asBool(rest.suspended),
+            email_confirmed: asBool(rest.email_confirmed),
             requires_email_confirmation: asBool(
-                row.requires_email_confirmation,
+                rest.requires_email_confirmation,
             ),
-            referral_code:
-                row.referral_code == null ? null : String(row.referral_code),
             metadata,
         };
     }

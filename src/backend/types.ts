@@ -214,11 +214,6 @@ export interface IWorkersConfig {
     [key: string]: string | undefined;
 }
 
-export interface IEntriConfig {
-    applicationId?: string;
-    secret?: string;
-}
-
 /**
  * Optional outbound-fetch proxy used by `secureFetch()` when the backend has
  * to fetch a user-supplied URL (e.g. image-gen `input_image`). Requests get
@@ -447,8 +442,6 @@ interface IConfigOptional {
     wisp: IWispConfig;
     /** Cloudflare Workers driver config. */
     workers: IWorkersConfig;
-    /** Entri custom-domain integration. */
-    entri: IEntriConfig;
     /** Optional CORS-stripping signed-Worker proxy used by `secureFetch`. */
     secureCorsProxy: ISecureCorsProxyConfig;
     /** IPInfo / Kickbox / PagerDuty signup-abuse integration. */

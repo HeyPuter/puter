@@ -73,7 +73,6 @@ extension.get(
                       { iconSize, noIcons },
                   )
                 : undefined,
-            referral_code: user.referral_code,
             otp: !!user.otp_enabled,
             feature_flags,
             human_readable_age: user.timestamp

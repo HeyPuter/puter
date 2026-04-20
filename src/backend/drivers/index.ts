@@ -8,7 +8,6 @@ import { SpeechToTextDriver } from './ai-speech2txt/SpeechToTextDriver';
 import { OCRDriver } from './ai-ocr/OCRDriver';
 import { AppDriver } from './apps/AppDriver.js';
 import { KVStoreDriver } from './kv/KVStoreDriver';
-import { EntriDriver } from './entri/EntriDriver';
 import { NotificationDriver } from './notification/NotificationDriver';
 import { SubdomainDriver } from './subdomain/SubdomainDriver';
 import { WorkerDriver } from './workers/WorkerDriver';
@@ -28,6 +27,5 @@ export const puterDrivers = {
     apps: AppDriver,
     subdomains: SubdomainDriver,
     notifications: NotificationDriver,
-    entri: EntriDriver,
     workers: WorkerDriver,
 } satisfies IPuterDriverRegistry;

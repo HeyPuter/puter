@@ -3,7 +3,6 @@ import { AuthController } from './auth/AuthController.js';
 import { BroadcastController } from './broadcast/BroadcastController.js';
 import { DesktopController } from './desktop/DesktopController.js';
 import { DriverController } from './drivers/DriverController.js';
-import { EntriController } from './entri/EntriController.js';
 import { FSController } from './fs/FSController.js';
 import { HomepageController } from './homepage/HomepageController.js';
 import { HostingController } from './hosting/HostingController.js';
@@ -32,7 +31,6 @@ export const puterControllers = {
     puterAi: PuterAIController,
     drivers: DriverController,
     broadcast: BroadcastController,
-    entri: EntriController,
     notification: NotificationController,
     share: ShareController,
     webdav: WebDAVController,

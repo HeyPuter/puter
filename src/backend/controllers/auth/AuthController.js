@@ -9,7 +9,6 @@ import {
     generateDefaultFsentries,
     promoteToVerifiedGroup,
 } from '../../util/userProvisioning.js';
-import { applyReferralRewards } from '../../util/referralRewards.js';
 import { generateCaptcha } from '../../core/http/middleware/captcha.js';
 import {
     createSecret as otpCreateSecret,
@@ -17,7 +16,6 @@ import {
     hashRecoveryCode,
     verify as verifyOtp,
 } from '../../services/auth/OTPUtil.js';
-import { generateReferralCode } from '../../services/auth/referralCode.js';
 import { generate_identifier } from '../../util/identifier.js';
 import { getTaskbarItems } from '../../util/taskbarItems.js';
 import { PuterController } from '../types.js';
@@ -339,17 +337,6 @@ export class AuthController extends PuterController {
                     );
                 }
 
-                // Referral code lookup — fail early if invalid
-                let referred_by_user_id = null;
-                if (body.referral_code) {
-                    const referrer = await this.userStore.getByReferralCode(
-                        body.referral_code,
-                    );
-                    if (!referrer)
-                        throw new HttpError(400, 'Referral code not found');
-                    referred_by_user_id = referrer.id;
-                }
-
                 // Duplicate confirmed-email check. A confirmed account with a
                 // password on this email already exists — reject.
                 //
@@ -439,7 +426,6 @@ export class AuthController extends PuterController {
                         // validate hook can only tighten, not loosen, so `1`
                         // stays hardcoded here.
                         requires_email_confirmation: 1,
-                        referred_by: referred_by_user_id,
                     });
 
                     // Move from temp group to regular user group
@@ -479,7 +465,6 @@ export class AuthController extends PuterController {
                         email: is_temp ? null : body.email,
                         clean_email: is_temp ? null : cleanEmail(body.email),
                         free_storage: this.config.storage_capacity ?? null,
-                        referred_by: referred_by_user_id,
                         requires_email_confirmation:
                             !is_temp || force_email_confirmation,
                         email_confirm_code,
@@ -560,15 +545,6 @@ export class AuthController extends PuterController {
                     }
                 }
 
-                // ── Generate referral code (new users only) ─────────────
-                let referral_code;
-                if (!pseudo_user) {
-                    referral_code = await generateReferralCode(
-                        this.userStore,
-                        user,
-                    );
-                }
-
                 // Fire signup events (best-effort). `user.save_account` is fired
                 // for every non-temp signup (fresh or pseudo-claim) — downstream
                 // consumers (mailchimp sync, welcome email, etc.) key off it.
@@ -601,7 +577,7 @@ export class AuthController extends PuterController {
                     }
                 }
 
-                return this.#completeLogin(req, res, user, { referral_code });
+                return this.#completeLogin(req, res, user);
             },
         );
 
@@ -727,27 +703,6 @@ export class AuthController extends PuterController {
                     this.config,
                     user,
                 );
-
-                // Referral rewards — best-effort, never block the user-visible
-                // response. Short-circuits when `user.referred_by` is unset.
-                try {
-                    await applyReferralRewards(
-                        {
-                            db: this.clients.db,
-                            redis: this.clients.redis,
-                            email: this.clients.email,
-                            notification: this.services.notification,
-                            metering: this.services.metering,
-                            userStore: this.userStore,
-                        },
-                        user,
-                    );
-                } catch (e) {
-                    console.warn(
-                        '[confirm-email] referral rewards failed:',
-                        e?.message ?? e,
-                    );
-                }
 
                 try {
                     this.clients.event?.emit(
@@ -1217,8 +1172,7 @@ export class AuthController extends PuterController {
                 },
             },
             async (req, res) => {
-                const { username, email, password, referral_code } =
-                    req.body ?? {};
+                const { username, email, password } = req.body ?? {};
 
                 const user = await this.userStore.getById(req.actor.user.id, {
                     force: true,
@@ -1281,16 +1235,6 @@ export class AuthController extends PuterController {
                     throw new HttpError(400, 'This email is already in use.');
                 }
 
-                // Referral code lookup
-                let referred_by = null;
-                if (referral_code) {
-                    const referrer =
-                        await this.userStore.getByReferralCode(referral_code);
-                    if (!referrer)
-                        throw new HttpError(400, 'Referral code not found');
-                    referred_by = referrer.id;
-                }
-
                 // Promote: set username/email/password on the existing row
                 const password_hash = await bcrypt.hash(password, 8);
                 const email_confirm_code = String(
@@ -1307,7 +1251,6 @@ export class AuthController extends PuterController {
                     email_confirm_token,
                     email_confirmed: 0,
                     requires_email_confirmation: 1,
-                    referred_by,
                 });
 
                 // Move from temp group to user group
@@ -2305,7 +2248,7 @@ export class AuthController extends PuterController {
         return username;
     }
 
-    async #completeLogin(req, res, user, extras = {}) {
+    async #completeLogin(req, res, user) {
         const meta = {
             ip: req.headers?.['x-forwarded-for'] || req.socket?.remoteAddress,
             user_agent: req.headers?.['user-agent'],
@@ -2351,9 +2294,6 @@ export class AuthController extends PuterController {
                 requires_email_confirmation: user.requires_email_confirmation,
                 is_temp: user.password === null && user.email === null,
                 taskbar_items,
-                ...(extras.referral_code
-                    ? { referral_code: extras.referral_code }
-                    : {}),
             },
         });
     }

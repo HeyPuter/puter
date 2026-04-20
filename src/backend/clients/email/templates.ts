@@ -13,15 +13,6 @@ export interface EmailTemplate {
 }
 
 export const EMAIL_TEMPLATES = {
-    'new-referral': {
-        subject: "You've made a referral!",
-        html: `
-            <p>Hi there,</p>
-            <p>A new user has used your referral code. Enjoy an extra {{storage_increase}} of storage, on the house!</p>
-            <p>Sincerely,</p>
-            <p>Puter</p>
-        `,
-    },
     'approved-for-listing': {
         subject: '🎉 Your app has been approved for listing!',
         html: `
