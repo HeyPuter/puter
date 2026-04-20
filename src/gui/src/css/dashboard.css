@@ -719,6 +719,10 @@ body {
     filter: drop-shadow(0px 0px .3px rgb(173, 173, 173));
 }
 
+.myapps-tile.has-open-contextmenu{
+    overflow: visible !important;
+}
+
 @media (hover: hover) {
     .myapps-tile:hover .myapps-tile-icon, .myapps-tile.has-open-contextmenu .myapps-tile-icon{
         transform: scale(1.08);
