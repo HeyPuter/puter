@@ -4,7 +4,6 @@
     "port": 4100,
     "protocol": "http",
     "domain": "puter.localhost",
-    "api_base_url": "http://api.puter.localhost:4100",
     "cookie_name": "puter_auth_token",
     "jwt_secret": "dev-jwt-secret-change-me",
     "url_signature_secret": "dev-url-signature-secret-change-me",

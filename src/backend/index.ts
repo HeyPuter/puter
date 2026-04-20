@@ -82,14 +82,21 @@ const loadConfig = (): IConfig => {
     // build self-referential URLs (GUI bootstrap, email links, OIDC callbacks)
     // depend on `origin` having the right port baked in.
     if (config.pub_port === undefined) config.pub_port = config.port;
+    const protocol = config.protocol ?? 'http';
+    const domain = config.domain ?? 'localhost';
+    const portSuffix =
+        config.pub_port === 80 || config.pub_port === 443
+            ? ''
+            : `:${config.pub_port}`;
     if (config.origin === undefined) {
-        const protocol = config.protocol ?? 'http';
-        const domain = config.domain ?? 'localhost';
-        const suffix =
-            config.pub_port === 80 || config.pub_port === 443
-                ? ''
-                : `:${config.pub_port}`;
-        config.origin = `${protocol}://${domain}${suffix}`;
+        config.origin = `${protocol}://${domain}${portSuffix}`;
+    }
+    // API lives on the `api.` subdomain on the same host+port as the main
+    // origin (see PuterRouter subdomain handling in server.ts). Compute it
+    // from pub_port/domain so a single-port override (e.g. port: 5101) flows
+    // through to the GUI bootstrap without users having to restate the URL.
+    if (config.api_base_url === undefined) {
+        config.api_base_url = `${protocol}://api.${domain}${portSuffix}`;
     }
 
     // Resolve path-valued config fields. Two different roots:
