@@ -100,16 +100,15 @@ export async function loadFileInput(
             'Cannot load content of a symlink or shortcut directly',
         );
     }
-    if (!entry.bucket) {
-        throw new HttpError(500, 'Entry has no backing storage');
-    }
-
     // S3 object key is recorded in entry.metadata.objectKey when written by
     // fsv2; older rows fall back to the entry uuid.
     const objectKey = deriveObjectKey(entry);
     const { body, contentType, contentLength } =
         await stores.s3Object.getObjectStream(
-            { bucket: entry.bucket, objectKey },
+            {
+                bucket: stores.s3Object.resolveBucket(entry.bucket),
+                objectKey,
+            },
             stores.s3Object.resolveRegion(entry.bucketRegion),
         );
     if (contentLength && options.maxBytes && contentLength > options.maxBytes) {

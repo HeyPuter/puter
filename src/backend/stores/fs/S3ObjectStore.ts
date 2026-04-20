@@ -44,6 +44,12 @@ export class S3ObjectStore extends PuterStore {
         );
     }
 
+    // Same story for `bucket`: older rows may be null. Fall back to the
+    // configured default bucket.
+    resolveBucket(bucket?: string | null): string {
+        return bucket || this.config.s3_bucket || 'puter-local';
+    }
+
     getMaxSingleUploadSize(): number {
         return this.clients.s3.maxSingleUploadSize;
     }
