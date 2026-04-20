@@ -669,6 +669,7 @@ body {
 
 .myapps-container {
     min-height: 200px;
+    padding-bottom: 50px;
 }
 
 .myapps-empty {
