@@ -36,6 +36,14 @@ export class S3ObjectStore extends PuterStore {
         return this.clients.s3.get(region);
     }
 
+    // Older entries (migrated from v1) can have a null bucketRegion; callers
+    // use this to fall back to the configured default instead of erroring.
+    resolveRegion(region?: string | null): string {
+        return (
+            region || this.config.s3_region || this.config.region || 'us-west-2'
+        );
+    }
+
     getMaxSingleUploadSize(): number {
         return this.clients.s3.maxSingleUploadSize;
     }

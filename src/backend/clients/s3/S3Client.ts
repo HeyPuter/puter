@@ -137,7 +137,9 @@ export class S3Client extends PuterClient {
      * Get (or create) an S3Client for the given region.
      * Clients are cached per-region for connection reuse.
      */
-    get(region = 'us-west-2'): AwsS3Client {
+    get(
+        region = this.config.s3_region || this.config.region || 'us-west-2',
+    ): AwsS3Client {
         const existing = this.clientMap.get(region);
         if (existing) return existing;
 

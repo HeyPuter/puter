@@ -100,7 +100,7 @@ export async function loadFileInput(
             'Cannot load content of a symlink or shortcut directly',
         );
     }
-    if (!entry.bucket || !entry.bucketRegion) {
+    if (!entry.bucket) {
         throw new HttpError(500, 'Entry has no backing storage');
     }
 
@@ -110,7 +110,7 @@ export async function loadFileInput(
     const { body, contentType, contentLength } =
         await stores.s3Object.getObjectStream(
             { bucket: entry.bucket, objectKey },
-            entry.bucketRegion,
+            stores.s3Object.resolveRegion(entry.bucketRegion),
         );
     if (contentLength && options.maxBytes && contentLength > options.maxBytes) {
         body.destroy();

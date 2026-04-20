@@ -2368,7 +2368,7 @@ export class FSEntryService extends PuterService {
                 'Cannot read content of a symlink or shortcut directly',
             );
         }
-        if (!entry.bucket || !entry.bucketRegion) {
+        if (!entry.bucket) {
             throw new HttpError(500, 'Entry has no backing storage');
         }
 
@@ -2378,7 +2378,7 @@ export class FSEntryService extends PuterService {
         const objectKey = this.#deriveObjectKeyFromEntry(entry);
         return this.stores.s3Object.getObjectStream(
             { bucket: entry.bucket, objectKey, range: options.range },
-            entry.bucketRegion,
+            this.stores.s3Object.resolveRegion(entry.bucketRegion),
         );
     }
 
@@ -3192,7 +3192,7 @@ export class FSEntryService extends PuterService {
 
         // Regular file: duplicate the S3 object under a new key (the new
         // entry's uuid), then insert the DB row pointing at it.
-        if (!source.bucket || !source.bucketRegion) {
+        if (!source.bucket) {
             throw new HttpError(500, 'Source file has no backing storage');
         }
 
@@ -3205,7 +3205,7 @@ export class FSEntryService extends PuterService {
                 destinationBucket: source.bucket,
                 destinationKey: newUuid,
             },
-            source.bucketRegion,
+            this.stores.s3Object.resolveRegion(source.bucketRegion),
         );
 
         // Re-serialize metadata, swapping in the new objectKey.
