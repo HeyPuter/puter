@@ -1,0 +1,329 @@
+{
+    // Comprehensive template — every key the backend or shipped extensions read.
+    // Copy to `config.json` and trim what you don't need; unset keys fall back to
+    // documented defaults (see src/backend/types.ts for per-field comments).
+    // Each setting lives at exactly one canonical key — there are no fallback
+    // aliases. Values shown are illustrative, not production secrets.
+    
+    "config_name": "template",
+    "env": "dev",
+    "version": "0.0.0",
+    "serverId": "node-1",
+    "port": 4100,
+    "pub_port": 4100,
+    "protocol": "http",
+    "domain": "puter.localhost",
+    "origin": "http://puter.localhost:4100",
+    "api_base_url": "http://api.puter.localhost:4100",
+    "static_hosting_domain": "site.puter.localhost",
+    "static_hosting_domain_alt": "host.puter.localhost",
+    "private_app_hosting_domain": "app.puter.localhost",
+    "private_app_hosting_domain_alt": "dev.puter.localhost",
+    "allow_all_host_values": true,
+    "allow_no_host_header": true,
+    "allow_nipio_domains": false,
+    "custom_domains_enabled": false,
+    "enable_ip_validation": false,
+    "no_browser_launch": false,
+    "jwt_secret": "change-me",
+    "url_signature_secret": "change-me",
+    "cookie_name": "puter_auth_token",
+    "min_pass_length": 6,
+    "allow_system_login": false,
+    "strict_email_verification_required": false,
+    "captcha": {
+        "enabled": false,
+        "difficulty": "medium"
+    },
+    "oidc": {
+        "providers": {
+            "google": {
+                "client_id": "",
+                "client_secret": "",
+                "scopes": "openid email profile"
+            },
+            "custom-oidc": {
+                "client_id": "",
+                "client_secret": "",
+                "authorization_endpoint": "",
+                "token_endpoint": "",
+                "userinfo_endpoint": "",
+                "scopes": "openid email profile"
+            }
+        }
+    },
+    "default_user_group": "78b1b1dd-c959-44d2-b02c-8735671f9997",
+    "default_temp_group": "b7220104-7905-4985-b996-649fdcdb3c8f",
+    "enable_public_folders": true,
+    "s3": {
+        "localConfig": {
+            "inMemory": false,
+            "host": "127.0.0.1",
+            "port": 4566,
+            "dataDir": "volatile/runtime/fauxqs-data",
+            "s3StorageDir": "volatile/runtime/fauxqs-s3-data"
+        },
+        "_remote_example": {
+            "s3Config": {
+                "useCredentialChain": false,
+                "endpoint": "https://s3.example.com",
+                "accessKeyId": "",
+                "secretAccessKey": "",
+                "region": "us-west-2"
+            }
+        }
+    },
+    "s3_bucket": "puter-local",
+    "s3_region": "us-west-2",
+    "region": "us-west-2",
+    "storage_capacity": 104857600,
+    "is_storage_limited": false,
+    "available_device_storage": 0,
+    "thumbnailStore": {
+        "name": "puter-local",
+        "endpoint": "",
+        "credentials": {
+            "accessKeyId": "",
+            "secretAccessKey": ""
+        }
+    },
+    "database": {
+        "engine": "sqlite",
+        "path": "volatile/runtime/puter-database.sqlite",
+        "targetVersion": 0,
+        "host": "",
+        "port": 3306,
+        "user": "",
+        "password": "",
+        "database": "",
+        "replica": {
+            "host": "",
+            "port": 3306,
+            "user": "",
+            "password": "",
+            "database": ""
+        }
+    },
+    "dynamo": {
+        "endpoint": "http://localhost:8000",
+        "path": "",
+        "aws": {
+            "access_key": "",
+            "secret_key": "",
+            "region": "us-west-2"
+        }
+    },
+    "redis": {
+        "useMock": true,
+        "startupNodes": [
+            {
+                "host": "127.0.0.1",
+                "port": 7000
+            }
+        ]
+    },
+    "pager": {
+        "pagerduty": {
+            "enabled": false,
+            "routingKey": ""
+        }
+    },
+    "email": {
+        "from": "\"Puter\" <no-reply@puter.com>",
+        "host": "smtp.example.com",
+        "port": 587,
+        "secure": false,
+        "service": "",
+        "auth": {
+            "user": "",
+            "pass": ""
+        }
+    },
+    "clickhouse": {
+        "url": "http://127.0.0.1:8123",
+        "username": "",
+        "password": "",
+        "request_timeout": 15000,
+        "max_buffer_size": 100000,
+        "batch_size": 500,
+        "flush_interval_ms": 5000
+    },
+    "cf_file_cache": {
+        "endpoint": "https://example.com/invalidate",
+        "throttle_ms": 500
+    },
+    "rate_limit": {
+        "backend": "memory"
+    },
+    "providers": {
+        "_": "All AI / integration drivers read from here. Provider id = driver-side identifier.",
+        "claude": {
+            "apiKey": ""
+        },
+        "openai-completion": {
+            "apiKey": ""
+        },
+        "gemini": {
+            "apiKey": ""
+        },
+        "groq": {
+            "apiKey": ""
+        },
+        "deepseek": {
+            "apiKey": ""
+        },
+        "mistral": {
+            "apiKey": ""
+        },
+        "xai": {
+            "apiKey": ""
+        },
+        "openrouter": {
+            "apiKey": "",
+            "apiBaseUrl": "https://openrouter.ai/api/v1"
+        },
+        "together-ai": {
+            "apiKey": ""
+        },
+        "ollama": {
+            "enabled": false,
+            "apiBaseUrl": "http://localhost:11434"
+        },
+        "openai-image-generation": {
+            "apiKey": ""
+        },
+        "gemini-image-generation": {
+            "apiKey": ""
+        },
+        "together-image-generation": {
+            "apiKey": ""
+        },
+        "cloudflare-image-generation": {
+            "apiToken": "",
+            "accountId": "",
+            "apiBaseUrl": "https://api.cloudflare.com/client/v4"
+        },
+        "xai-image-generation": {
+            "apiKey": ""
+        },
+        "openai-video-generation": {
+            "apiKey": ""
+        },
+        "together-video-generation": {
+            "apiKey": ""
+        },
+        "gemini-video-generation": {
+            "apiKey": ""
+        },
+        "openai": {
+            "apiKey": ""
+        },
+        "elevenlabs": {
+            "apiKey": "",
+            "apiBaseUrl": "https://api.elevenlabs.io",
+            "defaultVoiceId": "",
+            "speechToSpeechModelId": ""
+        },
+        "aws-polly": {
+            "access_key": "",
+            "secret_key": "",
+            "region": "us-west-2"
+        },
+        "aws-textract": {
+            "access_key": "",
+            "secret_key": "",
+            "region": "us-west-2"
+        },
+        "mistral-ocr": {
+            "apiKey": ""
+        }
+    },
+    "broadcast": {
+        "peers": [
+            {
+                "peerId": "peer-a",
+                "webhook": true,
+                "webhook_url": "https://peer-a.example.com/broadcast/webhook",
+                "webhook_secret": "shared-secret"
+            }
+        ],
+        "webhook": {
+            "peerId": "this-node",
+            "secret": "shared-secret"
+        },
+        "webhook_replay_window_seconds": 300,
+        "outbound_flush_ms": 2000
+    },
+    "peers": {
+        "signaller_url": "wss://signaller.example.com",
+        "fallback_ice": [],
+        "turn": {
+            "cloudflare_turn_service_id": "",
+            "cloudflare_turn_api_token": "",
+            "ttl": 86400
+        },
+        "internal_auth_secret": ""
+    },
+    "wisp": {
+        "server": "wss://wisp.example.com"
+    },
+    "workers": {
+        "XAUTHKEY": "",
+        "ACCOUNTID": "",
+        "namespace": "",
+        "internetExposedUrl": "https://api.puter.com",
+        "loggingUrl": ""
+    },
+    "entri": {
+        "applicationId": "",
+        "secret": ""
+    },
+    "abuse": {
+        "enabled": false,
+        "allowed_ips": [],
+        "ipinfo_token": "",
+        "kickbox_api_key": "",
+        "pagerduty_token": "",
+        "pagerduty_service_id": "",
+        "pagerduty_from_email": ""
+    },
+    "legacyBilling": {
+        "api_secret": "",
+        "stripe_publishable_key": "",
+        "endpoint_secret": "",
+        "price_ids": {
+            "price_basic": ""
+        }
+    },
+    "gui_assets_root": "./src/gui",
+    "gui_profile": "development",
+    "builtin_apps": {
+        "dev-center": "./src/dev-center"
+    },
+    "use_bundled_gui": false,
+    "gui_bundle": "/dist/bundle.min.js",
+    "gui_css": "/dist/bundle.min.css",
+    "gui_puterjs_bundle": "https://js.puter.com/v2/",
+    "gui_params": {
+        "title": "Puter",
+        "short_description": "Your personal cloud computer",
+        "social_media_image": ""
+    },
+    "native_apps_root": "",
+    "client_libs_root": "",
+    "puterjs_root": "./src/puter-js/dist",
+    "feature_flags": {
+        "example_flag": false
+    },
+    "blockedEmailDomains": [],
+    "support_email": "support@puter.com",
+    "reserved_words": [],
+    "max_subdomains_per_user": 10,
+    "server_health": {
+        "db_liveness_latency_fail_ms": 1500,
+        "stale_health_loop_fail_ms": 0
+    },
+    "extensions": [
+        "./extensions"
+    ]
+}

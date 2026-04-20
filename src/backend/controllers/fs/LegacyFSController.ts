@@ -642,9 +642,16 @@ export class LegacyFSController extends PuterController {
         const userId = this.#getActorUserId(req);
         const query = asRecord(req.query);
 
+        // Legacy v1 /read aliased `file` onto either path or uid depending on
+        // whether the value starts with `/`. resolveV1Selector does the same
+        // dispatch when handed a raw string.
+        const selector =
+            typeof query.file === 'string' && query.file.length > 0
+                ? query.file
+                : query;
         const entry = await resolveV1Selector(
             this.stores.fsEntry,
-            query,
+            selector,
             userId,
         );
         await assertAccess(

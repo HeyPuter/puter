@@ -69,3 +69,4 @@ coverage/
 *.log
 undefined
 servers.json
+config.*.json
