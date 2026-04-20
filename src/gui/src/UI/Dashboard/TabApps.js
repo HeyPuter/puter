@@ -250,6 +250,7 @@ const TabApps = {
             e.stopPropagation();
 
             UIContextMenu({
+                parent_element: $(this),
                 position: { top: e.clientY, left: e.clientX },
                 items,
             });
