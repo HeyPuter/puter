@@ -270,7 +270,7 @@ const TabApps = {
                     },
                 ),
                 fetch(
-                    `${window.api_origin}/get-launch-apps?icon_size=64`,
+                    `${window.api_origin}/get-launch-apps?icon_size=128`,
                     {
                         headers: { 'Authorization': `Bearer ${window.auth_token}` },
                         method: 'GET',
@@ -289,7 +289,7 @@ const TabApps = {
                 name: app.name,
                 title: app.title,
                 uid: app.uuid || app.uid || null,
-                iconUrl: app.icon || null,
+                iconUrl: app.iconUrl || app.icon || null,
             }));
 
             // Build seen set from launch apps
