@@ -50,7 +50,7 @@ const TYPE_ICONS = {
 };
 
 class PuterNotification extends PuterWebComponent {
-    getDefaultStyles () {
+    getStyles () {
         return `
             :host {
                 position: fixed;
@@ -178,219 +178,19 @@ class PuterNotification extends PuterWebComponent {
         `;
     }
 
-    getStyles () {
-        return `
-            :host {
-                position: fixed;
-                right: ${NOTIFICATION_RIGHT}px;
-                z-index: 999999;
-                pointer-events: auto;
-                transition: top 0.35s cubic-bezier(0.4, 0, 0.2, 1),
-                            opacity 0.3s ease,
-                            transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
-            }
-            .notification {
-                width: 360px;
-                background: rgba(255, 255, 255, 0.85);
-                backdrop-filter: blur(20px) saturate(180%);
-                -webkit-backdrop-filter: blur(20px) saturate(180%);
-                border: 1px solid rgba(255, 255, 255, 0.4);
-                border-radius: 16px;
-                box-shadow:
-                    0 1px 2px rgba(0, 0, 0, 0.04),
-                    0 8px 24px rgba(0, 0, 0, 0.08),
-                    0 16px 48px rgba(0, 0, 0, 0.06);
-                display: flex;
-                align-items: flex-start;
-                font-family: var(--puter-font-family);
-                cursor: pointer;
-                padding: 14px 14px 14px 14px;
-                gap: 12px;
-                position: relative;
-                transition: transform 0.2s ease, box-shadow 0.2s ease;
-            }
-            .notification:hover {
-                transform: translateY(-1px);
-                box-shadow:
-                    0 1px 2px rgba(0, 0, 0, 0.04),
-                    0 12px 32px rgba(0, 0, 0, 0.12),
-                    0 20px 60px rgba(0, 0, 0, 0.08);
-            }
-            .notification:hover .close-btn {
-                opacity: 1;
-                transform: scale(1);
-            }
-            .close-btn {
-                position: absolute;
-                top: 8px;
-                right: 8px;
-                width: 22px;
-                height: 22px;
-                background: rgba(0, 0, 0, 0.06);
-                border: none;
-                border-radius: 50%;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                font-size: 11px;
-                color: #666;
-                cursor: pointer;
-                opacity: 0;
-                transform: scale(0.8);
-                transition: opacity 0.15s ease, transform 0.15s ease, background 0.15s ease;
-                z-index: 1;
-                font-family: inherit;
-                line-height: 1;
-                padding: 0;
-            }
-            .close-btn:hover {
-                background: rgba(0, 0, 0, 0.12);
-                color: #222;
-            }
-            .icon-container {
-                width: 38px;
-                min-width: 38px;
-                height: 38px;
-                border-radius: 10px;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                flex-shrink: 0;
-            }
-            .icon-container svg {
-                width: 20px;
-                height: 20px;
-            }
-            .icon-container img {
-                width: 28px;
-                height: 28px;
-                object-fit: contain;
-                border-radius: 6px;
-            }
-            :host([round-icon]) .icon-container img {
-                border-radius: 50%;
-            }
-            .content {
-                flex: 1;
-                min-width: 0;
-                padding-right: 16px;
-                padding-top: 1px;
-            }
-            .title {
-                font-size: 14px;
-                font-weight: 600;
-                color: #1a1a1a;
-                letter-spacing: -0.01em;
-                line-height: 1.3;
-                white-space: nowrap;
-                overflow: hidden;
-                text-overflow: ellipsis;
-            }
-            .text {
-                font-size: 13px;
-                color: #555;
-                margin-top: 3px;
-                line-height: 1.4;
-                overflow: hidden;
-                display: -webkit-box;
-                -webkit-line-clamp: 2;
-                -webkit-box-orient: vertical;
-            }
-            /* Entrance animation */
-            :host(.entering) {
-                transform: translateX(110%) scale(0.95);
-                opacity: 0;
-            }
-            :host(.visible) {
-                transform: translateX(0) scale(1);
-                opacity: 1;
-            }
-            /* Exit animation */
-            :host(.exiting) {
-                transform: translateX(110%) scale(0.95);
-                opacity: 0;
-            }
-            @media (max-width: 480px) {
-                :host {
-                    right: 10px;
-                    left: 10px;
-                }
-                .notification {
-                    width: auto;
-                    padding: 14px;
-                }
-                .close-btn {
-                    opacity: 1;
-                    transform: scale(1);
-                    width: 26px;
-                    height: 26px;
-                    font-size: 13px;
-                }
-                .title {
-                    font-size: 15px;
-                }
-                .text {
-                    font-size: 14px;
-                }
-                .icon-container {
-                    width: 40px;
-                    min-width: 40px;
-                    height: 40px;
-                }
-                .icon-container svg {
-                    width: 22px;
-                    height: 22px;
-                }
-            }
-            /* Dark mode support via prefers-color-scheme */
-            @media (prefers-color-scheme: dark) {
-                .notification {
-                    background: rgba(38, 38, 42, 0.85);
-                    border-color: rgba(255, 255, 255, 0.08);
-                    box-shadow:
-                        0 1px 2px rgba(0, 0, 0, 0.2),
-                        0 8px 24px rgba(0, 0, 0, 0.3),
-                        0 16px 48px rgba(0, 0, 0, 0.2);
-                }
-                .title { color: #f5f5f7; }
-                .text { color: #b8b8be; }
-                .close-btn {
-                    background: rgba(255, 255, 255, 0.1);
-                    color: #b8b8be;
-                }
-                .close-btn:hover {
-                    background: rgba(255, 255, 255, 0.18);
-                    color: #fff;
-                }
-            }
-        `;
-    }
-
     render () {
         const title = this.getAttribute('title') || '';
         const text = this.getAttribute('text') || '';
         const icon = this.getAttribute('icon') || '';
         const type = this.getAttribute('type') || 'default';
-        const isDefault = this.getTheme() === 'default';
 
         let iconHTML;
-        if ( isDefault ) {
-            // Default theme: simpler icon without gradient background
-            if ( icon ) {
-                iconHTML = `<div class="icon-area"><img src="${this._escapeAttr(icon)}" alt=""></div>`;
-            } else {
-                const accent = TYPE_ACCENTS[type] || TYPE_ACCENTS.default;
-                const iconSvg = TYPE_ICONS[type] || TYPE_ICONS.default;
-                iconHTML = `<div class="icon-area" style="color: ${accent.color}">${iconSvg}</div>`;
-            }
+        if ( icon ) {
+            iconHTML = `<div class="icon-area"><img src="${this._escapeAttr(icon)}" alt=""></div>`;
         } else {
-            if ( icon ) {
-                iconHTML = `<div class="icon-container" style="background: ${TYPE_ACCENTS[type]?.bg || TYPE_ACCENTS.default.bg}"><img src="${this._escapeAttr(icon)}" alt=""></div>`;
-            } else {
-                const accent = TYPE_ACCENTS[type] || TYPE_ACCENTS.default;
-                const iconSvg = TYPE_ICONS[type] || TYPE_ICONS.default;
-                iconHTML = `<div class="icon-container" style="background: ${accent.bg}; color: ${accent.color}">${iconSvg}</div>`;
-            }
+            const accent = TYPE_ACCENTS[type] || TYPE_ACCENTS.default;
+            const iconSvg = TYPE_ICONS[type] || TYPE_ICONS.default;
+            iconHTML = `<div class="icon-area" style="color: ${accent.color}">${iconSvg}</div>`;
         }
 
         return `

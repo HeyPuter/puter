@@ -1,47 +1,16 @@
 /**
  * <puter-alert> - Modal alert dialog with customizable buttons and types.
  *
- * Attributes: message, type (error|warning|info|success|confirm)
+ * Attributes: message, type (error|warning|info|success|confirm), icon
  * Properties: buttons (array of {label, value, type}), options
+ *   options.body_icon / options.icon: URL or data-URI for a custom icon
+ *     (mirrors the legacy puter.com alert's body_icon option).
  * Events: response (detail = button value)
  */
 
 import PuterWebComponent from '../PuterWebComponent.js';
 import { defaultFontFamily } from '../PuterDefaultStyles.js';
-
-const ALERT_ICONS = {
-    error: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/>
-    </svg>`,
-    warning: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
-    </svg>`,
-    info: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>
-    </svg>`,
-    success: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>
-    </svg>`,
-    confirm: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/>
-    </svg>`,
-};
-
-const ICON_COLORS = {
-    error: '#D32F2F',
-    warning: '#FFA000',
-    info: '#1976D2',
-    success: '#388E3C',
-    confirm: '#555555',
-};
-
-const ICON_BG = {
-    error: 'linear-gradient(135deg, #ffebee 0%, #ffcdd2 100%)',
-    warning: 'linear-gradient(135deg, #fff3e0 0%, #ffe0b2 100%)',
-    info: 'linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%)',
-    success: 'linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%)',
-    confirm: 'linear-gradient(135deg, #f5f5f5 0%, #e0e0e0 100%)',
-};
+import { DEFAULT_ALERT_ICONS } from './PuterAlertIcons.js';
 
 class PuterAlert extends PuterWebComponent {
     #buttons = null;
@@ -72,120 +41,6 @@ class PuterAlert extends PuterWebComponent {
                 max-width: 90vw;
             }
             dialog::backdrop {
-                background: var(--puter-backdrop);
-            }
-            .alert-body {
-                background: var(--puter-color-bg);
-                backdrop-filter: var(--puter-backdrop-blur);
-                border: 1px solid var(--puter-color-border);
-                border-radius: var(--puter-border-radius-lg);
-                padding: 32px;
-                box-shadow: var(--puter-shadow);
-                font-family: var(--puter-font-family);
-                color: var(--puter-color-text);
-                width: 350px;
-                max-width: calc(100vw - 32px);
-                box-sizing: border-box;
-                text-align: center;
-            }
-            @media (max-width: 480px) {
-                .alert-body {
-                    width: 100%;
-                    padding: 24px 20px;
-                }
-                button {
-                    padding: 14px 24px;
-                    font-size: 16px;
-                }
-            }
-            .icon-container {
-                width: 64px;
-                height: 64px;
-                margin: 0 auto 20px;
-                border-radius: 50%;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-            }
-            .icon-container svg {
-                width: 32px;
-                height: 32px;
-            }
-            .message {
-                font-size: var(--puter-font-size-md);
-                line-height: 1.5;
-                color: var(--puter-color-text);
-                text-shadow: 1px 1px rgba(255, 255, 255, 0.32);
-                margin-bottom: 20px;
-            }
-            .buttons {
-                display: flex;
-                flex-direction: column;
-                gap: 10px;
-            }
-            button {
-                width: 100%;
-                padding: 10px 24px;
-                border-radius: var(--puter-border-radius);
-                font-size: var(--puter-font-size-base);
-                font-weight: 500;
-                cursor: pointer;
-                transition: all 0.2s;
-                border: none;
-                font-family: var(--puter-font-family);
-            }
-            button:focus-visible {
-                outline: 2px solid var(--puter-color-input-border-focus);
-                outline-offset: 2px;
-            }
-            .btn-primary {
-                background: var(--puter-color-primary-gradient);
-                color: var(--puter-color-text-on-primary);
-            }
-            .btn-primary:hover {
-                background: var(--puter-color-primary-gradient-hover);
-                box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
-            }
-            .btn-danger {
-                background: var(--puter-color-danger-gradient);
-                color: var(--puter-color-text-on-primary);
-            }
-            .btn-danger:hover {
-                box-shadow: 0 4px 12px rgba(211, 47, 47, 0.3);
-            }
-            .btn-success {
-                background: linear-gradient(135deg, #4caf50 0%, #388e3c 100%);
-                color: var(--puter-color-text-on-primary);
-            }
-            .btn-warning {
-                background: linear-gradient(135deg, #ffb74d 0%, #ffa000 100%);
-                color: #333;
-            }
-            .btn-info {
-                background: linear-gradient(135deg, #42a5f5 0%, #1976d2 100%);
-                color: var(--puter-color-text-on-primary);
-            }
-            .btn-default {
-                background: var(--puter-color-button-default-bg);
-                color: var(--puter-color-button-default-text);
-            }
-            .btn-default:hover {
-                background: linear-gradient(135deg, #e8e8e8 0%, #d5d5d5 100%);
-            }
-        `;
-    }
-
-    getDefaultStyles () {
-        return `
-            dialog {
-                background: transparent;
-                border: none;
-                box-shadow: none;
-                outline: none;
-                padding: 0;
-                max-width: 90vw;
-            }
-            dialog::backdrop {
                 background: rgba(0, 0, 0, 0.5);
             }
             .alert-body {
@@ -203,15 +58,11 @@ class PuterAlert extends PuterWebComponent {
                 box-sizing: border-box;
                 text-align: center;
             }
-            .icon-container {
-                width: 64px;
-                margin: 10px auto 20px;
-                display: block;
-                text-align: center;
-            }
-            .icon-container svg {
+            .alert-icon {
                 width: 64px;
                 height: 64px;
+                margin: 10px auto 20px;
+                display: block;
             }
             .message {
                 font-size: 15px;
@@ -222,6 +73,8 @@ class PuterAlert extends PuterWebComponent {
                 margin-top: 10px;
                 margin-bottom: 20px;
             }
+            .message p { margin: 0 0 10px; }
+            .message p:last-child { margin-bottom: 0; }
             .buttons {
                 display: flex;
                 flex-direction: column;
@@ -307,23 +160,16 @@ class PuterAlert extends PuterWebComponent {
     render () {
         const message = this.getAttribute('message') || '';
         const type = this.#options?.type || this.getAttribute('type') || '';
+        const iconSrc = this.#options?.body_icon
+            || this.#options?.icon
+            || this.getAttribute('icon')
+            || DEFAULT_ALERT_ICONS[type]
+            || '';
         const buttons = this.#buttons || [{ label: 'OK', value: true, type: 'primary' }];
 
-        let iconHTML = '';
-        if ( type && ALERT_ICONS[type] ) {
-            if ( this.getTheme() === 'default' ) {
-                // Default theme: show SVG icon directly without gradient container
-                iconHTML = `
-                    <div class="icon-container" style="color: ${ICON_COLORS[type]}">
-                        ${ALERT_ICONS[type]}
-                    </div>`;
-            } else {
-                iconHTML = `
-                    <div class="icon-container" style="background: ${ICON_BG[type]}; color: ${ICON_COLORS[type]}">
-                        ${ALERT_ICONS[type]}
-                    </div>`;
-            }
-        }
+        const iconHTML = iconSrc
+            ? `<img class="alert-icon" src="${this._escapeAttr(iconSrc)}" alt="">`
+            : '';
 
         const buttonsHTML = buttons.map((btn, i) => {
             const btnType = btn.type || ( i === buttons.length - 1 ? 'primary' : 'default' );
@@ -335,7 +181,7 @@ class PuterAlert extends PuterWebComponent {
             <dialog>
                 <div class="alert-body">
                     ${iconHTML}
-                    <div class="message">${this._escapeHTML(message)}</div>
+                    <div class="message">${this._renderMessage(message)}</div>
                     <div class="buttons">${buttonsHTML}</div>
                 </div>
             </dialog>`;
@@ -345,18 +191,15 @@ class PuterAlert extends PuterWebComponent {
         const dialog = this.$('dialog');
         const buttons = this.#buttons || [{ label: 'OK', value: true, type: 'primary' }];
 
-        // Button clicks
         this.$$('button').forEach((btn) => {
             btn.addEventListener('click', () => {
                 const raw = btn.dataset.value;
-                // Try to match back to original value
                 const match = buttons.find(b => String(b.value !== undefined ? b.value : b.label) === raw);
                 this.emitEvent('response', match ? (match.value !== undefined ? match.value : match.label) : raw);
                 this.close();
             });
         });
 
-        // Close on backdrop click
         dialog.addEventListener('click', (e) => {
             if ( e.target === dialog ) {
                 this.emitEvent('response', undefined);
@@ -364,11 +207,19 @@ class PuterAlert extends PuterWebComponent {
             }
         });
 
-        // Auto-focus last button (primary)
         const allBtns = this.$$('button');
         if ( allBtns.length > 0 ) {
             allBtns[allBtns.length - 1].focus();
         }
+    }
+
+    // Escape the message, then allow the small tag set the legacy alert supports.
+    _renderMessage (str) {
+        const escaped = this._escapeHTML(str);
+        return escaped
+            .replace(/&lt;strong&gt;/g, '<strong>').replace(/&lt;\/strong&gt;/g, '</strong>')
+            .replace(/&lt;p&gt;/g, '<p>').replace(/&lt;\/p&gt;/g, '</p>')
+            .replace(/&lt;br\s*\/?&gt;/g, '<br>');
     }
 
     _escapeHTML (str) {
@@ -379,7 +230,7 @@ class PuterAlert extends PuterWebComponent {
     }
 
     _escapeAttr (str) {
-        return str.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+        return String(str).replace(/"/g, '&quot;').replace(/'/g, '&#39;');
     }
 }
 

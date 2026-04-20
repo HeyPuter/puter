@@ -48,14 +48,6 @@
     <p>These components work standalone - no puter.com iframe required.</p>
 
     <div class="section">
-        <h2>Theme</h2>
-        <p>Switch between "default" (puter.com native look) and "custom" (CSS-var customizable).</p>
-        <button onclick="setTheme('default')" id="btn-theme-default" style="font-weight:bold">Default (puter.com)</button>
-        <button onclick="setTheme('custom')" id="btn-theme-custom">Custom</button>
-        <div class="result" id="theme-result">Current theme: <b>default</b></div>
-    </div>
-
-    <div class="section">
         <h2>Alert</h2>
         <button onclick="testAlert()">Basic Alert</button>
         <button onclick="testAlertButtons()">Alert with Buttons</button>
@@ -117,38 +109,6 @@
 
     <script src="../dist/puter.js?v=2"></script>
     <script>
-        let currentTheme = 'default';
-
-        function setTheme(theme) {
-            currentTheme = theme;
-            document.getElementById('theme-result').innerHTML = 'Current theme: <b>' + theme + '</b>';
-            document.getElementById('btn-theme-default').style.fontWeight = theme === 'default' ? 'bold' : 'normal';
-            document.getElementById('btn-theme-custom').style.fontWeight = theme === 'custom' ? 'bold' : 'normal';
-            // Update any visible components
-            document.querySelectorAll('puter-menubar, puter-context-menu, puter-notification').forEach(el => {
-                el.setAttribute('theme', theme);
-            });
-        }
-
-        // Helper: after puter.ui creates a component, set its theme
-        function applyTheme(el) {
-            if (currentTheme !== 'default') {
-                el.setAttribute('theme', currentTheme);
-            }
-        }
-
-        // Monkey-patch document.createElement to inject theme before connectedCallback
-        const _origCreateElement = document.createElement.bind(document);
-        document.createElement = function(tag, options) {
-            const el = _origCreateElement(tag, options);
-            if (typeof tag === 'string' && tag.startsWith('puter-') && currentTheme !== 'default') {
-                // Set theme attribute before element is appended to DOM
-                // This ensures connectedCallback uses the right theme on first render
-                el.setAttribute('theme', currentTheme);
-            }
-            return el;
-        };
-
         async function testAlert() {
             const result = await puter.ui.alert('Hello from standalone Puter!');
             document.getElementById('alert-result').textContent = 'Result: ' + JSON.stringify(result);

@@ -1,10 +1,7 @@
 /**
- * PuterDefaultStyles - Shared CSS constants for the "default" theme
- * that matches puter.com's native GUI appearance exactly.
- *
- * These are plain CSS string constants composed into each component's
- * getDefaultStyles() method. They are NOT CSS custom properties —
- * values are hardcoded to match puter.com pixel-perfect.
+ * PuterDefaultStyles - Shared CSS constants that match puter.com's
+ * native GUI appearance exactly. Composed into each component's
+ * getStyles() method.
  */
 
 export const defaultFontFamily = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif';

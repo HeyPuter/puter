@@ -334,53 +334,9 @@ el.open();
 
 ---
 
-## Theming
+## Styling
 
-All components support a `theme` attribute with two values:
-
-| Value | Description |
-|-------|-------------|
-| `"default"` | Matches puter.com's native GUI appearance exactly. This is the default when no `theme` attribute is set. |
-| `"custom"` | Uses CSS custom properties for full customization. Override `--puter-*` variables to create your own look. |
-
-```html
-<!-- Default: matches puter.com -->
-<puter-alert message="Hello"></puter-alert>
-
-<!-- Custom: use CSS variables to style -->
-<puter-alert message="Hello" theme="custom"></puter-alert>
-```
-
-### Custom theme variables
-
-When using `theme="custom"`, components read CSS custom properties defined in `PuterTheme.js`. CSS custom properties pierce Shadow DOM, so you can override them on any ancestor (e.g., `:root` or `body`).
-
-```css
-:root {
-    --puter-color-primary: #ff6b35;
-    --puter-color-primary-gradient: linear-gradient(135deg, #ff9966, #ff5e62);
-    --puter-border-radius-lg: 16px;
-    --puter-font-family: 'Inter', system-ui, sans-serif;
-}
-```
-
-**Available variables**
-
-| Variable | Default | Purpose |
-|----------|---------|---------|
-| `--puter-font-family` | system stack | Base font |
-| `--puter-color-primary` | `#3b82f6` | Primary color |
-| `--puter-color-primary-gradient` | blue gradient | Primary button background |
-| `--puter-color-danger` / `--puter-color-danger-gradient` | red / red gradient | Danger styling |
-| `--puter-color-warning` | `#FFA000` | Warning tint |
-| `--puter-color-info` | `#1976D2` | Info tint |
-| `--puter-color-success` | `#388E3C` | Success tint |
-| `--puter-color-text` / `--puter-color-text-secondary` | greys | Text colors |
-| `--puter-color-border` | `#e8e8e8` | Borders |
-| `--puter-color-bg` | `rgba(231,238,245,.95)` | Alert/prompt background |
-| `--puter-border-radius` / `--puter-border-radius-lg` | 8px / 12px | Corner radii |
-| `--puter-shadow` / `--puter-shadow-menu` | layered shadows | Elevation |
-| `--puter-backdrop` | `rgba(0,0,0,0.5)` | Modal backdrop |
+All components render inside Shadow DOM and match puter.com's native GUI appearance. Styles are encapsulated and cannot be overridden from outside the component.
 
 ## Dark mode
 

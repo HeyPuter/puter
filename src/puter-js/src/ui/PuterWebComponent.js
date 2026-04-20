@@ -1,19 +1,9 @@
 /**
  * PuterWebComponent - Base class for all Puter web components.
- * Provides Shadow DOM setup, theme injection, and common helpers.
- *
- * Theme attribute:
- *   - "default" (or omitted): puter.com native styles
- *   - "custom": current custom styles with CSS variable support
+ * Provides Shadow DOM setup, style injection, and common helpers.
  */
 
-import { themeCSS } from './PuterTheme.js';
-
 class PuterWebComponent extends (globalThis.HTMLElement || Object) {
-    static get observedAttributes () {
-        return ['theme'];
-    }
-
     constructor () {
         super();
         if ( typeof globalThis.HTMLElement !== 'undefined' ) {
@@ -25,35 +15,14 @@ class PuterWebComponent extends (globalThis.HTMLElement || Object) {
         this._rerender();
     }
 
-    attributeChangedCallback (name, oldVal, newVal) {
-        if ( name === 'theme' && oldVal !== newVal && this.isConnected ) {
-            this._rerender();
-        }
-    }
-
-    /** Re-render the component with the appropriate theme styles */
     _rerender () {
         if ( ! this.shadowRoot ) return;
-        const theme = this.getTheme();
-        const styles = theme === 'custom'
-            ? `${themeCSS}\n${this.getStyles()}`
-            : this.getDefaultStyles();
-        this.shadowRoot.innerHTML = `<style>${styles}</style>${this.render()}`;
+        this.shadowRoot.innerHTML = `<style>${this.getStyles()}</style>${this.render()}`;
         this.onReady();
     }
 
-    /** Get the current theme: "default" or "custom" */
-    getTheme () {
-        return this.getAttribute('theme') || 'default';
-    }
-
-    /** Override in subclass: return CSS string for "custom" theme */
+    /** Override in subclass: return CSS string */
     getStyles () {
-        return '';
-    }
-
-    /** Override in subclass: return CSS string for "default" (puter.com) theme */
-    getDefaultStyles () {
         return '';
     }
 

@@ -33,80 +33,6 @@ class PuterMenubar extends PuterWebComponent {
                 left: 0;
                 right: 0;
                 z-index: 9999;
-                font-family: var(--puter-font-family);
-                user-select: none;
-                -webkit-user-select: none;
-            }
-            .menubar {
-                display: flex;
-                align-items: center;
-                height: 32px;
-                background: rgba(250, 250, 250, 0.92);
-                backdrop-filter: blur(20px) saturate(180%);
-                -webkit-backdrop-filter: blur(20px) saturate(180%);
-                border-bottom: 1px solid rgba(0, 0, 0, 0.08);
-                padding: 0 8px;
-                box-shadow: 0 1px 0 rgba(255, 255, 255, 0.5) inset;
-            }
-            .menu-button {
-                background: none;
-                border: none;
-                font-family: inherit;
-                font-size: 13px;
-                color: #1a1a1a;
-                padding: 4px 10px;
-                margin: 0 1px;
-                border-radius: 5px;
-                cursor: default;
-                line-height: 1.2;
-                transition: background 0.08s ease;
-            }
-            .menu-button:hover,
-            .menu-button.active {
-                background: rgba(0, 0, 0, 0.06);
-            }
-            .menu-button.active {
-                background: rgba(0, 0, 0, 0.08);
-            }
-            @media (max-width: 480px) {
-                .menubar {
-                    height: 40px;
-                    overflow-x: auto;
-                    overflow-y: hidden;
-                    -webkit-overflow-scrolling: touch;
-                    scrollbar-width: none;
-                }
-                .menubar::-webkit-scrollbar {
-                    display: none;
-                }
-                .menu-button {
-                    font-size: 14px;
-                    padding: 6px 12px;
-                    flex-shrink: 0;
-                }
-            }
-            @media (prefers-color-scheme: dark) {
-                .menubar {
-                    background: rgba(40, 40, 44, 0.92);
-                    border-bottom-color: rgba(255, 255, 255, 0.08);
-                }
-                .menu-button { color: #f5f5f7; }
-                .menu-button:hover,
-                .menu-button.active {
-                    background: rgba(255, 255, 255, 0.08);
-                }
-            }
-        `;
-    }
-
-    getDefaultStyles () {
-        return `
-            :host {
-                position: fixed;
-                top: 0;
-                left: 0;
-                right: 0;
-                z-index: 9999;
                 font-family: ${defaultFontFamily};
                 user-select: none;
                 -webkit-user-select: none;
@@ -205,7 +131,6 @@ class PuterMenubar extends PuterWebComponent {
         const rect = buttonEl.getBoundingClientRect();
         const dropdown = document.createElement('puter-context-menu');
         dropdown.setAttribute('data-submenu', ''); // skip mobile sheet behavior
-        dropdown.setAttribute('theme', this.getTheme());
         dropdown.items = item.items;
         dropdown.setAttribute('x', String(rect.left));
         dropdown.setAttribute('y', String(rect.bottom));
