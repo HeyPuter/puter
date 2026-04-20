@@ -723,6 +723,10 @@ body {
     overflow: visible !important;
 }
 
+.myapps-tile:hover{
+    overflow: visible !important;
+}
+
 @media (hover: hover) {
     .myapps-tile:hover .myapps-tile-icon, .myapps-tile.has-open-contextmenu .myapps-tile-icon{
         transform: scale(1.08);
