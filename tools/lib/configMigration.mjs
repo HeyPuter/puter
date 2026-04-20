@@ -106,9 +106,9 @@ export const transformToV2 = (source) => {
     copyIfSet(source, 'server_id', out, 'serverId');
     copyIfSet(source, 'id', out, 'serverId');
     copyIfSet(source, 'region', out);
-    copyIfSet(source, 'host', out);
     copyIfSet(source, 'domain', out);
     copyIfSet(source, 'protocol', out);
+    copyIfSet(source, 'pub_port', out);
     copyIfSet(source, 'cookie_name', out);
     copyIfSet(source, 'jwt_secret', out);
     copyIfSet(source, 'url_signature_secret', out);
@@ -131,7 +131,7 @@ export const transformToV2 = (source) => {
     copyIfSet(source, 'default_temp_group', out);
     copyIfSet(source, 'api_base_url', out);
     copyIfSet(source, 'origin', out);
-    copyIfSet(source, 'contact_email', out);
+    copyIfSet(source, 'contact_email', out, 'support_email');
 
     // `extensions` in v1 was overloaded — array form = scan dirs, object form
     // = per-extension config bag. JSON.parse keeps only the last declaration
@@ -256,24 +256,75 @@ export const transformToV2 = (source) => {
     if ( source.clickhouse )    out.clickhouse = source.clickhouse;
     if ( source.cf_file_cache ) out.cf_file_cache = source.cf_file_cache;
 
-    // Preserve per-provider + misc service blocks that v2 still reads under
-    // `services` (AI providers, oidc, wisp, peer, broadcast, worker-service,
-    // onlyoffice-app, secureCorsProxy, entri-service, cloudflare-turnstile,
-    // ipgeo, newsdata, weather, elevenlabs, replicate, sns, ai-chat, ...).
-    const consumedByTopLevel = new Set([
+    // v1 services that became top-level IConfig entries (some with renames).
+    if ( svc.oidc )              out.oidc      = svc.oidc;
+    if ( svc.wisp )              out.wisp      = svc.wisp;
+    if ( svc.peer )              out.peers     = svc.peer;
+    if ( svc.broadcast )         out.broadcast = svc.broadcast;
+    if ( svc['worker-service'] ) out.workers   = svc['worker-service'];
+    if ( svc['entri-service'] )  out.entri     = svc['entri-service'];
+    if ( svc.thumbnails )        out.thumbnailStore = svc.thumbnails;
+
+    // AI / integration providers: v1 kept each under `services.<id>` (plus a
+    // top-level `openai` shortcut in some configs). v2 unifies them under
+    // `providers[<id>]` and accepts only the canonical camelCase field names
+    // on IAIProviderConfig, so we rename the common snake_case aliases here.
+    const PROVIDER_IDS = [
+        'openai', 'claude', 'gemini', 'mistral', 'groq', 'deepseek',
+        'xai', 'openrouter', 'together-ai', 'ollama',
+        'elevenlabs', 'aws-polly', 'aws-textract', 'mistral-ocr', 'cloudflare',
+        'openai-completion', 'openai-responses',
+        'openai-image-generation', 'openai-video-generation',
+        'gemini-image-generation', 'gemini-video-generation',
+        'together-image-generation', 'together-video-generation',
+        'cloudflare-image-generation', 'xai-image-generation',
+    ];
+    const PROVIDER_RENAMES = [
+        ['api_key', 'apiKey'], ['secret_key', 'apiKey'], ['key', 'apiKey'],
+        ['api_token', 'apiToken'],
+        ['api_base_url', 'apiBaseUrl'],
+        ['account_id', 'accountId'],
+        ['default_voice_id', 'defaultVoiceId'],
+        ['speech_to_speech_model_id', 'speechToSpeechModelId'],
+    ];
+    const normalizeProvider = (raw) => {
+        if ( ! raw || typeof raw !== 'object' ) return raw;
+        const p = { ...raw };
+        for ( const [from, to] of PROVIDER_RENAMES ) {
+            if ( p[from] !== undefined && p[to] === undefined ) p[to] = p[from];
+            delete p[from];
+        }
+        return p;
+    };
+    const providers = {};
+    for ( const id of PROVIDER_IDS ) {
+        if ( svc[id] ) providers[id] = normalizeProvider(svc[id]);
+    }
+    if ( source.openai && providers.openai === undefined ) {
+        providers.openai = normalizeProvider(source.openai);
+    }
+    if ( Object.keys(providers).length ) out.providers = providers;
+
+    // Anything left in `services` that we didn't claim above is promoted to
+    // top-level (v2's IConfig has no `services` bag). Known consumers that
+    // live outside `services` in v2 are listed in `consumedServiceKeys` so
+    // we don't double-emit; known-dead v1 services are listed in
+    // `droppedServiceKeys` so their data is intentionally discarded.
+    const consumedServiceKeys = new Set([
         'database', 'dynamo', 'email', 'captcha', 'puter-homepage',
         'stripe', 'offerings', '__subs-serve',
-        // dropped entirely — unused in v2
-        'heap-monitor', 'file-cache', 'telemetry', 'monitor', 'spending',
-        'thumbnails', 'aws-textract', 'aws-polly', 'judge0', 'convert-api',
-        'cloudflare-image-generation',
+        'oidc', 'wisp', 'peer', 'broadcast', 'worker-service', 'entri-service',
+        'thumbnails',
+        ...PROVIDER_IDS,
     ]);
-    const keptServices = {};
+    const droppedServiceKeys = new Set([
+        'heap-monitor', 'file-cache', 'telemetry', 'monitor', 'spending',
+        'judge0', 'convert-api',
+    ]);
     for ( const [k, v] of Object.entries(svc) ) {
-        if ( consumedByTopLevel.has(k) ) continue;
-        keptServices[k] = v;
+        if ( consumedServiceKeys.has(k) || droppedServiceKeys.has(k) ) continue;
+        if ( out[k] === undefined ) out[k] = v;
     }
-    if ( Object.keys(keptServices).length ) out.services = keptServices;
 
     // Preserve any other top-level keys we haven't explicitly translated
     // (e.g. puter_hosted_data, custom extension configs).
@@ -305,6 +356,7 @@ export const transformToV2 = (source) => {
         'enable_ip_validation',
         'default_user_group', 'default_temp_group',
         'abuse', 'clickhouse', 'cf_file_cache', 'legacyBilling',
+        'providers', 'thumbnailStore',
     ]);
     for ( const [k, v] of Object.entries(source) ) {
         if ( handledTop.has(k) || k === '' ) continue;

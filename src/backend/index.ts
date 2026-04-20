@@ -8,9 +8,12 @@ import { puterServices } from './services';
 import { puterStores } from './stores';
 import type { IConfig } from './types';
 
-// Config resolution: prefer the user's runtime config (gitignored), fall back
-// to the bundled OSS defaults. Both live at the repo package root so a single
-// `packages/puter/config.json` override slot is always the authoritative source.
+// Config resolution order:
+//   1. `process.env.PUTER_CONFIG_PATH` — absolute path to a config file. Used
+//      by prod (ECS/Docker) where the outer bootstrap writes a merged config
+//      out of Secrets Manager + container env to a known location.
+//   2. `<PACKAGE_ROOT>/config.json` — user's runtime override (gitignored).
+//   3. `<PACKAGE_ROOT>/config.default.json` — bundled OSS defaults.
 //
 // Post-flatten depth: compiled file is at `packages/puter/dist/src/backend/index.js`,
 // so three `..`s land at `packages/puter/`.
@@ -21,9 +24,15 @@ const PACKAGE_ROOT = path.resolve(__dirname, '../../..');
 // having to know about the build layout.
 const RUNTIME_ROOT = path.resolve(__dirname, '../..');
 const loadConfig = (): IConfig => {
+    const envPath = process.env.PUTER_CONFIG_PATH;
     const runtimePath = path.join(PACKAGE_ROOT, 'config.json');
     const defaultPath = path.join(PACKAGE_ROOT, 'config.default.json');
-    const chosen = existsSync(runtimePath) ? runtimePath : defaultPath;
+    const chosen =
+        envPath && existsSync(envPath)
+            ? envPath
+            : existsSync(runtimePath)
+              ? runtimePath
+              : defaultPath;
     console.log(`[config] loading ${chosen}`);
     const config = JSON.parse(readFileSync(chosen, 'utf8')) as IConfig;
 
