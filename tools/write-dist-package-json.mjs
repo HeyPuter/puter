@@ -12,13 +12,17 @@ writeFileSync(
             './core': './src/backend/core/index.js',
             './core/http': './src/backend/core/http/index.js',
             './extensions': './src/backend/extensions.js',
-            // Legacy `@heyputer/backend/src/*` import strings — kept so
-            // pre-flatten extensions at /extensions and /extensions/v2
-            // still resolve without being rewritten.
+            // Legacy `@heyputer/backend/src/*` import strings. Two
+            // patterns so both extensionless (TS-compiled requires drop
+            // the `.js`) and extensioned (hand-written JS) subpaths map
+            // to the right compiled file. Node picks the more specific
+            // pattern when both match, so `./src/*.js` wins for `.js`
+            // suffixes and the bare `./src/*` handles everything else.
             './src/core': './src/backend/core/index.js',
             './src/core/http': './src/backend/core/http/index.js',
             './src/extensions': './src/backend/extensions.js',
-            './src/*': './src/backend/*',
+            './src/*.js': './src/backend/*.js',
+            './src/*': './src/backend/*.js',
         },
     }, null, 2)}\n`,
 );

@@ -36,13 +36,16 @@ const splitJsonDocs = (src) => {
     return docs;
 };
 
-// Strip any `$`-prefixed keys at every depth (e.g. `$preserve`).
+// Strip v1 JSON-extension conventions at every depth:
+//   • `$`-prefixed keys   → v1 directives (`$preserve`, `$requires`, `$version`)
+//   • `__`-prefixed keys  → v1 comment-out convention (disabled entries)
+//   • empty-string keys   → trailing-comma placeholder (`"": null,`)
 const stripDollarKeys = (value) => {
     if ( Array.isArray(value) ) return value.map(stripDollarKeys);
     if ( value && typeof value === 'object' ) {
         const out = {};
         for ( const [k, v] of Object.entries(value) ) {
-            if ( k.startsWith('$') ) continue;
+            if ( k === '' || k.startsWith('$') || k.startsWith('__') ) continue;
             out[k] = stripDollarKeys(v);
         }
         return out;
@@ -142,18 +145,24 @@ export const transformToV2 = (source) => {
     // v2 uses `extensions: string[]` of plain directory paths; post-cutover the
     // only dir that survives is the repo-root `./extensions`, so synthesize that
     // when only the config-bag (object) or mod_directories form is present.
+    // Some v1 configs used `extension` (singular) as the per-extension config
+    // bag alongside (or instead of) `extensions`. Accept either.
+    const extBag = (source.extensions && typeof source.extensions === 'object' && !Array.isArray(source.extensions))
+        ? source.extensions
+        : (source.extension && typeof source.extension === 'object')
+            ? source.extension
+            : null;
     if ( Array.isArray(source.extensions) ) {
         out.extensions = source.extensions;
-    } else if ( source.extensions && typeof source.extensions === 'object' ) {
-        for ( const [k, v] of Object.entries(source.extensions) ) {
+    } else if ( extBag ) {
+        for ( const [k, v] of Object.entries(extBag) ) {
             const bare = k.split('/').pop() ?? k;
             const camel = bare.replace(/-([a-z])/g, (_, ch) => ch.toUpperCase());
             if ( out[camel] === undefined ) out[camel] = v;
         }
     }
     if ( out.extensions === undefined && (
-        Array.isArray(source.mod_directories) ||
-        (source.extensions && typeof source.extensions === 'object')
+        Array.isArray(source.mod_directories) || extBag
     ) ) {
         out.extensions = ['./extensions'];
     }
@@ -266,6 +275,15 @@ export const transformToV2 = (source) => {
     if ( source.clickhouse )    out.clickhouse = source.clickhouse;
     if ( source.cf_file_cache ) out.cf_file_cache = source.cf_file_cache;
 
+    // Redis: v1 shape was `redis.config: [{host,port},…]`; v2 IRedisConfig
+    // expects `redis.startupNodes: [{host,port},…]`.
+    if ( source.redis && typeof source.redis === 'object' ) {
+        const { config: nodes, ...rest } = source.redis;
+        out.redis = { ...rest };
+        if ( Array.isArray(nodes) ) out.redis.startupNodes = nodes;
+        else if ( Array.isArray(source.redis.startupNodes) ) out.redis.startupNodes = source.redis.startupNodes;
+    }
+
     // v1 services that became top-level IConfig entries (some with renames).
     if ( svc.oidc )              out.oidc      = svc.oidc;
     if ( svc.wisp )              out.wisp      = svc.wisp;
@@ -330,6 +348,14 @@ export const transformToV2 = (source) => {
     for ( const id of PROVIDER_IDS ) {
         if ( svc[id] ) providers[id] = normalizeProvider(svc[id]);
     }
+    // v1 AWS aliases: some configs shortened `aws-polly` → `polly`,
+    // `aws-textract` → `textract`. v2 provider ids keep the prefix.
+    if ( svc.polly && providers['aws-polly'] === undefined ) {
+        providers['aws-polly'] = normalizeProvider(svc.polly);
+    }
+    if ( svc.textract && providers['aws-textract'] === undefined ) {
+        providers['aws-textract'] = normalizeProvider(svc.textract);
+    }
     if ( source.openai && providers.openai === undefined ) {
         providers.openai = normalizeProvider(source.openai);
     }
@@ -367,6 +393,7 @@ export const transformToV2 = (source) => {
         'stripe', 'offerings', '__subs-serve',
         'oidc', 'wisp', 'peer', 'broadcast', 'worker-service', 'entri-service',
         'thumbnails', 'onlyoffice-app', 'cloudflare-turnstile', 'replicate',
+        'polly', 'textract',
         ...PROVIDER_IDS,
     ]);
     const droppedServiceKeys = new Set([
@@ -386,6 +413,9 @@ export const transformToV2 = (source) => {
         // shape should move under `rate_limit.*` in IConfig when reintroduced,
         // so dropping avoids migrating a soon-to-be-renamed shape.
         'ai-chat',
+        // v1-only services with no v2 analogue.
+        'web-server',          // `disable_ip_validate_event` — flag gone
+        'puter-kvstore',       // v2 uses `dynamo` for system KV
     ]);
     for ( const [k, v] of Object.entries(svc) ) {
         if ( consumedServiceKeys.has(k) || droppedServiceKeys.has(k) ) continue;
@@ -399,6 +429,10 @@ export const transformToV2 = (source) => {
         // `puter_hosted_data.puter_versions` — set in v1 config.js but never
         // read. Planted for a version-check feature that never shipped.
         'puter_hosted_data',
+        // v1 dev-only toggles with no v2 equivalent. Dev vs prod behaviour
+        // in v2 branches off `env === 'dev'` and `config.abuse.enabled`.
+        'disable_abuse_checks',
+        'undefined_origin_allowed',
     ]);
     for ( const k of droppedTopKeys ) delete out[k];
 
@@ -433,6 +467,7 @@ export const transformToV2 = (source) => {
         'default_user_group', 'default_temp_group',
         'abuse', 'clickhouse', 'cf_file_cache', 'legacyBilling',
         'providers', 'thumbnailStore',
+        'redis', 'extension',
         ...droppedTopKeys,
     ]);
     for ( const [k, v] of Object.entries(source) ) {

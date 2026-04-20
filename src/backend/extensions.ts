@@ -87,6 +87,65 @@ const makeRouteFn = (method: RouteMethod): ExtensionRouteFn => {
 };
 
 /**
+ * `extension.use` mirrors `app.use` and supports three shapes:
+ *   use(handler)
+ *   use(options, handler)
+ *   use(path, handler)
+ *   use(path, options, handler)
+ * Pathless calls register global middleware — the server materializer
+ * drops the path when calling `app.use` (see `RouteDescriptor.path?`).
+ */
+interface ExtensionUseFn {
+    (handler: RequestHandler): void;
+    (options: RouteOptions, handler: RequestHandler): void;
+    (path: RoutePath, handler: RequestHandler): void;
+    (path: RoutePath, options: RouteOptions, handler: RequestHandler): void;
+}
+
+const isRequestHandler = (v: unknown): v is RequestHandler =>
+    typeof v === 'function';
+
+const isRoutePath = (v: unknown): v is RoutePath =>
+    typeof v === 'string' || v instanceof RegExp || Array.isArray(v);
+
+const makeUseFn = (): ExtensionUseFn => {
+    return ((
+        a: RoutePath | RouteOptions | RequestHandler,
+        b?: RouteOptions | RequestHandler,
+        c?: RequestHandler,
+    ): void => {
+        let path: RoutePath | undefined;
+        let options: RouteOptions = {};
+        let handler: RequestHandler | undefined;
+
+        if (isRoutePath(a)) {
+            path = a;
+            if (isRequestHandler(b)) {
+                handler = b;
+            } else {
+                options = (b as RouteOptions) ?? {};
+                handler = c;
+            }
+        } else if (isRequestHandler(a)) {
+            handler = a;
+        } else {
+            options = (a as RouteOptions) ?? {};
+            handler = isRequestHandler(b) ? b : undefined;
+        }
+
+        if (!handler) {
+            throw new Error('extension.use(...) missing handler');
+        }
+        extensionStore.routeHandlers.push({
+            method: 'use',
+            ...(path !== undefined ? { path } : {}),
+            options,
+            handler,
+        });
+    }) as ExtensionUseFn;
+};
+
+/**
  * Global `extension` API available inside every dynamically-loaded extension
  * module. Exposes:
  *
@@ -173,7 +232,7 @@ export const extension = {
     head: makeRouteFn('head'),
     options: makeRouteFn('options'),
     all: makeRouteFn('all'),
-    use: makeRouteFn('use'),
+    use: makeUseFn(),
 
     // ── Import proxy ─────────────────────────────────────────────────
 
