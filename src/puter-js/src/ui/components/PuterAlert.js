@@ -164,12 +164,10 @@ class PuterAlert extends PuterWebComponent {
             || this.#options?.icon
             || this.getAttribute('icon')
             || DEFAULT_ALERT_ICONS[type]
-            || '';
+            || DEFAULT_ALERT_ICONS.info;
         const buttons = this.#buttons || [{ label: 'OK', value: true, type: 'primary' }];
 
-        const iconHTML = iconSrc
-            ? `<img class="alert-icon" src="${this._escapeAttr(iconSrc)}" alt="">`
-            : '';
+        const iconHTML = `<img class="alert-icon" src="${this._escapeAttr(iconSrc)}" alt="">`;
 
         const buttonsHTML = buttons.map((btn, i) => {
             const btnType = btn.type || ( i === buttons.length - 1 ? 'primary' : 'default' );
