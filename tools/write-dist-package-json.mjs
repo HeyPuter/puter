@@ -7,17 +7,24 @@ writeFileSync(
         name: '@heyputer/backend',
         type: 'commonjs',
         exports: {
-            // New-style exports (post-flatten). Preferred for any code
-            // authored after the src/backend/src → src/backend move.
+            // Post-flatten: `src/backend/` is the backend root. The `src/`
+            // in the compiled path (`dist/src/backend/...`) is an artifact
+            // of tsc's rootDir being the package root, not a meaningful
+            // subfolder. Canonical imports drop the `/src/` prefix — e.g.
+            // `@heyputer/backend/controllers/types`. Named shortcuts for
+            // the common entry points come first (Node picks the most
+            // specific pattern match).
             './core': './src/backend/core/index.js',
             './core/http': './src/backend/core/http/index.js',
             './extensions': './src/backend/extensions.js',
-            // Legacy `@heyputer/backend/src/*` import strings. Two
-            // patterns so both extensionless (TS-compiled requires drop
-            // the `.js`) and extensioned (hand-written JS) subpaths map
-            // to the right compiled file. Node picks the more specific
-            // pattern when both match, so `./src/*.js` wins for `.js`
-            // suffixes and the bare `./src/*` handles everything else.
+            // Dual-form patterns so both extensionless (TS-compiled
+            // requires drop `.js`) and extensioned (hand-written JS)
+            // subpaths resolve.
+            './*.js': './src/backend/*.js',
+            './*': './src/backend/*.js',
+            // Back-compat for the older `@heyputer/backend/src/*` style.
+            // Safe to keep indefinitely; remove once every extension has
+            // been rewritten.
             './src/core': './src/backend/core/index.js',
             './src/core/http': './src/backend/core/http/index.js',
             './src/extensions': './src/backend/extensions.js',
