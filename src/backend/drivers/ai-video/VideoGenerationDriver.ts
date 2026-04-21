@@ -25,6 +25,14 @@ const DEFAULT_PROVIDER = 'openai-video-generation';
 export class VideoGenerationDriver extends PuterDriver {
     readonly driverInterface = 'puter-video-generation';
     readonly driverName = 'ai-video';
+    // puter-js's `txt2vid` can pass a provider id via `options.driver`, so
+    // alias all provider ids here. `generate` falls back to
+    // `Context.driverName` when `args.provider` isn't supplied.
+    readonly driverAliases = [
+        'openai-video-generation',
+        'together-video-generation',
+        'gemini-video-generation',
+    ];
     readonly isDefault = true;
 
     #providers: Record<string, IVideoProvider> = {};
@@ -70,7 +78,10 @@ export class VideoGenerationDriver extends PuterDriver {
             throw new Error('no video generation providers configured');
         }
 
-        let intendedProvider = args.provider ?? '';
+        let intendedProvider =
+            args.provider ??
+            (Context.get('driverName') as string | undefined) ??
+            '';
 
         if (!args.model && !intendedProvider) {
             intendedProvider = configuredProviders.includes(DEFAULT_PROVIDER)

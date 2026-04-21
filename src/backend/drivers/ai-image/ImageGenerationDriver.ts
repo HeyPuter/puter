@@ -24,6 +24,18 @@ import type { IGenerateParams, IImageModel, IImageProvider } from './types.js';
 export class ImageGenerationDriver extends PuterDriver {
     readonly driverInterface = 'puter-image-generation';
     readonly driverName = 'ai-image';
+    // puter-js's `txt2img` falls through `options.driver` into the
+    // driver-name slot (e.g. `xai-image-generation`), so alias all provider
+    // ids here. `generate` falls back to `Context.driverName` when
+    // `args.provider` isn't supplied.
+    readonly driverAliases = [
+        'openai-image-generation',
+        'gemini-image-generation',
+        'together-image-generation',
+        'cloudflare-image-generation',
+        'xai-image-generation',
+        'replicate-image-generation',
+    ];
     readonly isDefault = true;
 
     #providers: Record<string, IImageProvider> = {};
@@ -60,7 +72,8 @@ export class ImageGenerationDriver extends PuterDriver {
         if (!actor) throw new HttpError(401, 'Authentication required');
 
         let modelId = args.model?.trim().toLowerCase();
-        let intendedProvider = args.provider;
+        let intendedProvider =
+            args.provider ?? (Context.get('driverName') as string | undefined);
 
         // Default: first registered provider's default model if none given
         if (!modelId && !intendedProvider) {

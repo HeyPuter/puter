@@ -1,4 +1,5 @@
 import type { Request, Response } from 'express';
+import { Context } from '../../core/context.js';
 import { Controller } from '../../core/http/decorators.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { checkDriverRateLimit } from '../../core/http/middleware/rateLimit.js';
@@ -233,6 +234,15 @@ export class DriverController extends PuterController {
             throw new HttpError(429, 'Too many requests.');
         }
 
+        // Stash the requested driver name in Context so multi-provider
+        // drivers (TTS/OCR/image/video) can route to the right internal
+        // provider when invoked via an alias. `driverName` lives on the
+        // generic extras map — not a well-known key — so it doesn't
+        // pollute the typed Context surface. Always set, even when no
+        // alias was requested, so the driver sees `undefined` rather than
+        // a stale value from a prior call.
+        Context.set('driverName', requestedDriver);
+
         // Drivers read actor/context via the Context API — no drilled args.
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const result = await (fn as (...x: unknown[]) => any).call(
@@ -344,6 +354,22 @@ export class DriverController extends PuterController {
             );
         }
         ifaceMap.set(meta.driverName, instance);
+        // Register each alias pointing at the same instance. Legacy puter-js
+        // calls that pass a provider id in the `driver` slot (e.g. the TTS
+        // module sends `aws-polly` / `openai-tts` / `elevenlabs-tts` instead
+        // of the unified `ai-tts`) resolve here; the handler sets
+        // Context.driverName to the alias so the method can route to the
+        // right internal provider.
+        for (const alias of meta.aliases) {
+            if (alias === meta.driverName) continue;
+            if (ifaceMap.has(alias)) {
+                console.warn(
+                    `[driver-controller] alias collision on ${meta.interfaceName}:${alias} — keeping first registration`,
+                );
+                continue;
+            }
+            ifaceMap.set(alias, instance);
+        }
         if (meta.isDefault || !this.#defaults.has(meta.interfaceName)) {
             this.#defaults.set(meta.interfaceName, meta.driverName);
         }

@@ -35,6 +35,26 @@ export class KVStoreDriver extends PuterDriver {
         return { namespace, key };
     }
 
+    // Metering helper. Fire-and-forget — we don't want a metering hiccup
+    // to block the KV operation that already completed. `incrementUsage`
+    // is a no-op for SYSTEM_ACTOR, so internal sudoed calls naturally
+    // skip the charge.
+    #meter(
+        actor: Actor | undefined,
+        kind: 'kv:read' | 'kv:write',
+        n = 1,
+    ): void {
+        if (!actor || !n) return;
+        void this.services.metering
+            .incrementUsage(actor, kind, n)
+            .catch((e) => {
+                console.warn(
+                    `[kv] metering ${kind} failed:`,
+                    (e as Error).message,
+                );
+            });
+    }
+
     // ── Interface methods ───────────────────────────────────────────
 
     async get(args: {
@@ -54,6 +74,7 @@ export class KVStoreDriver extends PuterDriver {
                 items: this.#key(ns, k),
             }));
             const result = await this.clients.dynamo.batchGet(items);
+            this.#meter(actor, 'kv:read', key.length);
             const responses = result?.Responses?.[KV_TABLE] ?? [];
             return key.map((k) => {
                 const row = responses.find(
@@ -67,6 +88,7 @@ export class KVStoreDriver extends PuterDriver {
             KV_TABLE,
             this.#key(ns, key),
         );
+        this.#meter(actor, 'kv:read');
         return result?.Item?.value ?? null;
     }
 
@@ -87,6 +109,7 @@ export class KVStoreDriver extends PuterDriver {
         if (expireAt !== undefined) item.ttl = expireAt;
 
         await this.clients.dynamo.put(KV_TABLE, item);
+        this.#meter(actor, 'kv:write');
         return true;
     }
 
@@ -113,6 +136,7 @@ export class KVStoreDriver extends PuterDriver {
         });
 
         await this.clients.dynamo.batchPut(puts);
+        this.#meter(actor, 'kv:write', items.length);
         return true;
     }
 
@@ -127,6 +151,7 @@ export class KVStoreDriver extends PuterDriver {
         const actor = Context.get('actor');
         const ns = this.#namespace(actor, optConfig?.appUuid);
         await this.clients.dynamo.del(KV_TABLE, this.#key(ns, key));
+        this.#meter(actor, 'kv:write');
         return true;
     }
 
@@ -155,6 +180,7 @@ export class KVStoreDriver extends PuterDriver {
             opts,
         );
         const items = (result?.Items ?? []) as Array<Record<string, unknown>>;
+        this.#meter(actor, 'kv:read', Math.max(1, items.length));
 
         switch (as) {
             case 'keys':
@@ -183,6 +209,7 @@ export class KVStoreDriver extends PuterDriver {
                 key: item.key,
             });
         }
+        this.#meter(actor, 'kv:write', items.length);
         return true;
     }
 
@@ -239,6 +266,7 @@ export class KVStoreDriver extends PuterDriver {
             exprValues,
             exprNames,
         );
+        this.#meter(actor, 'kv:write');
         return result?.Attributes ?? {};
     }
 
@@ -278,6 +306,7 @@ export class KVStoreDriver extends PuterDriver {
             { ':ttl': timestamp },
             { '#ttl': 'ttl' },
         );
+        this.#meter(actor, 'kv:write');
     }
 
     async expire(args: {

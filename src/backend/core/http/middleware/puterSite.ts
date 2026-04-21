@@ -54,6 +54,7 @@ interface AppRow {
 
 interface UserRow {
     id: number;
+    uuid: string;
     username: string;
     suspended?: number | null;
 }
@@ -273,6 +274,43 @@ export const createPuterSiteMiddleware = (
         res.setHeader('Accept-Ranges', 'bytes');
         res.setHeader('Access-Control-Allow-Origin', '*');
         res.status(range ? 206 : 200);
+
+        // Best-effort egress metering against the site owner. The request
+        // itself is unauthenticated (public site visitor), so we can't use
+        // req.actor — charge the account that hosts the file. Same cost
+        // key as FS read egress (`filesystem:egress:bytes`). Fires once
+        // the body stream ends so we only meter bytes actually delivered
+        // (not aborted mid-stream).
+        const metering = layers.services.metering as unknown as
+            | {
+                  batchIncrementUsages?: (
+                      actor: unknown,
+                      entries: unknown[],
+                  ) => void;
+              }
+            | undefined;
+        if (metering?.batchIncrementUsages && download.contentLength) {
+            const ownerActor = {
+                user: {
+                    uuid: owner.uuid,
+                    id: owner.id,
+                    username: owner.username,
+                    suspended: !!owner.suspended,
+                },
+            };
+            download.body.once('end', () => {
+                try {
+                    metering.batchIncrementUsages!(ownerActor, [
+                        {
+                            usageType: 'filesystem:egress:bytes',
+                            usageAmount: download.contentLength!,
+                        },
+                    ]);
+                } catch {
+                    // ignore — non-critical.
+                }
+            });
+        }
 
         req.on('close', () => download.body.destroy());
         download.body.on('error', (err) => res.destroy(err));

@@ -20,12 +20,32 @@ import type {
  * synthesis. Each provider is an `ITTSProvider` instantiated from config
  * on boot.
  */
+// puter-js still routes TTS via legacy per-provider driver names rather
+// than passing `{ provider }` in args, so alias the unified driver under
+// the names the client expects. `#providerFromAlias` normalizes those
+// aliases to the internal provider keys used by `#providers`.
+const TTS_ALIASES = ['aws-polly', 'openai-tts', 'elevenlabs-tts'] as const;
+type TTSAlias = (typeof TTS_ALIASES)[number];
+const ALIAS_TO_PROVIDER: Record<TTSAlias, string> = {
+    'aws-polly': 'aws-polly',
+    'openai-tts': 'openai',
+    'elevenlabs-tts': 'elevenlabs',
+};
+
 export class TTSDriver extends PuterDriver {
     readonly driverInterface = 'puter-tts';
     readonly driverName = 'ai-tts';
+    readonly driverAliases = [...TTS_ALIASES];
     readonly isDefault = true;
 
     #providers: Record<string, ITTSProvider> = {};
+
+    /** Resolve a provider name from the alias the caller used, if any. */
+    #providerFromAlias(): string | undefined {
+        const alias = Context.get('driverName') as string | undefined;
+        if (!alias) return undefined;
+        return ALIAS_TO_PROVIDER[alias as TTSAlias];
+    }
 
     override onServerStart() {
         this.#registerProviders();
@@ -37,7 +57,8 @@ export class TTSDriver extends PuterDriver {
      * List all available voices across all configured providers.
      */
     async list_voices(args?: Record<string, unknown>): Promise<ITTSVoice[]> {
-        const provider = args?.provider as string | undefined;
+        const provider =
+            (args?.provider as string | undefined) ?? this.#providerFromAlias();
 
         if (provider) {
             const p = this.#providers[provider];
@@ -57,7 +78,8 @@ export class TTSDriver extends PuterDriver {
      * List all available engines/models across all configured providers.
      */
     async list_engines(args?: Record<string, unknown>): Promise<ITTSEngine[]> {
-        const provider = args?.provider as string | undefined;
+        const provider =
+            (args?.provider as string | undefined) ?? this.#providerFromAlias();
 
         if (provider) {
             const p = this.#providers[provider];
@@ -91,7 +113,10 @@ export class TTSDriver extends PuterDriver {
         const actor = Context.get('actor');
         if (!actor) throw new HttpError(401, 'Authentication required');
 
-        const providerName = args.provider || this.#getDefaultProviderName();
+        const providerName =
+            args.provider ||
+            this.#providerFromAlias() ||
+            this.#getDefaultProviderName();
         if (!providerName) {
             throw new HttpError(500, 'No TTS providers configured');
         }

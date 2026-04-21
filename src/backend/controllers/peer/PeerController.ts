@@ -82,12 +82,22 @@ export class PeerController extends PuterController {
         res.json({ ttl: ttl * 1000, iceServers: data.iceServers ?? [] });
     };
 
-    /** POST /turn/ingest-usage — internal-only TURN egress metering. */
+    /** POST /turn/ingest-usage — internal-only TURN egress metering.
+     *
+     * Accepts both `internal_auth_secret` (v2 name) and `turn_meter_secret`
+     * (v1 name carried forward by the config migration tool), so existing
+     * prod secrets keep working without a rename. Meters each record
+     * directly against the owning user via `services.metering.incrementUsage`
+     * with a per-byte costOverride — `turn:egress-bytes` doesn't live in
+     * the cost map. */
     #ingestUsage = async (req: Request, res: Response): Promise<void> => {
-        const cfg = this.#peerConfig();
-        const internalSecret = cfg.internal_auth_secret;
+        const cfg = this.#peerConfig() as typeof this.config.peers & {
+            turn_meter_secret?: string;
+        };
+        const expectedSecret =
+            cfg.internal_auth_secret ?? cfg.turn_meter_secret;
         const header = req.headers['x-puter-internal-auth'];
-        if (!internalSecret || header !== internalSecret) {
+        if (!expectedSecret || header !== expectedSecret) {
             throw new HttpError(403, 'Forbidden');
         }
 
@@ -96,13 +106,12 @@ export class PeerController extends PuterController {
             throw new HttpError(400, 'Missing `records` array');
         }
 
-        // Record TURN egress bytes as metering events
         for (const record of records) {
             if (!record || typeof record !== 'object') continue;
             const egressBytes = Number(record.egressBytes ?? 0);
             if (egressBytes <= 0) continue;
 
-            // Decode user ID from base64url
+            // base64url-encoded hex uuid, no dashes. Decode + re-dash.
             let userUuid: string | null = null;
             if (record.userId) {
                 try {
@@ -118,20 +127,35 @@ export class PeerController extends PuterController {
                         ].join('-');
                     }
                 } catch {
-                    // can't decode — skip
+                    // can't decode — skip this record
                 }
             }
+            if (!userUuid) continue;
 
-            if (userUuid) {
-                // Best-effort metering — fire and forget
-                this.clients.event.emit(
-                    'turn.egress',
-                    {
-                        user_uuid: userUuid,
-                        egress_bytes: egressBytes,
-                        timestamp: record.timestamp,
+            try {
+                const user = await this.stores.user.getByUuid(userUuid);
+                if (!user) continue;
+                // $0.005 per byte microcents matches the v1 rate (≈$5/GB).
+                // Not in COST_MAPS, so pass as costOverride; incrementUsage
+                // accepts it as the full cost for `usageAmount` bytes.
+                const costInMicrocents = egressBytes * 0.005;
+                const actor = {
+                    user: {
+                        uuid: user.uuid,
+                        id: user.id,
+                        username: user.username,
                     },
-                    {},
+                };
+                await this.services.metering.incrementUsage(
+                    actor,
+                    'turn:egress-bytes',
+                    egressBytes,
+                    costInMicrocents,
+                );
+            } catch (e) {
+                console.error(
+                    '[peer] TURN metering failed:',
+                    (e as Error).message,
                 );
             }
         }

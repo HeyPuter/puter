@@ -35,6 +35,7 @@ export function isDriverStreamResult(v: unknown): v is DriverStreamResult {
 export const DRIVER_INTERFACE_KEY = '__driverInterface' as const;
 export const DRIVER_NAME_KEY = '__driverName' as const;
 export const DRIVER_DEFAULT_KEY = '__driverDefault' as const;
+export const DRIVER_ALIASES_KEY = '__driverAliases' as const;
 
 /**
  * Resolved metadata for a registered driver. Read from either decorator
@@ -47,6 +48,15 @@ export interface DriverMeta {
     driverName: string;
     /** When true, this driver is the default for its interface. */
     isDefault: boolean;
+    /**
+     * Additional driver names that resolve to the same instance. Used by
+     * multi-provider drivers (TTS/OCR/image/video) so legacy puter-js calls
+     * that pass a provider id in the `driver` slot (e.g. `aws-polly`,
+     * `openai-tts`) still find the unified driver. The requested alias is
+     * exposed to the driver method via `Context.get('driverName')` so the
+     * method can route to the right internal provider.
+     */
+    aliases: string[];
 }
 
 /**
@@ -69,8 +79,12 @@ export function resolveDriverMeta(
         (proto[DRIVER_DEFAULT_KEY] as boolean | undefined) ??
         (driver.isDefault as boolean | undefined) ??
         false;
+    const aliases =
+        (proto[DRIVER_ALIASES_KEY] as string[] | undefined) ??
+        (driver.driverAliases as string[] | undefined) ??
+        [];
 
     if (!interfaceName || !driverName) return null;
 
-    return { interfaceName, driverName, isDefault };
+    return { interfaceName, driverName, isDefault, aliases };
 }

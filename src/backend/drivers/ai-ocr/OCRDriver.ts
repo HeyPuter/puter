@@ -59,6 +59,11 @@ interface MistralOcrClient {
 export class OCRDriver extends PuterDriver {
     readonly driverInterface = 'puter-ocr';
     readonly driverName = 'ai-ocr';
+    // puter-js's `img2txt` routes by passing the provider id in the `driver`
+    // slot. Alias them so the unified driver resolves; `recognize` falls
+    // back to the alias via Context.driverName when `args.provider` isn't
+    // set.
+    readonly driverAliases = ['aws-textract', 'mistral'];
     readonly isDefault = true;
 
     // Textract state — one client per region.
@@ -110,7 +115,10 @@ export class OCRDriver extends PuterDriver {
     async recognize(args: RecognizeArgs) {
         if (args.test_mode) return sampleResponse();
 
-        const provider = args.provider ?? this.#defaultProvider();
+        const provider =
+            args.provider ??
+            (Context.get('driverName') as string | undefined) ??
+            this.#defaultProvider();
         if (!provider) throw new HttpError(500, 'No OCR provider configured');
 
         const actor = Context.get('actor');
