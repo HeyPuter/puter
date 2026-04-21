@@ -4,12 +4,14 @@ import type { FSEntryStore } from '../../stores/fs/FSEntryStore.js';
 import type { FSEntryService } from '../../services/fs/FSEntryService.js';
 import type { ACLService, AclMode } from '../../services/acl/ACLService.js';
 import type { Actor } from '../../core/actor.js';
+import { Context } from '../../core/context.js';
 import type { EventClient } from '../../clients/EventClient.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import {
     resolveNode,
     normalizeAbsolutePath,
     joinChildPath,
+    expandTildePath,
 } from '../../services/fs/resolveNode.js';
 import {
     signFile,
@@ -67,17 +69,27 @@ export function getBoolean(
 // Accepts either `{ path }` or `{ uid }` or `{ id }` or `{ parent, name }`
 // from a legacy body field. Returns a resolved entry (throwing 404 if not
 // found or 400 if no usable ref is present).
+//
+// `~` / `~/...` paths are expanded to `/<username>/...` using the actor's
+// username, read from the ALS-backed Context. Legacy clients send tilde-
+// rooted paths (e.g. `~/AppData/<app-uid>/...`); FSController does the same
+// expansion via its own `#normalizePath` helper.
 export async function resolveV1Selector(
     fsEntryStore: FSEntryStore,
     raw: unknown,
     userId: number,
 ): Promise<FSEntry> {
+    const username = Context.get('actor')?.user?.username;
+
     // String shorthand — either an absolute path (`/a/b/c`) or a UUID.
     // The legacy API accepts both interchangeably; dispatch on the leading
     // character rather than guessing by regex. Anything that doesn't start
-    // with `/` is treated as a uid.
+    // with `/` is treated as a uid. Tilde-rooted paths are path-shaped.
     if (typeof raw === 'string') {
-        const ref = raw.startsWith('/') ? { path: raw } : { uid: raw };
+        const isPath = raw.startsWith('/') || raw.startsWith('~');
+        const ref = isPath
+            ? { path: expandTildePath(raw, username) }
+            : { uid: raw };
         const entry = await resolveNode(fsEntryStore, ref, {
             userId,
             required: true,
@@ -105,8 +117,12 @@ export async function resolveV1Selector(
         return child;
     }
 
+    const rawPath = typeof record.path === 'string' ? record.path : undefined;
     const ref = {
-        path: typeof record.path === 'string' ? record.path : undefined,
+        path:
+            rawPath !== undefined
+                ? expandTildePath(rawPath, username)
+                : undefined,
         uid:
             typeof record.uid === 'string'
                 ? record.uid
