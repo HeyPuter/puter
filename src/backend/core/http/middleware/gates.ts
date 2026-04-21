@@ -8,7 +8,7 @@ import '../expressAugmentation';
  * Per-route gate middlewares.
  *
  * These are tiny because they need to be: composability is the point. The
- * server's route materializer (`v2/server.ts#materializeRoute`) consults the
+ * server's route materializer (`server.ts#materializeRoute`) consults the
  * per-route `RouteOptions` and pushes the relevant gate(s) onto the express
  * middleware chain in this order:
  *
@@ -144,7 +144,8 @@ export const adminOnlyGate = (
  * `strict_email_verification_required` config so self-hosted deployments
  * without email delivery don't brick their own filesystem routes.
  *
- * Implies `requireUserActor` at the materializer level.
+ * Reads `req.actor?.user?.email_confirmed`, which is present on both
+ * user-only and app-under-user actors, so it works for either shape.
  */
 export const requireVerifiedGate = (strictFlag: boolean): RequestHandler => {
     return (req, _res, next) => {

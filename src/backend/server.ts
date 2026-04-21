@@ -695,9 +695,12 @@ export class PuterServer {
         );
         if (needsAuth) mwChain.push(requireAuthGate());
 
-        const needsUserActor = Boolean(
-            opts.requireUserActor || opts.adminOnly || opts.requireVerified,
-        );
+        // `requireVerified` intentionally does NOT imply `requireUserActor`:
+        // FS routes (and similar) want the user's email to be confirmed even
+        // when an app acts on the user's behalf. `requireVerifiedGate` reads
+        // `req.actor?.user?.email_confirmed`, which app-under-user actors
+        // carry, so it works for either actor shape.
+        const needsUserActor = Boolean(opts.requireUserActor || opts.adminOnly);
         if (needsUserActor) mwChain.push(requireUserActorGate());
 
         if (opts.adminOnly) {

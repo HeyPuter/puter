@@ -81,7 +81,10 @@ export interface RouteOptions {
      * Reject unless the actor's user has a confirmed email. 400 with
      * `account_is_not_verified` on failure. No-op when
      * `config.strict_email_verification_required` is falsy, so self-hosted
-     * deployments can opt in via config. Implies `requireUserActor`.
+     * deployments can opt in via config. Implies `requireAuth` but NOT
+     * `requireUserActor` — app-under-user actors also carry a `.user`, so
+     * verification applies uniformly whether the user acts directly or
+     * through an app.
      */
     requireVerified?: boolean;
 

@@ -186,11 +186,15 @@ export class KVStoreDriver extends PuterDriver {
         return true;
     }
 
-    async incr(args: {
-        key: string;
-        pathAndAmountMap: Record<string, number>;
-        optConfig?: { appUuid?: string };
-    }): Promise<unknown> {
+    // Shared implementation for incr/decr. `sign` is +1 for incr, -1 for decr.
+    async #applyDelta(
+        args: {
+            key: string;
+            pathAndAmountMap: Record<string, number>;
+            optConfig?: { appUuid?: string };
+        },
+        sign: 1 | -1,
+    ): Promise<unknown> {
         const { key, pathAndAmountMap, optConfig } = args;
         if (!key || typeof key !== 'string')
             throw new HttpError(400, 'Missing or invalid `key`');
@@ -201,7 +205,12 @@ export class KVStoreDriver extends PuterDriver {
         const actor = Context.get('actor');
         const ns = this.#namespace(actor, optConfig?.appUuid);
 
-        // Build DynamoDB SET expression for atomic add
+        // puter-js sends `pathAndAmountMap: { '': N }` for bare
+        // `kv.incr(key, N)`. An empty path means "the top-level numeric";
+        // our record shape stores it on the `value` attribute, matching
+        // what `set()` writes and `get()` reads. Non-empty paths point at
+        // named fields on the stored value (simple, non-dotted — nested
+        // path support can land later if a consumer needs it).
         const setParts: string[] = [];
         const exprValues: Record<string, unknown> = {};
         const exprNames: Record<string, string> = {};
@@ -217,8 +226,8 @@ export class KVStoreDriver extends PuterDriver {
             setParts.push(
                 `${nameKey} = if_not_exists(${nameKey}, :zero) + ${valKey}`,
             );
-            exprValues[valKey] = amount;
-            exprNames[nameKey] = path;
+            exprValues[valKey] = amount * sign;
+            exprNames[nameKey] = path === '' ? 'value' : path;
             i++;
         }
         exprValues[':zero'] = 0;
@@ -231,6 +240,22 @@ export class KVStoreDriver extends PuterDriver {
             exprNames,
         );
         return result?.Attributes ?? {};
+    }
+
+    async incr(args: {
+        key: string;
+        pathAndAmountMap: Record<string, number>;
+        optConfig?: { appUuid?: string };
+    }): Promise<unknown> {
+        return this.#applyDelta(args, 1);
+    }
+
+    async decr(args: {
+        key: string;
+        pathAndAmountMap: Record<string, number>;
+        optConfig?: { appUuid?: string };
+    }): Promise<unknown> {
+        return this.#applyDelta(args, -1);
     }
 
     async expireAt(args: {
