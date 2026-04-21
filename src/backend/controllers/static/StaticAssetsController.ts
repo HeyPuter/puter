@@ -72,6 +72,17 @@ export class StaticAssetsController extends PuterController {
                 router.get('/puter.js/v2', { subdomain: '*' }, (_req, res) => {
                     res.sendFile(puterJsFile, { root: puterjsRoot });
                 });
+                // GUI bundle hard-codes `https://js.puter.com/v{1,2}` as the
+                // script source in prod mode. Setups that route `js.puter.com`
+                // to a self-hosted instance (DNS flip, host rewrite) need the
+                // bare `/v1` and `/v2` paths on the `js` subdomain too — not
+                // just the `/puter.js/*` prefix. Serve the same file.
+                router.get('/v1', { subdomain: 'js' }, (_req, res) => {
+                    res.sendFile(puterJsFile, { root: puterjsRoot });
+                });
+                router.get('/v2', { subdomain: 'js' }, (_req, res) => {
+                    res.sendFile(puterJsFile, { root: puterjsRoot });
+                });
             }
         }
 
