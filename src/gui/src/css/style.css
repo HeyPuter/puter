@@ -1427,6 +1427,11 @@ span.header-sort-icon img {
     height: calc(100% );
 }
 
+.fullpage-mode.device-desktop .window-with-menubar .window-body-app,
+.fullpage-mode.device-phone .window-with-menubar .window-body-app {
+    height: calc(100% - 35px);
+}
+
 .window-filedialog-prompt {
     height: 60px;
     border-top: 1px solid #dbdee3;
