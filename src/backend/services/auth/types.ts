@@ -1,4 +1,4 @@
-// Express `Request` augmentations live in `v2/core/http/expressAugmentation.ts`
+// Express `Request` augmentations live in `core/http/expressAugmentation.ts`
 // — auth-related fields (`actor`, `token`) are declared there alongside the
 // other request-level fields populated by global middleware.
 

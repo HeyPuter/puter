@@ -21,7 +21,7 @@ export type IPuterController<
 
 /**
  * Base class for v2 controllers. `registerRoutes(router)` receives a
- * `PuterRouter` (not an express app) — see `v2/core/http/PuterRouter.ts`.
+ * `PuterRouter` (not an express app) — see `core/http/PuterRouter.ts`.
  * Controllers either override `registerRoutes` imperatively or lean on the
  * `@Controller` / `@Post` / etc. decorators, which install a default
  * `registerRoutes` walker on the prototype.

@@ -60,7 +60,10 @@ export class AppController extends PuterController {
             },
         );
 
-        // POST /rao — record a recent app open
+        // POST /rao — record a recent app open. When an app-under-user
+        // actor calls this, the app id is already on the token — clients
+        // don't re-send it in the body. Fall back to `actor.app.uid`
+        // before 400-ing for a missing body field.
         router.post(
             '/rao',
             {
@@ -68,7 +71,12 @@ export class AppController extends PuterController {
                 requireAuth: true,
             },
             async (req, res) => {
-                const { app_uid } = req.body ?? {};
+                const bodyAppUid = req.body?.app_uid;
+                const actorAppUid = req.actor?.app?.uid;
+                const app_uid =
+                    typeof bodyAppUid === 'string' && bodyAppUid.length > 0
+                        ? bodyAppUid
+                        : actorAppUid;
                 if (!app_uid || typeof app_uid !== 'string') {
                     throw new HttpError(400, 'Missing or invalid `app_uid`');
                 }
