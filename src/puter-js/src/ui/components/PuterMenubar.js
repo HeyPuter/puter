@@ -45,7 +45,7 @@ class PuterMenubar extends PuterWebComponent {
                 background-color: #fafafa;
                 padding: 2px 5px;
                 align-items: center;
-                height: 32px;
+                height: 36px;
             }
             .menu-button {
                 background: none;
