@@ -12,6 +12,7 @@ import { puterControllers } from './controllers';
 import { createAuthProbe } from './core/http/middleware/authProbe';
 import { createRequestContextMiddleware } from './core/http/middleware/requestContext';
 import { createErrorHandler } from './core/http/middleware/errorHandler';
+import { isHttpError } from './core/http/HttpError';
 import {
     adminOnlyGate,
     allowedAppIdsGate,
@@ -612,7 +613,42 @@ export class PuterServer {
      */
     #installTerminalMiddleware() {
         this.#app.use(createNotFoundHandler());
-        this.#app.use(createErrorHandler());
+        this.#app.use(
+            createErrorHandler({
+                onError: (err, req) => {
+                    // Page on 5xx only — skip 4xx HttpErrors, which are
+                    // expected client-caused failures. Non-HttpError values
+                    // are treated as unexpected 500s. De-dupe alarms by
+                    // route + error signature so a hot loop of the same
+                    // crash lands as a single alarm with N occurrences
+                    // instead of N pages.
+                    const isHttp = isHttpError(err);
+                    const status = isHttp ? err.statusCode : 500;
+                    if (status < 500) return;
+                    const signature = isHttp
+                        ? err.legacyCode || err.code || err.message
+                        : err instanceof Error
+                          ? err.message
+                          : String(err);
+                    const routePath =
+                        (req as unknown as { route?: { path?: string } }).route
+                            ?.path ?? req.path;
+                    const alarmId = `http_${status}:${req.method}:${routePath}:${signature}`;
+                    this.clients.alarm.create(
+                        alarmId,
+                        `HTTP ${status} on ${req.method} ${req.originalUrl}: ${signature}`,
+                        {
+                            error: err instanceof Error ? err : undefined,
+                            status,
+                            method: req.method,
+                            path: req.originalUrl,
+                            route: routePath,
+                            actor: req.actor?.user?.uuid,
+                        },
+                    );
+                },
+            }),
+        );
     }
 
     /**
