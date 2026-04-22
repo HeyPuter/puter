@@ -1,4 +1,5 @@
 import bcrypt from 'bcrypt';
+import crypto from 'node:crypto';
 import { v4 as uuidv4 } from 'uuid';
 import validator from 'validator';
 import { HttpError } from '../../core/http/HttpError.js';
@@ -144,6 +145,7 @@ export class AuthController extends PuterController {
                         'otp',
                         {
                             user_uid: user.uuid,
+                            purpose: 'otp-login',
                         },
                         { expiresIn: '5m' },
                     );
@@ -183,11 +185,15 @@ export class AuthController extends PuterController {
                 } catch {
                     throw new HttpError(400, 'Invalid token.');
                 }
-                if (!decoded.user_uid)
+                if (!decoded.user_uid || decoded.purpose !== 'otp-login') {
                     throw new HttpError(400, 'Invalid token.');
+                }
 
                 const user = await this.userStore.getByUuid(decoded.user_uid);
                 if (!user) throw new HttpError(400, 'User not found.');
+                if (user.suspended) {
+                    throw new HttpError(401, 'This account is suspended.');
+                }
 
                 if (!verifyOtp(user.username, user.otp_secret, code)) {
                     return res.json({ proceed: false });
@@ -221,11 +227,15 @@ export class AuthController extends PuterController {
                 } catch {
                     throw new HttpError(400, 'Invalid token.');
                 }
-                if (!decoded.user_uid)
+                if (!decoded.user_uid || decoded.purpose !== 'otp-login') {
                     throw new HttpError(400, 'Invalid token.');
+                }
 
                 const user = await this.userStore.getByUuid(decoded.user_uid);
                 if (!user) throw new HttpError(400, 'User not found.');
+                if (user.suspended) {
+                    throw new HttpError(401, 'This account is suspended.');
+                }
 
                 const hashed = hashRecoveryCode(code);
                 const codes = (user.otp_recovery_codes || '')
@@ -422,7 +432,7 @@ export class AuthController extends PuterController {
                 // Prepare shared fields
                 const user_uuid = uuidv4();
                 const email_confirm_code = String(
-                    Math.floor(100000 + Math.random() * 900000),
+                    crypto.randomInt(100000, 1000000),
                 );
                 const email_confirm_token = uuidv4();
                 const password_hash = is_temp
@@ -550,7 +560,7 @@ export class AuthController extends PuterController {
                                 },
                             );
                         } else {
-                            const link = `${this.config.origin ?? ''}/confirm-email?token=${email_confirm_token}&user_uuid=${user.uuid}`;
+                            const link = `${this.config.origin ?? ''}/confirm-email-by-token?token=${email_confirm_token}&user_uuid=${user.uuid}`;
                             await this.clients.email.send(
                                 user.email,
                                 'email_verification_link',
@@ -614,17 +624,20 @@ export class AuthController extends PuterController {
                         .catch(() => {});
                 }
 
-                // Delete temp users (no password + no email)
+                // Delete temp users (no password + no email). Full cascade —
+                // same path as /user-protected/delete-own-user — so we don't
+                // orphan fsentries/sessions/permissions.
                 if (req.actor?.user && !req.actor.user.email) {
                     const user = await this.userStore.getByUuid(
                         req.actor.user.uuid,
                     );
                     if (user && user.password === null && user.email === null) {
-                        this.clients.db
-                            .write('DELETE FROM `user` WHERE `id` = ?', [
-                                user.id,
-                            ])
-                            .catch(() => {});
+                        this.#cascadeDeleteUser(user.id).catch((e) => {
+                            console.warn(
+                                '[logout] temp-user cleanup failed:',
+                                e,
+                            );
+                        });
                     }
                 }
 
@@ -655,9 +668,7 @@ export class AuthController extends PuterController {
                     throw new HttpError(403, 'Account suspended.');
                 if (!user.email) throw new HttpError(400, 'No email on file.');
 
-                const code = String(
-                    Math.floor(100000 + Math.random() * 900000),
-                );
+                const code = String(crypto.randomInt(100000, 1000000));
                 await this.userStore.update(user.id, {
                     email_confirm_code: code,
                 });
@@ -713,6 +724,8 @@ export class AuthController extends PuterController {
                 await this.userStore.update(user.id, {
                     email_confirmed: 1,
                     requires_email_confirmation: 0,
+                    email_confirm_code: null,
+                    email_confirm_token: null,
                 });
 
                 await promoteToVerifiedGroup(
@@ -757,6 +770,9 @@ export class AuthController extends PuterController {
                     throw new HttpError(400, 'username or email is required.');
                 }
 
+                const genericMessage =
+                    'If that account exists, a password recovery email was sent.';
+
                 let user;
                 if (username) {
                     user = await this.userStore.getByUsername(username);
@@ -766,12 +782,8 @@ export class AuthController extends PuterController {
                     user = await this.userStore.getByEmail(email);
                 }
 
-                // Don't leak whether the user exists — always return a generic success
                 if (!user || user.suspended || !user.email) {
-                    return res.json({
-                        message:
-                            'If that account exists, a password recovery email was sent.',
-                    });
+                    return res.json({ message: genericMessage });
                 }
 
                 const pass_recovery_token = uuidv4();
@@ -783,6 +795,7 @@ export class AuthController extends PuterController {
                         token: pass_recovery_token,
                         user_uid: user.uuid,
                         email: user.email,
+                        purpose: 'pass-recovery',
                     },
                     { expiresIn: '1h' },
                 );
@@ -805,9 +818,7 @@ export class AuthController extends PuterController {
                     }
                 }
 
-                res.json({
-                    message: `Password recovery sent to ${email ?? user.email}.`,
-                });
+                res.json({ message: genericMessage });
             },
         );
 
@@ -831,10 +842,16 @@ export class AuthController extends PuterController {
                 } catch {
                     throw new HttpError(400, 'Invalid or expired token.');
                 }
+                if (decoded.purpose !== 'pass-recovery') {
+                    throw new HttpError(400, 'Invalid or expired token.');
+                }
 
                 const user = await this.userStore.getByUuid(decoded.user_uid);
                 if (!user || user.email !== decoded.email) {
                     throw new HttpError(400, 'Token is no longer valid.');
+                }
+                if (user.suspended) {
+                    throw new HttpError(401, 'This account is suspended.');
                 }
 
                 const exp = decoded.exp;
@@ -874,10 +891,16 @@ export class AuthController extends PuterController {
                 } catch {
                     throw new HttpError(400, 'Invalid or expired token.');
                 }
+                if (decoded.purpose !== 'pass-recovery') {
+                    throw new HttpError(400, 'Invalid or expired token.');
+                }
 
                 const user = await this.userStore.getByUuid(decoded.user_uid);
                 if (!user || user.email !== decoded.email) {
                     throw new HttpError(400, 'Token is no longer valid.');
+                }
+                if (user.suspended) {
+                    throw new HttpError(401, 'This account is suspended.');
                 }
 
                 // Atomic check: only update if the recovery token still matches
@@ -1073,9 +1096,19 @@ export class AuthController extends PuterController {
                     change_email_confirm_token: confirm_token,
                 });
 
+                const linkJwt = this.tokenService.sign(
+                    'otp',
+                    {
+                        token: confirm_token,
+                        user_id: req.actor.user.id,
+                        purpose: 'change-email',
+                    },
+                    { expiresIn: '1h' },
+                );
+
                 if (this.clients.email) {
                     const origin = this.config.origin ?? '';
-                    const link = `${origin}/change_email/confirm?token=${encodeURIComponent(confirm_token)}`;
+                    const link = `${origin}/change_email/confirm?token=${encodeURIComponent(linkJwt)}`;
                     try {
                         await this.clients.email.send(
                             new_email,
@@ -1125,14 +1158,24 @@ export class AuthController extends PuterController {
                 },
             },
             async (req, res) => {
-                const token = req.query?.token;
-                if (!token || typeof token !== 'string') {
+                const jwtToken = req.query?.token;
+                if (!jwtToken || typeof jwtToken !== 'string') {
                     throw new HttpError(400, 'Missing `token`');
+                }
+
+                let decoded;
+                try {
+                    decoded = this.tokenService.verify('otp', jwtToken);
+                } catch {
+                    throw new HttpError(400, 'Invalid or expired token.');
+                }
+                if (decoded.purpose !== 'change-email' || !decoded.token) {
+                    throw new HttpError(400, 'Invalid or expired token.');
                 }
 
                 const rows = await this.clients.db.read(
                     'SELECT * FROM `user` WHERE `change_email_confirm_token` = ? LIMIT 1',
-                    [token],
+                    [decoded.token],
                 );
                 const user = rows[0];
                 if (!user || !user.unconfirmed_change_email) {
@@ -1273,7 +1316,7 @@ export class AuthController extends PuterController {
                 // Promote: set username/email/password on the existing row
                 const password_hash = await bcrypt.hash(password, 8);
                 const email_confirm_code = String(
-                    Math.floor(100000 + Math.random() * 900000),
+                    crypto.randomInt(100000, 1000000),
                 );
                 const email_confirm_token = uuidv4();
 
@@ -2241,32 +2284,30 @@ export class AuthController extends PuterController {
                 const userId = req.actor.user.id;
                 res.clearCookie(this.config.cookie_name);
                 res.clearCookie('puter_revalidation');
-
-                try {
-                    await this.services.fsEntry.removeAllForUser(userId);
-                } catch (e) {
-                    console.warn('[delete-own-user] fs cleanup failed:', e);
-                    // Proceed with user-row delete anyway — fsentries are then
-                    // orphaned (user_id FK resolves to nothing) but the account
-                    // is gone. Better than leaving the user around.
-                }
-
-                // Drop sessions explicitly — FK is SET NULL, which would leave
-                // authenticable rows with user_id=null.
-                await this.clients.db.write(
-                    'DELETE FROM `sessions` WHERE `user_id` = ?',
-                    [userId],
-                );
-
-                await this.clients.db.write(
-                    'DELETE FROM `user` WHERE `id` = ?',
-                    [userId],
-                );
-                await this.userStore.invalidateById(userId);
-
+                await this.#cascadeDeleteUser(userId);
                 res.json({ success: true });
             },
         );
+    }
+
+    async #cascadeDeleteUser(userId) {
+        try {
+            await this.services.fsEntry.removeAllForUser(userId);
+        } catch (e) {
+            // Proceed with user-row delete anyway — orphaned fsentries are
+            // better than a resurrected account.
+            console.warn('[cascade-delete-user] fs cleanup failed:', e);
+        }
+
+        // Sessions FK is SET NULL, so delete explicitly to avoid dangling rows.
+        await this.clients.db.write(
+            'DELETE FROM `sessions` WHERE `user_id` = ?',
+            [userId],
+        );
+        await this.clients.db.write('DELETE FROM `user` WHERE `id` = ?', [
+            userId,
+        ]);
+        await this.userStore.invalidateById(userId);
     }
 
     // ── Helpers ──────────────────────────────────────────────────────

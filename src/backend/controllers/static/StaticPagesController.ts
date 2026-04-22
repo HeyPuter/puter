@@ -158,6 +158,8 @@ export class StaticPagesController extends PuterController {
             await this.stores.user.update(user.id, {
                 email_confirmed: 1,
                 requires_email_confirmation: 0,
+                email_confirm_code: null,
+                email_confirm_token: null,
             });
 
             await promoteToVerifiedGroup(this.stores.group, this.config, user);

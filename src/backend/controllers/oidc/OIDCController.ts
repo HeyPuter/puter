@@ -50,6 +50,20 @@ function appendQueryParam(url: string, key: string, value: string): string {
 }
 
 /**
+ * True iff `target` parses as a URL whose origin equals `origin`. Used to
+ * clamp OIDC redirect targets — `startsWith` would accept
+ * `https://puter.com.evil.com` against `https://puter.com`.
+ */
+function isSameOrigin(target: string, origin: string): boolean {
+    if (!origin) return true;
+    try {
+        return new URL(target).origin === new URL(origin).origin;
+    } catch {
+        return false;
+    }
+}
+
+/**
  * OIDC controller — provider listing, auth start, callbacks for
  * login/signup/revalidate, and revalidate-done landing page.
  */
@@ -337,9 +351,12 @@ export class OIDCController extends PuterController {
                 });
 
                 const origin = (this.config.origin ?? '').replace(/\/$/, '');
-                const target =
+                const requested =
                     (stateDecoded.redirect_uri as string) ||
                     `${origin}/auth/revalidate-done`;
+                const target = isSameOrigin(requested, origin)
+                    ? requested
+                    : `${origin}/auth/revalidate-done`;
                 res.redirect(302, target);
             },
         );
@@ -507,10 +524,8 @@ if (window.opener) {
 
         const origin = (this.config.origin ?? '').replace(/\/$/, '');
         let target = (stateDecoded.redirect_uri as string) || origin || '/';
-
-        // Security: don't redirect off-origin
-        if (origin && !target.startsWith(origin)) {
-            target = origin;
+        if (!isSameOrigin(target, origin)) {
+            target = origin || '/';
         }
 
         if (extraQueryParams) {
