@@ -30,8 +30,6 @@ import {
  *   - Range / ETag / Last-Modified passthrough via `fsEntry.readContent`
  *
  * Deferred (not yet implemented):
- *   - Protected sites with `puter.site.token` (needs a `SiteActorType` that
- *     doesn't exist yet). Any site with `protected=1` serves public for now.
  *   - `.at` username-based sites (UUIDv5-keyed `/user/Public`).
  *   - `.puter_site_config` error rules (custom status-code → file mapping).
  *   - Custom domains (subdomains table `domain` column) — requires host

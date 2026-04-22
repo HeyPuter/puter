@@ -24,7 +24,6 @@ import { HttpError } from '../../../../core/http/HttpError.js';
 import { Context } from '../../../../core/context.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import { kv } from '../../../../util/kvSingleton.js';
-// TODO: OpenAIUtil needs to be ported to v2
 import * as OpenAIUtil from '../../utils/OpenAIUtil.js';
 import type {
     IChatModel,

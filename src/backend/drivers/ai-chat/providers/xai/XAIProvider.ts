@@ -21,7 +21,6 @@ import { OpenAI } from 'openai';
 import { ChatCompletionCreateParams } from 'openai/resources/index.js';
 import { Context } from '../../../../core/context.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
-// TODO: OpenAIUtil needs to be ported to v2
 import * as OpenAIUtil from '../../utils/OpenAIUtil.js';
 import type {
     IChatProvider,

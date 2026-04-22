@@ -65,15 +65,15 @@ const buildCluster = (config: IConfig): Cluster => {
             dnsLookup: (address, callback) => callback(null, address),
             clusterRetryStrategy: (attempts) =>
                 Math.min(100 + attempts * 100, redisStartupRetryMaxDelayMs),
-            retryDelayOnFailover: 500,
-            retryDelayOnClusterDown: 1000,
-            retryDelayOnTryAgain: 300,
+            retryDelayOnFailover: 50,
+            retryDelayOnClusterDown: 50,
+            retryDelayOnTryAgain: 50,
             slotsRefreshTimeout: redisSlotsRefreshTimeoutMs,
             enableOfflineQueue: true,
             redisOptions: {
                 tls: {},
                 connectTimeout: redisConnectTimeoutMs,
-                maxRetriesPerRequest: null,
+                maxRetriesPerRequest: 2,
             },
         },
     );

@@ -4,6 +4,7 @@ import { posix as pathPosix } from 'node:path';
 import type { Actor } from '../../core/actor.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import type { PuterRouter } from '../../core/http/PuterRouter.js';
+import { verify as verifyOtp } from '../../services/auth/OTPUtil.js';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
 import { PuterController } from '../types.js';
 import {
@@ -163,12 +164,27 @@ export class WebDAVController extends PuterController {
             return null;
         }
 
-        // Try full password first, then password minus trailing 6-digit OTP
-        let passwordOk = await bcryptCompare(password, user.password);
-        if (!passwordOk && password.length > 6) {
+        // If 2FA is enabled the password MUST be suffixed with the 6-digit
+        // TOTP code — HTTP Basic has no channel for a second factor.
+        const otpEnabled = Boolean(user.otp_enabled);
+        let passwordOk = false;
+        if (otpEnabled) {
+            if (password.length <= 6) {
+                res.status(401)
+                    .set('WWW-Authenticate', 'Basic realm="WebDAV"')
+                    .send('Invalid credentials');
+                return null;
+            }
             const basePassword = password.slice(0, -6);
-            passwordOk = await bcryptCompare(basePassword, user.password);
-            // TODO: verify OTP digits via OTPService once ported
+            const otpCode = password.slice(-6);
+            const baseOk = await bcryptCompare(basePassword, user.password);
+            const otpOk =
+                baseOk &&
+                typeof user.otp_secret === 'string' &&
+                verifyOtp(user.username, user.otp_secret, otpCode);
+            passwordOk = Boolean(otpOk);
+        } else {
+            passwordOk = await bcryptCompare(password, user.password);
         }
 
         if (!passwordOk) {
