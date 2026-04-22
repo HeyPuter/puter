@@ -37,13 +37,13 @@ Additional settings for the generation request. Available options depend on the 
 
 #### OpenAI Options
 
-Available when `provider: 'openai-image-generation'` or inferred from model (`gpt-image-1.5`, `gpt-image-1`, `gpt-image-1-mini`, `dall-e-3`):
+Available when `provider: 'openai-image-generation'` or inferred from model (`gpt-image-2`, `gpt-image-1.5`, `gpt-image-1`, `gpt-image-1-mini`, `dall-e-3`):
 
 | Option | Type | Description |
 |--------|------|-------------|
-| `model` | `String` | Image model to use. Available: `'gpt-image-1.5'`, `'gpt-image-1'`, `'gpt-image-1-mini'`, `'dall-e-3'` |
-| `quality` | `String` | Image quality. For GPT models: `'high'`, `'medium'`, `'low'` (default: `'low'`). For DALL-E 3: `'hd'`, `'standard'` (default: `'standard'`) |
-| `ratio` | `Object` | Aspect ratio with `w` and `h` properties |
+| `model` | `String` | Image model to use. Available: `'gpt-image-2'`, `'gpt-image-1.5'`, `'gpt-image-1'`, `'gpt-image-1-mini'`, `'dall-e-3'` |
+| `quality` | `String` | Image quality. For GPT models: `'high'`, `'medium'`, `'low'` (default: `'low'`); `gpt-image-2` also accepts `'auto'`. For DALL-E 3: `'hd'`, `'standard'` (default: `'standard'`) |
+| `ratio` | `Object` | Aspect ratio with `w` and `h` properties. `gpt-image-2` accepts arbitrary sizes; other GPT models and DALL-E are restricted to fixed sizes |
 
 For more details, see the [OpenAI API reference](https://platform.openai.com/docs/api-reference/images/create).
 

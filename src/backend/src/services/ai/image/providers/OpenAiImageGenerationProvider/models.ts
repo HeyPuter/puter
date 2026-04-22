@@ -20,7 +20,7 @@ export const OPEN_AI_IMAGE_GENERATION_MODELS: IImageModel[] = [
             image_output: 3000, // $30.00
             'low:1024x1024': 0.588,
         },
-        allowedQualityLevels: ['auto', 'low', 'medium', 'high'],
+        allowedQualityLevels: ['low', 'medium', 'high', 'auto'],
     },
     {
         puterId: 'openai:openai/gpt-image-1.5',
