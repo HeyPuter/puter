@@ -60,7 +60,7 @@ export class MySQLDatabaseClient extends DatabaseClient {
         });
         console.log('[mysql] connected to primary');
 
-        this.db = new SQLBatcher(this.primaryPool, 40);
+        this.db = new SQLBatcher(this.primaryPool, 40, 10);
 
         if (dbConf.replica) {
             this.replicaPool = this.createPool(dbConf.replica);
@@ -71,7 +71,7 @@ export class MySQLDatabaseClient extends DatabaseClient {
             this.configuration = Configuration.SINGLE;
         }
 
-        this.dbReplica = new SQLBatcher(this.replicaPool, 10);
+        this.dbReplica = new SQLBatcher(this.replicaPool, 10, 10);
     }
 
     override async onServerPrepareShutdown(): Promise<void> {
@@ -202,11 +202,11 @@ export class MySQLDatabaseClient extends DatabaseClient {
             password: dbConf.password ?? '',
             database: dbConf.database ?? 'puter',
         });
-        this.db = new SQLBatcher(this.primaryPool, 40);
+        this.db = new SQLBatcher(this.primaryPool, 40, 10);
 
         if (this.configuration === Configuration.SINGLE) {
             this.replicaPool = this.primaryPool;
-            this.dbReplica = new SQLBatcher(this.primaryPool, 10);
+            this.dbReplica = new SQLBatcher(this.primaryPool, 10, 10);
         }
 
         if (previous && previous !== this.primaryPool) {

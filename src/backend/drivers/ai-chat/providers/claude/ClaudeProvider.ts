@@ -7,6 +7,8 @@ import type {
 } from '@anthropic-ai/sdk/resources/messages.js';
 import { Context } from '../../../../core/context.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
+import type { FSEntryStore } from '../../../../stores/fs/FSEntryStore.js';
+import type { S3ObjectStore } from '../../../../stores/fs/S3ObjectStore.js';
 import type {
     IChatProvider,
     ICompleteArguments,
@@ -19,6 +21,7 @@ import type {
     AIChatTextStream,
     AIChatToolUseStream,
 } from '../../utils/Streaming.js';
+import { FILES_API_BETA, processPuterPathUploads } from './fileUpload.js';
 import { CLAUDE_MODELS } from './models.js';
 
 export class ClaudeProvider implements IChatProvider {
@@ -26,8 +29,15 @@ export class ClaudeProvider implements IChatProvider {
 
     #meteringService: MeteringService;
 
-    constructor(meteringService: MeteringService, config: { apiKey: string }) {
+    #stores: { fsEntry: FSEntryStore; s3Object: S3ObjectStore };
+
+    constructor(
+        meteringService: MeteringService,
+        stores: { fsEntry: FSEntryStore; s3Object: S3ObjectStore },
+        config: { apiKey: string },
+    ) {
         this.#meteringService = meteringService;
+        this.#stores = stores;
         this.anthropic = new Anthropic({
             apiKey: config.apiKey,
             timeout: 10 * 60 * 1001,
@@ -209,7 +219,22 @@ export class ClaudeProvider implements IChatProvider {
             'claude-sonnet-4-6',
         ].includes(modelUsed.id);
 
-        const sdkParams: MessageCreateParams = {
+        const actor = Context.get('actor');
+
+        // Upload any `puter_path` parts to Anthropic's Files API and rewrite
+        // them in-place to reference the returned `file_id`. Must happen
+        // before sdkParams snapshots `messages`.
+        const { fileIds: uploadedFileIds } = await processPuterPathUploads(
+            this.anthropic,
+            messages,
+            this.#stores,
+            actor,
+        );
+        const usesBetaFiles = uploadedFileIds.length > 0;
+
+        const sdkParams: MessageCreateParams & {
+            betas?: string[];
+        } = {
             model: modelUsed.id,
             max_tokens: Math.floor(
                 max_tokens ||
@@ -235,12 +260,23 @@ export class ClaudeProvider implements IChatProvider {
             ...(supportsEffort && requestedReasoningEffort
                 ? { output_config: { effort: requestedReasoningEffort } }
                 : {}),
-        } as MessageCreateParams;
+            ...(usesBetaFiles ? { betas: [FILES_API_BETA] } : {}),
+        } as MessageCreateParams & { betas?: string[] };
 
-        // TODO: file upload support — read puter_path content parts and
-        // upload them via anthropic.beta.files.upload.
-
-        const actor = Context.get('actor');
+        const cleanupUploads = async () => {
+            if (uploadedFileIds.length === 0) return;
+            await Promise.all(
+                uploadedFileIds.map(async (id) => {
+                    try {
+                        await this.anthropic.beta.files.delete(id, {
+                            betas: [FILES_API_BETA],
+                        });
+                    } catch {
+                        /* best-effort */
+                    }
+                }),
+            );
+        };
 
         if (stream) {
             const init_chat_stream = async ({
@@ -248,8 +284,9 @@ export class ClaudeProvider implements IChatProvider {
             }: {
                 chatStream: AIChatStream;
             }) => {
-                const completion =
-                    await this.anthropic.messages.stream(sdkParams);
+                const completion = usesBetaFiles
+                    ? this.anthropic.beta.messages.stream(sdkParams)
+                    : this.anthropic.messages.stream(sdkParams);
                 const usageSum: Record<string, number> = {};
 
                 let message, contentBlock;
@@ -350,26 +387,32 @@ export class ClaudeProvider implements IChatProvider {
             return {
                 init_chat_stream,
                 stream: true,
-                finally_fn: async () => {},
+                finally_fn: cleanupUploads,
             };
         }
 
-        const msg = await this.anthropic.messages.create(sdkParams);
-        const usage = this.#usageFormatterUtil(
-            (msg as Message).usage as Usage | BetaUsage,
-        );
-        const costsOverrideFromModel = this.#buildCostsOverrideFromModel(
-            usage,
-            modelUsed,
-        );
-        this.#meteringService.utilRecordUsageObject(
-            usage,
-            actor,
-            `claude:${modelUsed.id}`,
-            costsOverrideFromModel,
-        );
+        try {
+            const msg = await (usesBetaFiles
+                ? this.anthropic.beta.messages.create(sdkParams)
+                : this.anthropic.messages.create(sdkParams));
+            const usage = this.#usageFormatterUtil(
+                (msg as Message).usage as Usage | BetaUsage,
+            );
+            const costsOverrideFromModel = this.#buildCostsOverrideFromModel(
+                usage,
+                modelUsed,
+            );
+            this.#meteringService.utilRecordUsageObject(
+                usage,
+                actor,
+                `claude:${modelUsed.id}`,
+                costsOverrideFromModel,
+            );
 
-        return { message: msg, usage, finish_reason: 'stop' };
+            return { message: msg, usage, finish_reason: 'stop' };
+        } finally {
+            await cleanupUploads();
+        }
     }
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

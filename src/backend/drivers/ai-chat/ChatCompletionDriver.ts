@@ -380,9 +380,14 @@ export class ChatCompletionDriver extends PuterDriver {
 
         const claudeKey = readKey(providers['claude']);
         if (claudeKey) {
-            this.#providers['claude'] = new ClaudeProvider(m, {
-                apiKey: claudeKey,
-            });
+            this.#providers['claude'] = new ClaudeProvider(
+                m,
+                {
+                    fsEntry: this.stores.fsEntry,
+                    s3Object: this.stores.s3Object,
+                },
+                { apiKey: claudeKey },
+            );
         }
 
         const openaiKey = readKey(providers['openai-completion']);
