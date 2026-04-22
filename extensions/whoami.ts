@@ -146,6 +146,16 @@ extension.get(
             details.app_name = actor.app.uid;
         }
 
+        try {
+            await clients.event.emitAndWait(
+                'whoami.details',
+                { user, details, isUser },
+                {},
+            );
+        } catch {
+            /* best-effort */
+        }
+
         res.json(details);
     },
 );

@@ -554,25 +554,29 @@ export class PuterServer {
             const origin = req.headers.origin;
             const subdomain = req.subdomains?.[req.subdomains.length - 1];
             const isApiOrDav = subdomain === 'api' || subdomain === 'dav';
-            const isCrossOriginAuthRoute =
-                req.path === '/signup' ||
-                req.path === '/login' ||
-                req.path.startsWith('/extensions/') ||
-                req.path.startsWith('/auth/oidc');
 
-            // Allow-Origin for API/DAV + auth routes
-            if (isCrossOriginAuthRoute || isApiOrDav) {
-                res.setHeader('Access-Control-Allow-Origin', origin ?? '*');
-                if (origin) res.vary('Origin');
-            }
+            // Allow any origin. puter.js is meant to be consumed from
+            // arbitrary third-party sites, so reflect the caller's origin
+            // (or fall back to `*` for non-browser clients).
+            res.setHeader('Access-Control-Allow-Origin', origin ?? '*');
+            if (origin) res.vary('Origin');
 
-            // Credentials on API/DAV cross-origin
+            // Credentials require a specific (non-`*`) Allow-Origin, which
+            // we just set when an origin was present. Enable on API/DAV
+            // so cookie-auth works cross-origin.
             if (isApiOrDav && origin) {
                 res.setHeader('Access-Control-Allow-Credentials', 'true');
             }
 
             res.setHeader('Access-Control-Allow-Methods', allowedMethods);
             res.setHeader('Access-Control-Allow-Headers', allowedHeaders);
+
+            // Private Network Access: grant public origins permission to
+            // reach loopback/private addresses (e.g. self-hosted Puter on
+            // localhost, or api.puter.com pointed at a local IP via hosts).
+            if (req.headers['access-control-request-private-network']) {
+                res.setHeader('Access-Control-Allow-Private-Network', 'true');
+            }
 
             // Disable iframes on the main domain
             if (req.hostname === config.domain) {

@@ -75,17 +75,6 @@ export class ChatCompletionDriver extends PuterDriver {
         return (await this.models()).map((m) => m.puterId || m.id).sort();
     }
 
-    // TODO: port v1's per-group concurrent-request limiter as HTTP middleware.
-    // v1 `AIChatService` wrapped `complete()` in a `concurrentRequestLimiter`
-    // (services/abuse-prevention/concurrentRequestLimiter) that kept a short
-    // Redis lease per (actor-group, limit-key) pair and rejected new calls
-    // once each group's cap was hit (default: temp_free=3, user_free=5,
-    // per-subscription limits from `config.ai-chat.concurrentRequests.
-    // subscriptionLimits`, lease TTL from `.leaseMs`, default 120_000ms).
-    // v2 has no equivalent yet — redesign as a rate-limit-style middleware
-    // living alongside `core/http/middleware/rateLimit.js` so any driver can
-    // opt-in by policy, not just chat. Config shape should live under
-    // `rate_limit.concurrent` (or similar) in IConfig, not in a driver bag.
     async complete(args: ICompleteArguments): Promise<IChatCompleteResult> {
         const actor = Context.get('actor');
         if (!actor) throw new HttpError(401, 'Authentication required');
@@ -114,15 +103,8 @@ export class ChatCompletionDriver extends PuterDriver {
             normalize_tools_object(args.tools);
         }
 
-        // Correlation id threaded through every downstream event so
-        // listeners (prompt_block, prodMeteringAndBilling, …) can stitch
-        // validate → complete → cost-calculated rows together.
         const completionId = crypto.randomUUID();
 
-        // ── Pre-completion validation gate ───────────────────────────
-        // Extensions (e.g. prompt_block) listen on `ai.prompt.validate`
-        // and set `event.allow = false` to block the prompt. Throws so
-        // the client gets a clear 403.
         const validateEvent: Record<string, unknown> = {
             actor,
             completionId,
@@ -130,8 +112,7 @@ export class ChatCompletionDriver extends PuterDriver {
             intended_service: intendedProvider,
             parameters: args,
         };
-        // emitAndWait — promptBlock is an async listener; the `event.allow`
-        // read below must observe mutations made inside awaited work.
+
         await this.clients.event.emitAndWait(
             'ai.prompt.validate',
             validateEvent,
@@ -311,10 +292,6 @@ export class ChatCompletionDriver extends PuterDriver {
             });
         }
 
-        // Stash service/model identity in the request context so the
-        // DriverController can surface it as top-level `metadata` on the
-        // HTTP response (matches v1's wire shape). Marker flag
-        // `via_ai_chat_service` mirrors v1's result payload.
         Context.set('driverMetadata', {
             service_used: model.provider,
             providerUsed: model.id,
@@ -397,26 +374,30 @@ export class ChatCompletionDriver extends PuterDriver {
         const providers = this.config.providers ?? {};
         const m = this.services.metering;
 
-        const claude = providers['claude'];
-        if (claude?.apiKey) {
+        const readKey = (cfg: Record<string, unknown> | undefined) =>
+            (cfg?.apiKey as string | undefined) ??
+            (cfg?.secret_key as string | undefined);
+
+        const claudeKey = readKey(providers['claude']);
+        if (claudeKey) {
             this.#providers['claude'] = new ClaudeProvider(m, {
-                apiKey: claude.apiKey,
+                apiKey: claudeKey,
             });
         }
 
-        const openai = providers['openai-completion'];
-        if (openai?.apiKey) {
+        const openaiKey = readKey(providers['openai-completion']);
+        if (openaiKey) {
             const openaiStores = {
                 fsEntry: this.stores.fsEntry,
                 s3Object: this.stores.s3Object,
             };
             const openaiCompletions = new OpenAiChatProvider(m, openaiStores, {
-                apiKey: openai.apiKey,
+                apiKey: openaiKey,
             });
             const openaiResponses = new OpenAiResponsesChatProvider(
                 m,
                 openaiStores,
-                { apiKey: openai.apiKey },
+                { apiKey: openaiKey },
             );
             // web_search is Responses-only; let the Completions path delegate
             // to its sibling when users request it.
@@ -425,57 +406,58 @@ export class ChatCompletionDriver extends PuterDriver {
             this.#providers['openai-responses'] = openaiResponses;
         }
 
-        const gemini = providers['gemini'];
-        if (gemini?.apiKey) {
+        const geminiKey = readKey(providers['gemini']);
+        if (geminiKey) {
             this.#providers['gemini'] = new GeminiChatProvider(m, {
-                apiKey: gemini.apiKey,
+                apiKey: geminiKey,
             });
         }
 
-        const groq = providers['groq'];
-        if (groq?.apiKey) {
+        const groqKey = readKey(providers['groq']);
+        if (groqKey) {
             this.#providers['groq'] = new GroqAIProvider(
-                { apiKey: groq.apiKey },
+                { apiKey: groqKey },
                 m,
             );
         }
 
-        const deepseek = providers['deepseek'];
-        if (deepseek?.apiKey) {
+        const deepseekKey = readKey(providers['deepseek']);
+        if (deepseekKey) {
             this.#providers['deepseek'] = new DeepSeekProvider(
-                { apiKey: deepseek.apiKey },
+                { apiKey: deepseekKey },
                 m,
             );
         }
 
-        const mistral = providers['mistral'];
-        if (mistral?.apiKey) {
+        const mistralKey = readKey(providers['mistral']);
+        if (mistralKey) {
             this.#providers['mistral'] = new MistralAIProvider(
-                { apiKey: mistral.apiKey },
+                { apiKey: mistralKey },
                 m,
             );
         }
 
-        const xai = providers['xai'];
-        if (xai?.apiKey) {
-            this.#providers['xai'] = new XAIProvider({ apiKey: xai.apiKey }, m);
+        const xaiKey = readKey(providers['xai']);
+        if (xaiKey) {
+            this.#providers['xai'] = new XAIProvider({ apiKey: xaiKey }, m);
         }
 
         const openrouter = providers['openrouter'];
-        if (openrouter?.apiKey) {
+        const openrouterKey = readKey(openrouter);
+        if (openrouterKey) {
             this.#providers['openrouter'] = new OpenRouterProvider(
                 {
-                    apiKey: openrouter.apiKey,
-                    apiBaseUrl: openrouter.apiBaseUrl,
+                    apiKey: openrouterKey,
+                    apiBaseUrl: openrouter?.apiBaseUrl as string | undefined,
                 },
                 m,
             );
         }
 
-        const together = providers['together-ai'];
-        if (together?.apiKey) {
+        const togetherKey = readKey(providers['together-ai']);
+        if (togetherKey) {
             this.#providers['together-ai'] = new TogetherAIProvider(
-                { apiKey: together.apiKey },
+                { apiKey: togetherKey },
                 m,
             );
         }
@@ -498,12 +480,6 @@ export class ChatCompletionDriver extends PuterDriver {
     // ── Model map ───────────────────────────────────────────────────
 
     async #buildModelMap() {
-        // Aggregator providers that resell other vendors' models. We skip
-        // registering their offerings whenever a direct-vendor entry for
-        // the same id (or one of its aliases) already exists — matches v1's
-        // behavior. Exception: openrouter/together-ai *gemini* entries stay
-        // because they expose tool variants the direct Gemini integration
-        // doesn't.
         const AGGREGATORS = new Set(['together-ai', 'openrouter']);
 
         for (const providerName in this.#providers) {
@@ -528,10 +504,6 @@ export class ChatCompletionDriver extends PuterDriver {
                     }
                 }
 
-                // Aggregator-dedup: if any alias already resolves to a
-                // different direct-vendor bucket, un-register the entry we
-                // just appended. Keep the gemini carve-out so openrouter's
-                // tool-enabled variants survive.
                 if (isAggregator && model.aliases) {
                     let skip = false;
                     for (const rawAlias of model.aliases) {

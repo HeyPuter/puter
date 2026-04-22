@@ -87,7 +87,11 @@ export async function resolveNode(
 }
 
 function notFoundOrNull(required: boolean | undefined, message: string): null {
-    if (required) throw new HttpError(404, message);
+    if (required) {
+        throw new HttpError(404, message, {
+            legacyCode: 'subject_does_not_exist',
+        });
+    }
     return null;
 }
 

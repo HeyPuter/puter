@@ -297,7 +297,14 @@ export class LegacyFSController extends PuterController {
             'see',
         );
 
-        const shaped = await toLegacyEntry(this.clients.event, entry);
+        const shaped = await toLegacyEntry(this.clients.event, entry, {
+            fsEntryStore: this.stores.fsEntry,
+            userStore: this.stores.user as unknown as {
+                getById: (
+                    id: number,
+                ) => Promise<Record<string, unknown> | null>;
+            },
+        });
 
         // Optional hydrations:
         if (entry.isDir && getBoolean(body, 'return_size')) {
@@ -443,8 +450,17 @@ export class LegacyFSController extends PuterController {
         });
         await this.#emitGuiEvent('outer.gui.item.added', copy);
 
-        // /copy returns an array (historically supported bulk copies).
-        res.json([await toLegacyEntry(this.clients.event, copy)]);
+        // Legacy response shape: `[{copied: fsentry, overwritten?}]`.
+        // Array is historical — originally supported bulk copy.
+        const copied = await toLegacyEntry(this.clients.event, copy, {
+            fsEntryStore: this.stores.fsEntry,
+            userStore: this.stores.user as unknown as {
+                getById: (
+                    id: number,
+                ) => Promise<Record<string, unknown> | null>;
+            },
+        });
+        res.json([{ copied }]);
     };
 
     move = async (req: Request, res: Response): Promise<void> => {
@@ -493,11 +509,21 @@ export class LegacyFSController extends PuterController {
                 | null
                 | undefined,
         });
+        const oldPath = source.path;
         await this.#emitGuiEvent('outer.gui.item.moved', moved, {
-            old_path: source.path,
+            old_path: oldPath,
         });
 
-        res.json(await toLegacyEntry(this.clients.event, moved));
+        // Legacy response shape: `{moved: fsentry, old_path}`.
+        const movedEntry = await toLegacyEntry(this.clients.event, moved, {
+            fsEntryStore: this.stores.fsEntry,
+            userStore: this.stores.user as unknown as {
+                getById: (
+                    id: number,
+                ) => Promise<Record<string, unknown> | null>;
+            },
+        });
+        res.json({ moved: movedEntry, old_path: oldPath });
     };
 
     delete = async (req: Request, res: Response): Promise<void> => {

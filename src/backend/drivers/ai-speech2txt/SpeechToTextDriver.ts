@@ -85,7 +85,27 @@ export class SpeechToTextDriver extends PuterDriver {
     #openai: OpenAI | null = null;
 
     override onServerStart() {
-        const apiKey = this.config.providers?.openai?.apiKey;
+        const providers = (this.config.providers ?? {}) as Record<
+            string,
+            Record<string, unknown> | undefined
+        >;
+        const readKey = (
+            ...cfgs: Array<Record<string, unknown> | undefined>
+        ): string | undefined => {
+            for (const cfg of cfgs) {
+                if (!cfg) continue;
+                const k =
+                    (cfg.apiKey as string | undefined) ??
+                    (cfg.secret_key as string | undefined);
+                if (k) return k;
+            }
+            return undefined;
+        };
+        const apiKey = readKey(
+            providers['openai-speech-to-text'],
+            providers['openai-completion'],
+            providers['openai'],
+        );
         if (!apiKey) return; // Leave uninitialized; convert() will reject.
         this.#openai = new OpenAI({ apiKey });
     }

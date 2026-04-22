@@ -21,29 +21,14 @@ export class KVStoreDriver extends PuterDriver {
     readonly driverName = 'puter-kvstore';
     readonly isDefault = true;
 
-    // ── Namespace helpers ────────────────────────────────────────────
-
-    // Namespaces are keyed by user *uuid* (not numeric id) for stability
-    // across rebuilds/exports — matching v1's DynamoKVStore shape:
-    //   `v1:system`
-    //   `v1:<user_uuid>:<app_uuid>`
-    //   `v1:<user_uuid>:global`   (user-scoped, no app context)
-    // The namespace is INTERNAL — never include it in any response body.
     #namespace(actor: Actor | undefined, appUuidOverride?: string): string {
         if (!actor || actor.system || !actor.user?.uuid) {
             return 'v1:system';
         }
-        // App-under-user actors always namespace to their own app — the
-        // override only applies when the actor has no app of its own.
-        const app = actor.app?.uid ?? appUuidOverride ?? 'global';
+        const app = appUuidOverride ?? actor.app?.uid ?? 'global';
         return `v1:${actor.user.uuid}:${app}`;
     }
 
-    // puter-js allows non-string keys (numbers, booleans) and v1 coerced
-    // them to strings at the driver boundary. Do the same here so the
-    // Dynamo row shape (`key` as a string attribute) stays consistent
-    // whether the caller sent `{key: 42}` or `{key: "42"}`. Empty-string
-    // keys are rejected to match v1's `field_empty` error.
     #coerceKey(key: unknown): string {
         if (key === null || key === undefined) {
             throw new HttpError(400, 'Missing `key`');
@@ -59,10 +44,6 @@ export class KVStoreDriver extends PuterDriver {
         return { namespace, key };
     }
 
-    // Metering helper. Fire-and-forget — we don't want a metering hiccup
-    // to block the KV operation that already completed. `incrementUsage`
-    // is a no-op for SYSTEM_ACTOR, so internal sudoed calls naturally
-    // skip the charge.
     #meter(
         actor: Actor | undefined,
         kind: 'kv:read' | 'kv:write',
@@ -78,8 +59,6 @@ export class KVStoreDriver extends PuterDriver {
                 );
             });
     }
-
-    // ── Interface methods ───────────────────────────────────────────
 
     async get(args: {
         key: unknown;
@@ -242,14 +221,6 @@ export class KVStoreDriver extends PuterDriver {
         return true;
     }
 
-    // Shared implementation for incr/decr. `sign` is +1 for incr, -1 for decr.
-    //
-    // Matches v1's `DynamoKVStore.incr` shape exactly:
-    //   - paths nest under the `value` attribute (not siblingly): `'' → value`,
-    //     `'count' → value.count`, `'a.b' → value.a.b`.
-    //   - return is always `res.Attributes?.value` — a scalar for `{'': N}`
-    //     (what puter-js sends for bare `kv.incr(key)`), or a nested map
-    //     otherwise. Never leak `namespace`/`key`.
     async #applyDelta(
         args: {
             key: unknown;
@@ -267,11 +238,6 @@ export class KVStoreDriver extends PuterDriver {
         const actor = Context.get('actor');
         const ns = this.#namespace(actor, optConfig?.appUuid);
 
-        // Ensure intermediate maps exist for any nested path (e.g.
-        // `value.a.b` needs `value.a` to already be a map). Issue a
-        // best-effort bootstrap `SET value = if_not_exists(value, {})`
-        // when any caller-supplied path is non-empty with nesting; the
-        // top-level `value = scalar` case (path `''`) handles itself.
         const hasNestedPath = Object.keys(pathAndAmountMap).some(
             (p) => p.length > 0,
         );
@@ -291,8 +257,6 @@ export class KVStoreDriver extends PuterDriver {
             }
         }
 
-        // Build the nested SET expression. `#pathCleaner` strips chars
-        // Dynamo rejects in expression-attribute names.
         const cleanerRegex = /[:\-+/*]/g;
         const setParts: string[] = [];
         const exprValues: Record<string, unknown> = {};
@@ -330,9 +294,6 @@ export class KVStoreDriver extends PuterDriver {
         );
         this.#meter(actor, 'kv:write');
 
-        // v1 contract: always return the post-update `value` attribute.
-        // Scalar for `{'': N}`, nested map for anything else. Never
-        // expose `namespace`/`key`.
         const attrs = (result?.Attributes ?? {}) as Record<string, unknown>;
         return attrs.value ?? 0;
     }

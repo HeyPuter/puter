@@ -46,8 +46,6 @@ export class ImageGenerationDriver extends PuterDriver {
         this.#buildModelMap();
     }
 
-    // ── Interface methods ───────────────────────────────────────────
-
     async models() {
         const seen = new Set<string>();
         return Object.values(this.#modelIdMap)
@@ -118,62 +116,97 @@ export class ImageGenerationDriver extends PuterDriver {
         });
     }
 
-    // ── Provider registration ───────────────────────────────────────
-
     #registerProviders() {
         const providers = this.config.providers ?? {};
         const m = this.services.metering;
 
-        const openai = providers['openai-image-generation'];
-        if (openai?.apiKey) {
+        const readKey = (
+            ...cfgs: Array<Record<string, unknown> | undefined>
+        ): string | undefined => {
+            for (const cfg of cfgs) {
+                if (!cfg) continue;
+                const k =
+                    (cfg.apiKey as string | undefined) ??
+                    (cfg.secret_key as string | undefined);
+                if (k) return k;
+            }
+            return undefined;
+        };
+
+        const openaiKey = readKey(
+            providers['openai-image-generation'],
+            providers['openai-completion'],
+            providers['openai'],
+        );
+        if (openaiKey) {
             this.#providers['openai-image-generation'] =
-                new OpenAiImageProvider({ apiKey: openai.apiKey }, m);
+                new OpenAiImageProvider({ apiKey: openaiKey }, m);
         }
 
-        const gemini = providers['gemini-image-generation'];
-        if (gemini?.apiKey) {
+        const geminiKey = readKey(
+            providers['gemini-image-generation'],
+            providers['gemini'],
+        );
+        if (geminiKey) {
             this.#providers['gemini-image-generation'] =
-                new GeminiImageProvider({ apiKey: gemini.apiKey }, m);
+                new GeminiImageProvider({ apiKey: geminiKey }, m);
         }
 
-        const together = providers['together-image-generation'];
-        if (together?.apiKey) {
+        const togetherKey = readKey(
+            providers['together-image-generation'],
+            providers['together-ai'],
+        );
+        if (togetherKey) {
             this.#providers['together-image-generation'] =
-                new TogetherImageProvider({ apiKey: together.apiKey }, m);
+                new TogetherImageProvider({ apiKey: togetherKey }, m);
         }
 
-        const cloudflare = providers['cloudflare-image-generation'];
-        if (cloudflare?.apiToken && cloudflare?.accountId) {
+        const cloudflare = (providers['cloudflare-image-generation'] ??
+            providers['cloudflare-workers-ai-image'] ??
+            providers['cloudflare-workers-ai']) as
+            | Record<string, unknown>
+            | undefined;
+        const cfToken =
+            (cloudflare?.apiToken as string | undefined) ??
+            (cloudflare?.apiKey as string | undefined) ??
+            (cloudflare?.secret_key as string | undefined);
+        const cfAccount =
+            (cloudflare?.accountId as string | undefined) ??
+            (cloudflare?.account_id as string | undefined);
+        if (cfToken && cfAccount) {
             this.#providers['cloudflare-image-generation'] =
                 new CloudflareImageProvider(
                     {
-                        apiToken: cloudflare.apiToken,
-                        accountId: cloudflare.accountId,
-                        apiBaseUrl: cloudflare.apiBaseUrl,
+                        apiToken: cfToken,
+                        accountId: cfAccount,
+                        apiBaseUrl: cloudflare?.apiBaseUrl as
+                            | string
+                            | undefined,
                     },
                     m,
                 );
         }
 
-        const xai = providers['xai-image-generation'];
-        if (xai?.apiKey) {
+        const xaiKey = readKey(
+            providers['xai-image-generation'],
+            providers['xai'],
+        );
+        if (xaiKey) {
             this.#providers['xai-image-generation'] = new XAIImageProvider(
-                { apiKey: xai.apiKey },
+                { apiKey: xaiKey },
                 m,
             );
         }
 
-        const replicate = providers['replicate-image-generation'];
-        if (replicate?.apiKey) {
+        const replicateKey = readKey(providers['replicate-image-generation']);
+        if (replicateKey) {
             this.#providers['replicate-image-generation'] =
                 new ReplicateImageGenerationProvider(
-                    { apiKey: replicate.apiKey },
+                    { apiKey: replicateKey },
                     m,
                 );
         }
     }
-
-    // ── Model map ───────────────────────────────────────────────────
 
     async #buildModelMap() {
         for (const providerName in this.#providers) {

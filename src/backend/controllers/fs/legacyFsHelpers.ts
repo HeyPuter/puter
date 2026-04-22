@@ -180,6 +180,17 @@ export async function assertAccess(
     const code =
         typeof safe?.fields?.code === 'string' ? safe.fields.code : undefined;
     const legacyCode = code === 'forbidden' ? 'access_denied' : code;
+
+    // App-under-user actors see denials as 404 "subject_does_not_exist"
+    // so existence of a sibling user's / other-app's files isn't leaked
+    // through the error code. User-actor denials keep the real 403.
+    const isAppActor = Boolean((actor as { app?: unknown })?.app);
+    if (isAppActor) {
+        throw new HttpError(404, `Entry not found: path=${path}`, {
+            legacyCode: 'subject_does_not_exist',
+        });
+    }
+
     if (status === 404) {
         throw new HttpError(404, message, {
             ...(legacyCode ? { legacyCode } : {}),
@@ -195,11 +206,19 @@ export async function assertAccess(
 /**
  * Produce the snake_case entry shape legacy clients expect. If `thumbnail`
  * is set, asks the thumbnail extension (via `thumbnail.read` event) to swap
- * an S3 URL for a signed one.
+ * an S3 URL for a signed one. Pass `fsEntryStore`/`userStore` to hydrate
+ * `is_empty` (directories) and `owner` — both are required fields per
+ * the legacy stat contract but need extra DB lookups.
  */
 export async function toLegacyEntry(
     eventClient: EventClient | undefined,
     entry: FSEntry,
+    opts: {
+        fsEntryStore?: FSEntryStore;
+        userStore?: {
+            getById: (id: number) => Promise<Record<string, unknown> | null>;
+        };
+    } = {},
 ): Promise<Record<string, unknown>> {
     const dirname = pathPosix.dirname(entry.path);
     const extension = pathPosix.extname(entry.name).slice(1).toLowerCase();
@@ -214,7 +233,7 @@ export async function toLegacyEntry(
         dirname,
         dirpath: dirname,
         name: entry.name,
-        is_dir: entry.isDir,
+        is_dir: Boolean(entry.isDir),
         is_shortcut: entry.isShortcut ? 1 : 0,
         shortcut_to: entry.shortcutTo,
         is_symlink: entry.isSymlink ? 1 : 0,
@@ -223,14 +242,42 @@ export async function toLegacyEntry(
         writable: true,
         is_public: entry.isPublic,
         thumbnail: entry.thumbnail,
-        immutable: entry.immutable,
+        immutable: Boolean(entry.immutable),
         metadata: entry.metadata,
         modified: entry.modified,
         created: entry.created,
         accessed: entry.accessed,
         size: entry.size,
+        layout: entry.layout,
         associated_app_id: entry.associatedAppId,
     };
+
+    // `is_empty` — only meaningful for directories. Single-row probe so we
+    // don't pay for listing every child.
+    if (entry.isDir && opts.fsEntryStore) {
+        try {
+            const children = await opts.fsEntryStore.listChildren(entry.uuid, {
+                limit: 1,
+            });
+            response.is_empty = children.length === 0;
+        } catch {
+            response.is_empty = false;
+        }
+    } else if (!entry.isDir) {
+        response.is_empty = false;
+    }
+
+    // `owner` — username-only. Matches the legacy safe-entry contract.
+    if (opts.userStore) {
+        try {
+            const owner = await opts.userStore.getById(entry.userId);
+            if (owner && typeof owner.username === 'string') {
+                response.owner = { username: owner.username };
+            }
+        } catch {
+            /* best-effort */
+        }
+    }
 
     // Let the thumbnail extension swap an s3:// key for a signed URL.
     if (

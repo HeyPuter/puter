@@ -2061,6 +2061,20 @@ export class FSEntryStore extends PuterStore {
             userRow?.freeStorage ?? this.#config.storage_capacity ?? 0,
         );
 
+        const event: { userId: number; extra: number } = { userId, extra: 0 };
+        try {
+            await this.clients.event.emitAndWait(
+                'storage.quota.bonus',
+                event,
+                {},
+            );
+        } catch {
+            /* best-effort */
+        }
+        if (Number.isFinite(event.extra) && event.extra > 0) {
+            max += event.extra;
+        }
+
         if (!this.#config.is_storage_limited) {
             const availableDeviceStorage = Number(
                 this.#config.available_device_storage ?? 0,

@@ -80,18 +80,23 @@ export class OCRDriver extends PuterDriver {
     override onServerStart() {
         const providers = this.config.providers ?? {};
 
-        const textract = providers['aws-textract'];
-        if (
-            typeof textract?.access_key === 'string' &&
-            typeof textract?.secret_key === 'string'
-        ) {
+        const textract = providers['aws-textract'] as
+            | Record<string, unknown>
+            | undefined;
+        const textractAws = (textract?.aws ?? textract) as
+            | Record<string, unknown>
+            | undefined;
+        const textractAccessKey = textractAws?.access_key as string | undefined;
+        const textractSecretKey = textractAws?.secret_key as string | undefined;
+        const textractRegion =
+            (textractAws?.region as string | undefined) ??
+            (textract?.region as string | undefined) ??
+            'us-west-2';
+        if (textractAccessKey && textractSecretKey) {
             this.#awsConfig = {
-                accessKeyId: textract.access_key,
-                secretAccessKey: textract.secret_key,
-                region:
-                    typeof textract.region === 'string'
-                        ? textract.region
-                        : 'us-west-2',
+                accessKeyId: textractAccessKey,
+                secretAccessKey: textractSecretKey,
+                region: textractRegion,
             };
         }
 

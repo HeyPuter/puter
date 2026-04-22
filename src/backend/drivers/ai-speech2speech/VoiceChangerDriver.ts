@@ -45,13 +45,23 @@ export class VoiceChangerDriver extends PuterDriver {
     #defaultModelId = DEFAULT_MODEL;
 
     override onServerStart() {
-        const elevenlabs = this.config.providers?.elevenlabs;
+        const elevenlabs = this.config.providers?.elevenlabs as
+            | Record<string, unknown>
+            | undefined;
 
-        this.#apiKey = elevenlabs?.apiKey ?? null;
-        this.#baseUrl = elevenlabs?.apiBaseUrl ?? this.#baseUrl;
-        this.#defaultVoiceId = elevenlabs?.defaultVoiceId ?? DEFAULT_VOICE_ID;
+        this.#apiKey =
+            (elevenlabs?.apiKey as string | undefined) ??
+            (elevenlabs?.api_key as string | undefined) ??
+            (elevenlabs?.key as string | undefined) ??
+            null;
+        this.#baseUrl =
+            (elevenlabs?.apiBaseUrl as string | undefined) ?? this.#baseUrl;
+        this.#defaultVoiceId =
+            (elevenlabs?.defaultVoiceId as string | undefined) ??
+            DEFAULT_VOICE_ID;
         this.#defaultModelId =
-            elevenlabs?.speechToSpeechModelId ?? DEFAULT_MODEL;
+            (elevenlabs?.speechToSpeechModelId as string | undefined) ??
+            DEFAULT_MODEL;
     }
 
     async convert(

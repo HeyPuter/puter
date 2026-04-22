@@ -140,11 +140,16 @@ export class TTSDriver extends PuterDriver {
         const providers = this.config.providers ?? {};
         const m = this.services.metering;
 
-        const openai = providers['openai'];
-        if (openai?.apiKey) {
+        const openaiConfig =
+            (providers['openai-tts'] as Record<string, unknown> | undefined) ??
+            (providers['openai'] as Record<string, unknown> | undefined);
+        const openaiKey =
+            (openaiConfig?.apiKey as string | undefined) ??
+            (openaiConfig?.secret_key as string | undefined);
+        if (openaiKey) {
             try {
                 this.#providers['openai'] = new OpenAITTSProvider(m, {
-                    apiKey: openai.apiKey,
+                    apiKey: openaiKey,
                 });
             } catch (e) {
                 console.warn(
@@ -154,13 +159,21 @@ export class TTSDriver extends PuterDriver {
             }
         }
 
-        const elevenlabs = providers['elevenlabs'];
-        if (elevenlabs?.apiKey) {
+        const elevenlabs = providers['elevenlabs'] as
+            | Record<string, unknown>
+            | undefined;
+        const elevenKey =
+            (elevenlabs?.apiKey as string | undefined) ??
+            (elevenlabs?.api_key as string | undefined) ??
+            (elevenlabs?.key as string | undefined);
+        if (elevenKey) {
             try {
                 this.#providers['elevenlabs'] = new ElevenLabsTTSProvider(m, {
-                    apiKey: elevenlabs.apiKey,
-                    apiBaseUrl: elevenlabs.apiBaseUrl,
-                    defaultVoiceId: elevenlabs.defaultVoiceId,
+                    apiKey: elevenKey,
+                    apiBaseUrl: elevenlabs?.apiBaseUrl as string | undefined,
+                    defaultVoiceId: elevenlabs?.defaultVoiceId as
+                        | string
+                        | undefined,
                 });
             } catch (e) {
                 console.warn(
@@ -170,15 +183,23 @@ export class TTSDriver extends PuterDriver {
             }
         }
 
-        // AWS Polly is configured under `providers['aws-polly']` with flat
-        // `access_key`/`secret_key`/`region` fields (no `aws:` wrapper).
-        const polly = providers['aws-polly'];
-        if (polly?.access_key && polly?.secret_key) {
+        const polly = providers['aws-polly'] as
+            | Record<string, unknown>
+            | undefined;
+        const pollyAws = (polly?.aws ?? polly) as
+            | Record<string, unknown>
+            | undefined;
+        const pollyAccessKey = pollyAws?.access_key as string | undefined;
+        const pollySecretKey = pollyAws?.secret_key as string | undefined;
+        const pollyRegion =
+            (pollyAws?.region as string | undefined) ??
+            (polly?.region as string | undefined);
+        if (pollyAccessKey && pollySecretKey) {
             try {
                 this.#providers['aws-polly'] = new AWSPollyTTSProvider(m, {
-                    access_key: polly.access_key as string,
-                    secret_key: polly.secret_key as string,
-                    region: polly.region as string | undefined,
+                    access_key: pollyAccessKey,
+                    secret_key: pollySecretKey,
+                    region: pollyRegion,
                 });
             } catch (e) {
                 console.warn(

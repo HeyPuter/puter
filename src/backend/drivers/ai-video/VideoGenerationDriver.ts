@@ -158,22 +158,48 @@ export class VideoGenerationDriver extends PuterDriver {
         const providers = this.config.providers ?? {};
         const m = this.services.metering;
 
-        const openai = providers['openai-video-generation'];
-        if (openai?.apiKey) {
+        // Same lenient reader as ImageGenerationDriver — accept
+        // `apiKey || secret_key`, and fall back from the video-specific
+        // provider key to the shared chat key when unset.
+        const readKey = (
+            ...cfgs: Array<Record<string, unknown> | undefined>
+        ): string | undefined => {
+            for (const cfg of cfgs) {
+                if (!cfg) continue;
+                const k =
+                    (cfg.apiKey as string | undefined) ??
+                    (cfg.secret_key as string | undefined);
+                if (k) return k;
+            }
+            return undefined;
+        };
+
+        const openaiKey = readKey(
+            providers['openai-video-generation'],
+            providers['openai-completion'],
+            providers['openai'],
+        );
+        if (openaiKey) {
             this.#providers['openai-video-generation'] =
-                new OpenAIVideoProvider({ apiKey: openai.apiKey }, m);
+                new OpenAIVideoProvider({ apiKey: openaiKey }, m);
         }
 
-        const together = providers['together-video-generation'];
-        if (together?.apiKey) {
+        const togetherKey = readKey(
+            providers['together-video-generation'],
+            providers['together-ai'],
+        );
+        if (togetherKey) {
             this.#providers['together-video-generation'] =
-                new TogetherVideoProvider({ apiKey: together.apiKey }, m);
+                new TogetherVideoProvider({ apiKey: togetherKey }, m);
         }
 
-        const gemini = providers['gemini-video-generation'];
-        if (gemini?.apiKey) {
+        const geminiKey = readKey(
+            providers['gemini-video-generation'],
+            providers['gemini'],
+        );
+        if (geminiKey) {
             this.#providers['gemini-video-generation'] =
-                new GeminiVideoProvider({ apiKey: gemini.apiKey }, m);
+                new GeminiVideoProvider({ apiKey: geminiKey }, m);
         }
     }
 
