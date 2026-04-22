@@ -4,7 +4,7 @@ import MockRedis from 'ioredis-mock';
 const redisStartupRetryMaxDelayMs = 2000;
 const redisSlotsRefreshTimeoutMs = 5000;
 const redisConnectTimeoutMs = 10000;
-const redisMaxRetriesPerRequest = 2;
+const redisMaxRetriesPerRequest = 1;
 const redisBootRetryRegex = /Cluster(All)?FailedError|None of startup nodes is available/i;
 
 const formatRedisError = (error: unknown): string => {
