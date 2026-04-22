@@ -69,8 +69,11 @@ export interface RouteOptions {
     /**
      * Reject unless the actor's username is `admin`, `system`, or one of the
      * extras in this array. `true` means just `admin`/`system`; an array adds
-     * to that pair (does not replace it). Implies `requireAuth` +
-     * `requireUserActor`.
+     * to that pair (does not replace it). Implies `requireAuth`.
+     *
+     * Does NOT imply `requireUserActor` — admin endpoints accept an admin's
+     * access-token or app-under-user actor. Combine with `requireUserActor`
+     * to restrict to browser sessions.
      */
     adminOnly?: boolean | string[];
 

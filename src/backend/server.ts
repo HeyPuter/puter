@@ -722,7 +722,7 @@ export class PuterServer {
         }
 
         // 2. Auth gates. Implication graph:
-        //   adminOnly        => requireUserActor => requireAuth
+        //   adminOnly        => requireAuth
         //   allowedAppIds    => requireAuth
         //   requireUserActor => requireAuth
         // Dedupe: only push requireAuthGate once when *any* of these are set.
@@ -740,8 +740,13 @@ export class PuterServer {
         // when an app acts on the user's behalf. `requireVerifiedGate` reads
         // `req.actor?.user?.email_confirmed`, which app-under-user actors
         // carry, so it works for either actor shape.
-        const needsUserActor = Boolean(opts.requireUserActor || opts.adminOnly);
-        if (needsUserActor) mwChain.push(requireUserActorGate());
+        //
+        // `adminOnly` also does NOT imply `requireUserActor`: admin endpoints
+        // should be callable from scripts/automation using an admin's access
+        // token, not only from browser sessions. `adminOnlyGate` gates on
+        // `actor.user.username`, which is populated for access-token and
+        // app-under-user actors alike.
+        if (opts.requireUserActor) mwChain.push(requireUserActorGate());
 
         if (opts.adminOnly) {
             const extras = Array.isArray(opts.adminOnly) ? opts.adminOnly : [];

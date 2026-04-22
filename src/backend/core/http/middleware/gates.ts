@@ -117,7 +117,10 @@ export const DEFAULT_ADMIN_USERNAMES = ['admin', 'system'] as const;
  * the supplied extras. Extras are *additional* allowed users on top of the
  * built-in pair, not a replacement for it.
  *
- * Implies `requireAuth` + `requireUserActor`.
+ * Implies `requireAuth`. Does *not* imply `requireUserActor` — admin
+ * endpoints are callable via an admin's access token or app-under-user
+ * actor; combine with `requireUserActor` explicitly if a route must be
+ * restricted to browser sessions.
  */
 export const adminOnlyGate = (
     extras: readonly string[] = [],

@@ -1,6 +1,10 @@
 import { PuterStore } from '../types';
 import type { Actor } from '../../core/actor';
-import { isSystemActor, SYSTEM_ACTOR } from '../../core/actor';
+import {
+    isSystemActor,
+    SYSTEM_ACTOR,
+    SYSTEM_ACTOR_UUID,
+} from '../../core/actor';
 import { PUTER_KV_STORE_TABLE_DEFINITION } from './tableDefinition';
 
 // ── Types ────────────────────────────────────────────────────────────
@@ -32,7 +36,7 @@ export interface RecursiveRecord<T> {
 // ── Helpers ──────────────────────────────────────────────────────────
 
 const GLOBAL_APP_KEY = 'os-global';
-const SYSTEM_NAMESPACE = 'v1:system';
+const SYSTEM_NAMESPACE = `v1:${SYSTEM_ACTOR_UUID}`;
 const MAX_KEY_BYTES = 1024;
 const BATCH_GET_CHUNK = 100;
 const PATH_CLEANER_REGEX = /[:\-+/*]/g;
