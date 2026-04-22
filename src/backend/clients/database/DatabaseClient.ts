@@ -96,7 +96,10 @@ export class DatabaseClient extends PuterClient {
         query: string,
         params: unknown[] = [],
     ): Promise<Record<string, unknown>[]> {
-        return this.pread(query, params);
+        return Promise.any([
+            this.pread(query, params),
+            this.read(query, params),
+        ]);
     }
 
     /**
