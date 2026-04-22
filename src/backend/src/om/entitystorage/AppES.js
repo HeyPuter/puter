@@ -300,7 +300,7 @@ class AppES extends BaseES {
                 };
                 await svc_event.emit('app.new-icon', event);
                 if ( typeof event.url === 'string' && event.url ) {
-                    this.db.write(
+                    await this.db.write(
                         'UPDATE apps SET icon = ? WHERE id = ? LIMIT 1',
                         [event.url, insert_id],
                     );
