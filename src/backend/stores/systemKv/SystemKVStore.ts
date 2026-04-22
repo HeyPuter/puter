@@ -36,7 +36,7 @@ export interface RecursiveRecord<T> {
 // ── Helpers ──────────────────────────────────────────────────────────
 
 const GLOBAL_APP_KEY = 'os-global';
-const SYSTEM_NAMESPACE = `v1:${SYSTEM_ACTOR_UUID}`;
+const SYSTEM_NAMESPACE = `v1:${SYSTEM_ACTOR_UUID}:${GLOBAL_APP_KEY}`;
 const MAX_KEY_BYTES = 1024;
 const BATCH_GET_CHUNK = 100;
 const PATH_CLEANER_REGEX = /[:\-+/*]/g;
