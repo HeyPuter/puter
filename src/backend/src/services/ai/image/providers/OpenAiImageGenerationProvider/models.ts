@@ -8,6 +8,7 @@ export const OPEN_AI_IMAGE_GENERATION_MODELS: IImageModel[] = [
         name: 'GPT Image 2',
         version: '2.0',
         costs_currency: 'usd-cents',
+        index_cost_key: 'low:1024x1024',
         costs: {
             // Text tokens (per 1M tokens)
             text_input: 500, // $5.00
@@ -17,6 +18,7 @@ export const OPEN_AI_IMAGE_GENERATION_MODELS: IImageModel[] = [
             image_input: 800, // $8.00
             image_cached_input: 200, // $2.00
             image_output: 3000, // $30.00
+            'low:1024x1024': 0.588,
         },
         allowedQualityLevels: ['auto', 'low', 'medium', 'high'],
     },
