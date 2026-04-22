@@ -168,16 +168,142 @@ export class AuthService extends PuterService {
      *
      * Fires `app.from-origin` before hashing so listeners can rewrite the
      * origin (e.g. polotno maps `polotno.com` → `studio.polotno.com` so both
-     * surfaces resolve to the same app row). UUIDv5 on the — possibly
-     * rewritten — origin gives a deterministic namespace mapping.
+     * surfaces resolve to the same app row).
+     *
+     * Lookup order:
+     *   1. **Canonical DB match.** If any app in the DB has an `index_url`
+     *      that normalizes to this origin (across every configured hosting
+     *      variant — `puter.site`, `puter.app`, etc.), return that app's
+     *      real UID. Required for private apps: their `/auth/get-user-app-token`
+     *      tokens must reference the real app row so the app-under-user
+     *      verification path can load them.
+     *   2. **UUIDv5 deterministic fallback.** Origins that don't match any
+     *      app (third-party sites, apps not yet in the DB) get a deterministic
+     *      namespaced UUID
      */
     async appUidFromOrigin(origin: string): Promise<string> {
         const parsed = this.#originFromUrl(origin);
         if (!parsed) throw new Error('Invalid origin URL');
         const event = { origin: parsed };
         await this.clients.event?.emitAndWait('app.from-origin', event, {});
+
+        const canonicalUid = await this.#findCanonicalAppUidForOrigin(
+            event.origin,
+        );
+        if (canonicalUid) return canonicalUid;
+
         const uid = uuidv5(event.origin, APP_ORIGIN_UUID_NAMESPACE);
         return `app-${uid}`;
+    }
+
+    /**
+     * Find the real app row whose `index_url` canonically matches `origin`.
+     *
+     * Build candidate URLs from the origin's subdomain crossed with every
+     * configured hosting domain (static + private, with and without ports).
+     * Prefer the oldest matching app for deterministic tie-breaking across
+     * historically-duplicated rows.
+     */
+    async #findCanonicalAppUidForOrigin(
+        origin: string,
+    ): Promise<string | null> {
+        let parsed: URL;
+        try {
+            parsed = new URL(origin);
+        } catch {
+            return null;
+        }
+
+        const config = this.config as {
+            static_hosting_domain?: string;
+            static_hosting_domain_alt?: string;
+            private_app_hosting_domain?: string;
+            private_app_hosting_domain_alt?: string;
+            protocol?: string;
+        };
+
+        const normalizeDomainValue = (v: unknown): string | null => {
+            if (typeof v !== 'string') return null;
+            const trimmed = v.trim().toLowerCase().replace(/^\./, '');
+            return trimmed || null;
+        };
+        const stripPort = (v: string): string => v.split(':')[0] || v;
+
+        const hostingDomainsRaw = [
+            normalizeDomainValue(config.static_hosting_domain),
+            normalizeDomainValue(config.static_hosting_domain_alt),
+            normalizeDomainValue(config.private_app_hosting_domain),
+            normalizeDomainValue(config.private_app_hosting_domain_alt),
+        ].filter((d): d is string => !!d);
+        const hostingDomainsStripped = hostingDomainsRaw.map(stripPort);
+        const hostingDomains = [
+            ...new Set([...hostingDomainsRaw, ...hostingDomainsStripped]),
+        ];
+
+        const hostRaw = parsed.host.toLowerCase();
+        const hostStripped = parsed.hostname.toLowerCase();
+
+        // Extract the subdomain label under the longest matching hosting
+        // domain — longest-first avoids matching `puter.app` before
+        // `foo.puter.app`.
+        let subdomain: string | null = null;
+        const sortedHostingDomains = [...hostingDomains].sort(
+            (a, b) => b.length - a.length,
+        );
+        for (const d of sortedHostingDomains) {
+            const suffix = `.${d}`;
+            if (hostRaw === d || hostStripped === d) {
+                subdomain = null;
+                break;
+            }
+            if (hostRaw.endsWith(suffix)) {
+                subdomain = hostRaw.slice(0, hostRaw.length - suffix.length);
+                subdomain = subdomain.split('.')[0] || null;
+                break;
+            }
+            if (hostStripped.endsWith(suffix)) {
+                subdomain = hostStripped.slice(
+                    0,
+                    hostStripped.length - suffix.length,
+                );
+                subdomain = subdomain.split('.')[0] || null;
+                break;
+            }
+        }
+
+        const hostCandidates = new Set<string>([hostRaw, hostStripped]);
+        if (subdomain) {
+            for (const d of hostingDomains) {
+                hostCandidates.add(`${subdomain}.${d}`);
+            }
+        }
+
+        const protocolCandidates = new Set<string>([
+            parsed.protocol.replace(/:$/, ''),
+            (config.protocol ?? '').trim().replace(/:$/, '') || 'https',
+            'https',
+            'http',
+        ]);
+
+        const urlCandidates: string[] = [];
+        for (const hc of hostCandidates) {
+            if (!hc) continue;
+            for (const protocol of protocolCandidates) {
+                if (!protocol) continue;
+                const base = `${protocol}://${hc}`;
+                urlCandidates.push(base, `${base}/`, `${base}/index.html`);
+            }
+        }
+        const uniqueCandidates = [...new Set(urlCandidates)];
+        if (uniqueCandidates.length === 0) return null;
+
+        const placeholders = uniqueCandidates.map(() => '?').join(', ');
+        const rows = (await this.clients.db.read(
+            `SELECT \`uid\` FROM \`apps\` WHERE \`index_url\` IN (${placeholders}) ORDER BY \`id\` ASC LIMIT 1`,
+            uniqueCandidates,
+        )) as Array<{ uid?: string }>;
+        const uid = rows[0]?.uid;
+        return typeof uid === 'string' && uid ? uid : null;
     }
 
     /**
