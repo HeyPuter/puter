@@ -123,12 +123,7 @@ export class AppStore extends PuterStore {
         return this.getById(insertId);
     }
 
-    /**
-     * Update an app row. `patch` is the raw column map (after
-     * validation). Read-only columns are silently stripped.
-     *
-     * Invalidates cache. Returns the updated row.
-     */
+    /** Updates + refreshes cache (local + peers) with the post-update row. */
     async update(appId, patch) {
         const allowed = this.#filterEditable(patch);
         const keys = Object.keys(allowed);
@@ -141,8 +136,10 @@ export class AppStore extends PuterStore {
             `UPDATE \`apps\` SET ${setClause} WHERE \`id\` = ?`,
             [...values, appId],
         );
-        await this.invalidateById(appId);
-        return this.getById(appId);
+
+        const fresh = await this.#readFromDb('id', appId);
+        if (fresh) await this.#refreshCache(fresh);
+        return fresh;
     }
 
     /**
@@ -246,23 +243,14 @@ export class AppStore extends PuterStore {
         const keys = [...affected].map(
             (t) => `${FILETYPE_CACHE_KEY_PREFIX}:${t}`,
         );
-        try {
-            await this.clients.redis.del(...keys);
-        } catch {
-            // Best-effort invalidation.
-        }
+        await this.publishCacheKeys({ keys });
     }
 
     // ── Cache invalidation ───────────────────────────────────────────
 
     async invalidate(app) {
         const keys = this.#cacheKeysForApp(app);
-        if (keys.length === 0) return;
-        try {
-            await this.clients.redis.del(...keys);
-        } catch {
-            // Best-effort
-        }
+        await this.publishCacheKeys({ keys });
     }
 
     async invalidateById(id) {
@@ -291,17 +279,20 @@ export class AppStore extends PuterStore {
         const cached = await this.#readCache(prop, value);
         if (cached) return cached;
 
+        const normalized = await this.#readFromDb(prop, value);
+        if (!normalized) return null;
+
+        this.#writeCache(normalized).catch(() => {});
+        return normalized;
+    }
+
+    async #readFromDb(prop, value) {
         const rows = await this.clients.db.read(
             `SELECT * FROM \`apps\` WHERE \`${prop}\` = ? LIMIT 1`,
             [value],
         );
         if (rows.length === 0) return null;
-
-        const normalized = this.#normalizeRow(rows[0]);
-        this.#writeCache(normalized).catch(() => {
-            // Best-effort caching
-        });
-        return normalized;
+        return this.#normalizeRow(rows[0]);
     }
 
     #cacheKey(prop, value) {
@@ -338,6 +329,16 @@ export class AppStore extends PuterStore {
                 this.clients.redis.set(k, serialized, 'EX', CACHE_TTL_SECONDS),
             ),
         );
+    }
+
+    async #refreshCache(app) {
+        const keys = this.#cacheKeysForApp(app);
+        if (keys.length === 0) return;
+        await this.publishCacheKeys({
+            keys,
+            serializedData: JSON.stringify(app),
+            ttlSeconds: CACHE_TTL_SECONDS,
+        });
     }
 
     #filterEditable(fields) {

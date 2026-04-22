@@ -2,7 +2,9 @@ import type { LayerInstances } from '../../types';
 import type { puterServices } from '../index';
 import type { UserRow } from '../../stores/user/UserStore';
 import { PuterService } from '../types';
+import { cleanEmail } from '../../util/email.js';
 import { generate_identifier } from '../../util/identifier.js';
+import { generateDefaultFsentries } from '../../util/userProvisioning.js';
 
 const GOOGLE_DISCOVERY_URL =
     'https://accounts.google.com/.well-known/openid-configuration';
@@ -227,6 +229,55 @@ export class OIDCService extends PuterService {
     }
 
     /**
+     * Find an existing Puter user by the email claimed by the OIDC provider.
+     *
+     * Matches on both the raw `email` column and the canonical `clean_email`
+     * column so that `Foo.Bar+tag@gmail.com` (OIDC) resolves to an account
+     * that signed up as `foobar@gmail.com`. Primary email is preferred over a
+     * clean_email collision.
+     */
+    async findUserByEmail(email: string): Promise<UserRow | null> {
+        if (!email) return null;
+        const direct = await this.stores.user.getByEmail(email);
+        if (direct) return direct;
+        return this.stores.user.getByCleanEmail(cleanEmail(email));
+    }
+
+    /**
+     * Link an OIDC provider to an existing user. Use when the `sub` wasn't
+     * linked yet but we matched the user by email.
+     *
+     * Does NOT touch the password column — a user who originally signed up
+     * with a password keeps password login. Does mark `email_confirmed` if
+     * the provider verified the email and the row wasn't already confirmed.
+     */
+    async linkProviderToUser(
+        userId: number,
+        providerId: string,
+        claims: OIDCUserInfo,
+    ): Promise<{ success: boolean; error?: string }> {
+        if (claims.email_verified === false) {
+            return {
+                success: false,
+                error: 'Provider did not verify this email address.',
+            };
+        }
+
+        await this.stores.oidc.link(userId, providerId, claims.sub, null);
+
+        // Flip email_confirmed on if the provider verified and we haven't yet.
+        const user = await this.stores.user.getById(userId, { force: true });
+        if (user && !user.email_confirmed) {
+            await this.stores.user.update(userId, {
+                email_confirmed: 1,
+                requires_email_confirmation: 0,
+            });
+        }
+
+        return { success: true };
+    }
+
+    /**
      * Create a new Puter user from OIDC claims and link the provider.
      * Returns `{ success, user, error? }`.
      */
@@ -256,29 +307,89 @@ export class OIDCService extends PuterService {
 
         // Create user — no password, email assumed confirmed by provider
         const { v4: uuidv4 } = await import('uuid');
-        const user = await this.stores.user.create({
+        const created = await this.stores.user.create({
             username,
             uuid: uuidv4(),
             password: null,
             email: claims.email ?? null,
-            clean_email: claims.email?.toLowerCase() ?? null,
+            clean_email: claims.email ? cleanEmail(claims.email) : null,
+            free_storage: this.config.storage_capacity ?? null,
             requires_email_confirmation: false,
         });
 
-        if (!user) {
+        if (!created) {
             return { success: false, error: 'User creation failed.' };
         }
 
-        // Mark email as confirmed (OIDC provider already verified it)
-        await this.stores.user.update(user.id, {
+        // Mark email as confirmed (OIDC provider already verified it).
+        await this.stores.user.update(created.id, {
             email_confirmed: 1,
             requires_email_confirmation: 0,
         });
 
-        // Link OIDC provider
-        await this.stores.oidc.link(user.id, providerId, claims.sub, null);
+        // Default user group — OIDC users skip the temp group entirely since
+        // the email is already verified by the IdP.
+        const defaultGroup = this.config.default_user_group;
+        if (defaultGroup) {
+            try {
+                await this.stores.group.addUsers(defaultGroup, [
+                    created.username,
+                ]);
+            } catch (e) {
+                console.warn('[oidc] group assignment failed:', e);
+            }
+        }
 
-        return { success: true, user };
+        // Provision home directory + default folders. Idempotent.
+        try {
+            await generateDefaultFsentries(
+                this.clients.db,
+                this.stores.user,
+                created,
+            );
+        } catch (e) {
+            console.warn('[oidc] generateDefaultFsentries failed:', e);
+        }
+
+        // Link OIDC provider (after provisioning so a failed link doesn't
+        // leave an orphaned user without a home folder).
+        await this.stores.oidc.link(created.id, providerId, claims.sub, null);
+
+        // Re-read so callers see email_confirmed / *_uuid / *_id fields
+        // written above.
+        const user = await this.stores.user.getById(created.id, {
+            force: true,
+        });
+        const resolved = user ?? created;
+
+        // Fire signup events — keys match the password-based signup path so
+        // downstream listeners (welcome email, mailchimp sync, etc.) treat
+        // both signup routes identically.
+        try {
+            this.clients.event?.emit(
+                'puter.signup.success',
+                {
+                    user_id: resolved.id,
+                    user_uuid: resolved.uuid,
+                    email: resolved.email,
+                    username: resolved.username,
+                },
+                {},
+            );
+        } catch {
+            // ignore — event emission shouldn't block signup
+        }
+        try {
+            this.clients.event?.emit(
+                'user.save_account',
+                { user_id: resolved.id },
+                {},
+            );
+        } catch {
+            // ignore
+        }
+
+        return { success: true, user: resolved };
     }
 
     // ── Internals ───────────────────────────────────────────────────

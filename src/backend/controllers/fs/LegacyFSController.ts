@@ -58,6 +58,10 @@ export class LegacyFSController extends PuterController {
 
     registerRoutes(router: PuterRouter): void {
         const apiOptions = { subdomain: 'api', requireVerified: true } as const;
+        // Signed-URL routes: the handler validates the URL signature itself,
+        // so no auth gate is applied (matches v1, which mounted these routers
+        // with no middleware).
+        const signedOptions = { subdomain: 'api' } as const;
 
         // Core filesystem_api routes — direct handlers over the FS service.
         router.post('/stat', apiOptions, this.stat);
@@ -76,8 +80,8 @@ export class LegacyFSController extends PuterController {
 
         // Signed-URL + meta routes.
         router.post('/sign', apiOptions, this.sign);
-        router.post('/writeFile', apiOptions, this.writeFile);
-        router.get('/file', apiOptions, this.file);
+        router.post('/writeFile', signedOptions, this.writeFile);
+        router.get('/file', signedOptions, this.file);
         router.all('/df', apiOptions, this.df);
         router.post('/open_item', apiOptions, this.openItem);
         router.post(

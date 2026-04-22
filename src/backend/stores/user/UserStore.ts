@@ -85,6 +85,27 @@ export class UserStore extends PuterStore {
     }
 
     /**
+     * Look up a user by the canonical `clean_email` column. Used by signup
+     * and OIDC link flows to collapse gmail-style aliases (`foo.bar+tag@…`)
+     * to the same account.
+     *
+     * Not cached — `clean_email` isn't an identifying property and callers
+     * use this for duplicate detection at write time, which needs fresh
+     * reads. Rehydrates through `getById` so the caller gets a normalized
+     * row (and warms the id-keyed cache for subsequent reads).
+     */
+    async getByCleanEmail(cleanEmailValue: string): Promise<UserRow | null> {
+        if (!cleanEmailValue) return null;
+        const rows = (await this.clients.db.tryHardRead(
+            'SELECT `id` FROM `user` WHERE `clean_email` = ? LIMIT 1',
+            [cleanEmailValue],
+        )) as Array<{ id: number }>;
+        const row = rows[0];
+        if (!row) return null;
+        return this.getById(row.id as number);
+    }
+
+    /**
      * Generic property lookup. Fast-path reads redis first (cache is
      * multi-key — every identifying property points at the same serialized
      * row). On miss, falls back to DB and backfills the cache.
@@ -209,7 +230,13 @@ export class UserStore extends PuterStore {
             `UPDATE \`user\` SET ${setClause} WHERE \`id\` = ?`,
             [...values, userId],
         );
-        await this.invalidateById(userId);
+
+        const fresh = await this.getByProperty('id', userId, { force: true });
+        if (fresh) {
+            await this.#refreshCache(fresh);
+        } else {
+            await this.invalidateById(userId);
+        }
     }
 
     async updateMetadata(
@@ -224,18 +251,15 @@ export class UserStore extends PuterStore {
             'UPDATE `user` SET `metadata` = ? WHERE `id` = ?',
             [JSON.stringify(merged), userId],
         );
-        if (user) await this.invalidate(user);
+        if (user) {
+            const refreshed: UserRow = { ...user, metadata: merged };
+            await this.#refreshCache(refreshed);
+        }
     }
 
-    /** Remove every cache key pointing at the given user. Call after any DB write. */
     async invalidate(user: UserRow): Promise<void> {
         const keys = this.#cacheKeysForUser(user);
-        if (keys.length === 0) return;
-        try {
-            await this.clients.redis.del(...keys);
-        } catch {
-            // Best-effort invalidation.
-        }
+        await this.publishCacheKeys({ keys });
     }
 
     /** Invalidate by id — fetches the cached row first so we know all its keys. */
@@ -291,6 +315,16 @@ export class UserStore extends PuterStore {
                 ),
             ),
         );
+    }
+
+    async #refreshCache(user: UserRow): Promise<void> {
+        const keys = this.#cacheKeysForUser(user);
+        if (keys.length === 0) return;
+        await this.publishCacheKeys({
+            keys,
+            serializedData: JSON.stringify(user),
+            ttlSeconds: CACHE_TTL_SECONDS,
+        });
     }
 
     /**

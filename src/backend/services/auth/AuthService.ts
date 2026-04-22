@@ -448,6 +448,7 @@ export class AuthService extends PuterService {
                 [tokenUid, permission, extra ? JSON.stringify(extra) : '{}'],
             );
         }
+        await this.stores.permission.invalidateAccessTokenPerms(tokenUid);
 
         return jwt;
     }
@@ -472,6 +473,7 @@ export class AuthService extends PuterService {
             'DELETE FROM `access_token_permissions` WHERE `token_uid` = ?',
             [tokenUid],
         );
+        await this.stores.permission.invalidateAccessTokenPerms(tokenUid);
     }
 
     // ── Internals ───────────────────────────────────────────────────

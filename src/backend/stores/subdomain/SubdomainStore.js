@@ -1,18 +1,13 @@
 import { v4 as uuidv4 } from 'uuid';
 import { PuterStore } from '../types';
 
-/**
- * CRUD over the `subdomains` table. Used for user-hosted sites.
- *
- * Columns: id, uuid, subdomain, user_id, root_dir_id, associated_app_id,
- * ts, app_owner.
- *
- * Security: all lookups are user_id-scoped by default. Callers that
- * need cross-user reads (e.g., public hosting resolution) should use
- * the unscoped variants.
- */
-
 const READ_ONLY_COLUMNS = new Set(['id', 'uuid', 'user_id', 'ts']);
+
+const CACHE_KEY_PREFIX = 'subdomains';
+const CACHE_TTL_SECONDS = 60 * 60;
+// Sentinel so 404s on the same public subdomain don't hit the DB repeatedly.
+const NEGATIVE_CACHE_MARKER = '__none__';
+const NEGATIVE_CACHE_TTL_SECONDS = 60;
 
 export class SubdomainStore extends PuterStore {
     // ── Reads ────────────────────────────────────────────────────────
@@ -31,11 +26,41 @@ export class SubdomainStore extends PuterStore {
     }
 
     async getBySubdomain(subdomain) {
+        if (!subdomain) return null;
+
+        const cacheKey = this.#cacheKey(subdomain);
+        try {
+            const raw = await this.clients.redis.get(cacheKey);
+            if (raw === NEGATIVE_CACHE_MARKER) return null;
+            if (raw) {
+                const parsed = JSON.parse(raw);
+                if (parsed) return parsed;
+            }
+        } catch {
+            /* fall through */
+        }
+
         const rows = await this.clients.db.read(
             'SELECT * FROM `subdomains` WHERE `subdomain` = ? LIMIT 1',
             [subdomain],
         );
-        return rows[0] ?? null;
+        const row = rows[0] ?? null;
+
+        if (row) {
+            this.clients.redis
+                .set(cacheKey, JSON.stringify(row), 'EX', CACHE_TTL_SECONDS)
+                .catch(() => {});
+        } else {
+            this.clients.redis
+                .set(
+                    cacheKey,
+                    NEGATIVE_CACHE_MARKER,
+                    'EX',
+                    NEGATIVE_CACHE_TTL_SECONDS,
+                )
+                .catch(() => {});
+        }
+        return row;
     }
 
     async listByUserId(userId, { limit = 500 } = {}) {
@@ -112,7 +137,9 @@ export class SubdomainStore extends PuterStore {
                 appOwner,
             ],
         );
-        return this.getByUuid(uuid);
+        const row = await this.getByUuid(uuid);
+        if (row) await this.#refreshCache(row);
+        return row;
     }
 
     async update(uuid, patch, { userId } = {}) {
@@ -123,6 +150,9 @@ export class SubdomainStore extends PuterStore {
         }
         const keys = Object.keys(allowed);
         if (keys.length === 0) return this.getByUuid(uuid, { userId });
+
+        // Rename drops the old cache key.
+        const before = await this.getByUuid(uuid, { userId });
 
         const setClause = keys.map((k) => `\`${k}\` = ?`).join(', ');
         const values = keys.map((k) => allowed[k]);
@@ -137,10 +167,20 @@ export class SubdomainStore extends PuterStore {
             `UPDATE \`subdomains\` SET ${setClause} ${where}`,
             [...values, ...whereParams],
         );
-        return this.getByUuid(uuid, { userId });
+
+        const after = await this.getByUuid(uuid, { userId });
+        if (before?.subdomain && before.subdomain !== after?.subdomain) {
+            await this.publishCacheKeys({
+                keys: [this.#cacheKey(before.subdomain)],
+            });
+        }
+        if (after) await this.#refreshCache(after);
+        return after;
     }
 
     async deleteByUuid(uuid, { userId } = {}) {
+        const row = await this.getByUuid(uuid, { userId });
+
         const where =
             userId !== undefined
                 ? 'WHERE `uuid` = ? AND `user_id` = ?'
@@ -151,6 +191,27 @@ export class SubdomainStore extends PuterStore {
             `DELETE FROM \`subdomains\` ${where}`,
             params,
         );
-        return (result?.affectedRows ?? result?.changes ?? 0) > 0;
+        const affected = (result?.affectedRows ?? result?.changes ?? 0) > 0;
+        if (affected && row?.subdomain) {
+            await this.publishCacheKeys({
+                keys: [this.#cacheKey(row.subdomain)],
+            });
+        }
+        return affected;
+    }
+
+    // ── Internals ────────────────────────────────────────────────────
+
+    #cacheKey(subdomain) {
+        return `${CACHE_KEY_PREFIX}:name:${subdomain}`;
+    }
+
+    async #refreshCache(row) {
+        if (!row?.subdomain) return;
+        await this.publishCacheKeys({
+            keys: [this.#cacheKey(row.subdomain)],
+            serializedData: JSON.stringify(row),
+            ttlSeconds: CACHE_TTL_SECONDS,
+        });
     }
 }

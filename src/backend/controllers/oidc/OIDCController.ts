@@ -187,31 +187,23 @@ export class OIDCController extends PuterController {
                 }
 
                 const { provider, userinfo, stateDecoded } = result;
-                let user = await this.services.oidc.findUserByProviderSub(
+                const resolved = await this.#resolveOrCreateOIDCUser(
                     provider,
-                    userinfo.sub,
+                    userinfo,
                 );
-
-                if (!user) {
-                    // No account found — create one (login flow auto-creates)
-                    const outcome = await this.services.oidc.createUserFromOIDC(
-                        provider,
-                        userinfo,
+                if ('error' in resolved) {
+                    return res.redirect(
+                        302,
+                        buildErrorRedirectUrl(
+                            origin,
+                            'login',
+                            'other',
+                            resolved.error,
+                            stateDecoded,
+                        ),
                     );
-                    if (!outcome.success) {
-                        return res.redirect(
-                            302,
-                            buildErrorRedirectUrl(
-                                origin,
-                                'login',
-                                'other',
-                                outcome.error ?? 'Account creation failed.',
-                                stateDecoded,
-                            ),
-                        );
-                    }
-                    user = outcome.user!;
                 }
+                const user = resolved.user;
 
                 if (user.suspended) {
                     return res.redirect(
@@ -254,49 +246,45 @@ export class OIDCController extends PuterController {
                 }
 
                 const { provider, userinfo, stateDecoded } = result;
-                const existingUser =
-                    await this.services.oidc.findUserByProviderSub(
-                        provider,
-                        userinfo.sub,
-                    );
-
-                if (existingUser) {
-                    // Already exists — log in instead (signup switches to login)
-                    if (existingUser.suspended) {
-                        return res.redirect(
-                            302,
-                            buildErrorRedirectUrl(
-                                origin,
-                                'signup',
-                                'other',
-                                'This account is suspended.',
-                                stateDecoded,
-                            ),
-                        );
-                    }
-                    return this.#finishLogin(res, existingUser, stateDecoded, {
-                        oidc_switched: 'login',
-                    });
-                }
-
-                const outcome = await this.services.oidc.createUserFromOIDC(
+                const resolved = await this.#resolveOrCreateOIDCUser(
                     provider,
                     userinfo,
                 );
-                if (!outcome.success) {
+                if ('error' in resolved) {
                     return res.redirect(
                         302,
                         buildErrorRedirectUrl(
                             origin,
                             'signup',
                             'other',
-                            outcome.error ?? 'Account creation failed.',
+                            resolved.error,
+                            stateDecoded,
+                        ),
+                    );
+                }
+                const user = resolved.user;
+
+                if (user.suspended) {
+                    return res.redirect(
+                        302,
+                        buildErrorRedirectUrl(
+                            origin,
+                            'signup',
+                            'other',
+                            'This account is suspended.',
                             stateDecoded,
                         ),
                     );
                 }
 
-                await this.#finishLogin(res, outcome.user!, stateDecoded);
+                // If we landed on an existing account (either via the
+                // provider_sub or via email match), signal the GUI so it can
+                // render a "signed in" flow rather than "account created".
+                const extra =
+                    resolved.origin === 'created'
+                        ? undefined
+                        : { oidc_switched: 'login' };
+                await this.#finishLogin(res, user, stateDecoded, extra);
             },
         );
 
@@ -381,6 +369,68 @@ if (window.opener) {
     }
 
     // ── Shared helpers ──────────────────────────────────────────────
+
+    /**
+     * Resolve an OIDC callback to a Puter user. In order:
+     *   1. Existing link on (provider, sub) → that user.
+     *   2. Email from provider matches an existing account (by raw email OR
+     *      canonical clean_email) → link (provider, sub) to that user.
+     *   3. Otherwise create a new user and link.
+     *
+     * Step 2 only fires when `email_verified !== false` — otherwise a
+     * malicious IdP could hijack an account by claiming someone's email.
+     *
+     * The email-match path deliberately does NOT touch the existing user's
+     * password, so password-based login keeps working.
+     */
+    async #resolveOrCreateOIDCUser(
+        provider: string,
+        userinfo: { sub: string; email?: unknown; [k: string]: unknown },
+    ): Promise<
+        | { error: string }
+        | {
+              user: import('../../stores/user/UserStore.js').UserRow;
+              origin: 'linked-sub' | 'linked-email' | 'created';
+          }
+    > {
+        // 1. Existing provider/sub link.
+        const linked = await this.services.oidc.findUserByProviderSub(
+            provider,
+            userinfo.sub,
+        );
+        if (linked) return { user: linked, origin: 'linked-sub' };
+
+        // 2. Email match → link to existing account.
+        const claimedEmail =
+            typeof userinfo.email === 'string' ? userinfo.email : null;
+        if (claimedEmail) {
+            const byEmail =
+                await this.services.oidc.findUserByEmail(claimedEmail);
+            if (byEmail) {
+                const outcome = await this.services.oidc.linkProviderToUser(
+                    byEmail.id,
+                    provider,
+                    userinfo as { sub: string; email?: string },
+                );
+                if (!outcome.success) {
+                    return {
+                        error: outcome.error ?? 'Failed to link provider.',
+                    };
+                }
+                return { user: byEmail, origin: 'linked-email' };
+            }
+        }
+
+        // 3. Fresh account.
+        const outcome = await this.services.oidc.createUserFromOIDC(
+            provider,
+            userinfo as { sub: string; email?: string },
+        );
+        if (!outcome.success || !outcome.user) {
+            return { error: outcome.error ?? 'Account creation failed.' };
+        }
+        return { user: outcome.user, origin: 'created' };
+    }
 
     async #processCallback(
         req: Request,

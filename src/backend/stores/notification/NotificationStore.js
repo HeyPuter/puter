@@ -1,14 +1,10 @@
 import { v4 as uuidv4 } from 'uuid';
 import { PuterStore } from '../types';
 
-/**
- * CRUD over the `notification` table.
- *
- * Columns: id, user_id, uid (unique), value (JSON), acknowledged
- * (timestamp), shown (timestamp), created_at (timestamp).
- *
- * Notifications are per-user. No cross-user reads.
- */
+// `markShown` intentionally doesn't invalidate unack count — it doesn't move it.
+
+const UNACK_CACHE_KEY_PREFIX = 'notifications:unack';
+const UNACK_CACHE_TTL_SECONDS = 5 * 60;
 
 export class NotificationStore extends PuterStore {
     // ── Reads ────────────────────────────────────────────────────────
@@ -50,11 +46,29 @@ export class NotificationStore extends PuterStore {
     }
 
     async countUnacknowledged(userId) {
+        if (!userId) return 0;
+
+        const cacheKey = this.#unackCacheKey(userId);
+        try {
+            const raw = await this.clients.redis.get(cacheKey);
+            if (raw !== null && raw !== undefined) {
+                const parsed = Number(raw);
+                if (Number.isFinite(parsed)) return parsed;
+            }
+        } catch {
+            // Fall through to DB.
+        }
+
         const rows = await this.clients.db.read(
             'SELECT COUNT(*) AS n FROM `notification` WHERE `user_id` = ? AND `acknowledged` IS NULL',
             [userId],
         );
-        return rows[0]?.n ?? 0;
+        const count = Number(rows[0]?.n ?? 0);
+
+        this.clients.redis
+            .set(cacheKey, String(count), 'EX', UNACK_CACHE_TTL_SECONDS)
+            .catch(() => {});
+        return count;
     }
 
     // ── Writes ───────────────────────────────────────────────────────
@@ -68,6 +82,7 @@ export class NotificationStore extends PuterStore {
             'INSERT INTO `notification` (`uid`, `user_id`, `value`) VALUES (?, ?, ?)',
             [uid, userId, serialized],
         );
+        await this.#invalidateUnack(userId);
         return this.getByUid(uid, { userId });
     }
 
@@ -77,7 +92,9 @@ export class NotificationStore extends PuterStore {
             'UPDATE `notification` SET `acknowledged` = ? WHERE `uid` = ? AND `user_id` = ? AND `acknowledged` IS NULL',
             [now, uid, userId],
         );
-        return (result?.affectedRows ?? result?.changes ?? 0) > 0;
+        const changed = (result?.affectedRows ?? result?.changes ?? 0) > 0;
+        if (changed) await this.#invalidateUnack(userId);
+        return changed;
     }
 
     async markShown(uid, userId) {
@@ -94,10 +111,20 @@ export class NotificationStore extends PuterStore {
             'DELETE FROM `notification` WHERE `uid` = ? AND `user_id` = ?',
             [uid, userId],
         );
-        return (result?.affectedRows ?? result?.changes ?? 0) > 0;
+        const changed = (result?.affectedRows ?? result?.changes ?? 0) > 0;
+        if (changed) await this.#invalidateUnack(userId);
+        return changed;
     }
 
     // ── Internals ────────────────────────────────────────────────────
+
+    #unackCacheKey(userId) {
+        return `${UNACK_CACHE_KEY_PREFIX}:${userId}`;
+    }
+
+    async #invalidateUnack(userId) {
+        await this.publishCacheKeys({ keys: [this.#unackCacheKey(userId)] });
+    }
 
     #normalizeRow(row) {
         if (!row) return null;

@@ -166,14 +166,10 @@ export class FSEntryStore extends PuterStore {
     }
 
     async #invalidateEntryCache(entry: FSEntry): Promise<void> {
-        try {
-            const keys = this.#entryCacheKeys(entry);
-            if (keys.length > 0) {
-                await this.#cache.del(...keys);
-            }
-        } catch {
-            // Best effort cache invalidation.
-        }
+        // Broadcasts; read-path `#writeEntryToCache` stays local to avoid
+        // fanning backfills over the network.
+        const keys = this.#entryCacheKeys(entry);
+        await this.publishCacheKeys({ keys });
     }
 
     async invalidateEntryCacheByPathForUser(
@@ -198,11 +194,7 @@ export class FSEntryStore extends PuterStore {
             return;
         }
 
-        try {
-            await this.#cache.del(...cacheKeys);
-        } catch {
-            // Best effort cache invalidation.
-        }
+        await this.publishCacheKeys({ keys: cacheKeys });
     }
 
     async invalidateEntryCacheByUuid(uuid: string): Promise<void> {
@@ -230,11 +222,9 @@ export class FSEntryStore extends PuterStore {
             return;
         }
 
-        try {
-            await this.#cache.del(`prodfsv2:fsentry:uuid:${uuid}`);
-        } catch {
-            // Best effort cache invalidation.
-        }
+        await this.publishCacheKeys({
+            keys: [`prodfsv2:fsentry:uuid:${uuid}`],
+        });
     }
 
     #chunk<T>(values: T[], size: number): T[][] {

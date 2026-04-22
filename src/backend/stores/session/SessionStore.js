@@ -1,21 +1,32 @@
 import { v4 as uuidv4 } from 'uuid';
 import { PuterStore } from '../types';
 
-/**
- * Session persistence for auth.
- *
- * Provides CRUD operations on the `sessions` table. Activity tracking
- * is done via direct DB writes for now — a Redis batching optimization
- * can be layered on later without changing the interface.
- */
+// `updateActivity` intentionally skips cache invalidation — it's a
+// throttled UPDATE, stale `last_activity` in the cached row doesn't
+// gate anything, and eating a Redis write per request isn't worth it.
+
+const CACHE_KEY_PREFIX = 'sessions';
+const CACHE_TTL_SECONDS = 15 * 60;
+
 export class SessionStore extends PuterStore {
     /** Look up a session by its uuid. Returns `null` if not found. */
     async getByUuid(uuid) {
+        if (!uuid) return null;
+
+        const cached = await this.#readCache(uuid);
+        if (cached) return cached;
+
         const rows = await this.clients.db.read(
             'SELECT * FROM `sessions` WHERE `uuid` = ? LIMIT 1',
             [uuid],
         );
-        return this.#normalizeRow(rows[0]) ?? null;
+        const normalized = this.#normalizeRow(rows[0]);
+        if (!normalized) return null;
+
+        this.#writeCache(normalized).catch(() => {
+            // Best-effort backfill — local only.
+        });
+        return normalized;
     }
 
     /** Get all sessions for a user. */
@@ -55,11 +66,12 @@ export class SessionStore extends PuterStore {
         };
     }
 
-    /** Delete a session by uuid. */
+    /** Delete a session by uuid. Invalidates cache on this node + peers. */
     async removeByUuid(uuid) {
         await this.clients.db.write('DELETE FROM `sessions` WHERE `uuid` = ?', [
             uuid,
         ]);
+        await this.publishCacheKeys({ keys: [this.#cacheKey(uuid)] });
     }
 
     /** Update session activity timestamp and meta. */
@@ -79,6 +91,33 @@ export class SessionStore extends PuterStore {
     }
 
     // ── Internals ───────────────────────────────────────────────────
+
+    #cacheKey(uuid) {
+        return `${CACHE_KEY_PREFIX}:uuid:${uuid}`;
+    }
+
+    async #readCache(uuid) {
+        try {
+            const raw = await this.clients.redis.get(this.#cacheKey(uuid));
+            return raw ? JSON.parse(raw) : null;
+        } catch {
+            return null;
+        }
+    }
+
+    async #writeCache(session) {
+        if (!session?.uuid) return;
+        try {
+            await this.clients.redis.set(
+                this.#cacheKey(session.uuid),
+                JSON.stringify(session),
+                'EX',
+                CACHE_TTL_SECONDS,
+            );
+        } catch {
+            // Best-effort local backfill.
+        }
+    }
 
     #normalizeRow(row) {
         if (!row) return null;

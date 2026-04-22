@@ -8,6 +8,12 @@ import {
 } from '../../services/permission/consts';
 import type { UserRow } from '../user/UserStore';
 
+// Short TTLs: FK CASCADE on user/app delete + PermissionService rewriters
+// can touch rows this store's mutators never see.
+const U2A_CACHE_TTL_SECONDS = 5 * 60;
+const U2U_CACHE_TTL_SECONDS = 5 * 60;
+const TOKEN_CACHE_TTL_SECONDS = 10 * 60;
+
 // Re-export for back-compat — PermissionService et al. import `UserRow` from here.
 // The canonical definition lives in `UserStore`, which owns the user table.
 export type { UserRow };
@@ -133,14 +139,9 @@ export class PermissionStore extends PuterStore {
         permissions: string[],
     ): Promise<LinkedUserUserPermRow[]> {
         if (permissions.length === 0) return [];
-        let permClause = permissions.map(() => '`permission` = ?').join(' OR ');
-        if (permissions.length > 1) permClause = `(${permClause})`;
-        const rows = await this.clients.db.read(
-            'SELECT * FROM `user_to_user_permissions` ' +
-                `WHERE \`holder_user_id\` = ? AND ${permClause}`,
-            [holderUserId, ...permissions],
-        );
-        return rows.map((row) => this.#decodeExtra<LinkedUserUserPermRow>(row));
+        const all = await this.#readAllUserUserPermsForHolder(holderUserId);
+        const wanted = new Set(permissions);
+        return all.filter((row) => wanted.has(row.permission));
     }
 
     async upsertUserUserPerm(
@@ -165,6 +166,9 @@ export class PermissionStore extends PuterStore {
                 JSON.stringify(extra),
             ],
         );
+        await this.publishCacheKeys({
+            keys: [this.#u2uCacheKey(holderUserId)],
+        });
     }
 
     async deleteUserUserPermByHolder(
@@ -175,6 +179,9 @@ export class PermissionStore extends PuterStore {
             'DELETE FROM `user_to_user_permissions` WHERE `holder_user_id` = ? AND `permission` = ?',
             [holderUserId, permission],
         );
+        await this.publishCacheKeys({
+            keys: [this.#u2uCacheKey(holderUserId)],
+        });
     }
 
     async auditUserUserPerm(
@@ -216,14 +223,9 @@ export class PermissionStore extends PuterStore {
         permissions: string[],
     ): Promise<LinkedUserAppPermRow[]> {
         if (permissions.length === 0) return [];
-        let permClause = permissions.map(() => '`permission` = ?').join(' OR ');
-        if (permissions.length > 1) permClause = `(${permClause})`;
-        const rows = await this.clients.db.read(
-            'SELECT * FROM `user_to_app_permissions` ' +
-                `WHERE \`user_id\` = ? AND \`app_id\` = ? AND ${permClause}`,
-            [userId, appId, ...permissions],
-        );
-        return rows.map((row) => this.#decodeExtra<LinkedUserAppPermRow>(row));
+        const all = await this.#readAllUserAppPerms(userId, appId);
+        const wanted = new Set(permissions);
+        return all.filter((row) => wanted.has(row.permission));
     }
 
     async hasUserAppPerm(
@@ -231,11 +233,8 @@ export class PermissionStore extends PuterStore {
         appId: number,
         permission: string,
     ): Promise<boolean> {
-        const rows = await this.clients.db.read(
-            'SELECT 1 FROM `user_to_app_permissions` WHERE `user_id` = ? AND `app_id` = ? AND `permission` = ? LIMIT 1',
-            [userId, appId, permission],
-        );
-        return rows.length > 0;
+        const all = await this.#readAllUserAppPerms(userId, appId);
+        return all.some((row) => row.permission === permission);
     }
 
     async upsertUserAppPerm(
@@ -260,6 +259,9 @@ export class PermissionStore extends PuterStore {
                 JSON.stringify(extra),
             ],
         );
+        await this.publishCacheKeys({
+            keys: [this.#u2aCacheKey(userId, appId)],
+        });
     }
 
     async deleteUserAppPerm(
@@ -271,6 +273,9 @@ export class PermissionStore extends PuterStore {
             'DELETE FROM `user_to_app_permissions` WHERE `user_id` = ? AND `app_id` = ? AND `permission` = ?',
             [userId, appId, permission],
         );
+        await this.publishCacheKeys({
+            keys: [this.#u2aCacheKey(userId, appId)],
+        });
     }
 
     async deleteUserAppAll(userId: number, appId: number): Promise<void> {
@@ -278,6 +283,9 @@ export class PermissionStore extends PuterStore {
             'DELETE FROM `user_to_app_permissions` WHERE `user_id` = ? AND `app_id` = ?',
             [userId, appId],
         );
+        await this.publishCacheKeys({
+            keys: [this.#u2aCacheKey(userId, appId)],
+        });
     }
 
     async auditUserAppPerm(
@@ -474,11 +482,15 @@ export class PermissionStore extends PuterStore {
         tokenUid: string,
         permission: string,
     ): Promise<boolean> {
-        const rows = await this.clients.db.read(
-            'SELECT 1 FROM `access_token_permissions` WHERE `token_uid` = ? AND `permission` = ? LIMIT 1',
-            [tokenUid, permission],
-        );
-        return rows.length > 0;
+        const all = await this.#readAccessTokenPerms(tokenUid);
+        return all.includes(permission);
+    }
+
+    /** Call from AuthService after it mutates `access_token_permissions`. */
+    async invalidateAccessTokenPerms(tokenUid: string): Promise<void> {
+        await this.publishCacheKeys({
+            keys: [this.#tokenCacheKey(tokenUid)],
+        });
     }
 
     // ── SQL: issuer-prefix queries (share discovery, etc.) ──────────
@@ -561,10 +573,103 @@ export class PermissionStore extends PuterStore {
     }
 
     async invalidateScanCache(cacheKey: string): Promise<void> {
-        await this.clients.redis.del(cacheKey);
+        await this.publishCacheKeys({ keys: [cacheKey] });
     }
 
     // ── Internals ───────────────────────────────────────────────────
+
+    #u2uCacheKey(holderUserId: number): string {
+        return `perms:u2u:holder:${holderUserId}`;
+    }
+
+    #u2aCacheKey(userId: number, appId: number): string {
+        return `perms:u2a:${userId}:${appId}`;
+    }
+
+    #tokenCacheKey(tokenUid: string): string {
+        return `perms:token:${tokenUid}`;
+    }
+
+    async #readAllUserUserPermsForHolder(
+        holderUserId: number,
+    ): Promise<LinkedUserUserPermRow[]> {
+        const cacheKey = this.#u2uCacheKey(holderUserId);
+        try {
+            const raw = await this.clients.redis.get(cacheKey);
+            if (raw) {
+                const parsed = JSON.parse(raw);
+                if (Array.isArray(parsed)) return parsed;
+            }
+        } catch {
+            // Fall through to DB.
+        }
+
+        const rows = await this.clients.db.read(
+            'SELECT * FROM `user_to_user_permissions` WHERE `holder_user_id` = ?',
+            [holderUserId],
+        );
+        const decoded = rows.map((row) =>
+            this.#decodeExtra<LinkedUserUserPermRow>(row),
+        );
+
+        this.clients.redis
+            .set(cacheKey, JSON.stringify(decoded), 'EX', U2U_CACHE_TTL_SECONDS)
+            .catch(() => {});
+        return decoded;
+    }
+
+    async #readAllUserAppPerms(
+        userId: number,
+        appId: number,
+    ): Promise<LinkedUserAppPermRow[]> {
+        const cacheKey = this.#u2aCacheKey(userId, appId);
+        try {
+            const raw = await this.clients.redis.get(cacheKey);
+            if (raw) {
+                const parsed = JSON.parse(raw);
+                if (Array.isArray(parsed)) return parsed;
+            }
+        } catch {
+            // Fall through to DB.
+        }
+
+        const rows = await this.clients.db.read(
+            'SELECT * FROM `user_to_app_permissions` WHERE `user_id` = ? AND `app_id` = ?',
+            [userId, appId],
+        );
+        const decoded = rows.map((row) =>
+            this.#decodeExtra<LinkedUserAppPermRow>(row),
+        );
+
+        this.clients.redis
+            .set(cacheKey, JSON.stringify(decoded), 'EX', U2A_CACHE_TTL_SECONDS)
+            .catch(() => {});
+        return decoded;
+    }
+
+    async #readAccessTokenPerms(tokenUid: string): Promise<string[]> {
+        const cacheKey = this.#tokenCacheKey(tokenUid);
+        try {
+            const raw = await this.clients.redis.get(cacheKey);
+            if (raw) {
+                const parsed = JSON.parse(raw);
+                if (Array.isArray(parsed)) return parsed;
+            }
+        } catch {
+            // Fall through to DB.
+        }
+
+        const rows = await this.clients.db.read(
+            'SELECT `permission` FROM `access_token_permissions` WHERE `token_uid` = ?',
+            [tokenUid],
+        );
+        const perms = rows.map((r) => String(r.permission));
+
+        this.clients.redis
+            .set(cacheKey, JSON.stringify(perms), 'EX', TOKEN_CACHE_TTL_SECONDS)
+            .catch(() => {});
+        return perms;
+    }
 
     /** Parse the JSON `extra` column into an object. */
     #decodeExtra<T extends Record<string, unknown>>(

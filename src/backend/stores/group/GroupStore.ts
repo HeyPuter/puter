@@ -15,7 +15,7 @@ export interface GroupRow {
 // ── Constants ────────────────────────────────────────────────────────
 
 const CREATE_RATE_LIMIT_PER_HOUR = 20;
-const PUBLIC_GROUPS_CACHE_TTL_SECONDS = 60;
+const PUBLIC_GROUPS_CACHE_TTL_SECONDS = 10 * 60;
 
 // ── GroupStore ───────────────────────────────────────────────────────
 

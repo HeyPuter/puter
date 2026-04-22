@@ -279,11 +279,16 @@ const TabHome = {
 
             if ( hasSubscription ) {
                 $el_window.find('.bento-plan-badge').text('Active subscription').addClass('active');
-                $el_window.find('.bento-plan-upgrade').hide();
+                $el_window.find('.bento-plan-upgrade').text('Manage →').show();
             } else {
                 $el_window.find('.bento-plan-badge').text('Upgrade for more features').addClass('free');
                 $el_window.find('.bento-plan-upgrade').show();
             }
+
+            $el_window.find('.bento-plan-upgrade').off('click.billing').on('click.billing', (e) => {
+                e.preventDefault();
+                window.puterLegacyBilling?.openSubscriptionsDialog?.();
+            });
         } catch (e) {
             console.error('Failed to load plan data:', e);
         }

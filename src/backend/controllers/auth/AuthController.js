@@ -242,6 +242,7 @@ export class AuthController extends PuterController {
                     'UPDATE `user` SET `otp_recovery_codes` = ? WHERE `uuid` = ?',
                     [codes.join(','), user.uuid],
                 );
+                await this.userStore.invalidateById(user.id);
 
                 return this.#completeLogin(req, res, user);
             },
@@ -337,27 +338,43 @@ export class AuthController extends PuterController {
                     );
                 }
 
-                // Duplicate confirmed-email check. A confirmed account with a
-                // password on this email already exists — reject.
+                // Duplicate confirmed-email check. A confirmed account (any
+                // credential type — password OR OIDC) on this email → reject.
                 //
-                // A pseudo-user (email present, password null) is NOT a block —
-                // the signup claims that account: the INSERT becomes an UPDATE
-                // on the pseudo row.
+                // A pseudo-user is an UNCONFIRMED placeholder row: email
+                // present, password null, email_confirmed = 0. Those rows
+                // (e.g. admin-created pre-provisioning) are NOT a block —
+                // signup claims them: the INSERT becomes an UPDATE on the
+                // pseudo row.
+                //
+                // OIDC-created accounts have password null but email_confirmed
+                // = 1, so they fall in the reject branch — signup can't hijack
+                // someone's OIDC account by knowing their email. To add a
+                // password to an OIDC account, the owner logs in via OIDC and
+                // uses the authenticated change-password flow.
+                //
+                // Match on both raw `email` and canonical `clean_email` so
+                // gmail-style aliases (`foo.bar+tag@gmail.com` vs
+                // `foobar@gmail.com`) collapse to the same account.
                 let pseudo_user = null;
                 if (!is_temp) {
-                    const existing = await this.userStore.getByEmail(
-                        body.email,
-                    );
+                    const canonical = cleanEmail(body.email);
+                    const existing =
+                        (await this.userStore.getByEmail(body.email)) ??
+                        (await this.userStore.getByCleanEmail(canonical));
                     if (existing) {
-                        if (existing.email_confirmed && existing.password) {
+                        // Confirmed account (regardless of credential type) → reject.
+                        if (
+                            existing.email_confirmed ||
+                            existing.password !== null
+                        ) {
                             throw new HttpError(
                                 400,
                                 'This email already exists in our database. Please use another one.',
                             );
                         }
-                        if (existing.password === null) {
-                            pseudo_user = existing;
-                        }
+                        // Password-null AND unconfirmed → treat as pseudo.
+                        pseudo_user = existing;
                     }
                 }
 
@@ -1036,9 +1053,17 @@ export class AuthController extends PuterController {
                     );
                 }
 
-                // Block if a confirmed account already owns that email
-                const existing = await this.userStore.getByEmail(new_email);
-                if (existing && existing.email_confirmed && existing.password) {
+                // Block if any confirmed account (password or OIDC) already
+                // owns that email. Match raw + canonical to collapse gmail
+                // aliases.
+                const canonical = cleanEmail(new_email);
+                const existing =
+                    (await this.userStore.getByEmail(new_email)) ??
+                    (await this.userStore.getByCleanEmail(canonical));
+                if (
+                    existing &&
+                    (existing.email_confirmed || existing.password !== null)
+                ) {
                     throw new HttpError(400, 'This email is already in use.');
                 }
 
@@ -1116,13 +1141,17 @@ export class AuthController extends PuterController {
 
                 const newEmail = user.unconfirmed_change_email;
 
-                // Re-check nobody claimed the new email meanwhile
-                const owner = await this.userStore.getByEmail(newEmail);
+                // Re-check nobody claimed the new email meanwhile. Match raw +
+                // canonical; block if any real account (confirmed OR
+                // password-holding) already owns it.
+                const canonical = cleanEmail(newEmail);
+                const owner =
+                    (await this.userStore.getByEmail(newEmail)) ??
+                    (await this.userStore.getByCleanEmail(canonical));
                 if (
                     owner &&
                     owner.id !== user.id &&
-                    owner.email_confirmed &&
-                    owner.password
+                    (owner.email_confirmed || owner.password !== null)
                 ) {
                     throw new HttpError(400, 'This email is already in use.');
                 }
@@ -1225,12 +1254,18 @@ export class AuthController extends PuterController {
                 if (existingUsername && existingUsername.id !== user.id) {
                     throw new HttpError(400, 'This username is already taken.');
                 }
-                const existingEmail = await this.userStore.getByEmail(email);
+                // Match raw + canonical to catch gmail-alias collisions, and
+                // reject on ANY confirmed account (OIDC accounts have
+                // password=null but are real) — not just password-holders.
+                const canonical = cleanEmail(email);
+                const existingEmail =
+                    (await this.userStore.getByEmail(email)) ??
+                    (await this.userStore.getByCleanEmail(canonical));
                 if (
                     existingEmail &&
                     existingEmail.id !== user.id &&
-                    existingEmail.email_confirmed &&
-                    existingEmail.password
+                    (existingEmail.email_confirmed ||
+                        existingEmail.password !== null)
                 ) {
                     throw new HttpError(400, 'This email is already in use.');
                 }
