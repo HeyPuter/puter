@@ -1,6 +1,7 @@
 import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { PuterDriver } from '../types.js';
+import { resolvePrivateLaunchAccess } from '../../util/privateLaunchAccess.js';
 import {
     validateArrayOfStrings,
     validateBool,
@@ -418,6 +419,31 @@ export class AppDriver extends PuterDriver {
         // Icon sizing hook (for future AppIconService integration)
         if (params.icon_size) {
             result.icon_size = params.icon_size;
+        }
+
+        // Private-app gate: callers without an ownership / purchase / grant
+        // must not receive `index_url` (the direct hosting URL). They still
+        // see metadata (title, icon, description) so the marketplace UI can
+        // render a purchase CTA. Owners + entitled users pass through
+        // unchanged. Attach `privateAccess` so clients know to redirect to
+        // app-center rather than launch.
+        if (result.is_private) {
+            const isOwner =
+                actor?.user?.id !== undefined &&
+                actor.user.id === app.owner_user_id;
+            const privateAccess = isOwner
+                ? { hasAccess: true, checkedBy: 'core/app-owner' }
+                : await resolvePrivateLaunchAccess({
+                      app: { uid: app.uid, name: app.name, is_private: true },
+                      eventClient: this.clients.event,
+                      userUid: actor?.user?.uuid ?? null,
+                      source: 'appDriver:toClient',
+                      args: {},
+                  });
+            result.privateAccess = privateAccess;
+            if (!privateAccess.hasAccess) {
+                delete result.index_url;
+            }
         }
 
         return result;

@@ -5,6 +5,15 @@ import type { puterClients } from '../../../clients';
 import type { puterServices } from '../../../services';
 import type { puterStores } from '../../../stores';
 import type { IConfig, LayerInstances } from '../../../types';
+import {
+    buildAppCenterFallback,
+    buildHostingConfig,
+    buildPrivateHostRedirect,
+    hostMatchesPrivateDomain,
+    renderLoginBootstrapHtml,
+    resolvePrivateAppForHostedSite,
+    resolvePrivateIdentity,
+} from './privateAppGate';
 
 /**
  * Serves user-hosted static sites on the hosting domains (`*.puter.site`,
@@ -84,6 +93,17 @@ export const createPuterSiteMiddleware = (
         normalizeHost(config.private_app_hosting_domain_alt),
     ].filter((d): d is string => !!d);
 
+    // The private-app hosting domains are the only ones where unowned,
+    // unentitled access should be rejected outright — used below to
+    // default-deny when a subdomain row on these hosts has no associated
+    // app (or the app lookup fails).
+    const privateHostingDomains = new Set(
+        [
+            normalizeHost(config.private_app_hosting_domain),
+            normalizeHost(config.private_app_hosting_domain_alt),
+        ].filter((d): d is string => !!d),
+    );
+
     if (hostingDomains.length === 0) {
         return (_req, _res, next) => next();
     }
@@ -149,9 +169,27 @@ export const createPuterSiteMiddleware = (
             return;
         }
 
-        // Private-app gate. Marketplace extension listens on
-        // `app.privateAccess.check` and flips `result.allowed` when the
-        // actor owns a valid entitlement.
+        // ── Private-app gate ─────────────────────────────────────────
+        //
+        // Ported from v1's `evaluatePrivateAppAccess` / `resolvePrivateApp
+        // ForHostedSite` (`origin/main:src/backend/src/routers/hosting/
+        // puterSiteMiddleware.js`). The order matters:
+        //
+        //   1. Resolve the private app behind this subdomain. Use the
+        //      explicit `associated_app_id` link if set; otherwise fall
+        //      back to `index_url` matching (catches subdomains that
+        //      weren't explicitly wired to an app row).
+        //   2. If a private app is detected on the public hosting domain,
+        //      bounce to the private host — private apps are pinned to
+        //      `private_app_hosting_domain(_alt)` only.
+        //   3. If no identity can be resolved (no session cookie, no
+        //      bootstrap token), serve the login bootstrap HTML page.
+        //   4. Emit `app.privateAccess.check`; the marketplace extension
+        //      decides allow/deny. Default is deny.
+        //
+        // Each step short-circuits the rest of the middleware on failure.
+        const hostingCfg = buildHostingConfig(config);
+
         let associatedApp: AppRow | null = null;
         if (
             site.associated_app_id !== null &&
@@ -161,13 +199,80 @@ export const createPuterSiteMiddleware = (
                 site.associated_app_id,
             )) as unknown as AppRow | null;
         }
-        if (associatedApp?.is_private) {
-            const userUid =
-                (req as { actor?: { user?: { uuid?: string } } }).actor?.user
-                    ?.uuid ?? null;
+
+        const privateApp = (await resolvePrivateAppForHostedSite({
+            req,
+            site: {
+                user_id: site.user_id,
+                associated_app_id: site.associated_app_id,
+            },
+            associatedApp,
+            db: layers.clients.db,
+            config: hostingCfg,
+            matchedHostingDomain: matched,
+        })) as AppRow | null;
+
+        const isPrivateApp = Boolean(privateApp?.is_private);
+
+        if (isPrivateApp) {
+            // Private apps must run on the private hosting domain. If a
+            // visitor arrives via the public domain (puter.site), redirect
+            // them to the equivalent private-host URL so the cookie scope
+            // and gate run on the right origin.
+            if (!hostMatchesPrivateDomain(host, hostingCfg.privateDomains)) {
+                const redirectUrl = buildPrivateHostRedirect(
+                    req,
+                    privateApp as never,
+                    hostingCfg,
+                );
+                if (redirectUrl) {
+                    res.redirect(302, redirectUrl);
+                    return;
+                }
+                // No private host configured — refuse rather than leak.
+                res.status(403)
+                    .type('text/plain')
+                    .send('Private app host mismatch');
+                return;
+            }
+
+            // Resolve identity. Falls through session cookie → bootstrap
+            // token (Authorization / ?puter.auth.token= / Referrer).
+            const identity = await resolvePrivateIdentity({
+                req,
+                authService: layers.services.auth,
+                sessionCookieName:
+                    typeof config.cookie_name === 'string'
+                        ? config.cookie_name
+                        : undefined,
+            });
+
+            if (!identity.userUid) {
+                // No identity yet — render the sign-in bootstrap so the
+                // browser can call `puter.auth.signIn()` and retry with a
+                // token in the query string.
+                res.status(200)
+                    .set('Cache-Control', 'no-store')
+                    .set('X-Robots-Tag', 'noindex, nofollow')
+                    .set('Referrer-Policy', 'no-referrer')
+                    .type('text/html; charset=UTF-8')
+                    .send(
+                        renderLoginBootstrapHtml(
+                            privateApp as unknown as {
+                                uid?: string;
+                                name?: string;
+                                title?: string;
+                            },
+                        ),
+                    );
+                return;
+            }
+
+            // Emit the entitlement check. Default-deny on missing listener
+            // or thrown errors.
             const checkEvent = {
-                appUid: associatedApp.uid,
-                userUid,
+                appUid: privateApp!.uid,
+                userUid: identity.userUid,
                 requestHost: host,
                 requestPath: req.path,
                 result: {
@@ -189,12 +294,18 @@ export const createPuterSiteMiddleware = (
                 console.error('[puter-site] privateAccess.check threw', e);
             }
             if (!checkEvent.result.allowed) {
-                const fallback = domain
-                    ? `${req.protocol}://${domain}/app/app-center/?item=${encodeURIComponent(associatedApp.uid)}`
-                    : '/';
+                const fallback = buildAppCenterFallback(
+                    privateApp as unknown as { name?: string; uid?: string },
+                    hostingCfg,
+                );
                 res.redirect(302, checkEvent.result.redirectUrl || fallback);
                 return;
             }
+        } else if (privateHostingDomains.has(matched)) {
+            // Private host with no private app → refuse. Prevents a
+            // public-app subdomain from leaking via the private host.
+            res.status(404).type('text/plain').send('Subdomain not found');
+            return;
         }
 
         if (site.root_dir_id === null || site.root_dir_id === undefined) {
