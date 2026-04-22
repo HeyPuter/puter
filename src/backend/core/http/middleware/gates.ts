@@ -185,7 +185,7 @@ export const allowedAppIdsGate = (
     const allowList = new Set(allowedAppUids);
     return (req, _res, next) => {
         const appUid = req.actor?.app?.uid;
-        if (!appUid || !allowList.has(appUid)) {
+        if (appUid && !allowList.has(appUid)) {
             next(
                 new HttpError(403, 'This app may not request this resource', {
                     legacyCode: 'forbidden',
