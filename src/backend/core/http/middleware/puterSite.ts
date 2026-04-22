@@ -34,11 +34,6 @@ import {
  *     doesn't exist yet). Any site with `protected=1` serves public for now.
  *   - `.at` username-based sites (UUIDv5-keyed `/user/Public`).
  *   - `.puter_site_config` error rules (custom status-code → file mapping).
- *   - Private-host redirect chain (public hosting domain → private hosting
- *     domain for private apps) — currently skipped; clients land on the
- *     static domain and the gate decides.
- *   - Private-login bootstrap HTML (the sign-in-with-Puter shim) — denial
- *     just redirects to app-center for now.
  *   - Custom domains (subdomains table `domain` column) — requires host
  *     validation to allow arbitrary hostnames first.
  */
@@ -170,25 +165,6 @@ export const createPuterSiteMiddleware = (
             return;
         }
 
-        // ── Private-app gate ─────────────────────────────────────────
-        //
-        // Ported from v1's `evaluatePrivateAppAccess` / `resolvePrivateApp
-        // ForHostedSite` (`origin/main:src/backend/src/routers/hosting/
-        // puterSiteMiddleware.js`). The order matters:
-        //
-        //   1. Resolve the private app behind this subdomain. Use the
-        //      explicit `associated_app_id` link if set; otherwise fall
-        //      back to `index_url` matching (catches subdomains that
-        //      weren't explicitly wired to an app row).
-        //   2. If a private app is detected on the public hosting domain,
-        //      bounce to the private host — private apps are pinned to
-        //      `private_app_hosting_domain(_alt)` only.
-        //   3. If no identity can be resolved (no session cookie, no
-        //      bootstrap token), serve the login bootstrap HTML page.
-        //   4. Emit `app.privateAccess.check`; the marketplace extension
-        //      decides allow/deny. Default is deny.
-        //
-        // Each step short-circuits the rest of the middleware on failure.
         const hostingCfg = buildHostingConfig(config);
 
         let associatedApp: AppRow | null = null;
@@ -272,50 +248,51 @@ export const createPuterSiteMiddleware = (
                 return;
             }
 
-            // Cookie holders skip the entitlement check — the check
-            // already ran when the cookie was minted.
-            if (!identity.hasValidPrivateCookie) {
-                const checkEvent = {
-                    appUid: privateApp!.uid,
-                    userUid: identity.userUid,
-                    requestHost: host,
-                    requestPath: req.path,
-                    result: {
-                        allowed: false,
-                    } as {
-                        allowed: boolean;
-                        reason?: string;
-                        redirectUrl?: string;
-                        checkedBy?: string;
+            // Entitlement check runs on every request — matching v1. The
+            // sticky cookie is an identity shortcut, not an access cache;
+            // the marketplace extension already caches access decisions
+            // in Redis so repeat checks are cheap. This guarantees that
+            // if entitlement is revoked (refund, grant removed) the very
+            // next request stops serving content.
+            const checkEvent = {
+                appUid: privateApp!.uid,
+                userUid: identity.userUid,
+                requestHost: host,
+                requestPath: req.path,
+                result: {
+                    allowed: false,
+                } as {
+                    allowed: boolean;
+                    reason?: string;
+                    redirectUrl?: string;
+                    checkedBy?: string;
+                },
+            };
+            try {
+                await layers.clients.event.emitAndWait(
+                    'app.privateAccess.check',
+                    checkEvent,
+                    {},
+                );
+            } catch (e) {
+                console.error('[puter-site] privateAccess.check threw', e);
+            }
+            if (!checkEvent.result.allowed) {
+                const fallback = buildAppCenterFallback(
+                    privateApp as unknown as {
+                        name?: string;
+                        uid?: string;
                     },
-                };
-                try {
-                    await layers.clients.event.emitAndWait(
-                        'app.privateAccess.check',
-                        checkEvent,
-                        {},
-                    );
-                } catch (e) {
-                    console.error('[puter-site] privateAccess.check threw', e);
-                }
-                if (!checkEvent.result.allowed) {
-                    const fallback = buildAppCenterFallback(
-                        privateApp as unknown as {
-                            name?: string;
-                            uid?: string;
-                        },
-                        hostingCfg,
-                    );
-                    res.redirect(
-                        302,
-                        checkEvent.result.redirectUrl || fallback,
-                    );
-                    return;
-                }
+                    hostingCfg,
+                );
+                res.redirect(302, checkEvent.result.redirectUrl || fallback);
+                return;
+            }
 
-                // First access after a pass — mint the sticky cookie so
-                // subsequent requests from this visitor skip straight
-                // to file serve.
+            // Mint the sticky cookie only when we don't already have a
+            // valid one — keeps Set-Cookie off of the hot path for repeat
+            // visitors but still refreshes after rotation/expiry.
+            if (!identity.hasValidPrivateCookie) {
                 try {
                     const token = layers.services.auth.createPrivateAssetToken({
                         appUid: privateApp!.uid,

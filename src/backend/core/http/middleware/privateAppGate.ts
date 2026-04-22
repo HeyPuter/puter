@@ -32,6 +32,16 @@ export interface PrivateHostingConfig {
     domain: string | null;
     staticDomains: string[];
     privateDomains: string[];
+    /**
+     * Raw hosting domain values (preserving port, if configured). Used for
+     * `index_url` candidate generation — the DB stores URLs exactly as the
+     * app was created, so dev setups with explicit ports like
+     * `app.puter.localhost:4100` must be matched verbatim.
+     */
+    staticDomainsRaw: string[];
+    privateDomainsRaw: string[];
+    /** Configured protocol (e.g. `http` in dev, `https` in prod). */
+    protocol: string;
 }
 
 export interface PrivateIdentity {
@@ -79,7 +89,28 @@ export function normalizeHost(value: string | undefined | null): string | null {
     return trimmed.split(':')[0] || null;
 }
 
+/** Like `normalizeHost` but preserves port when present. */
+export function normalizeHostRaw(
+    value: string | undefined | null,
+): string | null {
+    if (typeof value !== 'string') return null;
+    const trimmed = value.trim().toLowerCase().replace(/^\./, '');
+    return trimmed || null;
+}
+
 export function buildHostingConfig(config: IConfig): PrivateHostingConfig {
+    const staticRaw = [
+        normalizeHostRaw(config.static_hosting_domain),
+        normalizeHostRaw(config.static_hosting_domain_alt),
+    ].filter((d): d is string => !!d);
+    const privateRaw = [
+        normalizeHostRaw(config.private_app_hosting_domain),
+        normalizeHostRaw(config.private_app_hosting_domain_alt),
+    ].filter((d): d is string => !!d);
+    const rawProtocol =
+        typeof config.protocol === 'string'
+            ? config.protocol.trim().replace(/:$/, '')
+            : '';
     return {
         domain: normalizeHost(config.domain),
         staticDomains: [
@@ -90,6 +121,9 @@ export function buildHostingConfig(config: IConfig): PrivateHostingConfig {
             normalizeHost(config.private_app_hosting_domain),
             normalizeHost(config.private_app_hosting_domain_alt),
         ].filter((d): d is string => !!d),
+        staticDomainsRaw: staticRaw,
+        privateDomainsRaw: privateRaw,
+        protocol: rawProtocol || 'https',
     };
 }
 
@@ -139,41 +173,70 @@ export async function resolvePrivateAppForHostedSite(opts: {
     config: PrivateHostingConfig;
     matchedHostingDomain: string;
 }): Promise<AppLike | null> {
-    if (opts.associatedApp) return opts.associatedApp;
-    if (!opts.site?.user_id) return null;
+    // When the subdomain row's own `associated_app_id` points at a private
+    // app, that wins outright. Otherwise fall through to index_url matching
+    // so a private app whose canonical URL lives on one hosting variant
+    // (`beans.puter.site`) still resolves when the visitor hits another
+    // (`beans.puter.app`).
+    if (opts.associatedApp && Number(opts.associatedApp.is_private ?? 0) > 0) {
+        return opts.associatedApp;
+    }
+    if (!opts.site?.user_id) return opts.associatedApp ?? null;
 
     const host = normalizeHost(opts.req.hostname);
-    if (!host) return null;
+    if (!host) return opts.associatedApp ?? null;
 
     const hostedSubdomain = subdomainFromHost(host, [
         ...opts.config.staticDomains,
         ...opts.config.privateDomains,
     ]);
-    if (!hostedSubdomain) return null;
+    if (!hostedSubdomain) return opts.associatedApp ?? null;
 
-    const protocol = opts.req.protocol || 'https';
-    const hostCandidates = new Set<string>([host]);
-    for (const d of [
+    // Build host variants with AND without port, then cross each with both
+    // protocols. Apps store whatever URL the user typed at create time, so
+    // we match liberally: ports-in-config (dev), the request's own header
+    // host, and every configured hosting variant all count as equivalent.
+    const hostCandidates = new Set<string>();
+    hostCandidates.add(host);
+    const headerHost =
+        typeof opts.req.headers?.host === 'string'
+            ? opts.req.headers.host.trim().toLowerCase()
+            : '';
+    if (headerHost) hostCandidates.add(headerHost);
+    const hostingDomainVariants = [
         ...opts.config.staticDomains,
         ...opts.config.privateDomains,
-    ]) {
+        ...opts.config.staticDomainsRaw,
+        ...opts.config.privateDomainsRaw,
+    ];
+    for (const d of hostingDomainVariants) {
+        if (!d) continue;
         hostCandidates.add(`${hostedSubdomain}.${d}`);
     }
 
+    const protocolCandidates = new Set<string>([
+        opts.req.protocol || 'https',
+        opts.config.protocol,
+        'https',
+        'http',
+    ]);
+
     const urlCandidates: string[] = [];
     for (const hc of hostCandidates) {
-        const base = `${protocol}://${hc}`;
-        urlCandidates.push(base, `${base}/`, `${base}/index.html`);
+        for (const protocol of protocolCandidates) {
+            const base = `${protocol}://${hc}`;
+            urlCandidates.push(base, `${base}/`, `${base}/index.html`);
+        }
     }
     const uniqueCandidates = [...new Set(urlCandidates)];
-    if (uniqueCandidates.length === 0) return null;
+    if (uniqueCandidates.length === 0) return opts.associatedApp ?? null;
 
     const placeholders = uniqueCandidates.map(() => '?').join(', ');
     const rows = await opts.db.read(
         `SELECT * FROM apps WHERE owner_user_id = ? AND is_private = 1 AND index_url IN (${placeholders}) LIMIT 2`,
         [opts.site.user_id, ...uniqueCandidates],
     );
-    if (rows.length === 0) return null;
+    if (rows.length === 0) return opts.associatedApp ?? null;
     if (rows.length > 1) {
         console.warn('[puter-site] private_access.host_match_ambiguous', {
             requestHost: host,
@@ -457,7 +520,10 @@ export function buildPrivateHostRedirect(
     app: AppLike,
     config: PrivateHostingConfig,
 ): string | null {
-    const privateDomain = config.privateDomains[0];
+    // Prefer the raw configured value so dev setups that include a port
+    // (`app.puter.localhost:4100`) produce a working redirect target.
+    const privateDomain =
+        config.privateDomainsRaw[0] ?? config.privateDomains[0];
     if (!privateDomain) return null;
     const host = normalizeHost(req.hostname);
     if (!host) return null;
@@ -467,7 +533,7 @@ export function buildPrivateHostRedirect(
     ]);
     if (!subdomain) return null;
     try {
-        const protocol = req.protocol || 'https';
+        const protocol = config.protocol || req.protocol || 'https';
         const base = `${protocol}://${subdomain}.${privateDomain}`;
         const reqPath = (req.originalUrl || '/').startsWith('/')
             ? req.originalUrl || '/'

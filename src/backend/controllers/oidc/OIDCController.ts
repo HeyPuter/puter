@@ -390,15 +390,18 @@ if (window.opener) {
     /**
      * Resolve an OIDC callback to a Puter user. In order:
      *   1. Existing link on (provider, sub) → that user.
-     *   2. Email from provider matches an existing account (by raw email OR
-     *      canonical clean_email) → link (provider, sub) to that user.
-     *   3. Otherwise create a new user and link.
+     *   2. Email matches an existing account whose email is CONFIRMED →
+     *      link (provider, sub) to that user.
+     *   3. Email matches an account whose email is UNCONFIRMED → refuse.
+     *      We don't know who owns an unconfirmed address, so linking would
+     *      let whoever controls the OIDC identity hijack a pending signup.
+     *   4. Otherwise create a new user and link.
      *
-     * Step 2 only fires when `email_verified !== false` — otherwise a
-     * malicious IdP could hijack an account by claiming someone's email.
+     * Step 2 also requires `email_verified !== false` on the OIDC side,
+     * otherwise a malicious IdP could claim someone else's email.
      *
-     * The email-match path deliberately does NOT touch the existing user's
-     * password, so password-based login keeps working.
+     * The email-match path does NOT touch the existing user's password, so
+     * password login keeps working.
      */
     async #resolveOrCreateOIDCUser(
         provider: string,
@@ -417,13 +420,18 @@ if (window.opener) {
         );
         if (linked) return { user: linked, origin: 'linked-sub' };
 
-        // 2. Email match → link to existing account.
+        // 2/3. Email match branch.
         const claimedEmail =
             typeof userinfo.email === 'string' ? userinfo.email : null;
         if (claimedEmail) {
             const byEmail =
                 await this.services.oidc.findUserByEmail(claimedEmail);
             if (byEmail) {
+                if (!byEmail.email_confirmed) {
+                    return {
+                        error: 'An account with this email exists but the email is not yet confirmed. Please sign in with your password to confirm it first.',
+                    };
+                }
                 const outcome = await this.services.oidc.linkProviderToUser(
                     byEmail.id,
                     provider,

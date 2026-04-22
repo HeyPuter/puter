@@ -96,10 +96,18 @@ export class DatabaseClient extends PuterClient {
         query: string,
         params: unknown[] = [],
     ): Promise<Record<string, unknown>[]> {
-        return Promise.any([
-            this.pread(query, params),
-            this.read(query, params),
-        ]);
+        const primary = this.pread(query, params);
+        primary.catch(() => {});
+
+        try {
+            const rows = await this.read(query, params);
+            if (rows.length > 0) {
+                return rows;
+            }
+        } catch {
+            // replica failed — fall through to primary
+        }
+        return primary;
     }
 
     /**

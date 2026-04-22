@@ -263,17 +263,21 @@ export class OIDCService extends PuterService {
             };
         }
 
-        await this.stores.oidc.link(userId, providerId, claims.sub, null);
-
-        // Flip email_confirmed on if the provider verified and we haven't yet.
+        // Only link to accounts whose email is already confirmed. Unconfirmed
+        // accounts have no proven owner, so linking OIDC would hand control
+        // to whoever holds the OIDC identity.
         const user = await this.stores.user.getById(userId, { force: true });
-        if (user && !user.email_confirmed) {
-            await this.stores.user.update(userId, {
-                email_confirmed: 1,
-                requires_email_confirmation: 0,
-            });
+        if (!user) {
+            return { success: false, error: 'User not found.' };
+        }
+        if (!user.email_confirmed) {
+            return {
+                success: false,
+                error: 'Account email is not confirmed. Sign in with your password first to confirm it.',
+            };
         }
 
+        await this.stores.oidc.link(userId, providerId, claims.sub, null);
         return { success: true };
     }
 
