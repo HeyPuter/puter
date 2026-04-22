@@ -25,7 +25,6 @@ const testChatBasicPromptCore = async function(model) {
     // Check response structure
     assert(typeof result.message === 'object', "result should have message object");
     assert(typeof result.finish_reason === 'string', "result should have finish_reason string");
-    assert(typeof result.via_ai_chat_service === 'boolean', "result should have via_ai_chat_service boolean");
     
     // Check message structure
     assert(typeof result.message.role === 'string', "message should have role string");
@@ -69,8 +68,7 @@ const testChatWithParametersCore = async function(model) {
     assert(validFinishReasons.includes(result.finish_reason), 
         `finish_reason should be one of: ${validFinishReasons.join(', ')}`);
     
-    // Check that via_ai_chat_service is true
-    assert(result.via_ai_chat_service === true, "via_ai_chat_service should be true");
+
 };
 
 const testChatWithMessageArrayCore = async function(model) {

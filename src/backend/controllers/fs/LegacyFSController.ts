@@ -674,8 +674,13 @@ export class LegacyFSController extends PuterController {
             range,
         });
 
-        if (download.contentType)
-            res.setHeader('Content-Type', download.contentType);
+        // Force `application/octet-stream` on this endpoint for wire parity
+        // with v1. puter-js's `parseResponse` branches on Content-Type —
+        // `application/octet-stream` returns the raw Blob while other
+        // types wrap in `{success, result: Blob}`. Clients (including the
+        // GUI) expect the raw-Blob shape. Use `/fs/read` for type-aware
+        // streaming.
+        res.setHeader('Content-Type', 'application/octet-stream');
         if (download.contentLength !== null)
             res.setHeader('Content-Length', String(download.contentLength));
         if (download.contentRange)
@@ -1317,11 +1322,14 @@ export class LegacyFSController extends PuterController {
 
     // ── Batch route ─────────────────────────────────────────────────────
     //
-    // `/batch` uses busboy to interleave multipart JSON operations with
-    // optional file uploads. In puter-js the only op-types that actually
-    // flow through batch are `move`, `delete`, and `symlink` — none of which
-    // need a file body — so this handler is pure JSON-field parsing.
+    // `/batch` interleaves multipart JSON operations with optional file
+    // uploads. puter-js uses it for `write`, `shortcut`, `mkdir`, `move`,
+    // `delete`, and `symlink` — `write` ops are paired with `file` blob
+    // parts (by `item_upload_id`, then fallback position) and matching
+    // `fileinfo` JSON.
     //
+    // File bodies are buffered in memory per op; large uploads should go
+    // through the signed `/writeFile` endpoint instead, which streams.
     // The wire shape (multipart/form-data) is preserved for client
     // compatibility. Unknown op-types are rejected per-op.
 
@@ -1329,6 +1337,7 @@ export class LegacyFSController extends PuterController {
         this.#requireActor(req);
         const userId = this.#getActorUserId(req);
         const actor = req.actor!;
+        const username = actor.user?.username;
         const contentType =
             typeof req.headers['content-type'] === 'string'
                 ? req.headers['content-type']
@@ -1337,12 +1346,14 @@ export class LegacyFSController extends PuterController {
         // Parse the request. We support both multipart/form-data (the
         // canonical client shape) and JSON bodies (handy for ad-hoc
         // callers / tests).
-        const operationSpecs = contentType.includes('multipart/form-data')
+        const parsed = contentType.includes('multipart/form-data')
             ? await this.#parseMultipartBatch(req)
-            : this.#parseJsonBatch(req);
+            : { ops: this.#parseJsonBatch(req), files: [], fileinfos: [] };
+        const { ops: operationSpecs, files, fileinfos } = parsed;
 
         const results: unknown[] = [];
         let hasError = false;
+        let sequentialFileIdx = 0;
 
         for (const spec of operationSpecs) {
             try {
@@ -1350,7 +1361,147 @@ export class LegacyFSController extends PuterController {
                 const op = typeof record.op === 'string' ? record.op : '';
                 let shaped: unknown;
 
-                if (op === 'move') {
+                if (op === 'write') {
+                    // Pair with a file part — prefer `item_upload_id`
+                    // index (what puter-js sets), fall back to the op's
+                    // order among write ops for safety.
+                    const uploadIdRaw = record.item_upload_id;
+                    let fileIdx =
+                        typeof uploadIdRaw === 'number'
+                            ? uploadIdRaw
+                            : typeof uploadIdRaw === 'string' &&
+                                /^\d+$/.test(uploadIdRaw)
+                              ? Number(uploadIdRaw)
+                              : sequentialFileIdx;
+                    if (fileIdx >= files.length) fileIdx = sequentialFileIdx;
+                    sequentialFileIdx += 1;
+                    const filePart = files[fileIdx];
+                    if (!filePart) {
+                        throw new HttpError(
+                            400,
+                            `write op has no paired file (item_upload_id=${uploadIdRaw})`,
+                        );
+                    }
+                    const fileInfo = fileinfos[fileIdx] ?? {};
+                    const name =
+                        getString(record, 'name') ??
+                        (typeof fileInfo.name === 'string'
+                            ? fileInfo.name
+                            : undefined);
+                    if (!name) {
+                        throw new HttpError(400, 'write op missing `name`');
+                    }
+                    const parentPath = getString(record, 'path') ?? '';
+                    const expandedParent = this.#expandTilde(
+                        parentPath,
+                        username,
+                    );
+                    const targetPath =
+                        expandedParent && expandedParent !== '/'
+                            ? `${expandedParent.replace(/\/+$/, '')}/${name}`
+                            : `/${name}`;
+                    const dedupeName =
+                        getBoolean(record, 'dedupe_name') ?? true;
+                    const overwrite = getBoolean(record, 'overwrite') ?? false;
+                    const createMissingParents =
+                        getBoolean(
+                            record,
+                            'create_missing_ancestors',
+                            'create_missing_parents',
+                        ) ?? false;
+                    const writeContentType =
+                        typeof fileInfo.type === 'string'
+                            ? fileInfo.type
+                            : filePart.mimeType;
+                    const response = await this.services.fsEntry.write(userId, {
+                        fileMetadata: {
+                            path: targetPath,
+                            size: filePart.content.length,
+                            ...(writeContentType
+                                ? { contentType: writeContentType }
+                                : {}),
+                            overwrite,
+                            dedupeName,
+                            createMissingParents,
+                        },
+                        fileContent: filePart.content,
+                    });
+                    await this.#emitGuiEvent(
+                        'outer.gui.item.added',
+                        response.fsEntry,
+                    );
+                    shaped = await toLegacyEntry(
+                        this.clients.event,
+                        response.fsEntry,
+                    );
+                } else if (op === 'mkdir') {
+                    const parentPath = getString(record, 'path') ?? '';
+                    const name = getString(record, 'name');
+                    if (!name) {
+                        throw new HttpError(400, 'mkdir op missing `name`');
+                    }
+                    const expandedParent = this.#expandTilde(
+                        parentPath,
+                        username,
+                    );
+                    const targetPath =
+                        expandedParent && expandedParent !== '/'
+                            ? `${expandedParent.replace(/\/+$/, '')}/${name}`
+                            : `/${name}`;
+                    const entry = await this.services.fsEntry.mkdir(userId, {
+                        path: targetPath,
+                        dedupeName: getBoolean(record, 'dedupe_name') ?? true,
+                        createMissingParents:
+                            getBoolean(
+                                record,
+                                'create_missing_ancestors',
+                                'create_missing_parents',
+                            ) ?? false,
+                    });
+                    await this.#emitGuiEvent('outer.gui.item.added', entry);
+                    shaped = await toLegacyEntry(this.clients.event, entry);
+                } else if (op === 'shortcut') {
+                    const parentPath = getString(record, 'path') ?? '';
+                    const name = getString(record, 'name');
+                    const shortcutToUid =
+                        getString(record, 'shortcut_to_uid') ??
+                        getString(record, 'shortcut_to');
+                    if (!name) {
+                        throw new HttpError(400, 'shortcut op missing `name`');
+                    }
+                    if (!shortcutToUid) {
+                        throw new HttpError(
+                            400,
+                            'shortcut op missing `shortcut_to_uid`',
+                        );
+                    }
+                    const target = await resolveV1Selector(
+                        this.stores.fsEntry,
+                        { uid: shortcutToUid },
+                        userId,
+                    );
+                    const expandedParent = this.#expandTilde(
+                        parentPath,
+                        username,
+                    );
+                    const parent = await resolveV1Selector(
+                        this.stores.fsEntry,
+                        { path: expandedParent || '/' },
+                        userId,
+                    );
+                    const link = await this.services.fsEntry.mkshortcut(
+                        userId,
+                        {
+                            parent,
+                            name,
+                            target,
+                            dedupeName:
+                                getBoolean(record, 'dedupe_name') ?? true,
+                        },
+                    );
+                    await this.#emitGuiEvent('outer.gui.item.added', link);
+                    shaped = await toLegacyEntry(this.clients.event, link);
+                } else if (op === 'move') {
                     const source = await resolveV1Selector(
                         this.stores.fsEntry,
                         record.source,
@@ -1450,31 +1601,69 @@ export class LegacyFSController extends PuterController {
         res.status(hasError ? 218 : 200).json({ results });
     };
 
-    async #parseMultipartBatch(req: Request): Promise<unknown[]> {
-        return new Promise<unknown[]>((resolve, reject) => {
+    async #parseMultipartBatch(req: Request): Promise<{
+        ops: unknown[];
+        files: Array<{ content: Buffer; mimeType?: string; filename?: string }>;
+        fileinfos: Array<Record<string, unknown>>;
+    }> {
+        return new Promise((resolve, reject) => {
             const ops: unknown[] = [];
+            const files: Array<{
+                content: Buffer;
+                mimeType?: string;
+                filename?: string;
+            }> = [];
+            const fileinfos: Array<Record<string, unknown>> = [];
             let parseError: Error | null = null;
             const bb = Busboy({ headers: req.headers });
 
             bb.on('field', (fieldName, value) => {
-                if (fieldName !== 'operation') return;
                 try {
-                    ops.push(JSON.parse(value));
+                    if (fieldName === 'operation') {
+                        ops.push(JSON.parse(value));
+                    } else if (fieldName === 'fileinfo') {
+                        const parsed = JSON.parse(value);
+                        fileinfos.push(
+                            parsed && typeof parsed === 'object'
+                                ? (parsed as Record<string, unknown>)
+                                : {},
+                        );
+                    }
+                    // Ignore operation_id / socket_id / misc fields — not
+                    // needed for v2 batch semantics.
                 } catch (err) {
                     parseError =
                         err instanceof Error ? err : new Error(String(err));
                 }
             });
 
-            // No file parts expected for move/delete/symlink — drain and
-            // discard anything a misbehaving client happens to send.
-            bb.on('file', (_fieldName, stream) => {
-                stream.resume();
+            // Buffer file parts into memory so batched writes can be
+            // processed in any order relative to the operation specs.
+            // For streaming uploads use the signed `/writeFile` endpoint.
+            bb.on('file', (_fieldName, stream, info) => {
+                const chunks: Buffer[] = [];
+                stream.on('data', (chunk: Buffer) => chunks.push(chunk));
+                stream.on('end', () => {
+                    files.push({
+                        content: Buffer.concat(chunks),
+                        mimeType:
+                            info && typeof info.mimeType === 'string'
+                                ? info.mimeType
+                                : undefined,
+                        filename:
+                            info && typeof info.filename === 'string'
+                                ? info.filename
+                                : undefined,
+                    });
+                });
+                stream.on('error', (err: Error) => {
+                    parseError = err;
+                });
             });
 
             bb.on('close', () => {
                 if (parseError) reject(parseError);
-                else resolve(ops);
+                else resolve({ ops, files, fileinfos });
             });
             bb.on('error', (err) => reject(err));
 
@@ -1487,6 +1676,13 @@ export class LegacyFSController extends PuterController {
         if (Array.isArray(body.operations)) return body.operations;
         if (Array.isArray(body.ops)) return body.ops;
         return [];
+    }
+
+    #expandTilde(path: string, username: string | undefined): string {
+        if (!path) return path;
+        if (path !== '~' && !path.startsWith('~/')) return path;
+        if (!username) throw new HttpError(400, 'Unable to resolve home path');
+        return `/${username}${path.slice(1)}`;
     }
 
     #serializeBatchError(err: unknown): Record<string, unknown> {

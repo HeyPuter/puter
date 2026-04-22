@@ -23,12 +23,32 @@ export class KVStoreDriver extends PuterDriver {
 
     // ── Namespace helpers ────────────────────────────────────────────
 
-    #namespace(actor: Actor | undefined, appUuid?: string): string {
-        if (!actor || !actor.user?.id) {
+    // Namespaces are keyed by user *uuid* (not numeric id) for stability
+    // across rebuilds/exports — matching v1's DynamoKVStore shape:
+    //   `v1:system`
+    //   `v1:<user_uuid>:<app_uuid>`
+    //   `v1:<user_uuid>:global`   (user-scoped, no app context)
+    // The namespace is INTERNAL — never include it in any response body.
+    #namespace(actor: Actor | undefined, appUuidOverride?: string): string {
+        if (!actor || actor.system || !actor.user?.uuid) {
             return 'v1:system';
         }
-        const app = appUuid ?? actor.app?.uid ?? 'global';
-        return `v1:${actor.user.id}:${app}`;
+        // App-under-user actors always namespace to their own app — the
+        // override only applies when the actor has no app of its own.
+        const app = actor.app?.uid ?? appUuidOverride ?? 'global';
+        return `v1:${actor.user.uuid}:${app}`;
+    }
+
+    // puter-js allows non-string keys (numbers, booleans) and v1 coerced
+    // them to strings at the driver boundary. Do the same here so the
+    // Dynamo row shape (`key` as a string attribute) stays consistent
+    // whether the caller sent `{key: 42}` or `{key: "42"}`.
+    #coerceKey(key: unknown): string {
+        if (typeof key === 'string') return key;
+        if (key === null || key === undefined) {
+            throw new HttpError(400, 'Missing `key`');
+        }
+        return String(key);
     }
 
     #key(namespace: string, key: string): Record<string, unknown> {
@@ -58,25 +78,28 @@ export class KVStoreDriver extends PuterDriver {
     // ── Interface methods ───────────────────────────────────────────
 
     async get(args: {
-        key: string | string[];
+        key: unknown;
         optConfig?: { appUuid?: string };
     }): Promise<unknown> {
         const { key, optConfig } = args;
-        if (!key) throw new HttpError(400, 'Missing `key`');
+        if (key === undefined || key === null) {
+            throw new HttpError(400, 'Missing `key`');
+        }
 
         const actor = Context.get('actor');
         const ns = this.#namespace(actor, optConfig?.appUuid);
 
         if (Array.isArray(key)) {
             if (key.length === 0) return [];
-            const items = key.map((k) => ({
+            const coerced = key.map((k) => this.#coerceKey(k));
+            const items = coerced.map((k) => ({
                 table: KV_TABLE,
                 items: this.#key(ns, k),
             }));
             const result = await this.clients.dynamo.batchGet(items);
-            this.#meter(actor, 'kv:read', key.length);
+            this.#meter(actor, 'kv:read', coerced.length);
             const responses = result?.Responses?.[KV_TABLE] ?? [];
-            return key.map((k) => {
+            return coerced.map((k) => {
                 const row = responses.find(
                     (r: Record<string, unknown>) => r.key === k,
                 );
@@ -84,28 +107,32 @@ export class KVStoreDriver extends PuterDriver {
             });
         }
 
+        const coerced = this.#coerceKey(key);
         const result = await this.clients.dynamo.get(
             KV_TABLE,
-            this.#key(ns, key),
+            this.#key(ns, coerced),
         );
         this.#meter(actor, 'kv:read');
         return result?.Item?.value ?? null;
     }
 
     async set(args: {
-        key: string;
+        key: unknown;
         value: unknown;
         expireAt?: number;
         optConfig?: { appUuid?: string };
     }): Promise<boolean> {
         const { key, value, expireAt, optConfig } = args;
-        if (!key || typeof key !== 'string')
-            throw new HttpError(400, 'Missing or invalid `key`');
+        const coerced = this.#coerceKey(key);
         if (value === undefined) throw new HttpError(400, 'Missing `value`');
 
         const actor = Context.get('actor');
         const ns = this.#namespace(actor, optConfig?.appUuid);
-        const item: Record<string, unknown> = { namespace: ns, key, value };
+        const item: Record<string, unknown> = {
+            namespace: ns,
+            key: coerced,
+            value,
+        };
         if (expireAt !== undefined) item.ttl = expireAt;
 
         await this.clients.dynamo.put(KV_TABLE, item);
@@ -124,11 +151,10 @@ export class KVStoreDriver extends PuterDriver {
         const actor = Context.get('actor');
         const ns = this.#namespace(actor, optConfig?.appUuid);
         const puts = items.map((item) => {
-            if (!item.key || typeof item.key !== 'string')
-                throw new HttpError(400, 'Each item must have a string `key`');
+            const coerced = this.#coerceKey(item.key);
             const row: Record<string, unknown> = {
                 namespace: ns,
-                key: item.key,
+                key: coerced,
                 value: item.value,
             };
             if (item.expireAt !== undefined) row.ttl = item.expireAt;
@@ -141,16 +167,15 @@ export class KVStoreDriver extends PuterDriver {
     }
 
     async del(args: {
-        key: string;
+        key: unknown;
         optConfig?: { appUuid?: string };
     }): Promise<boolean> {
         const { key, optConfig } = args;
-        if (!key || typeof key !== 'string')
-            throw new HttpError(400, 'Missing or invalid `key`');
+        const coerced = this.#coerceKey(key);
 
         const actor = Context.get('actor');
         const ns = this.#namespace(actor, optConfig?.appUuid);
-        await this.clients.dynamo.del(KV_TABLE, this.#key(ns, key));
+        await this.clients.dynamo.del(KV_TABLE, this.#key(ns, coerced));
         this.#meter(actor, 'kv:write');
         return true;
     }
@@ -214,17 +239,22 @@ export class KVStoreDriver extends PuterDriver {
     }
 
     // Shared implementation for incr/decr. `sign` is +1 for incr, -1 for decr.
+    //
+    // Response shape matches v1: a bare number when the caller bumped a
+    // single path (the default `{'': N}` sent by puter-js), otherwise a
+    // `{path: newValue, ...}` map. Importantly, we never expose the
+    // internal `namespace`/`key` Dynamo attributes — callers only get
+    // the updated counter values.
     async #applyDelta(
         args: {
-            key: string;
+            key: unknown;
             pathAndAmountMap: Record<string, number>;
             optConfig?: { appUuid?: string };
         },
         sign: 1 | -1,
     ): Promise<unknown> {
         const { key, pathAndAmountMap, optConfig } = args;
-        if (!key || typeof key !== 'string')
-            throw new HttpError(400, 'Missing or invalid `key`');
+        const coerced = this.#coerceKey(key);
         if (!pathAndAmountMap || typeof pathAndAmountMap !== 'object') {
             throw new HttpError(400, 'Missing or invalid `pathAndAmountMap`');
         }
@@ -241,6 +271,7 @@ export class KVStoreDriver extends PuterDriver {
         const setParts: string[] = [];
         const exprValues: Record<string, unknown> = {};
         const exprNames: Record<string, string> = {};
+        const attrNameToPath: Record<string, string> = {};
         let i = 0;
         for (const [path, amount] of Object.entries(pathAndAmountMap)) {
             if (typeof amount !== 'number')
@@ -254,24 +285,40 @@ export class KVStoreDriver extends PuterDriver {
                 `${nameKey} = if_not_exists(${nameKey}, :zero) + ${valKey}`,
             );
             exprValues[valKey] = amount * sign;
-            exprNames[nameKey] = path === '' ? 'value' : path;
+            const attrName = path === '' ? 'value' : path;
+            exprNames[nameKey] = attrName;
+            attrNameToPath[attrName] = path;
             i++;
         }
         exprValues[':zero'] = 0;
 
         const result = await this.clients.dynamo.update(
             KV_TABLE,
-            this.#key(ns, key),
+            this.#key(ns, coerced),
             `SET ${setParts.join(', ')}`,
             exprValues,
             exprNames,
         );
         this.#meter(actor, 'kv:write');
-        return result?.Attributes ?? {};
+
+        // Shape the return: never expose `namespace`/`key`. Project each
+        // requested path's post-update value out of `Attributes`.
+        const attrs = (result?.Attributes ?? {}) as Record<string, unknown>;
+        const paths = Object.keys(pathAndAmountMap);
+        if (paths.length === 1 && paths[0] === '') {
+            // Single top-level bump → bare scalar, matching v1's
+            // `{"result": 1}` wire shape for `kv.incr(key)`.
+            return attrs.value ?? 0;
+        }
+        const out: Record<string, unknown> = {};
+        for (const [attrName, path] of Object.entries(attrNameToPath)) {
+            out[path] = attrs[attrName] ?? 0;
+        }
+        return out;
     }
 
     async incr(args: {
-        key: string;
+        key: unknown;
         pathAndAmountMap: Record<string, number>;
         optConfig?: { appUuid?: string };
     }): Promise<unknown> {
@@ -279,7 +326,7 @@ export class KVStoreDriver extends PuterDriver {
     }
 
     async decr(args: {
-        key: string;
+        key: unknown;
         pathAndAmountMap: Record<string, number>;
         optConfig?: { appUuid?: string };
     }): Promise<unknown> {
@@ -287,13 +334,12 @@ export class KVStoreDriver extends PuterDriver {
     }
 
     async expireAt(args: {
-        key: string;
+        key: unknown;
         timestamp: number;
         optConfig?: { appUuid?: string };
     }): Promise<void> {
         const { key, timestamp, optConfig } = args;
-        if (!key || typeof key !== 'string')
-            throw new HttpError(400, 'Missing or invalid `key`');
+        const coerced = this.#coerceKey(key);
         if (typeof timestamp !== 'number')
             throw new HttpError(400, '`timestamp` must be a number');
 
@@ -301,7 +347,7 @@ export class KVStoreDriver extends PuterDriver {
         const ns = this.#namespace(actor, optConfig?.appUuid);
         await this.clients.dynamo.update(
             KV_TABLE,
-            this.#key(ns, key),
+            this.#key(ns, coerced),
             'SET #ttl = :ttl',
             { ':ttl': timestamp },
             { '#ttl': 'ttl' },
@@ -310,13 +356,12 @@ export class KVStoreDriver extends PuterDriver {
     }
 
     async expire(args: {
-        key: string;
+        key: unknown;
         ttl: number;
         optConfig?: { appUuid?: string };
     }): Promise<void> {
         const { key, ttl, optConfig } = args;
-        if (!key || typeof key !== 'string')
-            throw new HttpError(400, 'Missing or invalid `key`');
+        this.#coerceKey(key);
         if (typeof ttl !== 'number')
             throw new HttpError(400, '`ttl` must be a number (seconds)');
 
