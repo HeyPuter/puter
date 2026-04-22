@@ -21,12 +21,11 @@ import type { IConfig } from '../../../types';
  *     to the private host (`puter.app`) when a private app is being
  *     served off the wrong domain.
  *
- * Intentionally NOT ported yet (requires AuthService surface changes):
- *   - `createPrivateAssetToken` / `getPrivateAssetCookieName` — the
- *     sticky cross-origin cookie for private apps. Without it, every
- *     request re-runs the full entitlement check. Functionally correct,
- *     just less efficient.
- *   - `createPublicHostedActorToken` — sticky identity for public apps.
+ * Sticky cookies (`puter.private.asset.token` for private apps,
+ * `puter.public.hosted.actor.token` for public-hosted actors) are set
+ * after a visitor passes the gate, and honored on subsequent requests
+ * to skip the full entitlement lookup. See AuthService
+ * `createPrivateAssetToken` / `createPublicHostedActorToken`.
  */
 
 export interface PrivateHostingConfig {
@@ -37,6 +36,7 @@ export interface PrivateHostingConfig {
 
 export interface PrivateIdentity {
     source:
+        | 'private-cookie'
         | 'session-cookie'
         | 'bootstrap-token'
         | 'authorization'
@@ -45,6 +45,8 @@ export interface PrivateIdentity {
         | 'none';
     userUid?: string;
     sessionUuid?: string;
+    /** True when resolved from the sticky `puter.private.asset.token` cookie. */
+    hasValidPrivateCookie?: boolean;
 }
 
 interface SubdomainLike {
@@ -234,20 +236,68 @@ export function getBootstrapToken(
 }
 
 /**
- * Resolve the acting user for a private-app hosted request. Checks (in
- * order): the session cookie and the bootstrap-token sources. Returns
- * `{source: 'none'}` when no identity can be established — callers
- * should respond with the login bootstrap page.
+ * Resolve the acting user for a private-app hosted request. Lookup
+ * order (first hit wins):
+ *
+ *   1. `puter.private.asset.token` cookie — the sticky cookie set
+ *      after a previous successful entitlement check. Must match the
+ *      expected app + subdomain + private host.
+ *   2. `req.actor` from the auth probe (e.g. main session cookie on
+ *      same-site requests).
+ *   3. Raw session cookie fallback (cross-site drops the probe's read).
+ *   4. Bootstrap token from Authorization / query / header / referrer.
+ *
+ * Returns `{source: 'none'}` when no identity can be established —
+ * the caller then renders the login bootstrap page.
  */
 export async function resolvePrivateIdentity(opts: {
     req: Request;
     authService: AuthService;
     sessionCookieName: string | undefined;
+    expectedAppUid?: string;
+    expectedSubdomain?: string;
+    expectedPrivateHost?: string;
 }): Promise<PrivateIdentity> {
-    const { req, authService, sessionCookieName } = opts;
+    const {
+        req,
+        authService,
+        sessionCookieName,
+        expectedAppUid,
+        expectedSubdomain,
+        expectedPrivateHost,
+    } = opts;
 
-    // If the auth probe already resolved an actor (e.g. via the main
-    // session cookie when same-site), use it directly.
+    const cookies = (req as Request & { cookies?: Record<string, string> })
+        .cookies;
+
+    // 1. Sticky private-asset cookie.
+    const privateCookieName = authService.getPrivateAssetCookieName();
+    const privateCookieToken =
+        typeof cookies?.[privateCookieName] === 'string'
+            ? cookies[privateCookieName]
+            : null;
+    if (privateCookieToken) {
+        try {
+            const claims = authService.verifyPrivateAssetToken(
+                privateCookieToken,
+                {
+                    expectedAppUid,
+                    expectedSubdomain,
+                    expectedPrivateHost,
+                },
+            );
+            return {
+                source: 'private-cookie',
+                userUid: claims.userUid,
+                sessionUuid: claims.sessionUuid,
+                hasValidPrivateCookie: true,
+            };
+        } catch {
+            /* fall through — stale / mismatched cookie */
+        }
+    }
+
+    // 2. Auth probe actor.
     const existingActor = req.actor;
     if (existingActor?.user?.uuid) {
         return {
@@ -257,9 +307,108 @@ export async function resolvePrivateIdentity(opts: {
         };
     }
 
-    // Raw session cookie fallback (cross-site requests drop the header).
+    // 3. Raw session cookie fallback.
+    const sessionToken =
+        sessionCookieName && typeof cookies?.[sessionCookieName] === 'string'
+            ? cookies[sessionCookieName]
+            : null;
+    if (sessionToken) {
+        try {
+            const actor = await authService.authenticateFromToken(sessionToken);
+            if (actor?.user?.uuid) {
+                return {
+                    source: 'session-cookie',
+                    userUid: actor.user.uuid,
+                    sessionUuid: actor.session?.uid,
+                };
+            }
+        } catch {
+            /* fall through */
+        }
+    }
+
+    // 4. Bootstrap token.
+    const bootstrap = getBootstrapToken(req);
+    if (bootstrap) {
+        try {
+            const actor = await authService.authenticateFromToken(
+                bootstrap.token,
+            );
+            if (actor?.user?.uuid) {
+                return {
+                    source: bootstrap.source,
+                    userUid: actor.user.uuid,
+                    sessionUuid: actor.session?.uid,
+                };
+            }
+        } catch {
+            /* fall through */
+        }
+    }
+
+    return { source: 'none' };
+}
+
+/**
+ * Mirror of `resolvePrivateIdentity` for public hosted apps. Reads the
+ * sticky `puter.public.hosted.actor.token` cookie first, then the same
+ * session/bootstrap fallbacks.
+ */
+export async function resolvePublicHostedIdentity(opts: {
+    req: Request;
+    authService: AuthService;
+    sessionCookieName: string | undefined;
+    expectedAppUid?: string;
+    expectedSubdomain?: string;
+    expectedHost?: string;
+}): Promise<PrivateIdentity & { hasValidPublicCookie?: boolean }> {
+    const {
+        req,
+        authService,
+        sessionCookieName,
+        expectedAppUid,
+        expectedSubdomain,
+        expectedHost,
+    } = opts;
+
     const cookies = (req as Request & { cookies?: Record<string, string> })
         .cookies;
+
+    const publicCookieName = authService.getPublicHostedActorCookieName();
+    const publicCookieToken =
+        typeof cookies?.[publicCookieName] === 'string'
+            ? cookies[publicCookieName]
+            : null;
+    if (publicCookieToken) {
+        try {
+            const claims = authService.verifyPublicHostedActorToken(
+                publicCookieToken,
+                {
+                    expectedAppUid,
+                    expectedSubdomain,
+                    expectedHost,
+                },
+            );
+            return {
+                source: 'private-cookie',
+                userUid: claims.userUid,
+                sessionUuid: claims.sessionUuid,
+                hasValidPublicCookie: true,
+            };
+        } catch {
+            /* fall through */
+        }
+    }
+
+    const existingActor = req.actor;
+    if (existingActor?.user?.uuid) {
+        return {
+            source: 'session-cookie',
+            userUid: existingActor.user.uuid,
+            sessionUuid: existingActor.session?.uid,
+        };
+    }
+
     const sessionToken =
         sessionCookieName && typeof cookies?.[sessionCookieName] === 'string'
             ? cookies[sessionCookieName]

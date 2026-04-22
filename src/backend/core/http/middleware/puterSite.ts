@@ -13,6 +13,7 @@ import {
     renderLoginBootstrapHtml,
     resolvePrivateAppForHostedSite,
     resolvePrivateIdentity,
+    resolvePublicHostedIdentity,
 } from './privateAppGate';
 
 /**
@@ -236,8 +237,8 @@ export const createPuterSiteMiddleware = (
                 return;
             }
 
-            // Resolve identity. Falls through session cookie → bootstrap
-            // token (Authorization / ?puter.auth.token= / Referrer).
+            // Resolve identity. Lookup order: sticky private-asset
+            // cookie → req.actor → session cookie → bootstrap token.
             const identity = await resolvePrivateIdentity({
                 req,
                 authService: layers.services.auth,
@@ -245,6 +246,9 @@ export const createPuterSiteMiddleware = (
                     typeof config.cookie_name === 'string'
                         ? config.cookie_name
                         : undefined,
+                expectedAppUid: privateApp!.uid,
+                expectedSubdomain: subdomain,
+                expectedPrivateHost: host,
             });
 
             if (!identity.userUid) {
@@ -268,44 +272,128 @@ export const createPuterSiteMiddleware = (
                 return;
             }
 
-            // Emit the entitlement check. Default-deny on missing listener
-            // or thrown errors.
-            const checkEvent = {
-                appUid: privateApp!.uid,
-                userUid: identity.userUid,
-                requestHost: host,
-                requestPath: req.path,
-                result: {
-                    allowed: false,
-                } as {
-                    allowed: boolean;
-                    reason?: string;
-                    redirectUrl?: string;
-                    checkedBy?: string;
-                },
-            };
-            try {
-                await layers.clients.event.emitAndWait(
-                    'app.privateAccess.check',
-                    checkEvent,
-                    {},
-                );
-            } catch (e) {
-                console.error('[puter-site] privateAccess.check threw', e);
+            // Cookie holders skip the entitlement check — the check
+            // already ran when the cookie was minted.
+            if (!identity.hasValidPrivateCookie) {
+                const checkEvent = {
+                    appUid: privateApp!.uid,
+                    userUid: identity.userUid,
+                    requestHost: host,
+                    requestPath: req.path,
+                    result: {
+                        allowed: false,
+                    } as {
+                        allowed: boolean;
+                        reason?: string;
+                        redirectUrl?: string;
+                        checkedBy?: string;
+                    },
+                };
+                try {
+                    await layers.clients.event.emitAndWait(
+                        'app.privateAccess.check',
+                        checkEvent,
+                        {},
+                    );
+                } catch (e) {
+                    console.error('[puter-site] privateAccess.check threw', e);
+                }
+                if (!checkEvent.result.allowed) {
+                    const fallback = buildAppCenterFallback(
+                        privateApp as unknown as {
+                            name?: string;
+                            uid?: string;
+                        },
+                        hostingCfg,
+                    );
+                    res.redirect(
+                        302,
+                        checkEvent.result.redirectUrl || fallback,
+                    );
+                    return;
+                }
+
+                // First access after a pass — mint the sticky cookie so
+                // subsequent requests from this visitor skip straight
+                // to file serve.
+                try {
+                    const token = layers.services.auth.createPrivateAssetToken({
+                        appUid: privateApp!.uid,
+                        userUid: identity.userUid,
+                        sessionUuid: identity.sessionUuid,
+                        subdomain,
+                        privateHost: host,
+                    });
+                    res.cookie(
+                        layers.services.auth.getPrivateAssetCookieName(),
+                        token,
+                        layers.services.auth.getPrivateAssetCookieOptions({
+                            requestHostname: host,
+                        }),
+                    );
+                } catch (e) {
+                    console.warn(
+                        '[puter-site] failed to mint private asset cookie',
+                        e,
+                    );
+                }
             }
-            if (!checkEvent.result.allowed) {
-                const fallback = buildAppCenterFallback(
-                    privateApp as unknown as { name?: string; uid?: string },
-                    hostingCfg,
-                );
-                res.redirect(302, checkEvent.result.redirectUrl || fallback);
-                return;
-            }
+
+            // Referrer-policy hardening — don't leak private-host URLs to
+            // third-party resources loaded from the app.
+            res.setHeader('Referrer-Policy', 'no-referrer');
         } else if (privateHostingDomains.has(matched)) {
             // Private host with no private app → refuse. Prevents a
             // public-app subdomain from leaking via the private host.
             res.status(404).type('text/plain').send('Subdomain not found');
             return;
+        } else {
+            // Public hosted site. Mint the public hosted-actor cookie if
+            // we can identify the visitor — lets the hosted page make
+            // cross-origin requests as the actor without needing a
+            // host-scoped main session cookie. No-op for anonymous
+            // visitors.
+            try {
+                const identity = await resolvePublicHostedIdentity({
+                    req,
+                    authService: layers.services.auth,
+                    sessionCookieName:
+                        typeof config.cookie_name === 'string'
+                            ? config.cookie_name
+                            : undefined,
+                    expectedAppUid: associatedApp?.uid,
+                    expectedSubdomain: subdomain,
+                    expectedHost: host,
+                });
+                if (
+                    identity.userUid &&
+                    !(identity as { hasValidPublicCookie?: boolean })
+                        .hasValidPublicCookie &&
+                    associatedApp?.uid
+                ) {
+                    const token =
+                        layers.services.auth.createPublicHostedActorToken({
+                            appUid: associatedApp.uid,
+                            userUid: identity.userUid,
+                            sessionUuid: identity.sessionUuid,
+                            subdomain,
+                            host,
+                        });
+                    res.cookie(
+                        layers.services.auth.getPublicHostedActorCookieName(),
+                        token,
+                        layers.services.auth.getPublicHostedActorCookieOptions({
+                            requestHostname: host,
+                        }),
+                    );
+                }
+            } catch (e) {
+                // Best-effort — don't block the public file serve.
+                console.warn(
+                    '[puter-site] public hosted actor resolve failed',
+                    e,
+                );
+            }
         }
 
         if (site.root_dir_id === null || site.root_dir_id === undefined) {

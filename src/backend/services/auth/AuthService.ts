@@ -195,6 +195,217 @@ export class AuthService extends PuterService {
         });
     }
 
+    // ── Private / public hosted asset cookies ───────────────────────
+    //
+    // Ported from v1's `createPrivateAssetToken` / `createPublicHostedActor
+    // Token`. These are sticky cookies set by the puter-site middleware
+    // after a visitor successfully passes the private-app access gate
+    // (or is resolved as an actor on a public hosted app). Subsequent
+    // requests read the cookie and skip the full entitlement lookup.
+    //
+    // Claims are kept narrow — userUid + sessionUuid + appUid + subdomain
+    // + privateHost — so a cookie minted for one app/subdomain cannot be
+    // replayed against another. `verify*Token` enforces those expectations.
+
+    /** Cookie name that carries the sticky private-asset token. */
+    getPrivateAssetCookieName(): string {
+        return 'puter.private.asset.token';
+    }
+
+    /** Cookie name that carries the public hosted-actor token. */
+    getPublicHostedActorCookieName(): string {
+        return 'puter.public.hosted.actor.token';
+    }
+
+    /** Shared cookie options for both sticky-auth cookies. */
+    getPrivateAssetCookieOptions(
+        opts: {
+            requestHostname?: string;
+        } = {},
+    ): Record<string, unknown> {
+        return this.#hostedAssetCookieOptions(opts.requestHostname);
+    }
+
+    /** Alias — matching v1's naming. Same options used by both cookies. */
+    getPublicHostedActorCookieOptions(
+        opts: {
+            requestHostname?: string;
+        } = {},
+    ): Record<string, unknown> {
+        return this.#hostedAssetCookieOptions(opts.requestHostname);
+    }
+
+    createPrivateAssetToken(claims: {
+        appUid: string;
+        userUid: string;
+        sessionUuid?: string;
+        subdomain?: string;
+        privateHost?: string;
+    }): string {
+        return this.services.token.sign('hosted-asset', {
+            kind: 'private',
+            version: '0.0.0',
+            user_uid: claims.userUid,
+            app_uid: claims.appUid,
+            ...(claims.sessionUuid ? { session_uuid: claims.sessionUuid } : {}),
+            ...(claims.subdomain ? { subdomain: claims.subdomain } : {}),
+            ...(claims.privateHost ? { host: claims.privateHost } : {}),
+        });
+    }
+
+    createPublicHostedActorToken(claims: {
+        appUid: string;
+        userUid: string;
+        sessionUuid?: string;
+        subdomain?: string;
+        host?: string;
+    }): string {
+        return this.services.token.sign('hosted-asset', {
+            kind: 'public',
+            version: '0.0.0',
+            user_uid: claims.userUid,
+            app_uid: claims.appUid,
+            ...(claims.sessionUuid ? { session_uuid: claims.sessionUuid } : {}),
+            ...(claims.subdomain ? { subdomain: claims.subdomain } : {}),
+            ...(claims.host ? { host: claims.host } : {}),
+        });
+    }
+
+    verifyPrivateAssetToken(
+        token: string,
+        expected: {
+            expectedAppUid?: string;
+            expectedSubdomain?: string;
+            expectedPrivateHost?: string;
+        } = {},
+    ): {
+        userUid: string;
+        sessionUuid?: string;
+        appUid?: string;
+        subdomain?: string;
+        privateHost?: string;
+    } {
+        const decoded = this.#verifyHostedAssetToken(token, 'private');
+        this.#assertExpected(
+            decoded,
+            'app_uid',
+            expected.expectedAppUid,
+            'expectedAppUid',
+        );
+        this.#assertExpected(
+            decoded,
+            'subdomain',
+            expected.expectedSubdomain,
+            'expectedSubdomain',
+        );
+        this.#assertExpected(
+            decoded,
+            'host',
+            expected.expectedPrivateHost,
+            'expectedPrivateHost',
+        );
+        return {
+            userUid: decoded.user_uid as string,
+            sessionUuid: decoded.session_uuid as string | undefined,
+            appUid: decoded.app_uid as string | undefined,
+            subdomain: decoded.subdomain as string | undefined,
+            privateHost: decoded.host as string | undefined,
+        };
+    }
+
+    verifyPublicHostedActorToken(
+        token: string,
+        expected: {
+            expectedAppUid?: string;
+            expectedSubdomain?: string;
+            expectedHost?: string;
+        } = {},
+    ): {
+        userUid: string;
+        sessionUuid?: string;
+        appUid?: string;
+        subdomain?: string;
+        host?: string;
+    } {
+        const decoded = this.#verifyHostedAssetToken(token, 'public');
+        this.#assertExpected(
+            decoded,
+            'app_uid',
+            expected.expectedAppUid,
+            'expectedAppUid',
+        );
+        this.#assertExpected(
+            decoded,
+            'subdomain',
+            expected.expectedSubdomain,
+            'expectedSubdomain',
+        );
+        this.#assertExpected(
+            decoded,
+            'host',
+            expected.expectedHost,
+            'expectedHost',
+        );
+        return {
+            userUid: decoded.user_uid as string,
+            sessionUuid: decoded.session_uuid as string | undefined,
+            appUid: decoded.app_uid as string | undefined,
+            subdomain: decoded.subdomain as string | undefined,
+            host: decoded.host as string | undefined,
+        };
+    }
+
+    #verifyHostedAssetToken(
+        token: string,
+        expectedKind: 'private' | 'public',
+    ): Record<string, unknown> {
+        const decoded = this.services.token.verify<Record<string, unknown>>(
+            'hosted-asset',
+            token,
+        );
+        if (decoded.kind !== expectedKind) {
+            throw new Error(`hosted-asset token is not ${expectedKind}`);
+        }
+        if (typeof decoded.user_uid !== 'string' || !decoded.user_uid) {
+            throw new Error('hosted-asset token missing user_uid');
+        }
+        return decoded;
+    }
+
+    #assertExpected(
+        decoded: Record<string, unknown>,
+        field: string,
+        expected: string | undefined,
+        label: string,
+    ): void {
+        if (expected === undefined) return;
+        if (decoded[field] !== expected) {
+            throw new Error(`hosted-asset token ${label} mismatch`);
+        }
+    }
+
+    #hostedAssetCookieOptions(
+        requestHostname?: string,
+    ): Record<string, unknown> {
+        // Scope the cookie to the request host only. Not using `domain`
+        // so the browser doesn't share it across unrelated private-app
+        // subdomains — each app sees only its own cookie.
+        const options: Record<string, unknown> = {
+            httpOnly: true,
+            secure: true,
+            sameSite: 'none',
+            maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+            path: '/',
+        };
+        if (requestHostname) {
+            // Not strictly necessary (browsers default to the response
+            // origin when `domain` is absent), but included for clarity
+            // in server logs.
+            options.hostname = requestHostname;
+        }
+        return options;
+    }
+
     // ── Access tokens ───────────────────────────────────────────────
 
     /**

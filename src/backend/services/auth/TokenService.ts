@@ -104,8 +104,30 @@ const AUTH_COMPRESSION = def({
     app_uid: { short: 'au', ...uuidCompression('app-') },
 });
 
+// `hosted-asset` scope signs the sticky cookies set after a visitor
+// passes the private/public-app access gate (see AuthService
+// createPrivateAssetToken / createPublicHostedActorToken). Keeping it
+// in its own scope prevents a cookie from ever being honored as a main
+// auth token.
+const HOSTED_ASSET_COMPRESSION = def({
+    version: 'v',
+    kind: {
+        short: 'k',
+        values: defv({
+            private: 'pr',
+            public: 'pu',
+        }),
+    },
+    user_uid: { short: 'uu', ...uuidCompression() },
+    app_uid: { short: 'au', ...uuidCompression('app-') },
+    session_uuid: { short: 's', ...uuidCompression() },
+    subdomain: 'sd',
+    host: 'h',
+});
+
 const COMPRESSION: Record<string, CompressionContext> = {
     auth: AUTH_COMPRESSION,
+    'hosted-asset': HOSTED_ASSET_COMPRESSION,
 };
 
 // ── TokenService ────────────────────────────────────────────────────
