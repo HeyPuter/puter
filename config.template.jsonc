@@ -287,14 +287,7 @@
         "pagerduty_service_id": "",
         "pagerduty_from_email": ""
     },
-    "legacyBilling": {
-        "api_secret": "",
-        "stripe_publishable_key": "",
-        "endpoint_secret": "",
-        "price_ids": {
-            "price_basic": ""
-        }
-    },
+   
     "gui_assets_root": "./src/gui",
     "gui_profile": "development",
     "builtin_apps": {
