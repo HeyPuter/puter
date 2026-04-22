@@ -42,13 +42,17 @@ export class KVStoreDriver extends PuterDriver {
     // puter-js allows non-string keys (numbers, booleans) and v1 coerced
     // them to strings at the driver boundary. Do the same here so the
     // Dynamo row shape (`key` as a string attribute) stays consistent
-    // whether the caller sent `{key: 42}` or `{key: "42"}`.
+    // whether the caller sent `{key: 42}` or `{key: "42"}`. Empty-string
+    // keys are rejected to match v1's `field_empty` error.
     #coerceKey(key: unknown): string {
-        if (typeof key === 'string') return key;
         if (key === null || key === undefined) {
             throw new HttpError(400, 'Missing `key`');
         }
-        return String(key);
+        const str = typeof key === 'string' ? key : String(key);
+        if (str === '') {
+            throw new HttpError(400, 'Missing `key`');
+        }
+        return str;
     }
 
     #key(namespace: string, key: string): Record<string, unknown> {
@@ -240,11 +244,12 @@ export class KVStoreDriver extends PuterDriver {
 
     // Shared implementation for incr/decr. `sign` is +1 for incr, -1 for decr.
     //
-    // Response shape matches v1: a bare number when the caller bumped a
-    // single path (the default `{'': N}` sent by puter-js), otherwise a
-    // `{path: newValue, ...}` map. Importantly, we never expose the
-    // internal `namespace`/`key` Dynamo attributes — callers only get
-    // the updated counter values.
+    // Matches v1's `DynamoKVStore.incr` shape exactly:
+    //   - paths nest under the `value` attribute (not siblingly): `'' → value`,
+    //     `'count' → value.count`, `'a.b' → value.a.b`.
+    //   - return is always `res.Attributes?.value` — a scalar for `{'': N}`
+    //     (what puter-js sends for bare `kv.incr(key)`), or a nested map
+    //     otherwise. Never leak `namespace`/`key`.
     async #applyDelta(
         args: {
             key: unknown;
@@ -262,35 +267,59 @@ export class KVStoreDriver extends PuterDriver {
         const actor = Context.get('actor');
         const ns = this.#namespace(actor, optConfig?.appUuid);
 
-        // puter-js sends `pathAndAmountMap: { '': N }` for bare
-        // `kv.incr(key, N)`. An empty path means "the top-level numeric";
-        // our record shape stores it on the `value` attribute, matching
-        // what `set()` writes and `get()` reads. Non-empty paths point at
-        // named fields on the stored value (simple, non-dotted — nested
-        // path support can land later if a consumer needs it).
+        // Ensure intermediate maps exist for any nested path (e.g.
+        // `value.a.b` needs `value.a` to already be a map). Issue a
+        // best-effort bootstrap `SET value = if_not_exists(value, {})`
+        // when any caller-supplied path is non-empty with nesting; the
+        // top-level `value = scalar` case (path `''`) handles itself.
+        const hasNestedPath = Object.keys(pathAndAmountMap).some(
+            (p) => p.length > 0,
+        );
+        if (hasNestedPath) {
+            try {
+                await this.clients.dynamo.update(
+                    KV_TABLE,
+                    this.#key(ns, coerced),
+                    'SET #value = if_not_exists(#value, :empty)',
+                    { ':empty': {} },
+                    { '#value': 'value' },
+                );
+            } catch {
+                // A ConditionalCheckFailed or similar is fine — the
+                // subsequent SET will surface the real error if there
+                // genuinely is one.
+            }
+        }
+
+        // Build the nested SET expression. `#pathCleaner` strips chars
+        // Dynamo rejects in expression-attribute names.
+        const cleanerRegex = /[:\-+/*]/g;
         const setParts: string[] = [];
         const exprValues: Record<string, unknown> = {};
-        const exprNames: Record<string, string> = {};
-        const attrNameToPath: Record<string, string> = {};
+        const exprNames: Record<string, string> = { '#value': 'value' };
         let i = 0;
-        for (const [path, amount] of Object.entries(pathAndAmountMap)) {
-            if (typeof amount !== 'number')
+        for (const [valPath, amount] of Object.entries(pathAndAmountMap)) {
+            if (typeof amount !== 'number') {
                 throw new HttpError(
                     400,
-                    `Amount for '${path}' must be a number`,
+                    `Amount for '${valPath}' must be a number`,
                 );
-            const valKey = `:amt${i}`;
-            const nameKey = `#f${i}`;
+            }
+            const chunks = ['value', ...valPath.split('.')].filter(Boolean);
+            const refSegments = chunks.map((chunk) => {
+                const cleaned = chunk.split(/\[\d*\]/g)[0];
+                const token = `#${cleaned.replace(cleanerRegex, '')}`;
+                exprNames[token] = cleaned;
+                return token;
+            });
+            const attrRef = refSegments.join('.');
             setParts.push(
-                `${nameKey} = if_not_exists(${nameKey}, :zero) + ${valKey}`,
+                `${attrRef} = if_not_exists(${attrRef}, :start${i}) + :incr${i}`,
             );
-            exprValues[valKey] = amount * sign;
-            const attrName = path === '' ? 'value' : path;
-            exprNames[nameKey] = attrName;
-            attrNameToPath[attrName] = path;
+            exprValues[`:incr${i}`] = amount * sign;
+            exprValues[`:start${i}`] = 0;
             i++;
         }
-        exprValues[':zero'] = 0;
 
         const result = await this.clients.dynamo.update(
             KV_TABLE,
@@ -301,20 +330,11 @@ export class KVStoreDriver extends PuterDriver {
         );
         this.#meter(actor, 'kv:write');
 
-        // Shape the return: never expose `namespace`/`key`. Project each
-        // requested path's post-update value out of `Attributes`.
+        // v1 contract: always return the post-update `value` attribute.
+        // Scalar for `{'': N}`, nested map for anything else. Never
+        // expose `namespace`/`key`.
         const attrs = (result?.Attributes ?? {}) as Record<string, unknown>;
-        const paths = Object.keys(pathAndAmountMap);
-        if (paths.length === 1 && paths[0] === '') {
-            // Single top-level bump → bare scalar, matching v1's
-            // `{"result": 1}` wire shape for `kv.incr(key)`.
-            return attrs.value ?? 0;
-        }
-        const out: Record<string, unknown> = {};
-        for (const [attrName, path] of Object.entries(attrNameToPath)) {
-            out[path] = attrs[attrName] ?? 0;
-        }
-        return out;
+        return attrs.value ?? 0;
     }
 
     async incr(args: {
