@@ -311,15 +311,25 @@ export class ChatCompletionDriver extends PuterDriver {
             });
         }
 
+        // Stash service/model identity in the request context so the
+        // DriverController can surface it as top-level `metadata` on the
+        // HTTP response (matches v1's wire shape). Marker flag
+        // `via_ai_chat_service` mirrors v1's result payload.
+        Context.set('driverMetadata', {
+            service_used: model.provider,
+            providerUsed: model.id,
+        });
+
         if (args.response?.normalize && 'message' in res && res.message) {
             return {
                 ...res,
                 message: normalize_single_message(res.message),
                 normalized: true,
+                via_ai_chat_service: true,
             };
         }
 
-        return res;
+        return { ...res, via_ai_chat_service: true };
     }
 
     // Compute per-token cost in microcents using the model's cost map,
@@ -488,8 +498,18 @@ export class ChatCompletionDriver extends PuterDriver {
     // ── Model map ───────────────────────────────────────────────────
 
     async #buildModelMap() {
+        // Aggregator providers that resell other vendors' models. We skip
+        // registering their offerings whenever a direct-vendor entry for
+        // the same id (or one of its aliases) already exists — matches v1's
+        // behavior. Exception: openrouter/together-ai *gemini* entries stay
+        // because they expose tool variants the direct Gemini integration
+        // doesn't.
+        const AGGREGATORS = new Set(['together-ai', 'openrouter']);
+
         for (const providerName in this.#providers) {
             const provider = this.#providers[providerName];
+            const isAggregator = AGGREGATORS.has(providerName);
+
             for (const model of await provider.models()) {
                 model.id = model.id.trim().toLowerCase();
                 if (!this.#modelIdMap[model.id]) {
@@ -505,6 +525,40 @@ export class ChatCompletionDriver extends PuterDriver {
                         model.aliases.push(model.puterId);
                     } else {
                         model.aliases = [model.puterId];
+                    }
+                }
+
+                // Aggregator-dedup: if any alias already resolves to a
+                // different direct-vendor bucket, un-register the entry we
+                // just appended. Keep the gemini carve-out so openrouter's
+                // tool-enabled variants survive.
+                if (isAggregator && model.aliases) {
+                    let skip = false;
+                    for (const rawAlias of model.aliases) {
+                        const alias = rawAlias.trim().toLowerCase();
+                        const existing = this.#modelIdMap[alias];
+                        if (
+                            existing &&
+                            existing !== this.#modelIdMap[model.id]
+                        ) {
+                            if (existing.some((m) => m.provider === 'gemini')) {
+                                // Gemini exception — let the aggregator
+                                // entry through.
+                                continue;
+                            }
+                            skip = true;
+                            break;
+                        }
+                    }
+                    if (skip) {
+                        // Remove the entry we just pushed; leave the bucket
+                        // intact for other providers.
+                        const bucket = this.#modelIdMap[model.id];
+                        bucket.pop();
+                        if (bucket.length === 0) {
+                            delete this.#modelIdMap[model.id];
+                        }
+                        continue;
                     }
                 }
 
@@ -528,16 +582,21 @@ export class ChatCompletionDriver extends PuterDriver {
                     }
                 }
 
-                // Sort: cheapest first
+                // Sort: together-ai always last; then cheapest input-cost
+                // first; ties break by shorter id (usually the official
+                // name over a long aggregator-qualified one).
                 this.#modelIdMap[model.id].sort((a, b) => {
-                    return (
-                        (a.costs[
-                            (a.input_cost_key as string) || 'input_tokens'
-                        ] as number) -
-                        (b.costs[
-                            (b.input_cost_key as string) || 'input_tokens'
-                        ] as number)
-                    );
+                    const aAgg = a.provider === 'together-ai';
+                    const bAgg = b.provider === 'together-ai';
+                    if (aAgg !== bAgg) return aAgg ? 1 : -1;
+                    const aCost = a.costs[
+                        (a.input_cost_key as string) || 'input_tokens'
+                    ] as number;
+                    const bCost = b.costs[
+                        (b.input_cost_key as string) || 'input_tokens'
+                    ] as number;
+                    if (aCost === bCost) return a.id.length - b.id.length;
+                    return aCost - bCost;
                 });
             }
         }

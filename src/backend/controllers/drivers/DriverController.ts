@@ -259,11 +259,21 @@ export class DriverController extends PuterController {
             return;
         }
 
-        res.json({
+        // Drivers can optionally stash top-level response metadata via
+        // `Context.set('driverMetadata', ...)`. Used by the chat driver to
+        // surface `{service_used, providerUsed}` without polluting the
+        // result body — matches v1's wire shape.
+        const driverMetadata = Context.get('driverMetadata');
+
+        const payload: Record<string, unknown> = {
             success: true,
             result,
             service: { name: resolvedDriverName },
-        });
+        };
+        if (driverMetadata && typeof driverMetadata === 'object') {
+            payload.metadata = driverMetadata;
+        }
+        res.json(payload);
     };
 
     #handleListInterfaces = (_req: Request, res: Response): void => {
