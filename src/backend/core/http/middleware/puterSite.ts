@@ -4,6 +4,7 @@ import { posix as pathPosix } from 'node:path';
 import type { puterClients } from '../../../clients';
 import type { puterServices } from '../../../services';
 import type { puterStores } from '../../../stores';
+import { FS_COSTS } from '../../../controllers/fs/costs';
 import type { IConfig, LayerInstances } from '../../../types';
 import {
     buildAppCenterFallback,
@@ -474,10 +475,13 @@ export const createPuterSiteMiddleware = (
             };
             download.body.once('end', () => {
                 try {
+                    const bytes = download.contentLength!;
                     metering.batchIncrementUsages!(ownerActor, [
                         {
                             usageType: 'filesystem:egress:bytes',
-                            usageAmount: download.contentLength!,
+                            usageAmount: bytes,
+                            costOverride:
+                                FS_COSTS['filesystem:egress:bytes'] * bytes,
                         },
                     ]);
                 } catch {

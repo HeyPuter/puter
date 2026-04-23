@@ -4,6 +4,7 @@ import { HttpError } from '../../core/http/HttpError.js';
 import type { DriverStreamResult } from '../meta.js';
 import { PuterDriver } from '../types.js';
 import { loadFileInput } from '../util/fileInput.js';
+import { VOICE_CHANGER_COSTS } from './costs.js';
 
 /**
  * Driver implementing `puter-speech2speech` — voice changer. Currently a
@@ -38,6 +39,17 @@ export class VoiceChangerDriver extends PuterDriver {
     readonly driverInterface = 'puter-speech2speech';
     readonly driverName = 'elevenlabs-voice-changer';
     readonly isDefault = true;
+
+    override getReportedCosts(): Record<string, unknown>[] {
+        return Object.entries(VOICE_CHANGER_COSTS).map(
+            ([usageType, ucentsPerUnit]) => ({
+                usageType,
+                ucentsPerUnit,
+                unit: 'second',
+                source: 'driver:aiSpeech2Speech',
+            }),
+        );
+    }
 
     #apiKey: string | null = null;
     #baseUrl = 'https://api.elevenlabs.io';
@@ -105,11 +117,12 @@ export class VoiceChangerDriver extends PuterDriver {
             Math.ceil(loaded.buffer.byteLength / 16000),
         );
         const usageKey = `elevenlabs:${modelId}:second`;
+        const ucentsPerSecond = VOICE_CHANGER_COSTS[usageKey] ?? 0;
+        const estimatedCost = ucentsPerSecond * estimatedSeconds;
 
-        const hasCredits = await this.services.metering.hasEnoughCreditsFor(
+        const hasCredits = await this.services.metering.hasEnoughCredits(
             actor,
-            usageKey,
-            estimatedSeconds,
+            estimatedCost,
         );
         if (!hasCredits) {
             throw new HttpError(402, 'Insufficient credits');
@@ -190,6 +203,7 @@ export class VoiceChangerDriver extends PuterDriver {
             actor,
             usageKey,
             estimatedSeconds,
+            ucentsPerSecond * estimatedSeconds,
         );
 
         return {

@@ -2,6 +2,7 @@ import type { Request, Response } from 'express';
 import { HttpError } from '../../core/http/HttpError.js';
 import type { PuterRouter } from '../../core/http/PuterRouter.js';
 import { PuterController } from '../types.js';
+import { PEER_COSTS } from './costs.js';
 
 /**
  * Peer controller — WebRTC signalling info + TURN credential generation.
@@ -14,6 +15,15 @@ import { PuterController } from '../types.js';
  *   config.peers.turn.ttl       — credential TTL (default 86400)
  */
 export class PeerController extends PuterController {
+    override getReportedCosts(): Record<string, unknown>[] {
+        return Object.entries(PEER_COSTS).map(([usageType, ucentsPerUnit]) => ({
+            usageType,
+            ucentsPerUnit,
+            unit: 'byte',
+            source: 'controller:peer',
+        }));
+    }
+
     registerRoutes(router: PuterRouter): void {
         router.get(
             '/peer/signaller-info',
@@ -135,10 +145,8 @@ export class PeerController extends PuterController {
             try {
                 const user = await this.stores.user.getByUuid(userUuid);
                 if (!user) continue;
-                // $0.005 per byte microcents matches the v1 rate (≈$5/GB).
-                // Not in COST_MAPS, so pass as costOverride; incrementUsage
-                // accepts it as the full cost for `usageAmount` bytes.
-                const costInMicrocents = egressBytes * 0.005;
+                const costInMicrocents =
+                    egressBytes * PEER_COSTS['turn:egress-bytes'];
                 const actor = {
                     user: {
                         uuid: user.uuid,

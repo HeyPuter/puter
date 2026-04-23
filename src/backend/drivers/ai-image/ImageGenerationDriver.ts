@@ -65,6 +65,30 @@ export class ImageGenerationDriver extends PuterDriver {
         return (await this.models()).map((m) => m.puterId || m.id).sort();
     }
 
+    override getReportedCosts(): Record<string, unknown>[] {
+        const out: Record<string, unknown>[] = [];
+        const seen = new Set<string>();
+        for (const bucket of Object.values(this.#modelIdMap)) {
+            for (const model of bucket) {
+                const key = `${model.provider}:${model.id}`;
+                if (seen.has(key)) continue;
+                seen.add(key);
+                for (const [costKey, raw] of Object.entries(
+                    (model as { costs?: Record<string, number> }).costs ?? {},
+                )) {
+                    if (typeof raw !== 'number' || !Number.isFinite(raw))
+                        continue;
+                    out.push({
+                        usageType: `${model.provider}:${model.id}:${costKey}`,
+                        costValue: raw,
+                        source: `driver:aiImage/${model.provider}`,
+                    });
+                }
+            }
+        }
+        return out;
+    }
+
     async generate(args: IGenerateParams): Promise<string> {
         const actor = Context.get('actor');
         if (!actor) throw new HttpError(401, 'Authentication required');

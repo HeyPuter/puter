@@ -44,6 +44,9 @@ export const PuterController =
         public onServerShutdown() {
             return;
         }
+        public getReportedCosts(): Record<string, unknown>[] {
+            return [];
+        }
         public registerRoutes(_router: PuterRouter) {}
     } satisfies IPuterController<WithControllerRegistration>;
 

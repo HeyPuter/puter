@@ -36,4 +36,13 @@ export abstract class TTSProvider implements ITTSProvider {
     async synthesize(_args: ISynthesizeArgs): Promise<unknown> {
         throw new Error('Method not implemented.');
     }
+
+    /**
+     * Provider-specific cost catalogue used by the TTSDriver's aggregated
+     * `getReportedCosts()`. Subclasses override to expose their per-unit
+     * metering costs. Shape matches the `WithCostsReporting` contract.
+     */
+    getReportedCosts(): Record<string, unknown>[] {
+        return [];
+    }
 }

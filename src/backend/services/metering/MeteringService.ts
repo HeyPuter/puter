@@ -13,7 +13,6 @@ import {
 import type { AppTotals, UsageAddons, UsageByType, UsageRecord } from './types';
 import { toMicroCents } from './utils';
 
-import { COST_MAPS } from '../../data/costMaps/index.js';
 import { SUB_POLICIES } from '../../data/subPolicies/index.js';
 
 // ── Types ────────────────────────────────────────────────────────────
@@ -25,7 +24,7 @@ export type SubscriptionResolver = (
 ) => Promise<string | null | undefined> | string | null | undefined;
 
 interface UsageInput {
-    usageType: keyof typeof COST_MAPS | (string & {});
+    usageType: string;
     usageAmount: number;
     costOverride?: number;
 }
@@ -121,7 +120,7 @@ export class MeteringService extends PuterService {
 
     async incrementUsage(
         actor: Actor,
-        usageType: keyof typeof COST_MAPS | (string & {}),
+        usageType: string,
         usageAmount: number,
         costOverride?: number,
     ): Promise<UsageByType> {
@@ -156,25 +155,7 @@ export class MeteringService extends PuterService {
 
             const currentMonth = this.monthYearString();
 
-            const mappedCost = COST_MAPS[usageType as keyof typeof COST_MAPS];
-            const totalCost =
-                (costOverride && costOverride < 0 ? 1 : costOverride) ??
-                (mappedCost || 0) * usageAmount;
-
-            if (totalCost === 0 && mappedCost !== 0 && costOverride !== 0) {
-                this.clients.alarm.create(
-                    `metering unexpected 0 cost access to: ${usageType}`,
-                    '0 cost abuse vector',
-                    {
-                        userId: actor.user?.uuid,
-                        username: actor.user?.username,
-                        appId: actor.app?.uid,
-                        usageType,
-                        usageAmount,
-                        costOverride,
-                    },
-                );
-            }
+            const totalCost = costOverride ?? 0;
 
             const escapedUsageType = String(usageType).replace(
                 /\./g,
@@ -307,7 +288,6 @@ export class MeteringService extends PuterService {
             const currentMonth = this.monthYearString();
             const aggregated: Record<string, number> = {};
             let totalBatchCost = 0;
-            let hasZeroCostWarning = false;
 
             for (const {
                 usageType,
@@ -342,33 +322,8 @@ export class MeteringService extends PuterService {
                     );
                 }
 
-                const mappedCost =
-                    COST_MAPS[usageType as keyof typeof COST_MAPS];
-                const totalCost =
-                    costOverride ?? (mappedCost || 0) * usageAmount;
+                const totalCost = costOverride ?? 0;
                 totalBatchCost += totalCost;
-
-                if (
-                    !hasZeroCostWarning &&
-                    totalCost === 0 &&
-                    mappedCost !== 0 &&
-                    costOverride !== 0
-                ) {
-                    hasZeroCostWarning = true;
-                    this.clients.alarm.create(
-                        `metering unexpected 0 cost access to: ${usageType}`,
-                        '0 cost abuse vector',
-                        {
-                            userId: actor.user?.uuid,
-                            username: actor.user?.username,
-                            appId: actor.app?.uid,
-                            usageType,
-                            usageAmount,
-                            costOverride,
-                            costOverrideRaw,
-                        },
-                    );
-                }
 
                 const escaped = String(usageType).replace(/\./g, PERIOD_ESCAPE);
                 aggregated['total'] = (aggregated['total'] || 0) + totalCost;
@@ -662,17 +617,6 @@ export class MeteringService extends PuterService {
         return (await this.getRemainingUsage(actor)) > 0;
     }
 
-    async hasEnoughCreditsFor(
-        actor: Actor,
-        usageType: keyof typeof COST_MAPS,
-        usageAmount: number,
-    ): Promise<boolean> {
-        const remaining = await this.getRemainingUsage(actor);
-        const cost =
-            (COST_MAPS[usageType] || 0) * (usageAmount < 0 ? 1 : usageAmount);
-        return remaining >= cost;
-    }
-
     async hasEnoughCredits(actor: Actor, amount: number): Promise<boolean> {
         return (await this.getRemainingUsage(actor)) >= amount;
     }
@@ -867,7 +811,7 @@ export class MeteringService extends PuterService {
         actorSubscription: SubscriptionPolicy;
         actorAddons: UsageAddons;
         incrementCost: number;
-        usageType?: keyof typeof COST_MAPS | string;
+        usageType?: string;
         usageAmount?: number;
         costOverride?: number;
         batchUsages?: UsageInput[];

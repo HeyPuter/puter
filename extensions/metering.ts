@@ -1,9 +1,49 @@
 import { Context } from '@heyputer/backend/src/core';
 import { HttpError } from '@heyputer/backend/src/core/http';
+import {
+    controllersContainers,
+    driversContainers,
+} from '@heyputer/backend/src/exports';
 import { extension } from '@heyputer/backend/src/extensions';
 
 const services = extension.import('service');
 const clients = extension.import('client');
+
+// Cached on first request — the underlying cost catalogues are baked into
+// driver/controller source so they only change on deploy.
+let cachedAllCosts: Record<string, unknown>[] | null = null;
+
+function collectAllCosts(): Record<string, unknown>[] {
+    const all: Record<string, unknown>[] = [];
+    const collect = (
+        source: Record<string, unknown>,
+        kind: 'driver' | 'controller',
+    ) => {
+        for (const [name, instance] of Object.entries(source)) {
+            const fn = (
+                instance as {
+                    getReportedCosts?: () => Record<string, unknown>[];
+                }
+            )?.getReportedCosts;
+            if (typeof fn !== 'function') continue;
+            try {
+                const entries = fn.call(instance);
+                if (!Array.isArray(entries)) continue;
+                for (const entry of entries) {
+                    all.push({ ...entry, registry: kind, registryKey: name });
+                }
+            } catch (e) {
+                console.warn(
+                    `[metering] getReportedCosts failed for ${kind}:${name}:`,
+                    (e as Error).message,
+                );
+            }
+        }
+    };
+    collect(driversContainers as Record<string, unknown>, 'driver');
+    collect(controllersContainers as Record<string, unknown>, 'controller');
+    return all;
+}
 
 extension.get(
     '/metering/usage',
@@ -60,3 +100,12 @@ extension.get(
         res.json(globalUsage);
     },
 );
+
+// Public: flat dump of every driver/controller's declared cost catalogue.
+// First hit walks the registries; subsequent hits serve the in-memory cache.
+extension.get('/metering/allCosts', { subdomain: 'api' }, async (_req, res) => {
+    if (!cachedAllCosts) {
+        cachedAllCosts = collectAllCosts();
+    }
+    res.json({ costs: cachedAllCosts });
+});

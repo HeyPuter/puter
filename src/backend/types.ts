@@ -510,7 +510,11 @@ export interface WithLifecycle extends Object {
     onServerPrepareShutdown?: () => Promise<void> | void;
 }
 
-export interface WithControllerRegistration extends WithLifecycle {
+export interface WithCostsReporting extends WithLifecycle {
+    getReportedCosts?: () => Promise<Record<string, unknown>[]>;
+}
+
+export interface WithControllerRegistration extends WithCostsReporting {
     registerRoutes: (router: PuterRouter) => void;
 }
 

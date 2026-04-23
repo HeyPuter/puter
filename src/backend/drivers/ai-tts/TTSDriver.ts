@@ -102,6 +102,26 @@ export class TTSDriver extends PuterDriver {
         return Object.keys(this.#providers);
     }
 
+    override getReportedCosts(): Record<string, unknown>[] {
+        const all: Record<string, unknown>[] = [];
+        for (const p of Object.values(this.#providers)) {
+            const fn = (
+                p as unknown as {
+                    getReportedCosts?: () => Record<string, unknown>[];
+                }
+            ).getReportedCosts;
+            if (typeof fn === 'function') {
+                try {
+                    const entries = fn.call(p);
+                    if (Array.isArray(entries)) all.push(...entries);
+                } catch {
+                    // ignore — cost reporting is best-effort
+                }
+            }
+        }
+        return all;
+    }
+
     /**
      * Synthesize speech from text. Routes to the appropriate provider
      * based on the `provider` argument, or falls back to the first

@@ -3,6 +3,7 @@ import { Context } from '../../core/context.js';
 import { PuterDriver } from '../types.js';
 import type { Actor } from '../../core/actor.js';
 import type { KVUsage } from '../../stores/systemKv/SystemKVStore.js';
+import { KV_COSTS } from './costs.js';
 
 /**
  * KV store driver implementing the `puter-kvstore` interface.
@@ -16,6 +17,15 @@ export class KVStoreDriver extends PuterDriver {
     readonly driverInterface = 'puter-kvstore';
     readonly driverName = 'puter-kvstore';
     readonly isDefault = true;
+
+    override getReportedCosts(): Record<string, unknown>[] {
+        return Object.entries(KV_COSTS).map(([usageType, ucentsPerUnit]) => ({
+            usageType,
+            ucentsPerUnit,
+            unit: 'capacity-unit',
+            source: 'driver:kvStore',
+        }));
+    }
 
     #coerceKey(key: unknown): string {
         if (key === null || key === undefined) {
@@ -35,7 +45,12 @@ export class KVStoreDriver extends PuterDriver {
         const metering = this.services.metering;
         if (usage.read > 0) {
             void metering
-                .incrementUsage(actor, 'kv:read', usage.read)
+                .incrementUsage(
+                    actor,
+                    'kv:read',
+                    usage.read,
+                    KV_COSTS['kv:read'] * usage.read,
+                )
                 .catch((e) =>
                     console.warn(
                         '[kv] metering kv:read failed:',
@@ -45,7 +60,12 @@ export class KVStoreDriver extends PuterDriver {
         }
         if (usage.write > 0) {
             void metering
-                .incrementUsage(actor, 'kv:write', usage.write)
+                .incrementUsage(
+                    actor,
+                    'kv:write',
+                    usage.write,
+                    KV_COSTS['kv:write'] * usage.write,
+                )
                 .catch((e) =>
                     console.warn(
                         '[kv] metering kv:write failed:',

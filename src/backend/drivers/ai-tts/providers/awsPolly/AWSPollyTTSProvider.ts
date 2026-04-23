@@ -12,15 +12,9 @@ import type { MeteringService } from '../../../../services/metering/MeteringServ
 import type { DriverStreamResult } from '../../../meta.js';
 import type { ITTSVoice, ITTSEngine, ISynthesizeArgs } from '../../types.js';
 import { TTSProvider } from '../TTSProvider.js';
+import { AWS_POLLY_COSTS } from './costs.js';
 
 const SAMPLE_AUDIO_URL = 'https://puter-sample-data.puter.site/tts_example.mp3';
-
-const ENGINE_PRICING: Record<string, number> = {
-    standard: 400, // $4.00 per 1M characters
-    neural: 1600, // $16.00 per 1M characters
-    'long-form': 10000, // $100.00 per 1M characters
-    generative: 3000, // $30.00 per 1M characters
-};
 
 const VALID_ENGINES = ['standard', 'neural', 'long-form', 'generative'];
 
@@ -175,8 +169,19 @@ export class AWSPollyTTSProvider extends TTSProvider {
             id: engine,
             name: engine.charAt(0).toUpperCase() + engine.slice(1),
             provider: 'aws-polly',
-            pricing_per_million_chars: ENGINE_PRICING[engine] / 100, // microcents to dollars
+            pricing_per_million_chars: AWS_POLLY_COSTS[engine] / 100, // microcents to dollars
         }));
+    }
+
+    override getReportedCosts(): Record<string, unknown>[] {
+        return Object.entries(AWS_POLLY_COSTS).map(
+            ([engine, ucentsPerUnit]) => ({
+                usageType: `aws-polly:${engine}:character`,
+                ucentsPerUnit,
+                unit: 'character',
+                source: 'driver:aiTts/aws-polly',
+            }),
+        );
     }
 
     async synthesize(
@@ -214,11 +219,12 @@ export class AWSPollyTTSProvider extends TTSProvider {
 
         const actor = Context.get('actor')!;
         const usageType = `aws-polly:${engine}:character`;
+        const ucentsPerChar = AWS_POLLY_COSTS[engine] ?? 0;
+        const totalCost = ucentsPerChar * text.length;
 
-        const usageAllowed = await this.meteringService.hasEnoughCreditsFor(
+        const usageAllowed = await this.meteringService.hasEnoughCredits(
             actor,
-            usageType as any,
-            text.length,
+            totalCost,
         );
         if (!usageAllowed) {
             throw new HttpError(402, 'Insufficient funds', {
@@ -253,7 +259,12 @@ export class AWSPollyTTSProvider extends TTSProvider {
         const command = new SynthesizeSpeechCommand(params);
         const response = await client.send(command);
 
-        this.meteringService.incrementUsage(actor, usageType, text.length);
+        this.meteringService.incrementUsage(
+            actor,
+            usageType,
+            text.length,
+            totalCost,
+        );
 
         return {
             dataType: 'stream',

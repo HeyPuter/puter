@@ -5,6 +5,7 @@ import type { MeteringService } from '../../../../services/metering/MeteringServ
 import type { DriverStreamResult } from '../../../meta.js';
 import type { ITTSVoice, ITTSEngine, ISynthesizeArgs } from '../../types.js';
 import { TTSProvider } from '../TTSProvider.js';
+import { ELEVENLABS_TTS_COSTS } from './costs.js';
 
 const DEFAULT_MODEL = 'eleven_multilingual_v2';
 const DEFAULT_VOICE_ID = '21m00Tcm4TlvDq8ikWAM'; // "Rachel" sample voice
@@ -125,6 +126,17 @@ export class ElevenLabsTTSProvider extends TTSProvider {
         }));
     }
 
+    override getReportedCosts(): Record<string, unknown>[] {
+        return Object.entries(ELEVENLABS_TTS_COSTS).map(
+            ([model, ucentsPerUnit]) => ({
+                usageType: `elevenlabs:${model}:character`,
+                ucentsPerUnit,
+                unit: 'character',
+                source: 'driver:aiTts/elevenlabs',
+            }),
+        );
+    }
+
     async synthesize(
         args: ISynthesizeArgs,
     ): Promise<DriverStreamResult | { url: string; content_type: string }> {
@@ -157,11 +169,12 @@ export class ElevenLabsTTSProvider extends TTSProvider {
 
         const actor = Context.get('actor')!;
         const usageKey = `elevenlabs:${modelId}:character`;
+        const ucentsPerChar = ELEVENLABS_TTS_COSTS[modelId] ?? 0;
+        const totalCost = ucentsPerChar * text.length;
 
-        const usageAllowed = await this.meteringService.hasEnoughCreditsFor(
+        const usageAllowed = await this.meteringService.hasEnoughCredits(
             actor,
-            usageKey as any,
-            text.length,
+            totalCost,
         );
         if (!usageAllowed) {
             throw new HttpError(402, 'Insufficient funds', {
@@ -190,7 +203,12 @@ export class ElevenLabsTTSProvider extends TTSProvider {
         const buffer = Buffer.from(arrayBuffer);
         const stream = Readable.from(buffer);
 
-        this.meteringService.incrementUsage(actor, usageKey, text.length);
+        this.meteringService.incrementUsage(
+            actor,
+            usageKey,
+            text.length,
+            totalCost,
+        );
 
         const contentType =
             response.headers.get('content-type') || 'audio/mpeg';

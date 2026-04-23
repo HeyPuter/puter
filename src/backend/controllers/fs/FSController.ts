@@ -16,6 +16,7 @@ import {
     runWithConcurrencyLimitSettled,
 } from '../../util/concurrency.js';
 import { PuterController } from '../types.js';
+import { FS_COSTS } from './costs.js';
 import type {
     CompleteWriteRequest,
     CompleteWriteResponse,
@@ -69,6 +70,15 @@ const DEFAULT_BATCH_WRITE_SIDE_EFFECT_CONCURRENCY = 8;
 
 @Controller('/fs')
 export class FSController extends PuterController {
+    override getReportedCosts(): Record<string, unknown>[] {
+        return Object.entries(FS_COSTS).map(([usageType, ucentsPerUnit]) => ({
+            usageType,
+            ucentsPerUnit,
+            unit: 'byte',
+            source: 'controller:fs',
+        }));
+    }
+
     @Post('/startWrite', { subdomain: 'api', requireVerified: true })
     async startWrite(
         req: Request<RouteParams, null, SignedWriteRequest>,
@@ -943,10 +953,13 @@ export class FSController extends PuterController {
         if (metering?.batchIncrementUsages && download.contentLength) {
             download.body.once('end', () => {
                 try {
+                    const bytes = download.contentLength!;
                     metering.batchIncrementUsages!(actor, [
                         {
                             usageType: 'filesystem:egress:bytes',
-                            usageAmount: download.contentLength!,
+                            usageAmount: bytes,
+                            costOverride:
+                                FS_COSTS['filesystem:egress:bytes'] * bytes,
                         },
                     ]);
                 } catch {

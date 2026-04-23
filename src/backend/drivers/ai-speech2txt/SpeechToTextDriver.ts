@@ -3,6 +3,7 @@ import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { PuterDriver } from '../types.js';
 import { loadFileInput } from '../util/fileInput.js';
+import { SPEECH_TO_TEXT_COSTS } from './costs.js';
 
 /**
  * Driver implementing `puter-speech2txt`. Wraps OpenAI's audio API
@@ -81,6 +82,17 @@ export class SpeechToTextDriver extends PuterDriver {
     readonly driverInterface = 'puter-speech2txt';
     readonly driverName = 'openai-speech2txt';
     readonly isDefault = true;
+
+    override getReportedCosts(): Record<string, unknown>[] {
+        return Object.entries(SPEECH_TO_TEXT_COSTS).map(
+            ([usageType, ucentsPerUnit]) => ({
+                usageType,
+                ucentsPerUnit,
+                unit: 'second',
+                source: 'driver:aiSpeech2Txt',
+            }),
+        );
+    }
 
     #openai: OpenAI | null = null;
 
@@ -207,10 +219,11 @@ export class SpeechToTextDriver extends PuterDriver {
             Math.ceil(loaded.buffer.byteLength / 16000),
         );
         const usageType = `openai:${selectedModel}:second`;
-        const allowed = await this.services.metering.hasEnoughCreditsFor(
+        const ucentsPerSecond = SPEECH_TO_TEXT_COSTS[usageType] ?? 0;
+        const estimatedCost = ucentsPerSecond * estimatedSeconds;
+        const allowed = await this.services.metering.hasEnoughCredits(
             actor,
-            usageType,
-            estimatedSeconds,
+            estimatedCost,
         );
         if (!allowed) throw new HttpError(402, 'Insufficient credits');
 
@@ -277,6 +290,7 @@ export class SpeechToTextDriver extends PuterDriver {
             actor,
             usageType,
             estimatedSeconds,
+            ucentsPerSecond * estimatedSeconds,
         );
 
         // Text response_format: return raw string; otherwise forward the OpenAI object.

@@ -6,6 +6,7 @@ import type { MeteringService } from '../../../../services/metering/MeteringServ
 import type { DriverStreamResult } from '../../../meta.js';
 import type { ITTSVoice, ITTSEngine, ISynthesizeArgs } from '../../types.js';
 import { TTSProvider } from '../TTSProvider.js';
+import { OPENAI_TTS_COSTS } from './costs.js';
 
 const DEFAULT_MODEL = 'gpt-4o-mini-tts';
 const DEFAULT_VOICE = 'alloy';
@@ -87,6 +88,17 @@ export class OpenAITTSProvider extends TTSProvider {
         }));
     }
 
+    override getReportedCosts(): Record<string, unknown>[] {
+        return Object.entries(OPENAI_TTS_COSTS).map(
+            ([model, ucentsPerUnit]) => ({
+                usageType: `openai:${model}:character`,
+                ucentsPerUnit,
+                unit: 'character',
+                source: 'driver:aiTts/openai',
+            }),
+        );
+    }
+
     async synthesize(
         args: ISynthesizeArgs,
     ): Promise<DriverStreamResult | { url: string; content_type: string }> {
@@ -152,11 +164,12 @@ export class OpenAITTSProvider extends TTSProvider {
 
         const actor = Context.get('actor')!;
         const usageType = `openai:${model}:character`;
+        const ucentsPerChar = OPENAI_TTS_COSTS[model] ?? 0;
+        const totalCost = ucentsPerChar * text.length;
 
-        const usageAllowed = await this.meteringService.hasEnoughCreditsFor(
+        const usageAllowed = await this.meteringService.hasEnoughCredits(
             actor,
-            usageType as any,
-            text.length,
+            totalCost,
         );
         if (!usageAllowed) {
             throw new HttpError(402, 'Insufficient funds', {
@@ -184,7 +197,12 @@ export class OpenAITTSProvider extends TTSProvider {
         const buffer = Buffer.from(arrayBuffer);
         const stream = Readable.from(buffer);
 
-        this.meteringService.incrementUsage(actor, usageType, text.length);
+        this.meteringService.incrementUsage(
+            actor,
+            usageType,
+            text.length,
+            totalCost,
+        );
 
         return {
             dataType: 'stream',

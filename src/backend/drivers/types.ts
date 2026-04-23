@@ -1,14 +1,15 @@
 import type { puterClients } from '../clients';
 import type { puterServices } from '../services';
 import type { puterStores } from '../stores';
-import type { IConfig, LayerInstances, WithLifecycle } from '../types';
+import type { IConfig, LayerInstances, WithCostsReporting } from '../types';
 
-export type IPuterDriver<T extends WithLifecycle = WithLifecycle> = new (
-    config: IConfig,
-    clients: LayerInstances<typeof puterClients>,
-    stores: LayerInstances<typeof puterStores>,
-    services: LayerInstances<typeof puterServices>,
-) => T;
+export type IPuterDriver<T extends WithCostsReporting = WithCostsReporting> =
+    new (
+        config: IConfig,
+        clients: LayerInstances<typeof puterClients>,
+        stores: LayerInstances<typeof puterStores>,
+        services: LayerInstances<typeof puterServices>,
+    ) => T;
 
 /**
  * Base class for v2 drivers.
@@ -35,7 +36,7 @@ export type IPuterDriver<T extends WithLifecycle = WithLifecycle> = new (
  *    }
  *    ```
  */
-export const PuterDriver = class PuterDriver implements WithLifecycle {
+export const PuterDriver = class PuterDriver implements WithCostsReporting {
     /** The interface this driver implements. Set by `@Driver` or override. */
     declare readonly driverInterface?: string;
     /** Unique name within its interface. Set by `@Driver` or override. */
@@ -58,10 +59,13 @@ export const PuterDriver = class PuterDriver implements WithLifecycle {
     public onServerShutdown() {
         return;
     }
-} satisfies IPuterDriver<WithLifecycle>;
+    public getReportedCosts(): Record<string, unknown>[] {
+        return [];
+    }
+} satisfies IPuterDriver<WithCostsReporting>;
 
 export type IPuterDriverRegistry = Record<
     string,
-    | IPuterDriver<WithLifecycle>
-    | (InstanceType<IPuterDriver<WithLifecycle>> & Record<string, unknown>)
+    | IPuterDriver<WithCostsReporting>
+    | (InstanceType<IPuterDriver<WithCostsReporting>> & Record<string, unknown>)
 >;

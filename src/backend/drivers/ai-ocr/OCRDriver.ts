@@ -10,6 +10,7 @@ import { HttpError } from '../../core/http/HttpError.js';
 import { mimeFromName } from '../../util/fileSigning.js';
 import { PuterDriver } from '../types.js';
 import { loadFileInput, type LoadedFile } from '../util/fileInput.js';
+import { OCR_COSTS } from './costs.js';
 
 /**
  * Driver implementing `puter-ocr` — document OCR. Two providers:
@@ -59,6 +60,16 @@ interface MistralOcrClient {
 export class OCRDriver extends PuterDriver {
     readonly driverInterface = 'puter-ocr';
     readonly driverName = 'ai-ocr';
+
+    override getReportedCosts(): Record<string, unknown>[] {
+        return Object.entries(OCR_COSTS).map(([usageType, ucentsPerUnit]) => ({
+            usageType,
+            ucentsPerUnit,
+            unit: 'page',
+            source: 'driver:aiOcr',
+        }));
+    }
+
     // puter-js's `img2txt` routes by passing the provider id in the `driver`
     // slot. Alias them so the unified driver resolves; `recognize` falls
     // back to the alias via Context.driverName when `args.provider` isn't
@@ -175,10 +186,10 @@ export class OCRDriver extends PuterDriver {
 
     async #textractRecognize(loaded: LoadedFile, actor: Actor) {
         const usageType = 'aws-textract:detect-document-text:page';
-        const hasCredits = await this.services.metering.hasEnoughCreditsFor(
+        const costPerPage = OCR_COSTS[usageType];
+        const hasCredits = await this.services.metering.hasEnoughCredits(
             actor!,
-            usageType,
-            1,
+            costPerPage,
         );
         if (!hasCredits) throw new HttpError(402, 'Insufficient credits');
 
@@ -251,7 +262,13 @@ export class OCRDriver extends PuterDriver {
             });
         }
 
-        this.services.metering.incrementUsage(actor, usageType, pageCount || 1);
+        const pages = pageCount || 1;
+        this.services.metering.incrementUsage(
+            actor,
+            usageType,
+            pages,
+            costPerPage * pages,
+        );
         return { blocks };
     }
 
@@ -350,12 +367,14 @@ export class OCRDriver extends PuterDriver {
                 actor,
                 'mistral-ocr:ocr:page',
                 pagesProcessed,
+                OCR_COSTS['mistral-ocr:ocr:page'] * pagesProcessed,
             );
             if (annotations) {
                 this.services.metering.incrementUsage(
                     actor,
                     'mistral-ocr:annotations:page',
                     pagesProcessed,
+                    OCR_COSTS['mistral-ocr:annotations:page'] * pagesProcessed,
                 );
             }
         } catch {

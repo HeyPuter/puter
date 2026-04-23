@@ -5,6 +5,7 @@ import { Context } from '../../core/context.js';
 import { isAccessTokenActor } from '../../core/actor.js';
 import { contentType as contentTypeFromMime } from 'mime-types';
 import { PuterController } from '../types.js';
+import { FS_COSTS } from './costs.js';
 import type { PuterRouter } from '../../core/http/PuterRouter.js';
 import type { ACLService } from '../../services/acl/ACLService.js';
 import type { Actor } from '../../core/actor.js';
@@ -774,10 +775,13 @@ export class LegacyFSController extends PuterController {
         if (metering?.batchIncrementUsages && download.contentLength) {
             download.body.once('end', () => {
                 try {
+                    const bytes = download.contentLength!;
                     metering.batchIncrementUsages!(actor, [
                         {
                             usageType: 'filesystem:egress:bytes',
-                            usageAmount: download.contentLength!,
+                            usageAmount: bytes,
+                            costOverride:
+                                FS_COSTS['filesystem:egress:bytes'] * bytes,
                         },
                     ]);
                 } catch {

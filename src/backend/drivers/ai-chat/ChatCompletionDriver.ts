@@ -2,6 +2,10 @@ import { PassThrough } from 'node:stream';
 import crypto from 'node:crypto';
 import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
+import {
+    DEFAULT_FREE_SUBSCRIPTION,
+    DEFAULT_TEMP_SUBSCRIPTION,
+} from '../../services/metering/consts.js';
 import type { DriverStreamResult } from '../meta.js';
 import { PuterDriver } from '../types.js';
 import { ClaudeProvider } from './providers/claude/ClaudeProvider.js';
@@ -24,6 +28,7 @@ import type {
 } from './types.js';
 import { normalize_tools_object } from './utils/FunctionCalling.js';
 import {
+    extract_text,
     normalize_messages,
     normalize_single_message,
 } from './utils/Messages.js';
@@ -73,6 +78,35 @@ export class ChatCompletionDriver extends PuterDriver {
 
     async list() {
         return (await this.models()).map((m) => m.puterId || m.id).sort();
+    }
+
+    override getReportedCosts(): Record<string, unknown>[] {
+        const out: Record<string, unknown>[] = [];
+        const seen = new Set<string>();
+        for (const bucket of Object.values(this.#modelIdMap)) {
+            for (const model of bucket) {
+                const key = `${model.provider}:${model.id}`;
+                if (seen.has(key)) continue;
+                seen.add(key);
+                for (const [costKey, raw] of Object.entries(
+                    model.costs ?? {},
+                )) {
+                    // `tokens` is a scale descriptor ("costs expressed per N
+                    // tokens"), not a real per-operation cost — skip it.
+                    if (costKey === 'tokens') continue;
+                    if (typeof raw !== 'number' || !Number.isFinite(raw))
+                        continue;
+                    out.push({
+                        usageType: `${model.provider}:${model.id}:${costKey}`,
+                        ucentsPerUnit: raw,
+                        unit: 'token',
+                        source: `driver:aiChat/${model.provider}`,
+                        costs_currency: model.costs_currency,
+                    });
+                }
+            }
+        }
+        return out;
     }
 
     async complete(args: ICompleteArguments): Promise<IChatCompleteResult> {
@@ -126,6 +160,68 @@ export class ChatCompletionDriver extends PuterDriver {
             throw new HttpError(403, reason);
         }
 
+        // ── Credit / subscription gates (metering) ────────────────────
+        // Cheap pre-flight: reject when the user can't afford even the
+        // approximate input cost, keep subscriber-only models gated, and
+        // cap `max_tokens` so output can't exceed remaining credits.
+        const metering = this.services.metering;
+        const inputCostKey =
+            (model.input_cost_key as string | undefined) ?? 'input_tokens';
+        const outputCostKey =
+            (model.output_cost_key as string | undefined) ?? 'output_tokens';
+        const inputTokenCost = Number(model.costs?.[inputCostKey] ?? 0);
+        const outputTokenCost = Number(model.costs?.[outputCostKey] ?? 0);
+        const text = extract_text(args.messages ?? []);
+        // Rough estimator from v1 — avg of char/4 and word*(4/3), halved.
+        // See https://help.openai.com/en/articles/4936856
+        const approximateTokenCount = Math.floor(
+            (text.length / 4 + text.split(/\s+/).length * (4 / 3)) / 2,
+        );
+        const approximateInputCost = approximateTokenCount * inputTokenCost;
+        const minimumCredits = Number(model.minimumCredits ?? 0);
+
+        const usageAllowed = await metering.hasEnoughCredits(
+            actor,
+            Math.max(approximateInputCost, minimumCredits),
+        );
+        if (!usageAllowed) {
+            throw new HttpError(402, 'No usage left for request.', {
+                legacyCode: 'insufficient_funds',
+            });
+        }
+
+        if (model.subscriberOnly) {
+            const subscription = await metering.getActorSubscription(actor);
+            const isDefaultPolicy =
+                subscription.id === DEFAULT_FREE_SUBSCRIPTION ||
+                subscription.id === DEFAULT_TEMP_SUBSCRIPTION;
+            if (isDefaultPolicy) {
+                throw new HttpError(
+                    403,
+                    `The model ${model.id} is only available to subscribers. Please subscribe to access this model.`,
+                    { legacyCode: 'permission_denied' },
+                );
+            }
+        }
+
+        if (outputTokenCost > 0) {
+            const remainingCredits = await metering.getRemainingUsage(actor);
+            const maxAllowedOutputUcents =
+                remainingCredits - approximateInputCost;
+            const maxAllowedOutputTokens =
+                maxAllowedOutputUcents / outputTokenCost;
+            if (maxAllowedOutputTokens) {
+                const cap = Math.floor(
+                    Math.min(
+                        args.max_tokens ?? Number.POSITIVE_INFINITY,
+                        maxAllowedOutputTokens,
+                        model.max_tokens - approximateTokenCount,
+                    ),
+                );
+                args.max_tokens = cap < 1 ? undefined : cap;
+            }
+        }
+
         // First attempt
         const provider = this.#providers[model.provider!];
         if (!provider) {
@@ -165,6 +261,19 @@ export class ChatCompletionDriver extends PuterDriver {
 
                 const fbProvider = this.#providers[fallback.provider!];
                 if (!fbProvider) break;
+
+                // Credits can be exhausted mid-fallback by parallel requests;
+                // re-check before another upstream hit. Same bail as the
+                // pre-flight above.
+                const fallbackUsageAllowed = await metering.hasEnoughCredits(
+                    actor,
+                    1,
+                );
+                if (!fallbackUsageAllowed) {
+                    throw new HttpError(402, 'No usage left for request.', {
+                        legacyCode: 'insufficient_funds',
+                    });
+                }
 
                 tried.push(fallback.id);
                 triedProviders.push(fallback.provider!);
@@ -372,7 +481,7 @@ export class ChatCompletionDriver extends PuterDriver {
 
     #registerProviders() {
         const providers = this.config.providers ?? {};
-        const m = this.services.metering;
+        const metering = this.services.metering;
 
         const readKey = (cfg: Record<string, unknown> | undefined) =>
             (cfg?.apiKey as string | undefined) ??
@@ -381,7 +490,7 @@ export class ChatCompletionDriver extends PuterDriver {
         const claudeKey = readKey(providers['claude']);
         if (claudeKey) {
             this.#providers['claude'] = new ClaudeProvider(
-                m,
+                metering,
                 {
                     fsEntry: this.stores.fsEntry,
                     s3Object: this.stores.s3Object,
@@ -396,11 +505,15 @@ export class ChatCompletionDriver extends PuterDriver {
                 fsEntry: this.stores.fsEntry,
                 s3Object: this.stores.s3Object,
             };
-            const openaiCompletions = new OpenAiChatProvider(m, openaiStores, {
-                apiKey: openaiKey,
-            });
+            const openaiCompletions = new OpenAiChatProvider(
+                metering,
+                openaiStores,
+                {
+                    apiKey: openaiKey,
+                },
+            );
             const openaiResponses = new OpenAiResponsesChatProvider(
-                m,
+                metering,
                 openaiStores,
                 { apiKey: openaiKey },
             );
@@ -413,7 +526,7 @@ export class ChatCompletionDriver extends PuterDriver {
 
         const geminiKey = readKey(providers['gemini']);
         if (geminiKey) {
-            this.#providers['gemini'] = new GeminiChatProvider(m, {
+            this.#providers['gemini'] = new GeminiChatProvider(metering, {
                 apiKey: geminiKey,
             });
         }
@@ -422,7 +535,7 @@ export class ChatCompletionDriver extends PuterDriver {
         if (groqKey) {
             this.#providers['groq'] = new GroqAIProvider(
                 { apiKey: groqKey },
-                m,
+                metering,
             );
         }
 
@@ -430,7 +543,7 @@ export class ChatCompletionDriver extends PuterDriver {
         if (deepseekKey) {
             this.#providers['deepseek'] = new DeepSeekProvider(
                 { apiKey: deepseekKey },
-                m,
+                metering,
             );
         }
 
@@ -438,13 +551,16 @@ export class ChatCompletionDriver extends PuterDriver {
         if (mistralKey) {
             this.#providers['mistral'] = new MistralAIProvider(
                 { apiKey: mistralKey },
-                m,
+                metering,
             );
         }
 
         const xaiKey = readKey(providers['xai']);
         if (xaiKey) {
-            this.#providers['xai'] = new XAIProvider({ apiKey: xaiKey }, m);
+            this.#providers['xai'] = new XAIProvider(
+                { apiKey: xaiKey },
+                metering,
+            );
         }
 
         const openrouter = providers['openrouter'];
@@ -455,7 +571,7 @@ export class ChatCompletionDriver extends PuterDriver {
                     apiKey: openrouterKey,
                     apiBaseUrl: openrouter?.apiBaseUrl as string | undefined,
                 },
-                m,
+                metering,
             );
         }
 
@@ -463,7 +579,7 @@ export class ChatCompletionDriver extends PuterDriver {
         if (togetherKey) {
             this.#providers['together-ai'] = new TogetherAIProvider(
                 { apiKey: togetherKey },
-                m,
+                metering,
             );
         }
 
@@ -474,7 +590,7 @@ export class ChatCompletionDriver extends PuterDriver {
                 {
                     apiBaseUrl: ollama?.apiBaseUrl,
                 },
-                m,
+                metering,
             );
         }
 
