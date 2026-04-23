@@ -1,6 +1,9 @@
 import type { Request, RequestHandler, Response } from 'express';
 import Busboy from 'busboy';
 import { posix as pathPosix } from 'node:path';
+import { Context } from '../../core/context.js';
+import { isAccessTokenActor } from '../../core/actor.js';
+import { contentType as contentTypeFromMime } from 'mime-types';
 import { PuterController } from '../types.js';
 import type { PuterRouter } from '../../core/http/PuterRouter.js';
 import type { ACLService } from '../../services/acl/ACLService.js';
@@ -71,7 +74,11 @@ export class LegacyFSController extends PuterController {
         router.post('/touch', apiOptions, this.touch);
         router.post('/search', apiOptions, this.search);
         router.get('/read', apiOptions, this.read);
-        router.get('/token-read', apiOptions, this.read);
+        router.get(
+            '/token-read',
+            { subdomain: 'api', requireVerified: false },
+            this.tokenRead,
+        );
 
         router.post('/batch', apiOptions, this.batch);
 
@@ -693,7 +700,7 @@ export class LegacyFSController extends PuterController {
         res.json(shaped);
     };
 
-    read = async (req: Request, res: Response): Promise<void> => {
+    read = async (req: Request, res: Response, options = {}): Promise<void> => {
         const actor = this.#requireActor(req);
         const userId = this.#getActorUserId(req);
         const query = asRecord(req.query);
@@ -736,7 +743,12 @@ export class LegacyFSController extends PuterController {
         // types wrap in `{success, result: Blob}`. Clients (including the
         // GUI) expect the raw-Blob shape. Use `/fs/read` for type-aware
         // streaming.
-        res.setHeader('Content-Type', 'application/octet-stream');
+        if (options.realMime) {
+            res.setHeader('Content-Type', contentTypeFromMime(entry.name));
+        } else {
+            res.setHeader('Content-Type', 'application/octet-stream');
+        }
+
         if (download.contentLength !== null)
             res.setHeader('Content-Length', String(download.contentLength));
         if (download.contentRange)
@@ -777,6 +789,30 @@ export class LegacyFSController extends PuterController {
             res.destroy(err);
         });
         download.body.pipe(res);
+    };
+
+    tokenRead = async (req: Request, res: Response): Promise<void> => {
+        const query = asRecord(req.query);
+        const accessToken = getString(query, 'token');
+        if (!accessToken) {
+            throw new HttpError(401, 'Token authentication failed', {
+                legacyCode: 'token_auth_failed',
+            });
+        }
+
+        const actor =
+            await this.services.auth.authenticateFromToken(accessToken);
+        if (!isAccessTokenActor(actor)) {
+            throw new HttpError(401, 'Token authentication failed', {
+                legacyCode: 'token_auth_failed',
+            });
+        }
+
+        req.actor = actor;
+        Context.set('actor', actor);
+
+        // Forward back to regular read after setting actor
+        return this.read(req, res, { realMime: true });
     };
 
     // ── Signed-URL + meta routes ────────────────────────────────────────
@@ -1783,6 +1819,119 @@ export class LegacyFSController extends PuterController {
     }
 
     // ── Helpers ─────────────────────────────────────────────────────────
+
+    #parsePositiveIntegerQuery(
+        query: Record<string, unknown>,
+        key: string,
+        message: string,
+    ): number | undefined {
+        const value = query[key];
+        if (value === undefined || value === null || value === '') {
+            return undefined;
+        }
+        const parsed = Number.parseInt(String(value), 10);
+        if (!Number.isInteger(parsed) || parsed < 1) {
+            throw new HttpError(400, message);
+        }
+        return parsed;
+    }
+
+    #parseNonNegativeIntegerQuery(
+        query: Record<string, unknown>,
+        key: string,
+        message: string,
+    ): number | undefined {
+        const value = query[key];
+        if (value === undefined || value === null || value === '') {
+            return undefined;
+        }
+        const parsed = Number.parseInt(String(value), 10);
+        if (!Number.isInteger(parsed) || parsed < 0) {
+            throw new HttpError(400, message);
+        }
+        return parsed;
+    }
+
+    #normalizeRangeHeader(rangeHeader: string): string | undefined {
+        const firstRange = rangeHeader.includes(',')
+            ? rangeHeader.split(',')[0]?.trim()
+            : rangeHeader.trim();
+        if (!firstRange) return undefined;
+
+        const matches = firstRange.match(/^bytes=(\d+)-(\d*)$/);
+        if (!matches) return undefined;
+
+        const [, start, end] = matches;
+        return end ? `bytes=${start}-${end}` : `bytes=${start}-`;
+    }
+
+    #pipeLimitedLines(
+        source: NodeJS.ReadableStream,
+        res: Response,
+        lineCount: number,
+    ): void {
+        let remainingLines = lineCount;
+        let isClosed = false;
+
+        const closeSource = () => {
+            if (isClosed) return;
+            isClosed = true;
+            if ('destroy' in source && typeof source.destroy === 'function') {
+                source.destroy();
+            }
+        };
+
+        source.on('error', (err) => {
+            if (!isClosed) {
+                isClosed = true;
+                res.destroy(err);
+            }
+        });
+
+        res.on('close', () => {
+            closeSource();
+        });
+
+        source.on('data', (chunk: Buffer | string) => {
+            if (isClosed) return;
+
+            const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+            let endIndex = buffer.length;
+
+            for (let index = 0; index < buffer.length; index++) {
+                if (buffer[index] !== 0x0a) continue;
+                remainingLines -= 1;
+                if (remainingLines === 0) {
+                    endIndex = index + 1;
+                    break;
+                }
+            }
+
+            if (endIndex > 0) {
+                const canContinue = res.write(buffer.subarray(0, endIndex));
+                if (!canContinue) {
+                    source.pause();
+                    res.once('drain', () => {
+                        if (!isClosed) {
+                            source.resume();
+                        }
+                    });
+                }
+            }
+
+            if (endIndex !== buffer.length) {
+                res.end();
+                closeSource();
+            }
+        });
+
+        source.on('end', () => {
+            if (!isClosed) {
+                isClosed = true;
+                res.end();
+            }
+        });
+    }
 
     #requireActor(req: Request) {
         const actor = req.actor;

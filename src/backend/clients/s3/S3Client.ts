@@ -94,17 +94,24 @@ export class S3Client extends PuterClient {
                 init: { region: 'us-west-2', buckets: [LEGACY_STORAGE_BUCKET] },
             });
 
+            // WSL Internal IP fix
+            let fauxqsAddress = this.fauxqsServer.address;
+            if (fauxqsAddress.includes('10.255.255.254')) {
+                fauxqsAddress = fauxqsAddress.replace(
+                    '10.255.255.254',
+                    '127.0.0.1',
+                );
+            }
+
             this.awsConfig = {
-                endpoint: this.fauxqsServer.address,
+                endpoint: fauxqsAddress,
                 credentials: {
                     accessKeyId: 'fakeAccessKeyId',
                     secretAccessKey: 'fakeSecretAccessKey',
                 },
             };
 
-            console.log(
-                `[s3] started local fauxqs at ${this.fauxqsServer.address}`,
-            );
+            console.log(`[s3] started local fauxqs at ${fauxqsAddress}`);
 
             // Migrate files from legacy local storage directory if present
             if (!forceInMem) {
