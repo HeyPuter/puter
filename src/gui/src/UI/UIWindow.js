@@ -4080,23 +4080,25 @@ $.fn.focusWindow = function (event) {
         window.window_stack.push(parseInt($(this).attr('data-id')));
         // remove blurred class from items on this window
         $(window.active_item_container).find('.item-blurred').removeClass('item-blurred');
-        //change window URL
-        const update_window_url = $(this).attr('data-update_window_url');
-        const url_app_name = $(this).attr('data-app_pseudonym') || $(this).attr('data-app');
-        let custom_path = $(this).attr('data-custom_path');
+        //change window URL (skip in dashboard mode — URL should stay on the dashboard route)
+        if ( ! window.is_dashboard_mode ) {
+            const update_window_url = $(this).attr('data-update_window_url');
+            const url_app_name = $(this).attr('data-app_pseudonym') || $(this).attr('data-app');
+            let custom_path = $(this).attr('data-custom_path');
 
-        if ( custom_path && custom_path !== '' ) {
-            if ( update_window_url === 'true' || update_window_url === null ) {
-                if ( ! custom_path.startsWith('/') ) {
-                    custom_path = `/${ custom_path}`;
+            if ( custom_path && custom_path !== '' ) {
+                if ( update_window_url === 'true' || update_window_url === null ) {
+                    if ( ! custom_path.startsWith('/') ) {
+                        custom_path = `/${ custom_path}`;
+                    }
+                    window.history.replaceState({ window_id: $(this).attr('data-id') }, '', custom_path);
+                    document.title = $(this).attr('data-name');
                 }
-                window.history.replaceState({ window_id: $(this).attr('data-id') }, '', custom_path);
+            }
+            else if ( update_window_url === 'true' || update_window_url === null ) {
+                window.history.replaceState({ window_id: $(this).attr('data-id') }, '', `/app/${url_app_name}${$(this).attr('data-user_set_url_params')}`);
                 document.title = $(this).attr('data-name');
             }
-        }
-        else if ( update_window_url === 'true' || update_window_url === null ) {
-            window.history.replaceState({ window_id: $(this).attr('data-id') }, '', `/app/${url_app_name}${$(this).attr('data-user_set_url_params')}`);
-            document.title = $(this).attr('data-name');
         }
         $(`.taskbar .taskbar-item[data-app="${$(this).attr('data-app')}"]`).addClass('taskbar-item-active');
     } else {

@@ -25,7 +25,6 @@ import UIAlert from '../UIAlert.js';
 import UIWindowSaveAccount from '../UIWindowSaveAccount.js';
 import UIWindowLogin from '../UIWindowLogin.js';
 import UIWindowFeedback from '../UIWindowFeedback.js';
-
 /**
  * Creates and displays the Dashboard window.
  *
@@ -83,6 +82,14 @@ async function UIDashboard (options) {
 
         // Sidebar
         h += '<div class="dashboard-sidebar hide-scrollbar">';
+            // Sidebar header with logo and collapse toggle
+            h += '<div class="dashboard-sidebar-header">';
+                h += `<div class="dashboard-sidebar-logo"><img src="${window.icons['logo.svg']}" alt="Puter"><span>Puter</span></div>`;
+                h += '<button class="dashboard-sidebar-collapse-toggle">';
+                    h += `<img class="sidebar-toggle-close" src="${window.icons['sidebar-close.svg']}">`;
+                    h += `<img class="sidebar-toggle-open" src="${window.icons['sidebar-open.svg']}">`;
+                h += '</button>';
+            h += '</div>';
             // Navigation items container
             h += '<div class="dashboard-sidebar-nav">';
             for ( let i = 0; i < tabs.length; i++ ) {
@@ -92,8 +99,7 @@ async function UIDashboard (options) {
                     continue;
                 }
                 const isActive = i === 0 ? ' active' : '';
-                const isBeta = tab.label === 'Apps';
-                h += `<div class="dashboard-sidebar-item${isActive} ${isBeta ? 'beta' : ''}" data-section="${tab.id}">`;
+                h += `<div class="dashboard-sidebar-item${isActive}" data-section="${tab.id}" data-tooltip="${html_encode(tab.label)}">`;
                     h += tab.icon;
                     h += tab.label;
                 h += '</div>';
@@ -101,8 +107,8 @@ async function UIDashboard (options) {
             h += '</div>';
 
             // User options button at bottom
-            h += '<div class="dashboard-user-options hide-scrollbar">';
-                h += '<div class="dashboard-user-btn hide-scrollbar">';
+            h += '<div class="dashboard-user-options">';
+                h += '<div class="dashboard-user-btn">';
                     h += `<div class="dashboard-user-avatar profile-pic" style="background-image: url(${window.user?.profile?.picture || window.icons['profile.svg']})"></div>`;
                     h += `<span class="dashboard-user-name">${window.html_encode(window.user?.username || 'User')}</span>`;
                     h += '<svg class="dashboard-user-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>';
@@ -142,6 +148,11 @@ async function UIDashboard (options) {
     });
 
     const $el_window = $(el_window);
+
+    // Restore sidebar collapsed state
+    if ( localStorage.getItem('dashboard-sidebar-collapsed') === '1' ) {
+        $el_window.find('.dashboard-sidebar').addClass('collapsed');
+    }
 
     // Set initial file path BEFORE tabs are initialized (so TabFiles.init() can use it)
     if ( window.dashboard_initial_route?.tab === 'files' && window.dashboard_initial_route?.path ) {
@@ -414,6 +425,29 @@ async function UIDashboard (options) {
     $el_window.on('click', '.dashboard-sidebar-toggle', function () {
         $(this).toggleClass('open');
         $el_window.find('.dashboard-sidebar').toggleClass('open');
+    });
+
+    // Desktop sidebar collapse toggle
+    $el_window.on('click', '.dashboard-sidebar-collapse-toggle', function () {
+        const $sidebar = $el_window.find('.dashboard-sidebar');
+        $sidebar.toggleClass('collapsed');
+        localStorage.setItem('dashboard-sidebar-collapsed', $sidebar.hasClass('collapsed') ? '1' : '0');
+    });
+
+    // Sidebar collapsed tooltips
+    const $tooltip = $('<div class="dashboard-sidebar-tooltip"></div>').appendTo('body');
+    $el_window.on('mouseenter', '.dashboard-sidebar-item[data-tooltip]', function () {
+        if ( ! $el_window.find('.dashboard-sidebar').hasClass('collapsed') ) return;
+        const rect = this.getBoundingClientRect();
+        $tooltip.text($(this).attr('data-tooltip'));
+        $tooltip.css({
+            top: rect.top + rect.height / 2 - $tooltip.outerHeight() / 2,
+            left: rect.right + 8,
+        });
+        $tooltip.addClass('visible');
+    });
+    $el_window.on('mouseleave', '.dashboard-sidebar-item[data-tooltip]', function () {
+        $tooltip.removeClass('visible');
     });
 
     // Close sidebar when clicking outside

@@ -24,14 +24,13 @@ import { Context } from '../../../../../util/context.js';
 import { EventService } from '../../../../EventService.js';
 import { MeteringService } from '../../../../MeteringService/MeteringService.js';
 import { IGenerateParams, IImageModel, IImageProvider } from '../types.js';
-import { TOGETHER_IMAGE_GENERATION_MODELS, GEMINI_3_IMAGE_RESOLUTION_MAP } from './models.js';
+import { TOGETHER_IMAGE_GENERATION_MODELS } from './models.js';
 
 const TOGETHER_DEFAULT_RATIO = { w: 1024, h: 1024 };
 type TogetherGenerateParams = IGenerateParams & {
     steps?: number;
     seed?: number;
     negative_prompt?: string;
-    n?: number;
     image_url?: string;
     image_base64?: string;
     mask_image_url?: string;
@@ -101,28 +100,43 @@ export class TogetherImageGenerationProvider implements IImageProvider {
             throw new Error('actor not found in context');
         }
 
-        const isGemini3 = selectedModel.id === 'togetherai:google/gemini-3-pro-image';
+        const pricingUnit = selectedModel.pricing_unit ?? 'per-MP';
 
         let costInMicroCents: number;
         let usageAmount: number;
-        const qualityCostKey = isGemini3 && quality && selectedModel.costs[quality] !== undefined ? quality : undefined;
+        let usageKey: string;
 
-        if ( qualityCostKey ) {
-            const centsPerImage = selectedModel.costs[qualityCostKey];
+        if ( pricingUnit === 'per-image' ) {
+            const centsPerImage = selectedModel.costs['per-image'];
+            if ( centsPerImage === undefined ) {
+                throw new Error(`Model ${selectedModel.id} missing 'per-image' cost`);
+            }
             costInMicroCents = centsPerImage * 1_000_000;
             usageAmount = 1;
+            usageKey = 'per-image';
+        } else if ( pricingUnit === 'per-tier' ) {
+            const tierKey = quality && selectedModel.costs[quality] !== undefined
+                ? quality
+                : Object.keys(selectedModel.costs)[0];
+            const centsPerImage = selectedModel.costs[tierKey];
+            if ( centsPerImage === undefined ) {
+                throw new Error(`Model ${selectedModel.id} missing tier cost`);
+            }
+            costInMicroCents = centsPerImage * 1_000_000;
+            usageAmount = 1;
+            usageKey = tierKey;
         } else {
-            const priceKey = '1MP';
-            const centsPerMP = selectedModel.costs[priceKey];
+            const centsPerMP = selectedModel.costs['1MP'];
             if ( centsPerMP === undefined ) {
-                throw new Error(`No pricing configured for model ${selectedModel.id}`);
+                throw new Error(`Model ${selectedModel.id} missing '1MP' cost`);
             }
             const MP = (ratio.h * ratio.w) / 1_000_000;
             costInMicroCents = centsPerMP * MP * 1_000_000;
             usageAmount = MP;
+            usageKey = '1MP';
         }
 
-        const usageType = `${selectedModel.id}:${quality || '1MP'}`;
+        const usageType = `${selectedModel.id}:${usageKey}`;
 
         const usageAllowed = await this.#meteringService.hasEnoughCredits(actor, costInMicroCents);
 
@@ -130,11 +144,12 @@ export class TogetherImageGenerationProvider implements IImageProvider {
             throw APIError.create('insufficient_funds');
         }
 
-        // Resolve abstract aspect ratios to actual pixel dimensions for Gemini 3 Pro
+        // Resolve abstract aspect ratios (e.g. 1:1, 16:9) to concrete pixel
+        // dimensions via the model's own resolution_map.
         let resolvedRatio = ratio;
-        if ( isGemini3 && quality ) {
+        if ( pricingUnit === 'per-tier' && quality && selectedModel.resolution_map ) {
             const ratioKey = `${ratio.w}:${ratio.h}`;
-            const resolutionEntry = GEMINI_3_IMAGE_RESOLUTION_MAP[ratioKey]?.[quality];
+            const resolutionEntry = selectedModel.resolution_map[ratioKey]?.[quality];
             if ( resolutionEntry ) {
                 resolvedRatio = resolutionEntry;
             }
@@ -174,7 +189,6 @@ export class TogetherImageGenerationProvider implements IImageProvider {
             steps,
             seed,
             negative_prompt,
-            n,
             image_url,
             image_base64,
             mask_image_url,
@@ -188,6 +202,7 @@ export class TogetherImageGenerationProvider implements IImageProvider {
         const request: Record<string, unknown> = {
             prompt,
             model: model ?? DEFAULT_MODEL,
+            n: 1,
         };
 
         const requiresConditionImage = this.#modelRequiresConditionImage(request.model as string);
@@ -206,9 +221,6 @@ export class TogetherImageGenerationProvider implements IImageProvider {
         }
         if ( typeof seed === 'number' && Number.isFinite(seed) ) request.seed = Math.round(seed);
         if ( typeof negative_prompt === 'string' ) request.negative_prompt = negative_prompt;
-        if ( typeof n === 'number' && Number.isFinite(n) ) {
-            request.n = Math.max(1, Math.min(4, Math.round(n)));
-        }
         if ( disable_safety_checker ) {
             request.disable_safety_checker = true;
         }

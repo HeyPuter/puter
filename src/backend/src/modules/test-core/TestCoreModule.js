@@ -1,6 +1,5 @@
 import { DDBClientWrapper } from '../../clients/dynamodb/DDBClientWrapper.js';
 import { FilesystemService } from '../../deprecated/filesystem/FilesystemService.js';
-import { AnomalyService } from '../../services/AnomalyService.js';
 import { AuthService } from '../../services/auth/AuthService.js';
 import { GroupService } from '../../services/auth/GroupService.js';
 import { PermissionService } from '../../services/auth/PermissionService.js';
@@ -36,7 +35,6 @@ export class TestCoreModule {
         services.registerService('puter-kvstore', DynamoKVStoreWrapper);
         services.registerService('permission', PermissionService);
         services.registerService('group', GroupService);
-        services.registerService('anomaly', AnomalyService);
         services.registerService('api-error', APIErrorService);
         services.registerService('system-validation', SystemValidationService);
         services.registerService('registry', RegistryService);

@@ -1,3 +1,17 @@
+import UIContextMenu from '../UIContextMenu.js';
+
+/** Lowercase app names that must not offer Uninstall in the My Apps tile context menu. */
+const APP_NAMES_NO_UNINSTALL = new Set([
+    'dev-center',
+    'app-center',
+    'editor',
+    'camera',
+    'recorder',
+    'memos',
+    'music-player',
+    'ai',
+]);
+
 /**
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
@@ -34,7 +48,7 @@ function buildAppsGrid (apps) {
         const title = (app.title || app.name || '').trim();
         const iconUrl = app.iconUrl || window.icons['app.svg'];
 
-        h += `<div class="myapps-tile" data-app-name="${html_encode(app.name)}" title="${html_encode(title)}">`;
+        h += `<div class="myapps-tile" data-app-name="${html_encode(app.name)}" data-app-title="${html_encode(title)}" data-app-uid="${html_encode(app.uid || '')}" title="${html_encode(title)}">`;
         h += '<div class="myapps-tile-icon">';
         h += `<img src="${html_encode(iconUrl)}" alt="" draggable="false">`;
         h += '</div>';
@@ -43,6 +57,59 @@ function buildAppsGrid (apps) {
     }
     h += '</div>';
     return h;
+}
+
+function showUninstallModal ({ appName, appTitle, appUid, self, $el_window }) {
+    const displayName = (appTitle || appName || '').trim();
+    const $overlay = $(`
+        <div class="myapps-modal-overlay">
+            <div class="myapps-modal">
+                <h3>Uninstall ${html_encode(displayName)}?</h3>
+                <p>This will revoke all permissions for this app.</p>
+                <div class="myapps-modal-buttons">
+                    <button class="myapps-modal-btn myapps-modal-cancel">Cancel</button>
+                    <button class="myapps-modal-btn myapps-modal-confirm">Uninstall</button>
+                </div>
+            </div>
+        </div>
+    `);
+
+    $el_window.append($overlay);
+
+    const close = () => $overlay.remove();
+
+    $overlay.on('click', '.myapps-modal-cancel', close);
+    $overlay.on('click', function (e) {
+        if ( e.target === $overlay[0] ) close();
+    });
+    $(document).on('keydown.uninstall-modal', function (e) {
+        if ( e.key === 'Escape' ) {
+            close();
+            $(document).off('keydown.uninstall-modal');
+        }
+    });
+
+    $overlay.on('click', '.myapps-modal-confirm', async function () {
+        const $btn = $(this);
+        $btn.prop('disabled', true).text('Uninstalling…');
+
+        try {
+            await puter.perms.revokeApp(appUid, '*');
+            // Remove from internal state
+            self._apps = self._apps.filter(a => a.name !== appName);
+            // Remove tile from DOM
+            $el_window.find(`.myapps-tile[data-app-name="${appName}"]`).remove();
+            // Show empty state if no apps left
+            if ( self._apps.length === 0 ) {
+                const $container = $el_window.find('.myapps-container');
+                $container.html(buildAppsGrid(null));
+            }
+        } catch ( err ) {
+            console.error('Failed to uninstall app:', err);
+        }
+        close();
+        $(document).off('keydown.uninstall-modal');
+    });
 }
 
 function revealWhenLoaded ($container) {
@@ -151,6 +218,43 @@ const TabApps = {
                 window.open(`/app/${appName}`, '_blank');
             }
         });
+
+        // Context menu on right-click
+        $el_window.on('contextmenu', '.myapps-tile', function (e) {
+            const appName = $(this).attr('data-app-name');
+            const appTitle = $(this).attr('data-app-title');
+            const appUid = $(this).attr('data-app-uid');
+            const nameLower = (appName || '').toLowerCase();
+            const noUninstall = APP_NAMES_NO_UNINSTALL.has(nameLower);
+
+            const items = noUninstall
+                ? []
+                : [
+                    {
+                        html: 'Uninstall',
+                        onClick: () => {
+                            showUninstallModal({
+                                appName,
+                                appTitle,
+                                appUid,
+                                self,
+                                $el_window,
+                            });
+                        },
+                    },
+                ];
+
+            if ( items.length === 0 ) return;
+
+            e.preventDefault();
+            e.stopPropagation();
+
+            UIContextMenu({
+                parent_element: $(this),
+                position: { top: e.clientY, left: e.clientX },
+                items,
+            });
+        });
     },
 
     async loadApps ($el_window) {
@@ -167,7 +271,7 @@ const TabApps = {
                     },
                 ),
                 fetch(
-                    `${window.api_origin}/get-launch-apps?icon_size=64`,
+                    `${window.api_origin}/get-launch-apps?icon_size=128`,
                     {
                         headers: { 'Authorization': `Bearer ${window.auth_token}` },
                         method: 'GET',
@@ -185,7 +289,8 @@ const TabApps = {
             ].map(app => ({
                 name: app.name,
                 title: app.title,
-                iconUrl: app.icon || null,
+                uid: app.uuid || app.uid || null,
+                iconUrl: app.iconUrl || app.icon || null,
             }));
 
             // Build seen set from launch apps

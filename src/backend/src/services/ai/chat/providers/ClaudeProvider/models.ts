@@ -3,6 +3,30 @@ import { IChatModel } from '../types';
 // Hardcoded from https://models.dev/api.json
 export const CLAUDE_MODELS: IChatModel[] = [
     {
+        puterId: 'anthropic:anthropic/claude-opus-4-7',
+        id: 'claude-opus-4-7',
+        modalities: { 'input': ['text', 'image', 'pdf'], 'output': ['text'] },
+        open_weights: false,
+        tool_call: true,
+        knowledge: '2026-01',
+        release_date: '2026-04-16',
+        aliases: ['claude-opus', 'claude-opus-latest', 'claude-opus-4-7-latest', 'claude-opus-4.7', 'claude-opus-4-7', 'anthropic/claude-opus-4-7'],
+        name: 'Claude Opus 4.7',
+        costs_currency: 'usd-cents',
+        input_cost_key: 'input_tokens',
+        output_cost_key: 'output_tokens',
+        costs: {
+            tokens: 1_000_000,
+            input_tokens: 500,
+            ephemeral_5m_input_tokens: 500 * 1.25,
+            ephemeral_1h_input_tokens: 500 * 2,
+            cache_read_input_tokens: 500 * 0.1,
+            output_tokens: 2500,
+        },
+        context: 1000000,
+        max_tokens: 128000,
+    },
+    {
         puterId: 'anthropic:anthropic/claude-sonnet-4-6',
         id: 'claude-sonnet-4-6',
         modalities: { 'input': ['text', 'image', 'pdf'], 'output': ['text'] },
@@ -23,7 +47,7 @@ export const CLAUDE_MODELS: IChatModel[] = [
             cache_read_input_tokens: 300 * 0.1,
             output_tokens: 1500,
         },
-        context: 200000,
+        context: 1000000,
         max_tokens: 64000,
     },
     {
@@ -34,7 +58,7 @@ export const CLAUDE_MODELS: IChatModel[] = [
         tool_call: true,
         knowledge: '2025-05',
         release_date: '2026-02-05',
-        aliases: ['claude-opus', 'claude-opus-latest', 'claude-opus-4-6-latest', 'claude-opus-4.6', 'claude-opus-4-6', 'anthropic/claude-opus-4-6'],
+        aliases: ['claude-opus-4-6-latest', 'claude-opus-4.6', 'claude-opus-4-6', 'anthropic/claude-opus-4-6'],
         name: 'Claude Opus 4.6',
         costs_currency: 'usd-cents',
         input_cost_key: 'input_tokens',
@@ -47,7 +71,7 @@ export const CLAUDE_MODELS: IChatModel[] = [
             cache_read_input_tokens: 500 * 0.1,
             output_tokens: 2500,
         },
-        context: 200000,
+        context: 1000000,
         max_tokens: 128000,
     },
     {

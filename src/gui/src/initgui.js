@@ -517,20 +517,6 @@ window.initgui = async function (options) {
     }
 
     //--------------------------------------------------------------------------------------
-    // Get user referral code from URL query params
-    // i.e. https://puter.com/?r=123456
-    //--------------------------------------------------------------------------------------
-    if ( window.url_query_params.has('r') ) {
-        window.referral_code = window.url_query_params.get('r');
-        // remove 'r' from URL
-        window.history.pushState(null, document.title, '/');
-        // show referral notice, this will be used later if Desktop is loaded
-        if ( window.first_visit_ever ) {
-            window.show_referral_notice = true;
-        }
-    }
-
-    //--------------------------------------------------------------------------------------
     // Desktop background (early)
     // Set before action=login/signup so OIDC error redirects show the background behind the form.
     // -------------------------------------------------------------------------------------
@@ -1161,7 +1147,6 @@ window.initgui = async function (options) {
             let spinner_init_ts = Date.now();
             const requestData = {
                 referrer: referrer,
-                referral_code: window.referral_code,
                 is_temp: true,
             };
 

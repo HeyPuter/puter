@@ -285,11 +285,8 @@ class AlarmService extends BaseService {
 
         const args = this.Context.get('args') ?? {};
         if ( args['quit-on-alarm'] ) {
-            const svc_shutdown = this.services.get('shutdown');
-            svc_shutdown.shutdown({
-                reason: '--quit-on-alarm is set',
-                code: 1,
-            });
+            console.log('shutting down: --quit-on-alarm is set');
+            process.exit(1);
         }
 
         if ( alarm.no_alert ) return;

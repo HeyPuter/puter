@@ -18,7 +18,6 @@
  */
 const { AdvancedBase } = require('@heyputer/putility');
 const { quot } = require('@heyputer/putility').libs.string;
-const { TechnicalError } = require('../errors/TechnicalError');
 const { print_error_help } = require('../errors/error_help_details');
 const default_config = require('./default_config');
 const config = require('../config');
@@ -364,7 +363,7 @@ class RuntimeEnvironment extends AdvancedBase {
         }
 
         if ( meta.optional ) return;
-        throw new TechnicalError(`No suitable path found for ${meta.pathFor}.`);
+        throw new Error(`No suitable path found for ${meta.pathFor}.`);
     }
 }
 

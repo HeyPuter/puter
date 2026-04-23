@@ -58,11 +58,9 @@ class ShareService extends BaseService {
             );
 
             for ( const share of relevant_shares ) {
-                share.data = this.db.case({
-                    mysql: () => share.data,
-                    otherwise: () =>
-                        JSON.parse(share.data ?? '{}'),
-                })();
+                if ( !share.data || typeof (share.data) === 'string' ) {
+                    share.data = JSON.parse(share.data || '{}');
+                }
 
                 const issuer_user = await get_user({
                     id: share.issuer_user_id,
@@ -172,11 +170,9 @@ class ShareService extends BaseService {
                 throw APIError.create('share_expired');
             }
 
-            share.data = this.db.case({
-                mysql: () => share.data,
-                otherwise: () =>
-                    JSON.parse(share.data ?? '{}'),
-            })();
+            if ( !share.data || typeof (share.data) === 'string' ) {
+                share.data = JSON.parse(share.data || '{}');
+            }
 
             const actor = Actor.adapt(req.actor ?? req.user);
             if ( ! actor ) {
@@ -240,11 +236,9 @@ class ShareService extends BaseService {
                 throw APIError.create('share_expired');
             }
 
-            share.data = this.db.case({
-                mysql: () => share.data,
-                otherwise: () =>
-                    JSON.parse(share.data ?? '{}'),
-            })();
+            if ( !share.data || typeof (share.data) === 'string' ) {
+                share.data = JSON.parse(share.data || '{}');
+            }
 
             const actor = Actor.adapt(req.actor ?? req.user);
             if ( ! actor ) {

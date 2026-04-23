@@ -601,12 +601,14 @@ async function UIItem (options) {
                 // If alt key is down, create shortcut items
                 else if ( event.altKey && window.feature_flags.create_shortcut ) {
                     items_to_move.forEach((item_to_move) => {
-                        window.create_shortcut(path.basename($(item_to_move).attr('data-path')),
-                                        $(item_to_move).attr('data-is_dir') === '1',
-                                        options.is_dir ? $(el_item).attr('data-path') : path.dirname($(el_item).attr('data-path')),
-                                        null,
-                                        $(item_to_move).attr('data-shortcut_to') === '' ? $(item_to_move).attr('data-uid') : $(item_to_move).attr('data-shortcut_to'),
-                                        $(item_to_move).attr('data-shortcut_to_path') === '' ? $(item_to_move).attr('data-path') : $(item_to_move).attr('data-shortcut_to_path'));
+                        window.create_shortcut(
+                            path.basename($(item_to_move).attr('data-path')),
+                            $(item_to_move).attr('data-is_dir') === '1',
+                            options.is_dir ? $(el_item).attr('data-path') : path.dirname($(el_item).attr('data-path')),
+                            null,
+                            $(item_to_move).attr('data-shortcut_to') === '' ? $(item_to_move).attr('data-uid') : $(item_to_move).attr('data-shortcut_to'),
+                            $(item_to_move).attr('data-shortcut_to_path') === '' ? $(item_to_move).attr('data-path') : $(item_to_move).attr('data-shortcut_to_path'),
+                        );
                     });
                 }
                 // Otherwise, move items
@@ -1113,10 +1115,12 @@ async function UIItem (options) {
                             buttons: [
                                 {
                                     label: i18n('delete'),
+                                    value: 'Delete',
                                     type: 'primary',
                                 },
                                 {
                                     label: i18n('cancel'),
+                                    value: 'Cancel',
                                 },
                             ],
                         });
@@ -1156,12 +1160,14 @@ async function UIItem (options) {
                             }
                             if ( is_shared_with_me ) base_dir = window.desktop_path;
                             // create shortcut
-                            window.create_shortcut(path.basename($(this).attr('data-path')),
-                                            $(this).attr('data-is_dir') === '1',
-                                            base_dir,
-                                            $(this).closest('.item-container'),
-                                            $(this).attr('data-shortcut_to') === '' ? $(this).attr('data-uid') : $(this).attr('data-shortcut_to'),
-                                            $(this).attr('data-shortcut_to_path') === '' ? $(this).attr('data-path') : $(this).attr('data-shortcut_to_path'));
+                            window.create_shortcut(
+                                path.basename($(this).attr('data-path')),
+                                $(this).attr('data-is_dir') === '1',
+                                base_dir,
+                                $(this).closest('.item-container'),
+                                $(this).attr('data-shortcut_to') === '' ? $(this).attr('data-uid') : $(this).attr('data-shortcut_to'),
+                                $(this).attr('data-shortcut_to_path') === '' ? $(this).attr('data-path') : $(this).attr('data-shortcut_to_path'),
+                            );
                         });
                     },
                 });
@@ -1628,12 +1634,14 @@ async function UIItem (options) {
 
                         if ( is_shared_with_me ) base_dir = window.desktop_path;
 
-                        window.create_shortcut(path.basename($(el_item).attr('data-path')),
-                                        options.is_dir,
-                                        base_dir,
-                                        options.appendTo,
-                                        options.shortcut_to === '' ? options.uid : options.shortcut_to,
-                                        options.shortcut_to_path === '' ? options.path : options.shortcut_to_path);
+                        window.create_shortcut(
+                            path.basename($(el_item).attr('data-path')),
+                            options.is_dir,
+                            base_dir,
+                            options.appendTo,
+                            options.shortcut_to === '' ? options.uid : options.shortcut_to,
+                            options.shortcut_to_path === '' ? options.path : options.shortcut_to_path,
+                        );
                     },
                 });
             }
@@ -1660,10 +1668,12 @@ async function UIItem (options) {
                             buttons: [
                                 {
                                     label: i18n('delete'),
+                                    value: 'Delete',
                                     type: 'primary',
                                 },
                                 {
                                     label: i18n('cancel'),
+                                    value: 'Cancel',
                                 },
                             ],
                         });
@@ -1715,13 +1725,15 @@ async function UIItem (options) {
                     let top = $(el_item).position().top + $(el_item).height();
                     top = top > (window.innerHeight - (window_height + window.taskbar_height + window.toolbar_height)) ? (window.innerHeight - (window_height + window.taskbar_height + window.toolbar_height)) : top;
 
-                    UIWindowItemProperties($(el_item).attr('data-name'),
-                                    $(el_item).attr('data-path'),
-                                    $(el_item).attr('data-uid'),
-                                    left,
-                                    top,
-                                    window_width,
-                                    window_height);
+                    UIWindowItemProperties(
+                        $(el_item).attr('data-name'),
+                        $(el_item).attr('data-path'),
+                        $(el_item).attr('data-uid'),
+                        left,
+                        top,
+                        window_width,
+                        window_height,
+                    );
                 },
             });
         }

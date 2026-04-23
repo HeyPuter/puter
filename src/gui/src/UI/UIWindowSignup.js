@@ -318,7 +318,6 @@ function UIWindowSignup (options) {
             // Include captcha in request only if required
             const requestData = {
                 username: username,
-                referral_code: window.referral_code,
                 email: email,
                 password: password,
                 referrer: options.referrer ?? window.referrerStr,

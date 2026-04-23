@@ -33,6 +33,7 @@ const uuidv4 = require('uuid').v4;
 const APP_UID_ALIAS_KEY_PREFIX = 'app:canonicalUidAlias';
 const APP_UID_ALIAS_REVERSE_KEY_PREFIX = 'app:canonicalUidAliasReverse';
 const APP_UID_ALIAS_TTL_SECONDS = 60 * 60 * 24 * 90;
+const APP_OBJECT_CACHE_TTL_SECONDS = 24 * 60 * 60;
 const indexUrlUniquenessExemptionCandidates =  [
     'https://dev-center.puter.com/coming-soon',
 ];
@@ -299,7 +300,7 @@ class AppES extends BaseES {
                 };
                 await svc_event.emit('app.new-icon', event);
                 if ( typeof event.url === 'string' && event.url ) {
-                    this.db.write(
+                    await this.db.write(
                         'UPDATE apps SET icon = ? WHERE id = ? LIMIT 1',
                         [event.url, insert_id],
                     );
@@ -446,6 +447,26 @@ class AppES extends BaseES {
             });
         },
 
+        async get_cached_app_object_ (appUid) {
+            if ( typeof appUid !== 'string' || !appUid ) return null;
+            return await AppRedisCacheSpace.getCachedAppObject({
+                lookup: 'uid',
+                value: appUid,
+            });
+        },
+
+        async set_cached_app_object_ (entity) {
+            if ( ! entity ) return;
+
+            const cacheable = await entity.get_client_safe();
+            delete cacheable.stats;
+            delete cacheable.privateAccess;
+
+            await AppRedisCacheSpace.setCachedAppObject(cacheable, {
+                ttlSeconds: APP_OBJECT_CACHE_TTL_SECONDS,
+            });
+        },
+
         /**
          * Transforms app data before reading by adding associations and handling permissions
          * @param {Object} entity - App entity to transform
@@ -463,6 +484,7 @@ class AppES extends BaseES {
             const appIndexUrl = await entity.get('index_url');
             const appCreatedAt = await entity.get('created_at');
             const appIsPrivate = await entity.get('is_private');
+            const cachedAppObject = await this.get_cached_app_object_(appUid);
 
             const appInformationService = services.get('app-information');
             const authService = services.get('auth');
@@ -473,21 +495,36 @@ class AppES extends BaseES {
                     created_at: appCreatedAt,
                 })
                 : Promise.resolve(undefined);
-            const fileAssociationsPromise = this.db.read(
-                'SELECT type FROM app_filetype_association WHERE app_id = ?',
-                [entity.private_meta.mysql_id],
+            const cachedFiletypeAssociations = Array.isArray(cachedAppObject?.filetype_associations)
+                ? cachedAppObject.filetype_associations
+                : null;
+            const hasCachedCreatedFromOrigin = !!(
+                cachedAppObject &&
+                Object.prototype.hasOwnProperty.call(cachedAppObject, 'created_from_origin')
             );
-            const createdFromOriginPromise = (async () => {
-                if ( ! authService ) return null;
-                try {
-                    const origin = origin_from_url(appIndexUrl);
-                    const expectedUid = await authService.app_uid_from_origin(origin);
-                    return expectedUid === appUid ? origin : null;
-                } catch {
-                    // This happens when index_url is not a valid URL.
-                    return null;
-                }
-            })();
+            const shouldRefreshCachedAppObject =
+                !cachedAppObject ||
+                !cachedFiletypeAssociations ||
+                !hasCachedCreatedFromOrigin;
+            const fileAssociationsPromise = cachedFiletypeAssociations
+                ? Promise.resolve(cachedFiletypeAssociations)
+                : this.db.read(
+                    'SELECT type FROM app_filetype_association WHERE app_id = ?',
+                    [entity.private_meta.mysql_id],
+                ).then(rows => rows.map(row => row.type));
+            const createdFromOriginPromise = hasCachedCreatedFromOrigin
+                ? Promise.resolve(cachedAppObject.created_from_origin ?? null)
+                : (async () => {
+                    if ( ! authService ) return null;
+                    try {
+                        const origin = origin_from_url(appIndexUrl);
+                        const expectedUid = await authService.app_uid_from_origin(origin);
+                        return expectedUid === appUid ? origin : null;
+                    } catch {
+                        // This happens when index_url is not a valid URL.
+                        return null;
+                    }
+                })();
             const privateAccessPromise = resolvePrivateLaunchAccess({
                 app: {
                     uid: appUid,
@@ -501,7 +538,7 @@ class AppES extends BaseES {
             });
 
             const [
-                fileAssociationRows,
+                filetypeAssociations,
                 stats,
                 createdFromOrigin,
                 privateAccess,
@@ -511,13 +548,13 @@ class AppES extends BaseES {
                 createdFromOriginPromise,
                 privateAccessPromise,
             ]);
-            await entity.set(
-                'filetype_associations',
-                fileAssociationRows.map(row => row.type),
-            );
+            await entity.set('filetype_associations', filetypeAssociations);
             await entity.set('stats', stats);
             await entity.set('created_from_origin', createdFromOrigin);
             await entity.set('privateAccess', privateAccess);
+            if ( shouldRefreshCachedAppObject ) {
+                await this.set_cached_app_object_(entity);
+            }
 
             // Migrate b64 icons to the filesystem-backed icon flow without blocking reads.
             this.queueIconMigration(entity);
