@@ -1,4 +1,5 @@
 import { ACLService } from './acl/ACLService';
+import { AppPermissionService } from './apps/AppPermissionService';
 import { RecommendedAppsService } from './apps/RecommendedAppsService';
 import { SuggestedAppsService } from './apps/SuggestedAppsService';
 import { AuthService } from './auth/AuthService';
@@ -14,6 +15,7 @@ import { MeteringService } from './metering/MeteringService';
 import { PermissionService } from './permission/PermissionService';
 import { ServerHealthService } from './health/ServerHealthService';
 import { SocketService } from './socket/SocketService';
+import { SubdomainPermissionService } from './subdomain/SubdomainPermissionService';
 import type { IPuterServiceRegistry } from './types';
 
 // Ordering matters: services declared later see earlier ones as peers.
@@ -31,6 +33,12 @@ export const puterServices = {
     token: TokenService,
     auth: AuthService,
     fsEntry: FSEntryService,
+    // AppPermissionService + SubdomainPermissionService register permission
+    // rewriters/implicators only; no runtime state. Placed after fsEntry so
+    // the FS rewriter runs first for `fs:/path` → `fs:<uuid>` before any
+    // downstream check that might chain app-root-dir → fs.
+    appPermission: AppPermissionService,
+    subdomainPermission: SubdomainPermissionService,
     recommendedApps: RecommendedAppsService,
     suggestedApps: SuggestedAppsService,
     socket: SocketService,

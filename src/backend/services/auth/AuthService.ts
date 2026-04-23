@@ -25,6 +25,27 @@ const APP_ORIGIN_UUID_NAMESPACE = '33de3768-8ee0-43e9-9e73-db192b97a5d8';
 export class AuthService extends PuterService {
     declare protected services: LayerInstances<typeof puterServices>;
 
+    override onServerStart(): void {
+        // Users implicitly hold read access to their own email — needed for
+        // any permission-gated path that asks for `user:<uuid>:email:read`
+        // (puter-js's `user:<uuid>:email:read` permission request flows
+        // through the scan even though the v2 whoami extension inlines the
+        // email field directly and skips the check).
+        this.services.permission.registerImplicator({
+            id: 'user-set-own',
+            shortcut: true,
+            matches: (permission: string) => permission.startsWith('user:'),
+            check: async ({ actor, permission }): Promise<unknown> => {
+                if (actor.app || actor.accessToken) return undefined;
+                if (!actor.user?.uuid) return undefined;
+                if (permission === `user:${actor.user.uuid}:email:read`) {
+                    return {};
+                }
+                return undefined;
+            },
+        });
+    }
+
     // ── Public API ──────────────────────────────────────────────────
 
     /**

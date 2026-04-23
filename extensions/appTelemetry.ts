@@ -63,12 +63,21 @@ extension.get(
         const app = await stores.app.getByUid(app_uuid);
         if (!app) throw new HttpError(404, 'App not found');
 
+        // `apps-of-user:<uuid>:write` — the implicator keys on the owner's
+        // UUID, not the numeric id. Look up the owner explicitly. v1 got
+        // this for free because its entity-storage layer eager-joined the
+        // owner row; v2's AppStore.getByUid returns the raw row with only
+        // `owner_user_id` populated.
+        const ownerId = (app as { owner_user_id?: number }).owner_user_id;
+        if (!ownerId) throw new HttpError(404, 'App owner not found');
+        const owner = (await stores.user.getById(ownerId)) as {
+            uuid?: string;
+        } | null;
+        if (!owner?.uuid) throw new HttpError(404, 'App owner not found');
+
         const actor = Context.get('actor');
         const ownsApp = await services.permission
-            .check(
-                actor!,
-                `apps-of-user:${(app as Record<string, unknown>).owner_user_id}:write`,
-            )
+            .check(actor!, `apps-of-user:${owner.uuid}:write`)
             .catch(() => false);
         if (!ownsApp) throw new HttpError(403, 'Permission denied');
 

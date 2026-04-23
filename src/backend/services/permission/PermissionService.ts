@@ -1,6 +1,7 @@
 import { PuterService } from '../types';
 import type { Actor, ActorUser } from '../../core/actor';
 import { actorUid, isSystemActor, userRelatedActor } from '../../core/actor';
+import { Context } from '../../core/context';
 import {
     PermissionUtil,
     readingHasTerminal,
@@ -264,14 +265,22 @@ export class PermissionService extends PuterService {
 
         if (!shortCircuit) {
             // ── scanners (formerly PERMISSION_SCANNERS) ──
-            await this.#scanNonShortcutImplicators(actor, options, reading);
-            await this.#scanAccessToken(actor, options, reading);
-            await this.#scanUserUser(actor, options, reading, workingState);
-            await this.#scanHcUserGroupUser(actor, options, reading);
-            await this.#scanUserGroup(actor, options, reading);
-            await this.#scanUserAppImplied(actor, options, reading);
-            await this.#scanUserApp(actor, options, reading);
-            await this.#scanDevApp(actor, options, reading);
+            // Run in parallel — matches v1's `Promise.all(ps)` in the
+            // scan-permission Sequence. Each scanner has a cheap actor-shape
+            // guard at the top (e.g. `if (!actor.app) return` for app-only
+            // ones) so the ones that don't apply to this actor fall out
+            // immediately. Scanners only push into `reading`; they don't
+            // read each other's writes, so there are no ordering hazards.
+            await Promise.all([
+                this.#scanNonShortcutImplicators(actor, options, reading),
+                this.#scanAccessToken(actor, options, reading),
+                this.#scanUserUser(actor, options, reading, workingState),
+                this.#scanHcUserGroupUser(actor, options, reading),
+                this.#scanUserGroup(actor, options, reading),
+                this.#scanUserAppImplied(actor, options, reading),
+                this.#scanUserApp(actor, options, reading),
+                this.#scanDevApp(actor, options, reading),
+            ]);
         }
 
         reading.push({ $: 'time', value: Date.now() - startTs });
@@ -813,7 +822,17 @@ export class PermissionService extends PuterService {
         extra: Record<string, unknown> = {},
         meta: GrantMeta = {},
     ): Promise<void> {
-        permission = await this.rewritePermission(permission);
+        // Flag the context so the app-root-dir rewriter knows it's safe to
+        // resolve the pseudo-permission to a real `fs:<uid>:<mode>`. During
+        // scans (ACL.check) the rewriter returns PERMISSION_FOR_NOTHING_IN_PARTICULAR
+        // so `scan(actor, 'app-root-dir:…')` never accidentally matches
+        // through the fs path.
+        Context.set('is_grant_user_app_permission', true);
+        try {
+            permission = await this.rewritePermission(permission);
+        } finally {
+            Context.set('is_grant_user_app_permission', false);
+        }
         const app = await this.stores.app.resolveApp(appIdentifier);
         if (!app) throw new Error(`entity_not_found: app:${appIdentifier}`);
         if (!actor.user?.id)

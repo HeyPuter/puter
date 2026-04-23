@@ -89,16 +89,63 @@ export class FSEntryService extends PuterService {
             this.clients.event,
         );
 
-        // Register the `is-owner` permission implicator. Matches v1's
-        // FilesystemService port — without it, `fs:<uuid>:*` permissions
-        // granted by a user to an app fail the app-under-user ACL scan
-        // because the recursive check(userActor, `fs:<uuid>:...`) can't
-        // find a terminal (the user's ownership is a separate short-
-        // circuit in ACLService.check and never surfaces as a scanned
-        // permission). This implicator closes the gap: for user actors,
-        // any `fs:<uuid>:*` permission resolves iff the actor owns the
-        // underlying entry.
-        this.services.permission.registerImplicator({
+        this.#registerPermissionRules();
+    }
+
+    /**
+     * FS-domain permission rules. App/site/user registrations live in their
+     * own services (AppPermissionService, SubdomainPermissionService,
+     * AuthService). Splitting by domain keeps the dependency surface narrow:
+     * each service only pulls the stores it actually needs.
+     *
+     * The path rewriter relies on `FSEntryStore.getEntryByPath`'s Redis cache
+     * (60s TTL), which is invalidated on every rename/move/delete through the
+     * existing event wiring.
+     */
+    #registerPermissionRules(): void {
+        const permissions = this.services.permission;
+        const fsEntryStore = this.stores.fsEntry;
+
+        // ── fs:/path:mode → fs:<uuid>:mode ─────────────────────────────
+        // Clients (puter.perms, requestPermission) emit path-based strings;
+        // stored as-is they'd never match anything, so resolve to uuid up
+        // front.
+        permissions.registerRewriter({
+            id: 'fs-path-to-uid',
+            matches: (permission: string) => {
+                if (
+                    !permission.startsWith('fs:') &&
+                    !permission.startsWith(`${MANAGE_PERM_PREFIX}:fs:`)
+                )
+                    return false;
+                const [, specifier] = permission.split('fs:');
+                return Boolean(specifier && specifier.startsWith('/'));
+            },
+            rewrite: async (permission: string): Promise<string> => {
+                const [manageOpt, pathPerm] = permission.split('fs:');
+                const parts = PermissionUtil.split(pathPerm);
+                const path = parts[0];
+                const rest = parts.slice(1);
+                if (!path) return permission;
+                const entry = await fsEntryStore.getEntryByPath(path);
+                if (!entry) {
+                    throw new HttpError(404, `Entry not found: path=${path}`, {
+                        legacyCode: 'subject_does_not_exist',
+                    });
+                }
+                const manage = manageOpt.replace(':', '');
+                const joined = PermissionUtil.join('fs', entry.uuid, ...rest);
+                return manage ? `${manage}:${joined}` : joined;
+            },
+        });
+
+        // ── is-owner ──────────────────────────────────────────────────
+        // For user actors, `fs:<uuid>:*` resolves iff the actor owns the
+        // underlying entry. Without this, `check(user, fs:UUID:*)` can't
+        // find a terminal and the `has_terminal` probe that #scanUserApp
+        // does on the issuer-recurse comes back false, which kills
+        // downstream app-under-user checks on user-owned files.
+        permissions.registerImplicator({
             id: 'is-owner',
             shortcut: true,
             matches: (permission: string): boolean => {
@@ -122,10 +169,57 @@ export class FSEntryService extends PuterService {
                 const uid = parts[1];
                 if (!uid) return undefined;
 
-                const entry = await this.stores.fsEntry.getEntryByUuid(uid);
+                const entry = await fsEntryStore.getEntryByUuid(uid);
                 if (!entry) return undefined;
                 if (entry.userId === actor.user.id) return {};
                 return undefined;
+            },
+        });
+
+        // ── fs-access-levels exploder ──────────────────────────────────
+        // `fs:UUID:see` implies `[list, read, write, manage:fs:UUID]`.
+        // ACLService.check already expands the same-family chain
+        // (see→list→read→write) via MODES_ABOVE, but the `manage:fs:UUID`
+        // arm only shows up here — without it, a grant of `fs:UUID:write`
+        // can't satisfy a direct `scan(actor, 'manage:fs:UUID')`.
+        const FS_MODE_RULES: Record<string, string[]> = {
+            see: ['list', 'read', 'write'],
+            list: ['read', 'write'],
+            read: ['write'],
+        };
+        permissions.registerExploder({
+            id: 'fs-access-levels',
+            matches: (permission: string) => {
+                return (
+                    permission.startsWith('fs:') &&
+                    PermissionUtil.split(permission).length >= 3
+                );
+            },
+            explode: async ({ permission }) => {
+                const out = [permission];
+                const [fsPrefix, fileId, specifiedMode, ...rest] =
+                    PermissionUtil.split(permission);
+                const widerModes = FS_MODE_RULES[specifiedMode];
+                if (widerModes) {
+                    for (const mode of widerModes) {
+                        out.push(
+                            PermissionUtil.join(
+                                fsPrefix,
+                                fileId,
+                                mode,
+                                ...rest.slice(1),
+                            ),
+                        );
+                    }
+                    out.push(
+                        PermissionUtil.join(
+                            MANAGE_PERM_PREFIX,
+                            fsPrefix,
+                            fileId,
+                        ),
+                    );
+                }
+                return out;
             },
         });
     }
