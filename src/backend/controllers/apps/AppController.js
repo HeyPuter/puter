@@ -2,6 +2,7 @@ import { HttpError } from '../../core/http/HttpError.js';
 import { driversContainers } from '../../exports.js';
 import { resolvePrivateLaunchAccess } from '../../util/privateLaunchAccess.js';
 import { PuterController } from '../types.js';
+import DEFAULT_APP_ICON from './default-app-icon.js';
 
 /**
  * REST endpoints for app management.
@@ -214,8 +215,20 @@ export class AppController extends PuterController {
         // ⚠ FLAG: Missing sharp-based resize pipeline; serves the original.
 
         const ICON_SIZES = [16, 32, 64, 128, 256, 512];
-        const DEFAULT_ICON_B64 =
-            'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+
+        // Serves the default app icon data URL by decoding its base64 body
+        // and responding with the declared MIME type (SVG).
+        const serveDefaultIcon = (res) => {
+            const commaIdx = DEFAULT_APP_ICON.indexOf(',');
+            const mime =
+                DEFAULT_APP_ICON.slice(5, DEFAULT_APP_ICON.indexOf(';')) ||
+                'image/png';
+            res.set('Content-Type', mime);
+            res.set('Cache-Control', 'public, max-age=3600');
+            res.send(
+                Buffer.from(DEFAULT_APP_ICON.slice(commaIdx + 1), 'base64'),
+            );
+        };
 
         const serveIcon = async (req, res) => {
             let appUid = String(req.params.app_uid ?? '');
@@ -255,9 +268,7 @@ export class AppController extends PuterController {
             }
 
             if (!icon) {
-                res.set('Content-Type', 'image/png');
-                res.set('Cache-Control', 'public, max-age=3600');
-                res.send(Buffer.from(DEFAULT_ICON_B64, 'base64'));
+                serveDefaultIcon(res);
                 return;
             }
 
@@ -265,8 +276,7 @@ export class AppController extends PuterController {
             if (icon.startsWith('data:')) {
                 const commaIdx = icon.indexOf(',');
                 if (commaIdx === -1) {
-                    res.set('Content-Type', 'image/png');
-                    res.send(Buffer.from(DEFAULT_ICON_B64, 'base64'));
+                    serveDefaultIcon(res);
                     return;
                 }
                 const mime = icon.slice(5, icon.indexOf(';')) || 'image/png';
@@ -294,9 +304,7 @@ export class AppController extends PuterController {
             }
 
             // Fallback
-            res.set('Content-Type', 'image/png');
-            res.set('Cache-Control', 'public, max-age=3600');
-            res.send(Buffer.from(DEFAULT_ICON_B64, 'base64'));
+            serveDefaultIcon(res);
         };
 
         // Icons are <img src> targets from the GUI (root) AND resolved via
