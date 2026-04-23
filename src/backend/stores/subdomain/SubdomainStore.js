@@ -8,6 +8,11 @@ const CACHE_TTL_SECONDS = 60 * 60;
 // Sentinel so 404s on the same public subdomain don't hit the DB repeatedly.
 const NEGATIVE_CACHE_MARKER = '__none__';
 const NEGATIVE_CACHE_TTL_SECONDS = 60;
+// Prefix-list cache: used by WorkerDriver hot-reload on every fs write.
+// TTL is small so a race between cache warm + subdomain create resolves quickly
+// even if invalidation gets dropped. Tracked keys live in a per-user SET so
+// writes can fan-out the invalidation without scanning.
+const PREFIX_LIST_CACHE_TTL_SECONDS = 60;
 
 export class SubdomainStore extends PuterStore {
     // ── Reads ────────────────────────────────────────────────────────
@@ -72,11 +77,11 @@ export class SubdomainStore extends PuterStore {
     }
 
     async existsBySubdomain(subdomain) {
-        const rows = await this.clients.db.read(
-            'SELECT `id` FROM `subdomains` WHERE `subdomain` = ? LIMIT 1',
-            [subdomain],
-        );
-        return rows.length > 0;
+        // Reuse the positive/negative cache populated by getBySubdomain —
+        // creation uniqueness checks and the Workers quota path would
+        // otherwise punch through to the DB on every call.
+        const row = await this.getBySubdomain(subdomain);
+        return row != null;
     }
 
     async countByUserId(userId) {
@@ -103,11 +108,48 @@ export class SubdomainStore extends PuterStore {
     }
 
     async listByUserIdAndPrefix(userId, prefix) {
+        if (!userId || prefix == null) return [];
+
+        const cacheKey = this.#prefixListCacheKey(userId, prefix);
+        try {
+            const raw = await this.clients.redis.get(cacheKey);
+            if (raw) {
+                const parsed = JSON.parse(raw);
+                if (Array.isArray(parsed)) return parsed;
+            }
+        } catch {
+            /* fall through */
+        }
+
         const like = `${prefix}%`;
-        return this.clients.db.read(
+        const rows = await this.clients.db.read(
             'SELECT * FROM `subdomains` WHERE `user_id` = ? AND `subdomain` LIKE ?',
             [userId, like],
         );
+
+        // Fire-and-forget cache write + track the key so writes invalidate it.
+        (async () => {
+            try {
+                await this.clients.redis
+                    .pipeline()
+                    .set(
+                        cacheKey,
+                        JSON.stringify(rows),
+                        'EX',
+                        PREFIX_LIST_CACHE_TTL_SECONDS,
+                    )
+                    .sadd(this.#prefixListTrackerKey(userId), cacheKey)
+                    .expire(
+                        this.#prefixListTrackerKey(userId),
+                        PREFIX_LIST_CACHE_TTL_SECONDS * 2,
+                    )
+                    .exec();
+            } catch {
+                /* best-effort */
+            }
+        })();
+
+        return rows;
     }
 
     // ── Writes ───────────────────────────────────────────────────────
@@ -138,7 +180,10 @@ export class SubdomainStore extends PuterStore {
             ],
         );
         const row = await this.getByUuid(uuid);
-        if (row) await this.#refreshCache(row);
+        if (row) {
+            await this.#refreshCache(row);
+            await this.#invalidatePrefixListsForUser(userId);
+        }
         return row;
     }
 
@@ -175,6 +220,16 @@ export class SubdomainStore extends PuterStore {
             });
         }
         if (after) await this.#refreshCache(after);
+        // A patched root_dir_id / associated_app_id / domain changes the rows
+        // the prefix-list cache would return, so drop those caches for the
+        // owning user(s). Covers pre- and post-rename owners in case the
+        // caller ever allowed re-assignment (currently we don't, but cheap).
+        const affectedUsers = new Set(
+            [before?.user_id, after?.user_id].filter((v) => v != null),
+        );
+        for (const uid of affectedUsers) {
+            await this.#invalidatePrefixListsForUser(uid);
+        }
         return after;
     }
 
@@ -196,6 +251,9 @@ export class SubdomainStore extends PuterStore {
             await this.publishCacheKeys({
                 keys: [this.#cacheKey(row.subdomain)],
             });
+            if (row.user_id != null) {
+                await this.#invalidatePrefixListsForUser(row.user_id);
+            }
         }
         return affected;
     }
@@ -206,6 +264,14 @@ export class SubdomainStore extends PuterStore {
         return `${CACHE_KEY_PREFIX}:name:${subdomain}`;
     }
 
+    #prefixListCacheKey(userId, prefix) {
+        return `${CACHE_KEY_PREFIX}:listByUserPrefix:${userId}:${prefix}`;
+    }
+
+    #prefixListTrackerKey(userId) {
+        return `${CACHE_KEY_PREFIX}:listByUserPrefixKeys:${userId}`;
+    }
+
     async #refreshCache(row) {
         if (!row?.subdomain) return;
         await this.publishCacheKeys({
@@ -213,5 +279,19 @@ export class SubdomainStore extends PuterStore {
             serializedData: JSON.stringify(row),
             ttlSeconds: CACHE_TTL_SECONDS,
         });
+    }
+
+    async #invalidatePrefixListsForUser(userId) {
+        if (userId == null) return;
+        const trackerKey = this.#prefixListTrackerKey(userId);
+        let cacheKeys = [];
+        try {
+            cacheKeys = await this.clients.redis.smembers(trackerKey);
+        } catch {
+            return;
+        }
+        const keysToInvalidate = [...cacheKeys, trackerKey];
+        if (keysToInvalidate.length === 0) return;
+        await this.publishCacheKeys({ keys: keysToInvalidate });
     }
 }

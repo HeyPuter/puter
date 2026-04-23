@@ -29,6 +29,9 @@ export interface FSEntryRow {
     symlink_path: string | null;
     is_symlink: number | boolean;
     path: string;
+    // Aggregated JSON produced by the subdomains subquery. SQLite returns a
+    // JSON text string; MySQL/MariaDB drivers may parse it into an array.
+    subdomains_agg?: string | unknown[] | null;
 }
 
 export interface NormalizedEntryWrite {

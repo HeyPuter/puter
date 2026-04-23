@@ -43,7 +43,8 @@ try {
  */
 export class WorkerDriver extends PuterDriver {
     readonly driverInterface = 'workers';
-    readonly driverName = 'workers';
+    // puter-js calls this as `workers:worker-service` (see Workers.js). Keep the name aligned.
+    readonly driverName = 'worker-service';
     readonly isDefault = true;
 
     #cfBaseUrl = '';

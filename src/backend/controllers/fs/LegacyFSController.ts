@@ -25,9 +25,6 @@ import type { SignedFile } from '../../util/fileSigning.js';
  * Each shim parses the request shape (FSNodeParam-style `{ path, uid, id }`
  * or `{ parent, name }`), invokes the service method, and returns the
  * snake_case response clients expect.
- *
- * `suggest_apps` returns an empty array until a SuggestedAppsService is
- * written.
  */
 
 type RouterCache = Map<string, RequestHandler | null>;
@@ -148,14 +145,7 @@ export class LegacyFSController extends PuterController {
         });
 
         router.post('/suggest_apps', apiOptions, async (req, res) => {
-            const suggestSvc = this.services.suggestedApps as unknown as
-                | {
-                      getSuggestedApps?: (entry: {
-                          name?: string;
-                          path?: string;
-                      }) => Promise<unknown[]>;
-                  }
-                | undefined;
+            const suggestSvc = this.services.suggestedApps;
             if (!suggestSvc?.getSuggestedApps) {
                 res.json([]);
                 return;
@@ -301,6 +291,9 @@ export class LegacyFSController extends PuterController {
             'see',
         );
 
+        entry.suggestedApps =
+            await this.services.suggestedApps.getSuggestedApps(entry);
+
         const shaped = await toLegacyEntry(this.clients.event, entry, {
             fsEntryStore: this.stores.fsEntry,
             userStore: this.stores.user as unknown as {
@@ -316,9 +309,6 @@ export class LegacyFSController extends PuterController {
                 userId,
                 entry.path,
             );
-        }
-        if (getBoolean(body, 'return_subdomains')) {
-            shaped.subdomains = await this.#listSubdomainsForEntry(entry.uuid);
         }
         // Legacy clients sometimes ask for `return_versions`, `return_owner`,
         // `return_shares`. We don't have parity for these yet — return empty
@@ -359,6 +349,17 @@ export class LegacyFSController extends PuterController {
                 sortOrder: this.#parseSortOrder(body),
             },
         );
+
+        const suggestions =
+            await this.services.suggestedApps.getSuggestedAppsForEntries(
+                children,
+            );
+        for (let index = 0; index < children.length; index++) {
+            const child = children[index];
+            if (child) {
+                child.suggestedApps = suggestions[index] ?? [];
+            }
+        }
 
         const shaped = await Promise.all(
             children.map((c) => toLegacyEntry(this.clients.event, c)),
@@ -1770,22 +1771,6 @@ export class LegacyFSController extends PuterController {
         if (!raw) return null;
         const normalized = raw.toLowerCase();
         return (['asc', 'desc'] as const).find((v) => v === normalized) ?? null;
-    }
-
-    async #listSubdomainsForEntry(entryUuid: string): Promise<unknown[]> {
-        const subdomainStore = this.stores.subdomain as unknown as
-            | {
-                  listByRootDirUid?: (uid: string) => Promise<unknown[]>;
-              }
-            | undefined;
-        if (typeof subdomainStore?.listByRootDirUid === 'function') {
-            try {
-                return (await subdomainStore.listByRootDirUid(entryUuid)) ?? [];
-            } catch {
-                return [];
-            }
-        }
-        return [];
     }
 
     // Reserved escape hatch for lazy-loading auxiliary route handlers.

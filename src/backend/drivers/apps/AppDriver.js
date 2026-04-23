@@ -90,13 +90,26 @@ export class AppDriver extends PuterDriver {
         return this.#toClient(app, actor);
     }
 
-    async read({ uid, id } = {}) {
+    async read({ uid, id, stats_period, stats_grouping } = {}) {
         const actor = this.#requireActor();
         const app = await this.#resolve({ uid, id });
         if (!app) throw new HttpError(404, 'App not found');
 
         await this.#checkReadAccess(app, actor);
-        return this.#toClient(app, actor);
+
+        // Detailed period/grouping is per-app only — skip the batch cache
+        // and go straight to the live query. The default (no options) goes
+        // through the cached batched path.
+        const hasDetailed = Boolean(stats_period || stats_grouping);
+        const stats = hasDetailed
+            ? await this.appStore.getAppStatsDetailed(app.uid, {
+                  period: stats_period,
+                  grouping: stats_grouping,
+                  createdAt: app.created_at ?? app.timestamp,
+              })
+            : (await this.appStore.getAppsStats([app.uid])).get(app.uid);
+
+        return this.#toClient(app, actor, { stats });
     }
 
     async select({ predicate, params = {} } = {}) {
@@ -112,13 +125,25 @@ export class AppDriver extends PuterDriver {
         const apps = await this.appStore.list(filters);
 
         // Filter out protected apps the actor can't access
-        const out = [];
+        const visible = [];
         for (const app of apps) {
-            if (await this.#canReadApp(app, actor)) {
-                out.push(await this.#toClient(app, actor, params));
-            }
+            if (await this.#canReadApp(app, actor)) visible.push(app);
         }
-        return out;
+
+        // Batch stats for every visible app in a single pipelined cache
+        // read (+ at most one grouped DB query on miss).
+        const statsByUid = await this.appStore.getAppsStats(
+            visible.map((a) => a.uid),
+        );
+
+        return Promise.all(
+            visible.map((app) =>
+                this.#toClient(app, actor, {
+                    ...params,
+                    stats: statsByUid.get(app.uid),
+                }),
+            ),
+        );
     }
 
     async update({ uid, id, object } = {}) {
@@ -384,10 +409,34 @@ export class AppDriver extends PuterDriver {
 
     // ── Serialization ────────────────────────────────────────────────
 
+    /**
+     * Derive `created_from_origin`: the app's own `index_url` origin, but
+     * only when AuthService agrees the origin canonically hashes back to
+     * this app's UID. Apps hosted elsewhere (or mis-routed) get `null`.
+     * Mirrors the v1 AppES behaviour one-for-one.
+     */
+    async #resolveCreatedFromOrigin(app) {
+        if (!app.index_url) return null;
+        try {
+            const parsed = new URL(app.index_url);
+            const origin = `${parsed.protocol}//${parsed.hostname}${
+                parsed.port ? `:${parsed.port}` : ''
+            }`;
+            const expectedUid =
+                await this.services.auth.appUidFromOrigin(origin);
+            return expectedUid === app.uid ? origin : null;
+        } catch {
+            return null;
+        }
+    }
+
     async #toClient(app, actor, params = {}) {
         if (!app) return null;
 
-        const filetypes = await this.appStore.getFiletypeAssociations(app.id);
+        const [filetypes, createdFromOrigin] = await Promise.all([
+            this.appStore.getFiletypeAssociations(app.id),
+            this.#resolveCreatedFromOrigin(app),
+        ]);
 
         const result = {
             uid: app.uid,
@@ -409,11 +458,16 @@ export class AppDriver extends PuterDriver {
             metadata: app.metadata ?? null,
             filetype_associations: filetypes,
             created_at: app.created_at ?? app.timestamp,
+            created_from_origin: createdFromOrigin,
+            stats: params.stats ?? null,
         };
 
         // Owner info — only expose if actor is the owner or has access
         if (actor?.user?.id === app.owner_user_id) {
-            result.owner = { user_id: app.owner_user_id };
+            result.owner = {
+                username: actor.user.username,
+                uuid: actor.user.uuid,
+            };
         }
 
         // Icon sizing hook (for future AppIconService integration)

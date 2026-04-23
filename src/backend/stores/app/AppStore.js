@@ -16,6 +16,30 @@ const FILETYPE_CACHE_KEY_PREFIX = 'apps:by-filetype';
 const FILETYPE_CACHE_TTL_SECONDS = 60;
 const APP_ID_PROPERTIES = ['id', 'uid', 'name'];
 
+// Top-level all-time open/user counts: hot path, slow to compute, refreshed
+// periodically by one instance and read via MGET on every app list/read.
+const STATS_CACHE_TTL_SECONDS = 30 * 60;
+const STATS_REFRESH_INTERVAL_MS = 15 * 60 * 1000;
+const STATS_REFRESH_LOCK_KEY = 'appStatsLastRefresh';
+
+// Period helpers for detailed/grouped stats. Ported from v1
+// AppInformationService — queries go straight to ClickHouse/MySQL on demand
+// (no cache) since they're UI-driven and rarely repeated with identical args.
+const MYSQL_DATE_FORMATS = {
+    hour: '%Y-%m-%d %H:00:00',
+    day: '%Y-%m-%d',
+    week: '%Y-%U',
+    month: '%Y-%m',
+    year: '%Y',
+};
+const CLICKHOUSE_GROUP_BY_FORMATS = {
+    hour: 'toStartOfHour(fromUnixTimestamp(ts))',
+    day: 'toStartOfDay(fromUnixTimestamp(ts))',
+    week: 'toStartOfWeek(fromUnixTimestamp(ts))',
+    month: 'toStartOfMonth(fromUnixTimestamp(ts))',
+    year: 'toStartOfYear(fromUnixTimestamp(ts))',
+};
+
 // Columns that may not be set through `create` / `update` from user input.
 // Admin-only or system-managed fields.
 const READ_ONLY_COLUMNS = new Set([
@@ -29,6 +53,7 @@ const READ_ONLY_COLUMNS = new Set([
 ]);
 
 export class AppStore extends PuterStore {
+    #appStatsInterval;
     // ── Reads ────────────────────────────────────────────────────────
 
     async getByUid(uid) {
@@ -378,5 +403,541 @@ export class AppStore extends PuterStore {
             row.created_at = row.timestamp;
         }
         return row;
+    }
+
+    appStatsCachePrefix = 'appstats:';
+
+    #openCountCacheKey(uid) {
+        return `${this.appStatsCachePrefix}open:${uid}`;
+    }
+    #userCountCacheKey(uid) {
+        return `${this.appStatsCachePrefix}user:${uid}`;
+    }
+
+    /**
+     * Batched, cached all-time { open_count, user_count } for a set of apps.
+     *
+     * Flow: pipelined redis MGET → on miss, one ClickHouse (or MySQL) query
+     * for all misses at once → backfill cache. Apps with no rows in
+     * `app_opens` resolve to zero counts. Returns `Map<uid, stats>`.
+     */
+    async getAppsStats(appUids) {
+        const uids = Array.isArray(appUids)
+            ? [...new Set(appUids.filter((u) => typeof u === 'string' && u))]
+            : [];
+        const stats = new Map();
+        if (uids.length === 0) return stats;
+
+        let cacheResults = [];
+        try {
+            const pipeline = this.clients.redis.pipeline();
+            for (const uid of uids) {
+                pipeline.get(this.#openCountCacheKey(uid));
+                pipeline.get(this.#userCountCacheKey(uid));
+            }
+            cacheResults = (await pipeline.exec()) ?? [];
+        } catch {
+            // Fall through — treat everything as a miss.
+        }
+
+        const missing = [];
+        for (let i = 0; i < uids.length; i++) {
+            const uid = uids[i];
+            const openEntry = cacheResults[i * 2];
+            const userEntry = cacheResults[i * 2 + 1];
+            const openVal = openEntry?.[1];
+            const userVal = userEntry?.[1];
+            if (openVal != null && userVal != null) {
+                const o = parseInt(openVal, 10);
+                const u = parseInt(userVal, 10);
+                if (!Number.isNaN(o) && !Number.isNaN(u)) {
+                    stats.set(uid, { open_count: o, user_count: u });
+                    continue;
+                }
+            }
+            missing.push(uid);
+        }
+
+        if (missing.length > 0) {
+            const fresh = await this.#queryStatsForUids(missing);
+            const writePipe = this.clients.redis.pipeline();
+            for (const uid of missing) {
+                const row = fresh.get(uid) ?? { open_count: 0, user_count: 0 };
+                stats.set(uid, row);
+                writePipe.set(
+                    this.#openCountCacheKey(uid),
+                    String(row.open_count),
+                    'EX',
+                    STATS_CACHE_TTL_SECONDS,
+                );
+                writePipe.set(
+                    this.#userCountCacheKey(uid),
+                    String(row.user_count),
+                    'EX',
+                    STATS_CACHE_TTL_SECONDS,
+                );
+            }
+            writePipe.exec().catch(() => {});
+        }
+
+        return stats;
+    }
+
+    /**
+     * Detailed / period-filtered / grouped stats for a single app.
+     * Deliberately uncached — UI-driven, rarely repeated with the exact same
+     * args, and ClickHouse is fast enough at interactive latency.
+     *
+     * @param {object} [options]
+     * @param {string} [options.period='all'] — today, yesterday, 7d, 30d,
+     *   this_week, last_week, this_month, last_month, this_year, last_year,
+     *   12m, all
+     * @param {string} [options.grouping] — hour, day, week, month, year
+     * @param {number|string|Date} [options.createdAt] — app creation ts;
+     *   used to bound the `all` period
+     */
+    async getAppStatsDetailed(appUid, options = {}) {
+        const period = options.period ?? 'all';
+        const grouping = options.grouping;
+        const timeRange = this.#computeTimeRange(period, options.createdAt);
+        const clickhouse = globalThis.clickhouseClient;
+
+        if (grouping) {
+            if (!MYSQL_DATE_FORMATS[grouping]) {
+                throw new Error(
+                    `Invalid grouping: ${grouping}. Supported: hour, day, week, month, year`,
+                );
+            }
+            return this.#queryGroupedStats(
+                appUid,
+                timeRange,
+                grouping,
+                clickhouse,
+            );
+        }
+
+        return this.#querySingleStats(appUid, timeRange, clickhouse);
+    }
+
+    // ── Stats internals ──────────────────────────────────────────────
+
+    async #queryStatsForUids(uids) {
+        const out = new Map();
+        if (uids.length === 0) return out;
+
+        const clickhouse = globalThis.clickhouseClient;
+        if (clickhouse) {
+            const list = uids
+                .map((u) => `'${String(u).replace(/'/g, "''")}'`)
+                .join(',');
+            const res = await clickhouse.query({
+                query: `
+                    SELECT app_uid,
+                           count(_id) AS open_count,
+                           count(DISTINCT user_id) AS user_count
+                    FROM app_opens
+                    WHERE app_uid IN (${list})
+                    GROUP BY app_uid
+                `,
+                format: 'JSONEachRow',
+            });
+            const rows = await res.json();
+            for (const row of rows) {
+                out.set(row.app_uid, {
+                    open_count: parseInt(row.open_count, 10) || 0,
+                    user_count: parseInt(row.user_count, 10) || 0,
+                });
+            }
+            return out;
+        }
+
+        const placeholders = uids.map(() => '?').join(',');
+        const rows = await this.clients.db.read(
+            `SELECT app_uid,
+                    COUNT(_id) AS open_count,
+                    COUNT(DISTINCT user_id) AS user_count
+             FROM app_opens
+             WHERE app_uid IN (${placeholders})
+             GROUP BY app_uid`,
+            uids,
+        );
+        for (const row of rows) {
+            out.set(row.app_uid, {
+                open_count: parseInt(row.open_count, 10) || 0,
+                user_count: parseInt(row.user_count, 10) || 0,
+            });
+        }
+        return out;
+    }
+
+    async #querySingleStats(appUid, timeRange, clickhouse) {
+        if (clickhouse) {
+            const timeCond = timeRange
+                ? `AND ts >= ${Math.floor(timeRange.start / 1000)} AND ts < ${Math.floor(timeRange.end / 1000)}`
+                : '';
+            const res = await clickhouse.query({
+                query: `
+                    SELECT count(_id) AS open_count,
+                           count(DISTINCT user_id) AS user_count
+                    FROM app_opens
+                    WHERE app_uid = '${String(appUid).replace(/'/g, "''")}'
+                    ${timeCond}
+                `,
+                format: 'JSONEachRow',
+            });
+            const rows = await res.json();
+            const row = rows[0] ?? { open_count: 0, user_count: 0 };
+            return {
+                open_count: parseInt(row.open_count, 10) || 0,
+                user_count: parseInt(row.user_count, 10) || 0,
+            };
+        }
+
+        const params = timeRange
+            ? [appUid, timeRange.start, timeRange.end]
+            : [appUid];
+        const where = timeRange ? 'AND ts >= ? AND ts < ?' : '';
+        const rows = await this.clients.db.read(
+            `SELECT COUNT(_id) AS open_count,
+                    COUNT(DISTINCT user_id) AS user_count
+             FROM app_opens
+             WHERE app_uid = ? ${where}`,
+            params,
+        );
+        const row = rows[0] ?? { open_count: 0, user_count: 0 };
+        return {
+            open_count: parseInt(row.open_count, 10) || 0,
+            user_count: parseInt(row.user_count, 10) || 0,
+        };
+    }
+
+    async #queryGroupedStats(appUid, timeRange, grouping, clickhouse) {
+        const allPeriods = this.#generateAllPeriods(
+            new Date(timeRange.start),
+            new Date(timeRange.end),
+            grouping,
+        );
+
+        if (clickhouse) {
+            const groupBy = CLICKHOUSE_GROUP_BY_FORMATS[grouping];
+            const timeCond = `AND ts >= ${Math.floor(timeRange.start / 1000)} AND ts < ${Math.floor(timeRange.end / 1000)}`;
+            const res = await clickhouse.query({
+                query: `
+                    SELECT ${groupBy} AS period,
+                           count(_id) AS open_count,
+                           count(DISTINCT user_id) AS user_count
+                    FROM app_opens
+                    WHERE app_uid = '${String(appUid).replace(/'/g, "''")}'
+                    ${timeCond}
+                    GROUP BY period
+                    ORDER BY period
+                `,
+                format: 'JSONEachRow',
+            });
+            const rows = await res.json();
+            const processed = rows.map((r) => ({
+                period: new Date(r.period),
+                open_count: parseInt(r.open_count, 10) || 0,
+                user_count: parseInt(r.user_count, 10) || 0,
+            }));
+            return this.#assembleGroupedResult(processed, allPeriods, grouping);
+        }
+
+        const timeFormat = MYSQL_DATE_FORMATS[grouping];
+        const params = [appUid, timeRange.start / 1000, timeRange.end / 1000];
+        const periodExpr = this.clients.db.case({
+            mysql: `DATE_FORMAT(FROM_UNIXTIME(ts/1000), '${timeFormat}')`,
+            sqlite: `STRFTIME('${timeFormat}', datetime(ts/1000, 'unixepoch'))`,
+            otherwise: `DATE_FORMAT(FROM_UNIXTIME(ts/1000), '${timeFormat}')`,
+        });
+        const rows = await this.clients.db.read(
+            `SELECT ${periodExpr} AS period,
+                    COUNT(_id) AS open_count,
+                    COUNT(DISTINCT user_id) AS user_count
+             FROM app_opens
+             WHERE app_uid = ? AND ts >= ? AND ts < ?
+             GROUP BY period
+             ORDER BY period`,
+            params,
+        );
+        const processed = rows.map((r) => ({
+            period: r.period,
+            open_count: parseInt(r.open_count, 10) || 0,
+            user_count: parseInt(r.user_count, 10) || 0,
+        }));
+        return this.#assembleGroupedResult(processed, allPeriods, grouping);
+    }
+
+    #assembleGroupedResult(rows, allPeriods, grouping) {
+        const dataMap = new Map(
+            rows.map((r) => [this.#normalizePeriodKey(r.period, grouping), r]),
+        );
+        const open = [];
+        const user = [];
+        let totalOpen = 0;
+        let totalUser = 0;
+        for (const p of allPeriods) {
+            const match = dataMap.get(p.period);
+            const o = match?.open_count ?? 0;
+            const u = match?.user_count ?? 0;
+            totalOpen += o;
+            totalUser += u;
+            open.push({ period: p.period, count: o });
+            user.push({ period: p.period, count: u });
+        }
+        return {
+            open_count: totalOpen,
+            user_count: totalUser,
+            grouped_stats: { open_count: open, user_count: user },
+        };
+    }
+
+    #normalizePeriodKey(period, grouping) {
+        if (!(period instanceof Date)) return period;
+        switch (grouping) {
+            case 'hour':
+                return `${period.toISOString().slice(0, 13)}:00:00`;
+            case 'day':
+                return period.toISOString().slice(0, 10);
+            case 'week': {
+                const wn = String(this.#getWeekNumber(period)).padStart(2, '0');
+                return `${period.getFullYear()}-${wn}`;
+            }
+            case 'month':
+                return period.toISOString().slice(0, 7);
+            case 'year':
+                return period.getFullYear().toString();
+            default:
+                return period.toISOString();
+        }
+    }
+
+    #computeTimeRange(period, createdAt) {
+        const now = new Date();
+        const today = new Date(
+            now.getFullYear(),
+            now.getMonth(),
+            now.getDate(),
+        );
+        switch (period) {
+            case 'today':
+                return { start: today.getTime(), end: now.getTime() };
+            case 'yesterday': {
+                const y = new Date(today);
+                y.setDate(y.getDate() - 1);
+                return { start: y.getTime(), end: today.getTime() - 1 };
+            }
+            case '7d': {
+                const s = new Date(now);
+                s.setDate(s.getDate() - 7);
+                return { start: s.getTime(), end: now.getTime() };
+            }
+            case '30d': {
+                const s = new Date(now);
+                s.setDate(s.getDate() - 30);
+                return { start: s.getTime(), end: now.getTime() };
+            }
+            case 'this_week': {
+                const s = new Date(
+                    now.getFullYear(),
+                    now.getMonth(),
+                    now.getDate() - now.getDay(),
+                );
+                return { start: s.getTime(), end: now.getTime() };
+            }
+            case 'last_week': {
+                const s = new Date(
+                    now.getFullYear(),
+                    now.getMonth(),
+                    now.getDate() - now.getDay() - 7,
+                );
+                const e = new Date(
+                    now.getFullYear(),
+                    now.getMonth(),
+                    now.getDate() - now.getDay(),
+                );
+                return { start: s.getTime(), end: e.getTime() - 1 };
+            }
+            case 'this_month': {
+                const s = new Date(now.getFullYear(), now.getMonth(), 1);
+                return { start: s.getTime(), end: now.getTime() };
+            }
+            case 'last_month': {
+                const s = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+                const e = new Date(now.getFullYear(), now.getMonth(), 1);
+                return { start: s.getTime(), end: e.getTime() - 1 };
+            }
+            case 'this_year': {
+                const s = new Date(now.getFullYear(), 0, 1);
+                return { start: s.getTime(), end: now.getTime() };
+            }
+            case 'last_year': {
+                const s = new Date(now.getFullYear() - 1, 0, 1);
+                const e = new Date(now.getFullYear(), 0, 1);
+                return { start: s.getTime(), end: e.getTime() - 1 };
+            }
+            case '12m': {
+                const s = new Date(now);
+                s.setMonth(s.getMonth() - 12);
+                return { start: s.getTime(), end: now.getTime() };
+            }
+            case 'all': {
+                const start = createdAt ? new Date(createdAt).getTime() : 0;
+                return { start, end: now.getTime() };
+            }
+            default:
+                return { start: 0, end: now.getTime() };
+        }
+    }
+
+    #generateAllPeriods(startDate, endDate, grouping) {
+        const out = [];
+        const cur = new Date(startDate);
+        if (Number.isNaN(cur.getTime())) return out;
+        while (cur <= endDate) {
+            let period;
+            switch (grouping) {
+                case 'hour':
+                    period = `${cur.toISOString().slice(0, 13)}:00:00`;
+                    cur.setHours(cur.getHours() + 1);
+                    break;
+                case 'day':
+                    period = cur.toISOString().slice(0, 10);
+                    cur.setDate(cur.getDate() + 1);
+                    break;
+                case 'week': {
+                    const wn = String(this.#getWeekNumber(cur)).padStart(
+                        2,
+                        '0',
+                    );
+                    period = `${cur.getFullYear()}-${wn}`;
+                    cur.setDate(cur.getDate() + 7);
+                    break;
+                }
+                case 'month':
+                    period = cur.toISOString().slice(0, 7);
+                    cur.setMonth(cur.getMonth() + 1);
+                    break;
+                case 'year':
+                    period = cur.getFullYear().toString();
+                    cur.setFullYear(cur.getFullYear() + 1);
+                    break;
+                default:
+                    return out;
+            }
+            out.push({ period, count: 0 });
+        }
+        return out;
+    }
+
+    #getWeekNumber(date) {
+        const target = new Date(date.valueOf());
+        const dayNumber = (date.getDay() + 6) % 7;
+        target.setDate(target.getDate() - dayNumber + 3);
+        const firstThursday = target.valueOf();
+        target.setMonth(0, 1);
+        if (target.getDay() !== 4) {
+            target.setMonth(0, 1 + ((4 - target.getDay() + 7) % 7));
+        }
+        return 1 + Math.ceil((firstThursday - target) / 604800000);
+    }
+
+    // ── Refresh loop ─────────────────────────────────────────────────
+
+    async #refreshAppStats() {
+        // Cross-instance lock: if another node refreshed within the window,
+        // skip. TTL slightly longer than the interval so the guard survives
+        // jitter in the setInterval drift.
+        try {
+            const last = parseInt(
+                (await this.clients.redis.get(STATS_REFRESH_LOCK_KEY)) || '0',
+                10,
+            );
+            const now = Date.now();
+            if (now - last < STATS_REFRESH_INTERVAL_MS) return;
+            await this.clients.redis.set(
+                STATS_REFRESH_LOCK_KEY,
+                String(now),
+                'EX',
+                Math.floor(STATS_REFRESH_INTERVAL_MS / 1000) + 60,
+            );
+        } catch {
+            // Keep going — better to over-refresh than miss updates entirely.
+        }
+
+        const clickhouse = globalThis.clickhouseClient;
+        let rows;
+        try {
+            if (clickhouse) {
+                const res = await clickhouse.query({
+                    query: `
+                        SELECT app_uid,
+                               count(_id) AS open_count,
+                               count(DISTINCT user_id) AS user_count
+                        FROM app_opens
+                        GROUP BY app_uid
+                    `,
+                    format: 'JSONEachRow',
+                });
+                rows = await res.json();
+            } else {
+                rows = await this.clients.db.read(
+                    `SELECT app_uid,
+                            COUNT(_id) AS open_count,
+                            COUNT(DISTINCT user_id) AS user_count
+                     FROM app_opens
+                     GROUP BY app_uid`,
+                );
+            }
+        } catch (e) {
+            console.warn('[AppStore] refresh app stats failed:', e);
+            return;
+        }
+
+        if (!rows?.length) return;
+
+        try {
+            const pipeline = this.clients.redis.pipeline();
+            for (const row of rows) {
+                if (!row.app_uid) continue;
+                pipeline.set(
+                    this.#openCountCacheKey(row.app_uid),
+                    String(parseInt(row.open_count, 10) || 0),
+                    'EX',
+                    STATS_CACHE_TTL_SECONDS,
+                );
+                pipeline.set(
+                    this.#userCountCacheKey(row.app_uid),
+                    String(parseInt(row.user_count, 10) || 0),
+                    'EX',
+                    STATS_CACHE_TTL_SECONDS,
+                );
+            }
+            await pipeline.exec();
+        } catch (e) {
+            console.warn('[AppStore] refresh app stats cache write failed:', e);
+        }
+    }
+
+    onServerStart() {
+        // Kick off one refresh immediately so the cache is warm before the
+        // first client request (failing silently is fine — getAppsStats
+        // falls back to an on-demand query).
+        this.#refreshAppStats().catch(() => {});
+        // Jitter prevents every node refreshing on the same tick when a
+        // cluster boots together.
+        this.#appStatsInterval = setInterval(
+            () => {
+                this.#refreshAppStats().catch(() => {});
+            },
+            STATS_REFRESH_INTERVAL_MS + Math.floor(Math.random() * 500),
+        );
+    }
+
+    onServerShutdown() {
+        if (this.#appStatsInterval) {
+            clearInterval(this.#appStatsInterval);
+            this.#appStatsInterval = undefined;
+        }
     }
 }

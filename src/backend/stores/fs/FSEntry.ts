@@ -28,6 +28,16 @@ export interface FSEntry {
     size: number | null;
     symlinkPath: string | null;
     isSymlink: boolean;
+    subdomains: FSEntrySubdomain[];
+    workers: FSEntrySubdomain[];
+    hasWebsite?: boolean;
+    suggestedApps: unknown[]; // TODO DS: type with app row
+}
+
+export interface FSEntrySubdomain {
+    uuid: string;
+    address: string; // `${config.protocol}://${subdomain}.${'puter.site'|'puter.work'}` depending on wether dir or file
+    subdomain: string;
 }
 
 export interface FSEntryWriteInput {

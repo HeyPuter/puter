@@ -250,6 +250,10 @@ export async function toLegacyEntry(
         size: entry.size,
         layout: entry.layout,
         associated_app_id: entry.associatedAppId,
+        subdomains: entry.subdomains,
+        workers: entry.workers,
+        has_website: entry.hasWebsite ?? entry.subdomains.length > 0,
+        suggested_apps: entry.suggestedApps,
     };
 
     // `is_empty` — only meaningful for directories. Single-row probe so we

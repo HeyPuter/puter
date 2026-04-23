@@ -780,20 +780,17 @@ export class FSController extends PuterController {
         await this.#assertAccess(actor, entry.path, 'see');
 
         const wantsSize = this.#toBoolean(body.return_size);
-        const wantsSubdomains = this.#toBoolean(body.return_subdomains);
-
-        const subdomains = wantsSubdomains
-            ? await this.#fetchSubdomainsForEntry(entry)
-            : undefined;
         const subtreeSize =
             entry.isDir && wantsSize
                 ? await this.services.fsEntry.getSubtreeSize(userId, entry.path)
                 : undefined;
 
+        entry.suggestedApps =
+            await this.services.suggestedApps.getSuggestedApps(entry);
+
         res.json({
             ...entry,
             ...(subtreeSize !== undefined ? { size: subtreeSize } : {}),
-            ...(subdomains !== undefined ? { subdomains } : {}),
         });
     }
 
@@ -834,6 +831,18 @@ export class FSController extends PuterController {
                 sortOrder,
             },
         );
+
+        const suggestions =
+            await this.services.suggestedApps.getSuggestedAppsForEntries(
+                children,
+            );
+        for (let index = 0; index < children.length; index++) {
+            const child = children[index];
+            if (child) {
+                child.suggestedApps = suggestions[index] ?? [];
+            }
+        }
+
         res.json(children);
     }
 
@@ -1220,23 +1229,6 @@ export class FSController extends PuterController {
         throw new HttpError(403, message, {
             legacyCode: legacyCode ?? 'access_denied',
         });
-    }
-
-    async #fetchSubdomainsForEntry(entry: FSEntry): Promise<unknown[]> {
-        const subdomainStore = this.stores.subdomain as unknown as {
-            listByRootDirUid?: (uid: string) => Promise<unknown[]>;
-            listByUserId?: (id: number) => Promise<unknown[]>;
-        };
-        if (typeof subdomainStore?.listByRootDirUid === 'function') {
-            try {
-                return (
-                    (await subdomainStore.listByRootDirUid(entry.uuid)) ?? []
-                );
-            } catch {
-                return [];
-            }
-        }
-        return [];
     }
 
     #toNumberOrUndefined(value: unknown): number | undefined {

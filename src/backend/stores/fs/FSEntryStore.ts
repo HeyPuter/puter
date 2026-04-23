@@ -4,6 +4,7 @@ import { v4 as uuidv4 } from 'uuid';
 import {
     FSEntry,
     FSEntryCreateInput,
+    FSEntrySubdomain,
     PendingUploadCreateInput,
     PendingUploadSession,
 } from './FSEntry.js';
@@ -38,26 +39,113 @@ const DEFAULT_DB_CHUNK_CONCURRENCY = 4;
 export class FSEntryStore extends PuterStore {
     declare protected stores: LayerInstances<typeof puterStores>;
 
-    // Private accessors keep call sites terse (`this.#db.read(...)`) without
-    // forcing every method to spell out `this.clients.db.read(...)`.
-    get #db() {
-        return this.clients.db;
-    }
-    get #cache() {
-        return this.clients.redis;
-    }
-    get #kvStore() {
-        return this.stores.kv;
-    }
-    get #config() {
-        return this.config;
-    }
-
     #insertIgnoreIntoFsentriesSql(): string {
-        return this.#db.case({
+        return this.clients.db.case({
             sqlite: 'INSERT OR IGNORE INTO fsentries',
             otherwise: 'INSERT IGNORE INTO fsentries',
         });
+    }
+
+    // JSON aggregation of associated subdomain rows, keyed on fsentries.id.
+    // SQLite uses `json_group_array` + `json_object`; MySQL/MariaDB use
+    // `JSON_ARRAYAGG` + `JSON_OBJECT`. Correlated subquery keeps the row
+    // count 1:1 with fsentries and avoids a GROUP BY on the outer query.
+    #subdomainsAggSql(): string {
+        return this.clients.db.case({
+            sqlite: `(
+                SELECT json_group_array(
+                    json_object('uuid', sd.uuid, 'subdomain', sd.subdomain)
+                )
+                FROM subdomains sd
+                WHERE sd.root_dir_id = fsentries.id
+            )`,
+            otherwise: `(
+                SELECT JSON_ARRAYAGG(
+                    JSON_OBJECT('uuid', sd.uuid, 'subdomain', sd.subdomain)
+                )
+                FROM subdomains sd
+                WHERE sd.root_dir_id = fsentries.id
+            )`,
+        });
+    }
+
+    // Projection shared by every read path: all fsentries columns plus the
+    // aggregated subdomains JSON aliased to `subdomains_agg`. Callers append
+    // their own `FROM fsentries ...` tail.
+    #selectFsentriesColumns(): string {
+        return `fsentries.*, ${this.#subdomainsAggSql()} AS subdomains_agg`;
+    }
+
+    #parseSubdomainsAgg(
+        raw: unknown,
+    ): Array<{ uuid: string; subdomain: string }> {
+        if (raw === null || raw === undefined) {
+            return [];
+        }
+        let parsed: unknown = raw;
+        if (typeof raw === 'string') {
+            if (raw.length === 0) {
+                return [];
+            }
+            try {
+                parsed = JSON.parse(raw);
+            } catch {
+                return [];
+            }
+        }
+        if (!Array.isArray(parsed)) {
+            return [];
+        }
+        const result: Array<{ uuid: string; subdomain: string }> = [];
+        for (const item of parsed) {
+            if (item === null || typeof item !== 'object') {
+                continue;
+            }
+            const record = item as Record<string, unknown>;
+            if (
+                typeof record.uuid !== 'string' ||
+                typeof record.subdomain !== 'string'
+            ) {
+                continue;
+            }
+            result.push({ uuid: record.uuid, subdomain: record.subdomain });
+        }
+        return result;
+    }
+
+    // Static hosting for user sites lives at `*.{static_hosting_domain}`
+    // (typically `puter.site`). Workers deploy as subdomain rows prefixed
+    // `workers.puter.<name>` and are exposed at `<name>.puter.work` — that
+    // mapping is hardcoded in `WorkerDriver`, mirrored here so the URL we
+    // return matches the deployment domain.
+    #buildFsEntrySubdomains(rows: Array<{ uuid: string; subdomain: string }>): {
+        subdomains: FSEntrySubdomain[];
+        workers: FSEntrySubdomain[];
+    } {
+        const protocol = this.config.protocol ?? 'https';
+        const siteDomain = this.config.static_hosting_domain ?? 'puter.site';
+        const workerPrefix = 'workers.puter.';
+        const workerDomain = 'puter.work';
+
+        const subdomains: FSEntrySubdomain[] = [];
+        const workers: FSEntrySubdomain[] = [];
+        for (const row of rows) {
+            if (row.subdomain.startsWith(workerPrefix)) {
+                const workerName = row.subdomain.slice(workerPrefix.length);
+                workers.push({
+                    uuid: row.uuid,
+                    subdomain: row.subdomain,
+                    address: `${protocol}://${workerName}.${workerDomain}`,
+                });
+                continue;
+            }
+            subdomains.push({
+                uuid: row.uuid,
+                subdomain: row.subdomain,
+                address: `${protocol}://${row.subdomain}.${siteDomain}`,
+            });
+        }
+        return { subdomains, workers };
     }
 
     #normalizePath(path: string): string {
@@ -94,6 +182,9 @@ export class FSEntryStore extends PuterStore {
     }
 
     #mapFSEntryRow(row: FSEntryRow): FSEntry {
+        const { subdomains, workers } = this.#buildFsEntrySubdomains(
+            this.#parseSubdomainsAgg(row.subdomains_agg),
+        );
         return {
             id: Number(row.id),
             uuid: row.uuid,
@@ -124,6 +215,12 @@ export class FSEntryStore extends PuterStore {
             size: row.size === null ? null : Number(row.size),
             symlinkPath: row.symlink_path,
             isSymlink: this.#toBoolean(row.is_symlink),
+            subdomains,
+            workers,
+            hasWebsite: subdomains.length > 0,
+            // Populated by `SuggestedAppsService` in the request path — kept
+            // empty here so the field is always present on the type.
+            suggestedApps: [],
         };
     }
 
@@ -138,7 +235,7 @@ export class FSEntryStore extends PuterStore {
 
     async #readEntryFromCache(cacheKey: string): Promise<FSEntry | null> {
         try {
-            const cached = await this.#cache.get(cacheKey);
+            const cached = await this.clients.redis.get(cacheKey);
             if (!cached) {
                 return null;
             }
@@ -153,7 +250,7 @@ export class FSEntryStore extends PuterStore {
             const serialized = JSON.stringify(entry);
             await Promise.all(
                 this.#entryCacheKeys(entry).map((cacheKey) => {
-                    return this.#cache.setex(
+                    return this.clients.redis.setex(
                         cacheKey,
                         ENTRY_CACHE_TTL_SECONDS,
                         serialized,
@@ -182,8 +279,8 @@ export class FSEntryStore extends PuterStore {
             `prodfsv2:fsentry:path:any:${normalizedPath}`,
         ];
 
-        const rows = (await this.#db.read(
-            'SELECT * FROM fsentries WHERE user_id = ? AND path = ? LIMIT 1',
+        const rows = (await this.clients.db.read(
+            `SELECT ${this.#selectFsentriesColumns()} FROM fsentries WHERE user_id = ? AND path = ? LIMIT 1`,
             [userId, normalizedPath],
         )) as unknown as FSEntryRow[];
         const row = rows[0];
@@ -202,8 +299,8 @@ export class FSEntryStore extends PuterStore {
             return;
         }
 
-        const rows = (await this.#db.read(
-            'SELECT * FROM fsentries WHERE uuid = ? LIMIT 1',
+        const rows = (await this.clients.db.read(
+            `SELECT ${this.#selectFsentriesColumns()} FROM fsentries WHERE uuid = ? LIMIT 1`,
             [uuid],
         )) as unknown as FSEntryRow[];
         const row = rows[0];
@@ -247,7 +344,7 @@ export class FSEntryStore extends PuterStore {
         }
 
         try {
-            await this.#kvStore.batchPut({
+            await this.stores.kv.batchPut({
                 items: sessions.map((session) => ({
                     key: toPendingUploadSessionKey(session.sessionId),
                     value: session,
@@ -273,7 +370,7 @@ export class FSEntryStore extends PuterStore {
             return sessionsById;
         }
 
-        const { res: rawValues } = await this.#kvStore.get({
+        const { res: rawValues } = await this.stores.kv.get({
             key: uniqueSessionIds.map((sessionId) =>
                 toPendingUploadSessionKey(sessionId),
             ),
@@ -388,15 +485,16 @@ export class FSEntryStore extends PuterStore {
                 }
 
                 const placeholders = chunk.map(() => '?').join(', ');
+                const selectSql = `SELECT ${this.#selectFsentriesColumns()} FROM fsentries WHERE user_id = ? AND path IN (${placeholders})`;
                 const rows = (useTryHardRead
-                    ? await this.#db.tryHardRead(
-                          `SELECT * FROM fsentries WHERE user_id = ? AND path IN (${placeholders})`,
-                          [userId, ...chunk],
-                      )
-                    : await this.#db.read(
-                          `SELECT * FROM fsentries WHERE user_id = ? AND path IN (${placeholders})`,
-                          [userId, ...chunk],
-                      )) as unknown as FSEntryRow[];
+                    ? await this.clients.db.tryHardRead(selectSql, [
+                          userId,
+                          ...chunk,
+                      ])
+                    : await this.clients.db.read(selectSql, [
+                          userId,
+                          ...chunk,
+                      ])) as unknown as FSEntryRow[];
 
                 const entries = rows.map((row) => this.#mapFSEntryRow(row));
                 if (entries.length > 0) {
@@ -522,7 +620,7 @@ export class FSEntryStore extends PuterStore {
                 }
 
                 try {
-                    await this.#db.write(
+                    await this.clients.db.write(
                         `${this.#insertIgnoreIntoFsentriesSql()} (
                             uuid,
                             user_id,
@@ -604,8 +702,8 @@ export class FSEntryStore extends PuterStore {
             return cached;
         }
 
-        const rows = (await this.#db.read(
-            'SELECT * FROM fsentries WHERE path = ? AND user_id = ? LIMIT 1',
+        const rows = (await this.clients.db.read(
+            `SELECT ${this.#selectFsentriesColumns()} FROM fsentries WHERE path = ? AND user_id = ? LIMIT 1`,
             [normalizedPath, userId],
         )) as unknown as FSEntryRow[];
         const row = rows[0];
@@ -658,7 +756,7 @@ export class FSEntryStore extends PuterStore {
         const now = Math.floor(Date.now() / 1000);
 
         try {
-            await this.#db.write(
+            await this.clients.db.write(
                 `${this.#insertIgnoreIntoFsentriesSql()} (
                     uuid,
                     user_id,
@@ -742,8 +840,8 @@ export class FSEntryStore extends PuterStore {
             return cached;
         }
 
-        const rows = (await this.#db.read(
-            'SELECT * FROM fsentries WHERE path = ? LIMIT 1',
+        const rows = (await this.clients.db.read(
+            `SELECT ${this.#selectFsentriesColumns()} FROM fsentries WHERE path = ? LIMIT 1`,
             [normalizedPath],
         )) as unknown as FSEntryRow[];
         const row = rows[0];
@@ -794,8 +892,8 @@ export class FSEntryStore extends PuterStore {
                         return [];
                     }
                     const placeholders = chunk.map(() => '?').join(', ');
-                    const rows = (await this.#db.read(
-                        `SELECT * FROM fsentries WHERE path IN (${placeholders})`,
+                    const rows = (await this.clients.db.read(
+                        `SELECT ${this.#selectFsentriesColumns()} FROM fsentries WHERE path IN (${placeholders})`,
                         chunk,
                     )) as unknown as FSEntryRow[];
                     const entries = rows.map((row) => this.#mapFSEntryRow(row));
@@ -822,8 +920,8 @@ export class FSEntryStore extends PuterStore {
             return cached;
         }
 
-        const rows = (await this.#db.read(
-            'SELECT * FROM fsentries WHERE uuid = ? LIMIT 1',
+        const rows = (await this.clients.db.read(
+            `SELECT ${this.#selectFsentriesColumns()} FROM fsentries WHERE uuid = ? LIMIT 1`,
             [id],
         )) as unknown as FSEntryRow[];
         const row = rows[0];
@@ -842,8 +940,8 @@ export class FSEntryStore extends PuterStore {
             return cached;
         }
 
-        const rows = (await this.#db.read(
-            'SELECT * FROM fsentries WHERE id = ? LIMIT 1',
+        const rows = (await this.clients.db.read(
+            `SELECT ${this.#selectFsentriesColumns()} FROM fsentries WHERE id = ? LIMIT 1`,
             [id],
         )) as unknown as FSEntryRow[];
         const row = rows[0];
@@ -861,7 +959,7 @@ export class FSEntryStore extends PuterStore {
         thumbnail: string | null,
     ): Promise<FSEntry> {
         const now = Math.floor(Date.now() / 1000);
-        const writeResult = await this.#db.write(
+        const writeResult = await this.clients.db.write(
             `UPDATE fsentries
              SET thumbnail = ?,
                  modified = ?,
@@ -896,8 +994,8 @@ export class FSEntryStore extends PuterStore {
             }
         }
 
-        const refreshedRows = (await this.#db.tryHardRead(
-            'SELECT * FROM fsentries WHERE uuid = ? AND user_id = ? LIMIT 1',
+        const refreshedRows = (await this.clients.db.tryHardRead(
+            `SELECT ${this.#selectFsentriesColumns()} FROM fsentries WHERE uuid = ? AND user_id = ? LIMIT 1`,
             [uuid, userId],
         )) as unknown as FSEntryRow[];
         const refreshedRow = refreshedRows[0];
@@ -1251,7 +1349,7 @@ export class FSEntryStore extends PuterStore {
                     updateOperations.push({
                         existingEntry,
                         updatedEntry,
-                        promise: this.#db.write(
+                        promise: this.clients.db.write(
                             `UPDATE fsentries
                              SET bucket = ?,
                                  bucket_region = ?,
@@ -1388,7 +1486,7 @@ export class FSEntryStore extends PuterStore {
                         );
                     }
 
-                    await this.#db.write(
+                    await this.clients.db.write(
                         `INSERT INTO fsentries (
                             uuid,
                             bucket,
@@ -1432,8 +1530,8 @@ export class FSEntryStore extends PuterStore {
                         const placeholders = insertUuidChunk
                             .map(() => '?')
                             .join(', ');
-                        const rows = (await this.#db.tryHardRead(
-                            `SELECT * FROM fsentries WHERE user_id = ? AND uuid IN (${placeholders})`,
+                        const rows = (await this.clients.db.tryHardRead(
+                            `SELECT ${this.#selectFsentriesColumns()} FROM fsentries WHERE user_id = ? AND uuid IN (${placeholders})`,
                             [userId, ...insertUuidChunk],
                         )) as unknown as FSEntryRow[];
 
@@ -1527,7 +1625,7 @@ export class FSEntryStore extends PuterStore {
         // SystemKVStore returns `{ res, usage }`. Hand the raw value (res)
         // to the normalizer — passing the envelope would trip
         // `isPendingUploadSession` and silently 404 the session.
-        const { res } = await this.#kvStore.get({
+        const { res } = await this.stores.kv.get({
             key: toPendingUploadSessionKey(sessionId),
         });
         return normalizePendingUploadSession(res, sessionId);
@@ -1653,7 +1751,7 @@ export class FSEntryStore extends PuterStore {
         const isShortcut = input.kind === 'shortcut' ? 1 : 0;
         const isSymlink = input.kind === 'symlink' ? 1 : 0;
 
-        await this.#db.write(
+        await this.clients.db.write(
             `INSERT INTO fsentries (
                 uuid,
                 user_id,
@@ -1704,8 +1802,8 @@ export class FSEntryStore extends PuterStore {
             ],
         );
 
-        const rows = (await this.#db.tryHardRead(
-            'SELECT * FROM fsentries WHERE uuid = ? LIMIT 1',
+        const rows = (await this.clients.db.tryHardRead(
+            `SELECT ${this.#selectFsentriesColumns()} FROM fsentries WHERE uuid = ? LIMIT 1`,
             [uuid],
         )) as unknown as FSEntryRow[];
         const row = rows[0];
@@ -1749,7 +1847,7 @@ export class FSEntryStore extends PuterStore {
             assignments.push('accessed = ?', 'modified = ?', 'created = ?');
             values.push(now, now, now);
         }
-        await this.#db.write(
+        await this.clients.db.write(
             `UPDATE fsentries SET ${assignments.join(', ')} WHERE uuid = ?`,
             [...values, uuid],
         );
@@ -1795,8 +1893,9 @@ export class FSEntryStore extends PuterStore {
         })();
         const sortDirection = options.sortOrder === 'desc' ? 'DESC' : 'ASC';
 
-        const rows = (await this.#db.read(
-            `SELECT * FROM fsentries
+        const rows = (await this.clients.db.read(
+            `SELECT ${this.#selectFsentriesColumns()}
+             FROM fsentries
              WHERE parent_uid = ?
              ORDER BY ${sortColumn} ${sortDirection}
              LIMIT ${limit} OFFSET ${offset}`,
@@ -1830,8 +1929,8 @@ export class FSEntryStore extends PuterStore {
             throw new HttpError(400, 'Refusing to list descendants of root');
         }
         const likePattern = `${this.#escapeLikePattern(normalizedPrefix)}/%`;
-        const rows = (await this.#db.read(
-            "SELECT * FROM fsentries WHERE user_id = ? AND path LIKE ? ESCAPE '!' ORDER BY path ASC",
+        const rows = (await this.clients.db.read(
+            `SELECT ${this.#selectFsentriesColumns()} FROM fsentries WHERE user_id = ? AND path LIKE ? ESCAPE '!' ORDER BY path ASC`,
             [userId, likePattern],
         )) as unknown as FSEntryRow[];
         return rows.map((row) => this.#mapFSEntryRow(row));
@@ -1844,7 +1943,7 @@ export class FSEntryStore extends PuterStore {
         const normalizedPrefix = this.#normalizePath(pathPrefix);
         if (normalizedPrefix === '/') return 0;
         const likePattern = `${this.#escapeLikePattern(normalizedPrefix)}/%`;
-        const rows = (await this.#db.read(
+        const rows = (await this.clients.db.read(
             "SELECT COUNT(*) AS n FROM fsentries WHERE user_id = ? AND path LIKE ? ESCAPE '!'",
             [userId, likePattern],
         )) as unknown as { n: number | string }[];
@@ -1860,7 +1959,7 @@ export class FSEntryStore extends PuterStore {
             normalizedPrefix === '/'
                 ? '/%'
                 : `${this.#escapeLikePattern(normalizedPrefix)}/%`;
-        const rows = (await this.#db.read(
+        const rows = (await this.clients.db.read(
             "SELECT COALESCE(SUM(size), 0) AS total FROM fsentries WHERE user_id = ? AND (path = ? OR path LIKE ? ESCAPE '!')",
             [userId, normalizedPrefix, likePattern],
         )) as unknown as { total: number | string }[];
@@ -1877,8 +1976,8 @@ export class FSEntryStore extends PuterStore {
         if (q.length === 0) return [];
         const likePattern = `%${this.#escapeLikePattern(q)}%`;
         const capped = Math.max(1, Math.min(1000, Math.floor(limit)));
-        const rows = (await this.#db.read(
-            `SELECT * FROM fsentries
+        const rows = (await this.clients.db.read(
+            `SELECT ${this.#selectFsentriesColumns()} FROM fsentries
              WHERE user_id = ? AND name LIKE ? ESCAPE '!'
              ORDER BY modified DESC
              LIMIT ${capped}`,
@@ -1947,13 +2046,13 @@ export class FSEntryStore extends PuterStore {
             return existing;
         }
 
-        await this.#db.write(
+        await this.clients.db.write(
             `UPDATE fsentries SET ${assignments.join(', ')} WHERE uuid = ?`,
             [...values, uuid],
         );
 
-        const refreshedRows = (await this.#db.tryHardRead(
-            'SELECT * FROM fsentries WHERE uuid = ? LIMIT 1',
+        const refreshedRows = (await this.clients.db.tryHardRead(
+            `SELECT ${this.#selectFsentriesColumns()} FROM fsentries WHERE uuid = ? LIMIT 1`,
             [uuid],
         )) as unknown as FSEntryRow[];
         const row = refreshedRows[0];
@@ -1986,7 +2085,7 @@ export class FSEntryStore extends PuterStore {
 
         // CONCAT(?, SUBSTR(path, ? + 1)) to rewrite just the prefix portion.
         const oldPrefixLen = normalizedOld.length;
-        const result = await this.#db.write(
+        const result = await this.clients.db.write(
             `UPDATE fsentries
              SET path = CONCAT(?, SUBSTR(path, ?)),
                  modified = ?
@@ -1998,7 +2097,9 @@ export class FSEntryStore extends PuterStore {
     }
 
     async deleteEntry(entry: FSEntry): Promise<void> {
-        await this.#db.write('DELETE FROM fsentries WHERE id = ?', [entry.id]);
+        await this.clients.db.write('DELETE FROM fsentries WHERE id = ?', [
+            entry.id,
+        ]);
         await this.#invalidateEntryCache(entry);
     }
 
@@ -2011,7 +2112,7 @@ export class FSEntryStore extends PuterStore {
             async (chunk) => {
                 const ids = chunk.map((entry) => entry.id);
                 const placeholders = ids.map(() => '?').join(', ');
-                await this.#db.write(
+                await this.clients.db.write(
                     `DELETE FROM fsentries WHERE id IN (${placeholders})`,
                     ids,
                 );
@@ -2034,11 +2135,11 @@ export class FSEntryStore extends PuterStore {
         userId: number,
     ): Promise<{ curr: number; max: number }> {
         const [usageRows, userRows] = await Promise.all([
-            this.#db.read(
+            this.clients.db.read(
                 'SELECT COALESCE(SUM(size), 0) AS totalUsage FROM fsentries WHERE user_id = ?',
                 [userId],
             ) as Promise<{ totalUsage: number }[]>,
-            this.#db.read(
+            this.clients.db.read(
                 'SELECT free_storage AS freeStorage FROM user WHERE id = ? LIMIT 1',
                 [userId],
             ) as Promise<{ freeStorage: number | null }[]>,
@@ -2048,7 +2149,7 @@ export class FSEntryStore extends PuterStore {
 
         const curr = Number(usageRow?.totalUsage ?? 0);
         let max = Number(
-            userRow?.freeStorage ?? this.#config.storage_capacity ?? 0,
+            userRow?.freeStorage ?? this.config.storage_capacity ?? 0,
         );
 
         const event: { userId: number; extra: number } = { userId, extra: 0 };
@@ -2065,9 +2166,9 @@ export class FSEntryStore extends PuterStore {
             max += event.extra;
         }
 
-        if (!this.#config.is_storage_limited) {
+        if (!this.config.is_storage_limited) {
             const availableDeviceStorage = Number(
-                this.#config.available_device_storage ?? 0,
+                this.config.available_device_storage ?? 0,
             );
             if (availableDeviceStorage > 0) {
                 max = availableDeviceStorage;
