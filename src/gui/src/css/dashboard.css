@@ -699,6 +699,7 @@ body {
     width: 80px;
     -webkit-user-select: none;
     user-select: none;
+    overflow: visible !important;
 }
 
 .myapps-tile-icon {
