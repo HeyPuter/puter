@@ -233,13 +233,13 @@ module.exports = eggspress(['/signup'], {
     const clean_email = svc_cleanEmail.clean(req.body.email);
 
     if ( !req.body.is_temp && !await svc_cleanEmail.validate(clean_email) ) {
-        return res.status(400).send('This email does not seem to be valid.');
+        return res.status(400).send('This email cannot be used. Please try a different email address.');
     }
 
     // duplicate username check
     if ( await username_exists(req.body.username) )
     {
-        return res.status(400).send('This username already exists in our database. Please use another one.');
+        return res.status(400).send('Username already taken. Try another one.');
     }
     // Email check is here :: Add condition for email_confirmed=1
     // duplicate email check (pseudo-users don't count)
