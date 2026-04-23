@@ -326,6 +326,31 @@ export class LegacyFSController extends PuterController {
         const userId = this.#getActorUserId(req);
         const body = asRecord(req.body);
 
+        if (this.#isRootPathRef(body)) {
+            const { listRootEntries } =
+                await import('../../services/fs/rootListing.js');
+            const rootChildren = await listRootEntries(
+                actor,
+                this.stores.fsEntry,
+                this.services.permission,
+            );
+            const rootSuggestions =
+                await this.services.suggestedApps.getSuggestedAppsForEntries(
+                    rootChildren,
+                );
+            for (let index = 0; index < rootChildren.length; index++) {
+                const child = rootChildren[index];
+                if (child) {
+                    child.suggestedApps = rootSuggestions[index] ?? [];
+                }
+            }
+            const shaped = await Promise.all(
+                rootChildren.map((c) => toLegacyEntry(this.clients.event, c)),
+            );
+            res.json(shaped);
+            return;
+        }
+
         const parent = await resolveV1Selector(
             this.stores.fsEntry,
             body,
@@ -1777,6 +1802,15 @@ export class LegacyFSController extends PuterController {
         const numeric = Number(candidate);
         if (Number.isNaN(numeric)) throw new HttpError(401, 'Unauthorized');
         return numeric;
+    }
+
+    #isRootPathRef(body: Record<string, unknown>): boolean {
+        if (body.uid !== undefined || body.uuid !== undefined) return false;
+        if (body.id !== undefined) return false;
+        if (body.parent !== undefined) return false;
+        const path = body.path;
+        if (typeof path !== 'string') return false;
+        return path.trim() === '/';
     }
 
     #parseSortBy(

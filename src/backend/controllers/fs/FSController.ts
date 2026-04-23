@@ -799,6 +799,29 @@ export class FSController extends PuterController {
         const actor = this.#requireActor(req);
         const userId = this.#getActorUserId(req);
         const body = this.#toObjectRecord(req.body);
+
+        if (this.#isRootPathRef(body)) {
+            const { listRootEntries } =
+                await import('../../services/fs/rootListing.js');
+            const rootChildren = await listRootEntries(
+                actor,
+                this.stores.fsEntry,
+                this.services.permission,
+            );
+            const rootSuggestions =
+                await this.services.suggestedApps.getSuggestedAppsForEntries(
+                    rootChildren,
+                );
+            for (let index = 0; index < rootChildren.length; index++) {
+                const child = rootChildren[index];
+                if (child) {
+                    child.suggestedApps = rootSuggestions[index] ?? [];
+                }
+            }
+            res.json(rootChildren);
+            return;
+        }
+
         const parent = await this.#resolveEntryForRequest(body, userId);
         if (!parent.isDir) {
             throw new HttpError(400, 'Target is not a directory');
@@ -1152,6 +1175,13 @@ export class FSController extends PuterController {
             throw new HttpError(401, 'Unauthorized');
         }
         return actor;
+    }
+
+    #isRootPathRef(source: Record<string, unknown>): boolean {
+        if (typeof source.path !== 'string') return false;
+        if (source.uid !== undefined || source.uuid !== undefined) return false;
+        if (source.id !== undefined) return false;
+        return source.path.trim() === '/';
     }
 
     async #resolveEntryForRequest(

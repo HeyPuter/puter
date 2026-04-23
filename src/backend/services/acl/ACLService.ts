@@ -145,28 +145,35 @@ export class ACLService extends PuterService {
         }
 
         // Access tokens: authorizer must have the permission, AND the token
-        // itself must have it (or inherit it via an ancestor).
+        // itself must have it (or inherit it via an ancestor). Any "higher"
+        // mode (e.g. `write` covers `read`/`list`/`see`) satisfies the check.
         if (actor.accessToken) {
             const authorizer = actor.accessToken.issuer;
             if (!(await this.check(authorizer, resource, mode))) return false;
 
             const ancestors = await resource.resolveAncestors();
             for (const ancestor of ancestors) {
-                const permission =
+                const permissions =
                     mode === MANAGE_PERM_PREFIX
-                        ? PermissionUtil.join(
-                              MANAGE_PERM_PREFIX,
-                              'fs',
-                              ancestor.uid,
-                          )
-                        : PermissionUtil.join('fs', ancestor.uid, mode);
-                if (
-                    await this.stores.permission.hasAccessTokenPerm(
-                        actor.accessToken.uid,
-                        permission,
-                    )
-                ) {
-                    return true;
+                        ? [
+                              PermissionUtil.join(
+                                  MANAGE_PERM_PREFIX,
+                                  'fs',
+                                  ancestor.uid,
+                              ),
+                          ]
+                        : MODES_ABOVE[mode].map((m) =>
+                              PermissionUtil.join('fs', ancestor.uid, m),
+                          );
+                for (const permission of permissions) {
+                    if (
+                        await this.stores.permission.hasAccessTokenPerm(
+                            actor.accessToken.uid,
+                            permission,
+                        )
+                    ) {
+                        return true;
+                    }
                 }
             }
             return false;
@@ -190,19 +197,26 @@ export class ACLService extends PuterService {
         }
 
         // Fall back to the permission scan: walk ancestors, any hit wins.
+        // Widen the scan to all "higher" modes (`write` covers `read`/`list`/
+        // `see`, etc.) so granting a stronger mode implies the weaker ones.
         const ancestors = await resource.resolveAncestors();
         for (const ancestor of ancestors) {
-            const permission =
+            const permissions =
                 mode === MANAGE_PERM_PREFIX
-                    ? PermissionUtil.join(
-                          MANAGE_PERM_PREFIX,
-                          'fs',
-                          ancestor.uid,
-                      )
-                    : PermissionUtil.join('fs', ancestor.uid, mode);
-            const reading = await this.services.permission.scan(actor, [
-                permission,
-            ]);
+                    ? [
+                          PermissionUtil.join(
+                              MANAGE_PERM_PREFIX,
+                              'fs',
+                              ancestor.uid,
+                          ),
+                      ]
+                    : MODES_ABOVE[mode].map((m) =>
+                          PermissionUtil.join('fs', ancestor.uid, m),
+                      );
+            const reading = await this.services.permission.scan(
+                actor,
+                permissions,
+            );
             const options = PermissionUtil.readingToOptions(reading);
             if (options.length > 0) return true;
         }

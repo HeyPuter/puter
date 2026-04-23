@@ -593,8 +593,9 @@ export class AppStore extends PuterStore {
             };
         }
 
+        // ts is stored as unix seconds; timeRange.start/end are ms.
         const params = timeRange
-            ? [appUid, timeRange.start, timeRange.end]
+            ? [appUid, timeRange.start / 1000, timeRange.end / 1000]
             : [appUid];
         const where = timeRange ? 'AND ts >= ? AND ts < ?' : '';
         const rows = await this.clients.db.read(
@@ -645,10 +646,11 @@ export class AppStore extends PuterStore {
 
         const timeFormat = MYSQL_DATE_FORMATS[grouping];
         const params = [appUid, timeRange.start / 1000, timeRange.end / 1000];
+        // ts is stored as unix seconds — no /1000 in the date conversion.
         const periodExpr = this.clients.db.case({
-            mysql: `DATE_FORMAT(FROM_UNIXTIME(ts/1000), '${timeFormat}')`,
-            sqlite: `STRFTIME('${timeFormat}', datetime(ts/1000, 'unixepoch'))`,
-            otherwise: `DATE_FORMAT(FROM_UNIXTIME(ts/1000), '${timeFormat}')`,
+            mysql: `DATE_FORMAT(FROM_UNIXTIME(ts), '${timeFormat}')`,
+            sqlite: `STRFTIME('${timeFormat}', datetime(ts, 'unixepoch'))`,
+            otherwise: `DATE_FORMAT(FROM_UNIXTIME(ts), '${timeFormat}')`,
         });
         const rows = await this.clients.db.read(
             `SELECT ${periodExpr} AS period,
@@ -669,21 +671,25 @@ export class AppStore extends PuterStore {
     }
 
     #assembleGroupedResult(rows, allPeriods, grouping) {
+        // Totals come from raw rows so they survive even if a row's
+        // period key fails to match an `allPeriods` entry (e.g. week
+        // grouping format mismatches, timezone edge cases). Matches v1
+        // AppInformationService.get_stats behaviour.
+        let totalOpen = 0;
+        let totalUser = 0;
+        for (const r of rows) {
+            totalOpen += r.open_count;
+            totalUser += r.user_count;
+        }
         const dataMap = new Map(
             rows.map((r) => [this.#normalizePeriodKey(r.period, grouping), r]),
         );
         const open = [];
         const user = [];
-        let totalOpen = 0;
-        let totalUser = 0;
         for (const p of allPeriods) {
             const match = dataMap.get(p.period);
-            const o = match?.open_count ?? 0;
-            const u = match?.user_count ?? 0;
-            totalOpen += o;
-            totalUser += u;
-            open.push({ period: p.period, count: o });
-            user.push({ period: p.period, count: u });
+            open.push({ period: p.period, count: match?.open_count ?? 0 });
+            user.push({ period: p.period, count: match?.user_count ?? 0 });
         }
         return {
             open_count: totalOpen,
