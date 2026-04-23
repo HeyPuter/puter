@@ -14,6 +14,10 @@ class PuterMenubar extends PuterWebComponent {
     #items = [];
     #activeDropdown = null;
     #activeButtonEl = null;
+    #focusedIndex = null;
+    #menubarActive = false;
+    #altDown = false;
+    #altConsumed = false;
 
     get items () {
         return this.#items;
@@ -60,9 +64,11 @@ class PuterMenubar extends PuterWebComponent {
                 margin: 0 1px;
             }
             .menu-button:hover,
-            .menu-button.active {
+            .menu-button.active,
+            .menu-button.focused {
                 background-color: #e2e2e2;
             }
+            .menu-button:focus { outline: none; }
             @media (max-width: 480px) {
                 .menubar {
                     height: 40px;
@@ -92,6 +98,14 @@ class PuterMenubar extends PuterWebComponent {
     }
 
     onReady () {
+        // Remove any stale document listeners from a prior render
+        if ( this._keyHandler ) {
+            document.removeEventListener('keydown', this._keyHandler, true);
+        }
+        if ( this._keyUpHandler ) {
+            document.removeEventListener('keyup', this._keyUpHandler, true);
+        }
+
         const buttons = this.$$('.menu-button');
         buttons.forEach((btn) => {
             const index = parseInt(btn.dataset.index, 10);
@@ -100,8 +114,11 @@ class PuterMenubar extends PuterWebComponent {
 
             btn.addEventListener('click', (e) => {
                 e.stopPropagation();
+                this.#focusedIndex = index;
+                this.#menubarActive = true;
                 if ( this.#activeButtonEl === btn ) {
                     this._closeDropdown();
+                    this._deactivateMenubar();
                     return;
                 }
                 this._openDropdown(btn, item);
@@ -110,10 +127,142 @@ class PuterMenubar extends PuterWebComponent {
             // Hover-switch when a dropdown is already open
             btn.addEventListener('mouseenter', () => {
                 if ( this.#activeDropdown && this.#activeButtonEl !== btn ) {
+                    this.#focusedIndex = index;
                     this._openDropdown(btn, item);
                 }
             });
         });
+
+        this._keyHandler = (e) => this._onGlobalKeyDown(e);
+        this._keyUpHandler = (e) => this._onGlobalKeyUp(e);
+        document.addEventListener('keydown', this._keyHandler, true);
+        document.addEventListener('keyup', this._keyUpHandler, true);
+    }
+
+    _onGlobalKeyDown (e) {
+        // Track Alt-alone (pressed and released without another key)
+        if ( e.key === 'Alt' && !e.repeat ) {
+            this.#altDown = true;
+            this.#altConsumed = false;
+        } else if ( this.#altDown && e.key !== 'Alt' ) {
+            this.#altConsumed = true;
+        }
+
+        // F10 toggles menubar focus regardless
+        if ( e.key === 'F10' ) {
+            if ( this.#menubarActive || this.#activeDropdown ) {
+                this._closeDropdown();
+                this._deactivateMenubar();
+            } else {
+                this._activateMenubar();
+            }
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            return;
+        }
+
+        // While a dropdown is open, it owns key handling (and will emit puter-menu-navigate)
+        if ( this.#activeDropdown ) return;
+        if ( ! this.#menubarActive ) return;
+
+        switch ( e.key ) {
+            case 'ArrowRight':
+                this._moveButtonFocus(+1);
+                break;
+            case 'ArrowLeft':
+                this._moveButtonFocus(-1);
+                break;
+            case 'ArrowDown':
+            case 'Enter':
+            case ' ':
+                this._openFocusedButton(true);
+                break;
+            case 'Escape':
+            case 'Tab':
+                this._deactivateMenubar();
+                break;
+            default:
+                return;
+        }
+        e.preventDefault();
+        e.stopImmediatePropagation();
+    }
+
+    _onGlobalKeyUp (e) {
+        if ( e.key === 'Alt' ) {
+            const wasAloneTap = this.#altDown && !this.#altConsumed;
+            this.#altDown = false;
+            this.#altConsumed = false;
+            if ( wasAloneTap ) {
+                if ( this.#menubarActive || this.#activeDropdown ) {
+                    this._closeDropdown();
+                    this._deactivateMenubar();
+                } else {
+                    this._activateMenubar();
+                }
+                e.preventDefault();
+                e.stopImmediatePropagation();
+            }
+        }
+    }
+
+    _activateMenubar () {
+        if ( !this.#items || !this.#items.length ) return;
+        // Don't steal focus if a context menu is already open
+        if ( document.querySelector('puter-context-menu') ) return;
+        this.#menubarActive = true;
+        this.#focusedIndex = 0;
+        this._renderButtonFocus();
+    }
+
+    _deactivateMenubar () {
+        this.#menubarActive = false;
+        this.#focusedIndex = null;
+        this._renderButtonFocus();
+    }
+
+    _renderButtonFocus () {
+        this.$$('.menu-button').forEach((btn) => {
+            const idx = parseInt(btn.dataset.index, 10);
+            btn.classList.toggle('focused', idx === this.#focusedIndex);
+        });
+    }
+
+    _moveButtonFocus (delta, { swapDropdown = true } = {}) {
+        if ( ! this.#items.length ) return;
+        const n = this.#items.length;
+        const cur = this.#focusedIndex == null ? (delta > 0 ? -1 : 0) : this.#focusedIndex;
+        const next = (cur + delta + n) % n;
+        this.#focusedIndex = next;
+        this._renderButtonFocus();
+
+        // If a dropdown is already open, swap to the new button's dropdown
+        if ( swapDropdown && this.#activeDropdown ) {
+            const btn = this._buttonEl(next);
+            const item = this.#items[next];
+            if ( btn && item ) this._openDropdown(btn, item);
+        }
+    }
+
+    _buttonEl (index) {
+        return this.$(`.menu-button[data-index="${index}"]`);
+    }
+
+    _openFocusedButton (focusFirstItem) {
+        if ( this.#focusedIndex == null ) return;
+        const btn = this._buttonEl(this.#focusedIndex);
+        const item = this.#items[this.#focusedIndex];
+        if ( !btn || !item ) return;
+        this._openDropdown(btn, item);
+        if ( focusFirstItem && this.#activeDropdown ) {
+            requestAnimationFrame(() => {
+                const dd = this.#activeDropdown;
+                if ( dd && typeof dd._focusableIndices === 'function' ) {
+                    const f = dd._focusableIndices();
+                    if ( f.length ) dd._setFocusIndex(f[0]);
+                }
+            });
+        }
     }
 
     _openDropdown (buttonEl, item) {
@@ -138,6 +287,7 @@ class PuterMenubar extends PuterWebComponent {
         dropdown.addEventListener('select', (e) => {
             this.emitEvent('select', e.detail);
             this._closeDropdown();
+            this._deactivateMenubar();
         });
         dropdown.addEventListener('close', () => {
             // The context menu closes itself on outside click; sync our state
@@ -146,6 +296,13 @@ class PuterMenubar extends PuterWebComponent {
                 this.#activeDropdown = null;
                 this.#activeButtonEl = null;
             }
+        });
+        // Keyboard navigate request bubbling from the context menu
+        dropdown.addEventListener('puter-menu-navigate', (e) => {
+            if ( ! e.detail ) return;
+            const delta = e.detail.direction === 'right' ? +1 : -1;
+            this._moveButtonFocus(delta, { swapDropdown: false });
+            this._openFocusedButton(true);
         });
 
         document.body.appendChild(dropdown);
@@ -168,6 +325,12 @@ class PuterMenubar extends PuterWebComponent {
 
     disconnectedCallback () {
         this._closeDropdown();
+        if ( this._keyHandler ) {
+            document.removeEventListener('keydown', this._keyHandler, true);
+        }
+        if ( this._keyUpHandler ) {
+            document.removeEventListener('keyup', this._keyUpHandler, true);
+        }
     }
 
     _escapeHTML (str) {

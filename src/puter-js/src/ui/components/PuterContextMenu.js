@@ -13,6 +13,13 @@ class PuterContextMenu extends PuterWebComponent {
     #items = [];
     #activeSubmenu = null;
     #submenuTimeout = null;
+    #focusedIndex = null;
+    #mouseLocs = [];
+    #submenuCloseTimer = null;
+    #submenuDirection = 'right';
+    #typeaheadBuffer = '';
+    #typeaheadTimer = null;
+    #mouseTracker = null;
 
     get items () {
         return this.#items;
@@ -73,6 +80,7 @@ class PuterContextMenu extends PuterWebComponent {
 
             /* .context-menu-item-active:not(.context-menu-divider) — lines 1742-1745 */
             .menu-item:hover:not(.disabled):not(.divider),
+            .menu-item.focused:not(.disabled):not(.divider),
             .menu-item.has-open-submenu {
                 background-color: hsl(213, 74%, 56%);
                 color: white;
@@ -85,6 +93,11 @@ class PuterContextMenu extends PuterWebComponent {
             .menu-item:hover:not(.disabled):not(.divider) .submenu-arrow,
             .menu-item:hover:not(.disabled):not(.divider) .shortcut,
             .menu-item:hover:not(.disabled):not(.divider) .label,
+            .menu-item.focused:not(.disabled):not(.divider) .icon,
+            .menu-item.focused:not(.disabled):not(.divider) .check,
+            .menu-item.focused:not(.disabled):not(.divider) .submenu-arrow,
+            .menu-item.focused:not(.disabled):not(.divider) .shortcut,
+            .menu-item.focused:not(.disabled):not(.divider) .label,
             .menu-item.has-open-submenu .icon,
             .menu-item.has-open-submenu .check,
             .menu-item.has-open-submenu .submenu-arrow,
@@ -93,10 +106,12 @@ class PuterContextMenu extends PuterWebComponent {
                 color: white;
             }
             .menu-item:hover:not(.disabled):not(.divider) .icon svg,
+            .menu-item.focused:not(.disabled):not(.divider) .icon svg,
             .menu-item.has-open-submenu .icon svg {
                 filter: brightness(0) invert(1);
             }
             .menu-item:hover:not(.disabled):not(.divider) .icon img,
+            .menu-item.focused:not(.disabled):not(.divider) .icon img,
             .menu-item.has-open-submenu .icon img {
                 filter: brightness(0) invert(1);
             }
@@ -364,6 +379,9 @@ class PuterContextMenu extends PuterWebComponent {
         this.style.left = `${x }px`;
         this.style.top = `${y }px`;
 
+        // Nested submenus are positioned by their parent — skip self-clip
+        if ( this.hasAttribute('data-parent-managed') ) return;
+
         // Flip if overflowing viewport
         requestAnimationFrame(() => {
             const rect = menu.getBoundingClientRect();
@@ -408,6 +426,18 @@ class PuterContextMenu extends PuterWebComponent {
     }
 
     _bindEvents () {
+        // Remove any stale document listeners from a prior render
+        if ( this._outsideClickHandler ) {
+            document.removeEventListener('click', this._outsideClickHandler, true);
+        }
+        if ( this._keyHandler ) {
+            document.removeEventListener('keydown', this._keyHandler, true);
+        }
+        if ( this.#mouseTracker ) {
+            document.removeEventListener('mousemove', this.#mouseTracker);
+            this.#mouseTracker = null;
+        }
+
         const menuItems = this.$$('.menu-item:not(.divider):not(.disabled)');
 
         menuItems.forEach((el) => {
@@ -422,6 +452,7 @@ class PuterContextMenu extends PuterWebComponent {
                     // On touch devices: tap opens submenu
                     if ( !this.#activeSubmenu || this.#activeSubmenu.parentEl !== el ) {
                         clearTimeout(this.#submenuTimeout);
+                        this._cancelSubmenuClose();
                         this._showSubmenu(el, item.items);
                     }
                     return;
@@ -434,25 +465,32 @@ class PuterContextMenu extends PuterWebComponent {
                 this._closeAll();
             });
 
-            // Submenu on hover
-            if ( el.dataset.hasSubmenu === 'true' ) {
-                el.addEventListener('mouseenter', () => {
+            // Hover: mouse takes over focus highlight
+            el.addEventListener('mouseenter', () => {
+                this._setFocusIndex(index);
+                if ( el.dataset.hasSubmenu === 'true' ) {
+                    this._cancelSubmenuClose();
                     clearTimeout(this.#submenuTimeout);
-                    this.#submenuTimeout = setTimeout(() => {
+                    // If a different submenu is already open, swap eagerly
+                    if ( this.#activeSubmenu && this.#activeSubmenu.parentEl !== el ) {
                         this._showSubmenu(el, item.items);
-                    }, 200);
-                });
-                el.addEventListener('mouseleave', () => {
-                    clearTimeout(this.#submenuTimeout);
-                    this.#submenuTimeout = setTimeout(() => {
-                        this._hideSubmenu(el);
-                    }, 300);
-                });
-            } else {
-                el.addEventListener('mouseenter', () => {
-                    this._hideActiveSubmenu();
-                });
-            }
+                    } else if ( ! this.#activeSubmenu ) {
+                        this.#submenuTimeout = setTimeout(() => {
+                            this._showSubmenu(el, item.items);
+                        }, 200);
+                    }
+                } else if ( this.#activeSubmenu ) {
+                    // Moving onto a non-submenu sibling — start triangle close
+                    this._scheduleSubmenuClose();
+                }
+            });
+
+            el.addEventListener('mouseleave', () => {
+                clearTimeout(this.#submenuTimeout);
+                if ( el.dataset.hasSubmenu === 'true' && this.#activeSubmenu && this.#activeSubmenu.parentEl === el ) {
+                    this._scheduleSubmenuClose();
+                }
+            });
         });
 
         // Close on outside click
@@ -465,36 +503,224 @@ class PuterContextMenu extends PuterWebComponent {
             document.addEventListener('click', this._outsideClickHandler, true);
         }, 0);
 
-        // Keyboard navigation
+        // Track mouse for safe-triangle submenu hover
+        this.#mouseTracker = (e) => {
+            this.#mouseLocs.push({ x: e.clientX, y: e.clientY });
+            if ( this.#mouseLocs.length > 3 ) this.#mouseLocs.shift();
+        };
+        document.addEventListener('mousemove', this.#mouseTracker);
+
+        // Keyboard navigation — capture phase, each menu listens; deepest open handles
         this._keyHandler = (e) => {
-            if ( e.key === 'Escape' ) {
-                this._closeAll();
+            if ( this.#activeSubmenu ) return; // let the deeper submenu handle
+            const consumed = this._handleKey(e);
+            if ( consumed ) {
+                e.preventDefault();
+                e.stopImmediatePropagation();
             }
         };
-        document.addEventListener('keydown', this._keyHandler);
+        document.addEventListener('keydown', this._keyHandler, true);
+    }
+
+    _handleKey (e) {
+        const key = e.key;
+        if ( e.metaKey || e.ctrlKey ) return false; // pass-through host shortcuts
+
+        switch ( key ) {
+            case 'Escape':
+                this._closeAll();
+                return true;
+            case 'ArrowDown':
+                this._moveFocus(+1);
+                return true;
+            case 'ArrowUp':
+                this._moveFocus(-1);
+                return true;
+            case 'Home': {
+                const f = this._focusableIndices();
+                if ( f.length ) this._setFocusIndex(f[0]);
+                return true;
+            }
+            case 'End': {
+                const f = this._focusableIndices();
+                if ( f.length ) this._setFocusIndex(f[f.length - 1]);
+                return true;
+            }
+            case 'Enter':
+            case ' ':
+                this._activateFocused();
+                return true;
+            case 'ArrowRight':
+                if ( this._openFocusedSubmenu() ) return true;
+                // Only the root forwards to the menubar; inside submenus it's a no-op
+                if ( ! this._parentMenu ) {
+                    this.dispatchEvent(new CustomEvent('puter-menu-navigate', {
+                        detail: { direction: 'right' },
+                        bubbles: true,
+                        composed: true,
+                    }));
+                }
+                return true;
+            case 'ArrowLeft':
+                if ( this._parentMenu ) {
+                    this._parentMenu._hideActiveSubmenu();
+                    // Restore parent's focus to the item that owned this submenu
+                    const parentItem = this._parentItemEl;
+                    if ( parentItem ) {
+                        const pIdx = parseInt(parentItem.dataset.index, 10);
+                        this._parentMenu._setFocusIndex(pIdx);
+                    }
+                    return true;
+                }
+                // Root — let menubar step left
+                this.dispatchEvent(new CustomEvent('puter-menu-navigate', {
+                    detail: { direction: 'left' },
+                    bubbles: true,
+                    composed: true,
+                }));
+                return true;
+            case 'Tab':
+                this._closeAll();
+                return true;
+            default:
+                if ( key.length === 1 && !e.altKey ) {
+                    return this._typeahead(key);
+                }
+                return false;
+        }
+    }
+
+    _focusableIndices () {
+        const out = [];
+        this.#items.forEach((item, i) => {
+            if ( item === '-' || (item && item.separator) ) return;
+            if ( item && item.disabled ) return;
+            out.push(i);
+        });
+        return out;
+    }
+
+    _setFocusIndex (index) {
+        this.#focusedIndex = index;
+        this.$$('.menu-item').forEach((el) => {
+            const i = parseInt(el.dataset.index, 10);
+            el.classList.toggle('focused', i === index);
+        });
+        const el = this._itemEl(index);
+        if ( el && typeof el.scrollIntoView === 'function' ) {
+            el.scrollIntoView({ block: 'nearest' });
+        }
+    }
+
+    _clearFocus () {
+        this.#focusedIndex = null;
+        this.$$('.menu-item.focused').forEach((el) => el.classList.remove('focused'));
+    }
+
+    _itemEl (index) {
+        return this.$(`.menu-item[data-index="${index}"]`);
+    }
+
+    _moveFocus (delta) {
+        const focusable = this._focusableIndices();
+        if ( ! focusable.length ) return;
+        let pos = focusable.indexOf(this.#focusedIndex);
+        if ( pos === -1 ) {
+            pos = delta > 0 ? -1 : focusable.length;
+        }
+        const next = (pos + delta + focusable.length) % focusable.length;
+        this._setFocusIndex(focusable[next]);
+    }
+
+    _activateFocused () {
+        if ( this.#focusedIndex === null ) return;
+        const el = this._itemEl(this.#focusedIndex);
+        if ( el ) el.click();
+    }
+
+    _openFocusedSubmenu () {
+        if ( this.#focusedIndex === null ) return false;
+        const item = this.#items[this.#focusedIndex];
+        if ( !item || !item.items || !item.items.length ) return false;
+        const el = this._itemEl(this.#focusedIndex);
+        if ( ! el ) return false;
+        clearTimeout(this.#submenuTimeout);
+        this._cancelSubmenuClose();
+        this._showSubmenu(el, item.items);
+        // Focus first item in submenu
+        requestAnimationFrame(() => {
+            const sub = this.#activeSubmenu && this.#activeSubmenu.element;
+            if ( sub ) {
+                const f = sub._focusableIndices();
+                if ( f.length ) sub._setFocusIndex(f[0]);
+            }
+        });
+        return true;
+    }
+
+    _typeahead (char) {
+        const lower = char.toLowerCase();
+        this.#typeaheadBuffer += lower;
+        clearTimeout(this.#typeaheadTimer);
+        this.#typeaheadTimer = setTimeout(() => {
+            this.#typeaheadBuffer = '';
+        }, 500);
+
+        const focusable = this._focusableIndices();
+        if ( ! focusable.length ) return false;
+        const start = focusable.indexOf(this.#focusedIndex);
+        const buf = this.#typeaheadBuffer;
+        // Search starting after current, then wrap
+        for ( let i = 1; i <= focusable.length; i++ ) {
+            const idx = focusable[(Math.max(0, start) + i) % focusable.length];
+            const label = (this.#items[idx] && this.#items[idx].label) || '';
+            if ( label.toLowerCase().startsWith(buf) ) {
+                this._setFocusIndex(idx);
+                return true;
+            }
+        }
+        // If single char and nothing started with it, try prefix match with just this char
+        if ( buf.length > 1 ) {
+            for ( let i = 1; i <= focusable.length; i++ ) {
+                const idx = focusable[(Math.max(0, start) + i) % focusable.length];
+                const label = (this.#items[idx] && this.#items[idx].label) || '';
+                if ( label.toLowerCase().startsWith(lower) ) {
+                    this._setFocusIndex(idx);
+                    this.#typeaheadBuffer = lower;
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     _showSubmenu (parentEl, items) {
         this._hideActiveSubmenu();
+        this._cancelSubmenuClose();
 
         parentEl.classList.add('has-open-submenu');
 
         const submenu = document.createElement('puter-context-menu');
         submenu.setAttribute('data-submenu', '');
+        submenu.setAttribute('data-parent-managed', '');
         submenu.items = items;
-        // Position relative to parent item
-        const rect = parentEl.getBoundingClientRect();
-        // On narrow screens, position below parent instead of beside
+        submenu._parentMenu = this;
+        submenu._parentItemEl = parentEl;
+
+        const parentRect = parentEl.getBoundingClientRect();
         const isNarrow = window.innerWidth < 480;
+
+        // Initial tentative placement; we'll flip after measuring
         if ( isNarrow ) {
-            submenu.setAttribute('x', String(rect.left));
-            submenu.setAttribute('y', String(rect.bottom + 2));
+            submenu.setAttribute('x', String(parentRect.left));
+            submenu.setAttribute('y', String(parentRect.bottom + 2));
+            this.#submenuDirection = 'below';
         } else {
-            submenu.setAttribute('x', String(rect.right + 2));
-            submenu.setAttribute('y', String(rect.top));
+            submenu.setAttribute('x', String(parentRect.right + 2));
+            submenu.setAttribute('y', String(parentRect.top));
+            this.#submenuDirection = 'right';
         }
 
-        // Forward select events
         submenu.addEventListener('select', (e) => {
             this.emitEvent('select', e.detail);
             this._closeAll();
@@ -503,15 +729,134 @@ class PuterContextMenu extends PuterWebComponent {
         document.body.appendChild(submenu);
         this.#activeSubmenu = { element: submenu, parentEl };
 
-        // Keep submenu open when hovering it
+        // After submenu renders, measure and flip if needed
+        requestAnimationFrame(() => {
+            if ( !this.#activeSubmenu || this.#activeSubmenu.element !== submenu ) return;
+            const subRoot = submenu.shadowRoot && submenu.shadowRoot.querySelector('.context-menu');
+            if ( ! subRoot ) return;
+            const subRect = subRoot.getBoundingClientRect();
+            const subW = subRect.width;
+            const subH = subRect.height;
+
+            if ( ! isNarrow ) {
+                // Horizontal flip: no room on the right → place to the left of parent
+                let left = parentRect.right + 2;
+                if ( left + subW > window.innerWidth ) {
+                    left = Math.max(0, parentRect.left - subW - 2);
+                    this.#submenuDirection = 'left';
+                }
+                // Vertical shift: don't overflow bottom
+                let top = parentRect.top;
+                if ( top + subH > window.innerHeight - 10 ) {
+                    top = Math.max(0, window.innerHeight - subH - 10);
+                }
+                submenu.style.left = `${left}px`;
+                submenu.style.top = `${top}px`;
+            } else {
+                // Narrow: opens below parent; shift up only if overflow
+                let left = parentRect.left;
+                if ( left + subW > window.innerWidth ) {
+                    left = Math.max(0, window.innerWidth - subW - 4);
+                }
+                let top = parentRect.bottom + 2;
+                if ( top + subH > window.innerHeight - 10 ) {
+                    top = Math.max(0, window.innerHeight - subH - 10);
+                }
+                submenu.style.left = `${left}px`;
+                submenu.style.top = `${top}px`;
+            }
+        });
+
+        // When mouse enters submenu, cancel any pending close
         submenu.addEventListener('mouseenter', () => {
+            this._cancelSubmenuClose();
             clearTimeout(this.#submenuTimeout);
         });
+        // When mouse leaves submenu entirely, start close
         submenu.addEventListener('mouseleave', () => {
-            this.#submenuTimeout = setTimeout(() => {
-                this._hideSubmenu(parentEl);
-            }, 300);
+            this._scheduleSubmenuClose();
         });
+    }
+
+    _scheduleSubmenuClose () {
+        this._cancelSubmenuClose();
+        this.#submenuCloseTimer = setTimeout(() => this._submenuCloseCheck(), 50);
+    }
+
+    _cancelSubmenuClose () {
+        if ( this.#submenuCloseTimer ) {
+            clearTimeout(this.#submenuCloseTimer);
+            this.#submenuCloseTimer = null;
+        }
+    }
+
+    _submenuCloseCheck () {
+        this.#submenuCloseTimer = null;
+        if ( ! this.#activeSubmenu ) return;
+
+        // If cursor is currently over the submenu or the parent item, keep open
+        const submenu = this.#activeSubmenu.element;
+        const parentEl = this.#activeSubmenu.parentEl;
+        const latest = this.#mouseLocs[this.#mouseLocs.length - 1];
+        if ( latest ) {
+            if ( this._pointInElement(latest, submenu) || this._pointInRect(latest, parentEl.getBoundingClientRect()) ) {
+                return;
+            }
+        }
+
+        // Safe-triangle check: is the cursor trajectory heading into the submenu?
+        if ( this._isMouseHeadingToSubmenu(submenu) ) {
+            // Re-check after a longer delay; meanwhile mouseenter can cancel
+            this.#submenuCloseTimer = setTimeout(() => this._submenuCloseCheck(), 300);
+            return;
+        }
+
+        this._hideActiveSubmenu();
+    }
+
+    _pointInRect (p, r) {
+        return p.x >= r.left && p.x <= r.right && p.y >= r.top && p.y <= r.bottom;
+    }
+
+    _pointInElement (p, el) {
+        const root = el.shadowRoot && el.shadowRoot.querySelector('.context-menu');
+        if ( ! root ) return false;
+        return this._pointInRect(p, root.getBoundingClientRect());
+    }
+
+    _isMouseHeadingToSubmenu (submenu) {
+        if ( this.#mouseLocs.length < 2 ) return false;
+        const root = submenu.shadowRoot && submenu.shadowRoot.querySelector('.context-menu');
+        if ( ! root ) return false;
+        const r = root.getBoundingClientRect();
+        const loc = this.#mouseLocs[this.#mouseLocs.length - 1];
+        const prevLoc = this.#mouseLocs[0];
+
+        // Choose the submenu's two corners on the edge the cursor must cross
+        let decreasingCorner, increasingCorner;
+        switch ( this.#submenuDirection ) {
+            case 'left':
+                decreasingCorner = { x: r.right, y: r.bottom };
+                increasingCorner = { x: r.right, y: r.top };
+                break;
+            case 'below':
+                decreasingCorner = { x: r.right, y: r.top };
+                increasingCorner = { x: r.left, y: r.top };
+                break;
+            case 'right':
+            default:
+                decreasingCorner = { x: r.left, y: r.top };
+                increasingCorner = { x: r.left, y: r.bottom };
+                break;
+        }
+
+        const slope = (a, b) => (b.y - a.y) / (b.x - a.x);
+        const decSlope = slope(loc, decreasingCorner);
+        const incSlope = slope(loc, increasingCorner);
+        const prevDecSlope = slope(prevLoc, decreasingCorner);
+        const prevIncSlope = slope(prevLoc, increasingCorner);
+
+        return decSlope < prevDecSlope && incSlope > prevIncSlope;
     }
 
     _hideSubmenu (parentEl) {
@@ -531,9 +876,20 @@ class PuterContextMenu extends PuterWebComponent {
     _closeAll () {
         if ( this._closing ) return;
         this._closing = true;
+        this._cancelSubmenuClose();
+        clearTimeout(this.#submenuTimeout);
+        clearTimeout(this.#typeaheadTimer);
         this._hideActiveSubmenu();
-        document.removeEventListener('click', this._outsideClickHandler, true);
-        document.removeEventListener('keydown', this._keyHandler);
+        if ( this._outsideClickHandler ) {
+            document.removeEventListener('click', this._outsideClickHandler, true);
+        }
+        if ( this._keyHandler ) {
+            document.removeEventListener('keydown', this._keyHandler, true);
+        }
+        if ( this.#mouseTracker ) {
+            document.removeEventListener('mousemove', this.#mouseTracker);
+            this.#mouseTracker = null;
+        }
         this.emitEvent('close', {});
 
         // Sheet-mode close: animate down, then remove
@@ -551,9 +907,15 @@ class PuterContextMenu extends PuterWebComponent {
             document.removeEventListener('click', this._outsideClickHandler, true);
         }
         if ( this._keyHandler ) {
-            document.removeEventListener('keydown', this._keyHandler);
+            document.removeEventListener('keydown', this._keyHandler, true);
         }
+        if ( this.#mouseTracker ) {
+            document.removeEventListener('mousemove', this.#mouseTracker);
+            this.#mouseTracker = null;
+        }
+        this._cancelSubmenuClose();
         clearTimeout(this.#submenuTimeout);
+        clearTimeout(this.#typeaheadTimer);
         this._hideActiveSubmenu();
         this._hideBackdrop();
     }
