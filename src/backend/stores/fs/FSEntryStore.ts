@@ -2065,6 +2065,80 @@ export class FSEntryStore extends PuterStore {
         return updated;
     }
 
+    // Authoritative root lookup. A user's home directory is the row with
+    // `parent_uid IS NULL AND user_id = ?`, regardless of what `path`/`name`
+    // currently are — legacy rows may have drifted (e.g. stale username after
+    // a rename that didn't cascade). Callers use this to heal or rename.
+    async getRootEntryForUser(userId: number): Promise<FSEntry | null> {
+        const rows = (await this.clients.db.read(
+            `SELECT ${this.#selectFsentriesColumns()} FROM fsentries
+             WHERE user_id = ? AND parent_uid IS NULL AND is_dir = 1
+             ORDER BY id ASC LIMIT 1`,
+            [userId],
+        )) as unknown as FSEntryRow[];
+        const row = rows[0];
+        if (!row) return null;
+        const entry = this.#mapFSEntryRow(row);
+        await this.#writeEntryToCache(entry);
+        return entry;
+    }
+
+    // Heal a user's home tree to `/{username}`: if the root entry's path/name
+    // already match, no-op; otherwise rewrite the root row and cascade the
+    // prefix to descendants. Used by the username change flow AND by the
+    // on-read backfill for legacy users whose root row drifted (or whose
+    // path column was never populated).
+    async renameUserHome(
+        userId: number,
+        newUsername: string,
+    ): Promise<FSEntry | null> {
+        const root = await this.getRootEntryForUser(userId);
+        if (!root) return null;
+
+        const newPath = `/${newUsername}`;
+        if (root.path === newPath && root.name === newUsername) {
+            return root;
+        }
+
+        const oldPath = root.path;
+        const now = Math.floor(Date.now() / 1000);
+
+        await this.clients.db.write(
+            `UPDATE fsentries SET name = ?, path = ?, modified = ?
+             WHERE id = ?`,
+            [newUsername, newPath, now, root.id],
+        );
+
+        if (oldPath && oldPath !== '/' && oldPath !== newPath) {
+            const likePattern = `${this.#escapeLikePattern(oldPath)}/%`;
+            const oldLen = oldPath.length;
+            await this.clients.db.write(
+                `UPDATE fsentries
+                 SET path = CONCAT(?, SUBSTR(path, ?)),
+                     modified = ?
+                 WHERE user_id = ? AND path LIKE ? ESCAPE '!'`,
+                [newPath, oldLen + 1, now, userId, likePattern],
+            );
+        }
+
+        // Invalidate root cache under both old and new keys; descendants
+        // rely on TTL (60s) to refresh — username rename is rare enough
+        // that a broad subtree invalidation isn't worth the round-trips.
+        await this.#invalidateEntryCache(root);
+        const refreshedRows = (await this.clients.db.tryHardRead(
+            `SELECT ${this.#selectFsentriesColumns()} FROM fsentries WHERE id = ? LIMIT 1`,
+            [root.id],
+        )) as unknown as FSEntryRow[];
+        const refreshed = refreshedRows[0]
+            ? this.#mapFSEntryRow(refreshedRows[0])
+            : null;
+        if (refreshed) {
+            await this.#invalidateEntryCache(refreshed);
+            await this.#writeEntryToCache(refreshed);
+        }
+        return refreshed;
+    }
+
     // Rewrites path column for every descendant of `oldPrefix` to use `newPrefix`.
     // Used by move/rename when a directory is relocated. Cache for affected
     // entries is invalidated coarsely afterwards by the caller.

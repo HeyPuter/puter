@@ -1030,6 +1030,19 @@ export class AuthController extends PuterController {
                     username: new_username,
                 });
 
+                // Rename the user's FS home from `/<old>` to `/<new>` and
+                // cascade the prefix to all descendants. Without this, any
+                // path-based lookup (stat/readdir/write) would 404 after
+                // rename because the fsentries still reference `/<old>`.
+                try {
+                    await this.stores.fsEntry.renameUserHome(
+                        req.actor.user.id,
+                        new_username,
+                    );
+                } catch (e) {
+                    console.warn('[change-username] fs home rename failed:', e);
+                }
+
                 try {
                     this.clients.event?.emit(
                         'user.username-changed',
@@ -1330,6 +1343,24 @@ export class AuthController extends PuterController {
                     email_confirmed: 0,
                     requires_email_confirmation: 1,
                 });
+
+                // Rename the user's FS home so `/<temp>/Desktop` etc.
+                // become `/<new>/Desktop`. Without this cascade, any
+                // subsequent path-based FS lookup against the new
+                // username would 404.
+                if (username !== user.username) {
+                    try {
+                        await this.stores.fsEntry.renameUserHome(
+                            user.id,
+                            username,
+                        );
+                    } catch (e) {
+                        console.warn(
+                            '[save-account] fs home rename failed:',
+                            e,
+                        );
+                    }
+                }
 
                 // Move from temp group to user group
                 if (this.config.default_temp_group) {

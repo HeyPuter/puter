@@ -40,7 +40,10 @@ import { HttpError } from '../../core/http/HttpError.js';
 import { PuterService } from '../types.js';
 import type { LayerInstances } from '../../types.js';
 import type { puterStores } from '../../stores/index.js';
+import type { puterServices } from '../index.js';
 import { FSEntryCacheInvalidationEventHandler } from './cacheInvalidation.js';
+import { MANAGE_PERM_PREFIX } from '../permission/consts.js';
+import { PermissionUtil } from '../permission/permissionUtil.js';
 
 const DEFAULT_CONTENT_TYPE = 'application/octet-stream';
 const DEFAULT_SIGNED_UPLOAD_EXPIRY_SECONDS = 60 * 15;
@@ -76,6 +79,7 @@ interface BatchStartSignedWriteResult {
 
 export class FSEntryService extends PuterService {
     declare protected stores: LayerInstances<typeof puterStores>;
+    declare protected services: LayerInstances<typeof puterServices>;
 
     override onServerStart(): void {
         // Wire cache invalidation: listens to events emitted by FS
@@ -84,6 +88,46 @@ export class FSEntryService extends PuterService {
             this.stores.fsEntry,
             this.clients.event,
         );
+
+        // Register the `is-owner` permission implicator. Matches v1's
+        // FilesystemService port — without it, `fs:<uuid>:*` permissions
+        // granted by a user to an app fail the app-under-user ACL scan
+        // because the recursive check(userActor, `fs:<uuid>:...`) can't
+        // find a terminal (the user's ownership is a separate short-
+        // circuit in ACLService.check and never surfaces as a scanned
+        // permission). This implicator closes the gap: for user actors,
+        // any `fs:<uuid>:*` permission resolves iff the actor owns the
+        // underlying entry.
+        this.services.permission.registerImplicator({
+            id: 'is-owner',
+            shortcut: true,
+            matches: (permission: string): boolean => {
+                return (
+                    permission.startsWith('fs:') ||
+                    permission.startsWith(`${MANAGE_PERM_PREFIX}:fs:`) ||
+                    permission.startsWith(
+                        `${MANAGE_PERM_PREFIX}:${MANAGE_PERM_PREFIX}:fs:`,
+                    )
+                );
+            },
+            check: async ({ actor, permission }): Promise<unknown> => {
+                if (actor.app || actor.accessToken) return undefined;
+                if (!actor.user?.id) return undefined;
+
+                const stripped = permission.replaceAll(
+                    `${MANAGE_PERM_PREFIX}:`,
+                    '',
+                );
+                const parts = PermissionUtil.split(stripped);
+                const uid = parts[1];
+                if (!uid) return undefined;
+
+                const entry = await this.stores.fsEntry.getEntryByUuid(uid);
+                if (!entry) return undefined;
+                if (entry.userId === actor.user.id) return {};
+                return undefined;
+            },
+        });
     }
 
     #normalizePath(path: string): string {

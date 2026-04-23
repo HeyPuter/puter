@@ -11,6 +11,7 @@ const NATIVE_APP_SUBDOMAINS = [
     'editor',
     'markus',
     'pdf',
+    'apps',
 ] as const;
 
 /** Subset served out of a `dist/` subdirectory rather than the app root. */
@@ -32,6 +33,8 @@ const RESERVED_SUBDOMAINS = new Set<string>([
     ...NATIVE_APP_SUBDOMAINS,
     // App-icon serving subdomain.
     'puter-app-icons',
+    // Extension-owned subdomains.
+    'onlyoffice',
 ]);
 
 /**

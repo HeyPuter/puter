@@ -26,11 +26,15 @@ interface ErrorHandlerOptions {
  * ```json
  * {
  *   "error": "<message>",
+ *   "message": "<message>",
  *   "code": "<legacyCode || code>",
  *   "errorCode": "<code, only when both legacyCode and code are set>",
  *   ...fields
  * }
  * ```
+ *
+ * `message` is a duplicate of `error` kept for the legacy GUI, which keys on
+ * `errorJson.message` when parsing auth-window AJAX error responses.
  *
  * Non-HttpError failures (programming bugs, unexpected exceptions) become
  * a generic 500 response — no internal details leak. The full error is
@@ -70,6 +74,7 @@ export const createErrorHandler = (
         onUnhandled(err, req);
         res.status(500).json({
             error: 'Internal Server Error',
+            message: 'Internal Server Error',
             code: 'internal_error',
         });
     };
@@ -78,6 +83,7 @@ export const createErrorHandler = (
 const serializeHttpError = (err: HttpError): Record<string, unknown> => {
     const payload: Record<string, unknown> = {
         error: err.message,
+        message: err.message,
     };
 
     // `code` slot precedence: legacyCode wins for back-compat. If both are
@@ -92,8 +98,14 @@ const serializeHttpError = (err: HttpError): Record<string, unknown> => {
 
     if (err.fields) {
         for (const [k, v] of Object.entries(err.fields)) {
-            // Don't let `fields` clobber the canonical `error` / `code` slots.
-            if (k === 'error' || k === 'code' || k === 'errorCode') continue;
+            // Don't let `fields` clobber the canonical slots.
+            if (
+                k === 'error' ||
+                k === 'message' ||
+                k === 'code' ||
+                k === 'errorCode'
+            )
+                continue;
             payload[k] = v;
         }
     }

@@ -1111,6 +1111,14 @@ export class LegacyFSController extends PuterController {
             NaN,
         );
 
+        // Owner-suspension guard — matches v1's /file. A signed URL stays
+        // valid forever by default, so a signature minted before a suspension
+        // would otherwise keep leaking content.
+        const owner = await this.stores.user.getById(entry.userId);
+        if ((owner as { suspended?: unknown } | null)?.suspended) {
+            throw new HttpError(401, 'Account suspended');
+        }
+
         // Directory: return a signed listing of direct children.
         if (entry.isDir) {
             const children = await this.services.fsEntry.listDirectory(

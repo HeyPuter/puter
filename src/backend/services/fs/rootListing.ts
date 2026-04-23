@@ -27,9 +27,29 @@ export async function listRootEntries(
         if (entry) entries.push(entry);
     };
 
+    // For the actor's own home, heal first: a user whose home drifted
+    // (stale path after a rename that never cascaded, or legacy rows
+    // that were never path-populated) would otherwise be invisible to a
+    // `getEntryByPath('/{username}')` lookup. `renameUserHome` is a
+    // cheap no-op when the root already matches.
+    const userId = actor.user.id;
+    if (typeof userId === 'number' && actor.user.username) {
+        try {
+            const healed = await fsEntryStore.renameUserHome(
+                userId,
+                actor.user.username,
+            );
+            if (healed) {
+                seenPaths.add(healed.path);
+                entries.push(healed);
+            }
+        } catch {
+            // Fall through to the path-based lookup below.
+        }
+    }
+
     await pushByUsername(actor.user.username);
 
-    const userId = actor.user.id;
     if (typeof userId === 'number') {
         const issuers = await permissionService.listUserPermissionIssuers({
             id: userId,
