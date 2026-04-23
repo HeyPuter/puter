@@ -1106,9 +1106,13 @@ export class LegacyFSController extends PuterController {
     };
 
     /**
-     * POST /open_item — resolve an entry and return a signed URL + token for
-     * an app to open the file. `suggested_apps` is returned as `[]` until a
-     * suggested-apps service exists.
+     * POST /open_item — resolve an entry, grant the default suggested app
+     * write access to it, and return a signed URL + user-app token so the
+     * launched app can read/write the file via its app-under-user token.
+     *
+     * Matches v1 semantics: permission is always granted as `write` — the
+     * underlying user's permission check still caps the effective access
+     * (grantUserAppPermission doesn't escalate user privileges).
      */
     openItem = async (req: Request, res: Response): Promise<void> => {
         const actor = this.#requireActor(req);
@@ -1128,12 +1132,34 @@ export class LegacyFSController extends PuterController {
             'read',
         );
 
+        const suggested =
+            (await this.services.suggestedApps?.getSuggestedApps({
+                name: entry.name,
+                path: entry.path,
+            })) ?? [];
+
+        let token: string | null = null;
+        const defaultAppUid =
+            typeof suggested[0]?.uuid === 'string'
+                ? (suggested[0].uuid as string)
+                : undefined;
+        if (defaultAppUid) {
+            await this.services.permission.grantUserAppPermission(
+                actor,
+                defaultAppUid,
+                `fs:${entry.uuid}:write`,
+                {},
+                { reason: 'open_item' },
+            );
+            token = this.services.auth.getUserAppToken(actor, defaultAppUid);
+        }
+
         const signingCfg = signingConfigFromAppConfig(this.config);
         const signature = { ...signEntry(entry, signingCfg), path: entry.path };
         res.json({
             signature,
-            token: null,
-            suggested_apps: [], // no suggested-apps service yet; clients fall back gracefully
+            token,
+            suggested_apps: suggested,
         });
     };
 
