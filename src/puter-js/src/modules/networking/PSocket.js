@@ -2,7 +2,7 @@ import EventListener from '../../lib/EventListener.js';
 import { errors } from './parsers.js';
 import { PWispHandler } from './PWispHandler.js';
 const texten = new TextEncoder();
-const requireAuth = false; // for initial launch
+const requireAuth = true;
 
 export let wispInfo = {
     server: 'wss://puter.cafe/', // Unused currently

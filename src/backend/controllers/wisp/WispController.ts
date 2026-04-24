@@ -13,12 +13,12 @@ export class WispController extends PuterController {
     registerRoutes(router: PuterRouter): void {
         router.post(
             '/wisp/relay-token/create',
-            { subdomain: 'api' },
+            { subdomain: 'api', requireAuth: true },
             this.#create,
         );
         router.post(
             '/wisp/relay-token/verify',
-            { subdomain: 'api' },
+            { subdomain: 'api', requireAuth: false },
             this.#verify,
         );
     }
