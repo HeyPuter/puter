@@ -178,7 +178,7 @@ export class ChatCompletionDriver extends PuterDriver {
             (text.length / 4 + text.split(/\s+/).length * (4 / 3)) / 2,
         );
         const approximateInputCost = approximateTokenCount * inputTokenCost;
-        const minimumCredits = Number(model.minimumCredits ?? 0);
+        const minimumCredits = Number(model.minimumCredits || 1);
 
         const usageAllowed = await metering.hasEnoughCredits(
             actor,

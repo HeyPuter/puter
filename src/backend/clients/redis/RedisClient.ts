@@ -73,7 +73,7 @@ const buildCluster = (config: IConfig): Cluster => {
             redisOptions: {
                 tls: {},
                 connectTimeout: redisConnectTimeoutMs,
-                maxRetriesPerRequest: 2,
+                maxRetriesPerRequest: 1,
             },
         },
     );

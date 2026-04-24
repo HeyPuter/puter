@@ -11,7 +11,7 @@ import { PuterStore } from '../types';
  */
 
 const CACHE_KEY_PREFIX = 'apps';
-const CACHE_TTL_SECONDS = 5 * 60;
+const CACHE_TTL_SECONDS = 24 * 60 * 60;
 const FILETYPE_CACHE_KEY_PREFIX = 'apps:by-filetype';
 const FILETYPE_CACHE_TTL_SECONDS = 60;
 const APP_ID_PROPERTIES = ['id', 'uid', 'name'];

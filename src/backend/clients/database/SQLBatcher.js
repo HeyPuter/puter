@@ -35,14 +35,14 @@ export class SQLBatcher {
             timestamp: Date.now(),
         });
 
-        if (this.queue.length === 1) {
+        if (this.queue.length >= this.maxBatchSize) {
+            this.flush(this.queue.splice(0, this.maxBatchSize));
+        } else if (this.queue.length === 1) {
             this.timeouts.push(
                 setTimeout(() => {
                     this.flush(this.queue.splice(0, this.queue.length));
                 }, this.maxTimeInQueue),
             );
-        } else if (this.queue.length >= this.maxBatchSize) {
-            this.flush(this.queue.splice(0, this.maxBatchSize));
         }
 
         return promise;

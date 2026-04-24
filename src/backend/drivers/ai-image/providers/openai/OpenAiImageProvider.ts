@@ -92,13 +92,18 @@ export class OpenAiImageProvider implements IImageProvider {
             throw new Error('`prompt` must be a string');
         }
 
-        const validRations = selectedModel?.allowedRatios;
-        if (
-            validRations &&
-            (!ratio ||
-                !validRations.some((r) => r.w === ratio.w && r.h === ratio.h))
-        ) {
-            ratio = validRations[0]; // Default to the first allowed ratio
+        const validRatios = selectedModel?.allowedRatios;
+        if (validRatios) {
+            if (
+                !ratio ||
+                !validRatios.some((r) => r.w === ratio.w && r.h === ratio.h)
+            ) {
+                ratio = validRatios[0]; // Default to the first allowed ratio
+            }
+        } else {
+            // Open-ended size models (gpt-image-2): conform to OpenAI's size
+            // rules (16px multiples, 3840 cap, 3:1 ratio, pixel budget).
+            ratio = this.#normalizeGptImage2Ratio(ratio);
         }
 
         if (!ratio) {
@@ -112,7 +117,15 @@ export class OpenAiImageProvider implements IImageProvider {
 
         const size = `${ratio.w}x${ratio.h}`;
         const price_key = this.#buildPriceKey(selectedModel.id, quality!, size);
-        const outputPriceInCents = selectedModel?.costs[price_key];
+        let outputPriceInCents: number | undefined =
+            selectedModel?.costs[price_key];
+        if (outputPriceInCents === undefined) {
+            outputPriceInCents = this.#estimateOutputCostFromTokens(
+                selectedModel,
+                ratio,
+                quality,
+            );
+        }
         if (outputPriceInCents === undefined) {
             const availableSizes = Object.keys(selectedModel?.costs).filter(
                 (key) => !OpenAiImageProvider.#NON_SIZE_COST_KEYS.includes(key),
@@ -447,8 +460,121 @@ export class OpenAiImageProvider implements IImageProvider {
     }
 
     #isGptImageModel(model: string) {
-        // Covers gpt-image-1, gpt-image-1-mini, gpt-image-1.5 and future variants.
-        return model.startsWith('gpt-image-1');
+        // Covers gpt-image-1, gpt-image-1-mini, gpt-image-1.5, gpt-image-2 and future variants.
+        return model.startsWith('gpt-image-');
+    }
+
+    // gpt-image-2 size rules: each edge in [16, 3840] and a multiple of 16,
+    // long:short ratio <= 3:1, pixel count in [655360, 8294400]. Silently
+    // clamps/snaps rather than throwing so arbitrary user input is accepted.
+    // https://developers.openai.com/api/docs/guides/image-generation
+    #normalizeGptImage2Ratio(ratio?: { w: number; h: number }) {
+        const MIN_EDGE = 16;
+        const MAX_EDGE = 3840;
+        const STEP = 16;
+        const MAX_RATIO = 3;
+        const MIN_PIXELS = 655_360;
+        const MAX_PIXELS = 8_294_400;
+
+        let w = Number(ratio?.w);
+        let h = Number(ratio?.h);
+        if (!Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) {
+            return { w: 1024, h: 1024 };
+        }
+
+        // 1. Clamp long:short ratio to MAX_RATIO by shrinking the longer edge.
+        if (w / h > MAX_RATIO) w = h * MAX_RATIO;
+        else if (h / w > MAX_RATIO) h = w * MAX_RATIO;
+
+        // 2. Cap each edge at MAX_EDGE, preserving aspect ratio.
+        if (w > MAX_EDGE) {
+            const s = MAX_EDGE / w;
+            w = MAX_EDGE;
+            h *= s;
+        }
+        if (h > MAX_EDGE) {
+            const s = MAX_EDGE / h;
+            h = MAX_EDGE;
+            w *= s;
+        }
+
+        // 3. Scale uniformly into the pixel budget.
+        const prescaledPixels = w * h;
+        if (prescaledPixels < MIN_PIXELS) {
+            const s = Math.sqrt(MIN_PIXELS / prescaledPixels);
+            w *= s;
+            h *= s;
+        } else if (prescaledPixels > MAX_PIXELS) {
+            const s = Math.sqrt(MAX_PIXELS / prescaledPixels);
+            w *= s;
+            h *= s;
+        }
+
+        // 4. Snap to STEP. Bias rounding direction so snap doesn't push pixels
+        //    back out of the budget.
+        const dir =
+            prescaledPixels < MIN_PIXELS
+                ? 1
+                : prescaledPixels > MAX_PIXELS
+                  ? -1
+                  : 0;
+        const snap = (v: number) => {
+            const snapped =
+                dir > 0
+                    ? Math.ceil(v / STEP) * STEP
+                    : dir < 0
+                      ? Math.floor(v / STEP) * STEP
+                      : Math.round(v / STEP) * STEP;
+            return Math.max(MIN_EDGE, Math.min(MAX_EDGE, snapped));
+        };
+        w = snap(w);
+        h = snap(h);
+
+        // 5. If snap rounding pushed ratio above MAX_RATIO, trim the longer
+        //    edge by one STEP. Pixel budget had headroom from step 3 so this
+        //    won't drop below MIN_PIXELS.
+        if (Math.max(w, h) / Math.min(w, h) > MAX_RATIO) {
+            if (w >= h) w = Math.max(MIN_EDGE, w - STEP);
+            else h = Math.max(MIN_EDGE, h - STEP);
+        }
+        return { w, h };
+    }
+
+    // extracted from calculator at https://developers.openai.com/api/docs/guides/image-generation#cost-and-latency
+    #estimateGptImage2OutputTokens(
+        width: number,
+        height: number,
+        quality?: string,
+    ): number {
+        const FACTORS: Record<string, number> = {
+            low: 16,
+            medium: 48,
+            high: 96,
+        };
+        const factor = FACTORS[quality ?? ''] ?? FACTORS.medium;
+        const longEdge = Math.max(width, height);
+        const shortEdge = Math.min(width, height);
+        const shortLatent = Math.round((factor * shortEdge) / longEdge);
+        const latentW = width >= height ? factor : shortLatent;
+        const latentH = width >= height ? shortLatent : factor;
+        const baseArea = latentW * latentH;
+        return Math.ceil((baseArea * (2_000_000 + width * height)) / 4_000_000);
+    }
+
+    #estimateOutputCostFromTokens(
+        selectedModel: IImageModel,
+        ratio: { w: number; h: number },
+        quality?: string,
+    ): number | undefined {
+        if (!selectedModel.id.startsWith('gpt-image-2')) return undefined;
+        const rate = this.#getCostRate(selectedModel, 'image_output');
+        if (rate === undefined) return undefined;
+        const tokens = this.#estimateGptImage2OutputTokens(
+            ratio.w,
+            ratio.h,
+            quality,
+        );
+        return this.#costForTokens(tokens, rate);
     }
 
     #buildPriceKey(model: string, quality: string, size: string) {
