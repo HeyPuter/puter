@@ -20,6 +20,7 @@ class PuterContextMenu extends PuterWebComponent {
     #typeaheadBuffer = '';
     #typeaheadTimer = null;
     #mouseTracker = null;
+    #pendingFocusIndex = null;
 
     get items () {
         return this.#items;
@@ -467,8 +468,9 @@ class PuterContextMenu extends PuterWebComponent {
 
             // Hover: mouse takes over focus highlight
             el.addEventListener('mouseenter', () => {
-                this._setFocusIndex(index);
                 if ( el.dataset.hasSubmenu === 'true' ) {
+                    this.#pendingFocusIndex = null;
+                    this._setFocusIndex(index);
                     this._cancelSubmenuClose();
                     clearTimeout(this.#submenuTimeout);
                     // If a different submenu is already open, swap eagerly
@@ -480,8 +482,18 @@ class PuterContextMenu extends PuterWebComponent {
                         }, 200);
                     }
                 } else if ( this.#activeSubmenu ) {
-                    // Moving onto a non-submenu sibling — start triangle close
+                    // Safe-triangle: if cursor is heading toward the submenu,
+                    // defer focus change so intermediate items don't highlight
+                    if ( this._isMouseHeadingToSubmenu(this.#activeSubmenu.element) ) {
+                        this.#pendingFocusIndex = index;
+                        this._cancelSubmenuClose();
+                        this.#submenuCloseTimer = setTimeout(() => this._submenuCloseCheck(), 100);
+                        return;
+                    }
+                    this._setFocusIndex(index);
                     this._scheduleSubmenuClose();
+                } else {
+                    this._setFocusIndex(index);
                 }
             });
 
@@ -788,6 +800,8 @@ class PuterContextMenu extends PuterWebComponent {
             clearTimeout(this.#submenuCloseTimer);
             this.#submenuCloseTimer = null;
         }
+        // User reached the submenu — discard deferred focus
+        this.#pendingFocusIndex = null;
     }
 
     _submenuCloseCheck () {
@@ -870,6 +884,11 @@ class PuterContextMenu extends PuterWebComponent {
             this.#activeSubmenu.element.remove();
             this.#activeSubmenu.parentEl.classList.remove('has-open-submenu');
             this.#activeSubmenu = null;
+        }
+        // Apply deferred focus from safe-triangle hover
+        if ( this.#pendingFocusIndex !== null ) {
+            this._setFocusIndex(this.#pendingFocusIndex);
+            this.#pendingFocusIndex = null;
         }
     }
 
