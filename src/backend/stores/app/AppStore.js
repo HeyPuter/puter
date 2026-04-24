@@ -527,18 +527,16 @@ export class AppStore extends PuterStore {
 
         const clickhouse = globalThis.clickhouseClient;
         if (clickhouse) {
-            const list = uids
-                .map((u) => `'${String(u).replace(/'/g, "''")}'`)
-                .join(',');
             const res = await clickhouse.query({
                 query: `
                     SELECT app_uid,
                            count(_id) AS open_count,
                            count(DISTINCT user_id) AS user_count
                     FROM app_opens
-                    WHERE app_uid IN (${list})
+                    WHERE app_uid IN {uids:Array(String)}
                     GROUP BY app_uid
                 `,
+                query_params: { uids: uids.map((u) => String(u)) },
                 format: 'JSONEachRow',
             });
             const rows = await res.json();
@@ -572,17 +570,22 @@ export class AppStore extends PuterStore {
 
     async #querySingleStats(appUid, timeRange, clickhouse) {
         if (clickhouse) {
-            const timeCond = timeRange
-                ? `AND ts >= ${Math.floor(timeRange.start / 1000)} AND ts < ${Math.floor(timeRange.end / 1000)}`
-                : '';
+            const query_params = { appUid: String(appUid) };
+            let timeCond = '';
+            if (timeRange) {
+                query_params.tsStart = Math.floor(timeRange.start / 1000);
+                query_params.tsEnd = Math.floor(timeRange.end / 1000);
+                timeCond = 'AND ts >= {tsStart:Int64} AND ts < {tsEnd:Int64}';
+            }
             const res = await clickhouse.query({
                 query: `
                     SELECT count(_id) AS open_count,
                            count(DISTINCT user_id) AS user_count
                     FROM app_opens
-                    WHERE app_uid = '${String(appUid).replace(/'/g, "''")}'
+                    WHERE app_uid = {appUid:String}
                     ${timeCond}
                 `,
+                query_params,
                 format: 'JSONEachRow',
             });
             const rows = await res.json();
@@ -621,18 +624,22 @@ export class AppStore extends PuterStore {
 
         if (clickhouse) {
             const groupBy = CLICKHOUSE_GROUP_BY_FORMATS[grouping];
-            const timeCond = `AND ts >= ${Math.floor(timeRange.start / 1000)} AND ts < ${Math.floor(timeRange.end / 1000)}`;
             const res = await clickhouse.query({
                 query: `
                     SELECT ${groupBy} AS period,
                            count(_id) AS open_count,
                            count(DISTINCT user_id) AS user_count
                     FROM app_opens
-                    WHERE app_uid = '${String(appUid).replace(/'/g, "''")}'
-                    ${timeCond}
+                    WHERE app_uid = {appUid:String}
+                    AND ts >= {tsStart:Int64} AND ts < {tsEnd:Int64}
                     GROUP BY period
                     ORDER BY period
                 `,
+                query_params: {
+                    appUid: String(appUid),
+                    tsStart: Math.floor(timeRange.start / 1000),
+                    tsEnd: Math.floor(timeRange.end / 1000),
+                },
                 format: 'JSONEachRow',
             });
             const rows = await res.json();
