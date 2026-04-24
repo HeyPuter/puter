@@ -1,6 +1,5 @@
 import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
-import { PuterDriver } from '../types.js';
 import { resolvePrivateLaunchAccess } from '../../util/privateLaunchAccess.js';
 import {
     validateArrayOfStrings,
@@ -9,6 +8,7 @@ import {
     validateString,
     validateUrl,
 } from '../../util/validation.js';
+import { PuterDriver } from '../types.js';
 
 const APP_NAME_REGEX = /^[a-zA-Z0-9_-]+$/;
 const APP_NAME_MAX_LEN = 100;
@@ -389,22 +389,22 @@ export class AppDriver extends PuterDriver {
 
     async #checkWriteAccess(app, actor) {
         // App actor matching app_owner
-        if (actor.app?.id && actor.app.id === app.app_owner) return;
-        // Owner
-        if (actor.user?.id === app.owner_user_id) return;
-        // System-wide write permission
-        try {
-            if (
-                await this.permService.check(
-                    actor,
-                    'system:es:write-all-owners',
-                )
-            )
-                return;
-        } catch {
-            // fall through
+        let hasAccess = false;
+        if (!actor.app?.id) {
+            hasAccess = actor.user?.id === app.owner_user_id;
+        } else if (actor.app.id === app.app_owner) {
+            hasAccess = actor.user?.id === app.owner_user_id;
         }
-        throw new HttpError(403, 'Access denied');
+        // System-wide write
+        if (!hasAccess) {
+            hasAccess = await this.permService.check(
+                actor,
+                'system:es:write-all-owners',
+            );
+        }
+        if (!hasAccess) {
+            throw new HttpError(403, 'Access denied');
+        }
     }
 
     // ── Serialization ────────────────────────────────────────────────

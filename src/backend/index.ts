@@ -76,6 +76,20 @@ const loadConfig = (): IConfig => {
 
     const config = deepMerge(defaults, override) as IConfig;
 
+    if (!config.version) {
+        const pkgPath = path.join(PACKAGE_ROOT, 'package.json');
+        if (existsSync(pkgPath)) {
+            try {
+                const pkg = JSON.parse(readFileSync(pkgPath, 'utf8')) as {
+                    version?: string;
+                };
+                if (pkg.version) config.version = pkg.version;
+            } catch {
+                // fall through — /version returns 'unknown'
+            }
+        }
+    }
+
     // Computed defaults. `origin` and `pub_port` are the externally-visible
     // URL+port — what the browser sees. Separate from `port`, which is the
     // bind port (can differ when behind a reverse proxy). Code paths that

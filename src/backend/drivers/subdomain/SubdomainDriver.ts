@@ -2,6 +2,7 @@ import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { PuterDriver } from '../types.js';
 import type { Actor } from '../../core/actor.js';
+import type { AclMode } from '../../services/acl/ACLService.js';
 
 const SUBDOMAIN_MAX_LEN = 64;
 const SUBDOMAIN_REGEX = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
@@ -78,11 +79,14 @@ export class SubdomainDriver extends PuterDriver {
             throw new HttpError(403, 'Subdomain limit reached');
         }
 
+        const rootDirId =
+            object.root_dir_id != null ? Number(object.root_dir_id) : null;
+        await this.#checkFSAccess(rootDirId, actor);
+
         const created = await this.stores.subdomain.create({
             userId: actor.user.id,
             subdomain,
-            rootDirId:
-                object.root_dir_id != null ? Number(object.root_dir_id) : null,
+            rootDirId,
             associatedAppId:
                 object.associated_app_id != null
                     ? Number(object.associated_app_id)
@@ -144,9 +148,14 @@ export class SubdomainDriver extends PuterDriver {
 
         // Subdomain name is immutable — strip if provided
         const patch: Record<string, unknown> = {};
-        if (object.root_dir_id !== undefined)
-            patch.root_dir_id =
+        if (object.root_dir_id !== undefined) {
+            const rootDirId =
                 object.root_dir_id != null ? Number(object.root_dir_id) : null;
+            if (rootDirId !== (row.root_dir_id ?? null)) {
+                await this.#checkFSAccess(rootDirId, actor);
+            }
+            patch.root_dir_id = rootDirId;
+        }
         if (object.associated_app_id !== undefined)
             patch.associated_app_id =
                 object.associated_app_id != null
@@ -159,6 +168,65 @@ export class SubdomainDriver extends PuterDriver {
             userId: row.user_id,
         });
         return this.#toClient(updated);
+    }
+
+    async #checkFSAccess(
+        rootDirId: number | null | undefined,
+        actor: Actor,
+        mode: AclMode = 'write',
+    ): Promise<void> {
+        if (rootDirId == null) return;
+
+        const entry = await this.stores.fsEntry.getEntryById(rootDirId);
+        if (!entry) {
+            throw new HttpError(400, 'root_dir_id does not exist');
+        }
+
+        const fsEntryService = this.services.fsEntry;
+        let ancestorsCache: Promise<
+            Array<{ uid: string; path: string }>
+        > | null = null;
+        const descriptor = {
+            path: entry.path,
+            resolveAncestors() {
+                if (!ancestorsCache) {
+                    ancestorsCache = fsEntryService.getAncestorChain(
+                        entry.path,
+                    );
+                }
+                return ancestorsCache;
+            },
+        };
+        const allowed = await this.services.acl.check(actor, descriptor, mode);
+        if (allowed) return;
+
+        const safe = (await this.services.acl.getSafeAclError(
+            actor,
+            descriptor,
+            mode,
+        )) as {
+            status?: unknown;
+            message?: unknown;
+            fields?: { code?: unknown };
+        };
+        const status = Number(safe?.status);
+        const message =
+            typeof safe?.message === 'string' && safe.message.length > 0
+                ? safe.message
+                : 'Access denied';
+        const code =
+            typeof safe?.fields?.code === 'string'
+                ? safe.fields.code
+                : undefined;
+        const legacyCode = code === 'forbidden' ? 'access_denied' : code;
+        if (status === 404) {
+            throw new HttpError(404, message, {
+                ...(legacyCode ? { legacyCode } : {}),
+            });
+        }
+        throw new HttpError(403, message, {
+            legacyCode: legacyCode ?? 'access_denied',
+        });
     }
 
     async upsert(args: Record<string, unknown>): Promise<unknown> {
@@ -276,13 +344,22 @@ export class SubdomainDriver extends PuterDriver {
         actor: Actor,
     ): Promise<void> {
         // App actor matching app_owner
-        if (actor.app?.id && actor.app.id === row.app_owner) return;
-        // Owner
-        if (actor.user?.id === row.user_id) return;
+        let hasAccess = false;
+        if (!actor.app?.id) {
+            hasAccess = actor.user?.id === row.user_id;
+        } else if (actor.app.id === row.app_owner) {
+            hasAccess = actor.user?.id === row.user_id;
+        }
         // System-wide write
-        if (await this.#hasPermission(actor, 'system:es:write-all-owners'))
-            return;
-        throw new HttpError(403, 'Access denied');
+        if (!hasAccess) {
+            hasAccess = await this.#hasPermission(
+                actor,
+                'system:es:write-all-owners',
+            );
+        }
+        if (!hasAccess) {
+            throw new HttpError(403, 'Access denied');
+        }
     }
 
     // ── Config ──────────────────────────────────────────────────────
