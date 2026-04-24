@@ -1,7 +1,38 @@
 import { v4 as uuidv4 } from 'uuid';
 import { PuterStore } from '../types';
 
-const READ_ONLY_COLUMNS = new Set(['id', 'uuid', 'user_id', 'ts']);
+// Columns that may not be set through an `update` patch map. Defence-in-depth
+// against future callers (admin routes, extensions, new REST handlers) that
+// might forward `req.body` straight into the store: the driver's update
+// builds its patch from a strict allow-list upstream, but the store is the
+// last line before SQL.
+//
+// Categories:
+//   - identity: `id`, `uuid`
+//   - system timestamps: `ts`
+//   - name / identity: `subdomain` — v1 marks this `immutable: true`; rename
+//     would orphan DNS + ACL wiring tied to the old name.
+//   - ownership: `user_id`, `app_owner` — set via `create`, never via patch.
+//     Flipping either hands the site to another user / app.
+//   - access gate: `protected` — clearing this lets a future caller delete
+//     or rename a protected site (e.g. `puter-app-icons`). The driver itself
+//     honours the flag only via a read check in `delete`.
+//   - external resource link: `database_id` — repointing a Cloudflare D1
+//     binding could route another site's traffic / writes to attacker DB.
+//
+// `root_dir_id`, `associated_app_id`, and `domain` are intentionally NOT
+// here — they're legitimately editable through the driver with their own
+// access checks (FS permission, app ownership, custom-domain validation).
+const READ_ONLY_COLUMNS = new Set([
+    'id',
+    'uuid',
+    'ts',
+    'subdomain',
+    'user_id',
+    'app_owner',
+    'protected',
+    'database_id',
+]);
 
 const CACHE_KEY_PREFIX = 'subdomains';
 const CACHE_TTL_SECONDS = 60 * 60;
