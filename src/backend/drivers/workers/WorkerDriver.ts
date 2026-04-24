@@ -135,7 +135,7 @@ export class WorkerDriver extends PuterDriver {
         }
 
         // Check read permission
-        await this.services.fsEntry.checkFSAccess(
+        await this.services.fs.checkFSAccess(
             await this.stores.fsEntry.getEntryByPathForUser(
                 filePath,
                 actor.user.id,

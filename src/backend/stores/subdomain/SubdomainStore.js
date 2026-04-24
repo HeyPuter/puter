@@ -8,11 +8,6 @@ const CACHE_TTL_SECONDS = 60 * 60;
 // Sentinel so 404s on the same public subdomain don't hit the DB repeatedly.
 const NEGATIVE_CACHE_MARKER = '__none__';
 const NEGATIVE_CACHE_TTL_SECONDS = 60;
-// Prefix-list cache: used by WorkerDriver hot-reload on every fs write.
-// TTL is small so a race between cache warm + subdomain create resolves quickly
-// even if invalidation gets dropped. Tracked keys live in a per-user SET so
-// writes can fan-out the invalidation without scanning.
-const PREFIX_LIST_CACHE_TTL_SECONDS = 60;
 
 export class SubdomainStore extends PuterStore {
     // ── Reads ────────────────────────────────────────────────────────
@@ -110,20 +105,6 @@ export class SubdomainStore extends PuterStore {
     async listByUserIdAndPrefix(userId, prefix, extra = {}) {
         if (!userId || prefix == null) return [];
 
-        const cacheKey = this.#prefixListCacheKey(
-            userId,
-            prefix + (extra.appId ? extra.appId : ''),
-        );
-        try {
-            const raw = await this.clients.redis.get(cacheKey);
-            if (raw) {
-                const parsed = JSON.parse(raw);
-                if (Array.isArray(parsed)) return parsed;
-            }
-        } catch {
-            /* fall through */
-        }
-
         const like = `${prefix}%`;
         let rows;
         if (!extra.appId) {
@@ -137,28 +118,6 @@ export class SubdomainStore extends PuterStore {
                 [userId, extra.appId, like],
             );
         }
-
-        // Fire-and-forget cache write + track the key so writes invalidate it.
-        (async () => {
-            try {
-                await this.clients.redis
-                    .pipeline()
-                    .set(
-                        cacheKey,
-                        JSON.stringify(rows),
-                        'EX',
-                        PREFIX_LIST_CACHE_TTL_SECONDS,
-                    )
-                    .sadd(this.#prefixListTrackerKey(userId), cacheKey)
-                    .expire(
-                        this.#prefixListTrackerKey(userId),
-                        PREFIX_LIST_CACHE_TTL_SECONDS * 2,
-                    )
-                    .exec();
-            } catch {
-                /* best-effort */
-            }
-        })();
 
         return rows;
     }
@@ -273,10 +232,6 @@ export class SubdomainStore extends PuterStore {
 
     #cacheKey(subdomain) {
         return `${CACHE_KEY_PREFIX}:name:${subdomain}`;
-    }
-
-    #prefixListCacheKey(userId, prefix) {
-        return `${CACHE_KEY_PREFIX}:listByUserPrefix:${userId}:${prefix}`;
     }
 
     #prefixListTrackerKey(userId) {
