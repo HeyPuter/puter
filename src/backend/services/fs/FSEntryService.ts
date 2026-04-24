@@ -2543,7 +2543,7 @@ export class FSService extends PuterService {
         return entry.uuid;
     }
 
-    // ── Mutation: mkdir / touch / rename / mkshortcut / mklink ─────────
+    // ── Mutation: mkdir / touch / rename / mkshortcut ─────────
 
     /**
      * Resolve a free child name under `parentEntry` by appending ` (N)` when
@@ -2786,50 +2786,6 @@ export class FSService extends PuterService {
             shortcutTo: input.target.id,
         });
         this.#emitFsEvent('fs.create.shortcut', created);
-        return created;
-    }
-
-    /**
-     * Create a symlink row at `parent/name` pointing to raw string
-     * `targetPath`. No verification that target resolves — broken links
-     * are allowed by design.
-     */
-    async mklink(
-        userId: number,
-        input: {
-            parent: FSEntry;
-            name: string;
-            targetPath: string;
-            dedupeName?: boolean;
-        },
-    ): Promise<FSEntry> {
-        let name = input.name;
-        const childPath =
-            input.parent.path === '/'
-                ? `/${name}`
-                : `${input.parent.path}/${name}`;
-        const collision = await this.stores.fsEntry.getEntryByPathForUser(
-            childPath,
-            userId,
-        );
-        if (collision) {
-            if (input.dedupeName) {
-                name = await this.#findDedupedName(input.parent, name);
-            } else {
-                throw new HttpError(
-                    409,
-                    `An entry already exists at ${childPath}`,
-                );
-            }
-        }
-        const created = await this.stores.fsEntry.createNonFileEntry({
-            userId,
-            parent: input.parent,
-            name,
-            kind: 'symlink',
-            symlinkPath: input.targetPath,
-        });
-        this.#emitFsEvent('fs.create.symlink', created);
         return created;
     }
 

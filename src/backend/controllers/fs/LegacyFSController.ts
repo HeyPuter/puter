@@ -1736,36 +1736,6 @@ export class LegacyFSController extends PuterController {
                     });
                     await this.#emitGuiEvent('outer.gui.item.removed', entry);
                     shaped = { ok: true, uid: entry.uuid };
-                } else if (op === 'symlink') {
-                    const parent = await resolveV1Selector(
-                        this.stores.fsEntry,
-                        getString(record, 'path') ?? record.parent,
-                        userId,
-                    );
-                    const name = getString(record, 'name');
-                    const target = getString(record, 'target');
-                    if (!name)
-                        throw new HttpError(400, 'symlink: `name` is required');
-                    if (!target)
-                        throw new HttpError(
-                            400,
-                            'symlink: `target` is required',
-                        );
-                    await assertAccess(
-                        this.services.acl,
-                        this.services.fs,
-                        actor,
-                        parent.path,
-                        'write',
-                    );
-                    const link = await this.services.fs.mklink(userId, {
-                        parent,
-                        name,
-                        targetPath: target,
-                        dedupeName: getBoolean(record, 'dedupe_name') ?? true,
-                    });
-                    await this.#emitGuiEvent('outer.gui.item.added', link);
-                    shaped = await toLegacyEntry(this.clients.event, link);
                 } else {
                     throw new HttpError(400, `Unsupported batch op: '${op}'`);
                 }

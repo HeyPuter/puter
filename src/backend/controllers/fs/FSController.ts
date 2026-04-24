@@ -1151,30 +1151,6 @@ export class FSController extends PuterController {
         res.json(shortcut);
     }
 
-    @Post('/mklink', { subdomain: 'api', requireVerified: true })
-    async mklinkEntry(req: Request, res: Response) {
-        const actor = this.#requireActor(req);
-        const userId = this.#getActorUserId(req);
-        const body = this.#toObjectRecord(req.body);
-        const parentRef = this.#extractNodeRef(body.parent ?? body);
-        const parent = await this.#resolveEntryForRequest(parentRef, userId);
-        const name = typeof body.name === 'string' ? body.name : '';
-        const target = typeof body.target === 'string' ? body.target : '';
-        if (!name.trim()) throw new HttpError(400, 'Missing `name`');
-        if (!target.trim()) throw new HttpError(400, 'Missing `target`');
-
-        await this.#assertAccess(actor, parent.path, 'write');
-
-        const link = await this.services.fs.mklink(userId, {
-            parent,
-            name,
-            targetPath: target,
-            dedupeName: this.#toBoolean(body.dedupe_name) ?? true,
-        });
-        this.#emitGuiItemAdded(link);
-        res.json(link);
-    }
-
     // ── Read-side helpers ───────────────────────────────────────────────
 
     #requireActor(req: Request): Actor {
