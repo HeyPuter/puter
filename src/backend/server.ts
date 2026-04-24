@@ -22,7 +22,10 @@ import {
     subdomainGate,
 } from './core/http/middleware/gates';
 import { createNotFoundHandler } from './core/http/middleware/notFoundHandler';
-import { requireAntiCsrf } from './core/http/middleware/antiCsrf';
+import {
+    requireAntiCsrf,
+    setAntiCsrfRedis,
+} from './core/http/middleware/antiCsrf';
 import { captchaGate } from './core/http/middleware/captcha';
 import {
     rateLimitGate,
@@ -175,6 +178,10 @@ export class PuterServer {
         // and stores exist. Memory is the default; `redis` needs a redis
         // client, `kv` needs the system KV store (DynamoDB-backed).
         this.#configureRateLimiter();
+
+        // Anti-CSRF tokens live in redis so they survive cross-node hops
+        // (issue on node A, consume on node B).
+        setAntiCsrfRedis(this.clients.redis);
 
         // init express server here
         this.#app = express();

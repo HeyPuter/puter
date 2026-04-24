@@ -2,78 +2,75 @@ import crypto from 'node:crypto';
 import { HttpError } from '../HttpError.js';
 
 /**
- * Anti-CSRF token manager.
+ * Anti-CSRF token manager (Redis-backed).
  *
- * Per-session circular buffer of one-time tokens. Each session can
- * hold up to MAX_TOKENS tokens; when the buffer fills, the oldest
- * token is evicted. Tokens are consumed on use (one-time).
+ * One key per token: `csrf:<sessionId>:<token>` with TTL. Consume is
+ * DEL — returns 1 if it existed (and we just consumed it), 0 otherwise.
+ * Atomic across a cluster, no MULTI needed since each op touches a
+ * single key.
  *
- * Usage:
- *   // Generate — GET /get-anticsrf-token
- *   const token = antiCsrf.createToken(sessionId);
- *
- *   // Consume — in a route handler
- *   if ( ! antiCsrf.consumeToken(sessionId, req.body.anti_csrf) ) {
- *       throw new HttpError(400, 'incorrect anti-CSRF token');
- *   }
+ * Tokens expire after `TOKEN_TTL_MS` whether consumed or not.
  */
 
-const MAX_TOKENS = 10;
+const TOKEN_TTL_MS = 10 * 60_000; // 10 minutes
 
-class AntiCsrf {
-    /** session → Map<token, true> (acts as an ordered set via insertion order) */
-    #sessions = new Map();
+let redisClient = null;
 
-    createToken(sessionId) {
-        const token = crypto.randomBytes(32).toString('hex');
-        let ring = this.#sessions.get(sessionId);
-        if (!ring) {
-            ring = new Map();
-            this.#sessions.set(sessionId, ring);
-        }
-        // Evict oldest if full
-        if (ring.size >= MAX_TOKENS) {
-            const oldest = ring.keys().next().value;
-            ring.delete(oldest);
-        }
-        ring.set(token, true);
-        return token;
-    }
-
-    consumeToken(sessionId, token) {
-        if (!token || !sessionId) return false;
-        const ring = this.#sessions.get(sessionId);
-        if (!ring) return false;
-        if (!ring.has(token)) return false;
-        ring.delete(token);
-        if (ring.size === 0) this.#sessions.delete(sessionId);
-        return true;
-    }
+/** Call once during server boot with `clients.redis`. */
+export function setAntiCsrfRedis(redis) {
+    redisClient = redis;
 }
 
-/** Singleton instance. */
-export const antiCsrf = new AntiCsrf();
+const keyFor = (sessionId, token) => `csrf:${sessionId}:${token}`;
+
+export const antiCsrf = {
+    async createToken(sessionId) {
+        if (!redisClient)
+            throw new Error('anti-csrf: redis client not configured');
+        const token = crypto.randomBytes(32).toString('hex');
+        await redisClient.set(
+            keyFor(sessionId, token),
+            '1',
+            'PX',
+            TOKEN_TTL_MS,
+        );
+        return token;
+    },
+    async consumeToken(sessionId, token) {
+        if (!token || !sessionId) return false;
+        if (!redisClient)
+            throw new Error('anti-csrf: redis client not configured');
+        const removed = await redisClient.del(keyFor(sessionId, token));
+        return Number(removed) === 1;
+    },
+};
 
 // ── Route middleware ────────────────────────────────────────────────
 
 /**
  * Middleware that requires a valid anti-CSRF token in `req.body.anti_csrf`.
- * The session key is `req.actor.user.uuid` (or configurable).
+ * The session key is `req.actor.user.uuid`.
  */
 export function requireAntiCsrf() {
-    return (req, _res, next) => {
-        const sessionId = req.actor?.user?.uuid;
-        if (!sessionId) {
-            return next(
-                new HttpError(
-                    401,
-                    'Authentication required for CSRF protection.',
-                ),
-            );
+    return async (req, _res, next) => {
+        try {
+            const sessionId = req.actor?.user?.uuid;
+            if (!sessionId) {
+                return next(
+                    new HttpError(
+                        401,
+                        'Authentication required for CSRF protection.',
+                    ),
+                );
+            }
+            if (
+                !(await antiCsrf.consumeToken(sessionId, req.body?.anti_csrf))
+            ) {
+                return next(new HttpError(400, 'Incorrect anti-CSRF token.'));
+            }
+            next();
+        } catch (err) {
+            next(err);
         }
-        if (!antiCsrf.consumeToken(sessionId, req.body?.anti_csrf)) {
-            return next(new HttpError(400, 'Incorrect anti-CSRF token.'));
-        }
-        next();
     };
 }

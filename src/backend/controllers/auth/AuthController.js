@@ -1455,7 +1455,7 @@ export class AuthController extends PuterController {
                 const sessionId = req.actor?.user?.uuid;
                 if (!sessionId)
                     throw new HttpError(401, 'Authentication required.');
-                const token = antiCsrf.createToken(sessionId);
+                const token = await antiCsrf.createToken(sessionId);
                 res.json({ token });
             },
         );
