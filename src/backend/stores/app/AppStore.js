@@ -40,16 +40,40 @@ const CLICKHOUSE_GROUP_BY_FORMATS = {
     year: 'toStartOfYear(fromUnixTimestamp(ts))',
 };
 
-// Columns that may not be set through `create` / `update` from user input.
-// Admin-only or system-managed fields.
+// Columns that may not be set through `create` / `update` from user input
+// or from any patch map forwarded into the store. Defence-in-depth against
+// future callers (admin routes, extensions, new REST endpoints) that might
+// forward `req.body` straight to `update`: the driver's #validateInput is
+// an allow-list upstream, but the store is the last line before SQL.
+//
+// Categories:
+//   - identity: `id`, `uid`
+//   - system timestamps / admin review: `timestamp`, `last_review`
+//   - admin-only flags: `approved_for_*`, `godmode`
+//   - ownership: `owner_user_id`, `app_owner` — set via `create`'s second
+//     argument, never from a patch map. Re-assigning via update would
+//     hand an app to another user.
+//   - access gates: `protected`, `is_private` — flipping these silently
+//     bypasses #canReadApp / leaks a private app's index_url via
+//     #toClient. If an admin flow ever needs to toggle these it must
+//     call a purpose-built method, not a generic patch.
+//
+// `index_url` is intentionally NOT here — it's legitimately user-editable
+// (the whole point of updating an app). XSS-unsafe schemes are rejected
+// upstream by validateUrl's scheme allow-list.
 const READ_ONLY_COLUMNS = new Set([
     'id',
+    'uid',
     'timestamp',
     'last_review',
     'approved_for_listing',
     'approved_for_opening_items',
     'approved_for_incentive_program',
     'godmode',
+    'owner_user_id',
+    'app_owner',
+    'protected',
+    'is_private',
 ]);
 
 export class AppStore extends PuterStore {
@@ -123,14 +147,29 @@ export class AppStore extends PuterStore {
     // ── Writes ───────────────────────────────────────────────────────
 
     /**
-     * Create a new app row. `fields` is the raw column map (after
-     * validation). Generates a new UID if not provided.
+     * Create a new app row.
+     *
+     * `fields` is the post-validation column map from the driver.
+     * `ownerUserId` and `appOwner` come in as a separate arg rather
+     * than living on `fields` so user-derived patches can never fake
+     * ownership — the store's READ_ONLY_COLUMNS filter would strip
+     * them from `fields` anyway; putting them here makes the
+     * privileged contract obvious at the call site.
      *
      * Returns the created app row.
      */
-    async create(fields) {
-        const uid = fields.uid ?? `app-${uuidv4()}`;
+    async create(fields, { ownerUserId, appOwner = null } = {}) {
+        if (typeof ownerUserId !== 'number') {
+            throw new Error('AppStore.create requires a numeric ownerUserId');
+        }
+
+        const uid = `app-${uuidv4()}`;
         const allowed = this.#filterEditable(fields);
+        allowed.owner_user_id = ownerUserId;
+        if (appOwner !== null && appOwner !== undefined) {
+            allowed.app_owner = appOwner;
+        }
+
         const columns = ['uid', ...Object.keys(allowed)];
         const values = [uid, ...Object.values(allowed)];
 

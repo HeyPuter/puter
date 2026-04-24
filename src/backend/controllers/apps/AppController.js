@@ -169,7 +169,23 @@ export class AppController extends PuterController {
         );
 
         // ── POST /query/app ────────────────────────────────────────
-        // Batch query app metadata by name or UID.
+        // Batch marketplace-style lookup by name or UID.
+        //
+        // Access rules: only apps the caller has a legitimate reason to
+        // see are returned — public (`approved_for_listing`), owned by
+        // the caller, or explicitly accessible via AppDriver.read (for
+        // protected apps with a granted permission). Everything else is
+        // silently skipped so the endpoint can't be used to enumerate
+        // existence of private / unapproved apps by guessing names.
+        //
+        // Response shape is intentionally narrow and mirrors v1 — no
+        // internal identifiers (mysql `id`, `owner_user_id`), no
+        // `index_url`, no admin flags. Developer `metadata` is
+        // included for public/owned apps only, consistent with
+        // marketplace semantics.
+
+        const QUERY_APP_MAX_ENTRIES = 200;
+        const QUERY_APP_MAX_SELECTOR_LEN = 200;
 
         router.post(
             '/query/app',
@@ -179,15 +195,50 @@ export class AppController extends PuterController {
             },
             async (req, res) => {
                 const appList = Array.isArray(req.body) ? req.body : [];
+                if (appList.length > QUERY_APP_MAX_ENTRIES) {
+                    throw new HttpError(
+                        400,
+                        `request body must contain at most ${QUERY_APP_MAX_ENTRIES} selectors`,
+                    );
+                }
+
+                const actorUserId = req.actor?.user?.id ?? null;
                 const results = [];
 
                 for (const selector of appList) {
-                    if (typeof selector !== 'string') continue;
+                    if (
+                        typeof selector !== 'string' ||
+                        selector.length === 0 ||
+                        selector.length > QUERY_APP_MAX_SELECTOR_LEN
+                    ) {
+                        continue;
+                    }
                     const isUid = selector.startsWith('app-');
                     const app = isUid
                         ? await this.appStore.getByUid(selector)
                         : await this.appStore.getByName(selector);
                     if (!app) continue;
+
+                    const isOwner =
+                        actorUserId !== null &&
+                        app.owner_user_id === actorUserId;
+                    const isApproved = Boolean(app.approved_for_listing);
+
+                    if (!isOwner && !isApproved) {
+                        // Unapproved, non-owned — only surface if the
+                        // caller has an explicit grant (purchased /
+                        // permissioned). AppDriver.read enforces that
+                        // via #canReadApp; a thrown 403 means "not
+                        // accessible" and we treat it as "not found".
+                        try {
+                            const shaped = await this.appDriver.read({
+                                uid: app.uid,
+                            });
+                            if (!shaped) continue;
+                        } catch {
+                            continue;
+                        }
+                    }
 
                     const assocRows = await this.clients.db.read(
                         'SELECT `type` FROM `app_filetype_association` WHERE `app_id` = ?',

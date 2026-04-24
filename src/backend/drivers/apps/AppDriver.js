@@ -80,14 +80,18 @@ export class AppDriver extends PuterDriver {
             }
         }
 
-        // Set owner
-        fields.owner_user_id = actor.user.id;
-        if (actor.app?.id) fields.app_owner = actor.app.id;
-
         const filetypes = fields.filetype_associations;
         delete fields.filetype_associations;
 
-        const app = await this.appStore.create(fields);
+        // Ownership is passed as a separate, privileged arg — the store
+        // filters `owner_user_id` / `app_owner` out of `fields` (both are
+        // in READ_ONLY_COLUMNS), so the only way to stamp ownership is
+        // through this explicit contract. Keeps any future caller that
+        // forwards raw input into `create` from spoofing the owner.
+        const app = await this.appStore.create(fields, {
+            ownerUserId: actor.user.id,
+            appOwner: actor.app?.id ?? null,
+        });
         if (filetypes)
             await this.appStore.setFiletypeAssociations(app.id, filetypes);
 
