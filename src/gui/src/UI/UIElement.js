@@ -17,8 +17,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { AdvancedBase } from '@heyputer/putility';
 import Placeholder from '../util/Placeholder.js';
+import AdvancedBase from '../util/AdvancedBase.js';
 import UIWindow from './UIWindow.js';
 
 export default def(class UIElement extends AdvancedBase {

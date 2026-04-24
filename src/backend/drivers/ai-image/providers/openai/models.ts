@@ -2,6 +2,27 @@ import type { IImageModel } from '../../types.js';
 
 export const OPEN_AI_IMAGE_GENERATION_MODELS: IImageModel[] = [
     {
+        puterId: 'openai:openai/gpt-image-2',
+        id: 'gpt-image-2',
+        aliases: ['openai/gpt-image-2', 'gpt-image-2-2026-04-21'],
+        name: 'GPT Image 2',
+        version: '2.0',
+        costs_currency: 'usd-cents',
+        index_cost_key: 'low:1024x1024',
+        costs: {
+            // Text tokens (per 1M tokens)
+            text_input: 500, // $5.00
+            text_cached_input: 125, // $1.25
+            text_output: 1000, // $10.00
+            // Image tokens (per 1M tokens)
+            image_input: 800, // $8.00
+            image_cached_input: 200, // $2.00
+            image_output: 3000, // $30.00
+            'low:1024x1024': 0.588,
+        },
+        allowedQualityLevels: ['low', 'medium', 'high', 'auto'],
+    },
+    {
         puterId: 'openai:openai/gpt-image-1.5',
         id: 'gpt-image-1.5',
         aliases: ['openai/gpt-image-1.5'],
