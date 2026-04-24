@@ -40,7 +40,7 @@ const anticsrf = options => async (req, res, next) => {
         err.write(res);
         return;
     }
-    const has = svc_antiCSRF.consume_token(req.user.uuid, req.body.anti_csrf);
+    const has = await svc_antiCSRF.consume_token(req.user.uuid, req.body.anti_csrf);
     if ( ! has ) {
         const err = APIError.create('anti-csrf-incorrect');
         err.write(res);
