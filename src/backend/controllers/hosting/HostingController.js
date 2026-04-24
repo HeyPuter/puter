@@ -32,18 +32,25 @@ export class HostingController extends PuterController {
                     throw new HttpError(400, 'Missing or invalid `site_uuid`');
                 }
 
-                const deleted = await this.subdomainStore.deleteByUuid(
-                    site_uuid,
-                    {
-                        userId: req.actor.user.id,
-                    },
-                );
-                if (!deleted) {
+                const row = await this.subdomainStore.getByUuid(site_uuid, {
+                    userId: req.actor.user.id,
+                });
+                if (!row) {
                     throw new HttpError(
                         404,
                         'Site not found or not owned by you',
                     );
                 }
+                if (row.protected) {
+                    throw new HttpError(
+                        403,
+                        'Cannot delete a protected subdomain',
+                    );
+                }
+
+                await this.subdomainStore.deleteByUuid(site_uuid, {
+                    userId: req.actor.user.id,
+                });
 
                 res.json({});
             },

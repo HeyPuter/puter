@@ -56,6 +56,7 @@ export class SubdomainDriver extends PuterDriver {
         }
         const actor = this.#requireActor();
         this.#requireUser(actor);
+        this.#requireVerified(actor);
 
         const subdomain = this.#validateSubdomain(object.subdomain);
 
@@ -141,6 +142,7 @@ export class SubdomainDriver extends PuterDriver {
         }
         const actor = this.#requireActor();
         this.#requireUser(actor);
+        this.#requireVerified(actor);
 
         const row = await this.#resolve(args);
         if (!row) throw new HttpError(404, 'Subdomain not found');
@@ -240,6 +242,7 @@ export class SubdomainDriver extends PuterDriver {
     async delete(args: Record<string, unknown>): Promise<unknown> {
         const actor = this.#requireActor();
         this.#requireUser(actor);
+        this.#requireVerified(actor);
 
         const row = await this.#resolve(args);
         if (!row) throw new HttpError(404, 'Subdomain not found');
@@ -314,6 +317,22 @@ export class SubdomainDriver extends PuterDriver {
 
     #requireUser(actor: Actor): void {
         if (!actor.user?.id) throw new HttpError(403, 'User actor required');
+    }
+
+    /**
+     * Mirror of the HTTP-layer `requireVerifiedGate` on /delete-site — only
+     * active when `strict_email_verification_required` is truthy, so self-
+     * hosted installs without SMTP aren't bricked. Applied at the driver
+     * level so /drivers/call can't bypass the gate the HTTP route enforces.
+     */
+    #requireVerified(actor: Actor): void {
+        if (!this.config.strict_email_verification_required) return;
+        const user = actor.user as Record<string, unknown> | undefined;
+        if (!user?.email_confirmed) {
+            throw new HttpError(400, 'Account email is not verified', {
+                legacyCode: 'account_is_not_verified',
+            });
+        }
     }
 
     async #hasPermission(actor: Actor, permission: string): Promise<boolean> {
