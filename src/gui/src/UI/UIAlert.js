@@ -58,21 +58,21 @@ function UIAlert (options) {
         // Define buttons if not provided
         if ( !options.buttons || options.buttons.length === 0 ) {
             switch ( options.type ) {
-            case 'confirm':
-                options.buttons = [
-                    { label: i18n('alert_yes'), value: true, type: 'primary' },
-                    { label: i18n('alert_no'), value: false, type: 'secondary' },
-                ];
-                break;
-            case 'error':
-                options.buttons = [
-                    { label: i18n('alert_retry'), value: 'retry', type: 'danger' },
-                    { label: i18n('alert_cancel'), value: 'cancel', type: 'secondary' },
-                ];
-                break;
-            default:
-                options.buttons = [{ label: i18n('ok'), value: true, type: 'primary' }];
-                break;
+                case 'confirm':
+                    options.buttons = [
+                        { label: i18n('alert_yes'), value: true, type: 'primary' },
+                        { label: i18n('alert_no'), value: false, type: 'secondary' },
+                    ];
+                    break;
+                case 'error':
+                    options.buttons = [
+                        { label: i18n('alert_retry'), value: 'retry', type: 'danger' },
+                        { label: i18n('alert_cancel'), value: 'cancel', type: 'secondary' },
+                    ];
+                    break;
+                default:
+                    options.buttons = [{ label: i18n('ok'), value: true, type: 'primary' }];
+                    break;
             }
         }
         // callback support with correct resolve handling
@@ -168,7 +168,5 @@ function UIAlert (options) {
         });
     });
 }
-
-def(UIAlert, 'ui.window.UIAlert');
 
 export default UIAlert;
