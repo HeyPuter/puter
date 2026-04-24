@@ -1,5 +1,9 @@
 import { HttpError } from '../../core/http/HttpError.js';
 import { driversContainers } from '../../exports.js';
+import {
+    ICON_DATA_URL_MIME_ALLOWLIST,
+    isTrustedIconHost,
+} from '../../util/appIcon.js';
 import { resolvePrivateLaunchAccess } from '../../util/privateLaunchAccess.js';
 import { PuterController } from '../types.js';
 import DEFAULT_APP_ICON from './default-app-icon.js';
@@ -266,9 +270,11 @@ export class AppController extends PuterController {
                     return res.redirect(302, redirectUrl);
                 }
                 // No local file — fall back to the raw `icon` column URL
-                // (points at whatever original source the row was imported
-                // with). Better than a 404 even if it's not size-correct.
-                if (typeof icon === 'string' && /^https?:\/\//i.test(icon)) {
+                if (
+                    typeof icon === 'string' &&
+                    /^https?:\/\//i.test(icon) &&
+                    isTrustedIconHost(icon, this.config)
+                ) {
                     res.set('Cache-Control', 'public, max-age=900');
                     return res.redirect(302, icon);
                 }
@@ -286,8 +292,16 @@ export class AppController extends PuterController {
                     serveDefaultIcon(res);
                     return;
                 }
-                const mime = icon.slice(5, icon.indexOf(';')) || 'image/png';
+                const semiIdx = icon.indexOf(';');
+                const mimeEnd =
+                    semiIdx !== -1 && semiIdx < commaIdx ? semiIdx : commaIdx;
+                const mime = icon.slice(5, mimeEnd).toLowerCase();
+                if (!ICON_DATA_URL_MIME_ALLOWLIST.includes(mime)) {
+                    serveDefaultIcon(res);
+                    return;
+                }
                 res.set('Content-Type', mime);
+                res.set('X-Content-Type-Options', 'nosniff');
                 res.set('Cache-Control', 'public, max-age=60');
                 res.send(Buffer.from(icon.slice(commaIdx + 1), 'base64'));
 

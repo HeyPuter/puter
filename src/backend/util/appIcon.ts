@@ -8,8 +8,154 @@
 
 export const DEFAULT_APP_ICON_SIZE = 256;
 
+// Subdomain where AppIconService publishes generated icons. Mirrors the
+// constant in AppIconService; duplicated here to avoid a dependency cycle
+// between the util layer and the service layer.
+const APP_ICONS_SUBDOMAIN = 'puter-app-icons';
+
+// MIME types accepted on the write path for `data:` icon URLs. Anything
+// outside this allowlist is rejected so a malicious caller can't stash,
+// e.g., `data:text/html` or `data:application/javascript` in the icon
+// column and get it echoed back by the server.
+export const ICON_DATA_URL_MIME_ALLOWLIST = [
+    'image/png',
+    'image/jpeg',
+    'image/jpg',
+    'image/gif',
+    'image/webp',
+    'image/svg+xml',
+] as const;
+
 interface AppIconDeps {
     apiBaseUrl?: string;
+}
+
+interface TrustedIconHostConfig {
+    static_hosting_domain?: string;
+    static_hosting_domain_alt?: string;
+    api_base_url?: string;
+}
+
+const RAW_BASE64_REGEX = /^[A-Za-z0-9+/]+={0,2}$/;
+const APP_ICON_ENDPOINT_PATH_REGEX = /^\/app-icon\/[^/?#]+(?:\/\d+)?\/?$/;
+
+/**
+ * v1-compatible raw-base64 detector. Legacy puter-js callers pass the
+ * base64 payload without a `data:` prefix; v1 accepted it and normalized
+ * to `data:image/png;base64,<raw>` before storage. We mirror that here
+ * so clients that worked on v1 keep working.
+ *
+ * Rejects anything shorter than 16 chars, not aligned to base64 length,
+ * or that doesn't round-trip through Buffer — catches random strings
+ * that happen to match the charset.
+ */
+export function isRawBase64ImageString(value: unknown): value is string {
+    if (typeof value !== 'string') return false;
+    const trimmed = value.trim();
+    if (trimmed.length < 16) return false;
+    if (!RAW_BASE64_REGEX.test(trimmed)) return false;
+    if (trimmed.length % 4 !== 0) return false;
+    try {
+        const decoded = Buffer.from(trimmed, 'base64');
+        if (decoded.length === 0) return false;
+        const stripped = trimmed.replace(/=+$/, '');
+        const reencoded = decoded.toString('base64').replace(/=+$/, '');
+        return stripped === reencoded;
+    } catch {
+        return false;
+    }
+}
+
+/** Wrap raw base64 in a `data:image/png;base64,…` URL; pass other values through. */
+export function normalizeRawBase64ImageString(value: string): string {
+    const trimmed = value.trim();
+    if (!isRawBase64ImageString(trimmed)) return value;
+    return `data:image/png;base64,${trimmed}`;
+}
+
+/**
+ * Whether `value` is a reference to our own `/app-icon/<uid>` route —
+ * either a relative path or an absolute URL whose host we control.
+ * AppIconService rewrites data URL icons to this shape, and v1's
+ * validator accepted it as a legal icon value; clients that round-trip
+ * an app object expect it to pass validation.
+ */
+export function isAppIconEndpointUrl(
+    value: string,
+    config: TrustedIconHostConfig,
+): boolean {
+    const trimmed = value.trim();
+    if (!trimmed) return false;
+    let parsed: URL;
+    try {
+        parsed = new URL(trimmed, 'http://localhost');
+    } catch {
+        return false;
+    }
+    if (!APP_ICON_ENDPOINT_PATH_REGEX.test(parsed.pathname)) return false;
+
+    // Relative paths (our placeholder base won't survive if the input
+    // was absolute). Detect absolute-vs-relative by scheme presence.
+    if (!/^[a-z][a-z0-9+\-.]*:/i.test(trimmed) && !trimmed.startsWith('//')) {
+        return true;
+    }
+    return isTrustedIconHost(trimmed, config);
+}
+
+/**
+ * Whether `url` points at a host we control for app-icon hosting.
+ *
+ * Used to gate both the legacy redirect fallback in `/app-icon/:uid` and
+ * the write-path validator in AppDriver — without this check an
+ * authenticated user can set `icon` to an arbitrary attacker URL and
+ * turn the unauthenticated `/app-icon/:uid` route into a Puter-branded
+ * open redirector (cached publicly for 15 minutes).
+ *
+ * Accepts:
+ *   - `puter-app-icons.<static_hosting_domain>` (and …_alt)
+ *   - The configured `api_base_url` host (AppIconService rewrites icon
+ *     columns to `${api_base_url}/app-icon/<uid>`, so it must be trusted
+ *     or round-tripped writes would fail validation).
+ */
+export function isTrustedIconHost(
+    url: string,
+    config: TrustedIconHostConfig,
+): boolean {
+    let parsed: URL;
+    try {
+        parsed = new URL(url);
+    } catch {
+        return false;
+    }
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+        return false;
+    }
+    const hostname = parsed.hostname.toLowerCase();
+    if (!hostname) return false;
+
+    const trustedBases = [
+        config.static_hosting_domain,
+        config.static_hosting_domain_alt,
+    ].filter((d): d is string => typeof d === 'string' && d.length > 0);
+
+    for (const base of trustedBases) {
+        if (hostname === `${APP_ICONS_SUBDOMAIN}.${base.toLowerCase()}`) {
+            return true;
+        }
+    }
+
+    if (config.api_base_url) {
+        try {
+            const apiBaseHost = new URL(
+                config.api_base_url,
+            ).hostname.toLowerCase();
+            if (apiBaseHost && hostname === apiBaseHost) return true;
+        } catch {
+            // malformed config — treat as no match rather than throwing
+        }
+    }
+
+    return false;
 }
 
 export function getAppIconUrl(

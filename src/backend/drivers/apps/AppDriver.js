@@ -1,5 +1,11 @@
 import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
+import {
+    ICON_DATA_URL_MIME_ALLOWLIST,
+    isAppIconEndpointUrl,
+    isRawBase64ImageString,
+    normalizeRawBase64ImageString,
+} from '../../util/appIcon.js';
 import { resolvePrivateLaunchAccess } from '../../util/privateLaunchAccess.js';
 import {
     validateArrayOfStrings,
@@ -303,13 +309,53 @@ export class AppDriver extends PuterDriver {
             });
         }
         if (object.icon !== undefined) {
-            // Accept raw base64, data URLs, or full URLs. Basic length cap.
             validateString(object.icon, {
                 key: 'icon',
                 maxLen: 5 * 1024 * 1024,
                 required: false,
+                allowEmpty: true,
             });
-            out.icon = object.icon;
+            let iconStr = object.icon;
+            // Accepted shapes (mirrors v1's `image-base64` proptype so
+            // puter-js callers keep working):
+            //   1. Empty string — unset
+            //   2. Raw base64 (no prefix) — normalized to a PNG data URL
+            //   3. `data:image/<mime>;…` with an allow-listed MIME
+            //   4. `/app-icon/<uid>` endpoint URL (relative, or absolute
+            //      on a host we control)
+            // Anything else (including arbitrary http(s) URLs) is rejected:
+            // the unauthenticated GET /app-icon/:uid would otherwise 302
+            // there and turn this endpoint into a Puter-branded open
+            // redirector (cached publicly for 15 min).
+            if (iconStr.length > 0) {
+                // Raw base64 → wrap as data URL (v1 parity)
+                if (isRawBase64ImageString(iconStr)) {
+                    iconStr = normalizeRawBase64ImageString(iconStr);
+                } else if (iconStr.startsWith('data:')) {
+                    const semi = iconStr.indexOf(';');
+                    const comma = iconStr.indexOf(',');
+                    const mimeEnd =
+                        semi !== -1 && (comma === -1 || semi < comma)
+                            ? semi
+                            : comma;
+                    const mime =
+                        mimeEnd !== -1
+                            ? iconStr.slice(5, mimeEnd).toLowerCase()
+                            : '';
+                    if (!ICON_DATA_URL_MIME_ALLOWLIST.includes(mime)) {
+                        throw new HttpError(
+                            400,
+                            '`icon` data URL must use an image MIME type',
+                        );
+                    }
+                } else if (!isAppIconEndpointUrl(iconStr, this.config)) {
+                    throw new HttpError(
+                        400,
+                        '`icon` must be base64, a data:image/… URL, or an app-icon endpoint URL',
+                    );
+                }
+            }
+            out.icon = iconStr;
         }
         if (object.maximize_on_start !== undefined) {
             out.maximize_on_start = validateBool(object.maximize_on_start, {
