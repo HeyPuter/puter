@@ -31,11 +31,6 @@ interface TaskbarDeps {
             invalidateById: (id: number) => Promise<unknown>;
         };
     };
-    services?: {
-        appIcon?: {
-            getIconUrl?: (appUid: string, size: number) => string | null;
-        };
-    };
 }
 
 const DEFAULT_TASKBAR_ITEMS: TaskbarEntry[] = [

@@ -246,24 +246,31 @@ export class AppController extends PuterController {
             const app = await this.appStore.getByUid(appUid);
             const icon = app?.icon;
 
-            // If the icon has been processed into PNGs on the hosting
-            // subdomain, redirect there. AppIconService rewrites the `icon`
-            // column to a non-`data:` value after processing, so anything
-            // still sitting as a `data:` URL or bare base64 means the PNG
-            // variant doesn't exist yet — don't redirect or we'll bounce to a
-            // 404. Unknown-icon apps skip the redirect too and fall through
-            // to the default-icon branch below.
+            // If the icon isn't an inline data URL, try to serve it from the
+            // `/system/app_icons/` directory on the hosting subdomain. The
+            // resolver picks the sized variant when it exists and falls back
+            // to the un-resized original, so apps that only have the original
+            // PNG (common for rows imported with a pre-existing HTTP icon
+            // URL) don't 404 on `<uid>-<size>.png`.
             const isInline =
                 typeof icon === 'string' &&
                 (icon.startsWith('data:') || !/^https?:\/\//i.test(icon));
-            if (icon && !isInline) {
-                const redirectUrl = this.services.appIcon?.getIconUrl?.(
-                    appUid,
-                    size,
-                );
+            if (!isInline) {
+                const redirectUrl =
+                    await this.services.appIcon?.resolveIconRedirectUrl?.(
+                        appUid,
+                        size,
+                    );
                 if (redirectUrl) {
                     res.set('Cache-Control', 'public, max-age=900');
                     return res.redirect(302, redirectUrl);
+                }
+                // No local file — fall back to the raw `icon` column URL
+                // (points at whatever original source the row was imported
+                // with). Better than a 404 even if it's not size-correct.
+                if (typeof icon === 'string' && /^https?:\/\//i.test(icon)) {
+                    res.set('Cache-Control', 'public, max-age=900');
+                    return res.redirect(302, icon);
                 }
             }
 
@@ -284,7 +291,7 @@ export class AppController extends PuterController {
                 res.set('Cache-Control', 'public, max-age=60');
                 res.send(Buffer.from(icon.slice(commaIdx + 1), 'base64'));
 
-                // Trigger background generation so next request hits S3
+                // Trigger background generation so next request hits the CDN
                 this.clients.event.emit(
                     'app.new-icon',
                     {
@@ -293,13 +300,6 @@ export class AppController extends PuterController {
                     },
                     {},
                 );
-                return;
-            }
-
-            // HTTP URL — redirect
-            if (icon.startsWith('http://') || icon.startsWith('https://')) {
-                res.set('Cache-Control', 'public, max-age=900');
-                res.redirect(302, icon);
                 return;
             }
 

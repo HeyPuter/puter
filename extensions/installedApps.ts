@@ -4,7 +4,6 @@ import { extension } from '@heyputer/backend/src/extensions';
 import { getAppIconUrl } from '@heyputer/backend/src/util/appIcon.js';
 
 const clients = extension.import('client');
-const services = extension.import('service');
 
 const ALLOWED_ORDER_BY = [
     'id',
@@ -68,7 +67,7 @@ extension.get(
         res.json(
             installedApps.map((app) => ({
                 ...app,
-                iconUrl: getAppIconUrl(app, { apiBaseUrl, services }),
+                iconUrl: getAppIconUrl(app, { apiBaseUrl }),
             })),
         );
     },

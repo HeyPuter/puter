@@ -935,7 +935,6 @@ export class AuthController extends PuterController {
             {
                 subdomain: ['api', ''],
                 requireUserActor: true,
-                antiCsrf: true,
                 rateLimit: {
                     scope: 'passwd',
                     limit: 10,
@@ -993,7 +992,6 @@ export class AuthController extends PuterController {
                 subdomain: ['api', ''],
                 requireUserActor: true,
                 requireVerified: true,
-                antiCsrf: true,
                 rateLimit: {
                     scope: 'change-username',
                     limit: 2,
@@ -1068,7 +1066,6 @@ export class AuthController extends PuterController {
             {
                 subdomain: ['api', ''],
                 requireUserActor: true,
-                antiCsrf: true,
                 rateLimit: {
                     scope: 'change-email-start',
                     limit: 10,
@@ -1555,7 +1552,7 @@ export class AuthController extends PuterController {
 
         router.post(
             '/auth/revoke-user-app',
-            { subdomain: 'api', requireUserActor: true, antiCsrf: true },
+            { subdomain: 'api', requireUserActor: true },
             async (req, res) => {
                 const { app_uid, permission, meta } = req.body;
                 if (!app_uid || !permission) {
@@ -1584,7 +1581,7 @@ export class AuthController extends PuterController {
 
         router.post(
             '/auth/revoke-user-group',
-            { subdomain: 'api', requireUserActor: true, antiCsrf: true },
+            { subdomain: 'api', requireUserActor: true },
             async (req, res) => {
                 const { group_uid, permission, meta } = req.body;
                 if (!group_uid || !permission) {
@@ -1687,7 +1684,7 @@ export class AuthController extends PuterController {
 
         router.post(
             '/auth/revoke-dev-app',
-            { subdomain: 'api', requireUserActor: true, antiCsrf: true },
+            { subdomain: 'api', requireUserActor: true },
             async (req, res) => {
                 let { app_uid, origin, permission, meta } = req.body;
                 if (origin && !app_uid) {
@@ -2001,7 +1998,6 @@ export class AuthController extends PuterController {
             {
                 subdomain: ['api', ''],
                 requireUserActor: true,
-                antiCsrf: true,
                 rateLimit: {
                     scope: 'disable-2fa',
                     limit: 10,
@@ -2306,7 +2302,6 @@ export class AuthController extends PuterController {
             {
                 subdomain: ['api', ''],
                 requireUserActor: true,
-                antiCsrf: true,
                 middleware: createUserProtectedGate(userProtectedDeps, {
                     allowTempUsers: true,
                 }),

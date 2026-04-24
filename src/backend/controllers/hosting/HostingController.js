@@ -25,7 +25,6 @@ export class HostingController extends PuterController {
                 subdomain: 'api',
                 requireUserActor: true,
                 requireVerified: true,
-                antiCsrf: true,
             },
             async (req, res) => {
                 const { site_uuid } = req.body ?? {};

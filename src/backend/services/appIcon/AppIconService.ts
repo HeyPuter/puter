@@ -80,6 +80,46 @@ export class AppIconService extends PuterService {
 
     /** Public: canonical URL for an app's icon at a given size (CDN/subdomain-backed). */
     getIconUrl(appUid: string, size: number): string | null {
+        const base = this.#iconsBaseUrl();
+        if (!base) return null;
+        const normalized = appUid.startsWith('app-') ? appUid : `app-${appUid}`;
+        return `${base}/${SIZED_ICON_FILENAME(normalized, size)}`;
+    }
+
+    /** Public: URL of the un-resized original PNG (no size suffix) on the subdomain. */
+    getOriginalIconUrl(appUid: string): string | null {
+        const base = this.#iconsBaseUrl();
+        if (!base) return null;
+        const normalized = appUid.startsWith('app-') ? appUid : `app-${appUid}`;
+        return `${base}/${ORIGINAL_ICON_FILENAME(normalized)}`;
+    }
+
+    /**
+     * Pick the best subdomain URL to redirect an icon request at. Falls back
+     * to the un-resized original when the sized variant hasn't been generated
+     * (e.g. apps imported with an HTTP icon URL that predates the sharp
+     * pipeline), preventing 404s on `<uid>-<size>.png`.
+     */
+    async resolveIconRedirectUrl(
+        appUid: string,
+        size: number,
+    ): Promise<string | null> {
+        const base = this.#iconsBaseUrl();
+        if (!base) return null;
+        const normalized = appUid.startsWith('app-') ? appUid : `app-${appUid}`;
+        const sizedPath = `${APP_ICONS_PATH_PREFIX}/${SIZED_ICON_FILENAME(normalized, size)}`;
+        const sizedExists = await this.stores.fsEntry.getEntryByPath(sizedPath);
+        if (sizedExists)
+            return `${base}/${SIZED_ICON_FILENAME(normalized, size)}`;
+        const originalPath = `${APP_ICONS_PATH_PREFIX}/${ORIGINAL_ICON_FILENAME(normalized)}`;
+        const originalExists =
+            await this.stores.fsEntry.getEntryByPath(originalPath);
+        if (originalExists)
+            return `${base}/${ORIGINAL_ICON_FILENAME(normalized)}`;
+        return null;
+    }
+
+    #iconsBaseUrl(): string | null {
         const cfg = this.config;
         const host = cfg.static_hosting_domain ?? cfg.static_hosting_domain_alt;
         if (!host) return null;
@@ -90,8 +130,7 @@ export class AppIconService extends PuterService {
         const pubPort = cfg.pub_port;
         const portSuffix =
             pubPort && pubPort !== 80 && pubPort !== 443 ? `:${pubPort}` : '';
-        const normalized = appUid.startsWith('app-') ? appUid : `app-${appUid}`;
-        return `${protocol}://${APP_ICONS_SUBDOMAIN}.${host}${portSuffix}/${SIZED_ICON_FILENAME(normalized, size)}`;
+        return `${protocol}://${APP_ICONS_SUBDOMAIN}.${host}${portSuffix}`;
     }
 
     // ── Bootstrap ───────────────────────────────────────────────────
