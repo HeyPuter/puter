@@ -17,6 +17,7 @@ import { SystemController } from './system/SystemController.js';
 import { WebDAVController } from './webdav/WebDAVController.js';
 import { WispController } from './wisp/WispController.js';
 import type { IPuterControllerRegistry } from './types.js';
+import { PeerController } from './peer/PeerController.js';
 
 export const puterControllers = {
     staticAssets: StaticAssetsController,
@@ -38,4 +39,5 @@ export const puterControllers = {
     wisp: WispController,
     // Last so its catch-all static fallback doesn't shadow earlier routes.
     homepage: HomepageController,
+    peer: PeerController,
 } satisfies IPuterControllerRegistry;

@@ -32,12 +32,12 @@ export class PeerController extends PuterController {
         );
         router.post(
             '/peer/generate-turn',
-            { subdomain: 'api' },
+            { subdomain: 'api', requireAuth: true },
             this.#generateTurn,
         );
         router.post(
             '/turn/ingest-usage',
-            { subdomain: '*' },
+            { subdomain: 'api' },
             this.#ingestUsage,
         );
     }
@@ -65,6 +65,17 @@ export class PeerController extends PuterController {
         const serviceId = turnCfg.cloudflare_turn_service_id;
         const apiToken = turnCfg.cloudflare_turn_api_token;
         const ttl = Number(turnCfg.ttl ?? 86400);
+        if (!req.actor) {
+            throw new HttpError(401, 'Auth required');
+        }
+        let customIdentifier = '';
+        customIdentifier += Buffer.from(
+            req.actor.user.uuid.replaceAll('-', ''),
+            'hex',
+        ).toString('base64url');
+        if (req.actor.type?.app) {
+            customIdentifier += `:${Buffer.from(req.actor.apps.uid.replace('app-', '').replaceAll('-', ''), 'hex').toString('base64url')}`;
+        }
 
         const cfRes = await fetch(
             `https://rtc.live.cloudflare.com/v1/turn/keys/${serviceId}/credentials/generate`,
@@ -74,7 +85,7 @@ export class PeerController extends PuterController {
                     Authorization: `Bearer ${apiToken}`,
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify({ ttl }),
+                body: JSON.stringify({ ttl, customIdentifier }),
             },
         );
 
