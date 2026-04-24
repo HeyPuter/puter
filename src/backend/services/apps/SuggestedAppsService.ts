@@ -1,4 +1,5 @@
 import { posix as pathPosix } from 'node:path';
+import { getAppIconUrl } from '../../util/appIcon.js';
 import { PuterService } from '../types.js';
 
 // ── Extension → suggested app names mapping ─────────────────────────
@@ -230,6 +231,8 @@ export class SuggestedAppsService extends PuterService {
         const seen = new Set<number>();
         const results: Array<Record<string, unknown>> = [];
 
+        const apiBaseUrl = this.config.api_base_url as string | undefined;
+
         // Built-in apps, looked up by their stable app name. Parallel-safe
         // because order is imposed at the end via `builtinNames`.
         const builtinApps = await Promise.all(
@@ -238,7 +241,7 @@ export class SuggestedAppsService extends PuterService {
         for (const app of builtinApps) {
             if (app && !seen.has(app.id)) {
                 seen.add(app.id);
-                results.push(toAppSummary(app));
+                results.push(toAppSummary(app, apiBaseUrl));
             }
         }
 
@@ -248,7 +251,7 @@ export class SuggestedAppsService extends PuterService {
                 if (seen.has(app.id)) continue;
                 if (app.approved_for_opening_items) {
                     seen.add(app.id);
-                    results.push(toAppSummary(app));
+                    results.push(toAppSummary(app, apiBaseUrl));
                 }
             }
         }
@@ -257,12 +260,15 @@ export class SuggestedAppsService extends PuterService {
     }
 }
 
-function toAppSummary(app: Record<string, unknown>): Record<string, unknown> {
+function toAppSummary(
+    app: Record<string, unknown>,
+    apiBaseUrl: string | undefined,
+): Record<string, unknown> {
     return {
         uuid: app.uid,
         name: app.name,
         title: app.title,
-        icon: app.icon ?? null,
+        icon: getAppIconUrl(app, { apiBaseUrl }) ?? app.icon ?? null,
         godmode: Boolean(app.godmode),
         maximize_on_start: Boolean(app.maximize_on_start),
         index_url: app.index_url,
