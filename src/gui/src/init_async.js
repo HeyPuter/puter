@@ -26,8 +26,5 @@ import './UI/UIElement.js';
 import './UI/UIWindowSaveAccount.js';
 import './UI/UIWindowEmailConfirmationRequired.js';
 
-// import putility from '@heyputer/putility';
-// def(putility, '@heyputer/putility');
-
 logger.info('end -> async initialization');
 globalThis.init_promise.resolve();
