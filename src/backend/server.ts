@@ -406,6 +406,12 @@ export class PuterServer {
                 verify: captureRawBody,
             }),
         );
+        // Form-encoded bodies (e.g. `/down` from the GUI's iframe-triggered
+        // download form). Needs to run before the auth probe so
+        // `req.body.auth_token` is populated for urlencoded POSTs the same
+        // way it is for JSON POSTs. Small cap — this parser is only here to
+        // cover the auth_token / anti_csrf field shape, not file uploads.
+        this.#app.use(express.urlencoded({ extended: true, limit: '100kb' }));
 
         // ── Auth probe ──────────────────────────────────────────────
         const authService = this.services.auth as AuthService | undefined;
