@@ -271,6 +271,25 @@ export class AppController extends PuterController {
 
         const ICON_SIZES = [16, 32, 64, 128, 256, 512];
 
+        // Neutering headers for any response that echoes an icon byte
+        // stream on the main origin. `image/svg+xml` is in our MIME
+        // allow-list — it's a legitimate image format, and our own
+        // default icon is SVG — but SVGs can carry `<script>` tags
+        // that execute when the response is loaded as a top-level
+        // document (e.g. victim clicks a phishing link pointing at
+        // `/app-icon/app-<uid>`). `nosniff` only blocks MIME sniffing;
+        // an honestly-declared `image/svg+xml` still renders + runs.
+        //
+        // `Content-Security-Policy: sandbox` drops the response into an
+        // opaque sandboxed browsing context: no scripts, no same-origin,
+        // no forms — regardless of the declared type. `<img src>` loads
+        // are unaffected because image decoding happens in a restricted
+        // mode that already ignores embedded scripts.
+        const setIconSecurityHeaders = (res) => {
+            res.set('X-Content-Type-Options', 'nosniff');
+            res.set('Content-Security-Policy', "default-src 'none'; sandbox;");
+        };
+
         // Serves the default app icon data URL by decoding its base64 body
         // and responding with the declared MIME type (SVG).
         const serveDefaultIcon = (res) => {
@@ -278,6 +297,7 @@ export class AppController extends PuterController {
             const mime =
                 DEFAULT_APP_ICON.slice(5, DEFAULT_APP_ICON.indexOf(';')) ||
                 'image/png';
+            setIconSecurityHeaders(res);
             res.set('Content-Type', mime);
             res.set('Cache-Control', 'public, max-age=3600');
             res.send(
@@ -351,8 +371,8 @@ export class AppController extends PuterController {
                     serveDefaultIcon(res);
                     return;
                 }
+                setIconSecurityHeaders(res);
                 res.set('Content-Type', mime);
-                res.set('X-Content-Type-Options', 'nosniff');
                 res.set('Cache-Control', 'public, max-age=60');
                 res.send(Buffer.from(icon.slice(commaIdx + 1), 'base64'));
 
