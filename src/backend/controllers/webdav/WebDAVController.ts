@@ -260,7 +260,7 @@ export class WebDAVController extends PuterController {
         }
 
         const rangeHeader = req.headers.range;
-        const result = await this.services.fsEntry.readContent(entry, {
+        const result = await this.services.fs.readContent(entry, {
             range: rangeHeader,
         });
         if (result.contentType) res.set('Content-Type', result.contentType);
@@ -299,7 +299,7 @@ export class WebDAVController extends PuterController {
         const responses = [propfindEntry(davPath, entry, isDir)];
 
         if (depth !== '0' && isDir && entry) {
-            const children = await this.services.fsEntry.listDirectory(
+            const children = await this.services.fs.listDirectory(
                 entry.uuid,
                 {},
             );
@@ -384,7 +384,7 @@ export class WebDAVController extends PuterController {
         );
         if (existing) throw new HttpError(405, 'Already exists');
 
-        const entry = await this.services.fsEntry.mkdir(userId, {
+        const entry = await this.services.fs.mkdir(userId, {
             path: davPath,
         });
         this.#emitGuiEvent('outer.gui.item.added', entry);
@@ -443,7 +443,7 @@ export class WebDAVController extends PuterController {
             );
         }
 
-        const writeResult = await this.services.fsEntry.write(userId, {
+        const writeResult = await this.services.fs.write(userId, {
             fileMetadata: {
                 path: davPath,
                 size: contentLength,
@@ -497,7 +497,7 @@ export class WebDAVController extends PuterController {
         );
         if (!entry) throw new HttpError(404, 'Not Found');
 
-        await this.services.fsEntry.remove(userId, { entry, recursive: true });
+        await this.services.fs.remove(userId, { entry, recursive: true });
         this.#emitGuiEvent('outer.gui.item.removed', entry);
         res.status(204).end();
     }
@@ -551,7 +551,7 @@ export class WebDAVController extends PuterController {
                 'Destination parent missing or not a directory',
             );
 
-        const copy = await this.services.fsEntry.copy(userId, {
+        const copy = await this.services.fs.copy(userId, {
             source,
             destinationParent: destParent,
             newName: pathPosix.basename(destPath),
@@ -606,7 +606,7 @@ export class WebDAVController extends PuterController {
                 'Destination parent missing or not a directory',
             );
 
-        const moved = await this.services.fsEntry.move(userId, {
+        const moved = await this.services.fs.move(userId, {
             source,
             destinationParent: destParent,
             newName: pathPosix.basename(destPath),
@@ -706,8 +706,7 @@ export class WebDAVController extends PuterController {
         try {
             const descriptor = {
                 path,
-                resolveAncestors: () =>
-                    this.services.fsEntry.getAncestorChain(path),
+                resolveAncestors: () => this.services.fs.getAncestorChain(path),
             };
             const ok = await this.services.acl.check(actor, descriptor, 'read');
             if (!ok) throw new HttpError(403, 'Permission denied');
@@ -721,8 +720,7 @@ export class WebDAVController extends PuterController {
         try {
             const descriptor = {
                 path,
-                resolveAncestors: () =>
-                    this.services.fsEntry.getAncestorChain(path),
+                resolveAncestors: () => this.services.fs.getAncestorChain(path),
             };
             const ok = await this.services.acl.check(
                 actor,

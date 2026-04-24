@@ -261,7 +261,7 @@ export class AppIconService extends PuterService {
 
     async #writeIcon(filename: string, buffer: Buffer): Promise<void> {
         if (!this.#ownerUserId) return;
-        await this.services.fsEntry.write(this.#ownerUserId, {
+        await this.services.fs.write(this.#ownerUserId, {
             fileMetadata: {
                 path: `${APP_ICONS_PATH_PREFIX}/${filename}`,
                 size: buffer.length,

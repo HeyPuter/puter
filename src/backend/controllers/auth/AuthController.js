@@ -2318,7 +2318,7 @@ export class AuthController extends PuterController {
 
     async #cascadeDeleteUser(userId) {
         try {
-            await this.services.fsEntry.removeAllForUser(userId);
+            await this.services.fs.removeAllForUser(userId);
         } catch (e) {
             // Proceed with user-row delete anyway — orphaned fsentries are
             // better than a resurrected account.

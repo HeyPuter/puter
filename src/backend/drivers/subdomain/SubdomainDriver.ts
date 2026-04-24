@@ -182,7 +182,7 @@ export class SubdomainDriver extends PuterDriver {
             throw new HttpError(400, 'root_dir_id does not exist');
         }
 
-        const fsEntryService = this.services.fsEntry;
+        const fsEntryService = this.services.fs;
         let ancestorsCache: Promise<
             Array<{ uid: string; path: string }>
         > | null = null;

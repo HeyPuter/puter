@@ -33,17 +33,35 @@ export function validateString(
 
 export function validateUrl(
     value,
-    { key, maxLen = 3000, required = true } = {},
+    {
+        key,
+        maxLen = 3000,
+        required = true,
+        // Default allowlist is http(s) only — anything else is an XSS/SSRF
+        // primitive when the value is later consumed as `iframe.src`,
+        // `window.location`, a server-side fetch, etc. `new URL()` alone
+        // happily parses `javascript:alert(1)`, `data:text/html,…`,
+        // `file:///etc/passwd`, and `vbscript:`; callers that need
+        // something exotic must opt in explicitly.
+        protocols = ['http:', 'https:'],
+    } = {},
 ) {
     if (value === undefined || value === null) {
         if (required) throw new HttpError(400, `Missing \`${key}\``);
         return value;
     }
     validateString(value, { key, maxLen, required });
+    let parsed;
     try {
-        new URL(value);
+        parsed = new URL(value);
     } catch {
         throw new HttpError(400, `\`${key}\` must be a valid URL`);
+    }
+    if (!protocols.includes(parsed.protocol)) {
+        throw new HttpError(
+            400,
+            `\`${key}\` must use one of the following protocols: ${protocols.join(', ')}`,
+        );
     }
     return value;
 }

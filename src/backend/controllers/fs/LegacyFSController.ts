@@ -305,7 +305,7 @@ export class LegacyFSController extends PuterController {
         );
         await assertAccess(
             this.services.acl,
-            this.services.fsEntry,
+            this.services.fs,
             actor,
             entry.path,
             'see',
@@ -325,7 +325,7 @@ export class LegacyFSController extends PuterController {
 
         // Optional hydrations:
         if (entry.isDir && getBoolean(body, 'return_size')) {
-            shaped.size = await this.services.fsEntry.getSubtreeSize(
+            shaped.size = await this.services.fs.getSubtreeSize(
                 userId,
                 entry.path,
             );
@@ -381,19 +381,16 @@ export class LegacyFSController extends PuterController {
         }
         await assertAccess(
             this.services.acl,
-            this.services.fsEntry,
+            this.services.fs,
             actor,
             parent.path,
             'list',
         );
 
-        const children = await this.services.fsEntry.listDirectory(
-            parent.uuid,
-            {
-                sortBy: this.#parseSortBy(body),
-                sortOrder: this.#parseSortOrder(body),
-            },
-        );
+        const children = await this.services.fs.listDirectory(parent.uuid, {
+            sortBy: this.#parseSortBy(body),
+            sortOrder: this.#parseSortOrder(body),
+        });
 
         const suggestions =
             await this.services.suggestedApps.getSuggestedAppsForEntries(
@@ -438,13 +435,13 @@ export class LegacyFSController extends PuterController {
         );
         await assertAccess(
             this.services.acl,
-            this.services.fsEntry,
+            this.services.fs,
             actor,
             parentPath === '/' ? targetPath : parentPath,
             'write',
         );
 
-        const entry = await this.services.fsEntry.mkdir(userId, {
+        const entry = await this.services.fs.mkdir(userId, {
             path: targetPath,
             overwrite: getBoolean(body, 'overwrite') ?? false,
             dedupeName: getBoolean(body, 'dedupe_name', 'change_name') ?? false,
@@ -478,20 +475,20 @@ export class LegacyFSController extends PuterController {
 
         await assertAccess(
             this.services.acl,
-            this.services.fsEntry,
+            this.services.fs,
             actor,
             source.path,
             'read',
         );
         await assertAccess(
             this.services.acl,
-            this.services.fsEntry,
+            this.services.fs,
             actor,
             destinationParent.path,
             'write',
         );
 
-        const copy = await this.services.fsEntry.copy(userId, {
+        const copy = await this.services.fs.copy(userId, {
             source,
             destinationParent,
             newName: getString(body, 'new_name'),
@@ -531,20 +528,20 @@ export class LegacyFSController extends PuterController {
 
         await assertAccess(
             this.services.acl,
-            this.services.fsEntry,
+            this.services.fs,
             actor,
             source.path,
             'write',
         );
         await assertAccess(
             this.services.acl,
-            this.services.fsEntry,
+            this.services.fs,
             actor,
             destinationParent.path,
             'write',
         );
 
-        const moved = await this.services.fsEntry.move(userId, {
+        const moved = await this.services.fs.move(userId, {
             source,
             destinationParent,
             newName: getString(body, 'new_name'),
@@ -593,12 +590,12 @@ export class LegacyFSController extends PuterController {
                 );
                 await assertAccess(
                     this.services.acl,
-                    this.services.fsEntry,
+                    this.services.fs,
                     actor,
                     entry.path,
                     'write',
                 );
-                await this.services.fsEntry.remove(userId, {
+                await this.services.fs.remove(userId, {
                     entry,
                     recursive: getBoolean(body, 'recursive') ?? true,
                     descendantsOnly:
@@ -620,12 +617,12 @@ export class LegacyFSController extends PuterController {
         );
         await assertAccess(
             this.services.acl,
-            this.services.fsEntry,
+            this.services.fs,
             actor,
             entry.path,
             'write',
         );
-        await this.services.fsEntry.remove(userId, {
+        await this.services.fs.remove(userId, {
             entry,
             recursive: getBoolean(body, 'recursive') ?? true,
             descendantsOnly: getBoolean(body, 'descendants_only') ?? false,
@@ -649,13 +646,13 @@ export class LegacyFSController extends PuterController {
         );
         await assertAccess(
             this.services.acl,
-            this.services.fsEntry,
+            this.services.fs,
             actor,
             entry.path,
             'write',
         );
 
-        const renamed = await this.services.fsEntry.rename(entry, newName);
+        const renamed = await this.services.fs.rename(entry, newName);
         await this.#emitGuiEvent('outer.gui.item.updated', renamed);
         res.json(await toLegacyEntry(this.clients.event, renamed));
     };
@@ -676,13 +673,13 @@ export class LegacyFSController extends PuterController {
         }
         await assertAccess(
             this.services.acl,
-            this.services.fsEntry,
+            this.services.fs,
             actor,
             parentPath,
             'write',
         );
 
-        await this.services.fsEntry.touch(userId, {
+        await this.services.fs.touch(userId, {
             path: rawPath,
             setAccessed: getBoolean(body, 'set_accessed_to_now') ?? false,
             setModified: getBoolean(body, 'set_modified_to_now') ?? false,
@@ -702,11 +699,7 @@ export class LegacyFSController extends PuterController {
         if (query.trim().length === 0)
             throw new HttpError(400, '`query` is required');
 
-        const results = await this.services.fsEntry.searchByName(
-            userId,
-            query,
-            200,
-        );
+        const results = await this.services.fs.searchByName(userId, query, 200);
         const shaped = await Promise.all(
             results.map((r) => toLegacyEntry(this.clients.event, r)),
         );
@@ -732,7 +725,7 @@ export class LegacyFSController extends PuterController {
         );
         await assertAccess(
             this.services.acl,
-            this.services.fsEntry,
+            this.services.fs,
             actor,
             entry.path,
             'read',
@@ -746,7 +739,7 @@ export class LegacyFSController extends PuterController {
             typeof req.headers.range === 'string'
                 ? req.headers.range
                 : undefined;
-        const download = await this.services.fsEntry.readContent(entry, {
+        const download = await this.services.fs.readContent(entry, {
             range,
         });
 
@@ -904,7 +897,7 @@ export class LegacyFSController extends PuterController {
                 // ACL: always require read; downgrade write→read silently.
                 await assertAccess(
                     this.services.acl,
-                    this.services.fsEntry,
+                    this.services.fs,
                     actor,
                     entry.path,
                     'read',
@@ -916,9 +909,7 @@ export class LegacyFSController extends PuterController {
                         {
                             path: entry.path,
                             resolveAncestors: () =>
-                                this.services.fsEntry.getAncestorChain(
-                                    entry.path,
-                                ),
+                                this.services.fs.getAncestorChain(entry.path),
                         },
                         'write',
                     );
@@ -1023,7 +1014,7 @@ export class LegacyFSController extends PuterController {
                 typeof record.name === 'string'
                     ? record.name
                     : `folder-${Date.now()}`;
-            const entry = await this.services.fsEntry.mkdir(userId, {
+            const entry = await this.services.fs.mkdir(userId, {
                 path: targetEntry.isDir
                     ? `${targetEntry.path === '/' ? '' : targetEntry.path}/${folderName}`
                     : targetEntry.path,
@@ -1037,10 +1028,7 @@ export class LegacyFSController extends PuterController {
             const newName =
                 typeof record.new_name === 'string' ? record.new_name : '';
             if (!newName) throw new HttpError(400, '`new_name` required');
-            const renamed = await this.services.fsEntry.rename(
-                targetEntry,
-                newName,
-            );
+            const renamed = await this.services.fs.rename(targetEntry, newName);
             await this.#emitGuiEvent('outer.gui.item.updated', renamed);
             res.json({ ...signEntry(renamed, signingCfg), path: renamed.path });
             return;
@@ -1048,7 +1036,7 @@ export class LegacyFSController extends PuterController {
         if (operation === 'delete' || operation === 'trash') {
             // Treat trash == delete (recursive). Most clients just call delete
             // directly; if a trash folder becomes important we can revisit.
-            await this.services.fsEntry.remove(userId, {
+            await this.services.fs.remove(userId, {
                 entry: targetEntry,
                 recursive: true,
             });
@@ -1068,7 +1056,7 @@ export class LegacyFSController extends PuterController {
                 userId,
             );
             const method = operation === 'copy' ? 'copy' : 'move';
-            const result = await this.services.fsEntry[method](userId, {
+            const result = await this.services.fs[method](userId, {
                 source: targetEntry,
                 destinationParent,
                 newName:
@@ -1133,9 +1121,7 @@ export class LegacyFSController extends PuterController {
 
         // Directory: return a signed listing of direct children.
         if (entry.isDir) {
-            const children = await this.services.fsEntry.listDirectory(
-                entry.uuid,
-            );
+            const children = await this.services.fs.listDirectory(entry.uuid);
             const signedChildren = children.map((child) => ({
                 ...signEntry(child, signingCfg),
                 path: child.path,
@@ -1149,7 +1135,7 @@ export class LegacyFSController extends PuterController {
             typeof req.headers.range === 'string'
                 ? req.headers.range
                 : undefined;
-        const download = await this.services.fsEntry.readContent(entry, {
+        const download = await this.services.fs.readContent(entry, {
             range,
         });
         const wantsAttachment =
@@ -1183,7 +1169,7 @@ export class LegacyFSController extends PuterController {
         this.#requireActor(req);
         const userId = this.#getActorUserId(req);
         const allowance =
-            await this.services.fsEntry.getUsersStorageAllowance(userId);
+            await this.services.fs.getUsersStorageAllowance(userId);
         res.json({
             used: allowance.curr,
             capacity: allowance.max,
@@ -1211,7 +1197,7 @@ export class LegacyFSController extends PuterController {
 
         await assertAccess(
             this.services.acl,
-            this.services.fsEntry,
+            this.services.fs,
             actor,
             entry.path,
             'read',
@@ -1272,7 +1258,7 @@ export class LegacyFSController extends PuterController {
 
         const rootPath = `/${username}/AppData/${appUid}`;
         // Auto-create the AppData/<uid> tree on first call.
-        const entry = await this.services.fsEntry.mkdir(userId, {
+        const entry = await this.services.fs.mkdir(userId, {
             path: rootPath,
             createMissingParents: true,
         });
@@ -1319,7 +1305,7 @@ export class LegacyFSController extends PuterController {
         const descriptor = {
             path: subject.path,
             resolveAncestors: () =>
-                this.services.fsEntry.getAncestorChain(subject.path),
+                this.services.fs.getAncestorChain(subject.path),
         };
         const allowed = await (this.services.acl as ACLService).check(
             actorForApp,
@@ -1357,7 +1343,7 @@ export class LegacyFSController extends PuterController {
         // shared-file readers get through the permission scan.
         await assertAccess(
             this.services.acl,
-            this.services.fsEntry,
+            this.services.fs,
             actor,
             entry.path,
             'read',
@@ -1367,7 +1353,7 @@ export class LegacyFSController extends PuterController {
             typeof req.headers.range === 'string'
                 ? req.headers.range
                 : undefined;
-        const download = await this.services.fsEntry.readContent(entry, {
+        const download = await this.services.fs.readContent(entry, {
             range,
         });
 
@@ -1485,7 +1471,7 @@ export class LegacyFSController extends PuterController {
                     info && typeof info.mimeType === 'string'
                         ? info.mimeType
                         : undefined;
-                writePromise = this.services.fsEntry
+                writePromise = this.services.fs
                     .write(userId, {
                         fileMetadata: {
                             path: targetPath,
@@ -1609,7 +1595,7 @@ export class LegacyFSController extends PuterController {
                         typeof fileInfo.type === 'string'
                             ? fileInfo.type
                             : filePart.mimeType;
-                    const response = await this.services.fsEntry.write(userId, {
+                    const response = await this.services.fs.write(userId, {
                         fileMetadata: {
                             path: targetPath,
                             size: filePart.content.length,
@@ -1644,7 +1630,7 @@ export class LegacyFSController extends PuterController {
                         expandedParent && expandedParent !== '/'
                             ? `${expandedParent.replace(/\/+$/, '')}/${name}`
                             : `/${name}`;
-                    const entry = await this.services.fsEntry.mkdir(userId, {
+                    const entry = await this.services.fs.mkdir(userId, {
                         path: targetPath,
                         dedupeName: getBoolean(record, 'dedupe_name') ?? true,
                         createMissingParents:
@@ -1685,16 +1671,12 @@ export class LegacyFSController extends PuterController {
                         { path: expandedParent || '/' },
                         userId,
                     );
-                    const link = await this.services.fsEntry.mkshortcut(
-                        userId,
-                        {
-                            parent,
-                            name,
-                            target,
-                            dedupeName:
-                                getBoolean(record, 'dedupe_name') ?? true,
-                        },
-                    );
+                    const link = await this.services.fs.mkshortcut(userId, {
+                        parent,
+                        name,
+                        target,
+                        dedupeName: getBoolean(record, 'dedupe_name') ?? true,
+                    });
                     await this.#emitGuiEvent('outer.gui.item.added', link);
                     shaped = await toLegacyEntry(this.clients.event, link);
                 } else if (op === 'move') {
@@ -1710,19 +1692,19 @@ export class LegacyFSController extends PuterController {
                     );
                     await assertAccess(
                         this.services.acl,
-                        this.services.fsEntry,
+                        this.services.fs,
                         actor,
                         source.path,
                         'write',
                     );
                     await assertAccess(
                         this.services.acl,
-                        this.services.fsEntry,
+                        this.services.fs,
                         actor,
                         destinationParent.path,
                         'write',
                     );
-                    const moved = await this.services.fsEntry.move(userId, {
+                    const moved = await this.services.fs.move(userId, {
                         source,
                         destinationParent,
                         newName: getString(record, 'new_name'),
@@ -1741,12 +1723,12 @@ export class LegacyFSController extends PuterController {
                     );
                     await assertAccess(
                         this.services.acl,
-                        this.services.fsEntry,
+                        this.services.fs,
                         actor,
                         entry.path,
                         'write',
                     );
-                    await this.services.fsEntry.remove(userId, {
+                    await this.services.fs.remove(userId, {
                         entry,
                         recursive: getBoolean(record, 'recursive') ?? true,
                         descendantsOnly:
@@ -1771,12 +1753,12 @@ export class LegacyFSController extends PuterController {
                         );
                     await assertAccess(
                         this.services.acl,
-                        this.services.fsEntry,
+                        this.services.fs,
                         actor,
                         parent.path,
                         'write',
                     );
-                    const link = await this.services.fsEntry.mklink(userId, {
+                    const link = await this.services.fs.mklink(userId, {
                         parent,
                         name,
                         targetPath: target,

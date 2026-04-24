@@ -77,7 +77,7 @@ interface BatchStartSignedWriteResult {
     createdDirectoryEntries: FSEntry[];
 }
 
-export class FSEntryService extends PuterService {
+export class FSService extends PuterService {
     declare protected stores: LayerInstances<typeof puterStores>;
     declare protected services: LayerInstances<typeof puterServices>;
 

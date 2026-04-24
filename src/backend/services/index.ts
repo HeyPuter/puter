@@ -10,7 +10,7 @@ import { DefaultUserService } from './selfhosted/DefaultUserService';
 import { PuterHomepageService } from './homepage/PuterHomepageService';
 import { OIDCService } from './auth/OIDCService';
 import { TokenService } from './auth/TokenService';
-import { FSEntryService } from './fs/FSEntryService';
+import { FSService } from './fs/FSEntryService';
 import { MeteringService } from './metering/MeteringService';
 import { PermissionService } from './permission/PermissionService';
 import { ServerHealthService } from './health/ServerHealthService';
@@ -32,7 +32,7 @@ export const puterServices = {
     acl: ACLService,
     token: TokenService,
     auth: AuthService,
-    fsEntry: FSEntryService,
+    fs: FSService,
     // AppPermissionService + SubdomainPermissionService register permission
     // rewriters/implicators only; no runtime state. Placed after fsEntry so
     // the FS rewriter runs first for `fs:/path` → `fs:<uuid>` before any

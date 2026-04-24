@@ -427,7 +427,7 @@ export const createPuterSiteMiddleware = (
                 : undefined;
         let download;
         try {
-            download = await layers.services.fsEntry.readContent(entry, {
+            download = await layers.services.fs.readContent(entry, {
                 range,
             });
         } catch (e) {

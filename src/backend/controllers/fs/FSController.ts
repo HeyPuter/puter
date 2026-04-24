@@ -101,7 +101,7 @@ export class FSController extends PuterController {
         });
 
         const { response, createdDirectoryEntries } =
-            await this.services.fsEntry.startUrlWriteWithCreatedDirectories(
+            await this.services.fs.startUrlWriteWithCreatedDirectories(
                 userId,
                 requestBody,
                 storageAllowanceMax,
@@ -171,7 +171,7 @@ export class FSController extends PuterController {
         );
 
         const { responses, createdDirectoryEntries } =
-            await this.services.fsEntry.batchStartUrlWritesWithCreatedDirectories(
+            await this.services.fs.batchStartUrlWritesWithCreatedDirectories(
                 userId,
                 requests,
                 storageAllowanceMax,
@@ -237,7 +237,7 @@ export class FSController extends PuterController {
         const requestBody = this.#withGuiMetadata(req.body, req.body);
         this.#assertNoInlineSignedThumbnailData(requestBody.thumbnailData);
 
-        const response = await this.services.fsEntry.completeUrlWrite(
+        const response = await this.services.fs.completeUrlWrite(
             userId,
             requestBody,
         );
@@ -268,7 +268,7 @@ export class FSController extends PuterController {
         for (const requestBody of requests) {
             this.#assertNoInlineSignedThumbnailData(requestBody.thumbnailData);
         }
-        const response = await this.services.fsEntry.batchCompleteUrlWrite(
+        const response = await this.services.fs.batchCompleteUrlWrite(
             userId,
             requests,
         );
@@ -305,7 +305,7 @@ export class FSController extends PuterController {
             throw new HttpError(400, 'Missing uploadId');
         }
 
-        await this.services.fsEntry.abortUrlWrite(userId, req.body.uploadId);
+        await this.services.fs.abortUrlWrite(userId, req.body.uploadId);
         res.json({ ok: true });
     }
 
@@ -315,7 +315,7 @@ export class FSController extends PuterController {
         res: Response<SignMultipartPartsResponse>,
     ) {
         const userId = this.#getActorUserId(req);
-        const response = await this.services.fsEntry.signMultipartParts(
+        const response = await this.services.fs.signMultipartParts(
             userId,
             req.body,
         );
@@ -352,7 +352,7 @@ export class FSController extends PuterController {
             Number(requestBody.fileMetadata.size ?? 0),
             requestBody.guiMetadata,
         );
-        const response = await this.services.fsEntry.write(
+        const response = await this.services.fs.write(
             userId,
             requestBody,
             uploadTracker,
@@ -484,7 +484,7 @@ export class FSController extends PuterController {
                             );
 
                             preparedBatch =
-                                await this.services.fsEntry.prepareBatchWrites(
+                                await this.services.fs.prepareBatchWrites(
                                     userId,
                                     activeManifestItems.map((item) => ({
                                         fileMetadata: item.fileMetadata,
@@ -493,7 +493,7 @@ export class FSController extends PuterController {
                                     })),
                                     storageAllowanceMax,
                                 );
-                            await this.services.fsEntry.assertStorageAllowanceForPreparedBatch(
+                            await this.services.fs.assertStorageAllowanceForPreparedBatch(
                                 preparedBatch,
                                 undefined,
                                 storageAllowanceMax,
@@ -569,14 +569,12 @@ export class FSController extends PuterController {
                             preparedItem.guiMetadata,
                         );
 
-                        return await this.services.fsEntry.uploadPreparedBatchItem(
-                            {
-                                preparedBatch,
-                                itemIndex,
-                                fileContent: stream,
-                                uploadTracker,
-                            },
-                        );
+                        return await this.services.fs.uploadPreparedBatchItem({
+                            preparedBatch,
+                            itemIndex,
+                            fileContent: stream,
+                            uploadTracker,
+                        });
                     } catch (error) {
                         if (!stream.readableEnded && !stream.destroyed) {
                             stream.resume();
@@ -614,7 +612,7 @@ export class FSController extends PuterController {
                 );
             if (parseFailure) {
                 if (preparedBatch) {
-                    await this.services.fsEntry.cleanupPreparedBatchUploads(
+                    await this.services.fs.cleanupPreparedBatchUploads(
                         preparedBatch,
                         uploadedItems,
                     );
@@ -631,7 +629,7 @@ export class FSController extends PuterController {
                 (result) => result.status === 'rejected',
             );
             if (failedUpload?.status === 'rejected') {
-                await this.services.fsEntry.cleanupPreparedBatchUploads(
+                await this.services.fs.cleanupPreparedBatchUploads(
                     preparedBatch,
                     uploadedItems,
                 );
@@ -641,7 +639,7 @@ export class FSController extends PuterController {
             }
 
             const writeResponses =
-                await this.services.fsEntry.finalizePreparedBatchWrites(
+                await this.services.fs.finalizePreparedBatchWrites(
                     preparedBatch,
                     uploadedItems,
                 );
@@ -697,7 +695,7 @@ export class FSController extends PuterController {
             { pathAlreadyNormalized: true },
         );
 
-        const preparedBatch = await this.services.fsEntry.prepareBatchWrites(
+        const preparedBatch = await this.services.fs.prepareBatchWrites(
             userId,
             filteredRequests.map((requestBody) => ({
                 fileMetadata: requestBody.fileMetadata,
@@ -706,7 +704,7 @@ export class FSController extends PuterController {
             })),
             storageAllowanceMax,
         );
-        await this.services.fsEntry.assertStorageAllowanceForPreparedBatch(
+        await this.services.fs.assertStorageAllowanceForPreparedBatch(
             preparedBatch,
             undefined,
             storageAllowanceMax,
@@ -729,7 +727,7 @@ export class FSController extends PuterController {
                     preparedItem.normalizedInput.size,
                     requestBody.guiMetadata,
                 );
-                return this.services.fsEntry.uploadPreparedBatchItem({
+                return this.services.fs.uploadPreparedBatchItem({
                     preparedBatch,
                     itemIndex: preparedItem.index,
                     fileContent: requestBody.fileContent,
@@ -750,7 +748,7 @@ export class FSController extends PuterController {
             (result) => result.status === 'rejected',
         );
         if (failedUpload?.status === 'rejected') {
-            await this.services.fsEntry.cleanupPreparedBatchUploads(
+            await this.services.fs.cleanupPreparedBatchUploads(
                 preparedBatch,
                 uploadedItems,
             );
@@ -760,7 +758,7 @@ export class FSController extends PuterController {
         }
 
         const writeResponses =
-            await this.services.fsEntry.finalizePreparedBatchWrites(
+            await this.services.fs.finalizePreparedBatchWrites(
                 preparedBatch,
                 uploadedItems,
             );
@@ -792,7 +790,7 @@ export class FSController extends PuterController {
         const wantsSize = this.#toBoolean(body.return_size);
         const subtreeSize =
             entry.isDir && wantsSize
-                ? await this.services.fsEntry.getSubtreeSize(userId, entry.path)
+                ? await this.services.fs.getSubtreeSize(userId, entry.path)
                 : undefined;
 
         entry.suggestedApps =
@@ -855,15 +853,12 @@ export class FSController extends PuterController {
         const sortOrder =
             (['asc', 'desc'] as const).find((v) => v === sortOrderRaw) ?? null;
 
-        const children = await this.services.fsEntry.listDirectory(
-            parent.uuid,
-            {
-                limit,
-                offset,
-                sortBy,
-                sortOrder,
-            },
-        );
+        const children = await this.services.fs.listDirectory(parent.uuid, {
+            limit,
+            offset,
+            sortBy,
+            sortOrder,
+        });
 
         const suggestions =
             await this.services.suggestedApps.getSuggestedAppsForEntries(
@@ -894,7 +889,7 @@ export class FSController extends PuterController {
             throw new HttpError(400, 'Missing `query`');
         }
         const limit = this.#toNumberOrUndefined(body.limit);
-        const results = await this.services.fsEntry.searchByName(
+        const results = await this.services.fs.searchByName(
             userId,
             query,
             limit ?? 200,
@@ -921,7 +916,7 @@ export class FSController extends PuterController {
             typeof req.headers.range === 'string'
                 ? req.headers.range
                 : undefined;
-        const download = await this.services.fsEntry.readContent(entry, {
+        const download = await this.services.fs.readContent(entry, {
             range,
         });
 
@@ -994,7 +989,7 @@ export class FSController extends PuterController {
             'write',
         );
 
-        const entry = await this.services.fsEntry.mkdir(userId, {
+        const entry = await this.services.fs.mkdir(userId, {
             path,
             overwrite: this.#toBoolean(body.overwrite) ?? false,
             dedupeName:
@@ -1026,7 +1021,7 @@ export class FSController extends PuterController {
             'write',
         );
 
-        const entry = await this.services.fsEntry.touch(userId, {
+        const entry = await this.services.fs.touch(userId, {
             path,
             setAccessed: this.#toBoolean(body.set_accessed_to_now) ?? false,
             setModified: this.#toBoolean(body.set_modified_to_now) ?? false,
@@ -1048,7 +1043,7 @@ export class FSController extends PuterController {
         const entry = await this.#resolveEntryForRequest(body, userId);
         await this.#assertAccess(actor, entry.path, 'write');
 
-        const renamed = await this.services.fsEntry.rename(entry, newName);
+        const renamed = await this.services.fs.rename(entry, newName);
         this.#emitGuiItemUpdated(renamed);
         res.json(renamed);
     }
@@ -1061,7 +1056,7 @@ export class FSController extends PuterController {
         const entry = await this.#resolveEntryForRequest(body, userId);
         await this.#assertAccess(actor, entry.path, 'write');
 
-        await this.services.fsEntry.remove(userId, {
+        await this.services.fs.remove(userId, {
             entry,
             recursive: this.#toBoolean(body.recursive) ?? false,
             descendantsOnly: this.#toBoolean(body.descendants_only) ?? false,
@@ -1087,7 +1082,7 @@ export class FSController extends PuterController {
         await this.#assertAccess(actor, source.path, 'write');
         await this.#assertAccess(actor, destinationParent.path, 'write');
 
-        const moved = await this.services.fsEntry.move(userId, {
+        const moved = await this.services.fs.move(userId, {
             source,
             destinationParent,
             newName:
@@ -1117,7 +1112,7 @@ export class FSController extends PuterController {
         await this.#assertAccess(actor, source.path, 'read');
         await this.#assertAccess(actor, destinationParent.path, 'write');
 
-        const copy = await this.services.fsEntry.copy(userId, {
+        const copy = await this.services.fs.copy(userId, {
             source,
             destinationParent,
             newName:
@@ -1146,7 +1141,7 @@ export class FSController extends PuterController {
         await this.#assertAccess(actor, target.path, 'read');
         await this.#assertAccess(actor, parent.path, 'write');
 
-        const shortcut = await this.services.fsEntry.mkshortcut(userId, {
+        const shortcut = await this.services.fs.mkshortcut(userId, {
             parent,
             name,
             target,
@@ -1170,7 +1165,7 @@ export class FSController extends PuterController {
 
         await this.#assertAccess(actor, parent.path, 'write');
 
-        const link = await this.services.fsEntry.mklink(userId, {
+        const link = await this.services.fs.mklink(userId, {
             parent,
             name,
             targetPath: target,
@@ -1230,7 +1225,7 @@ export class FSController extends PuterController {
         path: string,
         mode: 'see' | 'list' | 'read' | 'write',
     ) {
-        const fsEntryService = this.services.fsEntry;
+        const fsEntryService = this.services.fs;
         let ancestorsCache: Promise<
             Array<{ uid: string; path: string }>
         > | null = null;
@@ -1834,13 +1829,13 @@ export class FSController extends PuterController {
         let pathToCheck = parentPath;
         if (Boolean(normalizedFileMetadata.overwrite) && !dedupeEnabled) {
             const destinationExists =
-                await this.services.fsEntry.entryExistsByPath(targetPath);
+                await this.services.fs.entryExistsByPath(targetPath);
             if (destinationExists) {
                 pathToCheck = targetPath;
             }
         }
 
-        const fsEntryService = this.services.fsEntry;
+        const fsEntryService = this.services.fs;
         let ancestorsCache: Promise<
             Array<{ uid: string; path: string }>
         > | null = null;
@@ -2105,7 +2100,7 @@ export class FSController extends PuterController {
             return fsEntry;
         }
 
-        return this.services.fsEntry.updateEntryThumbnail(
+        return this.services.fs.updateEntryThumbnail(
             userId,
             fsEntry.uuid,
             finalThumbnail,
