@@ -30,6 +30,7 @@ export interface LoadedFile {
         bucket: string | null;
         bucketRegion: string | null;
         size: number | null;
+        sqlId: number | null; // null in case of base64 URL or a future dynamodb FS.
     } | null;
 }
 
@@ -149,6 +150,7 @@ export async function loadFileInput(
             bucket: entry.bucket,
             bucketRegion: entry.bucketRegion,
             size: entry.size,
+            sqlId: entry.id,
         },
     };
 }

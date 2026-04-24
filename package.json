@@ -53,6 +53,7 @@
     "prestart": "npm run build:ts",
     "dev": "npm run build:ts && node --enable-source-maps -r ./dist/src/backend/telemetry.js ./dist/src/backend/index.js",
     "build": "npm run build:ts && cd src/gui && node ./build.js && cd ../puter-js && npm run build",
+    "build:workerLib": "cd src/puter-js && npm run build && cd ../worker && npm run build",
     "check-translations": "node tools/check-translations.js",
     "prepare": "husky",
     "build:ts": "tsc -p tsconfig.json && node ./tools/write-dist-package-json.mjs",

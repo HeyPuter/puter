@@ -4,6 +4,7 @@ import { HttpError } from '../../core/http/HttpError.js';
 import { PuterDriver } from '../types.js';
 import { loadFileInput } from '../util/fileInput.js';
 import type { Actor } from '../../core/actor.js';
+import path from 'node:path';
 
 const CF_BASE_URL = 'https://api.cloudflare.com/client/v4/accounts';
 const WORKER_NAME_REGEX = /^[a-zA-Z0-9_-]+$/;
@@ -20,10 +21,12 @@ const WORKER_SUBDOMAIN_PREFIX = 'workers.puter.';
 let preamble = '';
 let preambleLineCount = 0;
 try {
-    // Preamble lives alongside the driver in a `dist/` directory, populated
-    // by whatever build step ships with the worker template. Missing file
-    // → non-fatal; workers just run without puter.js access.
-    preamble = readFileSync(`${__dirname}/dist/workerPreamble.js`, 'utf-8');
+    const preamblePath = path.join(
+        __dirname,
+        '../../../../../src/worker/dist/workerPreamble.js',
+    );
+    console.log('reading: ' + preamblePath);
+    preamble = readFileSync(preamblePath, 'utf-8');
     preambleLineCount = preamble.split('\n').length - 1;
 } catch {
     console.warn(
@@ -126,13 +129,15 @@ export class WorkerDriver extends PuterDriver {
         if (existingSub) {
             // Update root_dir if worker already exists
             await this.stores.subdomain.update(existingSub.uuid, {
-                root_dir_id: loaded.fsEntry?.uuid ?? null,
+                root_dir_id: loaded.fsEntry?.sqlId ?? null,
             });
         } else {
+            if (!loaded.fsEntry?.sqlId)
+                throw new HttpError(400, `Invalid file recieved!`);
             await this.stores.subdomain.create({
                 userId: actor.user.id!,
                 subdomain: subdomainName,
-                rootDirId: null,
+                rootDirId: loaded.fsEntry?.sqlId,
                 appOwner: appId
                     ? ((await this.stores.app.getByUid(appId))?.id ?? null)
                     : null,
@@ -185,21 +190,32 @@ export class WorkerDriver extends PuterDriver {
             );
         }
 
-        return rows.map((r) => {
-            const name =
-                String(r.subdomain ?? '')
-                    .split('.')
-                    .pop() ?? '';
-            return {
-                name,
-                url: `https://${name}.puter.work`,
-                file_path: r.root_dir_id ?? null,
-                file_uid: r.root_dir_id ?? null,
-                created_at: r.ts
-                    ? new Date(r.ts as string).toISOString()
-                    : null,
-            };
-        });
+        return await Promise.all(
+            rows.map(async (r) => {
+                const name =
+                    String(r.subdomain ?? '')
+                        .split('.')
+                        .pop() ?? '';
+                let file_path = null;
+                let file_uid = null;
+                if (r.root_dir_id) {
+                    const loaded = await this.stores.fsEntry.getEntryById(
+                        r.root_dir_id,
+                    );
+                    file_path = loaded?.path;
+                    file_uid = loaded?.uuid;
+                }
+                return {
+                    name,
+                    url: `https://${name}.puter.work`,
+                    file_path,
+                    file_uid,
+                    created_at: r.ts
+                        ? new Date(r.ts as string).toISOString()
+                        : null,
+                };
+            }),
+        );
     }
 
     async getLoggingUrl(): Promise<string | null> {
@@ -469,13 +485,10 @@ export class WorkerDriver extends PuterDriver {
                 ? `Successfully deployed https://${workerName}.puter.work`
                 : `Failed to deploy ${workerName}! ${(result.errors ?? []).join(', ')}`;
 
-            await this.stores.notification.create({
-                userId,
-                value: {
-                    source: 'worker',
-                    title,
-                    template: 'user-requesting-share',
-                },
+            await this.services.notification.notify([userId], {
+                source: 'worker',
+                title,
+                template: 'user-requesting-share',
             });
         } catch (err) {
             console.warn('[workers] notification create failed', err);

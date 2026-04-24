@@ -6,8 +6,7 @@
   "main": "exports.ts",
   "scripts": {
     "test": "npx mocha '**/*.test.js' && node ./tools/test.mjs",
-    "bench": "vitest bench --config=vitest.bench.config.ts --run",
-    "build:worker": "cd src/services/worker && npm run build"
+    "bench": "vitest bench --config=vitest.bench.config.ts --run"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.68.0",
