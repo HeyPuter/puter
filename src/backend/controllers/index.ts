@@ -37,7 +37,7 @@ export const puterControllers = {
     webdav: WebDAVController,
     oidc: OIDCController,
     wisp: WispController,
+    peer: PeerController,
     // Last so its catch-all static fallback doesn't shadow earlier routes.
     homepage: HomepageController,
-    peer: PeerController,
 } satisfies IPuterControllerRegistry;
