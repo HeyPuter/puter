@@ -1,4 +1,5 @@
 import { posix as pathPosix } from 'node:path';
+import { contentType as contentTypeFromMime } from 'mime-types';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
 import type { FSEntryStore } from '../../stores/fs/FSEntryStore.js';
 import type { FSEntryService } from '../../services/fs/FSEntryService.js';
@@ -221,7 +222,13 @@ export async function toLegacyEntry(
     } = {},
 ): Promise<Record<string, unknown>> {
     const dirname = pathPosix.dirname(entry.path);
-    const extension = pathPosix.extname(entry.name).slice(1).toLowerCase();
+    // v1 contract: `type` is a MIME content-type (e.g. "image/png; charset=utf-8")
+    // for files, or "folder" for directories. The GUI's icon lookup does
+    // `type.startsWith('image/')` etc., so a bare extension breaks every
+    // banner that falls through the name-extension ladder in item_icon.js.
+    const mimeType = entry.isDir
+        ? 'folder'
+        : contentTypeFromMime(entry.name) || null;
     const response: Record<string, unknown> = {
         id: entry.uuid,
         uid: entry.uuid,
@@ -238,7 +245,7 @@ export async function toLegacyEntry(
         shortcut_to: entry.shortcutTo,
         is_symlink: entry.isSymlink ? 1 : 0,
         symlink_path: entry.symlinkPath,
-        type: entry.isDir ? 'folder' : extension,
+        type: mimeType,
         writable: true,
         is_public: entry.isPublic,
         thumbnail: entry.thumbnail,

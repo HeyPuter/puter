@@ -1,8 +1,10 @@
 import { Context } from '@heyputer/backend/src/core';
 import { HttpError } from '@heyputer/backend/src/core/http';
 import { extension } from '@heyputer/backend/src/extensions';
+import { getAppIconUrl } from '@heyputer/backend/src/util/appIcon.js';
 
 const clients = extension.import('client');
+const services = extension.import('service');
 
 const ALLOWED_ORDER_BY = [
     'id',
@@ -44,7 +46,7 @@ extension.get(
         const orderByField = ORDER_BY_FIELD_MAP[orderBy];
         const sortDirection = req.query.desc ? 'DESC' : 'ASC';
 
-        const installedApps = await clients.db.read(
+        const installedApps = (await clients.db.read(
             `SELECT
             apps.name,
             apps.uid,
@@ -60,8 +62,14 @@ extension.get(
         LIMIT ?
         OFFSET ?`,
             [actor.user.id, limit, offset],
-        );
+        )) as Array<Record<string, unknown>>;
 
-        res.json(installedApps);
+        const apiBaseUrl = extension.config.api_base_url as string | undefined;
+        res.json(
+            installedApps.map((app) => ({
+                ...app,
+                iconUrl: getAppIconUrl(app, { apiBaseUrl, services }),
+            })),
+        );
     },
 );

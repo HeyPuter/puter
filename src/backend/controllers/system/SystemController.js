@@ -9,6 +9,7 @@ import { PuterController } from '../types.js';
 export class SystemController extends PuterController {
     constructor(config, clients, stores, services, drivers) {
         super(config, clients, stores, services, drivers);
+        this.bootTime = Date.now();
     }
 
     registerRoutes(
@@ -44,6 +45,9 @@ export class SystemController extends PuterController {
                 major: parts[0] ? Number(parts[0]) : null,
                 minor: parts[1] ? Number(parts[1]) : null,
                 patch: parts[2] ? Number(parts[2]) : null,
+                environment: this.config.env ?? 'prod',
+                location: this.config.serverId ?? null,
+                deploy_timestamp: this.bootTime,
             });
         });
 

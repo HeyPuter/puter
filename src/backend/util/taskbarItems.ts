@@ -1,3 +1,5 @@
+import { getAppIconUrl } from './appIcon.js';
+
 interface TaskbarEntry {
     name?: string;
     id?: number;
@@ -44,54 +46,6 @@ const DEFAULT_TASKBAR_ITEMS: TaskbarEntry[] = [
     { name: 'camera', type: 'app' },
     { name: 'recorder', type: 'app' },
 ];
-
-// Data URLs (`data:…`) and bare base64 strings need to be served through the
-// `/app-icon` endpoint because the subdomain path only hosts files the icon
-// pipeline already wrote out as PNGs.
-function isInlineIcon(icon: unknown): boolean {
-    if (typeof icon !== 'string') return false;
-    if (icon.startsWith('data:')) return true;
-    // Bare base64 — no URL scheme. AppIconService rewrites these to absolute
-    // URLs once processed, so anything that's still raw-looking goes through
-    // the backend endpoint.
-    return !/^https?:\/\//i.test(icon);
-}
-
-function getAppIconUrl(
-    app: Record<string, unknown>,
-    deps: TaskbarDeps,
-    size?: number,
-): string | null {
-    const appUid = (app.uid ?? app.uuid) as string | undefined;
-    if (!appUid) return null;
-
-    const normalizedUid = appUid.startsWith('app-') ? appUid : `app-${appUid}`;
-    const iconSize = Number.isFinite(Number(size)) ? Number(size) : 128;
-
-    // Path A: icon already lives on `puter-app-icons.<static_hosting_domain>`
-    // (AppIconService processed it and rewrote the DB column). Point the client
-    // directly at the hosted PNG so no backend request is involved.
-    const appIcon = app.icon;
-    if (!isInlineIcon(appIcon)) {
-        const hosted = deps.services?.appIcon?.getIconUrl?.(
-            normalizedUid,
-            iconSize,
-        );
-        if (hosted) return hosted;
-        // No CDN configured but the DB has a usable URL — use it as-is.
-        if (typeof appIcon === 'string' && appIcon.length > 0) return appIcon;
-    }
-
-    // Path B: data URL / bare base64 / missing — fall back to the `/app-icon`
-    // endpoint. It decodes data URLs inline and serves a default placeholder
-    // when the app has no icon at all.
-    const normalizedApiBaseUrl = String(deps.apiBaseUrl ?? '').replace(
-        /\/+$/,
-        '',
-    );
-    if (!normalizedApiBaseUrl) return null;
-    return `${normalizedApiBaseUrl}/app-icon/${normalizedUid}/${iconSize}`;
-}
 
 export async function getTaskbarItems(
     user: Record<string, unknown>,
