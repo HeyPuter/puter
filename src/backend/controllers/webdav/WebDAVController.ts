@@ -703,34 +703,21 @@ export class WebDAVController extends PuterController {
     // ── ACL helpers ─────────────────────────────────────────────────
 
     async #assertRead(actor: Actor, path: string): Promise<void> {
-        try {
-            const descriptor = {
-                path,
-                resolveAncestors: () => this.services.fs.getAncestorChain(path),
-            };
-            const ok = await this.services.acl.check(actor, descriptor, 'read');
-            if (!ok) throw new HttpError(403, 'Permission denied');
-        } catch (err) {
-            if (err instanceof HttpError) throw err;
-            // ACL service may not be fully wired — allow through for now
-        }
+        const descriptor = {
+            path,
+            resolveAncestors: () => this.services.fs.getAncestorChain(path),
+        };
+        const ok = await this.services.acl.check(actor, descriptor, 'read');
+        if (!ok) throw new HttpError(403, 'Permission denied');
     }
 
     async #assertWrite(actor: Actor, path: string): Promise<void> {
-        try {
-            const descriptor = {
-                path,
-                resolveAncestors: () => this.services.fs.getAncestorChain(path),
-            };
-            const ok = await this.services.acl.check(
-                actor,
-                descriptor,
-                'write',
-            );
-            if (!ok) throw new HttpError(403, 'Permission denied');
-        } catch (err) {
-            if (err instanceof HttpError) throw err;
-        }
+        const descriptor = {
+            path,
+            resolveAncestors: () => this.services.fs.getAncestorChain(path),
+        };
+        const ok = await this.services.acl.check(actor, descriptor, 'write');
+        if (!ok) throw new HttpError(403, 'Permission denied');
     }
 
     // ── Event emission ──────────────────────────────────────────────
