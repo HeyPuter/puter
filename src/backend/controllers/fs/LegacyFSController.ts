@@ -96,8 +96,20 @@ export class LegacyFSController extends PuterController {
         );
         router.post('/auth/check-app-acl', apiOptions, this.checkAppAcl);
 
-        // Redirect /down → /file?download=true to consolidate download paths.
-        router.post('/down', apiOptions, this.redirectToFile);
+        // `/down` — session-auth'd file download. Unlike `/file` (signed URL)
+        // this accepts a path on the user's behalf and streams as attachment.
+        // Matches v1 semantics: mounted on both root and api subdomains
+        // because the GUI triggers it from `window.origin`, not the api host.
+        router.post(
+            '/down',
+            {
+                subdomain: ['api', ''],
+                requireUserActor: true,
+                requireVerified: true,
+                antiCsrf: true,
+            },
+            this.down,
+        );
         // /itemMetadata is deprecated; not called by puter-js. Return 410 Gone.
         router.get('/itemMetadata', apiOptions, (_req, res) => {
             res.status(410).json({
@@ -1317,12 +1329,66 @@ export class LegacyFSController extends PuterController {
         res.json({ allowed });
     };
 
-    /** POST /down → same semantics as GET /file with `download=true`. */
-    redirectToFile = async (req: Request, res: Response): Promise<void> => {
-        // We call the /file handler inline, coercing query to include
-        // `download=true` so Content-Disposition becomes `attachment`.
-        (req.query as Record<string, unknown>).download = 'true';
-        await this.file(req, res);
+    /**
+     * POST /down?path=/absolute/path — session-auth'd, path-based file
+     * download. Keeps v1's wire contract: path query param, anti-CSRF body
+     * token, attachment response. No signed URL involved — /file (signature
+     * based) and /down (session based) are the two download paths.
+     */
+    down = async (req: Request, res: Response): Promise<void> => {
+        const actor = this.#requireActor(req);
+        const userId = this.#getActorUserId(req);
+
+        const rawPath =
+            typeof req.query.path === 'string' ? req.query.path.trim() : '';
+        if (!rawPath) throw new HttpError(400, '`path` is required');
+        if (rawPath === '/')
+            throw new HttpError(400, 'Cannot download a directory');
+
+        const entry = await resolveV1Selector(
+            this.stores.fsEntry,
+            { path: rawPath },
+            userId,
+        );
+        if (entry.isDir)
+            throw new HttpError(400, 'Cannot download a directory');
+
+        // Same ACL gate that /read uses — owners hit the is-owner implicator;
+        // shared-file readers get through the permission scan.
+        await assertAccess(
+            this.services.acl,
+            this.services.fsEntry,
+            actor,
+            entry.path,
+            'read',
+        );
+
+        const range =
+            typeof req.headers.range === 'string'
+                ? req.headers.range
+                : undefined;
+        const download = await this.services.fsEntry.readContent(entry, {
+            range,
+        });
+
+        res.setHeader('Content-Type', 'application/octet-stream');
+        if (download.contentLength !== null)
+            res.setHeader('Content-Length', String(download.contentLength));
+        if (download.contentRange)
+            res.setHeader('Content-Range', download.contentRange);
+        if (download.etag) res.setHeader('ETag', download.etag);
+        if (download.lastModified)
+            res.setHeader('Last-Modified', download.lastModified.toUTCString());
+        res.setHeader(
+            'Content-Disposition',
+            `attachment; filename="${encodeURIComponent(entry.name)}"`,
+        );
+        res.status(range ? 206 : 200);
+
+        download.body.on('error', (err) => {
+            res.destroy(err);
+        });
+        download.body.pipe(res);
     };
 
     // Helpers for writeFile
