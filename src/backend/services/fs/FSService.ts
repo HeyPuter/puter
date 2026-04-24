@@ -2614,6 +2614,7 @@ export class FSService extends PuterService {
             overwrite?: boolean;
             dedupeName?: boolean;
             createMissingParents?: boolean;
+            thumbnail?: string | null;
         },
     ): Promise<FSEntry> {
         const targetPath = input.path.trim();
@@ -2654,6 +2655,7 @@ export class FSService extends PuterService {
             parent,
             name,
             kind: 'directory',
+            thumbnail: input.thumbnail ?? null,
         });
         this.#emitFsEvent('fs.create.directory', created);
         return created;

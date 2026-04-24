@@ -1796,10 +1796,29 @@ export class AuthController extends PuterController {
                 if (!app_uid)
                     throw new HttpError(400, 'Missing `app_uid` or `origin`');
 
+                const app = await this.stores.app.getByUid(app_uid);
+                if (!app)
+                    throw new HttpError(404, `App ${app_uid} does not exist`);
+
                 const token = this.authService.getUserAppToken(
                     req.actor,
                     app_uid,
                 );
+
+                // Ensure the app's per-user AppData directory exists.
+                // v1 did this in LLMkdir with the app icon as thumbnail on
+                // first app open. mkdir is idempotent (returns existing dir
+                // without rewriting), and createMissingParents seeds
+                // `/<username>/AppData` if the user never had one.
+                const username = req.actor.user?.username;
+                const userId = req.actor.user?.id;
+                if (username && userId) {
+                    await this.services.fs.mkdir(userId, {
+                        path: `/${username}/AppData/${app_uid}`,
+                        createMissingParents: true,
+                        thumbnail: app.icon ?? null,
+                    });
+                }
 
                 // Grant the app-is-authenticated flag
                 await this.permissionService.grantUserAppPermission(
