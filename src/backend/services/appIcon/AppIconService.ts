@@ -20,7 +20,7 @@ const SIZED_ICON_FILENAME = (uid: string, size: number) => `${uid}-${size}.png`;
  *      no custom route, no custom S3 plumbing.
  *   2. On `app.new-icon` event: decodes the data URL, resizes via sharp to
  *      the 6 standard sizes, and writes the PNGs into that directory via
- *      FSEntryService. The write populates the CDN-backed subdomain
+ *      FSService. The write populates the CDN-backed subdomain
  *      automatically because `puter-app-icons` is a regular hosted site.
  *   3. Once the original is persisted, the app's `icon` column is rewritten
  *      from the data URL to the canonical endpoint URL so later reads

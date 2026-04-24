@@ -31,7 +31,7 @@ const MACOS_JUNK_REGEX = /(?:^\.DS_Store$|^\._)/;
 /**
  * WebDAV controller — full RFC 4918 surface on the `dav.*` subdomain.
  *
- * All FS operations go through v2's FSEntryService + S3ObjectStore.
+ * All FS operations go through v2's FSService + S3ObjectStore.
  * Locking uses Redis (see `./locks.ts`). ACL is enforced via ACLService
  * before every mutation and read.
  *

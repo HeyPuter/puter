@@ -24,7 +24,7 @@ import { verifySignature } from '../../util/fileSigning.js';
 import type { SignedFile } from '../../util/fileSigning.js';
 
 /**
- * Legacy FS routes, implemented as thin shims over `FSEntryService`.
+ * Legacy FS routes, implemented as thin shims over `FSService`.
  *
  * Each shim parses the request shape (FSNodeParam-style `{ path, uid, id }`
  * or `{ parent, name }`), invokes the service method, and returns the
@@ -992,7 +992,7 @@ export class LegacyFSController extends PuterController {
                     ? `/${name}`
                     : `${parentEntry.path}/${name}`;
 
-            // Parse multipart and pipe the first `file` part into fsEntryService.write.
+            // Parse multipart and pipe the first `file` part into fsService.write.
             const uploadResult = await this.#multipartWrite(
                 req,
                 userId,
@@ -1384,7 +1384,7 @@ export class LegacyFSController extends PuterController {
     // BroadcastService, WorkerDriver (hot-reload), and cache-invalidation
     // listeners pick up mutations made through the legacy (bare-path) routes.
     // FSController (v2-native /fs/* routes) emits these from its own handlers;
-    // LegacyFSController delegates to the same FSEntryService but needs its
+    // LegacyFSController delegates to the same FSService but needs its
     // own emissions because the service layer deliberately doesn't emit GUI
     // events (that's a controller concern).
 
@@ -1494,7 +1494,7 @@ export class LegacyFSController extends PuterController {
                 if (!writePromise) {
                     reject(new HttpError(500, 'Write did not dispatch'));
                 }
-                // size is logged only; fsEntryService.write handles quota/size.
+                // size is logged only; fsService.write handles quota/size.
                 void size;
             });
             bb.on('error', (err) => reject(err));

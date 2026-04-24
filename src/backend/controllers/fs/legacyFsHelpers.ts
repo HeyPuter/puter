@@ -2,7 +2,7 @@ import { posix as pathPosix } from 'node:path';
 import { contentType as contentTypeFromMime } from 'mime-types';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
 import type { FSEntryStore } from '../../stores/fs/FSEntryStore.js';
-import type { FSService } from '../../services/fs/FSEntryService.js';
+import type { FSService } from '../../services/fs/FSService.js';
 import type { ACLService, AclMode } from '../../services/acl/ACLService.js';
 import type { Actor } from '../../core/actor.js';
 import { Context } from '../../core/context.js';
@@ -147,7 +147,7 @@ export async function resolveV1Selector(
 
 export async function assertAccess(
     aclService: ACLService,
-    fsEntryService: FSService,
+    fsService: FSService,
     actor: Actor,
     path: string,
     mode: AclMode,
@@ -157,7 +157,7 @@ export async function assertAccess(
         path,
         resolveAncestors() {
             if (!ancestors) {
-                ancestors = fsEntryService.getAncestorChain(path);
+                ancestors = fsService.getAncestorChain(path);
             }
             return ancestors;
         },

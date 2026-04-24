@@ -1201,7 +1201,7 @@ export class FSController extends PuterController {
         path: string,
         mode: 'see' | 'list' | 'read' | 'write',
     ) {
-        const fsEntryService = this.services.fs;
+        const fsService = this.services.fs;
         let ancestorsCache: Promise<
             Array<{ uid: string; path: string }>
         > | null = null;
@@ -1209,7 +1209,7 @@ export class FSController extends PuterController {
             path,
             resolveAncestors() {
                 if (!ancestorsCache) {
-                    ancestorsCache = fsEntryService.getAncestorChain(path);
+                    ancestorsCache = fsService.getAncestorChain(path);
                 }
                 return ancestorsCache;
             },
@@ -1811,7 +1811,7 @@ export class FSController extends PuterController {
             }
         }
 
-        const fsEntryService = this.services.fs;
+        const fsService = this.services.fs;
         let ancestorsCache: Promise<
             Array<{ uid: string; path: string }>
         > | null = null;
@@ -1819,8 +1819,7 @@ export class FSController extends PuterController {
             path: pathToCheck,
             resolveAncestors() {
                 if (!ancestorsCache) {
-                    ancestorsCache =
-                        fsEntryService.getAncestorChain(pathToCheck);
+                    ancestorsCache = fsService.getAncestorChain(pathToCheck);
                 }
                 return ancestorsCache;
             },

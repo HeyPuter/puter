@@ -166,7 +166,7 @@ function filenameFromMime(mime: string): string {
     return `input.${ext}`;
 }
 
-// Mirrors FSEntryService's private deriveObjectKeyFromEntry helper. fsv2-era
+// Mirrors FSService's private deriveObjectKeyFromEntry helper. fsv2-era
 // rows persist an `objectKey` in metadata; older rows simply use the uuid.
 function deriveObjectKey(entry: {
     uuid: string;
