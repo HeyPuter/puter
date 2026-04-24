@@ -44,6 +44,8 @@ import type { puterServices } from '../index.js';
 import { FSEntryCacheInvalidationEventHandler } from './cacheInvalidation.js';
 import { MANAGE_PERM_PREFIX } from '../permission/consts.js';
 import { PermissionUtil } from '../permission/permissionUtil.js';
+import { Actor } from '../../core/actor.js';
+import { AclMode } from '../acl/ACLService.js';
 
 const DEFAULT_CONTENT_TYPE = 'application/octet-stream';
 const DEFAULT_SIGNED_UPLOAD_EXPIRY_SECONDS = 60 * 15;
@@ -3415,5 +3417,61 @@ export class FSService extends PuterService {
         }
         parsed.objectKey = objectKey;
         return JSON.stringify(parsed);
+    }
+
+    /**
+     * This method checks if the specified actor has permission to access the entry provided. It will throw an error if the actor is not permitted
+     */
+    async checkFSAccess(
+        entry: FSEntry,
+        actor: Actor,
+        mode: AclMode = 'write',
+    ): Promise<void> {
+        if (!entry) {
+            throw new HttpError(400, 'Invalid FS Entry provided');
+        }
+
+        let ancestorsCache: Promise<
+            Array<{ uid: string; path: string }>
+        > | null = null;
+        const descriptor = {
+            path: entry.path,
+            resolveAncestors: () => {
+                if (!ancestorsCache) {
+                    ancestorsCache = this.getAncestorChain(entry.path);
+                }
+                return ancestorsCache;
+            },
+        };
+        const allowed = await this.services.acl.check(actor, descriptor, mode);
+        if (allowed) return;
+
+        const safe = (await this.services.acl.getSafeAclError(
+            actor,
+            descriptor,
+            mode,
+        )) as {
+            status?: unknown;
+            message?: unknown;
+            fields?: { code?: unknown };
+        };
+        const status = Number(safe?.status);
+        const message =
+            typeof safe?.message === 'string' && safe.message.length > 0
+                ? safe.message
+                : 'Access denied';
+        const code =
+            typeof safe?.fields?.code === 'string'
+                ? safe.fields.code
+                : undefined;
+        const legacyCode = code === 'forbidden' ? 'access_denied' : code;
+        if (status === 404) {
+            throw new HttpError(404, message, {
+                ...(legacyCode ? { legacyCode } : {}),
+            });
+        }
+        throw new HttpError(403, message, {
+            legacyCode: legacyCode ?? 'access_denied',
+        });
     }
 }

@@ -69,8 +69,7 @@ export class WorkerDriver extends PuterDriver {
         const actor = this.#requireActor();
         const workerName = String(args.workerName ?? '').toLowerCase();
         const filePath = String(args.filePath ?? '');
-        const appId = args.appId as string | undefined;
-
+        const appId = args.appId || (actor.app?.id as number | undefined);
         if (!workerName) throw new HttpError(400, 'Missing `workerName`');
         if (!filePath) throw new HttpError(400, 'Missing `filePath`');
         if (!WORKER_NAME_REGEX.test(workerName)) {
@@ -81,6 +80,7 @@ export class WorkerDriver extends PuterDriver {
         }
         this.#rejectReserved(workerName);
         this.#requireCfConfig();
+        const subdomainName = `${WORKER_SUBDOMAIN_PREFIX}${workerName}`;
 
         // Quota check — count existing workers.puter.* subdomains owned by user
         const existingWorkers =
@@ -97,12 +97,33 @@ export class WorkerDriver extends PuterDriver {
 
         // If tied to an app, verify ownership and get app-scoped token
         let authorization = String(args.authorization ?? '');
+        let appOwnerId = actor.app?.id ?? null;
         if (appId) {
-            const app = await this.stores.app.getByUid(appId);
-            if (!app || app.owner_user_id !== actor.user.id) {
-                throw new HttpError(403, 'App not found or not owned by you');
+            if (actor.app && actor.app.id !== appId) {
+                throw new HttpError(
+                    403,
+                    'Cannot deploy worker for another app',
+                );
             }
+            appOwnerId = actor.app?.id;
             authorization = this.services.auth.getUserAppToken(actor, appId);
+        }
+        if (!authorization && actor.app?.uid) {
+            authorization = this.services.auth.getUserAppToken(
+                actor,
+                actor.app.uid,
+            );
+        }
+
+        const existingSub =
+            await this.stores.subdomain.getBySubdomain(subdomainName);
+        if (existingSub) {
+            this.#checkWorkerWriteAccess(
+                existingSub,
+                actor,
+                409,
+                'Worker name is already in use',
+            );
         }
         if (!authorization) {
             // Fall back to a session token for the current user
@@ -112,6 +133,15 @@ export class WorkerDriver extends PuterDriver {
                 await this.services.auth.createSessionToken(userRow);
             authorization = session.token;
         }
+
+        // Check read permission
+        await this.services.fsEntry.checkFSAccess(
+            await this.stores.fsEntry.getEntryByPathForUser(
+                filePath,
+                actor.user.id,
+            ),
+            actor,
+        );
 
         // Read source file
         const loaded = await loadFileInput(
@@ -123,14 +153,18 @@ export class WorkerDriver extends PuterDriver {
         const sourceCode = loaded.buffer.toString('utf-8');
 
         // Create subdomain entry
-        const subdomainName = `${WORKER_SUBDOMAIN_PREFIX}${workerName}`;
-        const existingSub =
-            await this.stores.subdomain.getBySubdomain(subdomainName);
         if (existingSub) {
             // Update root_dir if worker already exists
-            await this.stores.subdomain.update(existingSub.uuid, {
-                root_dir_id: loaded.fsEntry?.sqlId ?? null,
-            });
+            const updated = await this.stores.subdomain.update(
+                String(existingSub.uuid),
+                {
+                    root_dir_id: loaded.fsEntry?.sqlId ?? null,
+                },
+                { userId: actor.user.id },
+            );
+            if (!updated) {
+                throw new HttpError(409, 'Worker name is already in use');
+            }
         } else {
             if (!loaded.fsEntry?.sqlId)
                 throw new HttpError(400, `Invalid file recieved!`);
@@ -138,9 +172,7 @@ export class WorkerDriver extends PuterDriver {
                 userId: actor.user.id!,
                 subdomain: subdomainName,
                 rootDirId: loaded.fsEntry?.sqlId,
-                appOwner: appId
-                    ? ((await this.stores.app.getByUid(appId))?.id ?? null)
-                    : null,
+                appOwner: appOwnerId,
             });
         }
 
@@ -162,9 +194,12 @@ export class WorkerDriver extends PuterDriver {
         const subdomainName = `${WORKER_SUBDOMAIN_PREFIX}${workerName}`;
         const row = await this.stores.subdomain.getBySubdomain(subdomainName);
         if (!row) throw new HttpError(404, 'Worker not found');
-        if (row.user_id !== actor.user.id) {
-            throw new HttpError(403, 'This is not your worker');
-        }
+        this.#checkWorkerWriteAccess(
+            row,
+            actor,
+            403,
+            'This is not your worker',
+        );
 
         const cfResult = await this.#cfDelete(workerName);
         await this.stores.subdomain.deleteByUuid(row.uuid, {
@@ -187,6 +222,7 @@ export class WorkerDriver extends PuterDriver {
             rows = await this.stores.subdomain.listByUserIdAndPrefix(
                 actor.user.id,
                 WORKER_SUBDOMAIN_PREFIX,
+                actor.app ? { appId: actor.app.id } : {},
             );
         }
 
@@ -304,7 +340,9 @@ export class WorkerDriver extends PuterDriver {
 
     // ── Helpers ──────────────────────────────────────────────────────
 
-    #requireActor(): Actor & { user: NonNullable<Actor['user']> } {
+    #requireActor(): Actor & {
+        user: { id: number; uuid: string; username: string };
+    } {
         const actor = Context.get('actor') as Actor | undefined;
         if (!actor?.user?.id)
             throw new HttpError(401, 'Authentication required');
@@ -324,6 +362,28 @@ export class WorkerDriver extends PuterDriver {
         const reserved = this.config.reserved_words ?? [];
         if (reserved.includes(name)) {
             throw new HttpError(400, `Worker name '${name}' is reserved`);
+        }
+    }
+
+    #checkWorkerWriteAccess(
+        row: Record<string, unknown>,
+        actor: Actor & { user: { id: number } },
+        errorStatus: number,
+        errorMessage: string,
+    ): void {
+        if (Number(row.user_id) !== actor.user.id) {
+            throw new HttpError(errorStatus, errorMessage);
+        }
+
+        if (!actor.app) return;
+
+        const actorAppId = actor.app.id;
+        const workerAppOwnerId =
+            row.app_owner === null || row.app_owner === undefined
+                ? null
+                : Number(row.app_owner);
+        if (!actorAppId || workerAppOwnerId !== actorAppId) {
+            throw new HttpError(errorStatus, errorMessage);
         }
     }
 

@@ -107,10 +107,13 @@ export class SubdomainStore extends PuterStore {
         );
     }
 
-    async listByUserIdAndPrefix(userId, prefix) {
+    async listByUserIdAndPrefix(userId, prefix, extra = {}) {
         if (!userId || prefix == null) return [];
 
-        const cacheKey = this.#prefixListCacheKey(userId, prefix);
+        const cacheKey = this.#prefixListCacheKey(
+            userId,
+            prefix + (extra.appId ? extra.appId : ''),
+        );
         try {
             const raw = await this.clients.redis.get(cacheKey);
             if (raw) {
@@ -122,10 +125,18 @@ export class SubdomainStore extends PuterStore {
         }
 
         const like = `${prefix}%`;
-        const rows = await this.clients.db.read(
-            'SELECT * FROM `subdomains` WHERE `user_id` = ? AND `subdomain` LIKE ?',
-            [userId, like],
-        );
+        let rows;
+        if (!extra.appId) {
+            rows = await this.clients.db.read(
+                'SELECT * FROM `subdomains` WHERE `user_id` = ? AND `subdomain` LIKE ?',
+                [userId, like],
+            );
+        } else {
+            rows = await this.clients.db.read(
+                'SELECT * FROM `subdomains` WHERE `user_id` = ? AND `app_owner` = ? AND `subdomain` LIKE ?',
+                [userId, extra.appId, like],
+            );
+        }
 
         // Fire-and-forget cache write + track the key so writes invalidate it.
         (async () => {
