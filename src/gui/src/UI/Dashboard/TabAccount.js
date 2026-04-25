@@ -177,7 +177,7 @@ const TabAccount = {
                 window_options: {
                     parent_uuid: $el_window.attr('data-element_uuid'),
                     backdrop: true,
-                    close_on_backdrop_click: false,
+                    close_on_backdrop_click: true,
                     parent_center: true,
                     stay_on_top: true,
                     has_head: false,
