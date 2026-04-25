@@ -21,7 +21,7 @@
         Components: OneAtATimeView < ... >
 
         Screen 1: QR code and entry box for testing
-            Components: Flexer < QRCodeView, CodeEntryView, ActionsView >
+            Components: Flexer < UIQRCode, CodeEntryView, ActionsView >
             Logic:
             - when CodeEntryView has a value, check it against the QR code value...
               ... then go to the next screen
@@ -43,7 +43,7 @@ import Button from './Components/Button.js';
 import CodeEntryView from './Components/CodeEntryView.js';
 import ConfirmationsView from './Components/ConfirmationsView.js';
 import Flexer from './Components/Flexer.js';
-import QRCodeView from './Components/QRCode.js';
+import UIQRCode from './UIQRCode.js';
 import RecoveryCodesView from './Components/RecoveryCodesView.js';
 import StepHeading from './Components/StepHeading.js';
 import StepView from './Components/StepView.js';
@@ -120,7 +120,7 @@ const UIWindow2FASetup = async function UIWindow2FASetup () {
                             symbol: '2',
                             text: i18n('setup2fa_2_step_heading'),
                         }),
-                        new QRCodeView({
+                        UIQRCode({
                             value: data.url,
                         }),
                         new StepHeading({
@@ -129,7 +129,7 @@ const UIWindow2FASetup = async function UIWindow2FASetup () {
                         }),
                         new CodeEntryView({
                             _ref: me => code_entry = me,
-                            async ['property.value'] (value, { component }) {
+                            async 'property.value' (value, { component }) {
                                 if ( ! await check_code_(value) ) {
                                     component.set('error', 'Invalid code');
                                     component.set('is_checking_code', false);
@@ -141,7 +141,7 @@ const UIWindow2FASetup = async function UIWindow2FASetup () {
                             },
                         }),
                     ],
-                    ['event.focus'] () {
+                    'event.focus' () {
                         code_entry.focus();
                     },
                 }),
