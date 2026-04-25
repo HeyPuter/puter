@@ -413,11 +413,8 @@ async function UIDashboard (options) {
         document.querySelector('.dashboard-content').classList.add(section);
 
         // Update hash to reflect current tab
-        // Note: Files tab updates its own hash with full path via onActivate, so skip it here
-        if ( section !== 'files' ) {
-            const newHash = section === 'home' ? '' : section;
-            history.replaceState(null, '', newHash ? `#${newHash}` : window.location.pathname);
-        }
+        const newHash = section === 'home' ? '' : section;
+        history.pushState(null, '', newHash ? `#${newHash}` : window.location.pathname);
 
         // Scroll content area to top
         $el_window.find('.dashboard-content').scrollTop(0);
