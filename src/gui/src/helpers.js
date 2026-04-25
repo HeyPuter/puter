@@ -2923,7 +2923,7 @@ window.rename_file = async (options, new_name, old_name, old_path, el_item, el_i
 
             // Update the paths of all elements whose paths start with `old_path`
             $(`[data-path^="${`${html_encode(old_path) }/`}"]`).each(function () {
-                const new_el_path = _.replace($(this).attr('data-path'), `${old_path }/`, `${new_path}/`);
+                const new_el_path = $(this).attr('data-path').replace(`${old_path }/`, `${new_path}/`);
                 $(this).attr('data-path', new_el_path);
             });
 

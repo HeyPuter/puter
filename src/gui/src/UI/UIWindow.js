@@ -3674,7 +3674,7 @@ $.fn.close = async function (options) {
             const win_id = parseInt($(this).attr('data-id'));
             let window_uuid = $(this).attr('data-element_uuid');
             // remove all instances of win_id from window.window_stack
-            _.pullAll(window.window_stack, [win_id]);
+            window.window_stack = window.window_stack.filter(id => id !== win_id);
             // taskbar update
             let open_window_count = parseInt($(`.taskbar-item[data-app="${$(this).attr('data-app')}"]`).attr('data-open-windows'));
             // update open window count of corresponding taskbar item
