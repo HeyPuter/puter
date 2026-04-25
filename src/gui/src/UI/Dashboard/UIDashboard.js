@@ -374,6 +374,9 @@ async function UIDashboard (options) {
             document.querySelector('.dashboard-content').classList.add(tab);
         }
 
+        // Scroll content area to top
+        $el_window.find('.dashboard-content').scrollTop(0);
+
         // If files tab with path, navigate without adding to history
         if ( tab === 'files' && filePath ) {
             const filesTab = tabs.find(t => t.id === 'files');
@@ -415,6 +418,9 @@ async function UIDashboard (options) {
             const newHash = section === 'home' ? '' : section;
             history.replaceState(null, '', newHash ? `#${newHash}` : window.location.pathname);
         }
+
+        // Scroll content area to top
+        $el_window.find('.dashboard-content').scrollTop(0);
 
         // Close sidebar on mobile after selection
         $el_window.find('.dashboard-sidebar').removeClass('open');
