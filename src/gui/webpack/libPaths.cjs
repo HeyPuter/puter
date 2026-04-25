@@ -31,5 +31,4 @@ module.exports = [
     'iro.min.js',
     'isMobile.min.js',
     'fflate-0.8.2.min.js',
-    'croppie.min.js',
 ];
