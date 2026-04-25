@@ -26,6 +26,28 @@ export const OPEN_AI_MODELS: IChatModel[] = [
         max_tokens: 128_000,
     },
     {
+        puterId: 'openai:openai/gpt-5.5-pro',
+        id: 'gpt-5.5-pro-2026-04-23',
+        modalities: { 'input': ['text', 'image'], 'output': ['text'] },
+        open_weights: false,
+        tool_call: true,
+        knowledge: '2025-12-01',
+        release_date: '2026-04-23',
+        aliases: ['gpt-5.5-pro', 'openai/gpt-5.5-pro'],
+        costs_currency: 'usd-cents',
+        input_cost_key: 'prompt_tokens',
+        output_cost_key: 'completion_tokens',
+        costs: {
+            tokens: 1_000_000,
+            prompt_tokens: 3000,
+            cached_tokens: 3000, // there is no cache actually. This is here for safety
+            completion_tokens: 18000,
+        },
+        context: 1_050_000,
+        max_tokens: 128_000,
+        responses_api_only: true,
+    },
+    {
         puterId: 'openai:openai/gpt-5.4',
         id: 'gpt-5.4-2026-03-05',
         modalities: { 'input': ['text', 'image'], 'output': ['text'] },
