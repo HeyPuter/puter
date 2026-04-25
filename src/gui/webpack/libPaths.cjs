@@ -24,7 +24,6 @@ module.exports = [
     'socket.io/socket.io.min.js',
     'qrcode.min.js',
     'jquery-ui-1.13.2/jquery-ui.min.js',
-    'lodash@4.17.21.min.js',
     'jquery.dragster.js',
     'html-entities.js',
     'timeago.min.js',
