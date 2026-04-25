@@ -461,6 +461,10 @@ body {
     margin: 0 auto;
 }
 
+.dashboard-section-apps .dashboard-tab-content{
+    overflow-x: hidden;
+}
+
 .dashboard-section-usage {
     max-width: 600px;
     margin: 0 auto;
