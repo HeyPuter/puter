@@ -1,4 +1,4 @@
-// Microcents per byte of TURN egress (matches v1 ≈$5/GB).
+// Microcents per byte of TURN egress ($0.05/GB).
 export const PEER_COSTS = {
-    'turn:egress-bytes': 0.5, // 0.5 microcents per byte = $0.005 per GB
+    'turn:egress-bytes': 0.005,
 } as const;
