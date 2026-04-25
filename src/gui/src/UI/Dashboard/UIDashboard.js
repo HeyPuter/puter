@@ -313,7 +313,7 @@ async function UIDashboard (options) {
     });
 
     window.socket.on('item.added', async (item) => {
-        if ( _.isEmpty(item) ) return;
+        if ( !item || Object.keys(item).length === 0 ) return;
         if ( item.original_client_socket_id === window.socket.id ) return;
 
         if ( window.UIDashboardFileItem ) {
