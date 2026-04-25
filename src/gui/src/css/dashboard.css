@@ -436,6 +436,7 @@ body {
     flex: 1;
     padding: 24px 32px;
     overflow-y: auto;
+    overflow-x: hidden;
 }
 
 .dashboard-section {
@@ -455,10 +456,6 @@ body {
 
 .dashboard-section p {
     font-size: 14px;
-}
-
-.dashboard-section-apps {
-    margin: 0 auto;
 }
 
 .dashboard-section-usage {
@@ -505,6 +502,10 @@ body {
 
 .dashboard-content.apps {
     padding: 0;
+}
+
+.dashboard-section-apps {
+    margin: 0 auto;
 }
 
 
