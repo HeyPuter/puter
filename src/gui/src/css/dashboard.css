@@ -2060,7 +2060,7 @@ body {
 
     .myapps-grid {
         grid-template-columns: repeat(auto-fill, 72px);
-        gap: 18px 14px;
+        gap: 30px 30px;
     }
 
     .myapps-tile {
