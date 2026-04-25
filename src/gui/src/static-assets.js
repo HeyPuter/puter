@@ -32,7 +32,6 @@ const lib_paths = [
     '/lib/iro.min.js',
     '/lib/isMobile.min.js',
     '/lib/fflate-0.8.2.min.js',
-    '/lib/croppie.min.js',
 ];
 
 // Ordered list of CSS stylesheets
