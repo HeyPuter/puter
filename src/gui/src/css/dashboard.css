@@ -602,12 +602,40 @@ body {
 }
 
 .myapps-search-wrap {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    padding-top: 30px;
+    padding-bottom: 30px;
+    margin-bottom: 20px;
+    margin-left: -40px;
+    margin-right: -40px;
+    padding-left: 40px;
+    padding-right: 40px;
+    background: var(--dashboard-background);
+}
+
+@supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+    .myapps-search-wrap {
+        background: rgba(255, 255, 255, 0.52);
+        backdrop-filter: blur(20px) saturate(1.5);
+        -webkit-backdrop-filter: blur(20px) saturate(1.5);
+    }
+}
+
+@media (prefers-color-scheme: dark) {
+    @supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+        .myapps-search-wrap {
+            background: rgba(30, 30, 30, 0.55);
+        }
+    }
+}
+
+.myapps-search-inner {
     position: relative;
-    margin-bottom: 40px;
     max-width: 360px;
     margin-left: auto;
     margin-right: auto;
-    margin-top: 30px;
 }
 
 .myapps-search-icon {
@@ -2001,8 +2029,8 @@ body {
     }
 
     .myapps-search-wrap {
-        margin-top: 60px;
-        margin-bottom: 20px;
+        padding-top: 60px;
+        margin-bottom: 10px;
     }
 
     .dashboard-apps-grid {
