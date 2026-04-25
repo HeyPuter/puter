@@ -1,8 +1,51 @@
 import type { Request, Response } from 'express';
+import type { Actor } from '../../core/actor.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import type { PuterRouter } from '../../core/http/PuterRouter.js';
 import { PuterController } from '../types.js';
 import { PEER_COSTS } from './costs.js';
+
+/**
+ * Encode a UUID (or `app-<uuid>` UID) as base64url with no padding.
+ * Strips an `app-` prefix and dashes, then reinterprets the hex bytes.
+ */
+const uuidToBase64url = (uuid: string): string =>
+    Buffer.from(
+        uuid.replace(/^app-/, '').replaceAll('-', ''),
+        'hex',
+    ).toString('base64url');
+
+/**
+ * Decode a base64url-encoded hex UUID back to dashed form.
+ * Returns null if the input doesn't decode to exactly 16 bytes.
+ */
+const base64urlToUuid = (encoded: string): string | null => {
+    try {
+        const hex = Buffer.from(encoded, 'base64url').toString('hex');
+        if (hex.length !== 32) return null;
+        return [
+            hex.slice(0, 8),
+            hex.slice(8, 12),
+            hex.slice(12, 16),
+            hex.slice(16, 20),
+            hex.slice(20),
+        ].join('-');
+    } catch {
+        return null;
+    }
+};
+
+/**
+ * Build the customIdentifier sent to Cloudflare for credential generation.
+ * Shape: `<user-b64>` for user actors, `<user-b64>:<app-b64>` for
+ * app-under-user actors. Cloudflare echoes this back in usage records,
+ * letting us attribute egress to the originating user (and app, if any).
+ */
+const actorToTurnIdentifier = (actor: Actor): string => {
+    const userPart = uuidToBase64url(actor.user.uuid);
+    if (!actor.app) return userPart;
+    return `${userPart}:${uuidToBase64url(actor.app.uid)}`;
+};
 
 /**
  * Peer controller — WebRTC signalling info + TURN credential generation.
@@ -44,41 +87,32 @@ export class PeerController extends PuterController {
 
     /** GET /peer/signaller-info — public, no auth required. */
     #signallerInfo = (_req: Request, res: Response): void => {
-        const cfg = this.#peerConfig();
         res.json({
-            url: cfg.signaller_url ?? null,
-            fallbackIce: cfg.fallback_ice ?? [],
+            url: this.config.peers?.signaller_url ?? null,
+            fallbackIce: this.config.peers?.fallback_ice ?? [],
         });
     };
 
     /** POST /peer/generate-turn — generate TURN credentials via Cloudflare. */
     #generateTurn = async (req: Request, res: Response): Promise<void> => {
-        const cfg = this.#peerConfig();
-        const turnCfg = cfg.turn;
+        const cfg = this.config.peers;
         if (
-            !turnCfg?.cloudflare_turn_service_id ||
-            !turnCfg?.cloudflare_turn_api_token
+            !cfg ||
+            !cfg.turn ||
+            !cfg.turn.cloudflare_turn_service_id ||
+            !cfg.turn.cloudflare_turn_api_token ||
+            !cfg.turn.ttl
         ) {
             throw new HttpError(503, 'TURN not configured');
         }
+        const serviceId = cfg.turn.cloudflare_turn_service_id;
+        const apiToken = cfg.turn.cloudflare_turn_api_token;
+        const ttl = cfg.turn.ttl;
 
-        const serviceId = turnCfg.cloudflare_turn_service_id;
-        const apiToken = turnCfg.cloudflare_turn_api_token;
-        const ttl = Number(turnCfg.ttl ?? 86400);
-        if (!req.actor) {
-            throw new HttpError(401, 'Auth required');
-        }
-        let customIdentifier = '';
-        customIdentifier += Buffer.from(
-            req.actor.user.uuid.replaceAll('-', ''),
-            'hex',
-        ).toString('base64url');
-        if (req.actor.type?.app) {
-            customIdentifier += `:${Buffer.from(req.actor.apps.uid.replace('app-', '').replaceAll('-', ''), 'hex').toString('base64url')}`;
-        }
+        const customIdentifier = actorToTurnIdentifier(req.actor);
 
         const cfRes = await fetch(
-            `https://rtc.live.cloudflare.com/v1/turn/keys/${serviceId}/credentials/generate`,
+            `https://rtc.live.cloudflare.com/v1/turn/keys/${serviceId}/credentials/generate-ice-servers`,
             {
                 method: 'POST',
                 headers: {
@@ -100,23 +134,19 @@ export class PeerController extends PuterController {
         }
 
         const data = (await cfRes.json()) as { iceServers?: unknown };
-        res.json({ ttl: ttl * 1000, iceServers: data.iceServers ?? [] });
+        res.json({ ttl, iceServers: data.iceServers });
     };
 
     /** POST /turn/ingest-usage — internal-only TURN egress metering.
-     *
-     * Accepts both `internal_auth_secret` (v2 name) and `turn_meter_secret`
-     * (v1 name carried forward by the config migration tool), so existing
-     * prod secrets keep working without a rename. Meters each record
-     * directly against the owning user via `services.metering.incrementUsage`
-     * with a per-byte costOverride — `turn:egress-bytes` doesn't live in
-     * the cost map. */
+     * an external service that knows the usage information from cloudflare will send it to us here.
+     * Meters each record directly against the owning user via `services.metering.incrementUsage`
+     * multiplied by turn:egress-bytes cost. */
     #ingestUsage = async (req: Request, res: Response): Promise<void> => {
-        const cfg = this.#peerConfig() as typeof this.config.peers & {
-            turn_meter_secret?: string;
-        };
-        const expectedSecret =
-            cfg.internal_auth_secret ?? cfg.turn_meter_secret;
+        const cfg = this.config.peers;
+        if (!cfg || !cfg.internal_auth_secret) {
+            throw new HttpError(403, 'Forbidden');
+        }
+        const expectedSecret = cfg.internal_auth_secret;
         const header = req.headers['x-puter-internal-auth'];
         if (!expectedSecret || header !== expectedSecret) {
             throw new HttpError(403, 'Forbidden');
@@ -132,25 +162,9 @@ export class PeerController extends PuterController {
             const egressBytes = Number(record.egressBytes ?? 0);
             if (egressBytes <= 0) continue;
 
-            // base64url-encoded hex uuid, no dashes. Decode + re-dash.
-            let userUuid: string | null = null;
-            if (record.userId) {
-                try {
-                    const buf = Buffer.from(String(record.userId), 'base64url');
-                    const hex = buf.toString('hex');
-                    if (hex.length === 32) {
-                        userUuid = [
-                            hex.slice(0, 8),
-                            hex.slice(8, 12),
-                            hex.slice(12, 16),
-                            hex.slice(16, 20),
-                            hex.slice(20),
-                        ].join('-');
-                    }
-                } catch {
-                    // can't decode — skip this record
-                }
-            }
+            const userUuid = record.userId
+                ? base64urlToUuid(String(record.userId))
+                : null;
             if (!userUuid) continue;
 
             try {
@@ -172,7 +186,7 @@ export class PeerController extends PuterController {
                     costInMicrocents,
                 );
             } catch (e) {
-                console.error(
+                console.warn(
                     '[peer] TURN metering failed:',
                     (e as Error).message,
                 );
@@ -181,8 +195,4 @@ export class PeerController extends PuterController {
 
         res.json({ ok: true });
     };
-
-    #peerConfig(): NonNullable<typeof this.config.peers> {
-        return this.config.peers ?? {};
-    }
 }
