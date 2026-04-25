@@ -51,6 +51,7 @@ export class SubdomainDriver extends PuterDriver {
 
     async create(args: Record<string, unknown>): Promise<unknown> {
         const object = args.object as Record<string, unknown> | undefined;
+
         if (!object || typeof object !== 'object') {
             throw new HttpError(400, 'Missing or invalid `object`');
         }
@@ -80,10 +81,15 @@ export class SubdomainDriver extends PuterDriver {
             throw new HttpError(403, 'Subdomain limit reached');
         }
 
-        const rootDirId =
-            object.root_dir_id != null ? Number(object.root_dir_id) : null;
+        const rootDirId = (
+            await this.stores.fsEntry.getEntryByPath(object.root_dir)
+        )?.id;
+        if (!rootDirId) {
+            throw new HttpError(400, 'root_dir_id does not exist', {
+                legacyCode: 'bad_request',
+            });
+        }
         await this.#checkFSAccess(rootDirId, actor);
-
         const created = await this.stores.subdomain.create({
             userId: actor.user.id,
             subdomain,
