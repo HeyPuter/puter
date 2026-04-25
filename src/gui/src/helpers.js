@@ -3115,22 +3115,6 @@ window.iframe_for_app_instance = (instance_id) => {
     return $(window.window_for_app_instance(instance_id)).find('.window-app-iframe').get(0);
 };
 
-// Run any callbacks to say that the app has launched
-window.report_app_launched = (instance_id, { uses_sdk = true }) => {
-    const child_launch_callback = window.child_launch_callbacks[instance_id];
-    if ( child_launch_callback ) {
-        const parent_iframe = window.iframe_for_app_instance(child_launch_callback.parent_instance_id);
-        // send confirmation to requester window
-        parent_iframe.contentWindow.postMessage({
-            msg: 'childAppLaunched',
-            original_msg_id: child_launch_callback.launch_msg_id,
-            child_instance_id: instance_id,
-            uses_sdk: uses_sdk,
-        }, '*');
-        delete window.child_launch_callbacks[instance_id];
-    }
-};
-
 // Run any callbacks to say that the app has closed
 // ref(./services/ExecService.js): this is called from ExecService.js on
 //   close if the app does not use puter.js
@@ -3190,21 +3174,6 @@ window.countSubstr = (str, substring) => {
     }
 
     return count;
-};
-
-window.detectHostOS = function () {
-    var userAgent = window.navigator.userAgent;
-    var platform = window.navigator.platform;
-    var macosPlatforms = ['Macintosh', 'MacIntel', 'MacPPC', 'Mac68K'];
-    var windowsPlatforms = ['Win32', 'Win64', 'Windows', 'WinCE'];
-
-    if ( macosPlatforms.indexOf(platform) !== -1 ) {
-        return 'macos';
-    } else if ( windowsPlatforms.indexOf(platform) !== -1 ) {
-        return 'windows';
-    } else {
-        return 'other';
-    }
 };
 
 window.update_profile = function (username, key_vals) {
@@ -3285,23 +3254,6 @@ window.format_with_units = (num, { mulUnits, divUnits, precision = 3 }) => {
     const rounded = Number.parseFloat(scaled.toPrecision(precision));
 
     return `${rounded}${symbol}`;
-};
-
-window.format_SI = (num) => {
-    if ( num === 0 ) return '0';
-
-    const mulUnits = ['', 'K', 'M', 'G', 'T', 'P', 'E', 'Z', 'Y'];
-    const divUnits = ['m', 'µ', 'n', 'p', 'f', 'a', 'z', 'y'];
-
-    return window.format_with_units(num, { mulUnits, divUnits });
-};
-
-window.format_credits = (num) => {
-    if ( num === 0 ) return '0';
-
-    const mulUnits = ['', 'K', 'M', 'B', 'T', 'Q'];
-
-    return window.format_with_units(num, { mulUnits });
 };
 
 /**
