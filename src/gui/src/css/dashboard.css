@@ -2059,8 +2059,9 @@ body {
     }
 
     .myapps-grid {
-        grid-template-columns: repeat(auto-fill, 72px);
-        gap: 30px 30px;
+        grid-template-columns: repeat(5, 72px);
+        column-gap: max(0px, calc((100% - 5 * 72px) / 4));
+        row-gap: 30px;
     }
 
     .myapps-tile {
@@ -2071,6 +2072,15 @@ body {
         width: 52px;
         height: 52px;
         border-radius: 12px;
+    }
+
+    /* Too narrow for 5×72px in one row: wrap like before */
+    @media (max-width: 400px) {
+        .myapps-grid {
+            grid-template-columns: repeat(auto-fill, 72px);
+            column-gap: 12px;
+            row-gap: 20px;
+        }
     }
 }
 
