@@ -99,10 +99,12 @@ async function UIDashboard (options) {
                     continue;
                 }
                 const isActive = i === 0 ? ' active' : '';
-                h += `<div class="dashboard-sidebar-item${isActive}" data-section="${tab.id}" data-tooltip="${html_encode(tab.label)}">`;
+                const tabHash = tab.id === 'home' ? '' : `#${tab.id}`;
+                const tabHref = tabHash || window.location.pathname;
+                h += `<a class="dashboard-sidebar-item allow-native-ctxmenu${isActive}" href="${tabHref}" data-section="${tab.id}" data-tooltip="${html_encode(tab.label)}">`;
                     h += tab.icon;
                     h += tab.label;
-                h += '</div>';
+                h += '</a>';
             }
             h += '</div>';
 
@@ -391,7 +393,8 @@ async function UIDashboard (options) {
     window.addEventListener('popstate', handleRouteChange);
 
     // Sidebar item click handler
-    $el_window.on('click', '.dashboard-sidebar-item', function () {
+    $el_window.on('click', '.dashboard-sidebar-item', function (e) {
+        e.preventDefault();
         const $this = $(this);
         const section = $this.attr('data-section');
 

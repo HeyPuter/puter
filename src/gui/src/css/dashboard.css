@@ -352,6 +352,7 @@ body {
     cursor: pointer;
     font-size: 14px;
     color: var(--dashboard-text);
+    text-decoration: none;
     transition: background-color 0.15s;
     flex-shrink: 0;
 }
