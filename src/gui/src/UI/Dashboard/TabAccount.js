@@ -181,6 +181,8 @@ const TabAccount = {
                     parent_center: true,
                     stay_on_top: true,
                     has_head: true,
+                    is_draggable: false,
+                    draggable_body: false,
                 },
             });
         });
