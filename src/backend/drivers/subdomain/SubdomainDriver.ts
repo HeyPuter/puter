@@ -81,15 +81,17 @@ export class SubdomainDriver extends PuterDriver {
             throw new HttpError(403, 'Subdomain limit reached');
         }
 
-        const rootDirId = (
-            await this.stores.fsEntry.getEntryByPath(object.root_dir)
-        )?.id;
+        const entry = await this.stores.fsEntry.getEntryByPathForUser(
+            object.root_dir,
+            actor.user.id,
+        );
+        const rootDirId = entry?.id;
         if (!rootDirId) {
             throw new HttpError(400, 'root_dir_id does not exist', {
                 legacyCode: 'bad_request',
             });
         }
-        await this.#checkFSAccess(rootDirId, actor);
+        await this.services.fs.checkFSAccess(entry, actor);
         const created = await this.stores.subdomain.create({
             userId: actor.user.id,
             subdomain,
@@ -156,11 +158,19 @@ export class SubdomainDriver extends PuterDriver {
 
         // Subdomain name is immutable — strip if provided
         const patch: Record<string, unknown> = {};
-        if (object.root_dir_id !== undefined) {
-            const rootDirId =
-                object.root_dir_id != null ? Number(object.root_dir_id) : null;
+        if (object.root_dir !== undefined) {
+            const entry = await this.stores.fsEntry.getEntryByPathForUser(
+                object.root_dir,
+                actor.user.id,
+            );
+            const rootDirId = entry?.id;
+            if (!rootDirId) {
+                throw new HttpError(400, 'root_dir_id does not exist', {
+                    legacyCode: 'bad_request',
+                });
+            }
             if (rootDirId !== (row.root_dir_id ?? null)) {
-                await this.#checkFSAccess(rootDirId, actor);
+                await this.services.fs.checkFSAccess(entry, actor);
             }
             patch.root_dir_id = rootDirId;
         }

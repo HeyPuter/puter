@@ -1025,6 +1025,15 @@ export class FSEntryStore extends PuterStore {
         userId: number,
         options: ReadEntriesByPathsOptions = {},
     ): Promise<FSEntry | null> {
+        if (path === '~' || path.startsWith('~/')) {
+            const username = (await this.stores.user.getById(userId))?.username;
+            if (!username) {
+                throw new HttpError(400, 'Unable to resolve home path');
+            }
+
+            path = `/${username}${path.slice(1)}`;
+        }
+
         if (!options.useTryHardRead && !options.skipCache) {
             return this.#getEntryByPathAndUser(path, userId);
         }
