@@ -149,15 +149,15 @@ export class OIDCController extends PuterController {
                     if (openerOrigin) statePayload.opener_origin = openerOrigin;
                 }
                 if (flow === 'revalidate') {
-                    const rawUserId = Array.isArray(req.query.user_id)
-                        ? req.query.user_id[0]
-                        : req.query.user_id;
-                    if (!rawUserId)
+                    const rawUserUuid = Array.isArray(req.query.user_uuid)
+                        ? req.query.user_uuid[0]
+                        : req.query.user_uuid;
+                    if (typeof rawUserUuid !== 'string' || !rawUserUuid)
                         throw new HttpError(
                             400,
-                            'user_id required for revalidate flow.',
+                            'user_uuid required for revalidate flow.',
                         );
-                    statePayload.user_id = Number(rawUserId);
+                    statePayload.user_uuid = rawUserUuid;
                     statePayload.flow = 'revalidate';
                 }
 
@@ -320,7 +320,8 @@ export class OIDCController extends PuterController {
                 const { provider, userinfo, stateDecoded } = result;
                 if (
                     stateDecoded.flow !== 'revalidate' ||
-                    stateDecoded.user_id == null
+                    typeof stateDecoded.user_uuid !== 'string' ||
+                    stateDecoded.user_uuid.length === 0
                 ) {
                     res.status(400).send('Invalid revalidate state.');
                     return;
@@ -334,14 +335,14 @@ export class OIDCController extends PuterController {
                     res.status(400).send('No account found.');
                     return;
                 }
-                if (user.id !== stateDecoded.user_id) {
+                if (user.uuid !== stateDecoded.user_uuid) {
                     res.status(403).send(
                         'Wrong account. Sign in with the account linked to this session.',
                     );
                     return;
                 }
 
-                const token = this.services.oidc.signRevalidation(user.id);
+                const token = this.services.oidc.signRevalidation(user.uuid);
                 res.cookie(REVALIDATION_COOKIE_NAME, token, {
                     sameSite: 'lax',
                     secure: true,

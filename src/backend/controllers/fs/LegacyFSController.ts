@@ -330,13 +330,13 @@ export class LegacyFSController extends PuterController {
                 entry.path,
             );
         }
-        // Legacy clients sometimes ask for `return_versions`, `return_owner`,
-        // `return_shares`. We don't have parity for these yet — return empty
-        // arrays/null to avoid breaking `response.x.forEach(...)` patterns.
+        // Legacy clients sometimes ask for `return_versions`, `return_shares`.
+        // We don't have parity for these yet — return empty arrays to avoid
+        // breaking `response.x.forEach(...)` patterns. `return_owner` is a
+        // no-op flag here: the `owner` field is already populated by
+        // `toLegacyEntry` as `{ username }`.
         if (getBoolean(body, 'return_versions')) shaped.versions = [];
         if (getBoolean(body, 'return_shares')) shaped.shares = [];
-        if (getBoolean(body, 'return_owner'))
-            shaped.owner = { user_id: entry.userId };
 
         res.json(shaped);
     };

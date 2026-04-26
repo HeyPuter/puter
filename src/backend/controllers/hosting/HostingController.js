@@ -2,10 +2,11 @@ import { HttpError } from '../../core/http/HttpError.js';
 import { PuterController } from '../types.js';
 
 /**
- * Site hosting endpoints — create, list, delete subdomains/sites.
- *
- * Create/update require FS root_dir_id resolution which isn't clean
- * in v2 yet. For now, only delete + list are exposed.
+ * Site hosting endpoints. Listing and create/update are not exposed as
+ * controller routes — clients use the `puter-subdomains` driver
+ * (select / create / update / read) so they get the v1-shape with
+ * uuids and nested objects (no raw mysql ids). Only `/delete-site`
+ * lives here because v1 also exposed it as a top-level POST.
  */
 export class HostingController extends PuterController {
     constructor(config, clients, stores, services) {
@@ -53,30 +54,6 @@ export class HostingController extends PuterController {
                 });
 
                 res.json({});
-            },
-        );
-
-        // ── List sites owned by the user ────────────────────────────
-
-        router.get(
-            '/sites',
-            {
-                subdomain: 'api',
-                requireUserActor: true,
-            },
-            async (req, res) => {
-                const sites = await this.subdomainStore.listByUserId(
-                    req.actor.user.id,
-                );
-                res.json(
-                    sites.map((s) => ({
-                        uuid: s.uuid,
-                        subdomain: s.subdomain,
-                        root_dir_id: s.root_dir_id,
-                        associated_app_id: s.associated_app_id,
-                        created_at: s.ts,
-                    })),
-                );
             },
         );
     }

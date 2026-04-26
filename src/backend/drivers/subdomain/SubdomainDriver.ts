@@ -95,14 +95,12 @@ export class SubdomainDriver extends PuterDriver {
             });
         }
         await this.services.fs.checkFSAccess(entry, actor);
+        const associatedAppId = await this.#resolveAssociatedAppId(object);
         const created = await this.stores.subdomain.create({
             userId: actor.user.id,
             subdomain,
             rootDirId,
-            associatedAppId:
-                object.associated_app_id != null
-                    ? Number(object.associated_app_id)
-                    : null,
+            associatedAppId,
             appOwner: actor.app?.id ?? null,
         });
         const [shaped] = await this.#hydrateRows(
@@ -181,11 +179,9 @@ export class SubdomainDriver extends PuterDriver {
             }
             patch.root_dir_id = rootDirId;
         }
-        if (object.associated_app_id !== undefined)
+        if (object.associated_app_uid !== undefined)
             patch.associated_app_id =
-                object.associated_app_id != null
-                    ? Number(object.associated_app_id)
-                    : null;
+                await this.#resolveAssociatedAppId(object);
         if (object.domain !== undefined)
             patch.domain = object.domain != null ? String(object.domain) : null;
 
@@ -405,6 +401,28 @@ export class SubdomainDriver extends PuterDriver {
         }
     }
 
+    // ── Input resolution ────────────────────────────────────────────
+    //
+    // Clients send `associated_app_uid` (the app's public UUID), never
+    // a raw mysql id. v1 used the OM `reference` mapping to do the
+    // same translation under the hood; v2 does it explicitly.
+    async #resolveAssociatedAppId(
+        object: Record<string, unknown>,
+    ): Promise<number | null> {
+        const uid = object.associated_app_uid;
+        if (uid == null) return null;
+        if (typeof uid !== 'string' || uid.length === 0) {
+            throw new HttpError(400, '`associated_app_uid` must be a string');
+        }
+        const app = (await this.stores.app.getByUid(uid)) as {
+            id: number;
+        } | null;
+        if (!app) {
+            throw new HttpError(400, '`associated_app_uid` does not exist');
+        }
+        return app.id;
+    }
+
     // ── Config ──────────────────────────────────────────────────────
 
     #configMaxSubdomains(): number {
@@ -589,7 +607,6 @@ function mapEntryToSubdomainRootDir(entry: FSEntry): Record<string, unknown> {
         uid: entry.uuid,
         parent_id: entry.parentUid,
         parent_uid: entry.parentUid,
-        associated_app_id: entry.associatedAppId,
         public_token: entry.publicToken,
         file_request_token: entry.fileRequestToken,
         is_dir: Boolean(entry.isDir),

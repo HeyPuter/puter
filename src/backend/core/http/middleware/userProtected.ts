@@ -33,7 +33,7 @@ import type { TokenService } from '../../../services/auth/TokenService';
 const REVALIDATION_COOKIE_NAME = 'puter_revalidation';
 
 interface RevalidationPayload {
-    user_id: number;
+    user_uuid: string;
     purpose: string;
 }
 
@@ -67,7 +67,7 @@ async function buildRevalidateFields(
     const provider = providers && providers[0];
     if (!provider || !origin) return undefined;
     return {
-        revalidate_url: `${origin}/auth/oidc/${provider}/start?flow=revalidate&user_id=${user.id}`,
+        revalidate_url: `${origin}/auth/oidc/${provider}/start?flow=revalidate&user_uuid=${encodeURIComponent(user.uuid)}`,
     };
 }
 
@@ -120,7 +120,7 @@ export const createUserProtectedGate = (
     //     accounts bounce with `oidc_revalidation_required` + a
     //     `revalidate_url` helper so the GUI can open the OIDC popup.
     //   - Otherwise accept a valid `puter_revalidation` cookie. Expiry,
-    //     `purpose === 'revalidate'`, matching `user_id` all required.
+    //     `purpose === 'revalidate'`, matching `user_uuid` all required.
     //   - Password account, neither credential → 403 `password_required`.
     const verifyIdentity: RequestHandler = async (
         req: Request,
@@ -177,7 +177,7 @@ export const createUserProtectedGate = (
                 );
                 if (
                     payload?.purpose === 'revalidate' &&
-                    payload.user_id === user.id
+                    payload.user_uuid === user.uuid
                 ) {
                     return next();
                 }

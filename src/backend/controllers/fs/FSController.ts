@@ -1933,7 +1933,6 @@ export class FSController extends PuterController {
             id: entry.uuid,
             uid: entry.uuid,
             uuid: entry.uuid,
-            user_id: entry.userId,
             parent_id: entry.parentUid,
             parent_uid: entry.parentUid,
             path: entry.path,
@@ -1953,7 +1952,6 @@ export class FSController extends PuterController {
             created: entry.created,
             accessed: entry.accessed,
             size: entry.size,
-            associated_app_id: entry.associatedAppId,
         };
 
         if (
@@ -2013,7 +2011,6 @@ export class FSController extends PuterController {
             id: response.objectKey,
             uid: response.objectKey,
             uuid: response.objectKey,
-            user_id: userId,
             path: normalizedPath,
             name: pathPosix.basename(normalizedPath),
             is_dir: false,

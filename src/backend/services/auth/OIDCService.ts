@@ -152,11 +152,11 @@ export class OIDCService extends PuterService {
 
     // ── Revalidation tokens ─────────────────────────────────────────
 
-    signRevalidation(userId: number): string {
+    signRevalidation(userUuid: string): string {
         return this.services.token.sign(
             'oidc-state',
             {
-                user_id: userId,
+                user_uuid: userUuid,
                 purpose: 'revalidate',
             },
             { expiresIn: REVALIDATION_EXPIRY_SEC },
