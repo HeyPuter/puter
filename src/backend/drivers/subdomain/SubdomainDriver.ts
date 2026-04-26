@@ -1,8 +1,11 @@
+import { posix as pathPosix } from 'node:path';
 import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { PuterDriver } from '../types.js';
 import type { Actor } from '../../core/actor.js';
 import type { AclMode } from '../../services/acl/ACLService.js';
+import type { FSEntry } from '../../stores/fs/FSEntry.js';
+import type { UserRow } from '../../stores/user/UserStore.js';
 
 const SUBDOMAIN_MAX_LEN = 64;
 const SUBDOMAIN_REGEX = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
@@ -102,7 +105,10 @@ export class SubdomainDriver extends PuterDriver {
                     : null,
             appOwner: actor.app?.id ?? null,
         });
-        return this.#toClient(created);
+        const [shaped] = await this.#hydrateRows(
+            created ? [created as Record<string, unknown>] : [],
+        );
+        return shaped ?? null;
     }
 
     async read(args: Record<string, unknown>): Promise<unknown> {
@@ -110,7 +116,8 @@ export class SubdomainDriver extends PuterDriver {
         const row = await this.#resolve(args);
         if (!row) throw new HttpError(404, 'Subdomain not found');
         await this.#checkReadAccess(row, actor);
-        return this.#toClient(row);
+        const [shaped] = await this.#hydrateRows([row]);
+        return shaped ?? null;
     }
 
     async select(args: Record<string, unknown>): Promise<unknown[]> {
@@ -140,7 +147,7 @@ export class SubdomainDriver extends PuterDriver {
             rows = rows.filter((r) => r.app_owner === actor.app!.id);
         }
 
-        return rows.map((r) => this.#toClient(r));
+        return this.#hydrateRows(rows as Array<Record<string, unknown>>);
     }
 
     async update(args: Record<string, unknown>): Promise<unknown> {
@@ -185,7 +192,10 @@ export class SubdomainDriver extends PuterDriver {
         const updated = await this.stores.subdomain.update(row.uuid, patch, {
             userId: row.user_id,
         });
-        return this.#toClient(updated);
+        const [shaped] = await this.#hydrateRows(
+            updated ? [updated as Record<string, unknown>] : [],
+        );
+        return shaped ?? null;
     }
 
     async #checkFSAccess(
@@ -405,21 +415,241 @@ export class SubdomainDriver extends PuterDriver {
     }
 
     // ── Serialization ───────────────────────────────────────────────
+    //
+    // v1's `puter-subdomains` shape (canonical, see SubdomainES + the
+    // mapping at om/mappings/subdomain.js):
+    //   {
+    //     uid, subdomain, domain,
+    //     root_dir: <full FSEntry "safe entry">,
+    //     associated_app: <full app shape> | null,
+    //     created_at: <ISO datetime>,
+    //     owner: { username, uuid },
+    //     app_owner: <full app shape> | null,
+    //     protected: bool,
+    //   }
+    //
+    // We never expose raw mysql ids (user_id / root_dir_id /
+    // associated_app_id / app_owner-as-id) — clients see uuids and
+    // nested objects instead.
 
-    #toClient(
-        row: Record<string, unknown> | null,
-    ): Record<string, unknown> | null {
-        if (!row) return null;
+    /**
+     * Hydrate raw subdomain rows into the v1-shaped client response.
+     *
+     * Resolves the foreign keys (user_id → owner, root_dir_id →
+     * root_dir, associated_app_id / app_owner → app shapes) with one
+     * batched lookup per store, regardless of how many rows we're
+     * shaping. Used by both `select` (many rows) and the single-row
+     * paths (`create`/`read`/`update`/`upsert`) so the wire shape stays
+     * identical.
+     */
+    async #hydrateRows(
+        rows: Array<Record<string, unknown>>,
+    ): Promise<Array<Record<string, unknown>>> {
+        if (rows.length === 0) return [];
+
+        const collectIds = (
+            key: 'user_id' | 'root_dir_id' | 'associated_app_id' | 'app_owner',
+        ): number[] => {
+            const out = new Set<number>();
+            for (const r of rows) {
+                const v = r[key];
+                if (typeof v === 'number') out.add(v);
+                else if (typeof v === 'string' && v.length > 0) {
+                    const n = Number(v);
+                    if (Number.isFinite(n)) out.add(n);
+                }
+            }
+            return [...out];
+        };
+
+        const userIds = collectIds('user_id');
+        const rootDirIds = collectIds('root_dir_id');
+        const appIds = [
+            ...new Set([
+                ...collectIds('associated_app_id'),
+                ...collectIds('app_owner'),
+            ]),
+        ];
+
+        // Single round-trip per store, all in parallel — the filetype
+        // lookup keys off the requested ids (not on getByIds' result),
+        // so it doesn't need to wait for the app rows.
+        const [usersById, entriesById, appsById, filetypesByAppId] =
+            await Promise.all([
+                this.stores.user.getByIds(userIds),
+                this.stores.fsEntry.getEntriesByIds(rootDirIds),
+                this.stores.app.getByIds(appIds),
+                this.stores.app.getFiletypeAssociationsByIds(appIds),
+            ]);
+
+        return rows.map((row) =>
+            this.#shapeRow(row, {
+                usersById,
+                entriesById,
+                appsById,
+                filetypesByAppId,
+            }),
+        );
+    }
+
+    #shapeRow(
+        row: Record<string, unknown>,
+        lookups: {
+            usersById: Map<number, UserRow>;
+            entriesById: Map<number, FSEntry>;
+            appsById: Map<number, Record<string, unknown>>;
+            filetypesByAppId: Map<number, string[]>;
+        },
+    ): Record<string, unknown> {
+        const ts = row.ts;
+        let createdAt: string | null = null;
+        if (ts != null) {
+            const d = ts instanceof Date ? ts : new Date(ts as string);
+            createdAt = Number.isNaN(d.getTime()) ? null : d.toISOString();
+        }
+
+        const ownerId =
+            typeof row.user_id === 'number' ? row.user_id : Number(row.user_id);
+        const owner = lookups.usersById.get(ownerId) ?? null;
+
+        const rootDirId =
+            row.root_dir_id == null
+                ? null
+                : typeof row.root_dir_id === 'number'
+                  ? row.root_dir_id
+                  : Number(row.root_dir_id);
+        const rootEntry =
+            rootDirId != null
+                ? (lookups.entriesById.get(rootDirId) ?? null)
+                : null;
+
+        const associatedAppRefId =
+            row.associated_app_id == null
+                ? null
+                : typeof row.associated_app_id === 'number'
+                  ? row.associated_app_id
+                  : Number(row.associated_app_id);
+        const associatedApp =
+            associatedAppRefId != null
+                ? (lookups.appsById.get(associatedAppRefId) ?? null)
+                : null;
+
+        const appOwnerRefId =
+            row.app_owner == null
+                ? null
+                : typeof row.app_owner === 'number'
+                  ? row.app_owner
+                  : Number(row.app_owner);
+        const appOwnerApp =
+            appOwnerRefId != null
+                ? (lookups.appsById.get(appOwnerRefId) ?? null)
+                : null;
+
         return {
             uid: row.uuid,
             subdomain: row.subdomain,
-            domain: row.domain ?? null,
-            user_id: row.user_id,
-            root_dir_id: row.root_dir_id ?? null,
-            associated_app_id: row.associated_app_id ?? null,
-            app_owner: row.app_owner ?? null,
+            // v1 sample emits `""` rather than null when no custom domain
+            // is set; the mapping declares `domain` as a string column.
+            domain: typeof row.domain === 'string' ? row.domain : '',
+            root_dir: rootEntry ? mapEntryToSubdomainRootDir(rootEntry) : null,
+            associated_app: associatedApp
+                ? mapAppForEmbed(
+                      associatedApp,
+                      lookups.filetypesByAppId.get(associatedAppRefId!) ?? [],
+                  )
+                : null,
+            created_at: createdAt,
+            owner: owner
+                ? { username: owner.username, uuid: owner.uuid }
+                : null,
+            app_owner: appOwnerApp
+                ? mapAppForEmbed(
+                      appOwnerApp,
+                      lookups.filetypesByAppId.get(appOwnerRefId!) ?? [],
+                  )
+                : null,
             protected: Boolean(row.protected),
-            created_at: row.ts ?? null,
         };
     }
+}
+
+// ── Embed shape helpers (module-level, sync, no DB) ─────────────────
+//
+// `root_dir` mirrors v1's `safe_entry` from FSNodeContext, minus the
+// fields v1 deletes before sending to clients (`user_id`, `bucket`,
+// `bucket_region`). The legacy entry helper lives at
+// controllers/fs/legacyFsHelpers.ts and is async (does an
+// `is_empty` probe + owner fetch + thumbnail rewrite); subdomains
+// don't need any of that, so we reshape inline.
+
+function mapEntryToSubdomainRootDir(entry: FSEntry): Record<string, unknown> {
+    const dirname = pathPosix.dirname(entry.path);
+    return {
+        id: entry.uuid,
+        uid: entry.uuid,
+        parent_id: entry.parentUid,
+        parent_uid: entry.parentUid,
+        associated_app_id: entry.associatedAppId,
+        public_token: entry.publicToken,
+        file_request_token: entry.fileRequestToken,
+        is_dir: Boolean(entry.isDir),
+        is_public: entry.isPublic,
+        is_shortcut: entry.isShortcut ? 1 : 0,
+        is_symlink: entry.isSymlink ? 1 : 0,
+        symlink_path: entry.symlinkPath,
+        sort_by: entry.sortBy,
+        sort_order: entry.sortOrder,
+        immutable: entry.immutable ? 1 : 0,
+        name: entry.name,
+        metadata: entry.metadata,
+        modified: entry.modified,
+        created: entry.created,
+        accessed: entry.accessed,
+        size: entry.size,
+        layout: entry.layout,
+        path: entry.path,
+        dirname,
+        dirpath: dirname,
+        // v1 attaches an ACL-resolved `writable` here; the subdomain
+        // owner can always write to their own root_dir, and cross-user
+        // reads via `read-all-subdomains` aren't expected to mutate, so
+        // a constant `true` matches v1's behaviour for the typical case
+        // without a per-row ACL probe.
+        writable: true,
+        subdomains: entry.subdomains ?? [],
+        workers: entry.workers ?? [],
+        has_website: entry.hasWebsite ?? (entry.subdomains?.length ?? 0) > 0,
+    };
+}
+
+/**
+ * Embed shape for nested app references (`associated_app`, `app_owner`).
+ * Follows v1's AppES read shape minus the per-app async work
+ * (`created_from_origin`, private-app gating) — those are top-level-read
+ * concerns, not relevant for an app embed inside a subdomain row.
+ */
+function mapAppForEmbed(
+    app: Record<string, unknown>,
+    filetypes: string[],
+): Record<string, unknown> {
+    return {
+        uid: app.uid,
+        name: app.name,
+        title: app.title,
+        description: app.description,
+        icon: app.icon,
+        index_url: app.index_url,
+        background: Boolean(app.background),
+        maximize_on_start: Boolean(app.maximize_on_start),
+        is_private: Boolean(app.is_private),
+        protected: Boolean(app.protected),
+        approved_for_listing: Boolean(app.approved_for_listing),
+        approved_for_opening_items: Boolean(app.approved_for_opening_items),
+        approved_for_incentive_program: Boolean(
+            app.approved_for_incentive_program,
+        ),
+        metadata: app.metadata ?? null,
+        filetype_associations: filetypes,
+        created_at: app.created_at ?? app.timestamp ?? null,
+    };
 }

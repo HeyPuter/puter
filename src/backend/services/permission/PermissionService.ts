@@ -165,16 +165,15 @@ export class PermissionService extends PuterService {
 
     /**
      * Batch sibling of `check`. Returns a `Map<permission, boolean>`
-     * answering "does `actor` hold each of these permissions?" with at
-     * most one Redis MGET (per-permission cache) and, on full miss, one
-     * `scan` call covering every missing permission.
+     * answering "does `actor` hold each of these permissions?" with one
+     * Redis MGET for cached decisions and per-permission evaluation for
+     * misses.
      *
-     * Why not just `Promise.all(check, …)`? The scanners inside `scan`
-     * accept `string[]` and issue one DB query per scanner regardless
-     * of how many permissions are passed — so handing them the full
-     * batch eliminates the per-permission DB fan-out, while still
-     * letting us recover a per-permission boolean by walking each
-     * input's higher-permissions set against the granted reading.
+     * `scan(actor, string[])` is intentionally an OR-style API: callers ask
+     * "does any option match?". That makes it unsafe to infer independent
+     * booleans for every requested permission from one combined scan, since
+     * some scanners are allowed to stop once one option is proven. Misses use
+     * the single-permission `check()` path to preserve exact semantics.
      */
     async checkMany(
         actor: Actor,
@@ -209,33 +208,24 @@ export class PermissionService extends PuterService {
         }
         if (missing.length === 0) return out;
 
-        // ── Single batched scan for all misses ──
-        // `scan` already runs the rewrite + explode + scanner pipeline
-        // over the full options list and the scanners batch their DB
-        // queries internally, so this is the meaningful speedup.
-        const reading = await this.scan(actor, missing, undefined, {
-            noCache: true,
-        });
-        const grantedPermissions = new Set(
-            PermissionUtil.readingToOptions(reading).map((o) => o.permission),
-        );
-
-        // For each input permission, mirror what `scan` did internally
-        // (rewrite → explode to higher permissions) and check whether
-        // any of those terminal forms appear in the granted set. This
-        // is the "did permission P specifically get granted?" answer.
-        const expanded = await Promise.all(
-            missing.map(async (p) => {
-                const rewritten = await this.rewritePermission(p);
-                const higher = await this.getHigherPermissions(rewritten);
-                return { p, higher };
+        const checked = await Promise.all(
+            missing.map(async (permission) => {
+                try {
+                    return {
+                        permission,
+                        granted: await this.check(actor, permission, {
+                            noCache: true,
+                        }),
+                    };
+                } catch {
+                    return { permission, granted: false };
+                }
             }),
         );
         const writeBack: Array<{ permission: string; granted: boolean }> = [];
-        for (const { p, higher } of expanded) {
-            const granted = higher.some((h) => grantedPermissions.has(h));
-            out.set(p, granted);
-            writeBack.push({ permission: p, granted });
+        for (const { permission, granted } of checked) {
+            out.set(permission, granted);
+            writeBack.push({ permission, granted });
         }
 
         // Backfill cache (best-effort, fire-and-forget would also be
