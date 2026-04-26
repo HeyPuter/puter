@@ -579,6 +579,7 @@ export class LegacyFSController extends PuterController {
         const body = asRecord(req.body);
 
         // /delete can take `paths: []` for bulk delete, or a single selector.
+        const descendantsOnly = getBoolean(body, 'descendants_only') ?? false;
         const pathsArray = Array.isArray(body.paths) ? body.paths : null;
         if (pathsArray) {
             const removedEntries: unknown[] = [];
@@ -598,10 +599,11 @@ export class LegacyFSController extends PuterController {
                 await this.services.fs.remove(userId, {
                     entry,
                     recursive: getBoolean(body, 'recursive') ?? true,
-                    descendantsOnly:
-                        getBoolean(body, 'descendants_only') ?? false,
+                    descendantsOnly,
                 });
-                await this.#emitGuiEvent('outer.gui.item.removed', entry);
+                await this.#emitGuiEvent('outer.gui.item.removed', entry, {
+                    descendants_only: descendantsOnly,
+                });
                 removedEntries.push(
                     await toLegacyEntry(this.clients.event, entry),
                 );
@@ -625,9 +627,11 @@ export class LegacyFSController extends PuterController {
         await this.services.fs.remove(userId, {
             entry,
             recursive: getBoolean(body, 'recursive') ?? true,
-            descendantsOnly: getBoolean(body, 'descendants_only') ?? false,
+            descendantsOnly,
         });
-        await this.#emitGuiEvent('outer.gui.item.removed', entry);
+        await this.#emitGuiEvent('outer.gui.item.removed', entry, {
+            descendants_only: descendantsOnly,
+        });
         res.json({ ok: true, uid: entry.uuid });
     };
 
@@ -1728,13 +1732,16 @@ export class LegacyFSController extends PuterController {
                         entry.path,
                         'write',
                     );
+                    const descendantsOnly =
+                        getBoolean(record, 'descendants_only') ?? false;
                     await this.services.fs.remove(userId, {
                         entry,
                         recursive: getBoolean(record, 'recursive') ?? true,
-                        descendantsOnly:
-                            getBoolean(record, 'descendants_only') ?? false,
+                        descendantsOnly,
                     });
-                    await this.#emitGuiEvent('outer.gui.item.removed', entry);
+                    await this.#emitGuiEvent('outer.gui.item.removed', entry, {
+                        descendants_only: descendantsOnly,
+                    });
                     shaped = { ok: true, uid: entry.uuid };
                 } else {
                     throw new HttpError(400, `Unsupported batch op: '${op}'`);

@@ -102,6 +102,13 @@ export class SubdomainStore extends PuterStore {
         return rows;
     }
 
+    async listAll({ limit = 5000 } = {}) {
+        const rows = await this.clients.db.read(
+            `SELECT * FROM \`subdomains\` LIMIT ${limit}`,
+        );
+        return rows;
+    }
+
     async existsBySubdomain(subdomain) {
         // Reuse the positive/negative cache populated by getBySubdomain —
         // creation uniqueness checks and the Workers quota path would

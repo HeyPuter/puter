@@ -1620,15 +1620,17 @@ export class AuthController extends PuterController {
 
                 const unique = [...new Set(permissions)];
                 const result = {};
+                let granted;
+                try {
+                    granted = await this.permissionService.checkMany(
+                        req.actor,
+                        unique,
+                    );
+                } catch {
+                    granted = new Map();
+                }
                 for (const perm of unique) {
-                    try {
-                        result[perm] = await this.permissionService.check(
-                            req.actor,
-                            perm,
-                        );
-                    } catch {
-                        result[perm] = false;
-                    }
+                    result[perm] = granted.get(perm) ?? false;
                 }
                 res.json({ permissions: result });
             },

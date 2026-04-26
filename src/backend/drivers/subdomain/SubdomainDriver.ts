@@ -120,23 +120,23 @@ export class SubdomainDriver extends PuterDriver {
         const predicate = args.predicate as unknown[] | string | undefined;
         const limit = Math.min(Number(args.limit ?? 5000), 5000);
 
-        // Default: only the actor's own subdomains
-        let rows = await this.stores.subdomain.listByUserId(actor.user.id, {
-            limit,
-        });
-
-        // If we have read-all permission, widen to all users
-        if (
+        // Match v1: when the actor has `read-all-subdomains` (admin /
+        // privileged accounts), widen to every subdomain. Without this
+        // older accounts whose `user_id` rows drifted from the current
+        // user.id only see a partial slice of their own list.
+        const widenToAll =
             predicate !== 'user-can-edit' &&
-            (await this.#hasPermission(actor, 'read-all-subdomains'))
-        ) {
-            // Currently no store method for cross-user list; stick to
-            // user-scoped for safety. A cross-user list would need
-            // pagination anyway.
-        }
+            (await this.#hasPermission(actor, 'read-all-subdomains'));
 
-        // App-limited: app actors only see subdomains they own
-        if (actor.app) {
+        let rows = widenToAll
+            ? await this.stores.subdomain.listAll({ limit })
+            : await this.stores.subdomain.listByUserId(actor.user.id, {
+                  limit,
+              });
+
+        // App-limited: app actors only see subdomains they own. Skip when
+        // we widened above — read-all is meant to bypass scoping.
+        if (!widenToAll && actor.app) {
             rows = rows.filter((r) => r.app_owner === actor.app!.id);
         }
 

@@ -576,6 +576,67 @@ export class PermissionStore extends PuterStore {
         await this.publishCacheKeys({ keys: [cacheKey] });
     }
 
+    // ── Per-permission check cache (for `checkMany`) ─────────────────
+    //
+    // Cached as `1`/`0` per (actor, permission) pair so a batch lookup
+    // reduces to a single MGET. Same TTL as the scan cache — the
+    // underlying perm tables already publish invalidations via
+    // `publishCacheKeys` for grant/revoke writes, but those don't reach
+    // these keys, so we keep the TTL short and rely on it for staleness.
+    #checkCacheKey(actorUid: string, permission: string): string {
+        return PermissionUtil.join(
+            'permission-check',
+            actorUid,
+            'p',
+            permission,
+        );
+    }
+
+    async getMultiCheckCache(
+        actorUid: string,
+        permissions: string[],
+    ): Promise<Map<string, boolean>> {
+        const out = new Map<string, boolean>();
+        if (permissions.length === 0) return out;
+        const keys = permissions.map((p) => this.#checkCacheKey(actorUid, p));
+        let raw: Array<string | null> = [];
+        try {
+            raw = (await this.clients.redis.mget(...keys)) as Array<
+                string | null
+            >;
+        } catch {
+            return out;
+        }
+        for (let i = 0; i < permissions.length; i++) {
+            const v = raw[i];
+            if (v === '1') out.set(permissions[i], true);
+            else if (v === '0') out.set(permissions[i], false);
+        }
+        return out;
+    }
+
+    async setMultiCheckCache(
+        actorUid: string,
+        entries: Array<{ permission: string; granted: boolean }>,
+        ttlSeconds: number = PERMISSION_SCAN_CACHE_TTL_SECONDS,
+    ): Promise<void> {
+        if (entries.length === 0) return;
+        const pipeline = this.clients.redis.pipeline();
+        for (const { permission, granted } of entries) {
+            pipeline.set(
+                this.#checkCacheKey(actorUid, permission),
+                granted ? '1' : '0',
+                'EX',
+                ttlSeconds,
+            );
+        }
+        try {
+            await pipeline.exec();
+        } catch {
+            // Best-effort cache write.
+        }
+    }
+
     // ── Internals ───────────────────────────────────────────────────
 
     #u2uCacheKey(holderUserId: number): string {

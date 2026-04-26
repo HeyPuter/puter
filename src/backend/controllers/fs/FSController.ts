@@ -1059,12 +1059,13 @@ export class FSController extends PuterController {
         const entry = await this.#resolveEntryForRequest(body, userId);
         await this.#assertAccess(actor, entry.path, 'write');
 
+        const descendantsOnly = this.#toBoolean(body.descendants_only) ?? false;
         await this.services.fs.remove(userId, {
             entry,
             recursive: this.#toBoolean(body.recursive) ?? false,
-            descendantsOnly: this.#toBoolean(body.descendants_only) ?? false,
+            descendantsOnly,
         });
-        this.#emitGuiItemRemoved(entry);
+        this.#emitGuiItemRemoved(entry, descendantsOnly);
         res.json({ ok: true });
     }
 
@@ -1285,15 +1286,21 @@ export class FSController extends PuterController {
         ).catch(() => undefined);
     }
 
-    #emitGuiItemRemoved(entry: FSEntry): void {
+    #emitGuiItemRemoved(entry: FSEntry, descendantsOnly = false): void {
         // GUI listens for `outer.gui.item.removed`; same envelope shape.
+        // `descendants_only` lets the GUI keep the parent (e.g. Trash) and
+        // only drop its children — without it the GUI removes the parent too.
         void (async () => {
             try {
                 await this.clients.event.emit(
                     'outer.gui.item.removed',
                     {
                         user_id_list: [entry.userId],
-                        response: { ...entry, from_new_service: true },
+                        response: {
+                            ...entry,
+                            from_new_service: true,
+                            descendants_only: descendantsOnly,
+                        },
                     },
                     {},
                 );

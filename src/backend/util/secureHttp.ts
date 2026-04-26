@@ -1,5 +1,5 @@
-import { Resolver, lookup as defaultLookup } from 'node:dns';
-import net from 'node:net';
+import { Resolver } from 'node:dns';
+import net, { BlockList } from 'node:net';
 import { Agent as UndiciAgent } from 'undici';
 import type { LookupFunction } from 'node:net';
 import { HttpError } from '../core/http/HttpError.js';
@@ -10,15 +10,54 @@ import type { ISecureCorsProxyConfig } from '../types.js';
 // make on behalf of user-provided URLs, so if a user points us at something
 // on a CF block-list we resolve to the sinkhole rather than the real IP.
 const SECURE_DNS_SERVER = '1.1.1.3';
+const BLOCKED_RESOLVED_IPS = new BlockList();
+const BLOCKED_IPV4_MAPPED_IPS = new BlockList();
+
+for (const [address, prefix] of [
+    ['0.0.0.0', 8],
+    ['10.0.0.0', 8],
+    ['100.64.0.0', 10],
+    ['127.0.0.0', 8],
+    ['169.254.0.0', 16],
+    ['172.16.0.0', 12],
+    ['192.0.0.0', 24],
+    ['192.0.2.0', 24],
+    ['192.88.99.0', 24],
+    ['192.168.0.0', 16],
+    ['198.18.0.0', 15],
+    ['198.51.100.0', 24],
+    ['203.0.113.0', 24],
+    ['224.0.0.0', 4],
+    ['240.0.0.0', 4],
+] as const) {
+    BLOCKED_RESOLVED_IPS.addSubnet(address, prefix, 'ipv4');
+}
+
+for (const [address, prefix] of [
+    ['::', 128],
+    ['::1', 128],
+    ['64:ff9b::', 96],
+    ['64:ff9b:1::', 48],
+    ['100::', 64],
+    ['2001::', 32],
+    ['2001:2::', 48],
+    ['2001:10::', 28],
+    ['2001:20::', 28],
+    ['2001:db8::', 32],
+    ['2002::', 16],
+    ['fc00::', 7],
+    ['fe80::', 10],
+    ['ff00::', 8],
+] as const) {
+    BLOCKED_RESOLVED_IPS.addSubnet(address, prefix, 'ipv6');
+}
+BLOCKED_IPV4_MAPPED_IPS.addSubnet('::ffff:0.0.0.0', 96, 'ipv6');
 
 /**
  * Reject URLs whose host is a raw IP or `localhost`. The goal is to make
- * SSRF harder: even if the attacker supplies a name that resolves to an
- * internal IP we can still bail before making the request, and this stops
- * the trivial case of `http://169.254.169.254/…` style probes outright.
- * Note this is not sufficient on its own — a hostile DNS record can still
- * resolve to a private IP. Pair with `disable-redirects` + the custom
- * resolver below for defence-in-depth.
+ * SSRF harder by stopping trivial `http://169.254.169.254/...` probes before
+ * DNS. Pair with the custom resolver below, which rejects private/reserved
+ * resolved addresses after DNS.
  */
 export function validateUrlNoIP(url: string): void {
     const { hostname } = new URL(url);
@@ -34,6 +73,29 @@ export function validateUrlNoIP(url: string): void {
     }
 }
 
+export function isPublicResolvedAddress(address: string): boolean {
+    const family = net.isIP(address);
+    if (family === 0) return false;
+    if (family === 6 && BLOCKED_IPV4_MAPPED_IPS.check(address, 'ipv6')) {
+        return false;
+    }
+    return !BLOCKED_RESOLVED_IPS.check(address, family === 6 ? 'ipv6' : 'ipv4');
+}
+
+function selectPublicAddress(addresses: string[] | undefined): string | null {
+    return addresses?.find(isPublicResolvedAddress) ?? null;
+}
+
+function blockedResolvedAddressError(hostname: string): HttpError {
+    return new HttpError(
+        400,
+        `Resolved address for ${hostname} is not allowed`,
+        {
+            code: 'resolved_address_not_allowed',
+        },
+    );
+}
+
 const secureLookup: LookupFunction = (hostname, options, cb) => {
     // Normalise options (same shape as dns.lookup overloads).
     const optsObj =
@@ -44,21 +106,34 @@ const secureLookup: LookupFunction = (hostname, options, cb) => {
     resolver.setServers([SECURE_DNS_SERVER]);
 
     const done4 = (err: Error | null, addrs?: string[]) => {
-        if (!err && addrs?.length) return cb(null, addrs[0], 4);
-        if (family === 4)
+        const publicAddress = selectPublicAddress(addrs);
+        if (!err && publicAddress) return cb(null, publicAddress, 4);
+        if (family === 4) {
+            if (addrs?.length) {
+                return cb(blockedResolvedAddressError(hostname), '', 4);
+            }
             return cb(err ?? new Error('no IPv4 addresses'), '', 4);
+        }
         resolver.resolve6(hostname, (e6, a6) => {
-            if (!e6 && a6?.length) return cb(null, a6[0], 6);
-            // Last-ditch: fall back to the system resolver so short-lived
-            // DNS outages on 1.1.1.3 don't hard-fail every outbound fetch.
-            defaultLookup(hostname, optsObj, cb);
+            const publicIpv6Address = selectPublicAddress(a6);
+            if (!e6 && publicIpv6Address) {
+                return cb(null, publicIpv6Address, 6);
+            }
+            if (addrs?.length || a6?.length) {
+                return cb(blockedResolvedAddressError(hostname), '', 4);
+            }
+            return cb(e6 ?? err ?? new Error('no addresses'), '', 4);
         });
     };
 
     if (family === 6) {
         resolver.resolve6(hostname, (e, a) => {
-            if (!e && a?.length) return cb(null, a[0], 6);
-            defaultLookup(hostname, optsObj, cb);
+            const publicAddress = selectPublicAddress(a);
+            if (!e && publicAddress) return cb(null, publicAddress, 6);
+            if (a?.length) {
+                return cb(blockedResolvedAddressError(hostname), '', 6);
+            }
+            return cb(e ?? new Error('no IPv6 addresses'), '', 6);
         });
         return;
     }
@@ -90,7 +165,8 @@ interface SecureFetchInit extends Omit<RequestInit, 'redirect'> {
  *   • Rejects raw-IP / localhost hosts via {@link validateUrlNoIP}.
  *   • Forces `redirect: 'manual'` and rejects any 3xx response so a permissive
  *     target can't bounce us onto an internal endpoint.
- *   • Resolves DNS through Cloudflare's 1.1.1.3 (malware-filtered) resolver.
+ *   • Resolves DNS through Cloudflare's 1.1.1.3 (malware-filtered) resolver
+ *     and rejects private/reserved answers before connecting.
  *   • If `config.secureCorsProxy` is set AND the URL isn't a `data:` URI,
  *     rewrites the request through the configured signed Cloudflare Worker
  *     proxy (adds `x-cors-proxy-auth-secret`).

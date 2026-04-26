@@ -1,5 +1,6 @@
 import { v4 as uuidv4, v5 as uuidv5 } from 'uuid';
 import type { Actor } from '../../core/actor';
+import { HttpError } from '../../core/http/HttpError.js';
 import type { UserRow } from '../../stores/user/UserStore';
 import type { LayerInstances } from '../../types';
 import type { puterServices } from '../index';
@@ -568,6 +569,15 @@ export class AuthService extends PuterService {
         options: { expiresIn?: string } = {},
     ): Promise<string> {
         if (!actor.user) throw new Error('Actor must have a user');
+        if (actor.accessToken) {
+            throw new HttpError(
+                403,
+                'Access tokens may not create access tokens',
+                {
+                    legacyCode: 'forbidden',
+                },
+            );
+        }
 
         const tokenUid = uuidv4();
         const jwtPayload: Record<string, unknown> = {

@@ -30,7 +30,7 @@ export default defineConfig(({ mode }) => ({
             ],
         },
         env: loadEnv(mode, '', 'PUTER_'),
-        include: ['src/**/*.{test,spec}.{ts,js}'],
+        include: ['**/*.{test,spec}.{ts,js}'],
         root: __dirname, // Ensures paths are relative to backend/
     },
 }));

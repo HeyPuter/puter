@@ -308,6 +308,36 @@ export class AppStore extends PuterStore {
         return rows.map((r) => r.type);
     }
 
+    /**
+     * Batch sibling of {@link getFiletypeAssociations} — one query for many
+     * app ids, returns `Map<appId, string[]>` (every requested id is
+     * present, with `[]` for apps that have no associations).
+     */
+    async getFiletypeAssociationsByIds(appIds) {
+        const ids = Array.isArray(appIds)
+            ? Array.from(
+                  new Set(
+                      appIds.filter((id) => id !== null && id !== undefined),
+                  ),
+              )
+            : [];
+        const out = new Map();
+        for (const id of ids) out.set(id, []);
+        if (ids.length === 0) return out;
+
+        const placeholders = ids.map(() => '?').join(',');
+        const rows = await this.clients.db.read(
+            `SELECT \`app_id\`, \`type\` FROM \`app_filetype_association\`
+             WHERE \`app_id\` IN (${placeholders})`,
+            ids,
+        );
+        for (const row of rows) {
+            const list = out.get(row.app_id);
+            if (list) list.push(row.type);
+        }
+        return out;
+    }
+
     async getAppsByFiletype(extension) {
         // Cache-on-read: first request after a miss pays the join, subsequent
         // reads inside the TTL window hit redis. `setFiletypeAssociations`
@@ -572,7 +602,11 @@ export class AppStore extends PuterStore {
                 const o = parseInt(openVal, 10);
                 const u = parseInt(userVal, 10);
                 if (!Number.isNaN(o) && !Number.isNaN(u)) {
-                    stats.set(uid, { open_count: o, user_count: u });
+                    stats.set(uid, {
+                        open_count: o,
+                        user_count: u,
+                        referral_count: null,
+                    });
                     continue;
                 }
             }
@@ -584,7 +618,7 @@ export class AppStore extends PuterStore {
             const writePipe = this.clients.redis.pipeline();
             for (const uid of missing) {
                 const row = fresh.get(uid) ?? { open_count: 0, user_count: 0 };
-                stats.set(uid, row);
+                stats.set(uid, { ...row, referral_count: null });
                 writePipe.set(
                     this.#openCountCacheKey(uid),
                     String(row.open_count),
@@ -733,6 +767,7 @@ export class AppStore extends PuterStore {
         return {
             open_count: parseInt(row.open_count, 10) || 0,
             user_count: parseInt(row.user_count, 10) || 0,
+            referral_count: null,
         };
     }
 
@@ -823,6 +858,7 @@ export class AppStore extends PuterStore {
             open_count: totalOpen,
             user_count: totalUser,
             grouped_stats: { open_count: open, user_count: user },
+            referral_count: null,
         };
     }
 

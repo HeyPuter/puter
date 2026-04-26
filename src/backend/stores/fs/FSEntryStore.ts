@@ -228,7 +228,6 @@ export class FSEntryStore extends PuterStore {
         return [
             `prodfsv2:fsentry:id:${entry.id}`,
             `prodfsv2:fsentry:uuid:${entry.uuid}`,
-            `prodfsv2:fsentry:path:${entry.userId}:${entry.path}`,
             `prodfsv2:fsentry:path:any:${entry.path}`,
         ];
     }
@@ -270,18 +269,17 @@ export class FSEntryStore extends PuterStore {
     }
 
     async invalidateEntryCacheByPathForUser(
-        userId: number,
+        _userId: number,
         path: string,
     ): Promise<void> {
         const normalizedPath = this.#normalizePath(path);
         const cacheKeys: string[] = [
-            `prodfsv2:fsentry:path:${userId}:${normalizedPath}`,
             `prodfsv2:fsentry:path:any:${normalizedPath}`,
         ];
 
         const rows = (await this.clients.db.read(
-            `SELECT ${this.#selectFsentriesColumns()} FROM fsentries WHERE user_id = ? AND path = ? LIMIT 1`,
-            [userId, normalizedPath],
+            `SELECT ${this.#selectFsentriesColumns()} FROM fsentries WHERE path = ? LIMIT 1`,
+            [normalizedPath],
         )) as unknown as FSEntryRow[];
         const row = rows[0];
 
@@ -434,8 +432,10 @@ export class FSEntryStore extends PuterStore {
         );
     }
 
+    // userId is accepted for call-site clarity but intentionally unused —
+    // see the note on #getEntryByPathAndUser.
     async #readEntriesByPathsForUser(
-        userId: number,
+        _userId: number,
         paths: string[],
         options: ReadEntriesByPathsOptions = {},
     ): Promise<Map<string, FSEntry>> {
@@ -459,7 +459,7 @@ export class FSEntryStore extends PuterStore {
         } else {
             const cacheReads = await Promise.all(
                 normalizedPaths.map(async (path) => {
-                    const cacheKey = `prodfsv2:fsentry:path:${userId}:${path}`;
+                    const cacheKey = `prodfsv2:fsentry:path:any:${path}`;
                     const cachedEntry =
                         await this.#readEntryFromCache(cacheKey);
                     return { path, cachedEntry };
@@ -485,16 +485,13 @@ export class FSEntryStore extends PuterStore {
                 }
 
                 const placeholders = chunk.map(() => '?').join(', ');
-                const selectSql = `SELECT ${this.#selectFsentriesColumns()} FROM fsentries WHERE user_id = ? AND path IN (${placeholders})`;
+                const selectSql = `SELECT ${this.#selectFsentriesColumns()} FROM fsentries WHERE path IN (${placeholders})`;
                 const rows = (useTryHardRead
-                    ? await this.clients.db.tryHardRead(selectSql, [
-                          userId,
-                          ...chunk,
-                      ])
-                    : await this.clients.db.read(selectSql, [
-                          userId,
-                          ...chunk,
-                      ])) as unknown as FSEntryRow[];
+                    ? await this.clients.db.tryHardRead(selectSql, chunk)
+                    : await this.clients.db.read(
+                          selectSql,
+                          chunk,
+                      )) as unknown as FSEntryRow[];
 
                 const entries = rows.map((row) => this.#mapFSEntryRow(row));
                 if (entries.length > 0) {
@@ -691,28 +688,17 @@ export class FSEntryStore extends PuterStore {
         };
     }
 
+    // Paths are globally unique because they're prefixed with the owner's
+    // username (`/<username>/...`). Lookups don't need to filter by user_id —
+    // doing so breaks older accounts where the stored `user_id` doesn't line
+    // up with the current id (e.g. accounts that pre-date when this column
+    // started being populated consistently). Matches v1 behaviour, which only
+    // ever queried `WHERE path = ?`.
     async #getEntryByPathAndUser(
         path: string,
-        userId: number,
+        _userId: number,
     ): Promise<FSEntry | null> {
-        const normalizedPath = this.#normalizePath(path);
-        const cacheKey = `prodfsv2:fsentry:path:${userId}:${normalizedPath}`;
-        const cached = await this.#readEntryFromCache(cacheKey);
-        if (cached) {
-            return cached;
-        }
-
-        const rows = (await this.clients.db.read(
-            `SELECT ${this.#selectFsentriesColumns()} FROM fsentries WHERE path = ? AND user_id = ? LIMIT 1`,
-            [normalizedPath, userId],
-        )) as unknown as FSEntryRow[];
-        const row = rows[0];
-        if (!row) {
-            return null;
-        }
-        const entry = this.#mapFSEntryRow(row);
-        await this.#writeEntryToCache(entry);
-        return entry;
+        return this.getEntryByPath(path);
     }
 
     async #ensureDirectoryPath(

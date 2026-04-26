@@ -100,12 +100,19 @@ export class AppDriver extends PuterDriver {
         return this.#toClient(app, actor);
     }
 
-    async read({ uid, id, stats_period, stats_grouping } = {}) {
+    async read({ uid, id, params = {}, ...rest } = {}) {
         const actor = this.#requireActor();
         const app = await this.#resolve({ uid, id });
         if (!app) throw new HttpError(404, 'App not found');
 
         await this.#checkReadAccess(app, actor);
+
+        // puter-js's `puter.apps.get(name, opts)` packages opts under `params`
+        // (see `make_driver_method` / `Apps.get`), so stats options live at
+        // `args.params.stats_period` rather than the top level. Accept both
+        // shapes for forward-compat with anything that still flattens.
+        const stats_period = params.stats_period ?? rest.stats_period;
+        const stats_grouping = params.stats_grouping ?? rest.stats_grouping;
 
         // Detailed period/grouping is per-app only — skip the batch cache
         // and go straight to the live query. The default (no options) goes
@@ -119,7 +126,7 @@ export class AppDriver extends PuterDriver {
               })
             : (await this.appStore.getAppsStats([app.uid])).get(app.uid);
 
-        return this.#toClient(app, actor, { stats });
+        return this.#toClient(app, actor, { ...params, stats });
     }
 
     async select({ predicate, params = {} } = {}) {
@@ -134,23 +141,61 @@ export class AppDriver extends PuterDriver {
 
         const apps = await this.appStore.list(filters);
 
-        // Filter out protected apps the actor can't access
-        const visible = [];
+        // Resolve protected-app visibility:
+        //  1. Cheap local short-circuits (non-protected, self-app, owner).
+        //  2. Single batched permission check for whatever's left — one
+        //     scan pass covers every remaining app, vs a per-app round
+        //     trip through the permission service.
+        const needsPermCheck = [];
+        const localVisible = new Set();
         for (const app of apps) {
-            if (await this.#canReadApp(app, actor)) visible.push(app);
+            if (
+                !app.protected ||
+                actor.app?.uid === app.uid ||
+                actor.user?.id === app.owner_user_id
+            ) {
+                localVisible.add(app);
+            } else {
+                needsPermCheck.push(app);
+            }
         }
 
-        // Batch stats for every visible app in a single pipelined cache
-        // read (+ at most one grouped DB query on miss).
-        const statsByUid = await this.appStore.getAppsStats(
-            visible.map((a) => a.uid),
+        let permGrants;
+        if (needsPermCheck.length > 0) {
+            try {
+                permGrants = await this.permService.checkMany(
+                    actor,
+                    needsPermCheck.map((a) => `app:uid#${a.uid}:access`),
+                );
+            } catch {
+                permGrants = new Map();
+            }
+        } else {
+            permGrants = new Map();
+        }
+
+        const visible = apps.filter(
+            (app) =>
+                localVisible.has(app) ||
+                permGrants.get(`app:uid#${app.uid}:access`),
         );
+
+        // Pre-fetch in parallel:
+        //  - per-uid stats (already pipelined inside getAppsStats)
+        //  - filetype associations as a single IN-list query (was N queries)
+        const [statsByUid, filetypesByAppId] = await Promise.all([
+            this.appStore.getAppsStats(visible.map((a) => a.uid)),
+            this.appStore.getFiletypeAssociationsByIds(
+                visible.map((a) => a.id),
+            ),
+        ]);
 
         return Promise.all(
             visible.map((app) =>
                 this.#toClient(app, actor, {
                     ...params,
                     stats: statsByUid.get(app.uid),
+                    filetypes: filetypesByAppId.get(app.id) ?? [],
                 }),
             ),
         );
@@ -483,8 +528,14 @@ export class AppDriver extends PuterDriver {
     async #toClient(app, actor, params = {}) {
         if (!app) return null;
 
+        // `select` pre-fetches filetypes for every visible app in one
+        // batched query and threads them through `params.filetypes` to
+        // avoid the N+1 in this hot loop. Single-app callers (`read`,
+        // `create`, `update`) fall back to the per-app query.
         const [filetypes, createdFromOrigin] = await Promise.all([
-            this.appStore.getFiletypeAssociations(app.id),
+            params.filetypes !== undefined
+                ? Promise.resolve(params.filetypes)
+                : this.appStore.getFiletypeAssociations(app.id),
             this.#resolveCreatedFromOrigin(app),
         ]);
 
