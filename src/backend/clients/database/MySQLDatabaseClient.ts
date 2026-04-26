@@ -144,9 +144,26 @@ export class MySQLDatabaseClient extends DatabaseClient {
     override async batchWrite(
         entries: { statement: string; values: unknown[] }[],
     ): Promise<void> {
-        const stmts = entries.map((e) => e.statement).join('; ');
-        const vals = entries.flatMap((e) => e.values);
-        await this.db.execute(stmts, vals);
+        if (entries.length === 0) return;
+        // Bypass the SQLBatcher: it coalesces queries from unrelated callers
+        // into a single multi-statement string, which is incompatible with
+        // wrapping a transaction around just *our* statements. Acquire a
+        // dedicated connection so BEGIN/COMMIT/ROLLBACK only scope `entries`.
+        const conn = await this.primaryPool.promise().getConnection();
+        try {
+            await conn.beginTransaction();
+            try {
+                for (const { statement, values } of entries) {
+                    await conn.execute(statement, values);
+                }
+                await conn.commit();
+            } catch (err) {
+                await conn.rollback().catch(() => {});
+                throw err;
+            }
+        } finally {
+            conn.release();
+        }
     }
 
     override async tryHardRead(

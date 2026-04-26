@@ -7,9 +7,11 @@ import {
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { extension } from '@heyputer/backend/src/extensions';
 import crypto from 'node:crypto';
+import sharp from 'sharp';
 const clients = extension.import('client');
 
 const MAX_THUMBNAIL_BYTES = 2 * 1024 * 1024;
+const MAX_THUMBNAIL_PIXELS = 64e6;
 
 // S3 client + bucket config — lazily resolved after boot from config.
 let s3Client: S3Client | null = null;
@@ -49,10 +51,30 @@ function base64ParseDataUrl(dataURL: string) {
     return { mimeType, data };
 }
 
-function estimateDataUrlSize(dataURL: string) {
-    const commaIndex = dataURL.indexOf(',');
-    const base64 = commaIndex === -1 ? dataURL : dataURL.slice(commaIndex + 1);
-    return Math.ceil((base64.length * 3) / 4);
+// Strictly decode a data: URL and validate the decoded image. Encoded-string
+// length lies about decoded byte count (whitespace, padding) and says nothing
+// about pixel count — a 2MB PNG can decompress to hundreds of MB of raster.
+async function decodeAndValidateThumbnail(
+    dataURL: string,
+): Promise<{ mimeType: string; data: Buffer } | null> {
+    const commaIdx = dataURL.indexOf(',');
+    if (commaIdx === -1) return null;
+    const mimeType = dataURL.slice(5, commaIdx).split(';')[0];
+
+    const data = Buffer.from(dataURL.slice(commaIdx + 1), 'base64');
+    if (data.length === 0 || data.length > MAX_THUMBNAIL_BYTES) return null;
+
+    try {
+        await sharp(data, {
+            limitInputPixels: MAX_THUMBNAIL_PIXELS,
+            density: 72,
+            failOn: 'error',
+        }).metadata();
+    } catch {
+        return null;
+    }
+
+    return { mimeType, data };
 }
 
 // ── thumbnail.created ───────────────────────────────────────────────
@@ -62,7 +84,9 @@ function estimateDataUrlSize(dataURL: string) {
 extension.on('thumbnail.created', async (event: Record<string, unknown>) => {
     const url = event.url;
     if (typeof url !== 'string' || !url.startsWith('data:')) return;
-    if (estimateDataUrlSize(url) > MAX_THUMBNAIL_BYTES) {
+
+    const decoded = await decodeAndValidateThumbnail(url);
+    if (!decoded) {
         event.url = null;
         return;
     }
@@ -70,13 +94,12 @@ extension.on('thumbnail.created', async (event: Record<string, unknown>) => {
     const key = crypto.randomUUID();
     event.url = `s3://${thumbnailBucketName}/${key}`;
 
-    const { mimeType, data } = base64ParseDataUrl(url);
     await getClient().send(
         new PutObjectCommand({
             Bucket: thumbnailBucketName,
             Key: key,
-            Body: data,
-            ContentType: mimeType,
+            Body: decoded.data,
+            ContentType: decoded.mimeType,
         }),
     );
 });

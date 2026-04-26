@@ -1,6 +1,7 @@
 import Busboy from 'busboy';
 import type { Request, Response } from 'express';
 import { posix as pathPosix } from 'node:path';
+import { pipeline } from 'node:stream/promises';
 import type { Actor } from '../../core/actor.js';
 import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
@@ -936,7 +937,6 @@ export class FSController extends PuterController {
         );
         res.status(range ? 206 : 200);
 
-        // Meter egress on stream end (best effort — don't fail the read).
         const metering = this.services.metering as
             | {
                   batchIncrementUsages?: (
@@ -945,28 +945,31 @@ export class FSController extends PuterController {
                   ) => void;
               }
             | undefined;
-        if (metering?.batchIncrementUsages && download.contentLength) {
-            download.body.once('end', () => {
-                try {
-                    const bytes = download.contentLength!;
-                    metering.batchIncrementUsages!(actor, [
-                        {
-                            usageType: 'filesystem:egress:bytes',
-                            usageAmount: bytes,
-                            costOverride:
-                                FS_COSTS['filesystem:egress:bytes'] * bytes,
-                        },
-                    ]);
-                } catch {
-                    // ignore — metering is non-critical.
-                }
-            });
+
+        try {
+            await pipeline(download.body, res);
+        } catch {
+            // Client disconnect or upstream stream error — pipeline already
+            // tore down both ends. Response is partially sent; nothing to do.
+            return;
         }
 
-        download.body.on('error', (err) => {
-            res.destroy(err);
-        });
-        download.body.pipe(res);
+        // Meter egress only on successful completion.
+        if (metering?.batchIncrementUsages && download.contentLength) {
+            try {
+                const bytes = download.contentLength;
+                metering.batchIncrementUsages(actor, [
+                    {
+                        usageType: 'filesystem:egress:bytes',
+                        usageAmount: bytes,
+                        costOverride:
+                            FS_COSTS['filesystem:egress:bytes'] * bytes,
+                    },
+                ]);
+            } catch {
+                // ignore — metering is non-critical.
+            }
+        }
     }
 
     // ── Mutation routes ────────────────────────────────────────────────

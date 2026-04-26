@@ -1,13 +1,51 @@
+import { metrics } from '@opentelemetry/api';
+
+const DEFAULT_MAX_QUEUE_SIZE = 1000;
+const DEFAULT_FAILURE_THRESHOLD = 5;
+const DEFAULT_COOLDOWN_MS = 5_000;
+
+const meter = metrics.getMeter('puter-backend');
+const enqueueDroppedCounter = meter.createCounter(
+    'sql_batcher.enqueue.dropped',
+    {
+        description:
+            'Items dropped from SQLBatcher queue at the high-water mark',
+    },
+);
+const enqueueRejectedCounter = meter.createCounter(
+    'sql_batcher.enqueue.rejected',
+    { description: 'Items rejected because the SQLBatcher circuit is open' },
+);
+const flushFailureCounter = meter.createCounter('sql_batcher.flush.failed', {
+    description: 'SQLBatcher flush attempts that threw',
+});
+
 export class SQLBatcher {
     dbPool;
     maxTimeInQueue;
     maxBatchSize;
+    maxQueueSize;
+    failureThreshold;
+    cooldownMs;
     queue = [];
     timeouts = [];
-    constructor(dbPool, maxTimeInQueue = 20, maxBatchSize = 50) {
+    #consecutiveFailures = 0;
+    #lastFailureAt = 0;
+
+    constructor(
+        dbPool,
+        maxTimeInQueue = 20,
+        maxBatchSize = 50,
+        maxQueueSize = DEFAULT_MAX_QUEUE_SIZE,
+        failureThreshold = DEFAULT_FAILURE_THRESHOLD,
+        cooldownMs = DEFAULT_COOLDOWN_MS,
+    ) {
         this.dbPool = dbPool;
         this.maxTimeInQueue = maxTimeInQueue;
         this.maxBatchSize = maxBatchSize;
+        this.maxQueueSize = maxQueueSize;
+        this.failureThreshold = failureThreshold;
+        this.cooldownMs = cooldownMs;
     }
 
     async execute(sql, values) {
@@ -24,8 +62,30 @@ export class SQLBatcher {
         return error;
     }
 
+    // Open while we've seen `failureThreshold` consecutive flush failures and
+    // the cooldown window since the most recent failure hasn't elapsed. After
+    // cooldown a probe request is allowed through; success resets the counter.
+    #isBreakerOpen() {
+        if (this.#consecutiveFailures < this.failureThreshold) return false;
+        return Date.now() - this.#lastFailureAt < this.cooldownMs;
+    }
+
     async query(sql, values) {
+        if (this.#isBreakerOpen()) {
+            enqueueRejectedCounter.add(1);
+            throw this.#createPublicBatchError();
+        }
+
         const { promise, resolve, reject } = Promise.withResolvers();
+
+        // Drop-oldest at the high-water mark. Bounds memory while preferring
+        // to flush the most recent work — older queued entries are likeliest
+        // to have already exceeded any caller-side timeout anyway.
+        while (this.queue.length >= this.maxQueueSize) {
+            const dropped = this.queue.shift();
+            dropped.reject(this.#createPublicBatchError());
+            enqueueDroppedCounter.add(1);
+        }
 
         this.queue.push({
             sql,
@@ -63,11 +123,15 @@ export class SQLBatcher {
                 .promise()
                 .query(query, values);
 
+            this.#consecutiveFailures = 0;
             for (let i = 0; i < batch.length; i++) {
                 const b = batch[i];
                 b.resolve([results[i], fields?.[i]]);
             }
         } catch (error) {
+            this.#consecutiveFailures++;
+            this.#lastFailureAt = Date.now();
+            flushFailureCounter.add(1);
             console.warn('Error in SQLBatcher flush:', error);
             for (const b of batch) {
                 b.reject(this.#createPublicBatchError());

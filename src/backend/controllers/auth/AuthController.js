@@ -485,6 +485,13 @@ export class AuthController extends PuterController {
                     });
                 } else {
                     // ── New user ────────────────────────────────────────
+                    const clientIp =
+                        req.ip || req.socket?.remoteAddress || null;
+                    const proxyIpChain =
+                        Array.isArray(req.ips) && req.ips.length > 0
+                            ? req.ips.join(', ')
+                            : null;
+
                     user = await this.userStore.create({
                         username: body.username,
                         uuid: user_uuid,
@@ -497,14 +504,13 @@ export class AuthController extends PuterController {
                         email_confirm_code,
                         email_confirm_token,
                         audit_metadata: {
-                            ip: req.socket?.remoteAddress,
-                            ip_fwd: req.headers?.['x-forwarded-for'],
+                            ip: clientIp,
+                            ip_fwd: proxyIpChain,
                             user_agent: req.headers?.['user-agent'],
                             origin: req.headers?.origin,
                         },
-                        signup_ip: req.socket?.remoteAddress ?? null,
-                        signup_ip_forwarded:
-                            req.headers?.['x-forwarded-for'] ?? null,
+                        signup_ip: clientIp,
+                        signup_ip_forwarded: proxyIpChain,
                         signup_user_agent: req.headers?.['user-agent'] ?? null,
                         signup_origin: req.headers?.origin ?? null,
                     });
@@ -583,9 +589,7 @@ export class AuthController extends PuterController {
                             user_uuid: user.uuid,
                             email: user.email,
                             username: user.username,
-                            ip:
-                                req.headers?.['x-forwarded-for'] ||
-                                req.socket?.remoteAddress,
+                            ip: req.ip || req.socket?.remoteAddress,
                         },
                         {},
                     );
@@ -2371,7 +2375,7 @@ export class AuthController extends PuterController {
 
     async #completeLogin(req, res, user) {
         const meta = {
-            ip: req.headers?.['x-forwarded-for'] || req.socket?.remoteAddress,
+            ip: req.ip || req.socket?.remoteAddress,
             user_agent: req.headers?.['user-agent'],
             origin: req.headers?.origin,
             host: req.headers?.host,

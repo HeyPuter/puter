@@ -13,6 +13,16 @@ const timeago = (() => {
     return new TimeAgo('en-US');
 })();
 
+// Allowlist of `config.feature_flags` keys safe to surface via /whoami.
+// Anything not listed here stays server-side, so internal flags
+// (payment_bypass, staff_only_*, etc.) cannot leak by accident. Add a
+// flag here when, and only when, the client actually needs to read it.
+const CLIENT_VISIBLE_FEATURE_FLAGS: ReadonlySet<string> = new Set([
+    'create_shortcut',
+    'download_directory',
+    'prompt_user_when_navigation_away_from_puter',
+]);
+
 extension.get(
     '/whoami',
     { subdomain: 'api', requireAuth: true },
@@ -31,20 +41,27 @@ extension.get(
         }
 
         const oidcOnly = user.password === null;
-        const iconSize =
+        const ALLOWED_ICON_SIZES = new Set([16, 32, 64, 128, 256, 512]);
+        const rawIconSize =
             typeof req.query?.icon_size === 'string'
                 ? Number(req.query.icon_size)
                 : undefined;
+        const iconSize =
+            rawIconSize !== undefined && ALLOWED_ICON_SIZES.has(rawIconSize)
+                ? rawIconSize
+                : undefined;
         const noIcons = !iconSize;
 
-        // Feature flags come from config. Shape is a flat
-        // `{ flag_name: boolean }` object under `config.feature_flags`. Keys
-        // that resolve to non-booleans (e.g. someone wrote `"true"` as a
-        // string) are coerced so the client never has to guess.
+        // Feature flags come from `config.feature_flags`. We only forward keys
+        // listed in CLIENT_VISIBLE_FEATURE_FLAGS so internal flags can't leak.
+        // Non-boolean values (e.g. `"true"` as a string) are coerced so the
+        // client never has to guess.
         const rawFlags = extension.config.feature_flags ?? {};
         const feature_flags: Record<string, boolean> = {};
         for (const [k, v] of Object.entries(rawFlags)) {
-            feature_flags[k] = Boolean(v);
+            if (CLIENT_VISIBLE_FEATURE_FLAGS.has(k)) {
+                feature_flags[k] = Boolean(v);
+            }
         }
 
         const details: Record<string, unknown> = {

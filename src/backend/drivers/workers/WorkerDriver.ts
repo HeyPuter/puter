@@ -226,32 +226,34 @@ export class WorkerDriver extends PuterDriver {
             );
         }
 
-        return await Promise.all(
-            rows.map(async (r) => {
-                const name =
-                    String(r.subdomain ?? '')
-                        .split('.')
-                        .pop() ?? '';
-                let file_path = null;
-                let file_uid = null;
-                if (r.root_dir_id) {
-                    const loaded = await this.stores.fsEntry.getEntryById(
-                        r.root_dir_id,
-                    );
-                    file_path = loaded?.path;
-                    file_uid = loaded?.uuid;
-                }
-                return {
-                    name,
-                    url: `https://${name}.puter.work`,
-                    file_path,
-                    file_uid,
-                    created_at: r.ts
-                        ? new Date(r.ts as string).toISOString()
-                        : null,
-                };
-            }),
-        );
+        const rootDirIds = rows
+            .map((r) => r.root_dir_id)
+            .filter((id): id is number => typeof id === 'number');
+        const entriesById =
+            await this.stores.fsEntry.getEntriesByIds(rootDirIds);
+
+        return rows.map((r) => {
+            const name =
+                String(r.subdomain ?? '')
+                    .split('.')
+                    .pop() ?? '';
+            let file_path = null;
+            let file_uid = null;
+            if (typeof r.root_dir_id === 'number') {
+                const loaded = entriesById.get(r.root_dir_id);
+                file_path = loaded?.path;
+                file_uid = loaded?.uuid;
+            }
+            return {
+                name,
+                url: `https://${name}.puter.work`,
+                file_path,
+                file_uid,
+                created_at: r.ts
+                    ? new Date(r.ts as string).toISOString()
+                    : null,
+            };
+        });
     }
 
     async getLoggingUrl(): Promise<string | null> {

@@ -39,6 +39,10 @@ export type UserIdProperty = (typeof USER_ID_PROPERTIES)[number];
 
 const CACHE_KEY_PREFIX = 'users';
 const CACHE_TTL_SECONDS = 15 * 60;
+// Cap on placeholders per `IN (?, ?, …)` query. SQLite's default parameter
+// limit is 999; staying well under that keeps `getByIds` portable across
+// backends without splitting the cap by driver.
+const BULK_QUERY_CHUNK_SIZE = 200;
 
 // ── UserStore ────────────────────────────────────────────────────────
 
@@ -82,6 +86,76 @@ export class UserStore extends PuterStore {
         opts: { cached?: boolean; force?: boolean } = {},
     ): Promise<UserRow | null> {
         return this.getByProperty('email', email, opts);
+    }
+
+    /**
+     * Batched lookup by id. Dedupes input ids, reads cache via a pipelined
+     * MGET, and resolves remaining misses with a single
+     * `SELECT … WHERE id IN (…)` per chunk. Use this in place of
+     * `Promise.all(ids.map(getById))` to avoid one connection per row on
+     * large id sets.
+     *
+     * Missing ids (no DB row) are simply absent from the returned map.
+     */
+    async getByIds(ids: number[]): Promise<Map<number, UserRow>> {
+        const result = new Map<number, UserRow>();
+        const uniqueIds = [
+            ...new Set(
+                (Array.isArray(ids) ? ids : []).filter(
+                    (id): id is number => typeof id === 'number',
+                ),
+            ),
+        ];
+        if (uniqueIds.length === 0) return result;
+
+        const missingIds: number[] = [];
+        try {
+            const pipeline = this.clients.redis.pipeline();
+            for (const id of uniqueIds) {
+                pipeline.get(this.#cacheKey('id', id));
+            }
+            const cacheResults = (await pipeline.exec()) ?? [];
+            for (let i = 0; i < uniqueIds.length; i++) {
+                const id = uniqueIds[i];
+                const raw = cacheResults[i]?.[1];
+                if (typeof raw === 'string') {
+                    try {
+                        result.set(id, JSON.parse(raw) as UserRow);
+                        continue;
+                    } catch {
+                        // Fall through to DB on any parse failure.
+                    }
+                }
+                missingIds.push(id);
+            }
+        } catch {
+            missingIds.push(...uniqueIds);
+        }
+
+        for (
+            let offset = 0;
+            offset < missingIds.length;
+            offset += BULK_QUERY_CHUNK_SIZE
+        ) {
+            const chunk = missingIds.slice(
+                offset,
+                offset + BULK_QUERY_CHUNK_SIZE,
+            );
+            const placeholders = chunk.map(() => '?').join(', ');
+            const rows = (await this.clients.db.tryHardRead(
+                `SELECT * FROM \`user\` WHERE \`id\` IN (${placeholders})`,
+                chunk,
+            )) as Array<Record<string, unknown>>;
+            for (const row of rows) {
+                const user = this.#normalizeRow(row);
+                result.set(user.id, user);
+                this.#writeCache(user).catch(() => {
+                    // Best-effort cache backfill.
+                });
+            }
+        }
+
+        return result;
     }
 
     /**

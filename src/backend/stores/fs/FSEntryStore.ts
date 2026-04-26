@@ -953,6 +953,72 @@ export class FSEntryStore extends PuterStore {
         return entry;
     }
 
+    /**
+     * Batched lookup by id. Dedupes input ids, reads cache via per-id GETs,
+     * and resolves remaining misses with a single
+     * `SELECT … WHERE id IN (…)` per chunk. Use this in place of
+     * `Promise.all(ids.map(getEntryById))` to avoid one connection per row
+     * on large id sets.
+     *
+     * Missing ids (no DB row) are simply absent from the returned map.
+     */
+    async getEntriesByIds(ids: number[]): Promise<Map<number, FSEntry>> {
+        const result = new Map<number, FSEntry>();
+        const uniqueIds = [
+            ...new Set(
+                (Array.isArray(ids) ? ids : []).filter(
+                    (id): id is number => typeof id === 'number',
+                ),
+            ),
+        ];
+        if (uniqueIds.length === 0) return result;
+
+        const missingIds: number[] = [];
+        const cacheReads = await Promise.all(
+            uniqueIds.map(async (id) => {
+                const entry = await this.#readEntryFromCache(
+                    `prodfsv2:fsentry:id:${id}`,
+                );
+                return { id, entry };
+            }),
+        );
+        for (const { id, entry } of cacheReads) {
+            if (entry) {
+                result.set(id, entry);
+            } else {
+                missingIds.push(id);
+            }
+        }
+
+        if (missingIds.length === 0) return result;
+
+        const chunks = this.#chunk(missingIds, BULK_QUERY_CHUNK_SIZE);
+        const chunkResults = await runWithConcurrencyLimit(
+            chunks,
+            DEFAULT_DB_CHUNK_CONCURRENCY,
+            async (chunk) => {
+                if (chunk.length === 0) return [];
+                const placeholders = chunk.map(() => '?').join(', ');
+                const rows = (await this.clients.db.read(
+                    `SELECT ${this.#selectFsentriesColumns()} FROM fsentries WHERE id IN (${placeholders})`,
+                    chunk,
+                )) as unknown as FSEntryRow[];
+                const entries = rows.map((row) => this.#mapFSEntryRow(row));
+                await Promise.all(
+                    entries.map((entry) => this.#writeEntryToCache(entry)),
+                );
+                return entries;
+            },
+        );
+        for (const chunkEntries of chunkResults) {
+            for (const entry of chunkEntries) {
+                result.set(entry.id, entry);
+            }
+        }
+
+        return result;
+    }
+
     async updateEntryThumbnailByUuidForUser(
         userId: number,
         uuid: string,

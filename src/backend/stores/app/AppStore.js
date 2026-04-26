@@ -15,6 +15,10 @@ const CACHE_TTL_SECONDS = 24 * 60 * 60;
 const FILETYPE_CACHE_KEY_PREFIX = 'apps:by-filetype';
 const FILETYPE_CACHE_TTL_SECONDS = 60;
 const APP_ID_PROPERTIES = ['id', 'uid', 'name'];
+// Cap on placeholders per `IN (?, ?, …)` query. SQLite's default parameter
+// limit is 999; staying well under that keeps `getByIds` portable across
+// backends without splitting the cap by driver.
+const BULK_QUERY_CHUNK_SIZE = 200;
 
 // Top-level all-time open/user counts: hot path, slow to compute, refreshed
 // periodically by one instance and read via MGET on every app list/read.
@@ -88,6 +92,75 @@ export class AppStore extends PuterStore {
     }
     async getByName(name) {
         return this.#getByProperty('name', name);
+    }
+
+    /**
+     * Batched lookup by id. Dedupes input ids, reads cache via a pipelined
+     * MGET, and resolves remaining misses with a single
+     * `SELECT … WHERE id IN (…)` per chunk. Use this in place of
+     * `Promise.all(ids.map(getById))` to avoid one connection per row on
+     * large id sets.
+     *
+     * Missing ids (no DB row) are simply absent from the returned map.
+     */
+    async getByIds(ids) {
+        const result = new Map();
+        const uniqueIds = [
+            ...new Set(
+                (Array.isArray(ids) ? ids : []).filter(
+                    (id) => id !== null && id !== undefined,
+                ),
+            ),
+        ];
+        if (uniqueIds.length === 0) return result;
+
+        const missingIds = [];
+        try {
+            const pipeline = this.clients.redis.pipeline();
+            for (const id of uniqueIds) {
+                pipeline.get(this.#cacheKey('id', id));
+            }
+            const cacheResults = (await pipeline.exec()) ?? [];
+            for (let i = 0; i < uniqueIds.length; i++) {
+                const id = uniqueIds[i];
+                const raw = cacheResults[i]?.[1];
+                if (typeof raw === 'string') {
+                    try {
+                        result.set(id, JSON.parse(raw));
+                        continue;
+                    } catch {
+                        // Fall through to DB on any parse failure.
+                    }
+                }
+                missingIds.push(id);
+            }
+        } catch {
+            missingIds.push(...uniqueIds);
+        }
+
+        for (
+            let offset = 0;
+            offset < missingIds.length;
+            offset += BULK_QUERY_CHUNK_SIZE
+        ) {
+            const chunk = missingIds.slice(
+                offset,
+                offset + BULK_QUERY_CHUNK_SIZE,
+            );
+            const placeholders = chunk.map(() => '?').join(', ');
+            const rows = await this.clients.db.read(
+                `SELECT * FROM \`apps\` WHERE \`id\` IN (${placeholders})`,
+                chunk,
+            );
+            for (const row of rows) {
+                const app = this.#normalizeRow(row);
+                if (!app) continue;
+                result.set(app.id, app);
+                this.#writeCache(app).catch(() => {});
+            }
+        }
+
+        return result;
     }
 
     async existsByName(name) {
@@ -289,20 +362,29 @@ export class AppStore extends PuterStore {
         // Replace-all semantics. Capture the previous extension set so we
         // can drop their cached app lists in addition to the new ones.
         const previous = await this.getFiletypeAssociations(appId);
-        await this.clients.db.write(
-            'DELETE FROM `app_filetype_association` WHERE `app_id` = ?',
-            [appId],
-        );
-        if (Array.isArray(types) && types.length > 0) {
-            for (const type of types) {
-                await this.clients.db.write(
-                    'INSERT INTO `app_filetype_association` (`app_id`, `type`) VALUES (?, ?)',
-                    [appId, type],
-                );
-            }
-        }
+        const newTypes = Array.isArray(types) ? types : [];
 
-        const affected = new Set([...previous, ...(types ?? [])]);
+        // DELETE + multi-row INSERT in one transactional batch — partial
+        // success would otherwise leave the row's filetype set in a state
+        // that doesn't match either `previous` or `newTypes`.
+        const entries = [
+            {
+                statement:
+                    'DELETE FROM `app_filetype_association` WHERE `app_id` = ?',
+                values: [appId],
+            },
+        ];
+        if (newTypes.length > 0) {
+            const placeholders = newTypes.map(() => '(?, ?)').join(', ');
+            const values = newTypes.flatMap((t) => [appId, t]);
+            entries.push({
+                statement: `INSERT INTO \`app_filetype_association\` (\`app_id\`, \`type\`) VALUES ${placeholders}`,
+                values,
+            });
+        }
+        await this.clients.db.batchWrite(entries);
+
+        const affected = new Set([...previous, ...newTypes]);
         if (affected.size === 0) return;
         const keys = [...affected].map(
             (t) => `${FILETYPE_CACHE_KEY_PREFIX}:${t}`,

@@ -185,6 +185,14 @@ export class PuterServer {
 
         // init express server here
         this.#app = express();
+        // `trust proxy` MUST be set before any middleware reads `req.ip` /
+        // `req.ips` / `req.protocol`, since express derives those from XFF
+        // only when this flag is set. Default is `false` (no proxy trusted)
+        // — deployments behind a reverse proxy chain must set
+        // `config.trust_proxy` to the hop count (e.g. `1` for a single
+        // Cloudflare/nginx hop). Never `true` in prod: that trusts every hop
+        // and makes XFF forgeable.
+        this.#app.set('trust proxy', this.#config.trust_proxy ?? false);
         this.#installGlobalMiddleware();
 
         // Instantiate drivers BEFORE controllers so controllers can receive
@@ -286,7 +294,7 @@ export class PuterServer {
 
     /**
      * Point the shared rate-limiter at its configured backend. Reads
-     * `config.rate_limit.backend` (defaults to `memory`) and resolves the
+     * `config.rate_limit.backend` (defaults to `redis`) and resolves the
      * required dependency from `this.clients` / `this.stores`. Unknown
      * or misconfigured backends fall back to memory with a warning so a
      * typo doesn't take the server down.
@@ -604,8 +612,12 @@ export class PuterServer {
 
     #installIpValidation() {
         this.#app.use(async (req, res, next) => {
-            const ip =
-                req.headers?.['x-forwarded-for'] ?? req.socket?.remoteAddress;
+            // `req.ip` reflects `trust proxy`: it's the leftmost untrusted
+            // address from XFF when behind a configured proxy chain, and the
+            // direct socket peer otherwise. Reading XFF directly would let a
+            // client forge the value when traffic isn't behind the expected
+            // proxy.
+            const ip = req.ip;
             const event = { allow: true, ip };
             // emitAndWait so listeners that do async work (IP-reputation
             // lookups, Redis checks) can complete before we read

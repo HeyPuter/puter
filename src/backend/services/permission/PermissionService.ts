@@ -1072,21 +1072,18 @@ export class PermissionService extends PuterService {
         const ids = await this.stores.permission.listUserPermissionIssuerIds(
             user.id,
         );
-        const users: Array<UserRowSummary | null> = [];
-        for (const id of ids) {
-            const u = await this.stores.user.getById(id);
-            users.push(
-                u
-                    ? {
-                          id: u.id,
-                          uuid: u.uuid,
-                          username: u.username,
-                          email: u.email,
-                      }
-                    : null,
-            );
-        }
-        return users;
+        const usersById = await this.stores.user.getByIds(ids);
+        return ids.map((id) => {
+            const u = usersById.get(id);
+            return u
+                ? {
+                      id: u.id,
+                      uuid: u.uuid,
+                      username: u.username,
+                      email: u.email,
+                  }
+                : null;
+        });
     }
 
     async queryIssuerPermissionsByPrefix(
@@ -1109,31 +1106,31 @@ export class PermissionService extends PuterService {
                 prefix,
             ),
         ]);
-        const users = await Promise.all(
-            userRows.map(async (r) => {
-                const u = await this.stores.user.getById(r.holder_user_id);
-                return {
-                    user: u
-                        ? {
-                              id: u.id,
-                              uuid: u.uuid,
-                              username: u.username,
-                              email: u.email,
-                          }
-                        : null,
-                    permission: r.permission,
-                };
-            }),
-        );
-        const apps = (await Promise.all(
-            appRows.map(async (r) => {
-                const a = await this.stores.app.getById(r.app_id);
-                return {
-                    app: a ? { id: a.id, uid: a.uid, name: a.name } : null,
-                    permission: r.permission,
-                };
-            }),
-        )) as Array<{
+        const [usersById, appsById] = await Promise.all([
+            this.stores.user.getByIds(userRows.map((r) => r.holder_user_id)),
+            this.stores.app.getByIds(appRows.map((r) => r.app_id)),
+        ]);
+        const users = userRows.map((r) => {
+            const u = usersById.get(r.holder_user_id);
+            return {
+                user: u
+                    ? {
+                          id: u.id,
+                          uuid: u.uuid,
+                          username: u.username,
+                          email: u.email,
+                      }
+                    : null,
+                permission: r.permission,
+            };
+        });
+        const apps = appRows.map((r) => {
+            const a = appsById.get(r.app_id);
+            return {
+                app: a ? { id: a.id, uid: a.uid, name: a.name } : null,
+                permission: r.permission,
+            };
+        }) as Array<{
             app: { id: number; uid: string; name?: string } | null;
             permission: string;
         }>;

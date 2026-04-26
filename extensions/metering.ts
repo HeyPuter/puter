@@ -101,11 +101,14 @@ extension.get(
     },
 );
 
-// Public: flat dump of every driver/controller's declared cost catalogue.
 // First hit walks the registries; subsequent hits serve the in-memory cache.
-extension.get('/metering/allCosts', { subdomain: 'api' }, async (_req, res) => {
-    if (!cachedAllCosts) {
-        cachedAllCosts = collectAllCosts();
-    }
-    res.json({ costs: cachedAllCosts });
-});
+extension.get(
+    '/metering/allCosts',
+    { subdomain: 'api', requireAuth: true },
+    async (_req, res) => {
+        if (!cachedAllCosts) {
+            cachedAllCosts = collectAllCosts();
+        }
+        res.json({ costs: cachedAllCosts });
+    },
+);

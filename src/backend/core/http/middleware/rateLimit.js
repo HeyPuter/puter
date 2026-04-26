@@ -5,11 +5,13 @@ import { HttpError } from '../HttpError.js';
  * Sliding-window rate limiter with a swappable backend.
  *
  * Three backends, selected once at boot via `configureRateLimit(...)`:
- *   - `memory` (default): per-process counters.
  *   - `redis`:  Redis sorted sets — atomic per key across a cluster.
+ *               Boot default (server.ts); ioredis-mock in dev.
  *   - `kv`:     one row per hit in the system KV (DynamoDB), with TTL.
  *               `kv.list()` already drops expired rows, so "entries under
  *               the prefix" == "entries still in the window".
+ *   - `memory`: per-process counters. Capped + actively swept; does not
+ *               coordinate across nodes, so use only when redis is absent.
  *
  * Each backend exports a `check(key, limit, windowMs)` that returns
  * `true` (and records the hit) or `false` (rate-limited). That's the
@@ -18,12 +20,22 @@ import { HttpError } from '../HttpError.js';
 
 // ── Memory backend ──────────────────────────────────────────────────
 
+// Hard cap and retention bound memory in the worst case. Without them,
+// one-shot keys (visited once, never again) leak forever: their single
+// timestamp prevents the empty-array sweep from collecting them, even
+// after the window has long passed.
+const MEMORY_MAX_KEYS = 10_000;
+const MEMORY_MAX_RETAIN_MS = 60 * 60_000;
+
 const memoryWindows = new Map();
 {
     const sweep = setInterval(() => {
-        for (const [k, ts] of memoryWindows)
-            if (ts.length === 0) memoryWindows.delete(k);
-    }, 4.5 * 60_000);
+        const cutoff = Date.now() - MEMORY_MAX_RETAIN_MS;
+        for (const [k, ts] of memoryWindows) {
+            if (ts.length === 0 || ts[ts.length - 1] < cutoff)
+                memoryWindows.delete(k);
+        }
+    }, 60_000);
     sweep.unref?.();
 }
 
@@ -32,6 +44,12 @@ async function checkMemory(key, limit, windowMs) {
     const cutoff = now - windowMs;
     let timestamps = memoryWindows.get(key);
     if (!timestamps) {
+        // Map preserves insertion order; FIFO-evict before adding so a
+        // unique-key flood between sweep ticks can't blow up memory.
+        if (memoryWindows.size >= MEMORY_MAX_KEYS) {
+            const oldest = memoryWindows.keys().next().value;
+            memoryWindows.delete(oldest);
+        }
         timestamps = [];
         memoryWindows.set(key, timestamps);
     }
@@ -43,29 +61,41 @@ async function checkMemory(key, limit, windowMs) {
 
 // ── Redis backend ───────────────────────────────────────────────────
 
-async function checkRedis(redis, key, limit, windowMs) {
+async function checkRedis(
+    /** @type {import('ioredis').Cluster} */
+    redis,
+    /** @type {string} */
+    key,
+    /** @type {number} */
+    limit,
+    /** @type {number} */
+    windowMs,
+) {
     const redisKey = `rate:${key}`;
     const now = Date.now();
     const cutoff = now - windowMs;
     const member = `${now}:${crypto.randomUUID()}`;
 
-    // Trim expired entries and count in the same round-trip.
+    // Valkey/Redis MULTI/EXEC keeps this standard-command path compatible with
+    // managed clusters where Lua scripting may be restricted. Add before
+    // counting so concurrent requests cannot all observe count < limit and
+    // over-admit; if the post-add count is too high, remove this request's
+    // member and reject. Races can be conservative, but not permissive.
     const results = await redis
         .multi()
         .zremrangebyscore(redisKey, 0, cutoff)
-        .zcard(redisKey)
-        .exec();
-    const count = Number(
-        Array.isArray(results[1]) ? results[1][1] : results[1],
-    );
-    if (count >= limit) return false;
-
-    // Record this hit; bump the key's TTL so idle buckets evict themselves.
-    await redis
-        .multi()
         .zadd(redisKey, now, member)
+        .zcard(redisKey)
         .pexpire(redisKey, windowMs)
         .exec();
+
+    const count = Number(
+        Array.isArray(results[2]) ? results[2][1] : results[2],
+    );
+    if (count > limit) {
+        await redis.zrem(redisKey, member);
+        return false;
+    }
     return true;
 }
 
@@ -164,11 +194,11 @@ function resolveKey(req, scope, strategy) {
 }
 
 function ip(req) {
-    return (
-        req.headers?.['x-forwarded-for']?.split(',')[0]?.trim() ||
-        req.socket?.remoteAddress ||
-        'unknown'
-    );
+    // `req.ip` honors the app-level `trust proxy` setting — it returns the
+    // leftmost untrusted XFF address when behind the configured proxy chain
+    // and the direct socket peer otherwise. Reading XFF directly would let a
+    // client forge their rate-limit key by spoofing the header.
+    return req.ip || req.socket?.remoteAddress || 'unknown';
 }
 
 function fingerprint(req) {

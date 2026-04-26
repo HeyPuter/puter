@@ -347,6 +347,17 @@ interface IConfigOptional {
     custom_domains_enabled: boolean;
     /** When true, enable IP validation via event bus. */
     enable_ip_validation: boolean;
+    /**
+     * Express `trust proxy` setting — controls how `req.ip` is derived from
+     * `X-Forwarded-For`. Set to the number of reverse-proxy hops in front of
+     * the server (e.g. `1` for a single Cloudflare or nginx hop, `2` for
+     * Cloudflare → ALB → app), or to a CIDR / IP / list of trusted proxy
+     * addresses. `false` (default) disables XFF parsing — `req.ip` returns
+     * the direct socket peer, which is the safe choice when no proxy is in
+     * front. Never set to `true` in production: it trusts *every* hop and
+     * makes XFF forgeable. See https://expressjs.com/en/guide/behind-proxies.html.
+     */
+    trust_proxy: boolean | number | string | string[];
     /** Don't launch browser when starting. */
     no_browser_launch: boolean;
 
@@ -482,8 +493,14 @@ interface IConfigOptional {
     // ── Extension-specific ──────────────────────────────────────────
 
     /**
-     * Flat `{ flag_name: boolean }` bag surfaced to clients via `/whoami`.
-     * Non-boolean values are coerced.
+     * Flat `{ flag_name: boolean }` bag of feature toggles. Non-boolean values
+     * are coerced before use.
+     *
+     * Server-only by default. Flags are surfaced to clients via `/whoami` only
+     * if their key is on the allowlist in `extensions/whoami.ts`
+     * (`CLIENT_VISIBLE_FEATURE_FLAGS`). New flags should be assumed internal —
+     * add them to the allowlist explicitly if (and only if) the client needs
+     * to read them.
      */
     feature_flags: Record<string, boolean | string | number>;
     /** Blocked email TLDs / domains — checked in `prod` only. */
