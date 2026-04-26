@@ -29,6 +29,7 @@
     --dashboard-text-muted: #94a3b8;
 
     --dashboard-card-background: #ffffff;
+    --dashboard-content-background: #fcfcfd;
     --dashboard-card-gradient-start: #f8fafc;
     --dashboard-card-gradient-end: #e2e8f0;
     --dashboard-avatar-background: #ddd;
@@ -110,6 +111,7 @@ body {
         --dashboard-text-muted: #64748b;
 
         --dashboard-card-background: #262626;
+        --dashboard-content-background: #1e1e1e;
         --dashboard-card-gradient-start: #2a2a2a;
         --dashboard-card-gradient-end: #1f1f1f;
         --dashboard-avatar-background: #3f3f3f;
@@ -438,6 +440,7 @@ body {
     padding: 24px 32px;
     overflow-y: auto;
     overflow-x: hidden;
+    background: var(--dashboard-content-background);
 }
 
 .dashboard-section {
@@ -3051,9 +3054,6 @@ body {
     background: var(--dashboard-card-background);
     border-radius: 16px;
     border: 1px solid var(--dashboard-shadow-light);
-    box-shadow:
-        0 1px 3px var(--dashboard-shadow-subtle),
-        0 4px 12px rgba(0, 0, 0, 0.03);
 }
 
 /* Profile card */
