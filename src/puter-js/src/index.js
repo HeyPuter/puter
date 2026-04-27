@@ -22,6 +22,7 @@ import UI from './modules/UI.js';
 import Util from './modules/Util.js';
 import { WorkersHandler } from './modules/Workers.js';
 import Peer from './modules/Peer.js';
+import { registerComponents } from './ui/registerComponents.js';
 
 class SimpleLogger {
     constructor (fields = {}) {
@@ -177,6 +178,9 @@ const puterInit = (function () {
 
             // Path
             this.path = path;
+
+            // Register web components for standalone UI fallback
+            registerComponents();
         };
 
         normalizeAuthTokenCandidate = function (tokenCandidate) {
