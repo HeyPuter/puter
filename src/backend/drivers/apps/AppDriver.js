@@ -376,7 +376,7 @@ export class AppDriver extends PuterDriver {
             // the unauthenticated GET /app-icon/:uid would otherwise 302
             // there and turn this endpoint into a Puter-branded open
             // redirector (cached publicly for 15 min).
-            if (iconStr.length > 0) {
+            if (iconStr && iconStr.length > 0) {
                 // Raw base64 → wrap as data URL (v1 parity)
                 if (isRawBase64ImageString(iconStr)) {
                     iconStr = normalizeRawBase64ImageString(iconStr);
