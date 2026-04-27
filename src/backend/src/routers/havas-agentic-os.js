@@ -579,6 +579,49 @@ router.get('/api/havas-agentic-os/mcp/jira', handle(async (req, res, core) => {
     return ok(res, { data: jiraPayload(core, actor) });
 }));
 
+router.post('/api/havas-agentic-os/mcp/jira/proposals', jsonBody, handle(async (req, res, core) => {
+    const body = req.body || {};
+    const actor = body.actor || 'operator';
+    const toolName = String(body.toolName || '').trim();
+    const proposalTools = core.mcp.proposalTools().filter(tool => tool.serverId === 'jira');
+
+    if ( ! toolName ) throw new Error('toolName_required');
+    if ( ! proposalTools.some(tool => tool.name === toolName) ) throw new Error('jira_proposal_tool_not_allowed');
+
+    const run = core.orchestrator.runMCP({
+        intent: body.intent || toolName,
+        serverId: 'jira',
+        toolName,
+        actor,
+        arguments: body.arguments || {},
+    });
+
+    const proposal = core.mcp.proposals().find(item => item.proposalId === run.toolCall?.proposal?.proposalId) || null;
+
+    core.tasks.create('mcp:jira:proposal', `Submitted Jira proposal: ${toolName}`);
+    core.audit.record('jira.proposal.submit', actor, toolName, {
+        proposalId: proposal?.proposalId,
+        auditId: run.toolCall?.auditId,
+        proposalOnly: true,
+        liveJiraWriteExecuted: false,
+    });
+
+    return ok(res, {
+        submission: {
+            actor,
+            toolName,
+            proposalOnly: true,
+            liveJiraWriteExecuted: false,
+            writePathNote: 'Jira write tools are first-class proposal-and-approval flows. No live Atlassian write is executed. Proposals are recorded in the audit log and require approval.',
+            proposal,
+            taskMonitor: {
+                pendingCount: core.mcp.proposals().filter(item => item.serverId === 'jira').length,
+            },
+        },
+        run,
+    });
+}));
+
 router.get('/api/havas-agentic-os/mcp/confluence', handle(async (req, res, core) => {
     const actor = req.query?.actor || 'viewer';
     core.audit.record('mcp.workspace.view', actor, 'confluence');
@@ -636,6 +679,13 @@ router.get('/api/havas-agentic-os/mcp/availability', handle(async (req, res, cor
 
 router.get('/api/havas-agentic-os/mcp/task-monitor', handle(async (req, res, core) => {
     const jiraAvailability = atlassianAvailability(core, 'jira');
+    const jiraProposals = core.mcp.proposals()
+        .filter(p => p.serverId === 'jira')
+        .map(p => ({
+            ...p,
+            status: 'Awaiting approval',
+            statusTone: 'warn',
+        }));
     return ok(res, {
         approvals: mcpApprovalRows(core),
         state: {
@@ -650,46 +700,62 @@ router.get('/api/havas-agentic-os/mcp/task-monitor', handle(async (req, res, cor
                 note: jiraAvailability.writePathNote,
                 approvalRequired: true,
             },
-            pendingCount: core.mcp.proposals().filter(p => p.serverId === 'jira').length,
-            proposals: core.mcp.proposals()
-                .filter(p => p.serverId === 'jira')
-                .map(p => ({
-                    ...p,
-                    status: 'Awaiting approval',
-                    statusTone: 'warn',
-                })),
+            pendingCount: jiraProposals.length,
+            latestProposal: jiraProposals[0] || null,
+            proposals: jiraProposals,
         },
     });
 }));
 
 router.post('/api/havas-agentic-os/mcp/task-monitor', jsonBody, handle(async (req, res, core) => {
     const message = String(req.body?.message || '').trim();
+    const normalizedMessage = message.toLowerCase();
     const confluenceReadTool = hasMCPTool(core, 'confluence.search') ? 'confluence.search' : 'confluence.discoveryStatus';
     const jiraReadTool = hasMCPTool(core, 'jira.issueEvidence')
         ? 'jira.issueEvidence'
         : hasMCPTool(core, 'jira.projectEvidence')
             ? 'jira.projectEvidence'
             : 'jira.discoveryStatus';
+    const jiraProposalTool = normalizedMessage.includes('comment')
+        ? 'jira.addComment'
+        : normalizedMessage.includes('transition') || normalizedMessage.includes('move issue') || normalizedMessage.includes('change status')
+            ? 'jira.transitionIssue'
+            : normalizedMessage.includes('assign')
+                ? 'jira.assignIssue'
+                : normalizedMessage.includes('label')
+                    ? 'jira.updateLabels'
+                    : normalizedMessage.includes('create issue') || normalizedMessage.includes('new issue')
+                        ? 'jira.createIssue'
+                        : null;
+    const serverId = normalizedMessage.includes('jira')
+        ? 'jira'
+        : normalizedMessage.includes('confluence')
+            ? 'confluence'
+            : 'code';
+    const toolName = normalizedMessage.includes('pipeline')
+        ? 'code.runPipeline'
+        : serverId === 'jira'
+            ? jiraProposalTool || jiraReadTool
+            : serverId === 'confluence'
+                ? confluenceReadTool
+                : 'code.search';
     const run = core.orchestrator.runMCP({
         intent: message || 'code search',
-        serverId: message.includes('jira') ? 'jira' : message.includes('confluence') ? 'confluence' : 'code',
+        serverId,
         actor: req.body?.actor || 'operator',
         arguments: { query: message || 'status' },
-        toolName: message.includes('pipeline')
-            ? 'code.runPipeline'
-            : message.includes('jira')
-                ? jiraReadTool
-                : message.includes('confluence')
-                    ? confluenceReadTool
-                    : 'code.search',
+        toolName,
         approval: req.body?.approval,
     });
+    const proposal = run.toolCall?.proposal || null;
     return ok(res, {
-        reply: run.toolCall.requiresApproval
-            ? `MCP approval required: ${run.toolCall.approvalScope}`
-            : run.toolCall.ok
-                ? `MCP task completed through ${run.toolCall.toolName}`
-                : `MCP task failed through ${run.toolCall.toolName}`,
+        reply: proposal
+            ? `Jira proposal recorded: ${proposal.proposalId}. No live Jira write executed. Review in Task Monitor.`
+            : run.toolCall.requiresApproval
+                ? `MCP approval required: ${run.toolCall.approvalScope}`
+                : run.toolCall.ok
+                    ? `MCP task completed through ${run.toolCall.toolName}`
+                    : `MCP task failed through ${run.toolCall.toolName}`,
         approval: {
             requiresApproval: run.toolCall.requiresApproval || false,
             approvalScope: run.toolCall.approvalScope || null,
@@ -697,6 +763,14 @@ router.post('/api/havas-agentic-os/mcp/task-monitor', jsonBody, handle(async (re
             permissionDecision: run.toolCall.permissionDecision,
             auditId: run.toolCall.auditId || null,
         },
+        proposal: proposal ? {
+            proposalId: proposal.proposalId,
+            toolName: proposal.toolName,
+            description: proposal.description,
+            auditId: run.toolCall.auditId || null,
+            pendingCount: core.mcp.proposals().filter(item => item.serverId === 'jira').length,
+            liveJiraWriteExecuted: false,
+        } : null,
         run,
     });
 }));

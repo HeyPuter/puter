@@ -386,6 +386,7 @@ const renderTaskMonitor = (items, approvals, jiraProposals = []) => `
         </section>
         <section>
             <h2>Jira proposals pending (${jiraProposals.length})</h2>
+            ${jiraProposals.length ? `
             <div class="ha-table">
                 ${jiraProposals.map(item => `
                     <button class="ha-row compact proposal" type="button" data-inspect="${escapeHTML(item.id)}">
@@ -395,6 +396,7 @@ const renderTaskMonitor = (items, approvals, jiraProposals = []) => `
                     </button>
                 `).join('')}
             </div>
+            ` : '<div class="ha-empty">No Jira proposals are waiting for approval.</div>'}
         </section>
         <section>
             <h2>Permission states and approvals</h2>
@@ -475,7 +477,12 @@ const normalizeJiraProposals = (proposals = {}) => {
         id: item.proposalId,
         title: `Jira proposal: ${titleCase(item.toolName)}`,
         owner: item.actor || 'JIRA MCP',
-        detail: item.description || 'Proposal-only action. Approve to audit.',
+        detail: [
+            item.description || 'Proposal-only action. Approve before execution.',
+            item.auditId ? `Audit ${item.auditId}` : 'Audit pending',
+            item.createdAt ? humanTime(item.createdAt) : null,
+            mode && mode !== 'unknown' ? `${mode} path` : null,
+        ].filter(Boolean).join(' • '),
         state: item.status || 'Awaiting approval',
         statusTone: item.statusTone || 'warn',
         auditId: item.auditId || 'Pending audit',
@@ -949,6 +956,7 @@ const renderJira = (root, data = JIRA_FALLBACK) => {
                     <strong>${escapeHTML(item.name)}</strong>
                     <p>${escapeHTML(item.proposalDescription || 'Proposal write tool')}</p>
                     <span class="ha-pill warn">Proposal</span>
+                    <button class="ha-secondary" type="button" data-submit-proposal-tool="${escapeHTML(item.name)}">Submit proposal</button>
                 </div>
             `).join('')
             : '<div class="ha-agent-note"><p>No proposal write tools registered.</p></div>'}
@@ -1090,6 +1098,11 @@ const wireJira = root => {
         };
         renderJira(root, normalizeJiraData({ jira, connections, tools: mergedTools, monitor }));
     };
+    root.addEventListener('click', event => {
+        const button = event.target.closest('[data-submit-proposal-tool]');
+        if ( !button || !root.contains(button) ) return;
+        submitJiraProposal(button.dataset.submitProposalTool, button, load);
+    });
     load();
     return { load };
 };
@@ -1176,6 +1189,40 @@ const postAgentCommand = async (message, history) => {
         body: JSON.stringify({ message, history: history.slice(-8) }),
     });
     return data.reply || data.message || fallback;
+};
+
+const submitJiraProposal = async (toolName, button, onSubmitted) => {
+    if ( !toolName || button?.disabled ) return;
+    button.disabled = true;
+    const previousLabel = button.textContent;
+    button.textContent = 'Submitting...';
+    const data = await mcpFetch('jira/proposals', { submission: { proposalOnly: true } }, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ toolName }),
+    });
+    const submission = data?.submission || {};
+    const proposalId = submission.proposal?.proposalId || '';
+    const auditId = submission.proposal?.auditId || data?.run?.toolCall?.auditId || '';
+    const pendingCount = submission.taskMonitor?.pendingCount ?? '';
+    const notice = `Submitted ${toolName} proposal. Proposal only, no live Jira write executed.${proposalId ? ` proposal=${proposalId}` : ''}${auditId ? ` audit=${auditId}` : ''}${pendingCount !== '' ? ` pending=${pendingCount}` : ''}`;
+    const container = document.querySelector('[data-window="jira"] .ha-jira-main');
+    if ( container ) {
+        const noticeNode = document.createElement('div');
+        noticeNode.className = 'ha-agent-note';
+        noticeNode.innerHTML = `<strong>${escapeHTML('Proposal submitted')}</strong><p>${escapeHTML(notice)}</p>`;
+        container.prepend(noticeNode);
+    }
+    button.textContent = 'Submitted';
+    setTimeout(() => {
+        button.textContent = previousLabel;
+        button.disabled = false;
+    }, 1600);
+    if ( typeof onSubmitted === 'function' ) {
+        try {
+            await onSubmitted();
+        } catch { /* keep submission UX responsive */ }
+    }
 };
 
 const wireChat = root => {
