@@ -18,7 +18,7 @@ export interface BatchEntry {
  * `clients/database/index.ts` which picks the right implementation
  * based on `config.database.engine`.
  */
-export class DatabaseClient extends PuterClient {
+export class AbstractDatabaseClient extends PuterClient {
     /** Short name used by `case()` to pick engine-specific values. */
     readonly engineName: string = '';
 

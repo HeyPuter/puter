@@ -34,9 +34,9 @@ interface UsageInput {
 /**
  * Tracks per-actor and global usage, and exposes subscription/addon lookup.
  * All metering data is persisted under the system namespace via
- * `stores.kv` (SystemKVStore), so no sudo wrapping is required.
+ * `stores.kv` (SystemKVStore)
  *
- * Callers (typically drivers) pass the user-scoped actor in; we fan that
+ * Callers (typically drivers or controllers) pass the user-scoped actor in; we fan that
  * out into several aggregated KV records.
  */
 export class MeteringService extends PuterService {
@@ -179,7 +179,7 @@ export class MeteringService extends PuterService {
                 .then((r) => r.res as unknown as UsageByType);
 
             // Aux writes — fire and forget
-            this.fireAux(
+            this.handleAuxPromise(
                 `puterConsumption ${userId}/${appId}`,
                 this.stores.kv.incr({
                     key: this.globalUsageKey(userId, appId, currentMonth),
@@ -187,7 +187,7 @@ export class MeteringService extends PuterService {
                 }),
             );
 
-            this.fireAux(
+            this.handleAuxPromise(
                 `actorAppUsage ${userId}/${appId}`,
                 this.stores.kv.incr({
                     key: `${METRICS_PREFIX}:actor:${userId}:app:${appId}:${currentMonth}`,
@@ -196,7 +196,7 @@ export class MeteringService extends PuterService {
             );
 
             if (appId !== GLOBAL_APP_KEY) {
-                this.fireAux(
+                this.handleAuxPromise(
                     `appUsage ${appId}/${userId}`,
                     this.stores.kv.incr({
                         key: this.appUsageKey(appId, userId, currentMonth),
@@ -205,7 +205,7 @@ export class MeteringService extends PuterService {
                 );
             }
 
-            this.fireAux(
+            this.handleAuxPromise(
                 `actorAppTotals ${userId}`,
                 this.stores.kv.incr({
                     key: `${METRICS_PREFIX}:actor:${userId}:apps:${currentMonth}`,
@@ -216,7 +216,7 @@ export class MeteringService extends PuterService {
                 }),
             );
 
-            this.fireAux(
+            this.handleAuxPromise(
                 'lastUpdated',
                 this.stores.kv.set({
                     key: `${METRICS_PREFIX}:actor:${userId}:lastUpdated`,
@@ -346,28 +346,28 @@ export class MeteringService extends PuterService {
                 })
                 .then((r) => r.res as unknown as UsageByType);
 
-            this.fireAux(
+            this.handleAuxPromise(
                 `puterConsumption ${userId}/${appId}`,
                 this.stores.kv.incr({
                     key: this.globalUsageKey(userId, appId, currentMonth),
                     pathAndAmountMap: aggregated,
                 }),
             );
-            this.fireAux(
+            this.handleAuxPromise(
                 `actorAppUsage ${userId}/${appId}`,
                 this.stores.kv.incr({
                     key: `${METRICS_PREFIX}:actor:${userId}:app:${appId}:${currentMonth}`,
                     pathAndAmountMap: aggregated,
                 }),
             );
-            this.fireAux(
+            this.handleAuxPromise(
                 `appUsage ${appId}/${userId}`,
                 this.stores.kv.incr({
                     key: this.appUsageKey(appId, userId, currentMonth),
                     pathAndAmountMap: aggregated,
                 }),
             );
-            this.fireAux(
+            this.handleAuxPromise(
                 `actorAppTotals ${userId}`,
                 this.stores.kv.incr({
                     key: `${METRICS_PREFIX}:actor:${userId}:apps:${currentMonth}`,
@@ -377,7 +377,7 @@ export class MeteringService extends PuterService {
                     },
                 }),
             );
-            this.fireAux(
+            this.handleAuxPromise(
                 'lastUpdated',
                 this.stores.kv.set({
                     key: `${METRICS_PREFIX}:actor:${userId}:lastUpdated`,
@@ -519,21 +519,21 @@ export class MeteringService extends PuterService {
             await this.stores.kv.incr({ key: actorUsageKey, pathAndAmountMap })
         ).res as unknown as UsageByType;
 
-        this.fireAux(
+        this.handleAuxPromise(
             `puterConsumption ${userId}/${appId}`,
             this.stores.kv.incr({
                 key: this.globalUsageKey(userId, appId, currentMonth),
                 pathAndAmountMap,
             }),
         );
-        this.fireAux(
+        this.handleAuxPromise(
             `actorAppUsage ${userId}/${appId}`,
             this.stores.kv.incr({
                 key: `${METRICS_PREFIX}:actor:${userId}:app:${appId}:${currentMonth}`,
                 pathAndAmountMap,
             }),
         );
-        this.fireAux(
+        this.handleAuxPromise(
             `actorAppTotals ${userId}`,
             this.stores.kv.incr({
                 key: `${METRICS_PREFIX}:actor:${userId}:apps:${currentMonth}`,
@@ -543,7 +543,7 @@ export class MeteringService extends PuterService {
                 },
             }),
         );
-        this.fireAux(
+        this.handleAuxPromise(
             'lastUpdated',
             this.stores.kv.set({
                 key: `${METRICS_PREFIX}:actor:${userId}:lastUpdated`,
@@ -752,7 +752,7 @@ export class MeteringService extends PuterService {
         return `${METRICS_PREFIX}:app:${appId}:${hash}:${currentMonth}`;
     }
 
-    private fireAux(label: string, promise: Promise<unknown>): void {
+    private handleAuxPromise(label: string, promise: Promise<unknown>): void {
         promise.catch((e: Error) => {
             console.warn(
                 `[metering] aux write failed (${label}): ${e.message}`,

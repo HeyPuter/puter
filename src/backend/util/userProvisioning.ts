@@ -1,5 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
-import type { DatabaseClient } from '../clients/database/DatabaseClient';
+import type { AbstractDatabaseClient } from '../clients/database/DatabaseClient';
 import type { GroupStore } from '../stores/group/GroupStore';
 import type { UserRow, UserStore } from '../stores/user/UserStore';
 import type { IConfig } from '../types';
@@ -31,7 +31,7 @@ type FolderName = (typeof DEFAULT_FOLDERS)[number];
  * last). One extra round-trip, zero ambiguity.
  */
 export async function generateDefaultFsentries(
-    db: DatabaseClient,
+    db: AbstractDatabaseClient,
     userStore: UserStore,
     user: UserRow,
 ): Promise<void> {

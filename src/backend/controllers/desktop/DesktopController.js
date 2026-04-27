@@ -115,7 +115,7 @@ export class DesktopController extends PuterController {
                     );
                 }
                 await this.#updateFSEntry(
-                    req.actor.user.id,
+                    req.actor,
                     { item_uid, item_path },
                     { layout },
                 );
@@ -148,7 +148,7 @@ export class DesktopController extends PuterController {
                     );
                 }
                 await this.#updateFSEntry(
-                    req.actor.user.id,
+                    req.actor,
                     { item_uid, item_path },
                     {
                         sort_by,
@@ -163,35 +163,44 @@ export class DesktopController extends PuterController {
     // ── Helpers ──────────────────────────────────────────────────────
 
     /**
-     * Update columns on a user-owned fsentry, scoped by user_id for
-     * security. Accepts either `item_uid` (fast path) or `item_path`.
+     * Update columns on an actor-owned fsentry. Accepts either `item_uid`
+     * (fast path) or `item_path` (path lookups in FSEntryStore now have
+     * a recursive-CTE fallback for legacy rows with a NULL `path` column,
+     * so this works for old accounts too).
+     *
+     * Ownership: `entry.user_id === actor.user.id`. Kept as added
+     * validation against bad paths — the previous "drop user_id entirely"
+     * theory turned out to be wrong (the actual legacy issue was NULL
+     * paths, not user_id drift), so this filter doesn't lock out old
+     * accounts in practice.
      */
-    async #updateFSEntry(userId, { item_uid, item_path }, patch) {
+    async #updateFSEntry(actor, { item_uid, item_path }, patch) {
         if (!item_uid && !item_path) {
             throw new HttpError(400, 'Missing `item_uid` or `item_path`');
+        }
+
+        const entry = item_uid
+            ? await this.stores.fsEntry.getEntryByUuid(item_uid)
+            : await this.stores.fsEntry.getEntryByPath(item_path);
+        if (!entry) {
+            throw new HttpError(404, 'Item not found');
+        }
+
+        const actorUserId = actor?.user?.id;
+        if (typeof actorUserId !== 'number' || entry.userId !== actorUserId) {
+            throw new HttpError(403, 'Not allowed to update this item');
         }
 
         const keys = Object.keys(patch);
         const setClause = keys.map((k) => `\`${k}\` = ?`).join(', ');
         const values = keys.map((k) => patch[k]);
 
-        let result;
-        if (item_uid) {
-            result = await this.db.write(
-                `UPDATE \`fsentries\` SET ${setClause} WHERE \`uuid\` = ? AND \`user_id\` = ?`,
-                [...values, item_uid, userId],
-            );
-        } else {
-            result = await this.db.write(
-                `UPDATE \`fsentries\` SET ${setClause} WHERE \`path\` = ? AND \`user_id\` = ?`,
-                [...values, item_path, userId],
-            );
-        }
+        await this.db.write(
+            `UPDATE \`fsentries\` SET ${setClause} WHERE \`id\` = ?`,
+            [...values, entry.id],
+        );
 
-        const affected = result?.affectedRows ?? result?.changes ?? 0;
-        if (affected === 0) {
-            throw new HttpError(404, 'Item not found or not owned by you');
-        }
+        await this.stores.fsEntry.invalidateEntryCacheByUuid(entry.uuid);
     }
 
     onServerStart() {}

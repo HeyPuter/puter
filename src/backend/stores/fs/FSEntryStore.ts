@@ -508,6 +508,20 @@ export class FSEntryStore extends PuterStore {
             }
         }
 
+        // Per-path lineage fallback for entries the bulk SELECT missed —
+        // legacy rows with a NULL `path` column (see #resolveEntryByPathLineage).
+        // Sequential to keep the round-trip cost predictable; the common case
+        // is a single missing path.
+        const stillMissing = normalizedPaths.filter(
+            (path) => !entriesByPath.has(path),
+        );
+        for (const path of stillMissing) {
+            const entry = await this.#resolveEntryByPathLineage(path);
+            if (entry) {
+                entriesByPath.set(path, entry);
+            }
+        }
+
         return entriesByPath;
     }
 
@@ -741,6 +755,7 @@ export class FSEntryStore extends PuterStore {
         const dirName = pathPosix.basename(normalizedPath);
         const now = Math.floor(Date.now() / 1000);
 
+        let insertError: unknown = null;
         try {
             await this.clients.db.write(
                 `${this.#insertIgnoreIntoFsentriesSql()} (
@@ -769,8 +784,12 @@ export class FSEntryStore extends PuterStore {
                     now,
                 ],
             );
-        } catch {
-            // If another request created it first, we'll fetch it below.
+        } catch (err) {
+            // Most often a concurrent create raced us — the SELECT below
+            // will pick up the row the other request inserted. If the
+            // SELECT then comes back empty, surface this error so we can
+            // tell a real INSERT failure apart from the race.
+            insertError = err;
         }
 
         const resolvedEntries = await this.#readEntriesByPathsForUser(
@@ -780,6 +799,15 @@ export class FSEntryStore extends PuterStore {
         );
         const resolvedEntry = resolvedEntries.get(normalizedPath) ?? null;
         if (!resolvedEntry) {
+            if (insertError) {
+                throw new Error(
+                    `Failed to create directory ${normalizedPath}: ${
+                        insertError instanceof Error
+                            ? insertError.message
+                            : String(insertError)
+                    }`,
+                );
+            }
             throw new Error(
                 `Failed to resolve directory path: ${normalizedPath}`,
             );
@@ -831,12 +859,189 @@ export class FSEntryStore extends PuterStore {
             [normalizedPath],
         )) as unknown as FSEntryRow[];
         const row = rows[0];
-        if (!row) {
+        if (row) {
+            const entry = this.#mapFSEntryRow(row);
+            await this.#writeEntryToCache(entry);
+            return entry;
+        }
+
+        // Fallback for legacy rows whose `path` column was never populated
+        // (very old accounts pre-date the path-cache write). Mirrors v1's
+        // `convert_path_to_fsentry` lineage walk: split the path into
+        // segments, anchor at `parent_uid IS NULL` matching the first
+        // segment, then walk down via `parent_uid` chains. Backfills the
+        // `path` column on every resolved row so subsequent calls take
+        // the fast `WHERE path = ?` branch above.
+        return this.#resolveEntryByPathLineage(normalizedPath);
+    }
+
+    /**
+     * Recursive-CTE lineage resolver. Returns the entry at `path`, or null
+     * if any segment is unresolvable. On success, backfills the `path`
+     * column on every row in the lineage (one UPDATE per row, gated on
+     * `path IS NULL OR path != expected` so we don't write the same value
+     * back on warm rows).
+     *
+     */
+    async #resolveEntryByPathLineage(
+        normalizedPath: string,
+    ): Promise<FSEntry | null> {
+        if (normalizedPath === '/') return null;
+        const segments = normalizedPath.split('/').filter(Boolean);
+        if (segments.length === 0) return null;
+
+        // Build the segments CTE as an UNION ALL chain of literal SELECTs.
+        // Both SQLite and MySQL support recursive CTEs of this shape.
+        const segmentRows = segments
+            .map((_, i) =>
+                i === 0
+                    ? 'SELECT 1 AS depth, ? AS name'
+                    : `UNION ALL SELECT ${i + 1}, ?`,
+            )
+            .join(' ');
+        const sql = `
+            WITH RECURSIVE
+              segments(depth, name) AS (
+                ${segmentRows}
+              ),
+              lineage(id, uuid, depth) AS (
+                SELECT f.id, f.uuid, 1
+                FROM fsentries f
+                INNER JOIN segments s ON s.depth = 1
+                WHERE f.parent_uid IS NULL AND f.name = s.name
+
+                UNION ALL
+
+                SELECT f.id, f.uuid, l.depth + 1
+                FROM fsentries f
+                INNER JOIN lineage l ON f.parent_uid = l.uuid
+                INNER JOIN segments s ON s.depth = l.depth + 1
+                WHERE f.name = s.name
+              )
+            SELECT id, uuid, depth FROM lineage ORDER BY depth ASC, id ASC
+        `;
+
+        const rows = (await this.clients.db.read(sql, segments)) as {
+            id: number | string;
+            uuid: string;
+            depth: number | string;
+        }[];
+
+        // Take the lowest-id row at each depth (deterministic pick that
+        // matches v1's `LIMIT 1` per-segment behaviour).
+        const byDepth = new Map<number, { id: number; uuid: string }>();
+        for (const r of rows) {
+            const depth = Number(r.depth);
+            if (!byDepth.has(depth)) {
+                byDepth.set(depth, { id: Number(r.id), uuid: r.uuid });
+            }
+        }
+        if (byDepth.size !== segments.length) {
             return null;
         }
-        const entry = this.#mapFSEntryRow(row);
-        await this.#writeEntryToCache(entry);
-        return entry;
+
+        await this.#backfillLineagePaths(byDepth, segments);
+
+        const target = byDepth.get(segments.length);
+        if (!target) return null;
+        return this.getEntryByUuid(target.uuid);
+    }
+
+    async #backfillLineagePaths(
+        byDepth: Map<number, { id: number; uuid: string }>,
+        segments: string[],
+    ): Promise<void> {
+        for (let depth = 1; depth <= segments.length; depth++) {
+            const row = byDepth.get(depth);
+            if (!row) continue;
+            const expected = '/' + segments.slice(0, depth).join('/');
+            await this.clients.db.write(
+                `UPDATE fsentries SET path = ?
+                 WHERE id = ? AND (path IS NULL OR path <> ?)`,
+                [expected, row.id, expected],
+            );
+            await this.invalidateEntryCacheByUuid(row.uuid);
+        }
+    }
+
+    /**
+     * Upward-walk variant of the lineage resolver. Used by uuid/id lookups
+     * where we already have the row but its `path` column is NULL — same
+     * legacy state the path-based resolver heals from the other direction.
+     *
+     * Walks `parent_uid` chains from the entry up to the home row
+     * (`parent_uid IS NULL`), then reuses `#backfillLineagePaths` to write
+     * the correct `path` on every ancestor + the entry itself. Returns the
+     * re-fetched target entry so the caller doesn't need a second query.
+     *
+     * Returns null if the chain is broken (an intermediate `parent_uid`
+     * doesn't resolve to a row) — those rows are unrecoverable from this
+     * direction and the caller should fall back to whatever degraded
+     * behaviour it had before.
+     *
+     * Same security posture as `#resolveEntryByPathLineage`: this method
+     * only resolves + heals data, it does not authorize access. Callers
+     * still gate via ACL on the returned entry.
+     */
+    async #healEntryPathByLineageUp(
+        targetUuid: string,
+    ): Promise<FSEntry | null> {
+        const sql = `
+            WITH RECURSIVE
+              ancestors(id, uuid, parent_uid, name, depth) AS (
+                SELECT id, uuid, parent_uid, name, 0
+                FROM fsentries
+                WHERE uuid = ?
+
+                UNION ALL
+
+                SELECT f.id, f.uuid, f.parent_uid, f.name, a.depth + 1
+                FROM fsentries f
+                INNER JOIN ancestors a ON f.uuid = a.parent_uid
+              )
+            SELECT id, uuid, parent_uid, name, depth
+            FROM ancestors
+            ORDER BY depth ASC
+        `;
+        const rows = (await this.clients.db.read(sql, [targetUuid])) as Array<{
+            id: number | string;
+            uuid: string;
+            parent_uid: string | null;
+            name: string;
+            depth: number | string;
+        }>;
+        if (rows.length === 0) return null;
+
+        // Highest-depth row should be the home (parent_uid IS NULL). If it
+        // isn't, the chain dead-ends mid-walk — bail rather than write a
+        // bogus path.
+        const root = rows[rows.length - 1];
+        if (root.parent_uid !== null) return null;
+
+        // Reverse to root → target order so segments[0] is the home name
+        // and segments[N-1] is the target name. Then map into the
+        // (depth → row) shape `#backfillLineagePaths` expects (depth=1 is
+        // home, depth=N is target).
+        const ordered = [...rows].reverse();
+        const segments = ordered.map((r) => r.name);
+        const byDepth = new Map<number, { id: number; uuid: string }>();
+        for (let i = 0; i < ordered.length; i++) {
+            byDepth.set(i + 1, {
+                id: Number(ordered[i].id),
+                uuid: ordered[i].uuid,
+            });
+        }
+
+        await this.#backfillLineagePaths(byDepth, segments);
+
+        // Re-fetch the target so the caller gets an entry with the now
+        // populated `path` column (and the full column projection).
+        const refreshed = (await this.clients.db.read(
+            `SELECT ${this.#selectFsentriesColumns()} FROM fsentries WHERE uuid = ? LIMIT 1`,
+            [targetUuid],
+        )) as unknown as FSEntryRow[];
+        if (!refreshed[0]) return null;
+        return this.#mapFSEntryRow(refreshed[0]);
     }
 
     async getEntriesByPaths(paths: string[]): Promise<Map<string, FSEntry>> {
@@ -902,9 +1107,10 @@ export class FSEntryStore extends PuterStore {
     async getEntryByUuid(id: string): Promise<FSEntry | null> {
         const cacheKey = `prodfsv2:fsentry:uuid:${id}`;
         const cached = await this.#readEntryFromCache(cacheKey);
-        if (cached) {
-            return cached;
-        }
+        // Treat a cached row with no `path` as a miss — the cache may
+        // have captured a legacy NULL-path row pre-heal. Falling through
+        // to the DB read + heal lets the next caller hit the warm cache.
+        if (cached?.path) return cached;
 
         const rows = (await this.clients.db.read(
             `SELECT ${this.#selectFsentriesColumns()} FROM fsentries WHERE uuid = ? LIMIT 1`,
@@ -914,7 +1120,11 @@ export class FSEntryStore extends PuterStore {
         if (!row) {
             return null;
         }
-        const entry = this.#mapFSEntryRow(row);
+        let entry = this.#mapFSEntryRow(row);
+        if (!entry.path) {
+            const healed = await this.#healEntryPathByLineageUp(entry.uuid);
+            if (healed) entry = healed;
+        }
         await this.#writeEntryToCache(entry);
         return entry;
     }
@@ -922,9 +1132,7 @@ export class FSEntryStore extends PuterStore {
     async getEntryById(id: number): Promise<FSEntry | null> {
         const cacheKey = `prodfsv2:fsentry:id:${id}`;
         const cached = await this.#readEntryFromCache(cacheKey);
-        if (cached) {
-            return cached;
-        }
+        if (cached?.path) return cached;
 
         const rows = (await this.clients.db.read(
             `SELECT ${this.#selectFsentriesColumns()} FROM fsentries WHERE id = ? LIMIT 1`,
@@ -934,7 +1142,11 @@ export class FSEntryStore extends PuterStore {
         if (!row) {
             return null;
         }
-        const entry = this.#mapFSEntryRow(row);
+        let entry = this.#mapFSEntryRow(row);
+        if (!entry.path) {
+            const healed = await this.#healEntryPathByLineageUp(entry.uuid);
+            if (healed) entry = healed;
+        }
         await this.#writeEntryToCache(entry);
         return entry;
     }
@@ -969,7 +1181,8 @@ export class FSEntryStore extends PuterStore {
             }),
         );
         for (const { id, entry } of cacheReads) {
-            if (entry) {
+            // Same NULL-path-cache fallthrough as getEntryById/Uuid.
+            if (entry?.path) {
                 result.set(id, entry);
             } else {
                 missingIds.push(id);
@@ -990,6 +1203,17 @@ export class FSEntryStore extends PuterStore {
                     chunk,
                 )) as unknown as FSEntryRow[];
                 const entries = rows.map((row) => this.#mapFSEntryRow(row));
+                // Heal any legacy NULL-path rows in this chunk before
+                // caching. Sequential — typical workloads have zero such
+                // rows so the loop is a no-op.
+                for (let i = 0; i < entries.length; i++) {
+                    if (!entries[i].path) {
+                        const healed = await this.#healEntryPathByLineageUp(
+                            entries[i].uuid,
+                        );
+                        if (healed) entries[i] = healed;
+                    }
+                }
                 await Promise.all(
                     entries.map((entry) => this.#writeEntryToCache(entry)),
                 );

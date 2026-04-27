@@ -1,5 +1,5 @@
 import { createPool, type Pool } from 'mysql2';
-import { DatabaseClient, type WriteResult } from './DatabaseClient';
+import { AbstractDatabaseClient, type WriteResult } from './DatabaseClient';
 import { SQLBatcher } from './SQLBatcher.js';
 import type { IConfig } from '../../types';
 
@@ -29,7 +29,7 @@ enum Configuration {
     REPLICA,
 }
 
-export class MySQLDatabaseClient extends DatabaseClient {
+export class MySQLDatabaseClient extends AbstractDatabaseClient {
     override readonly engineName = 'mysql';
 
     private primaryPool!: Pool;

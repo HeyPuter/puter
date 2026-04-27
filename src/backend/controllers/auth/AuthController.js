@@ -4,21 +4,21 @@ import { v4 as uuidv4 } from 'uuid';
 import validator from 'validator';
 import { HttpError } from '../../core/http/HttpError.js';
 import { antiCsrf } from '../../core/http/middleware/antiCsrf.js';
+import { generateCaptcha } from '../../core/http/middleware/captcha.js';
 import { createUserProtectedGate } from '../../core/http/middleware/userProtected.js';
+import {
+    createRecoveryCode,
+    hashRecoveryCode,
+    createSecret as otpCreateSecret,
+    verify as verifyOtp,
+} from '../../services/auth/OTPUtil.js';
 import { cleanEmail, isBlockedEmail } from '../../util/email.js';
+import { generate_identifier } from '../../util/identifier.js';
+import { getTaskbarItems } from '../../util/taskbarItems.js';
 import {
     generateDefaultFsentries,
     promoteToVerifiedGroup,
 } from '../../util/userProvisioning.js';
-import { generateCaptcha } from '../../core/http/middleware/captcha.js';
-import {
-    createSecret as otpCreateSecret,
-    createRecoveryCode,
-    hashRecoveryCode,
-    verify as verifyOtp,
-} from '../../services/auth/OTPUtil.js';
-import { generate_identifier } from '../../util/identifier.js';
-import { getTaskbarItems } from '../../util/taskbarItems.js';
 import { PuterController } from '../types.js';
 
 const USERNAME_REGEX = /^\w{1,}$/;
@@ -1799,41 +1799,52 @@ export class AuthController extends PuterController {
                 if (!app_uid && origin) {
                     app_uid = await this.authService.appUidFromOrigin(origin);
                 }
-                if (!app_uid)
+                if (!app_uid) {
                     throw new HttpError(400, 'Missing `app_uid` or `origin`');
+                }
 
                 const app = await this.stores.app.getByUid(app_uid);
-                if (!app)
+                if (!app) {
                     throw new HttpError(404, `App ${app_uid} does not exist`);
+                }
+                // Grant the app-is-authenticated flag
+                const userPermGrantPromise =
+                    await this.permissionService.grantUserAppPermission(
+                        req.actor,
+                        app_uid,
+                        'flag:app-is-authenticated',
+                        {},
+                        {},
+                    );
 
                 const token = this.authService.getUserAppToken(
                     req.actor,
                     app_uid,
                 );
 
-                // Ensure the app's per-user AppData directory exists.
-                // v1 did this in LLMkdir with the app icon as thumbnail on
-                // first app open. mkdir is idempotent (returns existing dir
-                // without rewriting), and createMissingParents seeds
-                // `/<username>/AppData` if the user never had one.
-                const username = req.actor.user?.username;
-                const userId = req.actor.user?.id;
-                if (username && userId) {
-                    await this.services.fs.mkdir(userId, {
-                        path: `/${username}/AppData/${app_uid}`,
-                        createMissingParents: true,
-                        thumbnail: app.icon ?? null,
-                    });
-                }
+                const missingFSPathPromise = (async () => {
+                    // Ensure the app's per-user AppData directory exists.
+                    // v1 did this in LLMkdir with the app icon as thumbnail
+                    // on first app open. mkdir is idempotent (returns
+                    // existing dir without rewriting), and
+                    // createMissingParents seeds `/<username>/AppData` if
+                    // the user never had one. Path lookups in FSEntryStore
+                    // have a recursive-CTE fallback (mirrors v1's
+                    // `convert_path_to_fsentry` walk-down) so legacy rows
+                    // with a NULL `path` column still resolve and get
+                    // backfilled on first read.
+                    const username = req.actor.user?.username;
+                    const userId = req.actor.user?.id;
+                    if (username && userId) {
+                        await this.services.fs.mkdir(userId, {
+                            path: `/${username}/AppData/${app_uid}`,
+                            createMissingParents: true,
+                            thumbnail: app.icon ?? null,
+                        });
+                    }
+                })();
 
-                // Grant the app-is-authenticated flag
-                await this.permissionService.grantUserAppPermission(
-                    req.actor,
-                    app_uid,
-                    'flag:app-is-authenticated',
-                    {},
-                    {},
-                );
+                await Promise.all([userPermGrantPromise, missingFSPathPromise]);
 
                 res.json({ token, app_uid });
             },

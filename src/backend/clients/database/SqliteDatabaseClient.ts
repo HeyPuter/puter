@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'fs';
 import { basename, extname, join, resolve } from 'path';
 import { createContext, runInContext } from 'vm';
-import { DatabaseClient, type WriteResult } from './DatabaseClient';
+import { AbstractDatabaseClient, type WriteResult } from './DatabaseClient';
 import type { IConfig } from '../../types';
 
 const MIGRATIONS_DIR = resolve(__dirname, './migrations');
@@ -58,7 +58,7 @@ const AVAILABLE_MIGRATIONS: [number, string[]][] = [
     [42, ['0046_is-private-apps.sql']],
 ];
 
-export class SqliteDatabaseClient extends DatabaseClient {
+export class SqliteDatabaseClient extends AbstractDatabaseClient {
     override readonly engineName = 'sqlite';
 
     // better-sqlite3 instance — set during onServerStart
