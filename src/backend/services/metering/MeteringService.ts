@@ -58,7 +58,7 @@ export class MeteringService extends PuterService {
                     console.error('[metering] rate-of-change check failed', e);
                 });
             },
-            1000 * 60 * 16,
+            1000 * 60 * 25,
         );
         this.rateCheckTimer.unref?.();
     }

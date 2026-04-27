@@ -2,8 +2,9 @@ import crypto from 'node:crypto';
 import { HttpError } from '../HttpError.js';
 import svgCaptcha from 'svg-captcha';
 /**
- * Simple SVG captcha service — generates image challenges and
- * verifies one-time tokens. No external deps beyond `svg-captcha`.
+ * Simple SVG captcha service — generates image challenges and verifies
+ * one-time tokens. Tokens are stored in Redis so generation and verification
+ * can happen on different server nodes.
  *
  * Exposed as a route option: `{ captcha: true }` on any route.
  * The middleware rejects if captcha is enabled and the request
@@ -19,23 +20,32 @@ const DIFFICULTY = {
     hard: { size: 7, width: 200, height: 60, noise: 3 },
 };
 
-/** token → { text, expiresAt } */
-const tokens = new Map();
+let redisClient = null;
 
-// Cleanup every 15 minutes
-const cleanupTimer = setInterval(() => {
-    const now = Date.now();
-    for (const [k, v] of tokens.entries()) {
-        if (v.expiresAt < now) tokens.delete(k);
-    }
-}, 15 * 60_000);
-cleanupTimer.unref?.();
+/** Call once during server boot with `clients.redis`. */
+export function setCaptchaRedis(redis) {
+    redisClient = redis;
+}
+
+const keyFor = (token) => `captcha:${token}`;
+
+function requireRedis() {
+    if (!redisClient) throw new Error('captcha: redis client not configured');
+    return redisClient;
+}
+
+function readTransactionValue(result) {
+    if (!Array.isArray(result)) return result;
+    if (result[0]) throw result[0];
+    return result[1];
+}
 
 // ── Public API ──────────────────────────────────────────────────────
 
 /** Generate a captcha image + token pair. */
 export async function generateCaptcha(difficulty = 'medium') {
     if (!svgCaptcha) throw new Error('svg-captcha not available');
+    const redis = requireRedis();
     const opts = DIFFICULTY[difficulty] || DIFFICULTY.medium;
     const captcha = svgCaptcha.create({
         ...opts,
@@ -44,20 +54,27 @@ export async function generateCaptcha(difficulty = 'medium') {
         background: '#f0f0f0',
     });
     const token = crypto.randomBytes(32).toString('hex');
-    tokens.set(token, {
-        text: captcha.text.toLowerCase(),
-        expiresAt: Date.now() + EXPIRATION_MS,
-    });
+    await redis.set(
+        keyFor(token),
+        captcha.text.toLowerCase(),
+        'PX',
+        EXPIRATION_MS,
+    );
     return { token, image: captcha.data };
 }
 
 /** Verify a captcha answer. One-time use — token is consumed. */
-export function verifyCaptcha(token, answer) {
-    const entry = tokens.get(token);
-    if (!entry) return false;
-    tokens.delete(token);
-    if (entry.expiresAt < Date.now()) return false;
-    return entry.text === answer.toLowerCase().trim();
+export async function verifyCaptcha(token, answer) {
+    if (typeof token !== 'string' || typeof answer !== 'string') return false;
+    const redis = requireRedis();
+    const results = await redis
+        .multi()
+        .get(keyFor(token))
+        .del(keyFor(token))
+        .exec();
+    const text = readTransactionValue(results?.[0]);
+    if (!text) return false;
+    return text === answer.toLowerCase().trim();
 }
 
 // ── Route middleware ────────────────────────────────────────────────
@@ -71,16 +88,22 @@ export function verifyCaptcha(token, answer) {
  * Pass `enabled` from config — when false, the gate is a no-op.
  */
 export function captchaGate(enabled) {
-    return (req, _res, next) => {
+    return async (req, _res, next) => {
         if (!enabled) return next();
 
-        const { captchaToken, captchaAnswer } = req.body ?? {};
-        if (!captchaToken || !captchaAnswer) {
-            return next(new HttpError(400, 'Captcha verification required.'));
+        try {
+            const { captchaToken, captchaAnswer } = req.body ?? {};
+            if (!captchaToken || !captchaAnswer) {
+                return next(
+                    new HttpError(400, 'Captcha verification required.'),
+                );
+            }
+            if (!(await verifyCaptcha(captchaToken, captchaAnswer))) {
+                return next(new HttpError(400, 'Invalid captcha response.'));
+            }
+            next();
+        } catch (err) {
+            next(err);
         }
-        if (!verifyCaptcha(captchaToken, captchaAnswer)) {
-            return next(new HttpError(400, 'Invalid captcha response.'));
-        }
-        next();
     };
 }

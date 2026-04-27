@@ -1,36 +1,8 @@
+import axios from 'axios';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { Agent as HttpsAgent } from 'node:https';
-import axios from 'axios';
+import { IBroadcastPeerConfig } from '../../types.js';
 import { PuterService } from '../types.js';
-
-// ── Config shape ────────────────────────────────────────────────────
-
-interface PeerConfig {
-    /** Stable id of the peer (also sent as `X-Broadcast-Peer-Id`). */
-    peerId?: string;
-    /** Whether this peer should receive webhooks. Non-webhook peers are skipped. */
-    webhook?: boolean;
-    /** HTTPS endpoint to POST broadcast events to. */
-    webhook_url?: string;
-    /** HMAC-SHA256 secret shared with the peer for signing. */
-    webhook_secret?: string;
-}
-
-interface SelfConfig {
-    /** This server's peerId, sent in outbound POSTs as `X-Broadcast-Peer-Id`. */
-    peerId?: string;
-    /** Secret used to sign OUTBOUND POSTs. Peers verify with their copy. */
-    secret?: string;
-}
-
-interface BroadcastConfig {
-    peers?: PeerConfig[];
-    webhook?: SelfConfig;
-    /** Reject webhooks whose timestamp is more than this many seconds in the past. Default 300. */
-    webhook_replay_window_seconds?: number;
-    /** Time to wait coalescing outbound events into a single peer POST. Default 2000ms. */
-    outbound_flush_ms?: number;
-}
 
 // ── Wire types ──────────────────────────────────────────────────────
 
@@ -96,16 +68,9 @@ interface IncomingHeaders {
  */
 export class BroadcastService extends PuterService {
     /** peerId → resolved peer config, used for incoming-verify lookup. */
-    #peersByKey: Record<string, PeerConfig> = {};
+    #peersByKey: Record<string, IBroadcastPeerConfig> = {};
     /** Subset of peers with `webhook: true`, used for outbound fan-out. */
-    #webhookPeers: PeerConfig[] = [];
-    /** peerId → last accepted {timestamp, nonce} pair (replay protection). */
-    #incomingLastNonceByPeer = new Map<
-        string,
-        { timestamp: number; nonce: number }
-    >();
-    /** peerId → next nonce we'll send. Monotonic; bumped on every send. */
-    #outgoingNonceByPeer = new Map<string, number>();
+    #webhookPeers: IBroadcastPeerConfig[] = [];
 
     /** Coalesced outbound events, keyed by serialized shape. */
     #outboundEventsByDedupKey = new Map<string, BroadcastEvent>();
@@ -211,14 +176,6 @@ export class BroadcastService extends PuterService {
         if (!nonceCheck.ok) return nonceCheck;
         const nonce = nonceCheck.nonce;
 
-        if (this.#isNonceReplayForPeer({ timestamp, nonce, peerId })) {
-            return {
-                ok: false,
-                status: 403,
-                message: 'Duplicate or stale nonce',
-            };
-        }
-
         if (!headers.signature) {
             return {
                 ok: false,
@@ -240,8 +197,17 @@ export class BroadcastService extends PuterService {
             return { ok: false, status: 403, message: 'Invalid signature' };
         }
 
-        // Verified — record nonce and dispatch.
-        this.#incomingLastNonceByPeer.set(peerId, { timestamp, nonce });
+        // Atomic claim of (peerId, ts, nonce) in Redis — single key, so
+        // it's cluster-safe and shared across ALB-balanced nodes. Done
+        // post-signature so unsigned/forged requests can't burn slots.
+        if (!(await this.#claimIncomingNonce(peerId, timestamp, nonce))) {
+            return {
+                ok: false,
+                status: 403,
+                message: 'Duplicate or stale nonce',
+            };
+        }
+
         await this.#emitIncomingEventsSequentially(incomingEvents);
         return { ok: true };
     }
@@ -326,7 +292,7 @@ export class BroadcastService extends PuterService {
     }
 
     async #sendWebhookToPeer(
-        peer: PeerConfig,
+        peer: IBroadcastPeerConfig,
         events: BroadcastEvent[],
     ): Promise<void> {
         const peerId = this.#resolvePeerIdOf(peer);
@@ -335,8 +301,9 @@ export class BroadcastService extends PuterService {
         const mySecret = this.#self()?.secret;
         if (!requestUrl || !mySecret) return;
 
-        const nextNonce = this.#outgoingNonceByPeer.get(peerId) ?? 0;
-        this.#outgoingNonceByPeer.set(peerId, nextNonce + 1);
+        // Shared INCR across all ALB-balanced nodes so concurrent senders
+        // can't emit colliding nonces that the receiver would reject.
+        const nextNonce = await this.#nextOutgoingNonce(peerId);
 
         const timestamp = Math.floor(Date.now() / 1000);
         const rawBody = JSON.stringify({ events });
@@ -443,21 +410,36 @@ export class BroadcastService extends PuterService {
         }
     }
 
-    #isNonceReplayForPeer({
-        timestamp,
-        nonce,
-        peerId,
-    }: {
-        timestamp: number;
-        nonce: number;
-        peerId: string;
-    }): boolean {
-        const last = this.#incomingLastNonceByPeer.get(peerId);
-        if (!last) return false;
-        // A newer timestamp resets the nonce window for this peer.
-        if (timestamp > last.timestamp) return false;
-        if (timestamp < last.timestamp) return true;
-        return nonce <= last.nonce;
+    /**
+     * Atomically claim an inbound (peerId, ts, nonce) tuple. Returns
+     * true on first claim, false on replay. SET NX with TTL = replay
+     * window; single key ⇒ cluster-mode safe.
+     */
+    async #claimIncomingNonce(
+        peerId: string,
+        timestamp: number,
+        nonce: number,
+    ): Promise<boolean> {
+        const key = `broadcast:in:${peerId}:${timestamp}:${nonce}`;
+        const result = await this.clients.redis.set(
+            key,
+            '1',
+            'EX',
+            this.#webhookReplayWindowSeconds,
+            'NX',
+        );
+        return result === 'OK';
+    }
+
+    /**
+     * Atomically allocate the next outbound nonce for a peer. Shared
+     * counter across all ALB-fronted nodes via Redis INCR — guarantees
+     * uniqueness so the receiver's per-peer replay protection accepts
+     * every legitimate send.
+     */
+    async #nextOutgoingNonce(peerId: string): Promise<number> {
+        const n = await this.clients.redis.incr(`broadcast:out:${peerId}`);
+        return Number(n);
     }
 
     #parseTimestamp(
@@ -523,17 +505,17 @@ export class BroadcastService extends PuterService {
         return id.trim();
     }
 
-    #resolvePeerIdOf(peer: PeerConfig): string | null {
+    #resolvePeerIdOf(peer: IBroadcastPeerConfig): string | null {
         const id = peer.peerId;
         if (typeof id !== 'string' || id.trim() === '') return null;
         return id.trim();
     }
 
-    #self(): SelfConfig | undefined {
+    #self() {
         return this.#broadcastConfig().webhook;
     }
 
-    #broadcastConfig(): BroadcastConfig {
+    #broadcastConfig() {
         return this.config.broadcast ?? {};
     }
 

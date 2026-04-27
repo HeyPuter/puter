@@ -26,7 +26,7 @@ import {
     requireAntiCsrf,
     setAntiCsrfRedis,
 } from './core/http/middleware/antiCsrf';
-import { captchaGate } from './core/http/middleware/captcha';
+import { captchaGate, setCaptchaRedis } from './core/http/middleware/captcha';
 import {
     rateLimitGate,
     configureRateLimit,
@@ -182,6 +182,7 @@ export class PuterServer {
         // Anti-CSRF tokens live in redis so they survive cross-node hops
         // (issue on node A, consume on node B).
         setAntiCsrfRedis(this.clients.redis);
+        setCaptchaRedis(this.clients.redis);
 
         // init express server here
         this.#app = express();
