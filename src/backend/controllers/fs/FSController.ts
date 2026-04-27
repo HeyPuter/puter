@@ -908,6 +908,7 @@ export class FSController extends PuterController {
             throw new HttpError(
                 400,
                 'Cannot read a directory; use /fs/readdir',
+                { legacyCode: 'cannot_read_a_directory' },
             );
         }
 
@@ -977,13 +978,19 @@ export class FSController extends PuterController {
         const actor = this.#requireActor(req);
         const userId = this.#getActorUserId(req);
         const body = this.#toObjectRecord(req.body);
-        const path = typeof body.path === 'string' ? body.path : '';
-        if (!path.trim()) throw new HttpError(400, 'Missing `path`');
+        const rawPath = typeof body.path === 'string' ? body.path : '';
+        if (!rawPath.trim()) throw new HttpError(400, 'Missing `path`');
+
+        // Normalize first: expands `~`, collapses `..`, ensures leading `/`
+        // and no trailing `/`. Without this, `pathPosix.dirname(...)` below
+        // would compute a wrong parent for `~/...` inputs (e.g. dirname of
+        // `/~/Documents/foo` is `/~/Documents`, not `/<username>/Documents`).
+        const username = this.#getActorUsername(req);
+        const path = this.#normalizePath(rawPath, username);
+        if (path === '/') throw new HttpError(400, 'Cannot mkdir at root');
 
         // ACL: write on parent (or on target path if overwriting existing).
-        const parentPath = pathPosix.dirname(
-            path.trim().startsWith('/') ? path.trim() : `/${path.trim()}`,
-        );
+        const parentPath = pathPosix.dirname(path);
         await this.#assertAccess(
             actor,
             parentPath === '/' ? path : parentPath,
@@ -1010,12 +1017,14 @@ export class FSController extends PuterController {
         const actor = this.#requireActor(req);
         const userId = this.#getActorUserId(req);
         const body = this.#toObjectRecord(req.body);
-        const path = typeof body.path === 'string' ? body.path : '';
-        if (!path.trim()) throw new HttpError(400, 'Missing `path`');
+        const rawPath = typeof body.path === 'string' ? body.path : '';
+        if (!rawPath.trim()) throw new HttpError(400, 'Missing `path`');
 
-        const parentPath = pathPosix.dirname(
-            path.trim().startsWith('/') ? path.trim() : `/${path.trim()}`,
-        );
+        const username = this.#getActorUsername(req);
+        const path = this.#normalizePath(rawPath, username);
+        if (path === '/') throw new HttpError(400, 'Cannot touch root');
+
+        const parentPath = pathPosix.dirname(path);
         await this.#assertAccess(
             actor,
             parentPath === '/' ? path : parentPath,

@@ -48,6 +48,12 @@ const jsFiles = [
 const tsIgnores = [
     '**/*.test.ts',
     '**/*.test.mts',
+    '**/*.spec.ts',
+    '**/*.spec.mts',
+    'src/backend/test/**',
+    'src/backend/tools/**',
+    'src/backend/vitest.config.ts',
+    'src/backend/vitest.bench.config.ts',
 ];
 
 const createTsConfig = ({ files, project }) => ({
@@ -77,7 +83,28 @@ const createTsConfig = ({ files, project }) => ({
 });
 
 export default defineConfig([
-    { ignores: ['**/*.dbmig.js'] },
+    {
+        ignores: [
+            '**/*.dbmig.js',
+            'dist/**',
+            'build/**',
+            'volatile/**',
+            'node_modules/**',
+            'puter.js/**',
+            'apps/**',
+            'experiment/**',
+            'workers/**',
+            'src/public/**',
+            'src/gui/**',
+            'src/docs/**',
+            'src/puter-js/**',
+            'src/useapi/**',
+            'src/worker/**',
+            'submodules/**',
+            'tests/**',
+            'tools/**',
+        ],
+    },
     {
         files: jsFiles,
         ignores: ['**/*.test.js'],

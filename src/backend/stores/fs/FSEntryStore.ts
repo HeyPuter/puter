@@ -185,6 +185,10 @@ export class FSEntryStore extends PuterStore {
         const { subdomains, workers } = this.#buildFsEntrySubdomains(
             this.#parseSubdomainsAgg(row.subdomains_agg),
         );
+        // Legacy NULL-path rows surface here with `path: null`. Async lineage
+        // heal happens at the call site via `#healEntriesWithMissingPathsInPlace`
+        // — this mapper stays sync because mapping fans out from many places
+        // that batch their DB reads (per-chunk).
         return {
             id: Number(row.id),
             uuid: row.uuid,
@@ -1045,6 +1049,35 @@ export class FSEntryStore extends PuterStore {
         return this.#mapFSEntryRow(refreshed[0]);
     }
 
+    /**
+     * Heal in place: for every entry in `entries` whose `path` column is NULL
+     * (legacy rows that pre-date the path-cache write), run the lineage-up
+     * resolver and replace the slot with the healed entry. Heals run in
+     * parallel — typical workloads have zero such rows so the loop is a
+     * no-op; rare bursts (a freshly migrated account) only pay one
+     * recursive-CTE round-trip per row instead of N sequential.
+     *
+     * Mutates the array in place.
+     */
+    async #healEntriesWithMissingPathsInPlace(
+        entries: FSEntry[],
+    ): Promise<void> {
+        const healJobs: Promise<void>[] = [];
+        for (let index = 0; index < entries.length; index++) {
+            if (entries[index].path) continue;
+            const slot = index;
+            healJobs.push(
+                this.#healEntryPathByLineageUp(entries[slot].uuid).then(
+                    (healed) => {
+                        if (healed) entries[slot] = healed;
+                    },
+                ),
+            );
+        }
+        if (healJobs.length === 0) return;
+        await Promise.all(healJobs);
+    }
+
     async getEntriesByPaths(paths: string[]): Promise<Map<string, FSEntry>> {
         const normalizedPaths = Array.from(
             new Set(
@@ -1204,17 +1237,8 @@ export class FSEntryStore extends PuterStore {
                     chunk,
                 )) as unknown as FSEntryRow[];
                 const entries = rows.map((row) => this.#mapFSEntryRow(row));
-                // Heal any legacy NULL-path rows in this chunk before
-                // caching. Sequential — typical workloads have zero such
-                // rows so the loop is a no-op.
-                for (let i = 0; i < entries.length; i++) {
-                    if (!entries[i].path) {
-                        const healed = await this.#healEntryPathByLineageUp(
-                            entries[i].uuid,
-                        );
-                        if (healed) entries[i] = healed;
-                    }
-                }
+                // Heal any legacy NULL-path rows in this chunk before caching.
+                await this.#healEntriesWithMissingPathsInPlace(entries);
                 await Promise.all(
                     entries.map((entry) => this.#writeEntryToCache(entry)),
                 );
@@ -2175,10 +2199,14 @@ export class FSEntryStore extends PuterStore {
              FROM fsentries
              WHERE parent_uid = ?
              ORDER BY ${sortColumn} ${sortDirection}
-             LIMIT ${limit} OFFSET ${offset}`,
-            [parentUid],
+             LIMIT ? OFFSET ?`,
+            [parentUid, , limit, offset],
         )) as unknown as FSEntryRow[];
         const entries = rows.map((row) => this.#mapFSEntryRow(row));
+        // Heal NULL-path rows before they reach the controller — readdir
+        // consumers (GUI, suggested-apps, downstream `pathPosix.dirname`
+        // callers) all expect a populated path on every child.
+        await this.#healEntriesWithMissingPathsInPlace(entries);
         await Promise.all(
             entries.map((entry) => this.#writeEntryToCache(entry)),
         );
@@ -2260,7 +2288,11 @@ export class FSEntryStore extends PuterStore {
              LIMIT ${capped}`,
             [userId, likePattern],
         )) as unknown as FSEntryRow[];
-        return rows.map((row) => this.#mapFSEntryRow(row));
+        const entries = rows.map((row) => this.#mapFSEntryRow(row));
+        // Search matches by `name`, so legacy NULL-path rows can land here.
+        // Heal before returning so clients render `path`/`dirname` correctly.
+        await this.#healEntriesWithMissingPathsInPlace(entries);
+        return entries;
     }
 
     // ── Mutation ───────────────────────────────────────────────────────

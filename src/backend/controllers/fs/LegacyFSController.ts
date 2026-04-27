@@ -366,7 +366,9 @@ export class LegacyFSController extends PuterController {
 
         const parent = await resolveV1Selector(this.stores.fsEntry, body);
         if (!parent.isDir) {
-            throw new HttpError(400, 'Target is not a directory');
+            throw new HttpError(400, 'Target is not a directory', {
+                legacyCode: 'dest_is_not_a_directory',
+            });
         }
         await assertAccess(
             this.services.acl,
