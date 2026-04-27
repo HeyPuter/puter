@@ -1828,7 +1828,7 @@ span.header-sort-icon img {
 .context-menu.context-menu-sheet .context-menu-item .context-menu-item-icon,
 .context-menu.context-menu-sheet .context-menu-item .context-menu-item-icon-active {
     position: absolute;
-    left: 16px;
+    left: 9px;
     top: 50%;
     transform: translateY(-50%);
     width: 20px;
