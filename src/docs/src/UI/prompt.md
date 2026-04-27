@@ -1,7 +1,7 @@
 ---
 title: puter.ui.prompt()
 description: Displays a prompt dialog by Puter.
-platforms: [apps]
+platforms: [ websites, apps]
 ---
 
 Displays a prompt dialog by Puter. This will block the parent window until the user responds by pressing a button.
@@ -26,7 +26,7 @@ A string to be displayed as a placeholder in the input field. If not set, the in
 A `Promise` that resolves to the value of the input field when the user presses the OK button. If the user presses the Cancel button, the promise will resolve to `null`.
 
 ## Examples
-```html
+```html;ui-prompt
 <html>
 <body>
     <script src="https://js.puter.com/v2/"></script>

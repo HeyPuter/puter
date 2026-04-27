@@ -1,7 +1,7 @@
 ---
 title: puter.ui.contextMenu()
 description: Displays a context menu at the current cursor position.
-platforms: [apps]
+platforms: [ websites, apps]
 ---
 
 Displays a context menu at the current cursor position. Context menus provide a convenient way to show contextual actions that users can perform.
@@ -31,11 +31,11 @@ This method does not return a value. The context menu is displayed immediately a
 
 ## Examples
 
-```html
+```html;ui-context-menu
 <html>
 <body>
     <script src="https://js.puter.com/v2/"></script>
-    
+
     <div id="right-click-area" style="width: 200px; height: 200px; border: 1px solid #ccc; padding: 20px;">
         Right-click me to show context menu
     </div>

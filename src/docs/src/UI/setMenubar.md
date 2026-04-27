@@ -1,7 +1,7 @@
 ---
 title: puter.ui.setMenubar()
 description: Creates a menubar in the UI.
-platforms: [apps]
+platforms: [ websites, apps]
 ---
 
 Creates a menubar in the UI. The menubar is a horizontal bar at the top of the window that contains menus.
@@ -32,7 +32,7 @@ An array of submenu items.
 
 ## Examples
 
-```html
+```html;ui-set-menubar
 <html>
 <body>
     <script src="https://js.puter.com/v2/"></script>

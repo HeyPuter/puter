@@ -1,0 +1,15 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <h1 id="preview" style="margin: 20px;">A cool Font Picker demo!</h1>
+    <button id="pick-font" style="padding: 10px 20px; font-size: 16px; cursor: pointer; margin: 20px;">Pick a Font</button>
+    <script>
+        document.getElementById('pick-font').addEventListener('click', () => {
+            puter.ui.showFontPicker().then((font) => {
+                document.getElementById('preview').style.fontFamily = font.fontFamily;
+                puter.print('Selected font: ' + font.fontFamily);
+            });
+        });
+    </script>
+</body>
+</html>

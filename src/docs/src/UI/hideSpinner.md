@@ -1,7 +1,7 @@
 ---
 title: puter.ui.hideSpinner()
 description: Hides the active spinner instance.
-platforms: [apps]
+platforms: [ websites, apps]
 ---
 
 Hides the active spinner instance.
@@ -13,7 +13,7 @@ puter.ui.hideSpinner()
 
 ## Examples
 
-```html
+```html;ui-spinner
 <html>
 <body>
     <script src="https://js.puter.com/v2/"></script>

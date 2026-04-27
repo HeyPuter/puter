@@ -1,0 +1,16 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        // show the spinner
+        puter.ui.showSpinner();
+        puter.print('Spinner shown. It will hide after 3 seconds...');
+
+        // hide the spinner after 3 seconds
+        setTimeout(() => {
+            puter.ui.hideSpinner();
+            puter.print('Spinner hidden!');
+        }, 3000);
+    </script>
+</body>
+</html>
