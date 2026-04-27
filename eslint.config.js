@@ -98,11 +98,7 @@ export default defineConfig([
         },
     },
     createTsConfig({
-        files: ['src/backend/**/*.ts'],
-        project: './src/backend/tsconfig.json',
-    }),
-    createTsConfig({
-        files: ['extensions/**/*.ts'],
-        project: './extensions/tsconfig.json',
+        files: ['src/backend/**/*.ts', 'extensions/**/*.ts'],
+        project: './tsconfig.json',
     }),
 ]);

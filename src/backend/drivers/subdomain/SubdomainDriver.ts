@@ -6,6 +6,7 @@ import type { Actor } from '../../core/actor.js';
 import type { AclMode } from '../../services/acl/ACLService.js';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
 import type { UserRow } from '../../stores/user/UserStore.js';
+import { expandTildePath } from '../../services/fs/resolveNode.js';
 
 const SUBDOMAIN_MAX_LEN = 64;
 const SUBDOMAIN_REGEX = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
@@ -84,10 +85,11 @@ export class SubdomainDriver extends PuterDriver {
             throw new HttpError(403, 'Subdomain limit reached');
         }
 
-        const entry = await this.stores.fsEntry.getEntryByPathForUser(
-            object.root_dir,
-            actor.user.id,
+        const rootDirPath = expandTildePath(
+            String(object.root_dir ?? ''),
+            actor.user.username,
         );
+        const entry = await this.stores.fsEntry.getEntryByPath(rootDirPath);
         const rootDirId = entry?.id;
         if (!rootDirId) {
             throw new HttpError(400, 'root_dir_id does not exist', {
@@ -164,10 +166,11 @@ export class SubdomainDriver extends PuterDriver {
         // Subdomain name is immutable — strip if provided
         const patch: Record<string, unknown> = {};
         if (object.root_dir !== undefined) {
-            const entry = await this.stores.fsEntry.getEntryByPathForUser(
-                object.root_dir,
-                actor.user.id,
+            const rootDirPath = expandTildePath(
+                String(object.root_dir),
+                actor.user.username,
             );
+            const entry = await this.stores.fsEntry.getEntryByPath(rootDirPath);
             const rootDirId = entry?.id;
             if (!rootDirId) {
                 throw new HttpError(400, 'root_dir_id does not exist', {

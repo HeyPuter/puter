@@ -1,27 +1,27 @@
-import type { Request, RequestHandler, Response } from 'express';
 import Busboy from 'busboy';
-import { posix as pathPosix } from 'node:path';
-import { Context } from '../../core/context.js';
-import { isAccessTokenActor } from '../../core/actor.js';
+import type { Request, RequestHandler, Response } from 'express';
 import { contentType as contentTypeFromMime } from 'mime-types';
-import { PuterController } from '../types.js';
-import { FS_COSTS } from './costs.js';
+import { posix as pathPosix } from 'node:path';
+import type { Actor } from '../../core/actor.js';
+import { isAccessTokenActor } from '../../core/actor.js';
+import { Context } from '../../core/context.js';
+import { HttpError } from '../../core/http/HttpError.js';
 import type { PuterRouter } from '../../core/http/PuterRouter.js';
 import type { ACLService } from '../../services/acl/ACLService.js';
-import type { Actor } from '../../core/actor.js';
-import { HttpError } from '../../core/http/HttpError.js';
+import type { SignedFile } from '../../util/fileSigning.js';
+import { verifySignature } from '../../util/fileSigning.js';
+import { PuterController } from '../types.js';
+import { FS_COSTS } from './costs.js';
 import {
     asRecord,
     assertAccess,
     getBoolean,
     getString,
     resolveV1Selector,
-    signingConfigFromAppConfig,
     signEntry,
+    signingConfigFromAppConfig,
     toLegacyEntry,
 } from './legacyFsHelpers.js';
-import { verifySignature } from '../../util/fileSigning.js';
-import type { SignedFile } from '../../util/fileSigning.js';
 
 /**
  * Legacy FS routes, implemented as thin shims over `FSService`.
@@ -173,7 +173,6 @@ export class LegacyFSController extends PuterController {
             const body = req.body ?? {};
             // Client sends { uid } or { path } identifying a file entry.
             // Resolve the entry to get its name/path for extension detection.
-            const userId = req.actor?.user?.id;
             let entryName: string | undefined;
             let entryPath: string | undefined;
             if (body.uid || body.path) {
@@ -181,7 +180,6 @@ export class LegacyFSController extends PuterController {
                     const entry = await resolveV1Selector(
                         this.stores.fsEntry,
                         body,
-                        userId ?? NaN,
                     );
                     entryName = entry?.name;
                     entryPath = entry?.path;
@@ -298,11 +296,7 @@ export class LegacyFSController extends PuterController {
         const userId = this.#getActorUserId(req);
         const body = asRecord(req.body);
 
-        const entry = await resolveV1Selector(
-            this.stores.fsEntry,
-            body,
-            userId,
-        );
+        const entry = await resolveV1Selector(this.stores.fsEntry, body);
         await assertAccess(
             this.services.acl,
             this.services.fs,
@@ -343,7 +337,6 @@ export class LegacyFSController extends PuterController {
 
     readdir = async (req: Request, res: Response): Promise<void> => {
         const actor = this.#requireActor(req);
-        const userId = this.#getActorUserId(req);
         const body = asRecord(req.body);
 
         if (this.#isRootPathRef(body)) {
@@ -371,11 +364,7 @@ export class LegacyFSController extends PuterController {
             return;
         }
 
-        const parent = await resolveV1Selector(
-            this.stores.fsEntry,
-            body,
-            userId,
-        );
+        const parent = await resolveV1Selector(this.stores.fsEntry, body);
         if (!parent.isDir) {
             throw new HttpError(400, 'Target is not a directory');
         }
@@ -422,7 +411,6 @@ export class LegacyFSController extends PuterController {
             const parent = await resolveV1Selector(
                 this.stores.fsEntry,
                 body.parent,
-                userId,
             );
             targetPath =
                 parent.path === '/'
@@ -465,12 +453,10 @@ export class LegacyFSController extends PuterController {
         const source = await resolveV1Selector(
             this.stores.fsEntry,
             body.source,
-            userId,
         );
         const destinationParent = await resolveV1Selector(
             this.stores.fsEntry,
             body.destination,
-            userId,
         );
 
         await assertAccess(
@@ -518,12 +504,10 @@ export class LegacyFSController extends PuterController {
         const source = await resolveV1Selector(
             this.stores.fsEntry,
             body.source,
-            userId,
         );
         const destinationParent = await resolveV1Selector(
             this.stores.fsEntry,
             body.destination,
-            userId,
         );
 
         await assertAccess(
@@ -584,11 +568,7 @@ export class LegacyFSController extends PuterController {
         if (pathsArray) {
             const removedEntries: unknown[] = [];
             for (const raw of pathsArray) {
-                const entry = await resolveV1Selector(
-                    this.stores.fsEntry,
-                    raw,
-                    userId,
-                );
+                const entry = await resolveV1Selector(this.stores.fsEntry, raw);
                 await assertAccess(
                     this.services.acl,
                     this.services.fs,
@@ -612,11 +592,7 @@ export class LegacyFSController extends PuterController {
             return;
         }
 
-        const entry = await resolveV1Selector(
-            this.stores.fsEntry,
-            body,
-            userId,
-        );
+        const entry = await resolveV1Selector(this.stores.fsEntry, body);
         await assertAccess(
             this.services.acl,
             this.services.fs,
@@ -637,17 +613,12 @@ export class LegacyFSController extends PuterController {
 
     rename = async (req: Request, res: Response): Promise<void> => {
         const actor = this.#requireActor(req);
-        const userId = this.#getActorUserId(req);
         const body = asRecord(req.body);
 
         const newName = getString(body, 'new_name');
         if (!newName) throw new HttpError(400, '`new_name` is required');
 
-        const entry = await resolveV1Selector(
-            this.stores.fsEntry,
-            body,
-            userId,
-        );
+        const entry = await resolveV1Selector(this.stores.fsEntry, body);
         await assertAccess(
             this.services.acl,
             this.services.fs,
@@ -712,7 +683,6 @@ export class LegacyFSController extends PuterController {
 
     read = async (req: Request, res: Response, options = {}): Promise<void> => {
         const actor = this.#requireActor(req);
-        const userId = this.#getActorUserId(req);
         const query = asRecord(req.query);
 
         // Legacy v1 /read aliased `file` onto either path or uid depending on
@@ -722,11 +692,7 @@ export class LegacyFSController extends PuterController {
             typeof query.file === 'string' && query.file.length > 0
                 ? query.file
                 : query;
-        const entry = await resolveV1Selector(
-            this.stores.fsEntry,
-            selector,
-            userId,
-        );
+        const entry = await resolveV1Selector(this.stores.fsEntry, selector);
         await assertAccess(
             this.services.acl,
             this.services.fs,
@@ -838,7 +804,6 @@ export class LegacyFSController extends PuterController {
      */
     sign = async (req: Request, res: Response): Promise<void> => {
         const actor = this.#requireActor(req);
-        const userId = this.#getActorUserId(req);
         const body = asRecord(req.body);
         const items = Array.isArray(body.items) ? body.items : [];
         if (items.length === 0) throw new HttpError(400, '`items` is required');
@@ -883,11 +848,10 @@ export class LegacyFSController extends PuterController {
                 continue;
             }
             try {
-                const entry = await resolveV1Selector(
-                    this.stores.fsEntry,
-                    { uid, path },
-                    userId,
-                );
+                const entry = await resolveV1Selector(this.stores.fsEntry, {
+                    uid,
+                    path,
+                });
 
                 // App-sandbox check.
                 const withinAppRoot = appDataRoot
@@ -962,11 +926,9 @@ export class LegacyFSController extends PuterController {
         );
 
         const uid = typeof query.uid === 'string' ? query.uid : '';
-        const targetEntry = await resolveV1Selector(
-            this.stores.fsEntry,
-            { uid },
-            NaN,
-        );
+        const targetEntry = await resolveV1Selector(this.stores.fsEntry, {
+            uid,
+        });
         if (!targetEntry) throw new HttpError(404, 'Item not found');
 
         // Owner suspension check.
@@ -1057,7 +1019,6 @@ export class LegacyFSController extends PuterController {
             const destinationParent = await resolveV1Selector(
                 this.stores.fsEntry,
                 destRef,
-                userId,
             );
             const method = operation === 'copy' ? 'copy' : 'move';
             const result = await this.services.fs[method](userId, {
@@ -1109,11 +1070,7 @@ export class LegacyFSController extends PuterController {
         );
 
         const uid = typeof query.uid === 'string' ? query.uid : '';
-        const entry = await resolveV1Selector(
-            this.stores.fsEntry,
-            { uid },
-            NaN,
-        );
+        const entry = await resolveV1Selector(this.stores.fsEntry, { uid });
 
         // Owner-suspension guard — matches v1's /file. A signed URL stays
         // valid forever by default, so a signature minted before a suspension
@@ -1191,13 +1148,8 @@ export class LegacyFSController extends PuterController {
      */
     openItem = async (req: Request, res: Response): Promise<void> => {
         const actor = this.#requireActor(req);
-        const userId = this.#getActorUserId(req);
         const body = asRecord(req.body);
-        const entry = await resolveV1Selector(
-            this.stores.fsEntry,
-            body,
-            userId,
-        );
+        const entry = await resolveV1Selector(this.stores.fsEntry, body);
 
         await assertAccess(
             this.services.acl,
@@ -1275,7 +1227,6 @@ export class LegacyFSController extends PuterController {
      */
     checkAppAcl = async (req: Request, res: Response): Promise<void> => {
         this.#requireActor(req);
-        const userId = this.#getActorUserId(req);
         const body = asRecord(req.body);
 
         const subjectRef = body.subject;
@@ -1291,7 +1242,6 @@ export class LegacyFSController extends PuterController {
         const subject = await resolveV1Selector(
             this.stores.fsEntry,
             subjectRef,
-            userId,
         );
         let app: { uid: string } | null = null;
         if (typeof appRef === 'string') {
@@ -1327,7 +1277,6 @@ export class LegacyFSController extends PuterController {
      */
     down = async (req: Request, res: Response): Promise<void> => {
         const actor = this.#requireActor(req);
-        const userId = this.#getActorUserId(req);
 
         const rawPath =
             typeof req.query.path === 'string' ? req.query.path.trim() : '';
@@ -1335,11 +1284,9 @@ export class LegacyFSController extends PuterController {
         if (rawPath === '/')
             throw new HttpError(400, 'Cannot download a directory');
 
-        const entry = await resolveV1Selector(
-            this.stores.fsEntry,
-            { path: rawPath },
-            userId,
-        );
+        const entry = await resolveV1Selector(this.stores.fsEntry, {
+            path: rawPath,
+        });
         if (entry.isDir)
             throw new HttpError(400, 'Cannot download a directory');
 
@@ -1427,11 +1374,9 @@ export class LegacyFSController extends PuterController {
 
     async #resolveParentOfEntry(entry: { path: string; userId: number }) {
         const parentPath = pathPosix.dirname(entry.path);
-        const parent = await resolveV1Selector(
-            this.stores.fsEntry,
-            { path: parentPath },
-            entry.userId,
-        );
+        const parent = await resolveV1Selector(this.stores.fsEntry, {
+            path: parentPath,
+        });
         return parent;
     }
 
@@ -1664,7 +1609,6 @@ export class LegacyFSController extends PuterController {
                     const target = await resolveV1Selector(
                         this.stores.fsEntry,
                         { uid: shortcutToUid },
-                        userId,
                     );
                     const expandedParent = this.#expandTilde(
                         parentPath,
@@ -1673,7 +1617,6 @@ export class LegacyFSController extends PuterController {
                     const parent = await resolveV1Selector(
                         this.stores.fsEntry,
                         { path: expandedParent || '/' },
-                        userId,
                     );
                     const link = await this.services.fs.mkshortcut(userId, {
                         parent,
@@ -1687,12 +1630,10 @@ export class LegacyFSController extends PuterController {
                     const source = await resolveV1Selector(
                         this.stores.fsEntry,
                         record.source,
-                        userId,
                     );
                     const destinationParent = await resolveV1Selector(
                         this.stores.fsEntry,
                         record.destination,
-                        userId,
                     );
                     await assertAccess(
                         this.services.acl,
@@ -1723,7 +1664,6 @@ export class LegacyFSController extends PuterController {
                     const entry = await resolveV1Selector(
                         this.stores.fsEntry,
                         getString(record, 'path') ?? record,
-                        userId,
                     );
                     await assertAccess(
                         this.services.acl,

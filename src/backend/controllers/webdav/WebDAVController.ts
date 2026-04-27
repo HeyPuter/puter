@@ -5,6 +5,7 @@ import type { Actor } from '../../core/actor.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import type { PuterRouter } from '../../core/http/PuterRouter.js';
 import { verify as verifyOtp } from '../../services/auth/OTPUtil.js';
+import { expandTildePath } from '../../services/fs/resolveNode.js';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
 import { PuterController } from '../types.js';
 import {
@@ -67,7 +68,13 @@ export class WebDAVController extends PuterController {
         const actor = await this.#resolveActor(req, res);
         if (!actor) return; // 401 already sent
 
-        const davPath = decodeURIComponent(req.path);
+        // Expand `~`/`~/...` against the authenticated actor's username.
+        // WebDAV doesn't standardize `~`, but some clients do — and the
+        // pre-existing behaviour silently expanded it via the FS store.
+        const davPath = expandTildePath(
+            decodeURIComponent(req.path),
+            actor.user.username,
+        );
         const redis = this.clients.redis;
         const lockToken = extractLockToken(
             (req.headers['if'] as string | undefined) ??
@@ -232,11 +239,7 @@ export class WebDAVController extends PuterController {
         davPath: string,
         headOnly: boolean,
     ): Promise<void> {
-        const userId = actor.user!.id as number;
-        const entry = await this.stores.fsEntry.getEntryByPathForUser(
-            davPath,
-            userId,
-        );
+        const entry = await this.stores.fsEntry.getEntryByPath(davPath);
         if (!entry) throw new HttpError(404, 'Not Found');
         if (entry.isDir) throw new HttpError(400, 'Cannot GET a directory');
 
@@ -281,16 +284,12 @@ export class WebDAVController extends PuterController {
         actor: Actor,
         davPath: string,
     ): Promise<void> {
-        const userId = actor.user!.id as number;
         const depth = req.headers.depth ?? '1';
 
         const entry =
             davPath === '/'
                 ? null // root always exists
-                : await this.stores.fsEntry.getEntryByPathForUser(
-                      davPath,
-                      userId,
-                  );
+                : await this.stores.fsEntry.getEntryByPath(davPath);
         if (davPath !== '/' && !entry) throw new HttpError(404, 'Not Found');
 
         await this.#assertRead(actor, davPath);
@@ -308,9 +307,8 @@ export class WebDAVController extends PuterController {
             }
         } else if (depth !== '0' && davPath === '/') {
             // Root: list top-level user directories
-            const rootEntry = await this.stores.fsEntry.getEntryByPathForUser(
+            const rootEntry = await this.stores.fsEntry.getEntryByPath(
                 `/${actor.user!.username}`,
-                userId,
             );
             if (rootEntry) {
                 responses.push(
@@ -378,10 +376,7 @@ export class WebDAVController extends PuterController {
         const parentPath = pathPosix.dirname(davPath);
         await this.#assertWrite(actor, parentPath);
 
-        const existing = await this.stores.fsEntry.getEntryByPathForUser(
-            davPath,
-            userId,
-        );
+        const existing = await this.stores.fsEntry.getEntryByPath(davPath);
         if (existing) throw new HttpError(405, 'Already exists');
 
         const entry = await this.services.fs.mkdir(userId, {
@@ -431,10 +426,7 @@ export class WebDAVController extends PuterController {
             throw new HttpError(400, 'Missing Content-Length');
 
         // Check if overwrite
-        const existing = await this.stores.fsEntry.getEntryByPathForUser(
-            davPath,
-            userId,
-        );
+        const existing = await this.stores.fsEntry.getEntryByPath(davPath);
 
         // Expect: 100-continue
         if (req.headers.expect === '100-continue') {
@@ -491,10 +483,7 @@ export class WebDAVController extends PuterController {
         const userId = actor.user!.id as number;
         await this.#assertWrite(actor, davPath);
 
-        const entry = await this.stores.fsEntry.getEntryByPathForUser(
-            davPath,
-            userId,
-        );
+        const entry = await this.stores.fsEntry.getEntryByPath(davPath);
         if (!entry) throw new HttpError(404, 'Not Found');
 
         await this.services.fs.remove(userId, { entry, recursive: true });
@@ -527,23 +516,16 @@ export class WebDAVController extends PuterController {
         await this.#assertRead(actor, davPath);
         await this.#assertWrite(actor, pathPosix.dirname(destPath));
 
-        const source = await this.stores.fsEntry.getEntryByPathForUser(
-            davPath,
-            userId,
-        );
+        const source = await this.stores.fsEntry.getEntryByPath(davPath);
         if (!source) throw new HttpError(404, 'Source not found');
 
         const overwrite = req.headers.overwrite !== 'F';
-        const destExists = await this.stores.fsEntry.getEntryByPathForUser(
-            destPath,
-            userId,
-        );
+        const destExists = await this.stores.fsEntry.getEntryByPath(destPath);
         if (destExists && !overwrite)
             throw new HttpError(412, 'Destination exists and Overwrite=F');
 
-        const destParent = await this.stores.fsEntry.getEntryByPathForUser(
+        const destParent = await this.stores.fsEntry.getEntryByPath(
             pathPosix.dirname(destPath),
-            userId,
         );
         if (!destParent?.isDir)
             throw new HttpError(
@@ -582,23 +564,16 @@ export class WebDAVController extends PuterController {
         await this.#assertWrite(actor, davPath);
         await this.#assertWrite(actor, pathPosix.dirname(destPath));
 
-        const source = await this.stores.fsEntry.getEntryByPathForUser(
-            davPath,
-            userId,
-        );
+        const source = await this.stores.fsEntry.getEntryByPath(davPath);
         if (!source) throw new HttpError(404, 'Source not found');
 
         const overwrite = req.headers.overwrite !== 'F';
-        const destExists = await this.stores.fsEntry.getEntryByPathForUser(
-            destPath,
-            userId,
-        );
+        const destExists = await this.stores.fsEntry.getEntryByPath(destPath);
         if (destExists && !overwrite)
             throw new HttpError(412, 'Destination exists and Overwrite=F');
 
-        const destParent = await this.stores.fsEntry.getEntryByPathForUser(
+        const destParent = await this.stores.fsEntry.getEntryByPath(
             pathPosix.dirname(destPath),
-            userId,
         );
         if (!destParent?.isDir)
             throw new HttpError(

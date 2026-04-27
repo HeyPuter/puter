@@ -2,7 +2,7 @@ import { posix as pathPosix } from 'node:path';
 import type { Actor } from '../../core/actor.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import type { FSService } from '../../services/fs/FSService.js';
-import { resolveNode } from '../../services/fs/resolveNode.js';
+import { expandTildePath, resolveNode } from '../../services/fs/resolveNode.js';
 import type { FSEntryStore } from '../../stores/fs/FSEntryStore.js';
 import type { S3ObjectStore } from '../../stores/fs/S3ObjectStore.js';
 import { mimeFromName } from '../../util/fileSigning.js';
@@ -48,8 +48,7 @@ export async function loadFileInput(
     if (!input) {
         throw new HttpError(400, 'Missing file input');
     }
-    const userId = Number(actor?.user?.id ?? NaN);
-    if (!Number.isFinite(userId)) {
+    if (!Number.isFinite(Number(actor?.user?.id ?? NaN))) {
         throw new HttpError(401, 'Unauthorized');
     }
 
@@ -74,16 +73,20 @@ export async function loadFileInput(
     }
 
     // Path string or object reference → resolve into FSEntry, then S3 read.
+    const username = actor?.user?.username;
+    const expandPath = (path: string | undefined) =>
+        path !== undefined ? expandTildePath(path, username) : undefined;
     const ref: { path?: string; uid?: string; uuid?: string } =
         typeof input === 'string'
-            ? { path: input }
+            ? { path: expandPath(input) }
             : (() => {
                   const record = input as Record<string, unknown>;
                   return {
-                      path:
+                      path: expandPath(
                           typeof record.path === 'string'
                               ? record.path
                               : undefined,
+                      ),
                       uid:
                           typeof record.uid === 'string'
                               ? record.uid
@@ -95,10 +98,7 @@ export async function loadFileInput(
                   };
               })();
 
-    const entry = await resolveNode(stores.fsEntry, ref, {
-        userId,
-        required: true,
-    });
+    const entry = await resolveNode(stores.fsEntry, ref, { required: true });
     if (!entry) throw new HttpError(404, 'File not found');
     if (entry.isDir)
         throw new HttpError(400, 'Expected a file, got a directory');
@@ -108,9 +108,8 @@ export async function loadFileInput(
             'Cannot load content of a symlink or shortcut directly',
         );
     }
-    // ACL gate: resolveNode does global UID/UUID/ID lookups (FSEntryStore's
-    // path-based `*ForUser` variants enforce the namespace prefix, but the
-    // uid/id paths don't). Without this check, an attacker controlling
+    // ACL gate: resolveNode does global UID/UUID/ID/path lookups, no
+    // namespace check. Without this check, an attacker controlling
     // `path`/`uid`/`uuid` (e.g. AI chat `puter_path` content parts) could
     // exfiltrate any user's file. Must run before the S3 read below.
     await fsService.checkFSAccess(entry, actor, 'read');

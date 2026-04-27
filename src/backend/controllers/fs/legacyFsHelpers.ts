@@ -78,7 +78,6 @@ export function getBoolean(
 export async function resolveV1Selector(
     fsEntryStore: FSEntryStore,
     raw: unknown,
-    userId: number,
 ): Promise<FSEntry> {
     const username = Context.get('actor')?.user?.username;
 
@@ -91,10 +90,7 @@ export async function resolveV1Selector(
         const ref = isPath
             ? { path: expandTildePath(raw, username) }
             : { uid: raw };
-        const entry = await resolveNode(fsEntryStore, ref, {
-            userId,
-            required: true,
-        });
+        const entry = await resolveNode(fsEntryStore, ref, { required: true });
         if (!entry) throw new HttpError(404, `Entry not found: ${raw}`);
         return entry;
     }
@@ -103,16 +99,12 @@ export async function resolveV1Selector(
 
     // {parent, name}: "child selector" — resolve parent, then child by name.
     if (record.parent !== undefined && typeof record.name === 'string') {
-        const parent = await resolveV1Selector(
-            fsEntryStore,
-            record.parent,
-            userId,
-        );
+        const parent = await resolveV1Selector(fsEntryStore, record.parent);
         const childPath = joinChildPath(parent.path, record.name);
         const child = await resolveNode(
             fsEntryStore,
             { path: childPath },
-            { userId, required: true },
+            { required: true },
         );
         if (!child) throw new HttpError(404, `Entry not found: ${childPath}`);
         return child;
@@ -135,10 +127,7 @@ export async function resolveV1Selector(
                 ? record.id
                 : undefined,
     };
-    const entry = await resolveNode(fsEntryStore, ref, {
-        userId,
-        required: true,
-    });
+    const entry = await resolveNode(fsEntryStore, ref, { required: true });
     if (!entry) throw new HttpError(404, 'Entry not found');
     return entry;
 }

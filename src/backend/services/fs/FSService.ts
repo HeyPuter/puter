@@ -50,6 +50,14 @@ import { AclMode } from '../acl/ACLService.js';
 const DEFAULT_CONTENT_TYPE = 'application/octet-stream';
 const DEFAULT_SIGNED_UPLOAD_EXPIRY_SECONDS = 60 * 15;
 
+// AWS SDK v3 surfaces missing-key errors with both `name` and `Code` set to
+// "NoSuchKey". Check both — `Code` is the wire field, `name` is the JS class.
+const isNoSuchKeyError = (err: unknown): boolean => {
+    if (!err || typeof err !== 'object') return false;
+    const e = err as { name?: unknown; Code?: unknown };
+    return e.name === 'NoSuchKey' || e.Code === 'NoSuchKey';
+};
+
 interface WriteTargetResolutionInput {
     index: number;
     normalizedInput: NormalizedWriteInput;
@@ -375,15 +383,10 @@ export class FSService extends PuterService {
                 return await cachedPromise;
             }
 
-            const readPromise = this.stores.fsEntry.getEntryByPathForUser(
-                path,
-                userId,
-                {
-                    useTryHardRead: true,
-                    skipCache: true,
-                    crossNamespace: true,
-                },
-            );
+            const readPromise = this.stores.fsEntry.getEntryByPath(path, {
+                useTryHardRead: true,
+                skipCache: true,
+            });
             existingEntryCache.set(path, readPromise);
             return await readPromise;
         };
@@ -2518,14 +2521,53 @@ export class FSService extends PuterService {
         // back to the uuid convention used elsewhere (objectKey defaults to
         // uuid during write when no metadata override is set).
         const objectKey = this.#deriveObjectKeyFromEntry(entry);
-        return this.stores.s3Object.getObjectStream(
-            {
-                bucket: this.stores.s3Object.resolveBucket(entry.bucket),
-                objectKey,
-                range: options.range,
-            },
-            this.stores.s3Object.resolveRegion(entry.bucketRegion),
-        );
+        try {
+            return await this.stores.s3Object.getObjectStream(
+                {
+                    bucket: this.stores.s3Object.resolveBucket(entry.bucket),
+                    objectKey,
+                    range: options.range,
+                },
+                this.stores.s3Object.resolveRegion(entry.bucketRegion),
+            );
+        } catch (err) {
+            if (isNoSuchKeyError(err)) {
+                await this.#handleGhostFile(entry, objectKey);
+                throw new HttpError(404, 'File contents are missing', {
+                    legacyCode: 'subject_does_not_exist',
+                    cause: err,
+                    fields: {
+                        path: entry.path,
+                        uid: entry.uuid,
+                    },
+                });
+            }
+            throw err;
+        }
+    }
+
+    // S3 returned NoSuchKey for an entry the DB still has — orphan. Delete
+    // the row (and emit fs.remove.node) so subsequent reads 404 cleanly via
+    // resolveNode instead of bubbling another S3 error. Best-effort: read
+    // path must not fail because cleanup failed.
+    async #handleGhostFile(entry: FSEntry, objectKey: string): Promise<void> {
+        console.error('prodfsv2 ghost fsentry — backing S3 object missing', {
+            userId: entry.userId,
+            uuid: entry.uuid,
+            path: entry.path,
+            bucket: entry.bucket,
+            bucketRegion: entry.bucketRegion,
+            objectKey,
+        });
+        try {
+            await this.remove(entry.userId, { entry });
+        } catch (cleanupErr) {
+            console.error(
+                'prodfsv2 ghost fsentry cleanup failed',
+                { uuid: entry.uuid },
+                cleanupErr,
+            );
+        }
     }
 
     // Objects written by fsv2 use the pending-session's objectKey, which is
@@ -2570,11 +2612,7 @@ export class FSService extends PuterService {
                 parentPath === '/'
                     ? `/${candidate}`
                     : `${parentPath}/${candidate}`;
-            const existing = await repo.getEntryByPathForUser(
-                candidatePath,
-                parentEntry.userId,
-                { crossNamespace: true },
-            );
+            const existing = await repo.getEntryByPath(candidatePath);
             if (!existing) return candidate;
         }
         throw new HttpError(
@@ -2632,11 +2670,7 @@ export class FSService extends PuterService {
         );
 
         let name = pathPosix.basename(targetPath);
-        const existing = await this.stores.fsEntry.getEntryByPathForUser(
-            targetPath,
-            userId,
-            { crossNamespace: true },
-        );
+        const existing = await this.stores.fsEntry.getEntryByPath(targetPath);
         if (existing) {
             if (existing.isDir) {
                 // A directory already exists at path: idempotent success.
@@ -2690,11 +2724,7 @@ export class FSService extends PuterService {
             !!input.createMissingParents,
         );
         const name = pathPosix.basename(targetPath);
-        const existing = await this.stores.fsEntry.getEntryByPathForUser(
-            targetPath,
-            userId,
-            { crossNamespace: true },
-        );
+        const existing = await this.stores.fsEntry.getEntryByPath(targetPath);
         if (existing) {
             return this.stores.fsEntry.touchEntryTimestamps(existing.uuid, {
                 setAccessed: input.setAccessed,
@@ -2728,11 +2758,7 @@ export class FSService extends PuterService {
             parentPath === '/' ? `/${newName}` : `${parentPath}/${newName}`;
 
         // Reject if another entry already owns the target path.
-        const collision = await this.stores.fsEntry.getEntryByPathForUser(
-            newPath,
-            entry.userId,
-            { crossNamespace: true },
-        );
+        const collision = await this.stores.fsEntry.getEntryByPath(newPath);
         if (collision && collision.uuid !== entry.uuid) {
             throw new HttpError(409, `An entry already exists at ${newPath}`);
         }
@@ -2776,11 +2802,7 @@ export class FSService extends PuterService {
             input.parent.path === '/'
                 ? `/${name}`
                 : `${input.parent.path}/${name}`;
-        const collision = await this.stores.fsEntry.getEntryByPathForUser(
-            childPath,
-            userId,
-            { crossNamespace: true },
-        );
+        const collision = await this.stores.fsEntry.getEntryByPath(childPath);
         if (collision) {
             if (input.dedupeName) {
                 name = await this.#findDedupedName(input.parent, name);
@@ -3068,11 +3090,7 @@ export class FSService extends PuterService {
                 ? `/${name}`
                 : `${destinationParent.path}/${name}`;
 
-        const collision = await this.stores.fsEntry.getEntryByPathForUser(
-            targetPath,
-            userId,
-            { crossNamespace: true },
-        );
+        const collision = await this.stores.fsEntry.getEntryByPath(targetPath);
         if (collision && collision.uuid !== source.uuid) {
             if (input.overwrite) {
                 await this.remove(userId, {
@@ -3172,11 +3190,7 @@ export class FSService extends PuterService {
                 ? `/${name}`
                 : `${destinationParent.path}/${name}`;
 
-        const collision = await this.stores.fsEntry.getEntryByPathForUser(
-            targetPath,
-            userId,
-            { crossNamespace: true },
-        );
+        const collision = await this.stores.fsEntry.getEntryByPath(targetPath);
         if (collision) {
             if (input.overwrite) {
                 await this.remove(userId, {

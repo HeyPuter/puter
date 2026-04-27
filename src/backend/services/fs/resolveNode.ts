@@ -27,8 +27,6 @@ export interface NodeRef {
 export interface ResolveNodeOptions {
     /** Throw a 404 HttpError when nothing resolves; default `false` returns null. */
     required?: boolean;
-    /** When resolving by path, the path is resolved in this user's namespace. */
-    userId?: number;
 }
 
 function isNonEmptyString(value: unknown): value is string {
@@ -66,13 +64,7 @@ export async function resolveNode(
     }
 
     if (isNonEmptyString(ref.path)) {
-        const entry =
-            options.userId !== undefined
-                ? await fsEntryStore.getEntryByPathForUser(
-                      ref.path,
-                      options.userId,
-                  )
-                : await fsEntryStore.getEntryByPath(ref.path);
+        const entry = await fsEntryStore.getEntryByPath(ref.path);
         if (entry) return entry;
         return notFoundOrNull(
             options.required,

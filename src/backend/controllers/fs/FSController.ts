@@ -785,7 +785,7 @@ export class FSController extends PuterController {
         const actor = this.#requireActor(req);
         const userId = this.#getActorUserId(req);
         const body = this.#toObjectRecord(req.body);
-        const entry = await this.#resolveEntryForRequest(body, userId);
+        const entry = await this.#resolveEntryForRequest(body);
         await this.#assertAccess(actor, entry.path, 'see');
 
         const wantsSize = this.#toBoolean(body.return_size);
@@ -806,7 +806,6 @@ export class FSController extends PuterController {
     @Post('/readdir', { subdomain: 'api', requireVerified: true })
     async readdirEntries(req: Request, res: Response) {
         const actor = this.#requireActor(req);
-        const userId = this.#getActorUserId(req);
         const body = this.#toObjectRecord(req.body);
 
         if (this.#isRootPathRef(body)) {
@@ -831,7 +830,7 @@ export class FSController extends PuterController {
             return;
         }
 
-        const parent = await this.#resolveEntryForRequest(body, userId);
+        const parent = await this.#resolveEntryForRequest(body);
         if (!parent.isDir) {
             throw new HttpError(400, 'Target is not a directory');
         }
@@ -901,9 +900,8 @@ export class FSController extends PuterController {
     @Get('/read', { subdomain: 'api', requireVerified: true })
     async readEntry(req: Request, res: Response) {
         const actor = this.#requireActor(req);
-        const userId = this.#getActorUserId(req);
         const query = this.#toObjectRecord(req.query);
-        const entry = await this.#resolveEntryForRequest(query, userId);
+        const entry = await this.#resolveEntryForRequest(query);
         await this.#assertAccess(actor, entry.path, 'read');
 
         if (entry.isDir) {
@@ -1038,12 +1036,11 @@ export class FSController extends PuterController {
     @Post('/rename', { subdomain: 'api', requireVerified: true })
     async renameEntry(req: Request, res: Response) {
         const actor = this.#requireActor(req);
-        const userId = this.#getActorUserId(req);
         const body = this.#toObjectRecord(req.body);
         const newName = typeof body.new_name === 'string' ? body.new_name : '';
         if (!newName.trim()) throw new HttpError(400, 'Missing `new_name`');
 
-        const entry = await this.#resolveEntryForRequest(body, userId);
+        const entry = await this.#resolveEntryForRequest(body);
         await this.#assertAccess(actor, entry.path, 'write');
 
         const renamed = await this.services.fs.rename(entry, newName);
@@ -1056,7 +1053,7 @@ export class FSController extends PuterController {
         const actor = this.#requireActor(req);
         const userId = this.#getActorUserId(req);
         const body = this.#toObjectRecord(req.body);
-        const entry = await this.#resolveEntryForRequest(body, userId);
+        const entry = await this.#resolveEntryForRequest(body);
         await this.#assertAccess(actor, entry.path, 'write');
 
         const descendantsOnly = this.#toBoolean(body.descendants_only) ?? false;
@@ -1077,11 +1074,9 @@ export class FSController extends PuterController {
         const sourceRef = this.#extractNodeRef(body.source ?? body);
         const destinationRef = this.#extractNodeRef(body.destination);
 
-        const source = await this.#resolveEntryForRequest(sourceRef, userId);
-        const destinationParent = await this.#resolveEntryForRequest(
-            destinationRef,
-            userId,
-        );
+        const source = await this.#resolveEntryForRequest(sourceRef);
+        const destinationParent =
+            await this.#resolveEntryForRequest(destinationRef);
 
         await this.#assertAccess(actor, source.path, 'write');
         await this.#assertAccess(actor, destinationParent.path, 'write');
@@ -1107,11 +1102,9 @@ export class FSController extends PuterController {
         const sourceRef = this.#extractNodeRef(body.source ?? body);
         const destinationRef = this.#extractNodeRef(body.destination);
 
-        const source = await this.#resolveEntryForRequest(sourceRef, userId);
-        const destinationParent = await this.#resolveEntryForRequest(
-            destinationRef,
-            userId,
-        );
+        const source = await this.#resolveEntryForRequest(sourceRef);
+        const destinationParent =
+            await this.#resolveEntryForRequest(destinationRef);
 
         await this.#assertAccess(actor, source.path, 'read');
         await this.#assertAccess(actor, destinationParent.path, 'write');
@@ -1139,8 +1132,8 @@ export class FSController extends PuterController {
         const name = typeof body.name === 'string' ? body.name : '';
         if (!name.trim()) throw new HttpError(400, 'Missing `name`');
 
-        const parent = await this.#resolveEntryForRequest(parentRef, userId);
-        const target = await this.#resolveEntryForRequest(targetRef, userId);
+        const parent = await this.#resolveEntryForRequest(parentRef);
+        const target = await this.#resolveEntryForRequest(targetRef);
 
         await this.#assertAccess(actor, target.path, 'read');
         await this.#assertAccess(actor, parent.path, 'write');
@@ -1172,12 +1165,16 @@ export class FSController extends PuterController {
         return source.path.trim() === '/';
     }
 
-    async #resolveEntryForRequest(
-        source: Record<string, unknown>,
-        userId: number,
-    ) {
+    async #resolveEntryForRequest(source: Record<string, unknown>) {
+        const mod = await import('../../services/fs/resolveNode.js');
+        const username = Context.get('actor')?.user?.username;
+        const rawPath =
+            typeof source.path === 'string' ? source.path : undefined;
         const ref = {
-            path: typeof source.path === 'string' ? source.path : undefined,
+            path:
+                rawPath !== undefined
+                    ? mod.expandTildePath(rawPath, username)
+                    : undefined,
             uid:
                 typeof source.uid === 'string'
                     ? source.uid
@@ -1189,9 +1186,7 @@ export class FSController extends PuterController {
                     ? source.id
                     : undefined,
         };
-        const mod = await import('../../services/fs/resolveNode.js');
         const entry = await mod.resolveNode(this.stores.fsEntry, ref, {
-            userId,
             required: true,
         });
         if (!entry) {
