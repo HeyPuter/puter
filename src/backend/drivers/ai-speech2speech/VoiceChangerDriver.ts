@@ -94,14 +94,13 @@ export class VoiceChangerDriver extends PuterDriver {
             throw new HttpError(400, '`audio` is required');
         }
 
-        const userId = Number(
-            (actor as { user?: { id?: unknown } }).user?.id ?? NaN,
+        const loaded = await loadFileInput(
+            this.stores,
+            this.services.fs,
+            actor,
+            args.audio,
+            { maxBytes: MAX_AUDIO_FILE_SIZE },
         );
-        if (Number.isNaN(userId)) throw new HttpError(401, 'Unauthorized');
-
-        const loaded = await loadFileInput(this.stores, userId, args.audio, {
-            maxBytes: MAX_AUDIO_FILE_SIZE,
-        });
 
         const modelId = args.model_id || args.model || this.#defaultModelId;
         const voiceId =

@@ -1,5 +1,6 @@
 import Anthropic, { toFile } from '@anthropic-ai/sdk';
 import type { Actor } from '../../../../core/actor.js';
+import type { FSService } from '../../../../services/fs/FSService.js';
 import type { FSEntryStore } from '../../../../stores/fs/FSEntryStore.js';
 import type { S3ObjectStore } from '../../../../stores/fs/S3ObjectStore.js';
 import { loadFileInput } from '../../../util/fileInput.js';
@@ -36,10 +37,9 @@ export async function processPuterPathUploads(
     anthropic: Anthropic,
     messages: Array<{ content?: unknown }>,
     stores: { fsEntry: FSEntryStore; s3Object: S3ObjectStore },
+    fsService: FSService,
     actor: Actor | undefined,
 ): Promise<ClaudeUploadResult> {
-    const userId = Number(actor?.user?.id ?? NaN);
-
     const parts: ContentPart[] = [];
     for (const message of messages) {
         if (!Array.isArray(message.content)) continue;
@@ -52,7 +52,7 @@ export async function processPuterPathUploads(
     const fileIds: string[] = [];
     await Promise.all(
         parts.map((part) =>
-            processPart(part, anthropic, stores, userId, fileIds),
+            processPart(part, anthropic, stores, fsService, actor, fileIds),
         ),
     );
     return { fileIds };
@@ -62,19 +62,20 @@ async function processPart(
     part: ContentPart,
     anthropic: Anthropic,
     stores: { fsEntry: FSEntryStore; s3Object: S3ObjectStore },
-    userId: number,
+    fsService: FSService,
+    actor: Actor | undefined,
     fileIds: string[],
 ): Promise<void> {
     const path = part.puter_path!;
     delete part.puter_path;
 
-    if (!Number.isFinite(userId)) {
+    if (!actor?.user?.id) {
         setTextError(part, 'unauthenticated caller cannot resolve puter_path');
         return;
     }
 
     try {
-        const loaded = await loadFileInput(stores, userId, path, {
+        const loaded = await loadFileInput(stores, fsService, actor, path, {
             maxBytes: MAX_FILE_SIZE,
         });
         const mimeType = loaded.mimeType ?? 'application/octet-stream';

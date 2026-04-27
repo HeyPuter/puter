@@ -703,11 +703,14 @@ export class FSEntryStore extends PuterStore {
     }
 
     // Paths are globally unique because they're prefixed with the owner's
-    // username (`/<username>/...`). Lookups don't need to filter by user_id —
-    // doing so breaks older accounts where the stored `user_id` doesn't line
-    // up with the current id (e.g. accounts that pre-date when this column
-    // started being populated consistently). Matches v1 behaviour, which only
-    // ever queried `WHERE path = ?`.
+    // username (`/<username>/...`). The SQL `WHERE` clause can't filter by
+    // user_id — doing so breaks older accounts where the stored `user_id`
+    // doesn't line up with the current id (e.g. accounts that pre-date when
+    // this column started being populated consistently). Matches v1 behaviour,
+    // which only ever queried `WHERE path = ?`. Namespace scoping is enforced
+    // in JS via `#pathInUserNamespace` at the public entry points instead —
+    // robust against legacy drift because `renameUserHome` cascades the path
+    // prefix on every descendant.
     async #getEntryByPathAndUser(
         path: string,
         _userId: number,
@@ -1301,13 +1304,26 @@ export class FSEntryStore extends PuterStore {
         userId: number,
         options: ReadEntriesByPathsOptions = {},
     ): Promise<FSEntry | null> {
+        const username = (await this.stores.user.getById(userId))?.username;
+
         if (path === '~' || path.startsWith('~/')) {
-            const username = (await this.stores.user.getById(userId))?.username;
             if (!username) {
                 throw new HttpError(400, 'Unable to resolve home path');
             }
-
             path = `/${username}${path.slice(1)}`;
+        }
+
+        // Namespace check: paths "for user X" must live under `/<X>/...`.
+        // We can't enforce this in SQL because legacy rows have drifted
+        // user_id columns (see `#getEntryByPathAndUser`), but path prefixes
+        // are kept consistent by `renameUserHome`'s cascade. `crossNamespace`
+        // opts out for FSService internals that legitimately read paths in
+        // shared folders the caller has ACL-grant access to.
+        if (
+            !options.crossNamespace &&
+            !this.#pathInUserNamespace(path, username)
+        ) {
+            return null;
         }
 
         if (!options.useTryHardRead && !options.skipCache) {
@@ -1328,6 +1344,9 @@ export class FSEntryStore extends PuterStore {
         paths: string[],
         options: ReadEntriesByPathsOptions = {},
     ): Promise<(FSEntry | null)[]> {
+        const username = options.crossNamespace
+            ? null
+            : ((await this.stores.user.getById(userId))?.username ?? null);
         const entriesByPath = await this.#readEntriesByPathsForUser(
             userId,
             paths,
@@ -1335,8 +1354,24 @@ export class FSEntryStore extends PuterStore {
         );
         return paths.map((path) => {
             const normalizedPath = this.#normalizePath(path);
+            // Same namespace check as `getEntryByPathForUser` — applied
+            // per-path so a single batch can mix in/out-of-namespace inputs
+            // without leaking out-of-namespace hits.
+            if (
+                !options.crossNamespace &&
+                !this.#pathInUserNamespace(normalizedPath, username)
+            ) {
+                return null;
+            }
             return entriesByPath.get(normalizedPath) ?? null;
         });
+    }
+
+    #pathInUserNamespace(path: string, username: string | null): boolean {
+        if (!username) return false;
+        const normalized = this.#normalizePath(path);
+        const root = `/${username}`;
+        return normalized === root || normalized.startsWith(`${root}/`);
     }
 
     async resolveParentDirectoriesBatch(

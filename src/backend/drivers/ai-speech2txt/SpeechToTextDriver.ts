@@ -172,14 +172,14 @@ export class SpeechToTextDriver extends PuterDriver {
 
         const actor = Context.get('actor');
         if (!actor) throw new HttpError(401, 'Authentication required');
-        const userId = Number(
-            (actor as { user?: { id?: unknown } }).user?.id ?? NaN,
-        );
-        if (Number.isNaN(userId)) throw new HttpError(401, 'Unauthorized');
 
-        const loaded = await loadFileInput(this.stores, userId, args.file, {
-            maxBytes: MAX_AUDIO_FILE_SIZE,
-        });
+        const loaded = await loadFileInput(
+            this.stores,
+            this.services.fs,
+            actor,
+            args.file,
+            { maxBytes: MAX_AUDIO_FILE_SIZE },
+        );
 
         const selectedModel =
             args.model ||

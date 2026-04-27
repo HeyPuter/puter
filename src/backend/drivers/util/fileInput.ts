@@ -1,5 +1,7 @@
 import { posix as pathPosix } from 'node:path';
+import type { Actor } from '../../core/actor.js';
 import { HttpError } from '../../core/http/HttpError.js';
+import type { FSService } from '../../services/fs/FSService.js';
 import { resolveNode } from '../../services/fs/resolveNode.js';
 import type { FSEntryStore } from '../../stores/fs/FSEntryStore.js';
 import type { S3ObjectStore } from '../../stores/fs/S3ObjectStore.js';
@@ -38,12 +40,17 @@ const DATA_URL_PATTERN = /^data:([^;,]+)?(?:;([^,]*))?,(.*)$/s;
 
 export async function loadFileInput(
     stores: { fsEntry: FSEntryStore; s3Object: S3ObjectStore },
-    userId: number,
+    fsService: FSService,
+    actor: Actor,
     input: unknown,
     options: { maxBytes?: number } = {},
 ): Promise<LoadedFile> {
     if (!input) {
         throw new HttpError(400, 'Missing file input');
+    }
+    const userId = Number(actor?.user?.id ?? NaN);
+    if (!Number.isFinite(userId)) {
+        throw new HttpError(401, 'Unauthorized');
     }
 
     // Data URL — decode base64/plain inline.
@@ -101,6 +108,12 @@ export async function loadFileInput(
             'Cannot load content of a symlink or shortcut directly',
         );
     }
+    // ACL gate: resolveNode does global UID/UUID/ID lookups (FSEntryStore's
+    // path-based `*ForUser` variants enforce the namespace prefix, but the
+    // uid/id paths don't). Without this check, an attacker controlling
+    // `path`/`uid`/`uuid` (e.g. AI chat `puter_path` content parts) could
+    // exfiltrate any user's file. Must run before the S3 read below.
+    await fsService.checkFSAccess(entry, actor, 'read');
     // S3 object key is recorded in entry.metadata.objectKey when written by
     // fsv2; older rows fall back to the entry uuid.
     const objectKey = deriveObjectKey(entry);

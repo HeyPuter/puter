@@ -495,6 +495,7 @@ export class ChatCompletionDriver extends PuterDriver {
                     fsEntry: this.stores.fsEntry,
                     s3Object: this.stores.s3Object,
                 },
+                this.services.fs,
                 { apiKey: claudeKey },
             );
         }
@@ -508,6 +509,7 @@ export class ChatCompletionDriver extends PuterDriver {
             const openaiCompletions = new OpenAiChatProvider(
                 metering,
                 openaiStores,
+                this.services.fs,
                 {
                     apiKey: openaiKey,
                 },
@@ -515,6 +517,7 @@ export class ChatCompletionDriver extends PuterDriver {
             const openaiResponses = new OpenAiResponsesChatProvider(
                 metering,
                 openaiStores,
+                this.services.fs,
                 { apiKey: openaiKey },
             );
             // web_search is Responses-only; let the Completions path delegate

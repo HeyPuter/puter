@@ -20,6 +20,7 @@
 import { OpenAI } from 'openai';
 import { ChatCompletionCreateParams } from 'openai/resources/index.js';
 import { Context } from '../../../../core/context.js';
+import type { FSService } from '../../../../services/fs/FSService.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import type { FSEntryStore } from '../../../../stores/fs/FSEntryStore.js';
 import type { S3ObjectStore } from '../../../../stores/fs/S3ObjectStore.js';
@@ -48,15 +49,19 @@ export class OpenAiChatProvider implements IChatProvider {
 
     #stores: { fsEntry: FSEntryStore; s3Object: S3ObjectStore };
 
+    #fsService: FSService;
+
     #responsesProvider: OpenAiResponsesChatProvider | null = null;
 
     constructor(
         meteringService: MeteringService,
         stores: { fsEntry: FSEntryStore; s3Object: S3ObjectStore },
+        fsService: FSService,
         config: { apiKey: string },
     ) {
         this.#meteringService = meteringService;
         this.#stores = stores;
+        this.#fsService = fsService;
         this.#openAi = new OpenAI({ apiKey: config.apiKey });
     }
 
@@ -147,7 +152,12 @@ export class OpenAiChatProvider implements IChatProvider {
         // Resolve any `puter_path` content parts into inline base64 data URLs.
         // Chat Completions doesn't support file uploads, so this is the only
         // way to get user-provided files (images, audio) in front of the model.
-        await processPuterPathUploads(messages, this.#stores, actor);
+        await processPuterPathUploads(
+            messages,
+            this.#stores,
+            this.#fsService,
+            actor,
+        );
 
         // Here's something fun; the documentation shows `type: 'image_url'` in
         // objects that contain an image url, but everything still works if

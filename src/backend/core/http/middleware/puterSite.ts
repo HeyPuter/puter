@@ -411,6 +411,9 @@ export const createPuterSiteMiddleware = (
         }
         const filePath = rootPath + resolvedUrlPath;
 
+        // Subdomain hosting bypasses ACL by design: anything the owner placed
+        // under the registered root_dir is treated as public. Path traversal
+        // is blocked above by `pathPosix.normalize` anchoring at `/`.
         const entry = await layers.stores.fsEntry.getEntryByPath(filePath);
         if (!entry || entry.isDir) {
             res.status(404)

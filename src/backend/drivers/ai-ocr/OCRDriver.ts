@@ -139,15 +139,16 @@ export class OCRDriver extends PuterDriver {
 
         const actor = Context.get('actor');
         if (!actor) throw new HttpError(401, 'Authentication required');
-        const userId = Number(
-            (actor as { user?: { id?: unknown } }).user?.id ?? NaN,
-        );
-        if (Number.isNaN(userId)) throw new HttpError(401, 'Unauthorized');
 
         const input = args.source ?? args.file;
         if (!input) throw new HttpError(400, '`source` is required');
 
-        const loaded = await loadFileInput(this.stores, userId, input);
+        const loaded = await loadFileInput(
+            this.stores,
+            this.services.fs,
+            actor,
+            input,
+        );
 
         if (provider === 'aws-textract') {
             if (!this.#awsConfig)

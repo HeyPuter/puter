@@ -349,6 +349,11 @@ export class FSService extends PuterService {
                 {
                     useTryHardRead: true,
                     skipCache: true,
+                    // ACL has already gated the write — collision detection
+                    // must see entries in shared folders the writer was
+                    // granted access to, even when those live outside the
+                    // writer's own namespace.
+                    crossNamespace: true,
                 },
             );
         for (let index = 0; index < initialPaths.length; index++) {
@@ -376,6 +381,7 @@ export class FSService extends PuterService {
                 {
                     useTryHardRead: true,
                     skipCache: true,
+                    crossNamespace: true,
                 },
             );
             existingEntryCache.set(path, readPromise);
@@ -2567,6 +2573,7 @@ export class FSService extends PuterService {
             const existing = await repo.getEntryByPathForUser(
                 candidatePath,
                 parentEntry.userId,
+                { crossNamespace: true },
             );
             if (!existing) return candidate;
         }
@@ -2628,6 +2635,7 @@ export class FSService extends PuterService {
         const existing = await this.stores.fsEntry.getEntryByPathForUser(
             targetPath,
             userId,
+            { crossNamespace: true },
         );
         if (existing) {
             if (existing.isDir) {
@@ -2685,6 +2693,7 @@ export class FSService extends PuterService {
         const existing = await this.stores.fsEntry.getEntryByPathForUser(
             targetPath,
             userId,
+            { crossNamespace: true },
         );
         if (existing) {
             return this.stores.fsEntry.touchEntryTimestamps(existing.uuid, {
@@ -2722,6 +2731,7 @@ export class FSService extends PuterService {
         const collision = await this.stores.fsEntry.getEntryByPathForUser(
             newPath,
             entry.userId,
+            { crossNamespace: true },
         );
         if (collision && collision.uuid !== entry.uuid) {
             throw new HttpError(409, `An entry already exists at ${newPath}`);
@@ -2769,6 +2779,7 @@ export class FSService extends PuterService {
         const collision = await this.stores.fsEntry.getEntryByPathForUser(
             childPath,
             userId,
+            { crossNamespace: true },
         );
         if (collision) {
             if (input.dedupeName) {
@@ -3060,6 +3071,7 @@ export class FSService extends PuterService {
         const collision = await this.stores.fsEntry.getEntryByPathForUser(
             targetPath,
             userId,
+            { crossNamespace: true },
         );
         if (collision && collision.uuid !== source.uuid) {
             if (input.overwrite) {
@@ -3163,6 +3175,7 @@ export class FSService extends PuterService {
         const collision = await this.stores.fsEntry.getEntryByPathForUser(
             targetPath,
             userId,
+            { crossNamespace: true },
         );
         if (collision) {
             if (input.overwrite) {

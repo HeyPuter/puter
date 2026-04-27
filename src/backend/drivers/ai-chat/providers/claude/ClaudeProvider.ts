@@ -6,6 +6,7 @@ import type {
     Usage,
 } from '@anthropic-ai/sdk/resources/messages.js';
 import { Context } from '../../../../core/context.js';
+import type { FSService } from '../../../../services/fs/FSService.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import type { FSEntryStore } from '../../../../stores/fs/FSEntryStore.js';
 import type { S3ObjectStore } from '../../../../stores/fs/S3ObjectStore.js';
@@ -31,13 +32,17 @@ export class ClaudeProvider implements IChatProvider {
 
     #stores: { fsEntry: FSEntryStore; s3Object: S3ObjectStore };
 
+    #fsService: FSService;
+
     constructor(
         meteringService: MeteringService,
         stores: { fsEntry: FSEntryStore; s3Object: S3ObjectStore },
+        fsService: FSService,
         config: { apiKey: string },
     ) {
         this.#meteringService = meteringService;
         this.#stores = stores;
+        this.#fsService = fsService;
         this.anthropic = new Anthropic({
             apiKey: config.apiKey,
             timeout: 10 * 60 * 1001,
@@ -228,6 +233,7 @@ export class ClaudeProvider implements IChatProvider {
             this.anthropic,
             messages,
             this.#stores,
+            this.#fsService,
             actor,
         );
         const usesBetaFiles = uploadedFileIds.length > 0;

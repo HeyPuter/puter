@@ -20,6 +20,7 @@
 import { OpenAI } from 'openai';
 import { ResponseCreateParams } from 'openai/resources/responses/responses.mjs';
 import { Context } from '../../../../core/context.js';
+import type { FSService } from '../../../../services/fs/FSService.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import type { FSEntryStore } from '../../../../stores/fs/FSEntryStore.js';
 import type { S3ObjectStore } from '../../../../stores/fs/S3ObjectStore.js';
@@ -47,13 +48,17 @@ export class OpenAiResponsesChatProvider implements IChatProvider {
 
     #stores: { fsEntry: FSEntryStore; s3Object: S3ObjectStore };
 
+    #fsService: FSService;
+
     constructor(
         meteringService: MeteringService,
         stores: { fsEntry: FSEntryStore; s3Object: S3ObjectStore },
+        fsService: FSService,
         config: { apiKey: string },
     ) {
         this.#meteringService = meteringService;
         this.#stores = stores;
+        this.#fsService = fsService;
         this.#openAi = new OpenAI({ apiKey: config.apiKey });
     }
 
@@ -144,7 +149,12 @@ export class OpenAiResponsesChatProvider implements IChatProvider {
 
         // Resolve any `puter_path` content parts into inline base64 data URLs
         // before the Responses API sees them.
-        await processPuterPathUploads(messages, this.#stores, actor);
+        await processPuterPathUploads(
+            messages,
+            this.#stores,
+            this.#fsService,
+            actor,
+        );
 
         if (tools) {
             // Unravel tools to OpenAI Responses API format

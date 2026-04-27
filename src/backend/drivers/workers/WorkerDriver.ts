@@ -134,19 +134,12 @@ export class WorkerDriver extends PuterDriver {
             authorization = session.token;
         }
 
-        // Check read permission
-        await this.services.fs.checkFSAccess(
-            await this.stores.fsEntry.getEntryByPathForUser(
-                filePath,
-                actor.user.id,
-            ),
-            actor,
-        );
-
-        // Read source file
+        // Read source file. loadFileInput runs the read-ACL check internally
+        // before pulling bytes from S3.
         const loaded = await loadFileInput(
             { fsEntry: this.stores.fsEntry, s3Object: this.stores.s3Object },
-            actor.user.id as number,
+            this.services.fs,
+            actor,
             filePath,
             { maxBytes: MAX_SOURCE_SIZE },
         );
@@ -473,13 +466,20 @@ export class WorkerDriver extends PuterDriver {
             );
 
             try {
-                // Read the updated file content
+                const ownerUser = await this.stores.user.getById(userId);
+                if (!ownerUser) continue;
+                const ownerActor = { user: ownerUser } as Actor;
+
+                // Read the updated file content. `ownerActor` is the file's
+                // owner from the originating write event, so the read-ACL
+                // check inside loadFileInput will pass.
                 const loaded = await loadFileInput(
                     {
                         fsEntry: this.stores.fsEntry,
                         s3Object: this.stores.s3Object,
                     },
-                    userId,
+                    this.services.fs,
+                    ownerActor,
                     path ?? uuid, // prefer path, fall back to uuid
                     { maxBytes: MAX_SOURCE_SIZE },
                 );
@@ -491,25 +491,13 @@ export class WorkerDriver extends PuterDriver {
                 if (appOwnerId) {
                     // App-scoped: get the app's uid, then mint an app-under-user token
                     const app = await this.stores.app.getById(appOwnerId);
-                    if (app) {
-                        const ownerUser =
-                            await this.stores.user.getById(userId);
-                        if (ownerUser) {
-                            const actor = { user: ownerUser } as Actor;
-                            authorization = this.services.auth.getUserAppToken(
-                                actor,
-                                app.uid,
-                            );
-                        } else {
-                            continue; // can't auth without the user
-                        }
-                    } else {
-                        continue; // app gone
-                    }
+                    if (!app) continue; // app gone
+                    authorization = this.services.auth.getUserAppToken(
+                        ownerActor,
+                        app.uid,
+                    );
                 } else {
                     // User-scoped: mint a session token
-                    const ownerUser = await this.stores.user.getById(userId);
-                    if (!ownerUser) continue;
                     const session =
                         await this.services.auth.createSessionToken(ownerUser);
                     authorization = session.token;

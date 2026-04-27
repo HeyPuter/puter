@@ -51,4 +51,13 @@ export interface NormalizedEntryWrite {
 export interface ReadEntriesByPathsOptions {
     useTryHardRead?: boolean;
     skipCache?: boolean;
+    /**
+     * Opt-out of the user-namespace check applied by `getEntryByPathForUser`
+     * and `getEntriesByPathsForUser`. Default `false` — paths must live under
+     * `/<username>/...` for the supplied userId, otherwise the entry is
+     * dropped from the result. Set `true` only for FSService internals that
+     * legitimately resolve cross-namespace entries (collision checks against
+     * paths in shared folders the writer has been granted access to).
+     */
+    crossNamespace?: boolean;
 }

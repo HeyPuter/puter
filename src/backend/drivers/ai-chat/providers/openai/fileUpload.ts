@@ -1,4 +1,5 @@
 import type { Actor } from '../../../../core/actor.js';
+import type { FSService } from '../../../../services/fs/FSService.js';
 import type { FSEntryStore } from '../../../../stores/fs/FSEntryStore.js';
 import type { S3ObjectStore } from '../../../../stores/fs/S3ObjectStore.js';
 import { loadFileInput } from '../../../util/fileInput.js';
@@ -28,16 +29,15 @@ interface ContentPart {
 export async function processPuterPathUploads(
     messages: Array<{ content?: unknown }>,
     stores: { fsEntry: FSEntryStore; s3Object: S3ObjectStore },
+    fsService: FSService,
     actor: Actor | undefined,
 ): Promise<void> {
-    const userId = Number(actor?.user?.id ?? NaN);
-
     const tasks: Array<Promise<void>> = [];
     for (const message of messages) {
         if (!Array.isArray(message.content)) continue;
         for (const part of message.content as ContentPart[]) {
             if (!part || !part.puter_path) continue;
-            tasks.push(processPart(part, stores, userId));
+            tasks.push(processPart(part, stores, fsService, actor));
         }
     }
     await Promise.all(tasks);
@@ -46,18 +46,19 @@ export async function processPuterPathUploads(
 async function processPart(
     part: ContentPart,
     stores: { fsEntry: FSEntryStore; s3Object: S3ObjectStore },
-    userId: number,
+    fsService: FSService,
+    actor: Actor | undefined,
 ): Promise<void> {
     const path = part.puter_path!;
     delete part.puter_path;
 
-    if (!Number.isFinite(userId)) {
+    if (!actor?.user?.id) {
         setTextError(part, 'unauthenticated caller cannot resolve puter_path');
         return;
     }
 
     try {
-        const loaded = await loadFileInput(stores, userId, path, {
+        const loaded = await loadFileInput(stores, fsService, actor, path, {
             maxBytes: MAX_FILE_SIZE,
         });
         const mimeType = loaded.mimeType ?? 'application/octet-stream';
