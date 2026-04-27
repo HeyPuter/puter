@@ -607,8 +607,10 @@ function UIContextMenu (options) {
     if ( is_sheet ) {
         $sheet_backdrop = $('<div class="context-menu-sheet-backdrop"></div>');
         $('body').append($sheet_backdrop);
+        // touchstart is registered as passive by jQuery (see initgui.js), so
+        // preventDefault would be a no-op and emit a console warning. stopPropagation
+        // is enough to keep the document-level dismiss handler from running twice.
         $sheet_backdrop.on('mousedown touchstart', (e) => {
-            e.preventDefault();
             e.stopPropagation();
             fade_remove($sheet_backdrop);
         });
@@ -738,11 +740,10 @@ function UIContextMenu (options) {
     });
 
     // Useful in cases such as where a menu item is over a window, this prevents the mousedown event from
-    // reaching the window underneath
+    // reaching the window underneath. Note: do NOT call preventDefault here — on iOS Safari that
+    // cancels the synthesized click event, which breaks tapping items on mobile.
     $(`#context-menu-${menu_id} > li:not(.context-menu-item-disabled)`).on('mousedown', function (e) {
-        e.preventDefault();
         e.stopPropagation();
-        return false;
     });
 
     // Disable parent scroll
