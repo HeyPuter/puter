@@ -96,15 +96,16 @@ export class SubdomainStore extends PuterStore {
 
     async listByUserId(userId, { limit = 500 } = {}) {
         const rows = await this.clients.db.read(
-            `SELECT * FROM \`subdomains\` WHERE \`user_id\` = ? LIMIT ${limit}`,
-            [userId],
+            `SELECT * FROM \`subdomains\` WHERE \`user_id\` = ? LIMIT ?`,
+            [userId, limit],
         );
         return rows;
     }
 
     async listAll({ limit = 5000 } = {}) {
         const rows = await this.clients.db.read(
-            `SELECT * FROM \`subdomains\` LIMIT ${limit}`,
+            `SELECT * FROM \`subdomains\` LIMIT ?`,
+            [limit],
         );
         return rows;
     }
