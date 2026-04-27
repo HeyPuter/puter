@@ -37,6 +37,11 @@ export class KVStoreDriver extends PuterDriver {
     }
 
     #opts(appUuid?: string): { actor: Actor | undefined; appUuid?: string } {
+        const actor = Context.get('actor') as Actor | undefined;
+        if (actor?.app?.uid) {
+            // force appUuid to be the one from the actor if it exists, only root tokens allowed to override appUuid
+            appUuid = undefined;
+        }
         return { actor: Context.get('actor') as Actor | undefined, appUuid };
     }
 
@@ -261,5 +266,64 @@ export class KVStoreDriver extends PuterDriver {
             opts,
         );
         this.#meter(opts.actor, usage);
+    }
+
+    async update(args: {
+        key: unknown;
+        pathAndValueMap: Record<string, unknown>;
+        ttl?: number;
+        optConfig?: { appUuid?: string };
+    }): Promise<unknown> {
+        const coerced = this.#coerceKey(args.key);
+        if (!args.pathAndValueMap || typeof args.pathAndValueMap !== 'object') {
+            throw new HttpError(400, 'Missing or invalid `pathAndValueMap`');
+        }
+        const opts = this.#opts(args.optConfig?.appUuid);
+        const { res, usage } = await this.stores.kv.update(
+            {
+                key: coerced,
+                pathAndValueMap: args.pathAndValueMap,
+                ttl: args.ttl,
+            },
+            opts,
+        );
+        this.#meter(opts.actor, usage);
+        return res;
+    }
+
+    async add(args: {
+        key: unknown;
+        pathAndValueMap: Record<string, unknown>;
+        optConfig?: { appUuid?: string };
+    }): Promise<unknown> {
+        const coerced = this.#coerceKey(args.key);
+        if (!args.pathAndValueMap || typeof args.pathAndValueMap !== 'object') {
+            throw new HttpError(400, 'Missing or invalid `pathAndValueMap`');
+        }
+        const opts = this.#opts(args.optConfig?.appUuid);
+        const { res, usage } = await this.stores.kv.add(
+            { key: coerced, pathAndValueMap: args.pathAndValueMap },
+            opts,
+        );
+        this.#meter(opts.actor, usage);
+        return res;
+    }
+
+    async remove(args: {
+        key: unknown;
+        paths: string[];
+        optConfig?: { appUuid?: string };
+    }): Promise<unknown> {
+        const coerced = this.#coerceKey(args.key);
+        if (!Array.isArray(args.paths) || args.paths.length === 0) {
+            throw new HttpError(400, 'Missing or invalid `paths`');
+        }
+        const opts = this.#opts(args.optConfig?.appUuid);
+        const { res, usage } = await this.stores.kv.remove(
+            { key: coerced, paths: args.paths },
+            opts,
+        );
+        this.#meter(opts.actor, usage);
+        return res;
     }
 }
