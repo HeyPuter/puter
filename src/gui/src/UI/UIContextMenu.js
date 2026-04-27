@@ -510,8 +510,9 @@ function UIContextMenu (options) {
 
     const contextMenu = document.getElementById(`context-menu-${menu_id}`);
 
-    // iOS-style action sheet on mobile (top-level menus only; submenus cascade).
-    const is_sheet = (isMobile.phone || isMobile.tablet) && !options.is_submenu;
+    // iOS-style action sheet on mobile. Both top-level menus and submenus use
+    // sheet styling; the submenu replaces (visually) the parent sheet.
+    const is_sheet = isMobile.phone || isMobile.tablet;
     let $sheet_backdrop = null;
     let x_pos = 0;
     let y_pos = 0;
@@ -595,16 +596,21 @@ function UIContextMenu (options) {
 
     let cancel_options_ = null;
     const fade_remove = (item) => {
-        $(`#context-menu-${menu_id}, .context-menu[data-element-id="${$(item).closest('.context-menu').attr('data-parent-id')}"]`).fadeOut(200, function () {
-            $(contextMenu).remove();
-        });
+        const parent_data_id = $(item).closest('.context-menu').attr('data-parent-id');
+        const $stack = $(`#context-menu-${menu_id}, .context-menu[data-element-id="${parent_data_id}"]`);
+        // Animate visible menus out. fadeOut's callback does not fire on
+        // already-hidden elements (e.g. a parent sheet hidden when its submenu
+        // opened), so force-remove the whole stack after the animation.
+        $stack.fadeOut(200);
+        setTimeout(() => $stack.remove(), 220);
     };
     const remove = () => {
         $(contextMenu).remove();
     };
 
-    // Sheet-mode backdrop: tap outside to dismiss
-    if ( is_sheet ) {
+    // Sheet-mode backdrop: tap outside to dismiss. Only the top-level sheet
+    // owns a backdrop; submenu sheets reuse the parent's backdrop.
+    if ( is_sheet && !options.is_submenu ) {
         $sheet_backdrop = $('<div class="context-menu-sheet-backdrop"></div>');
         $('body').append($sheet_backdrop);
         // touchstart is registered as passive by jQuery (see initgui.js), so
@@ -612,7 +618,13 @@ function UIContextMenu (options) {
         // is enough to keep the document-level dismiss handler from running twice.
         $sheet_backdrop.on('mousedown touchstart', (e) => {
             e.stopPropagation();
-            fade_remove($sheet_backdrop);
+            // Close every sheet (parent + any open submenus) so a backdrop tap
+            // dismisses the whole stack at once. fadeOut's callback won't fire
+            // for elements already hidden, so force-remove after the animation.
+            const $sheets = $('.context-menu.context-menu-sheet');
+            $sheets.fadeOut(200);
+            setTimeout(() => $sheets.remove(), 220);
+            $sheet_backdrop.remove();
         });
     }
 
@@ -698,6 +710,13 @@ function UIContextMenu (options) {
                         } else {
                             submenu_y_pos = item_rect_box.top - 5;
                             submenu_x_pos = x_pos + item_rect_box.width + 15;
+                        }
+
+                        // On mobile sheet mode, hide the parent sheet so the
+                        // submenu visually replaces it (still in DOM so the
+                        // existing fade_remove cascade can clean it up).
+                        if ( is_sheet ) {
+                            $(contextMenu).hide();
                         }
 
                         // open the new submenu
