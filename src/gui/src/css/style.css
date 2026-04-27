@@ -1827,11 +1827,17 @@ span.header-sort-icon img {
 .context-menu.context-menu-sheet .context-menu-item .ctx-item-icon,
 .context-menu.context-menu-sheet .context-menu-item .context-menu-item-icon,
 .context-menu.context-menu-sheet .context-menu-item .context-menu-item-icon-active {
-    left: 16px;
+    position: absolute;
+    left: 9px;
     top: 50%;
     transform: translateY(-50%);
     width: 20px;
     height: 20px;
+    margin: 0;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
 .context-menu.context-menu-sheet .context-menu-item-active:not(.context-menu-divider) {
@@ -1866,7 +1872,12 @@ span.header-sort-icon img {
     left: 0;
     right: 0;
     bottom: 0;
-    z-index: 9999999998;
+    /* Must be a value within the 32-bit signed int range. The .context-menu rule
+       above uses 9999999999 which browsers clamp to INT_MAX (2147483647); using
+       9999999998 here would also clamp to the same value, leaving the backdrop
+       and menu at equal z-index — and since the backdrop is appended after the
+       menu, DOM order would put it on top and swallow every tap. */
+    z-index: 2147483646;
     background: transparent;
 }
 

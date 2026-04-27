@@ -364,12 +364,14 @@ class PuterContextMenu extends PuterWebComponent {
         const menu = this.$('.context-menu');
         if ( ! menu ) return;
 
-        // On mobile/touch devices, render as action sheet (bottom-anchored)
-        // Skip for submenus — they cascade as nested popovers, not sheets.
-        if ( this._isMobile() && !this.hasAttribute('data-submenu') ) {
+        // On mobile/touch devices, render as an iOS-style action sheet
+        // (bottom-anchored). Submenus also use sheet mode and visually
+        // replace the parent — only the root sheet owns the backdrop.
+        if ( this._isMobile() ) {
             this.classList.add('sheet-mode');
-            // Add backdrop overlay for action sheet mode
-            this._showBackdrop();
+            if ( ! this.hasAttribute('data-submenu') ) {
+                this._showBackdrop();
+            }
             return;
         }
 
@@ -738,6 +740,13 @@ class PuterContextMenu extends PuterWebComponent {
             this._closeAll();
         });
 
+        // On mobile sheet mode, hide self so the submenu visually replaces
+        // the parent sheet. We restore display in _hideActiveSubmenu.
+        if ( this.classList.contains('sheet-mode') ) {
+            this.style.display = 'none';
+            this._sheetHidden = true;
+        }
+
         document.body.appendChild(submenu);
         this.#activeSubmenu = { element: submenu, parentEl };
 
@@ -879,11 +888,23 @@ class PuterContextMenu extends PuterWebComponent {
         }
     }
 
-    _hideActiveSubmenu () {
+    _hideActiveSubmenu (restoreSelf = true) {
         if ( this.#activeSubmenu ) {
-            this.#activeSubmenu.element.remove();
+            // If the submenu is animating itself out (e.g. its own _closeAll is
+            // running), don't yank it out of the DOM — let the animation finish.
+            if ( ! this.#activeSubmenu.element._closing ) {
+                this.#activeSubmenu.element.remove();
+            }
             this.#activeSubmenu.parentEl.classList.remove('has-open-submenu');
             this.#activeSubmenu = null;
+        }
+        // Restore self if we were hidden for a sheet-mode submenu (e.g. user
+        // pressed ArrowLeft to return to the parent sheet). Skip restore when
+        // the parent is closing — restoring would briefly flash the parent
+        // visible before it animates out.
+        if ( restoreSelf && this._sheetHidden ) {
+            this.style.display = '';
+            this._sheetHidden = false;
         }
         // Apply deferred focus from safe-triangle hover
         if ( this.#pendingFocusIndex !== null ) {
@@ -898,7 +919,10 @@ class PuterContextMenu extends PuterWebComponent {
         this._cancelSubmenuClose();
         clearTimeout(this.#submenuTimeout);
         clearTimeout(this.#typeaheadTimer);
-        this._hideActiveSubmenu();
+        // Don't restore display when we're already closing — restoring would
+        // make the parent sheet briefly flash back before being removed.
+        const wasHidden = this._sheetHidden;
+        this._hideActiveSubmenu(false);
         if ( this._outsideClickHandler ) {
             document.removeEventListener('click', this._outsideClickHandler, true);
         }
@@ -911,11 +935,17 @@ class PuterContextMenu extends PuterWebComponent {
         }
         this.emitEvent('close', {});
 
-        // Sheet-mode close: animate down, then remove
+        // Sheet-mode close: animate down only if we're currently visible. A
+        // sheet that was hidden because a submenu replaced it has nothing
+        // visible to animate, so just clean up silently.
         if ( this.classList.contains('sheet-mode') ) {
-            this.classList.add('sheet-closing');
             this._hideBackdrop();
-            setTimeout(() => this.remove(), 250);
+            if ( wasHidden ) {
+                this.remove();
+            } else {
+                this.classList.add('sheet-closing');
+                setTimeout(() => this.remove(), 250);
+            }
         } else {
             this.remove();
         }
