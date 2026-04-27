@@ -124,11 +124,11 @@ export default {
         // button is disabled.
         const $tip = $('<div style="position:fixed;background:#1a1a1a;color:#fff;font-size:11px;line-height:1.4;padding:5px 8px;border-radius:5px;pointer-events:none;display:none;z-index:99999;max-width:220px;white-space:normal;text-align:center;box-shadow:0 2px 6px rgba(0,0,0,.3);"></div>').appendTo('body');
         $el_window
-            .on('mouseenter', '[data-tooltip]', function () {
-                const text = $(this).attr('data-tooltip');
+            .on('mouseenter', '[data-tooltip]', function (event) {
+                const text = $(event.currentTarget).attr('data-tooltip');
                 if ( ! text ) return;
                 $tip.text(text).show();
-                const r = this.getBoundingClientRect();
+                const r = event.currentTarget.getBoundingClientRect();
                 const tw = $tip.outerWidth(), th = $tip.outerHeight();
                 let top = r.top - th - 6;
                 let left = Math.max(4, Math.min(r.left + r.width / 2 - tw / 2, window.innerWidth - tw - 4));
@@ -324,8 +324,8 @@ export default {
             $el_window.find('.passwordless-warning').show();
         });
 
-        $el_window.find('.confirm-remove-password-btn').on('click', async function () {
-            const $btn = $(this);
+        $el_window.find('.confirm-remove-password-btn').on('click', async function (event) {
+            const $btn = $(event.currentTarget);
             $btn.prop('disabled', true).text('Removing…');
 
             const showStatus = (msg, color) => {

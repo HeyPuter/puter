@@ -192,6 +192,7 @@ async function UIWindowLogin (options) {
                     });
                 }
             } catch (_) {
+                // ignore: OIDC providers endpoint unavailable
             }
         })();
 

@@ -131,7 +131,7 @@ class UserProtectedEndpointsService extends BaseService {
             const is_change_password = req.path === '/change-password';
             const is_add_password_mode = is_change_password &&
                 req.headers['x-puter-add-password'] === '1' &&
-                user.password === null;
+                (user.password === null || Number(user.password_required) === 0);
 
             if ( user.password === null && user.email === null ) {
                 return next();

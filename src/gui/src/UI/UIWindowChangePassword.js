@@ -127,7 +127,7 @@ async function UIWindowChangePassword (options) {
         }
     };
 
-    $(el_window).find('.change-password-btn').on('click', async function (e) {
+    $(el_window).find('.change-password-btn').on('click', async function (_e) {
         const current_password = $(el_window).find('.current-password').val();
         const new_password = $(el_window).find('.new-password').val();
         const confirm_new_password = $(el_window).find('.confirm-new-password').val();
