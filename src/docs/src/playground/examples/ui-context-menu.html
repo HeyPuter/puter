@@ -1,0 +1,47 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+
+    <div id="right-click-area" style="width: 300px; height: 200px; border: 2px dashed #ccc; padding: 20px; display: flex; align-items: center; justify-content: center; font-family: sans-serif; color: #666;">
+        Right-click me to show context menu
+    </div>
+
+    <script>
+        document.getElementById('right-click-area').addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+
+            puter.ui.contextMenu({
+                items: [
+                    {
+                        label: 'Edit Item',
+                        action: () => puter.print('Edit action triggered'),
+                    },
+                    {
+                        label: 'Copy Item',
+                        action: () => puter.print('Copy action triggered'),
+                    },
+                    '-',
+                    {
+                        label: 'Export',
+                        items: [
+                            {
+                                label: 'Export as PDF',
+                                action: () => puter.print('Exporting as PDF'),
+                            },
+                            {
+                                label: 'Export as JSON',
+                                action: () => puter.print('Exporting as JSON'),
+                            },
+                        ],
+                    },
+                    '-',
+                    {
+                        label: 'Delete Item',
+                        action: () => puter.print('Delete action triggered'),
+                    },
+                ],
+            });
+        });
+    </script>
+</body>
+</html>

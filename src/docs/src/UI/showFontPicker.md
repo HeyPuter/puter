@@ -1,7 +1,7 @@
 ---
 title: puter.ui.showFontPicker()
 description: Presents a list of fonts for previewing and selecting.
-platforms: [apps]
+platforms: [ websites, apps]
 ---
 
 Presents the user with a list of fonts allowing them to preview and select a font.
@@ -20,7 +20,7 @@ The default font to select when the font picker is opened.
 
 ## Examples
 
-```html
+```html;ui-show-font-picker
 <html>
 <body>
     <script src="https://js.puter.com/v2/"></script>

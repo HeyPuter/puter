@@ -99,10 +99,12 @@ async function UIDashboard (options) {
                     continue;
                 }
                 const isActive = i === 0 ? ' active' : '';
-                h += `<div class="dashboard-sidebar-item${isActive}" data-section="${tab.id}" data-tooltip="${html_encode(tab.label)}">`;
+                const tabHash = tab.id === 'home' ? '' : `#${tab.id}`;
+                const tabHref = tabHash || window.location.pathname;
+                h += `<a class="dashboard-sidebar-item allow-native-ctxmenu${isActive}" href="${tabHref}" data-section="${tab.id}" data-tooltip="${html_encode(tab.label)}">`;
                     h += tab.icon;
                     h += tab.label;
-                h += '</div>';
+                h += '</a>';
             }
             h += '</div>';
 
@@ -313,7 +315,7 @@ async function UIDashboard (options) {
     });
 
     window.socket.on('item.added', async (item) => {
-        if ( _.isEmpty(item) ) return;
+        if ( !item || Object.keys(item).length === 0 ) return;
         if ( item.original_client_socket_id === window.socket.id ) return;
 
         if ( window.UIDashboardFileItem ) {
@@ -374,6 +376,9 @@ async function UIDashboard (options) {
             document.querySelector('.dashboard-content').classList.add(tab);
         }
 
+        // Scroll content area to top
+        $el_window.find('.dashboard-content').scrollTop(0);
+
         // If files tab with path, navigate without adding to history
         if ( tab === 'files' && filePath ) {
             const filesTab = tabs.find(t => t.id === 'files');
@@ -388,7 +393,8 @@ async function UIDashboard (options) {
     window.addEventListener('popstate', handleRouteChange);
 
     // Sidebar item click handler
-    $el_window.on('click', '.dashboard-sidebar-item', function () {
+    $el_window.on('click', '.dashboard-sidebar-item', function (e) {
+        e.preventDefault();
         const $this = $(this);
         const section = $this.attr('data-section');
 
@@ -410,11 +416,11 @@ async function UIDashboard (options) {
         document.querySelector('.dashboard-content').classList.add(section);
 
         // Update hash to reflect current tab
-        // Note: Files tab updates its own hash with full path via onActivate, so skip it here
-        if ( section !== 'files' ) {
-            const newHash = section === 'home' ? '' : section;
-            history.replaceState(null, '', newHash ? `#${newHash}` : window.location.pathname);
-        }
+        const newHash = section === 'home' ? '' : section;
+        history.pushState(null, '', newHash ? `#${newHash}` : window.location.pathname);
+
+        // Scroll content area to top
+        $el_window.find('.dashboard-content').scrollTop(0);
 
         // Close sidebar on mobile after selection
         $el_window.find('.dashboard-sidebar').removeClass('open');

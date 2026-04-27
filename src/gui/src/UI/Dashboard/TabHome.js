@@ -241,6 +241,8 @@ const TabHome = {
                     parent_center: true,
                     stay_on_top: true,
                     has_head: false,
+                    is_draggable: false,
+                    draggable_body: false,
                 },
             }).then(function (is_saved) {
                 if ( is_saved ) {

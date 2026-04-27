@@ -152,9 +152,11 @@ const TabApps = {
     html () {
         let h = '<div class="dashboard-tab-content myapps-tab">';
         h += '<div class="myapps-search-wrap">';
+        h += '<div class="myapps-search-inner">';
         h += '<svg class="myapps-search-icon myapps-icon-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>';
         h += '<svg class="myapps-search-icon myapps-icon-clear" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
         h += '<input type="text" class="myapps-search" placeholder="Search apps..." autocomplete="off" spellcheck="false">';
+        h += '</div>';
         h += '</div>';
         h += '<div class="myapps-container">';
         h += '</div>';

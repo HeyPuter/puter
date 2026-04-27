@@ -29,6 +29,7 @@
     --dashboard-text-muted: #94a3b8;
 
     --dashboard-card-background: #ffffff;
+    --dashboard-content-background: #fcfcfd;
     --dashboard-card-gradient-start: #f8fafc;
     --dashboard-card-gradient-end: #e2e8f0;
     --dashboard-avatar-background: #ddd;
@@ -110,6 +111,7 @@ body {
         --dashboard-text-muted: #64748b;
 
         --dashboard-card-background: #262626;
+        --dashboard-content-background: #1e1e1e;
         --dashboard-card-gradient-start: #2a2a2a;
         --dashboard-card-gradient-end: #1f1f1f;
         --dashboard-avatar-background: #3f3f3f;
@@ -352,6 +354,7 @@ body {
     cursor: pointer;
     font-size: 14px;
     color: var(--dashboard-text);
+    text-decoration: none;
     transition: background-color 0.15s;
     flex-shrink: 0;
 }
@@ -436,6 +439,8 @@ body {
     flex: 1;
     padding: 24px 32px;
     overflow-y: auto;
+    overflow-x: hidden;
+    background: var(--dashboard-content-background);
 }
 
 .dashboard-section {
@@ -455,10 +460,6 @@ body {
 
 .dashboard-section p {
     font-size: 14px;
-}
-
-.dashboard-section-apps {
-    margin: 0 auto;
 }
 
 .dashboard-section-usage {
@@ -505,6 +506,10 @@ body {
 
 .dashboard-content.apps {
     padding: 0;
+}
+
+.dashboard-section-apps {
+    margin: 0 auto;
 }
 
 
@@ -602,12 +607,40 @@ body {
 }
 
 .myapps-search-wrap {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    padding-top: 30px;
+    padding-bottom: 30px;
+    margin-bottom: 20px;
+    margin-left: -40px;
+    margin-right: -40px;
+    padding-left: 40px;
+    padding-right: 40px;
+    background: var(--dashboard-background);
+}
+
+@supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+    .myapps-search-wrap {
+        background: rgba(255, 255, 255, 0.52);
+        backdrop-filter: blur(20px) saturate(1.5);
+        -webkit-backdrop-filter: blur(20px) saturate(1.5);
+    }
+}
+
+@media (prefers-color-scheme: dark) {
+    @supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+        .myapps-search-wrap {
+            background: rgba(30, 30, 30, 0.55);
+        }
+    }
+}
+
+.myapps-search-inner {
     position: relative;
-    margin-bottom: 40px;
     max-width: 360px;
     margin-left: auto;
     margin-right: auto;
-    margin-top: 30px;
 }
 
 .myapps-search-icon {
@@ -2001,8 +2034,8 @@ body {
     }
 
     .myapps-search-wrap {
-        margin-top: 60px;
-        margin-bottom: 20px;
+        padding-top: 60px;
+        margin-bottom: 10px;
     }
 
     .dashboard-apps-grid {
@@ -2029,8 +2062,9 @@ body {
     }
 
     .myapps-grid {
-        grid-template-columns: repeat(auto-fill, 72px);
-        gap: 18px 14px;
+        grid-template-columns: repeat(4, 72px);
+        column-gap: max(0px, calc((100% - 4 * 72px) / 3));
+        row-gap: 30px;
     }
 
     .myapps-tile {
@@ -2041,6 +2075,15 @@ body {
         width: 52px;
         height: 52px;
         border-radius: 12px;
+    }
+
+    /* Too narrow for 4×72px in one row: wrap like before */
+    @media (max-width: 400px) {
+        .myapps-grid {
+            grid-template-columns: repeat(auto-fill, 72px);
+            column-gap: 12px;
+            row-gap: 20px;
+        }
     }
 }
 
@@ -3011,9 +3054,6 @@ body {
     background: var(--dashboard-card-background);
     border-radius: 16px;
     border: 1px solid var(--dashboard-shadow-light);
-    box-shadow:
-        0 1px 3px var(--dashboard-shadow-subtle),
-        0 4px 12px rgba(0, 0, 0, 0.03);
 }
 
 /* Profile card */

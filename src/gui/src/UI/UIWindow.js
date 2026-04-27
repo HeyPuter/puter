@@ -3674,7 +3674,7 @@ $.fn.close = async function (options) {
             const win_id = parseInt($(this).attr('data-id'));
             let window_uuid = $(this).attr('data-element_uuid');
             // remove all instances of win_id from window.window_stack
-            _.pullAll(window.window_stack, [win_id]);
+            window.window_stack = window.window_stack.filter(id => id !== win_id);
             // taskbar update
             let open_window_count = parseInt($(`.taskbar-item[data-app="${$(this).attr('data-app')}"]`).attr('data-open-windows'));
             // update open window count of corresponding taskbar item
@@ -3710,7 +3710,7 @@ $.fn.close = async function (options) {
                 // close any open FileDialogs belonging to this window
                 $(`.window-filedialog[data-parent_uuid="${window_uuid}"]`).close();
                 // bring focus to the last window in the window-stack (only if not minimized)
-                if ( ! _.isEmpty(window.window_stack) ) {
+                if ( window.window_stack.length > 0 ) {
                     const $last_window_in_stack = $(`.window[data-id="${window.window_stack[window.window_stack.length - 1]}"]`);
                     // check if previous window is not minimized
                     if ( $last_window_in_stack !== null && $last_window_in_stack.attr('data-is_minimized') !== '1' && $last_window_in_stack.attr('data-is_minimized') !== 'true' ) {
@@ -3777,7 +3777,7 @@ $.fn.close = async function (options) {
             }
         }
         // focus back to desktop?
-        if ( _.isEmpty(window.window_stack) ) {
+        if ( window.window_stack.length === 0 ) {
             // The following is to make sure the iphone keyboard is dismissed when the last window is closed
             if ( isMobile.phone || isMobile.tablet ) {
                 document.activeElement.blur();

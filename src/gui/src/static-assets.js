@@ -25,14 +25,12 @@ const lib_paths = [
     '/lib/socket.io/socket.io.min.js',
     '/lib/qrcode.min.js',
     '/lib/jquery-ui-1.13.2/jquery-ui.min.js',
-    '/lib/lodash@4.17.21.min.js',
     '/lib/jquery.dragster.js',
     '/lib/html-entities.js',
     '/lib/timeago.min.js',
     '/lib/iro.min.js',
     '/lib/isMobile.min.js',
     '/lib/fflate-0.8.2.min.js',
-    '/lib/croppie.min.js',
 ];
 
 // Ordered list of CSS stylesheets

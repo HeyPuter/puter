@@ -18,7 +18,7 @@
  */
 
 const update_title_based_on_uploads = function () {
-    const active_uploads_count = _.size(window.active_uploads);
+    const active_uploads_count = Object.keys(window.active_uploads).length;
     if ( active_uploads_count === 1 && !isNaN(Object.values(window.active_uploads)[0]) ) {
         document.title = `${Math.round(Object.values(window.active_uploads)[0]) }% Uploading`;
     } else if ( active_uploads_count > 1 ) {
