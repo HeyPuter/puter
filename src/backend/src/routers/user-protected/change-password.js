@@ -80,7 +80,7 @@ module.exports = eggspress('/change-password', {
     const { new_pass } = req.body;
     const { overallPass: strong } = check_password_strength(new_pass);
     if ( ! strong ) {
-        req.status(400).send('Password does not meet requirements.');
+        return res.status(400).send('Password does not meet requirements.');
     }
 
     // Update user
@@ -88,7 +88,7 @@ module.exports = eggspress('/change-password', {
     const bcrypt = require('bcrypt');
     const db = req.services.get('database').get(DB_WRITE, 'auth');
     await db.write(
-        'UPDATE user SET password=?, `pass_recovery_token` = NULL, `change_email_confirm_token` = NULL WHERE `id` = ?',
+        'UPDATE user SET password=?, password_required = 1, `pass_recovery_token` = NULL, `change_email_confirm_token` = NULL WHERE `id` = ?',
         [await bcrypt.hash(req.body.new_pass, 8), req.user.id],
     );
     invalidate_cached_user(req.user);

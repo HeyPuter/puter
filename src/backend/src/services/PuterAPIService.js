@@ -22,6 +22,7 @@ import appsRouter from '../routers/apps.js';
 import authAppUidFromOriginRouter from '../routers/auth/app-uid-from-origin.js';
 import authCheckAppRouter from '../routers/auth/check-app.js';
 import configure2faRouter from '../routers/auth/configure-2fa.js';
+import webauthnRouter from '../routers/auth/webauthn.js';
 import createAccessTokenRouter from '../routers/auth/create-access-token.js';
 import listSessionsRouter from '../routers/auth/list-sessions.js';
 import { router as oidcRouter } from '../routers/auth/oidc.js';
@@ -98,6 +99,7 @@ export class PuterAPIService extends BaseService {
         app.use(createAccessTokenRouter);
         app.use(revokeAccessTokenRouter);
         app.use(configure2faRouter);
+        app.use(webauthnRouter);
         app.use(driverCallRouter);
         app.use(driverListInterfacesRouter);
         app.use(driverUsageRouter);

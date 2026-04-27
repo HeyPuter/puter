@@ -274,6 +274,9 @@ const install = async ({ context, services, app, useapi, modapi }) => {
     const { OTPService } = require('./services/auth/OTPService');
     services.registerService('otp', OTPService);
 
+    const { WebAuthnService } = require('./services/auth/WebAuthnService');
+    services.registerService('webauthn', WebAuthnService);
+
     const { OIDCService } = require('./services/auth/OIDCService');
     services.registerService('oidc', OIDCService);
 

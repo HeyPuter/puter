@@ -608,6 +608,42 @@ const en = {
         authorization_cancelled: 'Authorization Cancelled',
         authorization_cancelled_desc: 'You have declined the authorization request.',
         authorization_cancelled_message: 'The app will not receive access to your account. You can close this window safely.',
+
+        // WebAuthn / Passkeys
+        webauthn_section_title: 'Passkeys & Security Keys',
+        webauthn_add_key: 'Add a key',
+        webauthn_register_title: 'Register a Passkey or Security Key',
+        webauthn_register_instructions: 'Give this key a name, then follow your browser\'s prompts.',
+        webauthn_key_name_label: 'Key name',
+        webauthn_key_name_placeholder: 'e.g. iPhone 15, YubiKey 5',
+        webauthn_key_name_required: 'Please enter a name for this key.',
+        webauthn_register_button: 'Register key',
+        webauthn_registered_success_title: 'Key registered!',
+        webauthn_registered_success_body: 'You can now use this key to sign in.',
+        webauthn_no_keys: 'No passkeys or security keys registered yet.',
+        webauthn_type_passkey: 'Passkey',
+        webauthn_type_security_key: 'Security Key',
+        webauthn_last_used: 'Last used',
+        webauthn_never_used: 'Never used',
+        webauthn_unnamed_key: 'Unnamed key',
+        webauthn_rename_prompt: 'Enter a new name for this key:',
+        webauthn_delete_confirm: 'Remove this key? You may lose access if this is your only login method.',
+        webauthn_delete_disabled_passwordless: 'Cannot delete passkeys while passwordless login is active. Add a password first.',
+        two_factor_disabled_passwordless: '2FA cannot be enabled while passwordless login is active. Add a password first.',
+        webauthn_cancelled: 'Authentication was cancelled.',
+        webauthn_failed: 'WebAuthn verification failed. Please try again.',
+        sign_in_with_passkey: 'Sign in with a Passkey',
+
+        add_password: 'Add Password',
+
+        // Passwordless login toggle
+        passwordless_login_title: 'Passwordless Login',
+        passwordless_login_enabled: 'Password removed — sign in with passkey only',
+        passwordless_login_disabled: 'Password still required alongside passkeys',
+        passwordless_login_active: 'Active',
+        passwordless_remove_password: 'Remove Password',
+        passwordless_warning: 'Once removed, you can only sign in with a registered passkey. Make sure you have a synced passkey (e.g. iCloud Keychain, Google Password Manager) before continuing.',
+        passwordless_confirm_message: 'Are you sure you want to remove your password? You will only be able to sign in using a passkey. This cannot be undone without account recovery.',
     },
 };
 

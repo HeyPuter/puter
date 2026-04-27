@@ -45,6 +45,7 @@
     ]
   },
   "dependencies": {
+    "@simplewebauthn/browser": "^13.3.0",
     "file-type": "21.3.3",
     "json-colorizer": "^3.0.1",
     "mocha": "7.2.0",

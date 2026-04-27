@@ -828,6 +828,7 @@ class WebServerService extends BaseService {
             const allowed_headers = [
                 'Origin', 'X-Requested-With', 'Content-Type', 'Accept', 'Authorization', 'sentry-trace', 'baggage',
                 'Depth', 'Destination', 'Overwrite', 'If', 'Lock-Token', 'DAV', 'stripe-signature',
+                'X-Puter-Add-Password',
             ];
 
             // Request headers to allow

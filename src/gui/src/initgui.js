@@ -132,6 +132,38 @@ const launch_services = async function (options) {
 // behavior is prevented when necessary, thereby improving page scroll performance.
 // More info: https://stackoverflow.com/a/62177358
 if ( jQuery ) {
+    // Defensive shims: in some runtime load orders, jQuery plugin extensions
+    // can be unavailable temporarily. Provide safe fallbacks to prevent
+    // critical UI actions (open/close/focus/context-menu) from crashing.
+    if ( ! jQuery.fn.close ) {
+        jQuery.fn.close = function () {
+            this.each(function () {
+                const $window = jQuery(this);
+                $window.closest('.window-backdrop').remove();
+                $window.remove();
+            });
+            return this;
+        };
+    }
+
+    if ( ! jQuery.fn.focusWindow ) {
+        jQuery.fn.focusWindow = function () {
+            this.each(function () {
+                const $window = jQuery(this);
+                jQuery('.window').removeClass('window-active');
+                $window.addClass('window-active');
+            });
+            return this;
+        };
+    }
+
+    if ( ! jQuery.fn.menuAim ) {
+        jQuery.fn.menuAim = function () {
+            // noop fallback keeps context menus usable without hover intent
+            return this;
+        };
+    }
+
     jQuery.event.special.touchstart = {
         setup: function ( _, ns, handle ) {
             this.addEventListener('touchstart', handle, { passive: !ns.includes('noPreventDefault') });

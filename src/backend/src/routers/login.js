@@ -176,6 +176,25 @@ router.post('/login', express.json(), body_parser_error_handler, (req, res, next
                 });
             }
 
+            // WebAuthn 2FA step (only when OTP is not also enabled)
+            if ( user.webauthn_enabled ) {
+                const svc_token = req.services.get('token');
+                const svc_webauthn = req.services.get('webauthn');
+
+                const webauthn_jwt_token = svc_token.sign('webauthn', {
+                    user_uid: user.uuid,
+                }, { expiresIn: '5m' });
+
+                const webauthn_options = await svc_webauthn.generate_authentication_options({ user, req });
+
+                return res.status(202).send({
+                    proceed: true,
+                    next_step: 'webauthn',
+                    webauthn_jwt_token,
+                    webauthn_options,
+                });
+            }
+
             return await complete_({ req, res, user });
         } else {
             svc_edgeRateLimit.incr('login');

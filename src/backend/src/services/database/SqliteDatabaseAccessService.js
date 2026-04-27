@@ -176,6 +176,9 @@ class SqliteDatabaseAccessService extends BaseDatabaseAccessService {
             [42, [
                 '0046_is-private-apps.sql',
             ]],
+            [43, [
+                '0047_webauthn.sql',
+            ]],
         ];
 
         // Database upgrade logic

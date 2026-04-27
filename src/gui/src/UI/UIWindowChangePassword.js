@@ -23,6 +23,7 @@ import UIWindow from './UIWindow.js';
 
 async function UIWindowChangePassword (options) {
     options = options ?? {};
+    const is_add_password = options.mode === 'add';
 
     const internal_id = window.uuidv4();
     let h = '';
@@ -31,17 +32,19 @@ async function UIWindowChangePassword (options) {
     h += '<div class="form-error-msg"></div>';
     // success msg
     h += '<div class="form-success-msg"></div>';
-    // current password / OIDC revalidate
-    h += '<div class="change-password-auth-row" style="overflow: hidden; margin-bottom: 20px;">';
-    h += '<div class="change-password-current-wrap">';
-    h += `<label for="current-password-${internal_id}">${i18n('current_password')}</label>`;
-    h += `<input id="current-password-${internal_id}" class="current-password" type="password" name="current-password" autocomplete="current-password" />`;
-    h += '</div>';
-    h += '<div class="change-password-oidc-wrap" style="display:none;">';
-    h += '<p class="change-password-oidc-flow-notice" style="margin:0;font-size:12px;color:#666;"></p>';
-    h += '<span class="change-password-revalidated-msg" style="display:none;"></span>';
-    h += '</div>';
-    h += '</div>';
+    // current password / OIDC revalidate (hidden in add-password mode)
+    if ( ! is_add_password ) {
+        h += '<div class="change-password-auth-row" style="overflow: hidden; margin-bottom: 20px;">';
+        h += '<div class="change-password-current-wrap">';
+        h += `<label for="current-password-${internal_id}">${i18n('current_password')}</label>`;
+        h += `<input id="current-password-${internal_id}" class="current-password" type="password" name="current-password" autocomplete="current-password" />`;
+        h += '</div>';
+        h += '<div class="change-password-oidc-wrap" style="display:none;">';
+        h += '<p class="change-password-oidc-flow-notice" style="margin:0;font-size:12px;color:#666;"></p>';
+        h += '<span class="change-password-revalidated-msg" style="display:none;"></span>';
+        h += '</div>';
+        h += '</div>';
+    }
     // new password
     h += '<div style="overflow: hidden; margin-top: 20px; margin-bottom: 20px;">';
     h += `<label for="new-password-${internal_id}">${i18n('new_password')}</label>`;
@@ -54,12 +57,11 @@ async function UIWindowChangePassword (options) {
     h += '</div>';
     h += '<p class="change-password-oidc-hint" style="margin-top:6px;font-size:12px;color:#666;display:none;"></p>';
 
-    // Change Password
-    h += `<button class="change-password-btn button button-primary button-block button-normal">${i18n('change_password')}</button>`;
+    h += `<button class="change-password-btn button button-primary button-block button-normal">${i18n(is_add_password ? 'add_password' : 'change_password')}</button>`;
     h += '</div>';
 
     const el_window = await UIWindow({
-        title: i18n('window_title_change_password'),
+        title: i18n(is_add_password ? 'add_password' : 'window_title_change_password'),
         app: 'change-passowrd',
         single_instance: true,
         icon: null,
@@ -80,6 +82,10 @@ async function UIWindowChangePassword (options) {
         dominant: true,
         show_in_taskbar: false,
         onAppend: function (this_window) {
+            if ( is_add_password ) {
+                $(this_window).find('.new-password').get(0)?.focus({ preventScroll: true });
+                return;
+            }
             $(this_window).find('.current-password').get(0)?.focus({ preventScroll: true });
             const oidc_only = !!(window.user && window.user.oidc_only);
             const authRow = $(this_window).find('.change-password-auth-row');
@@ -135,7 +141,7 @@ async function UIWindowChangePassword (options) {
             return;
         }
         // For password users, current password is required; for OIDC, we need revalidated or will open popup
-        if ( !oidc_only && !current_password ) {
+        if ( !is_add_password && !oidc_only && !current_password ) {
             $(el_window).find('.form-error-msg').html('All fields are required.');
             $(el_window).find('.form-error-msg').fadeIn();
             return;
@@ -152,7 +158,7 @@ async function UIWindowChangePassword (options) {
             return;
         }
 
-        if ( oidc_only && !revalidated && !current_password ) {
+        if ( !is_add_password && oidc_only && !revalidated && !current_password ) {
             await myOpenRevalidatePopup();
 
             const res = await doSubmit({ new_password });
@@ -184,10 +190,14 @@ async function UIWindowChangePassword (options) {
     });
 
     function doSubmit ({ new_password, current_password }) {
+        const headers = { 'Content-Type': 'application/json' };
+        if ( is_add_password ) {
+            headers['X-Puter-Add-Password'] = '1';
+        }
         return fetch(apiUrl, {
             method: 'POST',
             credentials: 'include',
-            headers: { 'Content-Type': 'application/json' },
+            headers,
             body: JSON.stringify({
                 password: current_password,
                 new_pass: new_password,
@@ -208,6 +218,7 @@ async function UIWindowChangePassword (options) {
         $(el_window).find('input').val('');
         $(el_window).find('.change-password-btn').removeClass('disabled');
         $(el_window).find('.current-password, .new-password, .confirm-new-password').attr('disabled', false);
+        if ( options.on_success ) options.on_success();
     }
 }
 

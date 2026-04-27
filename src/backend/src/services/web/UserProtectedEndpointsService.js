@@ -128,8 +128,18 @@ class UserProtectedEndpointsService extends BaseService {
 
             const user = await get_user({ id: req.user.id, force: true });
             const revalidationCookie = req.cookies && req.cookies[REVALIDATION_COOKIE_NAME];
+            const is_change_password = req.path === '/change-password';
+            const is_add_password_mode = is_change_password &&
+                req.headers['x-puter-add-password'] === '1' &&
+                user.password === null;
 
             if ( user.password === null && user.email === null ) {
+                return next();
+            }
+
+            // Add-password mode should not require current password.
+            // This exception is intentionally scoped to only /change-password.
+            if ( is_add_password_mode ) {
                 return next();
             }
 

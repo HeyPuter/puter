@@ -94,6 +94,13 @@ async function UIWindowLogin (options) {
         h += `<div style="text-align:center; margin: 10px 0; font-size:13px; color:var(--color-text-muted);">${ i18n('or') }</div>`;
         h += `<button type="button" class="oidc-google-btn button button-block button-normal" style="display:flex; align-items:center; justify-content:center; gap:8px;"><img style="width: 20px; height: 20px;" src="data:image/webp;base64,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" />${i18n('sign_in_with_google')}</button>`;
         h += '</div>';
+        // Passkey login (shown only if browser supports WebAuthn)
+        h += '<div class="webauthn-login-wrapper" style="display:none; padding: 0 0 10px 0;">';
+        h += `<div style="text-align:center; margin: 10px 0; font-size:13px; color:var(--color-text-muted);">${i18n('or')}</div>`;
+        h += '<button type="button" class="passkey-login-btn button button-block button-normal" style="display:flex; align-items:center; justify-content:center; gap:8px;">';
+        h += '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 20v-1a8 8 0 0 1 16 0v1"/></svg>';
+        h += `${i18n('sign_in_with_passkey')}</button>`;
+        h += '</div>';
         h += '</form>';
         h += '</div>';
         // create account link
@@ -187,6 +194,64 @@ async function UIWindowLogin (options) {
             } catch (_) {
             }
         })();
+
+        // Show passkey button if browser supports WebAuthn
+        if ( window.PublicKeyCredential ) {
+            $(el_window).find('.webauthn-login-wrapper').show();
+        }
+
+        // Passkey login — passwordless discoverable credential flow
+        $(el_window).find('.passkey-login-btn').on('click', async function () {
+            const { startAuthentication } = await import('@simplewebauthn/browser');
+            $(el_window).find('.login-error-msg').hide();
+
+            let auth_options;
+            try {
+                const resp = await fetch(`${window.api_origin}/auth/webauthn/authenticate/begin`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({}),
+                });
+                auth_options = await resp.json();
+                if ( auth_options.error ) throw new Error(auth_options.error);
+            } catch (e) {
+                $(el_window).find('.login-error-msg').html(e.message || i18n('something_went_wrong')).fadeIn();
+                return;
+            }
+
+            let assertion;
+            try {
+                assertion = await startAuthentication({ optionsJSON: auth_options });
+            } catch (e) {
+                if ( e.name !== 'NotAllowedError' ) {
+                    $(el_window).find('.login-error-msg').html(i18n('something_went_wrong')).fadeIn();
+                }
+                return;
+            }
+
+            try {
+                const complete_resp = await fetch(`${window.api_origin}/auth/webauthn/authenticate/complete`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ response: assertion, page_origin: window.location.origin }),
+                });
+                const data = await complete_resp.json();
+                if ( data.proceed && data.next_step === 'complete' ) {
+                    await window.update_auth_data(data.token, data.user);
+                    if ( options.reload_on_success ) {
+                        window.onbeforeunload = null;
+                        const cleanUrl = options.redirect_url || window.location.origin + window.location.pathname;
+                        window.location.replace(cleanUrl);
+                    } else {
+                        resolve(true);
+                    }
+                } else {
+                    $(el_window).find('.login-error-msg').html(data.error || i18n('webauthn_failed')).fadeIn();
+                }
+            } catch (e) {
+                $(el_window).find('.login-error-msg').html(e.message || i18n('something_went_wrong')).fadeIn();
+            }
+        });
 
         $(el_window).find('.login-btn').on('click', function (e) {
             // Prevent default button behavior (important for async requests)
@@ -402,6 +467,42 @@ async function UIWindowLogin (options) {
                             },
                         });
                         component.focus();
+                    } else if ( data.next_step === 'webauthn' ) {
+                        // WebAuthn 2FA: trigger authenticator immediately (no manual input needed)
+                        p = new TeePromise();
+                        const { startAuthentication } = await import('@simplewebauthn/browser');
+
+                        let assertion;
+                        try {
+                            assertion = await startAuthentication({ optionsJSON: data.webauthn_options });
+                        } catch (e) {
+                            const msg = e.name === 'NotAllowedError'
+                                ? i18n('webauthn_cancelled')
+                                : i18n('something_went_wrong');
+                            $(el_window).find('.login-error-msg').html(msg).fadeIn();
+                            $(el_window).find('.login-btn').prop('disabled', false);
+                            return;
+                        }
+
+                        const complete_resp = await fetch(`${window.gui_origin}/auth/webauthn/authenticate/complete`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                response: assertion,
+                                webauthn_jwt_token: data.webauthn_jwt_token,
+                                page_origin: window.location.origin,
+                            }),
+                        });
+                        const next_data = await complete_resp.json();
+
+                        if ( next_data.proceed && next_data.next_step === 'complete' ) {
+                            data = next_data;
+                            p.resolve();
+                        } else {
+                            $(el_window).find('.login-error-msg').html(i18n('webauthn_failed')).fadeIn();
+                            $(el_window).find('.login-btn').prop('disabled', false);
+                            return;
+                        }
                     }
 
                     await p;

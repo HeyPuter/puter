@@ -1837,9 +1837,15 @@ async function UIWindow (options) {
     // Close button
     // --------------------------------------------------------
     $(`#window-${win_id} > .window-head > .window-close-btn`).click(function () {
-        $(el_window).close({
-            shrink_to_target: options.on_close_shrink_to_target,
-        });
+        const $window = $(el_window);
+        if ( typeof $window.close === 'function' ) {
+            $window.close({
+                shrink_to_target: options.on_close_shrink_to_target,
+            });
+            return;
+        }
+        // Fallback for cases where jQuery window extensions fail to load.
+        delete_window_element(el_window);
     });
 
     // --------------------------------------------------------
@@ -3699,22 +3705,38 @@ $.fn.close = async function (options) {
             // FileDialog closed
             if ( $(this).hasClass('window-filedialog') || $(this).attr('data-disable_parent_window') === 'true' ) {
                 // re-enable this FileDialog's parent window
-                $(`.window[data-element_uuid="${$(this).attr('data-parent_uuid')}"]`).addClass('window-active');
-                $(`.window[data-element_uuid="${$(this).attr('data-parent_uuid')}"]`).removeClass('window-disabled');
-                $(`.window[data-element_uuid="${$(this).attr('data-parent_uuid')}"]`).find('.window-disable-mask').hide();
+                const $parent_window = $(`.window[data-element_uuid="${$(this).attr('data-parent_uuid')}"]`);
+                $parent_window.addClass('window-active');
+                $parent_window.removeClass('window-disabled');
+                $parent_window.find('.window-disable-mask').hide();
                 // bring focus back to app iframe, if needed
-                $(`.window[data-element_uuid="${$(this).attr('data-parent_uuid')}"]`).focusWindow();
+                if ( typeof $parent_window.focusWindow === 'function' ) {
+                    $parent_window.focusWindow();
+                } else {
+                    $parent_window.addClass('window-active');
+                }
             }
             // Other types of windows closed
             else {
                 // close any open FileDialogs belonging to this window
-                $(`.window-filedialog[data-parent_uuid="${window_uuid}"]`).close();
+                const $file_dialogs = $(`.window-filedialog[data-parent_uuid="${window_uuid}"]`);
+                if ( typeof $file_dialogs.close === 'function' ) {
+                    $file_dialogs.close();
+                } else {
+                    $file_dialogs.each(function () {
+                        delete_window_element(this);
+                    });
+                }
                 // bring focus to the last window in the window-stack (only if not minimized)
                 if ( ! _.isEmpty(window.window_stack) ) {
                     const $last_window_in_stack = $(`.window[data-id="${window.window_stack[window.window_stack.length - 1]}"]`);
                     // check if previous window is not minimized
                     if ( $last_window_in_stack !== null && $last_window_in_stack.attr('data-is_minimized') !== '1' && $last_window_in_stack.attr('data-is_minimized') !== 'true' ) {
-                        $(`.window[data-id="${window.window_stack[window.window_stack.length - 1]}"]`).focusWindow();
+                        if ( typeof $last_window_in_stack.focusWindow === 'function' ) {
+                            $last_window_in_stack.focusWindow();
+                        } else {
+                            $last_window_in_stack.addClass('window-active');
+                        }
                     }
                     // otherwise, change URL/Title to desktop
                     else {
@@ -3734,7 +3756,14 @@ $.fn.close = async function (options) {
                 }
             }
             // close child windows
-            $(`.window[data-parent_uuid="${window_uuid}"]`).close();
+            const $child_windows = $(`.window[data-parent_uuid="${window_uuid}"]`);
+            if ( typeof $child_windows.close === 'function' ) {
+                $child_windows.close();
+            } else {
+                $child_windows.each(function () {
+                    delete_window_element(this);
+                });
+            }
 
             // notify other apps that we're closing
             window.report_app_closed(window_uuid, options.status_code ?? 0);
