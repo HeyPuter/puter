@@ -16,7 +16,7 @@ puter.ui.setMenubar(options)
 
 #### `options.items` (Array)
 
-An array of menu items. Each item can be a menu or a menu item. Each menu item can have a label, an action, and a submenu.
+An array of menu items. Each item can be a menu or a menu item. Each menu item can have a label, an action, and a submenu. An item can also be the string `-`, which indicates a separator.
 
 #### `options.items.label` (String)
 
@@ -29,6 +29,10 @@ A function to execute when the menu item is clicked.
 #### `options.items.items` (Array)
 
 An array of submenu items.
+
+#### `options.items.disabled` (Boolean)
+
+Indicates whether the menu item is disabled.
 
 ## Examples
 
