@@ -173,6 +173,7 @@ const TabAccount = {
         });
         $el_window.find('.dashboard-section-account .copy-auth-token').on('click', function (e) {
             UIWindowCopyToken({
+                show_close_button: true,
                 show_header: true,
                 window_options: {
                     parent_uuid: $el_window.attr('data-element_uuid'),

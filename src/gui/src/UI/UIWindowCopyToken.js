@@ -55,6 +55,9 @@ function UIWindowCopyToken (options = {}) {
         if ( ! options.show_header ) {
             h += `<div class="form-label" style="margin-bottom: 5px; font-size: 13px; color: #666;">${i18n('copy_token_message')}</div>`;
         }
+        if ( options.show_close_button ) {
+            h += '<div class="qr-code-window-close-btn generic-close-window-button"> &times; </div>';
+        }
         h += `<div style="display: flex; gap: 8px; margin-top: ${options.show_header ? '0' : '15'}px; margin-bottom: 15px;">`;
         h += `<input type="text" class="token-input" readonly value="${html_encode(window.auth_token)}" style="flex: 1; font-family: monospace; font-size: 13px;" />`;
         h += `<button class="button button-primary copy-token-btn">${i18n('copy')}</button>`;
@@ -85,7 +88,7 @@ function UIWindowCopyToken (options = {}) {
             height: 'auto',
             dominant: true,
             show_in_taskbar: false,
-            window_class: 'window-publishWebsite',
+            window_class: 'window-copy-auth-token',
             body_css: {
                 width: 'initial',
                 height: '100%',

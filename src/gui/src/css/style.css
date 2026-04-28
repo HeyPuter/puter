@@ -3036,6 +3036,22 @@ label {
 }
 
 @media screen and (max-width: 768px) {
+    .window-copy-auth-token {
+        width: 100% !important;
+        max-width: none !important;
+        max-height: 100vh !important;
+        height: 100vh !important;
+        top:0 !important;
+        left: 0 !important;
+        border-radius: 0 !important;
+    }
+
+    .window-copy-auth-token .window-body {
+        box-sizing: border-box !important;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+    }
 
     .taskbar {
         justify-content: center;
@@ -4490,6 +4506,17 @@ fieldset[name=number-code] {
 }
 
 @media (max-width:480px) {
+    .window-copy-auth-token {
+        width: 100% !important;
+        max-width: none !important;
+        height: 100% !important;
+        top:0 !important;
+        left: 0 !important;
+        border-radius: 0 !important;
+    }
+    .window-copy-auth-token .window-body {
+        box-sizing: border-box !important;
+    }
     .puter-auth-dialog-content {
         padding: 50px 20px;
     }
