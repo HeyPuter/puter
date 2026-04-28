@@ -62,7 +62,10 @@ export const PuterStore = class PuterStore implements WithLifecycle {
             }
             await pipeline.exec();
         } catch {
-            // Best-effort local cache write.
+            console.warn(
+                '[PuterStore] publishCacheKeys failed to update local cache:',
+                keys,
+            );
         }
 
         try {
@@ -72,7 +75,10 @@ export const PuterStore = class PuterStore implements WithLifecycle {
                     : { cacheKey: keys, data: serializedData, ttlSeconds: ttl };
             this.clients.event.emit('outer.cacheUpdate', payload, {});
         } catch {
-            // Best-effort broadcast.
+            console.warn(
+                '[PuterStore] publishCacheKeys failed to broadcast cache update:',
+                keys,
+            );
         }
     }
 } satisfies IPuterStore<WithLifecycle>;

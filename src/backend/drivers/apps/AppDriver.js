@@ -426,7 +426,7 @@ export class AppDriver extends PuterDriver {
             });
             out.metadata = JSON.stringify(meta);
         }
-        if (object.filetype_associations !== undefined) {
+        if (object.filetype_associations) {
             out.filetype_associations = validateArrayOfStrings(
                 object.filetype_associations,
                 {

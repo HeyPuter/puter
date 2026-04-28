@@ -38,6 +38,11 @@ interface TrustedIconHostConfig {
 
 const RAW_BASE64_REGEX = /^[A-Za-z0-9+/]+={0,2}$/;
 const APP_ICON_ENDPOINT_PATH_REGEX = /^\/app-icon\/[^/?#]+(?:\/\d+)?\/?$/;
+// Direct subdomain file shape written by AppIconService:
+//   /app-<uid>.png            (original)
+//   /app-<uid>-<size>.png     (sized variant)
+// Allowed on trusted hosts only — see isAppIconEndpointUrl.
+const APP_ICON_SUBDOMAIN_PATH_REGEX = /^\/app-[A-Za-z0-9_-]+(?:-\d+)?\.png$/;
 
 /**
  * v1-compatible raw-base64 detector. Legacy puter-js callers pass the
@@ -74,11 +79,17 @@ export function normalizeRawBase64ImageString(value: string): string {
 }
 
 /**
- * Whether `value` is a reference to our own `/app-icon/<uid>` route —
- * either a relative path or an absolute URL whose host we control.
- * AppIconService rewrites data URL icons to this shape, and v1's
- * validator accepted it as a legal icon value; clients that round-trip
- * an app object expect it to pass validation.
+ * Whether `value` is a reference we own — accepts two shapes:
+ *   - `/app-icon/<uid>(/<size>)?`       : the AppController endpoint
+ *   - `/app-<uid>(-<size>)?.png`        : the file written by
+ *                                         AppIconService onto the
+ *                                         `puter-app-icons` subdomain
+ *
+ * Relative paths must use the endpoint shape (the subdomain-file shape
+ * is only meaningful when paired with a trusted host). Absolute URLs
+ * accept either shape but only on a trusted host — without the host
+ * check an authenticated user could set `icon` to an attacker URL and
+ * turn `/app-icon/:uid` into a Puter-branded open redirector.
  */
 export function isAppIconEndpointUrl(
     value: string,
@@ -92,12 +103,14 @@ export function isAppIconEndpointUrl(
     } catch {
         return false;
     }
-    if (!APP_ICON_ENDPOINT_PATH_REGEX.test(parsed.pathname)) return false;
+    const isEndpointPath = APP_ICON_ENDPOINT_PATH_REGEX.test(parsed.pathname);
+    const isSubdomainPath = APP_ICON_SUBDOMAIN_PATH_REGEX.test(parsed.pathname);
+    if (!isEndpointPath && !isSubdomainPath) return false;
 
     // Relative paths (our placeholder base won't survive if the input
     // was absolute). Detect absolute-vs-relative by scheme presence.
     if (!/^[a-z][a-z0-9+\-.]*:/i.test(trimmed) && !trimmed.startsWith('//')) {
-        return true;
+        return isEndpointPath;
     }
     return isTrustedIconHost(trimmed, config);
 }
