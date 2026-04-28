@@ -225,6 +225,16 @@ export class WorkerDriver extends PuterDriver {
         const entriesById =
             await this.stores.fsEntry.getEntriesByIds(rootDirIds);
 
+        // Make sure the user only sees their own workers
+        rows = rows.filter((r) => {
+            return r.user_id === actor.user.id;
+        });
+        if (actor.app) {
+            rows = rows.filter((r) => {
+                return r.app_owner === actor.app?.id;
+            });
+        }
+
         return rows.map((r) => {
             const name =
                 String(r.subdomain ?? '')
