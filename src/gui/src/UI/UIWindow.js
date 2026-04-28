@@ -29,7 +29,7 @@ import refresh_item_container from '../helpers/refresh_item_container.js';
 import UIWindowSaveAccount from './UIWindowSaveAccount.js';
 import UIWindowEmailConfirmationRequired from './UIWindowEmailConfirmationRequired.js';
 import launch_app from '../helpers/launch_app.js';
-import UIWindowShare from './UIWindowShare.js';
+
 import item_icon from '../helpers/item_icon.js';
 
 const el_body = document.getElementsByTagName('body')[0];
@@ -1191,127 +1191,6 @@ async function UIWindow (options) {
             return;
         }
 
-        // --------------------------------------------------------
-        // SIDEBAR sharing
-        // --------------------------------------------------------
-        if ( options.is_dir && !isMobile.phone ) {
-            puter.fs.readdir({ path: '/', consistency: 'eventual' }).then(function (shared_users) {
-                let ht = '';
-                if ( shared_users && shared_users.length - 1 > 0 ) {
-                    ht += '<h2 class="window-sidebar-title disable-user-select">Shared with me</h2>';
-                    for ( let index = 0; index < shared_users.length; index++ ) {
-                        const shared_user = shared_users[index];
-                        // don't show current user's folder!
-                        if ( shared_user.name === window.user.username )
-                        {
-                            continue;
-                        }
-                        ht += `<div  class="window-sidebar-item not-sortable disable-user-select ${options.path === shared_user.path ? 'window-sidebar-item-active' : ''}" 
-                                    data-path="${shared_user.path}"
-                                    data-sharing-username="${html_encode(shared_user.name)}"
-                                    title="${html_encode(shared_user.name)}"
-                                    data-is_shared="1">
-                                        <img class="window-sidebar-item-icon" src="${html_encode(window.icons['shared-outline.svg'])}">${shared_user.name}
-                                    </div>`;
-                    }
-                }
-                $(el_window).find('.window-sidebar').append(ht);
-
-                $(el_window).find('.window-sidebar-item:not(.ui-droppable)').droppable({
-                    accept: '.item',
-                    tolerance: 'pointer',
-                    drop: function ( event, ui ) {
-                        // check if item was actually dropped on this navbar path
-                        if ( $(window.mouseover_window).attr('data-id') !== $(el_window).attr('data-id') ) {
-                            return;
-                        }
-                        const items_to_share = [];
-
-                        // first item
-                        items_to_share.push({
-                            uid: $(ui.draggable).attr('data-uid'),
-                            path: $(ui.draggable).attr('data-path'),
-                            icon: $(ui.draggable).find('.item-icon img').attr('src'),
-                            name: $(ui.draggable).find('.item-name').text(),
-                        });
-
-                        // all subsequent items
-                        const cloned_items = document.getElementsByClassName('item-selected-clone');
-                        for ( let i = 0; i < cloned_items.length; i++ ) {
-                            const source_item = document.getElementById(`item-${ $(cloned_items[i]).attr('data-id')}`);
-                            if ( ! source_item ) continue;
-                            items_to_share.push({
-                                uid: $(source_item).attr('data-uid'),
-                                path: $(source_item).attr('data-path'),
-                                icon: $(source_item).find('.item-icon img').attr('src'),
-                                name: $(source_item).find('.item-name').text(),
-                            });
-                        }
-
-                        // if alt key is down, create shortcut items
-                        if ( event.altKey ) {
-                            items_to_share.forEach((item_to_move) => {
-                                window.create_shortcut(
-                                    path.basename($(item_to_move).attr('data-path')),
-                                    $(item_to_move).attr('data-is_dir') === '1',
-                                    $(this).attr('data-path'),
-                                    null,
-                                    $(item_to_move).attr('data-shortcut_to') === '' ? $(item_to_move).attr('data-uid') : $(item_to_move).attr('data-shortcut_to'),
-                                    $(item_to_move).attr('data-shortcut_to_path') === '' ? $(item_to_move).attr('data-path') : $(item_to_move).attr('data-shortcut_to_path'),
-                                );
-                            });
-                        }
-                        // move items
-                        else {
-                            UIWindowShare(items_to_share, $(this).attr('data-sharing-username'));
-                        }
-
-                        $('.item-container').droppable('enable');
-                        $(this).removeClass('window-sidebar-item-drag-active');
-
-                        return false;
-                    },
-                    over: function (event, ui) {
-                        // check if item was actually hovered over this window
-                        if ( $(window.mouseover_window).attr('data-id') !== $(el_window).attr('data-id') )
-                        {
-                            return;
-                        }
-
-                        // Don't do anything if the dragged item is NOT a UIItem
-                        if ( ! $(ui.draggable).hasClass('item') )
-                        {
-                            return;
-                        }
-
-                        // highlight this item
-                        $(this).addClass('window-sidebar-item-drag-active');
-                        $('.ui-draggable-dragging').css('opacity', 0.2);
-                        $('.item-selected-clone').css('opacity', 0.2);
-
-                        // disable all window bodies
-                        $('.item-container').droppable( 'disable');
-                    },
-                    out: function (event, ui) {
-                        // Don't do anything if the dragged element is NOT a UIItem
-                        if ( ! $(ui.draggable).hasClass('item') )
-                        {
-                            return;
-                        }
-
-                        // unselect item if item is dragged out
-                        $(this).removeClass('window-sidebar-item-drag-active');
-                        $('.ui-draggable-dragging').css('opacity', 'initial');
-                        $('.item-selected-clone').css('opacity', 'initial');
-
-                        $('.item-container').droppable( 'enable');
-                    },
-                });
-            }).catch(function (err) {
-                console.error(err);
-            });
-        }
-
         // get directory content
         refresh_item_container(el_window_body, options);
     }
@@ -1668,40 +1547,6 @@ async function UIWindow (options) {
                 if ( source_item !== null ) {
                     items_to_move.push(source_item);
                 }
-            }
-
-            // --------------------------------------------------------
-            // if this is the home directory of another user, show the sharing dialog
-            // --------------------------------------------------------
-            let cur_path = $(el_window).attr('data-path');
-            if ( window.countSubstr(cur_path, '/') === 1 && cur_path !== `/${window.user.username}` ) {
-                let username = cur_path.split('/')[1];
-
-                const items_to_share = [];
-
-                // first item
-                items_to_share.push({
-                    uid: $(ui.draggable).attr('data-uid'),
-                    path: $(ui.draggable).attr('data-path'),
-                    icon: $(ui.draggable).find('.item-icon img').attr('src'),
-                    name: $(ui.draggable).find('.item-name').text(),
-                });
-
-                // all subsequent items
-                const cloned_items = document.getElementsByClassName('item-selected-clone');
-                for ( let i = 0; i < cloned_items.length; i++ ) {
-                    const source_item = document.getElementById(`item-${ $(cloned_items[i]).attr('data-id')}`);
-                    if ( ! source_item ) continue;
-                    items_to_share.push({
-                        uid: $(source_item).attr('data-uid'),
-                        path: $(source_item).attr('data-path'),
-                        icon: $(source_item).find('.item-icon img').attr('src'),
-                        name: $(source_item).find('.item-name').text(),
-                    });
-                }
-
-                UIWindowShare(items_to_share, username);
-                return;
             }
 
             // If ctrl key is down, copy items. Except if target is Trash

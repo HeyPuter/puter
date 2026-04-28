@@ -26,7 +26,6 @@ const get_html_element_from_options = async function (options) {
     options.visible = options.visible ?? 'visible'; // one of 'visible', 'revealed', 'hidden'
     options.is_dir = options.is_dir ?? false;
     options.is_selected = options.is_selected ?? false;
-    options.is_shared = options.is_shared ?? false;
     options.is_shortcut = options.is_shortcut ?? 0;
     options.is_trash = options.is_trash ?? false;
     options.metadata = options.metadata ?? '';
@@ -35,7 +34,6 @@ const get_html_element_from_options = async function (options) {
     options.shortcut_to_path = options.shortcut_to_path ?? '';
     options.immutable = (options.immutable === false || options.immutable === 0 || options.immutable === undefined ? 0 : 1);
     options.sort_container_after_append = (options.sort_container_after_append !== undefined ? options.sort_container_after_append : false);
-    const is_shared_with_me = (options.path !== `/${window.user.username}` && !options.path.startsWith(`/${window.user.username}/`));
     const workers = Array.isArray(options.workers) ? options.workers : [];
     const is_worker = !options.is_dir && workers.length > 0;
     const worker_url = is_worker ? workers[0].address : '';
@@ -120,22 +118,6 @@ const get_html_element_from_options = async function (options) {
                         data-item-id="${item_id}"
                     >`;
 
-    // shared badge
-    h += `<img  class="item-badge item-badge-has-permission" 
-                        style="display: ${ is_shared_with_me ? 'block' : 'none'};
-                            background-color: #ffffff;
-                            padding: 2px;" src="${html_encode(window.icons['shared.svg'])}" 
-                        data-item-id="${item_id}"
-                        title="A user has shared this item with you.">`;
-    // owner-shared badge
-    h += `<img  class="item-badge item-is-shared" 
-                        style="background-color: #ffffff; padding: 2px; ${!is_shared_with_me && options.is_shared ? 'display:block;' : ''}" 
-                        src="${html_encode(window.icons['owner-shared.svg'])}" 
-                        data-item-id="${item_id}"
-                        data-item-uid="${options.uid}"
-                        data-item-path="${html_encode(options.path)}"
-                        title="You have shared this item with at least one other user."
-                    >`;
     // shortcut badge
     h += `<img  class="item-badge item-shortcut" 
                         style="background-color: #ffffff; padding: 2px; ${options.is_shortcut !== 0 ? 'display:block;' : ''}" 

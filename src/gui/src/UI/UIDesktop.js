@@ -193,21 +193,11 @@ async function UIDesktop (options) {
      */
     window.socket.on('notif.message', async ({ uid, notification }) => {
         let icon = window.icons[notification.icon];
-        let round_icon = false;
-
-        if ( notification.template === 'file-shared-with-you' && notification.fields?.username ) {
-            let profile_pic = await get_profile_picture(notification.fields?.username);
-            if ( profile_pic ) {
-                icon = profile_pic;
-                round_icon = true;
-            }
-        }
 
         UINotification({
             title: notification.title,
             text: notification.text,
             icon: icon,
-            round_icon: round_icon,
             value: notification,
             uid,
             close: async () => {
@@ -219,18 +209,6 @@ async function UIDesktop (options) {
                     },
                     body: JSON.stringify({ uid }),
                 });
-            },
-            click: async (notif) => {
-                if ( notification.template === 'file-shared-with-you' ) {
-                    let item_path = `/${ notification.fields.username}`;
-                    UIWindow({
-                        path: `/${ notification.fields.username}`,
-                        title: path.basename(item_path),
-                        icon: await item_icon({ is_dir: true, path: item_path }),
-                        is_dir: true,
-                        app: 'explorer',
-                    });
-                }
             },
         });
     });
@@ -251,19 +229,9 @@ async function UIDesktop (options) {
         for ( const notif_info of unreads ) {
             const notification = notif_info.notification;
             let icon = window.icons[notification.icon];
-            let round_icon = false;
-
-            if ( notification.template === 'file-shared-with-you' && notification.fields?.username ) {
-                let profile_pic = await get_profile_picture(notification.fields?.username);
-                if ( profile_pic ) {
-                    icon = profile_pic;
-                    round_icon = true;
-                }
-            }
 
             UINotification({
                 icon,
-                round_icon,
                 title: notification.title,
                 text: notification.text ?? notification.title,
                 uid: notif_info.uid,
@@ -278,18 +246,6 @@ async function UIDesktop (options) {
                             uid: notif_info.uid,
                         }),
                     });
-                },
-                click: async (notif) => {
-                    if ( notification.template === 'file-shared-with-you' ) {
-                        let item_path = `/${ notification.fields?.username}`;
-                        UIWindow({
-                            path: `/${ notification.fields?.username}`,
-                            title: path.basename(item_path),
-                            icon: await item_icon({ is_dir: true, path: item_path }),
-                            is_dir: true,
-                            app: 'explorer',
-                        });
-                    }
                 },
             });
         }
@@ -451,8 +407,6 @@ async function UIDesktop (options) {
         }
 
         if ( dest_path === window.trash_path ) {
-            $(`.item[data-uid="${fsentry.uid}"]`).find('.item-is-shared').fadeOut(300);
-
             // if trashing dir...
             if ( fsentry.is_dir ) {
                 // remove website badge
@@ -486,7 +440,6 @@ async function UIDesktop (options) {
             type: fsentry.type,
             modified: fsentry.modified,
             is_selected: false,
-            is_shared: (dest_path === window.trash_path) ? false : fsentry.is_shared,
             is_shortcut: fsentry.is_shortcut,
             shortcut_to: fsentry.shortcut_to,
             shortcut_to_path: fsentry.shortcut_to_path,
@@ -514,7 +467,6 @@ async function UIDesktop (options) {
                         modified: dir.modified,
                         is_dir: true,
                         is_selected: false,
-                        is_shared: dir.is_shared,
                         has_website: false,
                     });
                 }
@@ -647,7 +599,6 @@ async function UIDesktop (options) {
                 'data-name': item.name,
                 'data-size': item.size,
                 'data-modified': item.modified,
-                'data-is_shared': item.is_shared,
                 'data-type': item.type,
             });
             // set new icon
@@ -672,7 +623,6 @@ async function UIDesktop (options) {
                 type: item.type,
                 modified: item.modified,
                 is_dir: item.is_dir,
-                is_shared: item.is_shared,
                 is_shortcut: item.is_shortcut,
                 shortcut_to: item.shortcut_to,
                 shortcut_to_path: item.shortcut_to_path,
