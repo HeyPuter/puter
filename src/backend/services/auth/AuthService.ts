@@ -601,8 +601,14 @@ export class AuthService extends PuterService {
         for (const spec of permissions) {
             const [permission, extra] = spec;
             await (db.clients?.db ?? this.clients.db).write(
-                'INSERT INTO `access_token_permissions` (`token_uid`, `permission`, `extra`) VALUES (?, ?, ?)',
-                [tokenUid, permission, extra ? JSON.stringify(extra) : '{}'],
+                'INSERT INTO `access_token_permissions` (`token_uid`, `authorizer_user_id`, `authorizer_app_id`, `permission`, `extra`) VALUES (?, ?, ?, ?, ?)',
+                [
+                    tokenUid,
+                    actor.user.id ?? null,
+                    actor.app?.id ?? null,
+                    permission,
+                    extra ? JSON.stringify(extra) : '{}',
+                ],
             );
         }
         await this.stores.permission.invalidateAccessTokenPerms(tokenUid);
@@ -610,9 +616,18 @@ export class AuthService extends PuterService {
         return jwt;
     }
 
-    /** Revoke an access token by JWT or token UUID. */
-    async revokeAccessToken(tokenOrUuid: string): Promise<void> {
+    /**
+     * Revoke an access token by JWT or token UUID.
+     *
+     * Caller must be a user actor (gated at the route). Ownership is verified
+     * before deletion so one user cannot revoke another user's token by
+     * guessing/leaking the token_uid.
+     */
+    async revokeAccessToken(actor: Actor, tokenOrUuid: string): Promise<void> {
+        if (!actor.user) throw new Error('Actor must have a user');
+
         let tokenUid: string;
+        let issuerUuidFromJwt: string | undefined;
         const isJwt = /^[\w-]+\.[\w-]+\.[\w-]+$/.test(tokenOrUuid.trim());
         if (isJwt) {
             const decoded = this.services.token.verify<AccessTokenPayload>(
@@ -620,12 +635,32 @@ export class AuthService extends PuterService {
                 tokenOrUuid,
             );
             if (decoded.type !== 'access-token' || !decoded.token_uid) {
-                throw new Error('Invalid access token');
+                throw new HttpError(400, 'Invalid access token');
             }
             tokenUid = decoded.token_uid;
+            issuerUuidFromJwt = decoded.user_uid;
         } else {
             tokenUid = tokenOrUuid;
         }
+
+        // A signature-verified JWT is itself proof of who issued the token —
+        // the body's `user_uid` was set by createAccessToken at mint time.
+        // For raw-uuid input we fall back to the persisted authorizer.
+        if (issuerUuidFromJwt !== undefined) {
+            if (issuerUuidFromJwt !== actor.user.uuid) {
+                throw new HttpError(404, 'Access token not found');
+            }
+        } else {
+            const rows = (await this.clients.db.read(
+                'SELECT `authorizer_user_id` FROM `access_token_permissions` WHERE `token_uid` = ? LIMIT 1',
+                [tokenUid],
+            )) as Array<{ authorizer_user_id?: number | null }>;
+            const ownerId = rows[0]?.authorizer_user_id ?? null;
+            if (ownerId === null || ownerId !== actor.user.id) {
+                throw new HttpError(404, 'Access token not found');
+            }
+        }
+
         await this.clients.db.write(
             'DELETE FROM `access_token_permissions` WHERE `token_uid` = ?',
             [tokenUid],

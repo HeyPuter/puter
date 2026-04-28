@@ -1653,7 +1653,17 @@ export class AuthController extends PuterController {
             async (req, res) => {
                 const { uuid } = req.body;
                 if (!uuid || typeof uuid !== 'string') {
-                    throw new HttpError(400, 'Missing or invalid `uuid`');
+                    throw new HttpError(400, 'Missing or invalid `uuid`', {
+                        legacyCode: 'bad_request',
+                    });
+                }
+                const session = await this.stores.session.getByUuid(uuid);
+                if (session.user_id !== req.actor.user.id) {
+                    throw new HttpError(
+                        403,
+                        'Can only revoke your own sessions',
+                        { legacyCode: 'unauthorized' },
+                    );
                 }
                 await this.authService.revokeSession(uuid);
                 const sessions = await this.authService.listSessions(req.actor);
@@ -1915,7 +1925,7 @@ export class AuthController extends PuterController {
 
         router.post(
             '/auth/revoke-access-token',
-            { subdomain: 'api', requireAuth: true },
+            { subdomain: 'api', requireUserActor: true },
             async (req, res) => {
                 let { tokenOrUuid } = req.body;
                 if (!tokenOrUuid || typeof tokenOrUuid !== 'string') {
@@ -1926,7 +1936,10 @@ export class AuthController extends PuterController {
                     const match = tokenOrUuid.match(/\/token-read\/([^\s/?]+)/);
                     if (match) tokenOrUuid = match[1];
                 }
-                await this.authService.revokeAccessToken(tokenOrUuid);
+                await this.authService.revokeAccessToken(
+                    req.actor,
+                    tokenOrUuid,
+                );
                 res.json({ ok: true });
             },
         );
@@ -2229,100 +2242,6 @@ export class AuthController extends PuterController {
                     httpOnly: true,
                 });
                 res.status(204).end();
-            },
-        );
-
-        // ── ACL direct ─────────────────────────────────────────────────
-
-        router.post(
-            '/acl/stat-user-user',
-            { subdomain: 'api', requireUserActor: true },
-            async (req, res) => {
-                const targetUsername = req.body?.user;
-                const resource = req.body?.resource;
-                if (!targetUsername) throw new HttpError(400, 'Missing `user`');
-                if (!resource) throw new HttpError(400, 'Missing `resource`');
-
-                const targetUser =
-                    await this.userStore.getByUsername(targetUsername);
-                if (!targetUser) throw new HttpError(404, 'User not found');
-
-                const targetActor = {
-                    user: {
-                        id: targetUser.id,
-                        uuid: targetUser.uuid,
-                        username: targetUser.username,
-                    },
-                };
-                const readPerm = await this.permissionService
-                    .check(targetActor, `fs:${resource}:read`)
-                    .catch(() => false);
-                const writePerm = await this.permissionService
-                    .check(targetActor, `fs:${resource}:write`)
-                    .catch(() => false);
-
-                res.json({ permissions: { read: readPerm, write: writePerm } });
-            },
-        );
-
-        router.post(
-            '/acl/set-user-user',
-            { subdomain: 'api', requireUserActor: true },
-            async (req, res) => {
-                const { user: targetUsername, resource, mode } = req.body ?? {};
-                if (!targetUsername || !resource || !mode)
-                    throw new HttpError(
-                        400,
-                        'Missing `user`, `resource`, or `mode`',
-                    );
-
-                const targetUser =
-                    await this.userStore.getByUsername(targetUsername);
-                if (!targetUser) throw new HttpError(404, 'User not found');
-
-                if (mode === 'write') {
-                    await this.permissionService.grantUserUserPermission(
-                        req.actor,
-                        targetUsername,
-                        `fs:${resource}:read`,
-                        {},
-                    );
-                    await this.permissionService.grantUserUserPermission(
-                        req.actor,
-                        targetUsername,
-                        `fs:${resource}:write`,
-                        {},
-                    );
-                } else if (mode === 'read') {
-                    await this.permissionService.grantUserUserPermission(
-                        req.actor,
-                        targetUsername,
-                        `fs:${resource}:read`,
-                        {},
-                    );
-                    await this.permissionService.revokeUserUserPermission(
-                        req.actor,
-                        targetUsername,
-                        `fs:${resource}:write`,
-                    );
-                } else if (mode === 'none') {
-                    await this.permissionService.revokeUserUserPermission(
-                        req.actor,
-                        targetUsername,
-                        `fs:${resource}:read`,
-                    );
-                    await this.permissionService.revokeUserUserPermission(
-                        req.actor,
-                        targetUsername,
-                        `fs:${resource}:write`,
-                    );
-                } else {
-                    throw new HttpError(
-                        400,
-                        'Invalid `mode` — expected read, write, or none',
-                    );
-                }
-                res.json({});
             },
         );
 

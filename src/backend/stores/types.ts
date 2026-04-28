@@ -32,14 +32,15 @@ export const PuterStore = class PuterStore implements WithLifecycle {
 
     /**
      * Refresh (pass `serializedData`) or invalidate (omit it) cache keys
-     * locally AND broadcast the same mutation to peer nodes via
-     * `outer.cacheUpdate`. Pipelined for cluster-mode safety (no
-     * multi-key DEL/MSET that would CROSSSLOT on Valkey).
+     * locally. Pass `broadcast: true` to also send the same mutation to
+     * peer nodes via `outer.cacheUpdate`. Pipelined for cluster-mode safety
+     * (no multi-key DEL/MSET that would CROSSSLOT on Valkey).
      */
     protected async publishCacheKeys(params: {
         keys: string[];
         serializedData?: string;
         ttlSeconds?: number;
+        broadcast?: boolean;
     }): Promise<void> {
         const { keys, serializedData } = params;
         if (keys.length === 0) return;
@@ -67,6 +68,8 @@ export const PuterStore = class PuterStore implements WithLifecycle {
                 keys,
             );
         }
+
+        if (!params.broadcast) return;
 
         try {
             const payload =

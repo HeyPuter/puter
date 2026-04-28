@@ -444,14 +444,14 @@ export class AppStore extends PuterStore {
         const keys = [...affected].map(
             (t) => `${FILETYPE_CACHE_KEY_PREFIX}:${t}`,
         );
-        await this.publishCacheKeys({ keys });
+        await this.publishCacheKeys({ keys, broadcast: true });
     }
 
     // ── Cache invalidation ───────────────────────────────────────────
 
     async invalidate(app) {
         const keys = this.#cacheKeysForApp(app);
-        await this.publishCacheKeys({ keys });
+        await this.publishCacheKeys({ keys, broadcast: true });
         await this.#invalidateListCachesForApps([app]);
     }
 
@@ -606,6 +606,7 @@ export class AppStore extends PuterStore {
         if (keys.length === 0) return;
         await this.publishCacheKeys({
             keys,
+            broadcast: true,
         });
     }
 
@@ -616,6 +617,7 @@ export class AppStore extends PuterStore {
             keys,
             serializedData: JSON.stringify(app),
             ttlSeconds: CACHE_TTL_SECONDS,
+            broadcast: true,
         });
     }
 

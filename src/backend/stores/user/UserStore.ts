@@ -333,7 +333,7 @@ export class UserStore extends PuterStore {
 
     async invalidate(user: UserRow): Promise<void> {
         const keys = this.#cacheKeysForUser(user);
-        await this.publishCacheKeys({ keys });
+        await this.publishCacheKeys({ keys, broadcast: true });
     }
 
     /** Invalidate by id — fetches the cached row first so we know all its keys. */
@@ -398,6 +398,7 @@ export class UserStore extends PuterStore {
             keys,
             serializedData: JSON.stringify(user),
             ttlSeconds: CACHE_TTL_SECONDS,
+            broadcast: true,
         });
     }
 

@@ -1554,6 +1554,21 @@ export class LegacyFSController extends PuterController {
                         expandedParent && expandedParent !== '/'
                             ? `${expandedParent.replace(/\/+$/, '')}/${name}`
                             : `/${name}`;
+                    // Mirrors the per-op /write|/mkdir routes: assert write
+                    // on the parent dir, but when the parent resolves to `/`
+                    // fall back to the target path so the ACL check rides
+                    // the ancestor chain instead of bouncing on root.
+                    const writeAclPath =
+                        expandedParent && expandedParent !== '/'
+                            ? expandedParent.replace(/\/+$/, '')
+                            : targetPath;
+                    await assertAccess(
+                        this.services.acl,
+                        this.services.fs,
+                        actor,
+                        writeAclPath,
+                        'write',
+                    );
                     const dedupeName =
                         getBoolean(record, 'dedupe_name') ?? true;
                     const overwrite = getBoolean(record, 'overwrite') ?? false;
@@ -1602,6 +1617,17 @@ export class LegacyFSController extends PuterController {
                         expandedParent && expandedParent !== '/'
                             ? `${expandedParent.replace(/\/+$/, '')}/${name}`
                             : `/${name}`;
+                    const writeAclPath =
+                        expandedParent && expandedParent !== '/'
+                            ? expandedParent.replace(/\/+$/, '')
+                            : targetPath;
+                    await assertAccess(
+                        this.services.acl,
+                        this.services.fs,
+                        actor,
+                        writeAclPath,
+                        'write',
+                    );
                     const entry = await this.services.fs.mkdir(userId, {
                         path: targetPath,
                         dedupeName: getBoolean(record, 'dedupe_name') ?? true,
@@ -1640,6 +1666,20 @@ export class LegacyFSController extends PuterController {
                     const parent = await resolveV1Selector(
                         this.stores.fsEntry,
                         { path: expandedParent || '/' },
+                    );
+                    await assertAccess(
+                        this.services.acl,
+                        this.services.fs,
+                        actor,
+                        target.path,
+                        'read',
+                    );
+                    await assertAccess(
+                        this.services.acl,
+                        this.services.fs,
+                        actor,
+                        parent.path,
+                        'write',
                     );
                     const link = await this.services.fs.mkshortcut(userId, {
                         parent,
