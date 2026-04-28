@@ -193,12 +193,86 @@ export async function assertAccess(
 
 // ── Response shaping ────────────────────────────────────────────────
 
+type AppRowLookup = {
+    getByIds: (ids: number[]) => Promise<Map<number, Record<string, unknown>>>;
+};
+
+const toIntBool = (v: unknown): number => (v ? 1 : 0);
+
+/**
+ * Convert an AppStore-normalized app row into the v1 `associated_app` shape
+ * embedded in legacy FS entries. Booleans round-trip back to integers (0/1)
+ * because the v1 wire contract emits them that way and existing clients key
+ * off it. Other columns pass through as-is — `metadata` is already parsed.
+ */
+function mapAppForLegacyAssociatedApp(
+    app: Record<string, unknown>,
+): Record<string, unknown> {
+    return {
+        id: app.id,
+        uid: app.uid,
+        owner_user_id: app.owner_user_id,
+        icon: app.icon,
+        name: app.name,
+        title: app.title,
+        description: app.description,
+        godmode: toIntBool(app.godmode),
+        maximize_on_start: toIntBool(app.maximize_on_start),
+        index_url: app.index_url,
+        approved_for_listing: toIntBool(app.approved_for_listing),
+        approved_for_opening_items: toIntBool(app.approved_for_opening_items),
+        approved_for_incentive_program: toIntBool(
+            app.approved_for_incentive_program,
+        ),
+        timestamp: app.timestamp ?? null,
+        last_review: app.last_review ?? null,
+        tags: app.tags ?? null,
+        app_owner: app.app_owner ?? null,
+        background: toIntBool(app.background),
+        metadata: app.metadata ?? null,
+        protected: toIntBool(app.protected),
+        is_private: toIntBool(app.is_private),
+    };
+}
+
+/**
+ * Batch-load `associated_app` payloads for a set of entries. Dedupes app ids
+ * across the input, hands them to `AppStore.getByIds` (one pipelined Redis
+ * MGET + a single `id IN (…)` query for any cache misses), and returns a map
+ * keyed by app id holding the v1-shaped embed. Callers pass the result to
+ * `toLegacyEntry` via `opts.appsById` so each entry hydrates without a
+ * second round-trip.
+ *
+ * Empty input short-circuits — readdir on a directory of plain files makes
+ * zero extra calls.
+ */
+export async function loadLegacyAssociatedApps(
+    appStore: AppRowLookup,
+    entries: FSEntry[],
+): Promise<Map<number, Record<string, unknown>>> {
+    const ids = [
+        ...new Set(
+            entries
+                .map((e) => e.associatedAppId)
+                .filter((id): id is number => typeof id === 'number'),
+        ),
+    ];
+    const out = new Map<number, Record<string, unknown>>();
+    if (ids.length === 0) return out;
+    const apps = await appStore.getByIds(ids);
+    for (const [id, app] of apps) {
+        out.set(id, mapAppForLegacyAssociatedApp(app));
+    }
+    return out;
+}
+
 /**
  * Produce the snake_case entry shape legacy clients expect. If `thumbnail`
  * is set, asks the thumbnail extension (via `thumbnail.read` event) to swap
  * an S3 URL for a signed one. Pass `fsEntryStore`/`userStore` to hydrate
  * `is_empty` (directories) and `owner` — both are required fields per
- * the legacy stat contract but need extra DB lookups.
+ * the legacy stat contract but need extra DB lookups. Pass `appsById`
+ * (built via `loadLegacyAssociatedApps`) to populate `associated_app`.
  */
 export async function toLegacyEntry(
     eventClient: EventClient | undefined,
@@ -208,6 +282,7 @@ export async function toLegacyEntry(
         userStore?: {
             getById: (id: number) => Promise<Record<string, unknown> | null>;
         };
+        appsById?: Map<number, Record<string, unknown>>;
     } = {},
 ): Promise<Record<string, unknown>> {
     const dirname = pathPosix.dirname(entry.path);
@@ -248,6 +323,10 @@ export async function toLegacyEntry(
         workers: entry.workers,
         has_website: entry.hasWebsite ?? entry.subdomains.length > 0,
         suggested_apps: entry.suggestedApps,
+        associated_app:
+            entry.associatedAppId !== null && opts.appsById
+                ? (opts.appsById.get(entry.associatedAppId) ?? null)
+                : null,
     };
 
     // `is_empty` — only meaningful for directories. Single-row probe so we

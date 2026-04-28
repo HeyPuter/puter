@@ -17,6 +17,7 @@ import {
     assertAccess,
     getBoolean,
     getString,
+    loadLegacyAssociatedApps,
     resolveV1Selector,
     signEntry,
     signingConfigFromAppConfig,
@@ -308,6 +309,10 @@ export class LegacyFSController extends PuterController {
         entry.suggestedApps =
             await this.services.suggestedApps.getSuggestedApps(entry);
 
+        const appsById = await loadLegacyAssociatedApps(this.stores.app, [
+            entry,
+        ]);
+
         const shaped = await toLegacyEntry(this.clients.event, entry, {
             fsEntryStore: this.stores.fsEntry,
             userStore: this.stores.user as unknown as {
@@ -315,6 +320,7 @@ export class LegacyFSController extends PuterController {
                     id: number,
                 ) => Promise<Record<string, unknown> | null>;
             },
+            appsById,
         });
 
         // Optional hydrations:
@@ -357,8 +363,16 @@ export class LegacyFSController extends PuterController {
                     child.suggestedApps = rootSuggestions[index] ?? [];
                 }
             }
+            const rootAppsById = await loadLegacyAssociatedApps(
+                this.stores.app,
+                rootChildren,
+            );
             const shaped = await Promise.all(
-                rootChildren.map((c) => toLegacyEntry(this.clients.event, c)),
+                rootChildren.map((c) =>
+                    toLegacyEntry(this.clients.event, c, {
+                        appsById: rootAppsById,
+                    }),
+                ),
             );
             res.json(shaped);
             return;
@@ -394,8 +408,15 @@ export class LegacyFSController extends PuterController {
             }
         }
 
+        const appsById = await loadLegacyAssociatedApps(
+            this.stores.app,
+            children,
+        );
+
         const shaped = await Promise.all(
-            children.map((c) => toLegacyEntry(this.clients.event, c)),
+            children.map((c) =>
+                toLegacyEntry(this.clients.event, c, { appsById }),
+            ),
         );
         res.json(shaped);
     };
