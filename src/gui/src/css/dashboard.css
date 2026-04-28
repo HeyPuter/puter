@@ -167,11 +167,6 @@ body {
     }
 }
 
-.window-dashboard ~ .window {
-    box-shadow: none;
-    border-radius: 0;
-}
-
 .dashboard {
     display: flex;
     height: 100%;
