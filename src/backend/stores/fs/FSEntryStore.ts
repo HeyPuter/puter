@@ -2200,7 +2200,7 @@ export class FSEntryStore extends PuterStore {
              WHERE parent_uid = ?
              ORDER BY ${sortColumn} ${sortDirection}
              LIMIT ? OFFSET ?`,
-            [parentUid, , limit, offset],
+            [parentUid, limit, offset],
         )) as unknown as FSEntryRow[];
         const entries = rows.map((row) => this.#mapFSEntryRow(row));
         // Heal NULL-path rows before they reach the controller — readdir
