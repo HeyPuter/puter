@@ -11,11 +11,13 @@ const OIDC_ERROR_REDIRECT_MAP: Record<string, Record<string, string>> = {
     signup: { account_already_exists: 'login', other: 'signup' },
 };
 
+const ALLOWED_ERRORS = ['account_suspended', 'unauthorized'] as const;
+
 function buildErrorRedirectUrl(
     origin: string,
     sourceFlow: string,
     errorCondition: string,
-    message: string,
+    message: (typeof ALLOWED_ERRORS)[number],
     stateDecoded?: Record<string, unknown>,
 ): string {
     const targetFlow =
@@ -27,7 +29,9 @@ function buildErrorRedirectUrl(
             embedded_in_popup: 'true',
             msg_id: String(stateDecoded.msg_id),
             auth_error: '1',
-            message: message || 'Something went wrong.',
+            message: ALLOWED_ERRORS.includes(message)
+                ? message
+                : 'unauthorized',
             action: targetFlow,
         });
         if (stateDecoded?.opener_origin) {
@@ -39,7 +43,7 @@ function buildErrorRedirectUrl(
     const params = new URLSearchParams({
         action: targetFlow,
         auth_error: '1',
-        message: message || 'Something went wrong.',
+        message: ALLOWED_ERRORS.includes(message) ? message : 'unauthorized',
     });
     return `${base}/?${params.toString()}`;
 }
@@ -254,7 +258,7 @@ export class OIDCController extends PuterController {
                             origin,
                             'signup',
                             'other',
-                            result.error,
+                            'unauthorized',
                         ),
                     );
                 }
@@ -271,7 +275,7 @@ export class OIDCController extends PuterController {
                             origin,
                             'signup',
                             'other',
-                            resolved.error,
+                            'unauthorized',
                             stateDecoded,
                         ),
                     );
@@ -285,7 +289,7 @@ export class OIDCController extends PuterController {
                             origin,
                             'signup',
                             'other',
-                            'This account is suspended.',
+                            'account_suspended',
                             stateDecoded,
                         ),
                     );
