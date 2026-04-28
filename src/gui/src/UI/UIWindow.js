@@ -55,7 +55,10 @@ async function UIWindow (options) {
     }
 
     // add this window's id to the window_stack
-    window.window_stack.push(win_id);
+    // don't add if invisible
+    if ( options.is_visible && !options.is_panel ) {
+        window.window_stack.push(win_id);
+    }
 
     // =====================================
     // set options defaults
@@ -3709,27 +3712,20 @@ $.fn.close = async function (options) {
             else {
                 // close any open FileDialogs belonging to this window
                 $(`.window-filedialog[data-parent_uuid="${window_uuid}"]`).close();
+                // reset URL to desktop first; focusWindow will set the correct URL for the next focused window
+                window.history.replaceState(null, document.title, '/');
                 // bring focus to the last window in the window-stack (only if not minimized)
+                let next_window_focused = false;
                 if ( window.window_stack.length > 0 ) {
                     const $last_window_in_stack = $(`.window[data-id="${window.window_stack[window.window_stack.length - 1]}"]`);
                     // check if previous window is not minimized
                     if ( $last_window_in_stack !== null && $last_window_in_stack.attr('data-is_minimized') !== '1' && $last_window_in_stack.attr('data-is_minimized') !== 'true' ) {
                         $(`.window[data-id="${window.window_stack[window.window_stack.length - 1]}"]`).focusWindow();
-                    }
-                    // otherwise, change URL/Title to desktop
-                    else {
-                        window.history.replaceState(null, document.title, '/');
-                        document.title = i18n('window_title_puter');
-                    }
-                    // if it's explore
-                    if ( $last_window_in_stack.attr('data-app') && $last_window_in_stack.attr('data-app').toLowerCase() === 'explorer' ) {
-                        window.history.replaceState(null, document.title, '/');
-                        document.title = i18n('window_title_puter');
+                        next_window_focused = true;
                     }
                 }
-                // otherwise, change URL/Title to desktop
-                else {
-                    window.history.replaceState(null, document.title, '/');
+                // only reset title if no other window took focus
+                if ( !next_window_focused || window.window_stack.length === 0 ) {
                     document.title = i18n('window_title_puter');
                 }
             }
@@ -4077,7 +4073,9 @@ $.fn.focusWindow = function (event) {
         // grey out all selected items on other windows/desktop
         $('.item-container').not(window.active_item_container).find('.item-selected').addClass('item-blurred');
         // update window-stack
-        window.window_stack.push(parseInt($(this).attr('data-id')));
+        if ( !$(this).attr('data-is_panel') === '1' ) {
+            window.window_stack.push(parseInt($(this).attr('data-id')));
+        }
         // remove blurred class from items on this window
         $(window.active_item_container).find('.item-blurred').removeClass('item-blurred');
         //change window URL (skip in dashboard mode — URL should stay on the dashboard route)
