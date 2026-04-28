@@ -62,8 +62,21 @@
     --dashboard-icon-green-end: #059669;
     --dashboard-icon-green-shadow: rgba(16, 185, 129, 0.3);
 
-    --dashboard-fancy-header-start: rgba(200, 220, 255, 0.5);
-    --dashboard-fancy-header-end: rgba(180, 210, 255, 0.3);
+    /* TabHome bento: solid surfaces aligned with header icon accents (no gradients) */
+    /* Profile / welcome card — warm neutral stone (reads calm next to apps blue & usage violet; avoids tinted hues that clash) */
+    --dashboard-bento-welcome-bg: #faf8f5;
+    --dashboard-bento-welcome-pattern: rgba(87, 83, 78, 0.045);
+    --dashboard-bento-welcome-avatar-border: #e8e4df;
+    --dashboard-bento-welcome-avatar-shadow: rgba(41, 37, 36, 0.1);
+    --dashboard-bento-apps-icon-bg: #2563eb;
+    --dashboard-bento-apps-icon-shadow: rgba(37, 99, 235, 0.22);
+    --dashboard-bento-apps-surface: #eff6ff;
+    --dashboard-bento-apps-header-bg: #dbeafe;
+    --dashboard-bento-usage-icon-bg: #7c3aed;
+    --dashboard-bento-usage-icon-shadow: rgba(124, 58, 237, 0.24);
+    --dashboard-bento-usage-surface: #f5f3ff;
+    --dashboard-bento-usage-header-bg: #ede9fe;
+    --dashboard-bento-usage-bar-fill: #ea580c;
 
     --dashboard-shadow-subtle: rgba(0, 0, 0, 0.04);
     --dashboard-shadow-light: rgba(0, 0, 0, 0.06);
@@ -144,8 +157,19 @@ body {
         --dashboard-icon-green-end: #10b981;
         --dashboard-icon-green-shadow: rgba(52, 211, 153, 0.25);
 
-        --dashboard-fancy-header-start: rgba(60, 80, 120, 0.4);
-        --dashboard-fancy-header-end: rgba(50, 70, 100, 0.3);
+        --dashboard-bento-welcome-bg: #252422;
+        --dashboard-bento-welcome-pattern: rgba(168, 162, 158, 0.06);
+        --dashboard-bento-welcome-avatar-border: #44403c;
+        --dashboard-bento-welcome-avatar-shadow: rgba(0, 0, 0, 0.35);
+        --dashboard-bento-apps-icon-bg: #3b82f6;
+        --dashboard-bento-apps-icon-shadow: rgba(59, 130, 246, 0.28);
+        --dashboard-bento-apps-surface: #1a2332;
+        --dashboard-bento-apps-header-bg: #1e2d42;
+        --dashboard-bento-usage-icon-bg: #8b5cf6;
+        --dashboard-bento-usage-icon-shadow: rgba(139, 92, 246, 0.35);
+        --dashboard-bento-usage-surface: #1f1a2e;
+        --dashboard-bento-usage-header-bg: #2a2440;
+        --dashboard-bento-usage-bar-fill: #fb923c;
 
         --dashboard-shadow-subtle: rgba(0, 0, 0, 0.2);
         --dashboard-shadow-light: rgba(0, 0, 0, 0.3);
@@ -2383,16 +2407,13 @@ body {
     background: var(--dashboard-background);
     border-radius: 20px;
     overflow: hidden;
-    box-shadow:
-        0 1px 3px var(--dashboard-shadow-subtle),
-        0 4px 12px var(--dashboard-shadow-subtle);
     border: 1px solid var(--dashboard-shadow-light);
 }
 
 /* Welcome Card */
 .dashboard .bento-welcome {
     position: relative;
-    background: linear-gradient(135deg, var(--dashboard-card-gradient-start) 0%, var(--dashboard-card-gradient-end) 100%);
+    background-color: var(--dashboard-bento-welcome-bg);
     color: var(--dashboard-text-primary);
     min-height: 280px;
 }
@@ -2414,9 +2435,7 @@ body {
     left: 0;
     right: 0;
     bottom: 0;
-    background-image:
-        radial-gradient(circle at 20% 30%, var(--dashboard-gradient-indigo) 0%, transparent 50%),
-        radial-gradient(circle at 80% 70%, var(--dashboard-gradient-purple) 0%, transparent 40%);
+    background-color: var(--dashboard-bento-welcome-pattern);
     pointer-events: none;
 }
 
@@ -2432,9 +2451,11 @@ body {
     background-size: cover;
     background-position: center;
     background-color: var(--dashboard-avatar-background);
-    border: 3px solid var(--dashboard-background);
+    border: 3px solid var(--dashboard-bento-welcome-avatar-border);
     margin-bottom: 16px;
-    box-shadow: 0 4px 16px var(--dashboard-shadow-medium);
+    box-shadow:
+        0 4px 16px var(--dashboard-shadow-medium),
+        0 2px 8px var(--dashboard-bento-welcome-avatar-shadow);
 }
 
 .dashboard .bento-greeting {
@@ -2500,15 +2521,12 @@ body {
     }
 }
 
-/* Recent Apps Card - Rectangle */
+/* Recent Apps Card - Rectangle (surface matches blue header icon) */
 .dashboard .bento-recent {
     min-height: 310px;
     display: flex;
     flex-direction: column;
-    background:
-        radial-gradient(circle at 90% 10%, var(--dashboard-gradient-indigo) 0%, transparent 40%),
-        radial-gradient(circle at 10% 90%, var(--dashboard-gradient-pink) 0%, transparent 35%),
-        linear-gradient(135deg, var(--dashboard-card-gradient-start) 0%, var(--dashboard-card-gradient-end) 100%);
+    background-color: var(--dashboard-bento-apps-surface);
 }
 
 .dashboard .bento-card-header {
@@ -2532,10 +2550,17 @@ body {
     align-items: center;
     gap: 14px;
     padding: 20px 24px;
-    background: linear-gradient(135deg, var(--dashboard-fancy-header-start) 0%, var(--dashboard-fancy-header-end) 100%);
     border-bottom: 1px solid var(--dashboard-shadow-light);
     text-decoration: none;
     color: inherit;
+}
+
+.dashboard .bento-recent > .bento-card-fancy-header {
+    background-color: var(--dashboard-bento-apps-header-bg);
+}
+
+.dashboard .bento-usage > .bento-card-fancy-header {
+    background-color: var(--dashboard-bento-usage-header-bg);
 }
 
 .dashboard .bento-card-fancy-icon {
@@ -2554,15 +2579,15 @@ body {
 }
 
 .dashboard .bento-card-fancy-icon-apps {
-    background: linear-gradient(135deg, var(--dashboard-icon-blue-start) 0%, var(--dashboard-icon-blue-end) 100%);
-    color: white;
-    box-shadow: 0 4px 12px var(--dashboard-icon-blue-shadow);
+    background-color: var(--dashboard-bento-apps-icon-bg);
+    color: #fff;
+    box-shadow: 0 4px 12px var(--dashboard-bento-apps-icon-shadow);
 }
 
 .dashboard .bento-card-fancy-icon-usage {
-    background: linear-gradient(135deg, var(--dashboard-icon-green-start) 0%, var(--dashboard-icon-green-end) 100%);
-    color: white;
-    box-shadow: 0 4px 12px var(--dashboard-icon-green-shadow);
+    background-color: var(--dashboard-bento-usage-icon-bg);
+    color: #fff;
+    box-shadow: 0 4px 12px var(--dashboard-bento-usage-icon-shadow);
 }
 
 .dashboard .bento-card-fancy-text {
@@ -2709,9 +2734,7 @@ body {
 .dashboard .bento-desktop-switch {
     grid-column: 1 / -1;
     min-height: auto;
-    background: radial-gradient(circle at 90% 10%, var(--dashboard-gradient-indigo) 0%, transparent 40%),
-        radial-gradient(circle at 10% 90%, var(--dashboard-gradient-pink) 0%, transparent 35%),
-        linear-gradient(135deg, var(--dashboard-card-gradient-start) 0%, var(--dashboard-card-gradient-end) 100%);
+    background-color: var(--dashboard-bento-apps-surface);
     padding: 16px 24px;
 }
 
@@ -2749,14 +2772,11 @@ body {
     }
 }
 
-/* Usage bento card */
+/* Usage bento card (violet surfaces; orange bars stay as progress accent) */
 .dashboard .bento-usage {
     grid-column: 1 / -1;
     min-height: auto;
-    background:
-        radial-gradient(circle at 5% 50%, var(--dashboard-gradient-green) 0%, transparent 40%),
-        radial-gradient(circle at 95% 50%, var(--dashboard-gradient-blue) 0%, transparent 40%),
-        linear-gradient(135deg, var(--dashboard-card-gradient-start) 0%, var(--dashboard-card-gradient-end) 100%);
+    background-color: var(--dashboard-bento-usage-surface);
 }
 
 .dashboard .bento-usage-container {
@@ -2873,7 +2893,7 @@ body {
 
 .dashboard .bento-usage-card-bar {
     height: 100%;
-    background: linear-gradient(90deg, var(--dashboard-usage-bar-start), var(--dashboard-usage-bar-end));
+    background-color: var(--dashboard-bento-usage-bar-fill);
     border-radius: 7px;
     width: 0;
     transition: width 0.4s ease;
@@ -2910,7 +2930,7 @@ body {
 
 .dashboard .bento-usage-bar {
     height: 20px;
-    background: linear-gradient(var(--dashboard-legacy-bar-start), var(--dashboard-legacy-bar-mid), var(--dashboard-legacy-bar-start));
+    background-color: var(--dashboard-legacy-bar-mid);
     border-top-left-radius: 3px;
     border-bottom-left-radius: 3px;
     width: 0;
