@@ -307,7 +307,7 @@ export class UserStore extends PuterStore {
 
         const fresh = await this.getByProperty('id', userId, { force: true });
         if (fresh) {
-            await this.#refreshCache(fresh);
+            await this.#refreshCache({ ...fresh, ...patch });
         } else {
             await this.invalidateById(userId);
         }

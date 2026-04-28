@@ -275,7 +275,9 @@ export class AppStore extends PuterStore {
         );
 
         const fresh = await this.#readFromDb('id', appId);
-        if (fresh) await this.#refreshCache(fresh);
+        if (fresh) {
+            await this.#refreshCache({ ...fresh, ...allowed });
+        }
         return fresh;
     }
 

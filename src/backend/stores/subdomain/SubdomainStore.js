@@ -188,11 +188,18 @@ export class SubdomainStore extends PuterStore {
                 appOwner,
             ],
         );
-        const row = await this.getByUuid(uuid);
-        if (row) {
-            await this.#refreshCache(row);
-            await this.#invalidatePrefixListsForUser(userId);
-        }
+
+        const row = {
+            uuid,
+            subdomain,
+            user_id: userId,
+            root_dir_id: rootDirId ?? null,
+            associated_app_id: associatedAppId,
+            app_owner: appOwner,
+        };
+        await this.#refreshCache(row);
+        await this.#invalidatePrefixListsForUser(userId);
+
         return row;
     }
 
@@ -228,7 +235,9 @@ export class SubdomainStore extends PuterStore {
                 keys: [this.#cacheKey(before.subdomain)],
             });
         }
-        if (after) await this.#refreshCache(after);
+        if (after) {
+            await this.#refreshCache({ ...after, ...allowed });
+        }
         // A patched root_dir_id / associated_app_id / domain changes the rows
         // the prefix-list cache would return, so drop those caches for the
         // owning user(s). Covers pre- and post-rename owners in case the
