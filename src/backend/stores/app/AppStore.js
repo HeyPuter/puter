@@ -12,6 +12,9 @@ import { PuterStore } from '../types';
 
 const CACHE_KEY_PREFIX = 'apps';
 const CACHE_TTL_SECONDS = 24 * 60 * 60;
+const LIST_CACHE_KEY_PREFIX = `${CACHE_KEY_PREFIX}:list`;
+const LIST_CACHE_TRACKER_KEY = `${LIST_CACHE_KEY_PREFIX}:keys`;
+const LIST_CACHE_TTL_SECONDS = 15 * 60;
 const FILETYPE_CACHE_KEY_PREFIX = 'apps:by-filetype';
 const FILETYPE_CACHE_TTL_SECONDS = 60;
 const APP_ID_PROPERTIES = ['id', 'uid', 'name'];
@@ -209,12 +212,28 @@ export class AppStore extends PuterStore {
 
         const whereClause = where.length ? `WHERE ${where.join(' AND ')}` : '';
         const limit = filters.limit ?? 500;
+        const cacheKey = this.#listCacheKey(whereClause, params, limit);
+
+        try {
+            const cached = await this.clients.redis.get(cacheKey);
+            if (cached) {
+                const parsed = JSON.parse(cached);
+                if (Array.isArray(parsed)) {
+                    return parsed.map((r) => this.#normalizeRow(r));
+                }
+            }
+        } catch {
+            // Fall through to DB on any cache failure.
+        }
 
         const rows = await this.clients.db.read(
-            `SELECT * FROM \`apps\` ${whereClause} LIMIT ${limit}`,
-            params,
+            `SELECT * FROM \`apps\` ${whereClause} LIMIT ?`,
+            [...params, limit],
         );
-        return rows.map((r) => this.#normalizeRow(r));
+        const apps = rows.map((r) => this.#normalizeRow(r));
+
+        this.#writeListCache(cacheKey, apps).catch(() => {});
+        return apps;
     }
 
     // ── Writes ───────────────────────────────────────────────────────
@@ -257,7 +276,9 @@ export class AppStore extends PuterStore {
         if (!insertId)
             throw new Error('Failed to create app — no insertId returned');
 
-        return this.getById(insertId);
+        const fresh = await this.getById(insertId);
+        await this.#invalidateListCachesForApps([fresh]);
+        return fresh;
     }
 
     /** Updates + refreshes cache (local + peers) with the post-update row. */
@@ -266,6 +287,7 @@ export class AppStore extends PuterStore {
         const keys = Object.keys(allowed);
         if (keys.length === 0) return this.getById(appId);
 
+        const before = await this.#readFromDb('id', appId);
         const setClause = keys.map((k) => `\`${k}\` = ?`).join(', ');
         const values = keys.map((k) => allowed[k]);
 
@@ -275,6 +297,7 @@ export class AppStore extends PuterStore {
         );
 
         const fresh = await this.#readFromDb('id', appId);
+        await this.#invalidateListCachesForApps([before, fresh]);
         if (fresh) {
             await this.#refreshCache({ ...fresh, ...allowed });
         }
@@ -429,16 +452,21 @@ export class AppStore extends PuterStore {
     async invalidate(app) {
         const keys = this.#cacheKeysForApp(app);
         await this.publishCacheKeys({ keys });
+        await this.#invalidateListCachesForApps([app]);
     }
 
     async invalidateById(id) {
-        const cached = await this.#readCache('id', id);
-        if (cached) await this.invalidate(cached);
+        const app =
+            (await this.#readCache('id', id)) ??
+            (await this.#readFromDb('id', id));
+        if (app) await this.invalidate(app);
     }
 
     async invalidateByUid(uid) {
-        const cached = await this.#readCache('uid', uid);
-        if (cached) await this.invalidate(cached);
+        const app =
+            (await this.#readCache('uid', uid)) ??
+            (await this.#readFromDb('uid', uid));
+        if (app) await this.invalidate(app);
     }
 
     /** Resolve an app by either uid or name; tries uid first, then name. */
@@ -477,6 +505,48 @@ export class AppStore extends PuterStore {
         return `${CACHE_KEY_PREFIX}:${prop}:${value}`;
     }
 
+    #listCacheKey(whereClause, params, limit) {
+        return `${LIST_CACHE_KEY_PREFIX}:${JSON.stringify([
+            whereClause,
+            params,
+            limit,
+        ])}`;
+    }
+
+    #parseListCacheKey(cacheKey) {
+        if (!cacheKey.startsWith(`${LIST_CACHE_KEY_PREFIX}:`)) return null;
+        try {
+            const raw = cacheKey.slice(LIST_CACHE_KEY_PREFIX.length + 1);
+            const parsed = JSON.parse(raw);
+            if (!Array.isArray(parsed) || parsed.length !== 3) return null;
+            return { whereClause: parsed[0], params: parsed[1] };
+        } catch {
+            return null;
+        }
+    }
+
+    #listCacheMatchesApp(cacheKey, app) {
+        if (!app) return false;
+        const parsed = this.#parseListCacheKey(cacheKey);
+        if (!parsed) return true;
+
+        const { whereClause, params } = parsed;
+        if (!whereClause) return true;
+        if (!Array.isArray(params)) return true;
+
+        const columns = whereClause
+            .replace(/^WHERE\s+/u, '')
+            .split(' AND ')
+            .map((part) => part.match(/^`([^`]+)` = \?$/u)?.[1]);
+
+        if (columns.some((column) => !column)) return true;
+
+        for (let i = 0; i < columns.length; i++) {
+            if (app[columns[i]] !== params[i]) return false;
+        }
+        return true;
+    }
+
     #cacheKeysForApp(app) {
         const keys = [];
         for (const prop of APP_ID_PROPERTIES) {
@@ -492,7 +562,7 @@ export class AppStore extends PuterStore {
             const raw = await this.clients.redis.get(
                 this.#cacheKey(prop, value),
             );
-            return raw ? JSON.parse(raw) : null;
+            return raw ? this.#normalizeRow(JSON.parse(raw)) : null;
         } catch {
             return null;
         }
@@ -507,6 +577,36 @@ export class AppStore extends PuterStore {
                 this.clients.redis.set(k, serialized, 'EX', CACHE_TTL_SECONDS),
             ),
         );
+    }
+
+    async #writeListCache(cacheKey, apps) {
+        const pipeline = this.clients.redis.pipeline();
+        pipeline.set(
+            cacheKey,
+            JSON.stringify(apps),
+            'EX',
+            LIST_CACHE_TTL_SECONDS,
+        );
+        pipeline.sadd(LIST_CACHE_TRACKER_KEY, cacheKey);
+        pipeline.expire(LIST_CACHE_TRACKER_KEY, LIST_CACHE_TTL_SECONDS);
+        await pipeline.exec();
+    }
+
+    async #invalidateListCachesForApps(apps) {
+        let keys = [];
+        try {
+            keys = await this.clients.redis.smembers(LIST_CACHE_TRACKER_KEY);
+        } catch {
+            return;
+        }
+        if (!Array.isArray(keys)) keys = [];
+        keys = keys.filter((key) =>
+            apps.some((app) => this.#listCacheMatchesApp(key, app)),
+        );
+        if (keys.length === 0) return;
+        await this.publishCacheKeys({
+            keys,
+        });
     }
 
     async #refreshCache(app) {
