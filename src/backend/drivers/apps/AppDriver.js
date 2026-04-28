@@ -114,17 +114,22 @@ export class AppDriver extends PuterDriver {
         const stats_period = params.stats_period ?? rest.stats_period;
         const stats_grouping = params.stats_grouping ?? rest.stats_grouping;
 
+        const needsStats =
+            params.stats !== false && (stats_period || stats_grouping);
+
         // Detailed period/grouping is per-app only — skip the batch cache
         // and go straight to the live query. The default (no options) goes
         // through the cached batched path.
         const hasDetailed = Boolean(stats_period || stats_grouping);
-        const stats = hasDetailed
-            ? await this.appStore.getAppStatsDetailed(app.uid, {
-                  period: stats_period,
-                  grouping: stats_grouping,
-                  createdAt: app.created_at ?? app.timestamp,
-              })
-            : (await this.appStore.getAppsStats([app.uid])).get(app.uid);
+        const stats = !needsStats
+            ? undefined
+            : hasDetailed
+              ? await this.appStore.getAppStatsDetailed(app.uid, {
+                    period: stats_period,
+                    grouping: stats_grouping,
+                    createdAt: app.created_at ?? app.timestamp,
+                })
+              : (await this.appStore.getAppsStats([app.uid])).get(app.uid);
 
         return this.#toClient(app, actor, { ...params, stats });
     }
