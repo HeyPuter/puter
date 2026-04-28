@@ -2453,9 +2453,6 @@ body {
     background-color: var(--dashboard-avatar-background);
     border: 3px solid var(--dashboard-bento-welcome-avatar-border);
     margin-bottom: 16px;
-    box-shadow:
-        0 4px 16px var(--dashboard-shadow-medium),
-        0 2px 8px var(--dashboard-bento-welcome-avatar-shadow);
 }
 
 .dashboard .bento-greeting {
@@ -2581,13 +2578,11 @@ body {
 .dashboard .bento-card-fancy-icon-apps {
     background-color: var(--dashboard-bento-apps-icon-bg);
     color: #fff;
-    box-shadow: 0 4px 12px var(--dashboard-bento-apps-icon-shadow);
 }
 
 .dashboard .bento-card-fancy-icon-usage {
     background-color: var(--dashboard-bento-usage-icon-bg);
     color: #fff;
-    box-shadow: 0 4px 12px var(--dashboard-bento-usage-icon-shadow);
 }
 
 .dashboard .bento-card-fancy-text {

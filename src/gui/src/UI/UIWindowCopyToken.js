@@ -29,7 +29,7 @@ function UIWindowCopyToken (options = {}) {
                 flex-direction: column;
                 align-items: center;
                 padding: 30px 20px 20px;
-                background: linear-gradient(135deg, #3b82f6 0%, #6366f1 100%);
+                background: #1854b6;
                 border-bottom: 1px solid #ced7e1;
             ">`;
             h += `<div style="

@@ -19,13 +19,6 @@
 
 import UIWindowSaveAccount from '../UIWindowSaveAccount.js';
 
-function getTimeGreeting () {
-    const hour = new Date().getHours();
-    if ( hour < 12 ) return 'Good morning';
-    if ( hour < 17 ) return 'Good afternoon';
-    return 'Good evening';
-}
-
 function buildRecentAppsHTML () {
     let h = '';
 
@@ -121,7 +114,6 @@ const TabHome = {
 
     html () {
         const username = window.user?.username || 'User';
-        const greeting = getTimeGreeting();
         const profilePicture = window.user?.profile?.picture || window.icons['profile.svg'];
 
         let h = '';
@@ -133,9 +125,9 @@ const TabHome = {
         h += '<div class="bento-welcome-pattern"></div>';
         h += '<div class="bento-welcome-content">';
         h += `<div class="bento-welcome-avatar profile-pic" style="background-image: url(${html_encode(profilePicture)})"></div>`;
-        h += `<span class="bento-greeting">${greeting},</span>`;
+        h += `<span class="bento-greeting">${i18n('welcome')},</span>`;
         h += `<h1 class="bento-username username">${html_encode(username)}</h1>`;
-        h += '<p class="bento-tagline">Your personal cloud computer</p>';
+        h += `<p class="bento-tagline">${i18n('your_personal_internet_computer')}</p>`;
         // Show warning if account is temporary/unsaved
         if ( window.user?.is_temp ) {
             h += '<button class="bento-save-account-warning">';
