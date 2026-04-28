@@ -236,8 +236,8 @@ const TabAccount = {
                     canvas.height = 150;
                     ctx.drawImage(img, 0, 0, 150, 150);
                     const base64data = canvas.toDataURL('image/png');
-                    // update profile picture
-                    $el_window.find('.dashboard-profile-avatar').css('background-image', `url(${ html_encode(base64data) })`);
+                    // update profile picture everywhere (matches helpers.js session refresh)
+                    $('.profile-pic').css('background-image', `url(${ html_encode(base64data) })`);
                     $('.profile-image').css('background-image', `url(${ html_encode(base64data) })`);
                     $('.profile-image').addClass('profile-image-has-picture');
                     // update profile picture
