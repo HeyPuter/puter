@@ -68,13 +68,13 @@ const OIDC_ERROR_REDIRECT_MAP = {
 function buildOIDCErrorRedirectUrl (sourceFlow, errorCondition, message, stateDecoded) {
     const targetFlow = OIDC_ERROR_REDIRECT_MAP[sourceFlow]?.[errorCondition] ?? sourceFlow;
     const origin = (config.origin || '').replace(/\/$/, '') || '/';
-    const params = new URLSearchParams({ action: targetFlow, auth_error: '1', message: message || 'Something went wrong.' });
+    const params = new URLSearchParams({ action: targetFlow, auth_error: '1', message: message === 'This account is suspended.' ? message : 'Unauthorized' });
     if ( stateDecoded?.embedded_in_popup && stateDecoded?.msg_id != null ) {
         const popupParams = new URLSearchParams({
             embedded_in_popup: 'true',
             msg_id: String(stateDecoded.msg_id),
             auth_error: '1',
-            message: message || 'Something went wrong.',
+            message: message === 'This account is suspended.' ? message : 'Unauthorized',
             action: targetFlow,
         });
         if ( stateDecoded?.opener_origin ) {
