@@ -1368,7 +1368,7 @@ export class AuthController extends PuterController {
                     try {
                         await this.groupStore.removeUsers(
                             this.config.default_temp_group,
-                            [user.username],
+                            [username],
                         );
                     } catch {
                         // Best-effort
