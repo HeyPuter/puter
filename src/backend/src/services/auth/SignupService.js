@@ -140,7 +140,7 @@ export class SignupService extends BaseService {
             email = svc_cleanEmail.clean(email);
             if ( ! await svc_cleanEmail.validate(email) ) {
                 return outcome.fail(
-                    'This email does not seem to be valid',
+                    'This email cannot be used. Please try a different email address',
                     'email_invalid',
                 );
             }

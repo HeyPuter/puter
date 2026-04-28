@@ -494,7 +494,7 @@ export class AIChatService extends BaseService {
             const text = extract_text(parameters.messages);
             const approximateTokenCount = Math.floor(((text.length / 4) + (text.split(/\s+/).length * (4 / 3))) / 2); // see https://help.openai.com/en/articles/4936856-what-are-tokens-and-how-to-count-them
             const approximateInputCost = approximateTokenCount * inputTokenCost;
-            const minimumCredits = model.minimumCredits || 0;
+            const minimumCredits = Math.max(model.minimumCredits || 1);
             const usageAllowed = await this.meteringService.hasEnoughCredits(actor, Math.max(approximateInputCost, minimumCredits));
 
             // Handle usage limits reached case

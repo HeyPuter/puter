@@ -123,6 +123,10 @@ class AppInformationService extends BaseService {
                         value: appUid,
                         rawIcon: false,
                     }),
+                    AppRedisCacheSpace.objectKey({
+                        lookup: 'uid',
+                        value: appUid,
+                    }),
                 ]),
                 AppRedisCacheSpace.invalidateAppStats(appUid),
             ]);

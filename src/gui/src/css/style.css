@@ -1427,6 +1427,11 @@ span.header-sort-icon img {
     height: calc(100% );
 }
 
+.fullpage-mode.device-desktop .window-with-menubar .window-body-app,
+.fullpage-mode.device-phone .window-with-menubar .window-body-app {
+    height: calc(100% - 35px);
+}
+
 .window-filedialog-prompt {
     height: 60px;
     border-top: 1px solid #dbdee3;
@@ -1785,6 +1790,95 @@ span.header-sort-icon img {
 
 .context-menu .context-menu-item-active .contextmenu-label-active {
     display: inline-block;
+}
+
+/* iOS-style action sheet (mobile) */
+.context-menu.context-menu-sheet {
+    position: fixed !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    top: auto !important;
+    width: auto !important;
+    min-width: 0 !important;
+    padding: 6px 0 calc(8px + env(safe-area-inset-bottom)) 0 !important;
+    border-radius: 14px 14px 0 0 !important;
+    border: none !important;
+    background-color: rgba(255, 255, 255, 0.96) !important;
+    box-shadow: 0 -6px 24px rgba(0, 0, 0, 0.18) !important;
+    animation: context-menu-sheet-in 260ms cubic-bezier(0.22, 1, 0.36, 1);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+}
+
+@keyframes context-menu-sheet-in {
+    from { transform: translateY(100%); }
+    to   { transform: translateY(0); }
+}
+
+.context-menu.context-menu-sheet .context-menu-item:not(.context-menu-divider) {
+    height: auto !important;
+    min-height: 48px;
+    padding: 12px 16px 12px 44px !important;
+    font-size: 16px !important;
+    border-radius: 0 !important;
+}
+
+.context-menu.context-menu-sheet .context-menu-item .ctx-item-icon,
+.context-menu.context-menu-sheet .context-menu-item .context-menu-item-icon,
+.context-menu.context-menu-sheet .context-menu-item .context-menu-item-icon-active {
+    position: absolute;
+    left: 9px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 20px;
+    height: 20px;
+    margin: 0;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.context-menu.context-menu-sheet .context-menu-item-active:not(.context-menu-divider) {
+    background-color: rgba(0, 122, 255, 0.12) !important;
+    color: #333 !important;
+    border-radius: 0 !important;
+}
+
+.context-menu.context-menu-sheet .context-menu-item-active .context-menu-item-icon {
+    display: inline-block;
+}
+.context-menu.context-menu-sheet .context-menu-item-active .contextmenu-label {
+    display: inline-block;
+}
+.context-menu.context-menu-sheet .context-menu-item-active .context-menu-item-icon-active,
+.context-menu.context-menu-sheet .context-menu-item-active .contextmenu-label-active {
+    display: none;
+}
+
+.context-menu.context-menu-sheet .context-menu-divider {
+    padding: 0 !important;
+    min-height: 1px;
+}
+
+.context-menu.context-menu-sheet .context-menu-divider > hr {
+    border-top-color: rgba(60, 60, 67, 0.2);
+}
+
+.context-menu-sheet-backdrop {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    /* Must be a value within the 32-bit signed int range. The .context-menu rule
+       above uses 9999999999 which browsers clamp to INT_MAX (2147483647); using
+       9999999998 here would also clamp to the same value, leaving the backdrop
+       and menu at equal z-index — and since the backdrop is appended after the
+       menu, DOM order would put it on top and swallow every tap. */
+    z-index: 2147483646;
+    background: transparent;
 }
 
 .draggable-count-badge {
@@ -2833,6 +2927,22 @@ label {
 }
 
 @media screen and (max-width: 768px) {
+    .window-copy-auth-token {
+        width: 100% !important;
+        max-width: none !important;
+        max-height: 100vh !important;
+        height: 100vh !important;
+        top:0 !important;
+        left: 0 !important;
+        border-radius: 0 !important;
+    }
+
+    .window-copy-auth-token .window-body {
+        box-sizing: border-box !important;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+    }
 
     .taskbar {
         justify-content: center;
@@ -4287,6 +4397,17 @@ fieldset[name=number-code] {
 }
 
 @media (max-width:480px) {
+    .window-copy-auth-token {
+        width: 100% !important;
+        max-width: none !important;
+        height: 100% !important;
+        top:0 !important;
+        left: 0 !important;
+        border-radius: 0 !important;
+    }
+    .window-copy-auth-token .window-body {
+        box-sizing: border-box !important;
+    }
     .puter-auth-dialog-content {
         padding: 50px 20px;
     }

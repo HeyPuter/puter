@@ -55,7 +55,10 @@ async function UIWindow (options) {
     }
 
     // add this window's id to the window_stack
-    window.window_stack.push(win_id);
+    // don't add if invisible
+    if ( options.is_visible && !options.is_panel ) {
+        window.window_stack.push(win_id);
+    }
 
     // =====================================
     // set options defaults
@@ -3519,7 +3522,7 @@ $.fn.close = async function (options) {
             const win_id = parseInt($(this).attr('data-id'));
             let window_uuid = $(this).attr('data-element_uuid');
             // remove all instances of win_id from window.window_stack
-            _.pullAll(window.window_stack, [win_id]);
+            window.window_stack = window.window_stack.filter(id => id !== win_id);
             // taskbar update
             let open_window_count = parseInt($(`.taskbar-item[data-app="${$(this).attr('data-app')}"]`).attr('data-open-windows'));
             // update open window count of corresponding taskbar item
@@ -3554,27 +3557,20 @@ $.fn.close = async function (options) {
             else {
                 // close any open FileDialogs belonging to this window
                 $(`.window-filedialog[data-parent_uuid="${window_uuid}"]`).close();
+                // reset URL to desktop first; focusWindow will set the correct URL for the next focused window
+                window.history.replaceState(null, document.title, '/');
                 // bring focus to the last window in the window-stack (only if not minimized)
-                if ( ! _.isEmpty(window.window_stack) ) {
+                let next_window_focused = false;
+                if ( window.window_stack.length > 0 ) {
                     const $last_window_in_stack = $(`.window[data-id="${window.window_stack[window.window_stack.length - 1]}"]`);
                     // check if previous window is not minimized
                     if ( $last_window_in_stack !== null && $last_window_in_stack.attr('data-is_minimized') !== '1' && $last_window_in_stack.attr('data-is_minimized') !== 'true' ) {
                         $(`.window[data-id="${window.window_stack[window.window_stack.length - 1]}"]`).focusWindow();
-                    }
-                    // otherwise, change URL/Title to desktop
-                    else {
-                        window.history.replaceState(null, document.title, '/');
-                        document.title = i18n('window_title_puter');
-                    }
-                    // if it's explore
-                    if ( $last_window_in_stack.attr('data-app') && $last_window_in_stack.attr('data-app').toLowerCase() === 'explorer' ) {
-                        window.history.replaceState(null, document.title, '/');
-                        document.title = i18n('window_title_puter');
+                        next_window_focused = true;
                     }
                 }
-                // otherwise, change URL/Title to desktop
-                else {
-                    window.history.replaceState(null, document.title, '/');
+                // only reset title if no other window took focus
+                if ( !next_window_focused || window.window_stack.length === 0 ) {
                     document.title = i18n('window_title_puter');
                 }
             }
@@ -3622,7 +3618,7 @@ $.fn.close = async function (options) {
             }
         }
         // focus back to desktop?
-        if ( _.isEmpty(window.window_stack) ) {
+        if ( window.window_stack.length === 0 ) {
             // The following is to make sure the iphone keyboard is dismissed when the last window is closed
             if ( isMobile.phone || isMobile.tablet ) {
                 document.activeElement.blur();
@@ -3922,7 +3918,9 @@ $.fn.focusWindow = function (event) {
         // grey out all selected items on other windows/desktop
         $('.item-container').not(window.active_item_container).find('.item-selected').addClass('item-blurred');
         // update window-stack
-        window.window_stack.push(parseInt($(this).attr('data-id')));
+        if ( !$(this).attr('data-is_panel') === '1' ) {
+            window.window_stack.push(parseInt($(this).attr('data-id')));
+        }
         // remove blurred class from items on this window
         $(window.active_item_container).find('.item-blurred').removeClass('item-blurred');
         //change window URL (skip in dashboard mode — URL should stay on the dashboard route)

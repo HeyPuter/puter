@@ -20,21 +20,24 @@ const eggspress = require('../../api/eggspress');
 const config = require('../../config');
 const { subdomain } = require('../../helpers');
 const BaseService = require('../BaseService');
-const { CircularQueue } = require('../../util/CircularQueue');
+const { redisClient } = require('../../clients/redis/redisSingleton');
+
+const REDIS_KEY_PREFIX = 'anticsrf:';
+const MAX_TOKENS_PER_SESSION = 10;
+const TOKEN_TTL_SECONDS = 60 * 60;
+// Sub-millisecond tie-breaker so rapid-fire create_token calls get strictly
+// increasing ZSET scores instead of falling back to lexical token ordering.
+const SCORE_TIEBREAKER_MOD = 1000;
 
 /**
 * Class AntiCSRFService extends BaseService to manage and protect against Cross-Site Request Forgery (CSRF) attacks.
-* It provides methods for generating, consuming, and verifying anti-CSRF tokens based on user sessions.
+* Tokens are stored in Redis as a per-session sorted set (score = creation timestamp)
+* so state is shared across backend instances. Only the most recent
+* MAX_TOKENS_PER_SESSION tokens are retained; keys expire after TOKEN_TTL_SECONDS.
 */
 class AntiCSRFService extends BaseService {
-    /**
-     * Initializes the AntiCSRFService instance and sets up the mapping
-     * between session IDs and their associated tokens.
-     *
-     * @returns {void}
-     */
     _construct () {
-        this.map_session_to_tokens = {};
+        this.score_tiebreaker_ = 0;
     }
 
     /**
@@ -63,40 +66,47 @@ class AntiCSRFService extends BaseService {
             }
 
             // TODO: session uuid instead of user
-            const token = this.create_token(req.user.uuid);
+            const token = await this.create_token(req.user.uuid);
             res.send({ token });
         }));
     }
 
     /**
-     * Creates a new anti-CSRF token for the specified session.
-     * If no token queue exists for the session, a new one is created.
+     * Creates a new anti-CSRF token for the specified session and stores it in Redis.
+     * Only the most recent MAX_TOKENS_PER_SESSION tokens are retained per session.
      *
      * @param {string} session - The session identifier
-     * @returns {string} The newly created token
+     * @returns {Promise<string>} The newly created token
      */
-    create_token (session) {
-        let tokens = this.map_session_to_tokens[session];
-        if ( ! tokens ) {
-            tokens = new CircularQueue(10);
-            this.map_session_to_tokens[session] = tokens;
-        }
+    async create_token (session) {
         const token = this.generate_token_();
-        tokens.push(token);
+        const key = this.redis_key_(session);
+        this.score_tiebreaker_ = (this.score_tiebreaker_ + 1) % SCORE_TIEBREAKER_MOD;
+        const score = Date.now() * SCORE_TIEBREAKER_MOD + this.score_tiebreaker_;
+        const pipeline = redisClient.pipeline();
+        pipeline.zadd(key, score, token);
+        pipeline.zremrangebyrank(key, 0, -(MAX_TOKENS_PER_SESSION + 1));
+        pipeline.expire(key, TOKEN_TTL_SECONDS);
+        await pipeline.exec();
         return token;
     }
 
     /**
      * Attempts to consume (validate and remove) a token for the specified session.
+     * Uses an atomic ZREM so concurrent consumers can't double-spend a token.
      *
      * @param {string} session - The session identifier
      * @param {string} token - The token to consume
-     * @returns {boolean} True if the token was valid and consumed, false otherwise
+     * @returns {Promise<boolean>} True if the token was valid and consumed, false otherwise
      */
-    consume_token (session, token) {
-        const tokens = this.map_session_to_tokens[session];
-        if ( ! tokens ) return false;
-        return tokens.maybe_consume(token);
+    async consume_token (session, token) {
+        if ( ! token ) return false;
+        const removed = await redisClient.zrem(this.redis_key_(session), token);
+        return removed > 0;
+    }
+
+    redis_key_ (session) {
+        return `${REDIS_KEY_PREFIX}${session}`;
     }
 
     /**

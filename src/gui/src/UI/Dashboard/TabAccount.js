@@ -173,14 +173,17 @@ const TabAccount = {
         });
         $el_window.find('.dashboard-section-account .copy-auth-token').on('click', function (e) {
             UIWindowCopyToken({
+                show_close_button: true,
                 show_header: true,
                 window_options: {
                     parent_uuid: $el_window.attr('data-element_uuid'),
                     backdrop: true,
-                    close_on_backdrop_click: false,
+                    close_on_backdrop_click: true,
                     parent_center: true,
                     stay_on_top: true,
-                    has_head: true,
+                    has_head: false,
+                    is_draggable: false,
+                    draggable_body: false,
                 },
             });
         });
@@ -233,8 +236,8 @@ const TabAccount = {
                     canvas.height = 150;
                     ctx.drawImage(img, 0, 0, 150, 150);
                     const base64data = canvas.toDataURL('image/png');
-                    // update profile picture
-                    $el_window.find('.dashboard-profile-avatar').css('background-image', `url(${ html_encode(base64data) })`);
+                    // update profile picture everywhere (matches helpers.js session refresh)
+                    $('.profile-pic').css('background-image', `url(${ html_encode(base64data) })`);
                     $('.profile-image').css('background-image', `url(${ html_encode(base64data) })`);
                     $('.profile-image').addClass('profile-image-has-picture');
                     // update profile picture

@@ -1,0 +1,51 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <p style="font-family: sans-serif; margin: 20px;">A menubar has been added to the top of this window. Try clicking the menu items.</p>
+    <script>
+        puter.ui.setMenubar({
+            items: [
+                {
+                    label: 'File',
+                    items: [
+                        {
+                            label: 'New',
+                            action: () => puter.print('New file created'),
+                        },
+                        {
+                            label: 'Open',
+                            action: () => puter.print('Open dialog shown'),
+                        },
+                        {
+                            label: 'Save',
+                            action: () => puter.print('File saved'),
+                        },
+                    ],
+                },
+                {
+                    label: 'Edit',
+                    items: [
+                        {
+                            label: 'Undo',
+                            action: () => puter.print('Undo'),
+                        },
+                        {
+                            label: 'Redo',
+                            action: () => puter.print('Redo'),
+                        },
+                    ],
+                },
+                {
+                    label: 'Help',
+                    items: [
+                        {
+                            label: 'About',
+                            action: () => puter.print('Puter.js Playground'),
+                        },
+                    ],
+                },
+            ],
+        });
+    </script>
+</body>
+</html>

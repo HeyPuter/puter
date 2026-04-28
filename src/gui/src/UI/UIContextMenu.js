@@ -509,60 +509,70 @@ function UIContextMenu (options) {
     $('body').append(h);
 
     const contextMenu = document.getElementById(`context-menu-${menu_id}`);
-    const menu_width = $(contextMenu).width();
-    const menu_height = $(contextMenu).outerHeight();
-    let start_x, start_y;
 
-    //--------------------------------
-    // Auto position
-    //--------------------------------
-    if ( ! options.position ) {
-        if ( isMobile.phone || isMobile.tablet ) {
-            start_x = window.last_touch_x;
-            start_y = window.last_touch_y;
+    // iOS-style action sheet on mobile. Both top-level menus and submenus use
+    // sheet styling; the submenu replaces (visually) the parent sheet.
+    const is_sheet = isMobile.phone || isMobile.tablet;
+    let $sheet_backdrop = null;
+    let x_pos = 0;
+    let y_pos = 0;
 
-        } else {
-            start_x = window.mouseX;
-            start_y = window.mouseY;
-        }
-    }
-    //--------------------------------
-    // custom position
-    //--------------------------------
-    else {
-        start_x = options.position.left;
-        start_y = options.position.top;
-    }
-
-    // X position
-    let x_pos;
-    if ( start_x + menu_width > window.innerWidth ) {
-        x_pos = start_x - menu_width;
-        // if this is a child menu, the width of parent must also be considered
-        if ( options.parent_id && $(`.context-menu[data-element-id="${options.parent_id}"]`).length > 0 ) {
-            x_pos -= $(`.context-menu[data-element-id="${options.parent_id}"]`).width() + 30;
-        }
+    if ( is_sheet ) {
+        $(contextMenu).addClass('context-menu-sheet');
     } else {
-        x_pos = start_x;
-    }
+        const menu_width = $(contextMenu).width();
+        const menu_height = $(contextMenu).outerHeight();
+        let start_x, start_y;
 
-    // Y position
-    let y_pos;
-    // is the menu going to go out of the window from the bottom?
-    if ( (start_y + menu_height) > (window.innerHeight - window.taskbar_height - 10) )
-    {
-        y_pos = window.innerHeight - menu_height - window.taskbar_height - 10;
-    }
-    else
-    {
-        y_pos = start_y;
-    }
+        //--------------------------------
+        // Auto position
+        //--------------------------------
+        if ( ! options.position ) {
+            if ( isMobile.phone || isMobile.tablet ) {
+                start_x = window.last_touch_x;
+                start_y = window.last_touch_y;
 
-    // In the right position (the mouse)
-    $(contextMenu).css({
-        top: `${y_pos }px`,
-        left: `${x_pos }px`,
-    });
+            } else {
+                start_x = window.mouseX;
+                start_y = window.mouseY;
+            }
+        }
+        //--------------------------------
+        // custom position
+        //--------------------------------
+        else {
+            start_x = options.position.left;
+            start_y = options.position.top;
+        }
+
+        // X position
+        if ( start_x + menu_width > window.innerWidth ) {
+            x_pos = start_x - menu_width;
+            // if this is a child menu, the width of parent must also be considered
+            if ( options.parent_id && $(`.context-menu[data-element-id="${options.parent_id}"]`).length > 0 ) {
+                x_pos -= $(`.context-menu[data-element-id="${options.parent_id}"]`).width() + 30;
+            }
+        } else {
+            x_pos = start_x;
+        }
+
+        // Y position
+        // is the menu going to go out of the window from the bottom?
+        if ( (start_y + menu_height) > (window.innerHeight - window.taskbar_height - 10) )
+        {
+            y_pos = window.innerHeight - menu_height - window.taskbar_height - 10;
+        }
+        else
+        {
+            y_pos = start_y;
+        }
+
+        // In the right position (the mouse)
+        $(contextMenu).css({
+            top: `${y_pos }px`,
+            left: `${x_pos }px`,
+        });
+    }
 
     // Some times we need to apply custom CSS to the context menu
     // This is different from the option flags for positioning and other basic styling
@@ -586,13 +596,37 @@ function UIContextMenu (options) {
 
     let cancel_options_ = null;
     const fade_remove = (item) => {
-        $(`#context-menu-${menu_id}, .context-menu[data-element-id="${$(item).closest('.context-menu').attr('data-parent-id')}"]`).fadeOut(200, function () {
-            $(contextMenu).remove();
-        });
+        const parent_data_id = $(item).closest('.context-menu').attr('data-parent-id');
+        const $stack = $(`#context-menu-${menu_id}, .context-menu[data-element-id="${parent_data_id}"]`);
+        // Animate visible menus out. fadeOut's callback does not fire on
+        // already-hidden elements (e.g. a parent sheet hidden when its submenu
+        // opened), so force-remove the whole stack after the animation.
+        $stack.fadeOut(200);
+        setTimeout(() => $stack.remove(), 220);
     };
     const remove = () => {
         $(contextMenu).remove();
     };
+
+    // Sheet-mode backdrop: tap outside to dismiss. Only the top-level sheet
+    // owns a backdrop; submenu sheets reuse the parent's backdrop.
+    if ( is_sheet && !options.is_submenu ) {
+        $sheet_backdrop = $('<div class="context-menu-sheet-backdrop"></div>');
+        $('body').append($sheet_backdrop);
+        // touchstart is registered as passive by jQuery (see initgui.js), so
+        // preventDefault would be a no-op and emit a console warning. stopPropagation
+        // is enough to keep the document-level dismiss handler from running twice.
+        $sheet_backdrop.on('mousedown touchstart', (e) => {
+            e.stopPropagation();
+            // Close every sheet (parent + any open submenus) so a backdrop tap
+            // dismisses the whole stack at once. fadeOut's callback won't fire
+            // for elements already hidden, so force-remove after the animation.
+            const $sheets = $('.context-menu.context-menu-sheet');
+            $sheets.fadeOut(200);
+            setTimeout(() => $sheets.remove(), 220);
+            $sheet_backdrop.remove();
+        });
+    }
 
     // An item is clicked
     $(document).on('click', `#context-menu-${menu_id} > li:not(.context-menu-item-disabled)`, function (e) {
@@ -678,6 +712,13 @@ function UIContextMenu (options) {
                             submenu_x_pos = x_pos + item_rect_box.width + 15;
                         }
 
+                        // On mobile sheet mode, hide the parent sheet so the
+                        // submenu visually replaces it (still in DOM so the
+                        // existing fade_remove cascade can clean it up).
+                        if ( is_sheet ) {
+                            $(contextMenu).hide();
+                        }
+
                         // open the new submenu
                         UIContextMenu({
                             items: options.items[parseInt($(e).attr('data-action'))].items,
@@ -718,11 +759,10 @@ function UIContextMenu (options) {
     });
 
     // Useful in cases such as where a menu item is over a window, this prevents the mousedown event from
-    // reaching the window underneath
+    // reaching the window underneath. Note: do NOT call preventDefault here — on iOS Safari that
+    // cancels the synthesized click event, which breaks tapping items on mobile.
     $(`#context-menu-${menu_id} > li:not(.context-menu-item-disabled)`).on('mousedown', function (e) {
-        e.preventDefault();
         e.stopPropagation();
-        return false;
     });
 
     // Disable parent scroll
@@ -734,6 +774,7 @@ function UIContextMenu (options) {
 
     $(contextMenu).on('remove', function () {
         if ( submenu_delay_timer ) clearTimeout(submenu_delay_timer);
+        if ( $sheet_backdrop ) $sheet_backdrop.remove();
         if ( options.onClose ) options.onClose(cancel_options_);
         // when removing, make parent scrollable again
         if ( options.parent_element ) {

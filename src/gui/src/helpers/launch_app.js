@@ -653,7 +653,7 @@ const launch_app = async (options) => {
             window.launch_apps.recent.unshift(app_info);
 
             // dedupe the array by uuid, uid, and id
-            window.launch_apps.recent = _.uniqBy(window.launch_apps.recent, 'name');
+            window.launch_apps.recent = [...new Map(window.launch_apps.recent.map(v => [v.name, v])).values()];
 
             // limit to window.launch_recent_apps_count
             window.launch_apps.recent = window.launch_apps.recent.slice(0, window.launch_recent_apps_count);

@@ -1,7 +1,7 @@
 ---
 title: puter.ui.showSpinner()
 description: Shows an overlay with a spinner in the center of the screen.
-platforms: [apps]
+platforms: [websites, apps]
 ---
 
 Shows an overlay with a spinner in the center of the screen. If multiple instances of `puter.ui.showSpinner()` are called, only one spinner will be shown until all instances are hidden.
@@ -12,7 +12,7 @@ puter.ui.showSpinner()
 ```
 
 ## Examples
-```html
+```html;ui-spinner
 <html>
 <body>
     <script src="https://js.puter.com/v2/"></script>

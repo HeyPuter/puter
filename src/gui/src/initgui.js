@@ -1677,7 +1677,7 @@ window.initgui = async function (options) {
     document.addEventListener('visibilitychange', (event) => {
         if ( document.visibilityState !== 'visible' ) {
             window.doc_title_before_blur = document.title;
-            if ( ! _.isEmpty(window.active_uploads) ) {
+            if ( Object.keys(window.active_uploads).length > 0 ) {
                 update_title_based_on_uploads();
             }
         } else if ( window.active_uploads ) {

@@ -19,7 +19,7 @@
 
 import Placeholder from '../util/Placeholder.js';
 import Flexer from './Components/Flexer.js';
-import QRCodeView from './Components/QRCode.js';
+import UIQRCode from './UIQRCode.js';
 import UIWindow from './UIWindow.js';
 
 async function UIWindowQR (options) {
@@ -71,14 +71,14 @@ async function UIWindowQR (options) {
         },
     });
 
-    const component_qr = new QRCodeView({
+    const el_qr = UIQRCode({
         value: options.text,
         size: 250,
     });
 
     const component_flexer = new Flexer({
         children: [
-            component_qr,
+            el_qr,
         ],
     });
 

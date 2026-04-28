@@ -33,7 +33,7 @@ router.post('/logout', auth, express.json(), async (req, res, next) => {
     }
     // check anti-csrf token
     const svc_antiCSRF = req.services.get('anti-csrf');
-    if ( ! svc_antiCSRF.consume_token(req.user.uuid, req.body.anti_csrf) ) {
+    if ( ! await svc_antiCSRF.consume_token(req.user.uuid, req.body.anti_csrf) ) {
         return res.status(400).json({ message: 'incorrect anti-CSRF token' });
     }
     // delete cookie

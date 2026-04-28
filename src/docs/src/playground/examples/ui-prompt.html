@@ -1,0 +1,14 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        puter.ui.prompt('Please enter your name:', 'John Doe').then((resp) => {
+            if (resp === null) {
+                puter.print('You cancelled the prompt.');
+            } else {
+                puter.print('Hello, ' + resp + '!');
+            }
+        });
+    </script>
+</body>
+</html>

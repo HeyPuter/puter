@@ -1,0 +1,24 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        // display an alert with a message and three different types of buttons
+        puter.ui.alert('Please press a button!', [
+            {
+                label: 'Hello :)',
+                value: 'hello',
+                type: 'primary',
+            },
+            {
+                label: 'Bye :(',
+                type: 'danger',
+            },
+            {
+                label: 'Cancel',
+            },
+        ]).then((resp) => {
+            puter.print('You pressed: ' + resp);
+        });
+    </script>
+</body>
+</html>

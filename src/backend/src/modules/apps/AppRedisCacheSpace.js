@@ -21,6 +21,7 @@ import { deleteRedisKeys } from '../../clients/redis/deleteRedisKeys.js';
 
 const appFullNamespace = 'apps';
 const appLookupKeys = ['uid', 'name', 'id'];
+const appObjectSuffix = 'object';
 
 const safeParseJson = (value, fallback = null) => {
     if ( value === null || value === undefined ) return fallback;
@@ -45,14 +46,28 @@ const appCacheKey = ({ lookup, value }) => (
     `${appNamespace()}:${lookup}:${value}`
 );
 
+const appObjectNamespace = () => `${appNamespace()}:${appObjectSuffix}`;
+
+const appObjectCacheKey = ({ lookup, value }) => (
+    `${appObjectNamespace()}:${lookup}:${value}`
+);
+
 export const AppRedisCacheSpace = {
     key: appCacheKey,
     namespace: appNamespace,
+    objectNamespace: appObjectNamespace,
+    objectKey: appObjectCacheKey,
     keysForApp: (app) => {
         if ( ! app ) return [];
         return appLookupKeys
             .filter(lookup => app[lookup] !== undefined && app[lookup] !== null && app[lookup] !== '')
             .map(lookup => appCacheKey({ lookup, value: app[lookup] }));
+    },
+    objectKeysForApp: (app) => {
+        if ( ! app ) return [];
+        return appLookupKeys
+            .filter(lookup => app[lookup] !== undefined && app[lookup] !== null && app[lookup] !== '')
+            .map(lookup => appObjectCacheKey({ lookup, value: app[lookup] }));
     },
     uidScanPattern: () => `${appNamespace()}:uid:*`,
     pendingNamespace: () => 'pending_app',
@@ -77,6 +92,9 @@ export const AppRedisCacheSpace = {
     getCachedApp: async ({ lookup, value }) => (
         safeParseJson(await redisClient.get(appCacheKey({ lookup, value })))
     ),
+    getCachedAppObject: async ({ lookup, value }) => (
+        safeParseJson(await redisClient.get(appObjectCacheKey({ lookup, value })))
+    ),
     setCachedApp: async (app, { ttlSeconds } = {}) => {
         if ( ! app ) return;
         const serialized = JSON.stringify(app);
@@ -86,9 +104,21 @@ export const AppRedisCacheSpace = {
             await Promise.all(writes);
         }
     },
+    setCachedAppObject: async (app, { ttlSeconds } = {}) => {
+        if ( ! app ) return;
+        const serialized = JSON.stringify(app);
+        const writes = AppRedisCacheSpace.objectKeysForApp(app)
+            .map(key => setKey(key, serialized, { ttlSeconds: ttlSeconds || 60 }));
+        if ( writes.length ) {
+            await Promise.all(writes);
+        }
+    },
     invalidateCachedApp: (app, { includeStats = false } = {}) => {
         if ( ! app ) return;
-        const keys = [...AppRedisCacheSpace.keysForApp(app)];
+        const keys = [
+            ...AppRedisCacheSpace.keysForApp(app),
+            ...AppRedisCacheSpace.objectKeysForApp(app),
+        ];
         if ( includeStats && app.uid ) {
             keys.push(...AppRedisCacheSpace.statsKeys(app.uid));
         }
@@ -98,10 +128,16 @@ export const AppRedisCacheSpace = {
     },
     invalidateCachedAppName: async (name) => {
         if ( ! name ) return;
-        const keys = [appCacheKey({
-            lookup: 'name',
-            value: name,
-        })];
+        const keys = [
+            appCacheKey({
+                lookup: 'name',
+                value: name,
+            }),
+            appObjectCacheKey({
+                lookup: 'name',
+                value: name,
+            }),
+        ];
         return deleteRedisKeys(keys);
     },
     invalidateAppStats: async (uid) => {

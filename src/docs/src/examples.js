@@ -633,6 +633,59 @@ const examples = [
         ],
     },
     {
+        title: 'UI',
+        children: [
+            {
+                title: 'Alert Dialog',
+                description: 'Display customizable alert dialogs with Puter.js UI API. Run and experiment with this example directly in the playground.',
+                slug: 'ui-alert',
+                source: '/playground/examples/ui-alert.html',
+            },
+            {
+                title: 'Prompt Dialog',
+                description: 'Display prompt dialogs to collect user input with Puter.js UI API. Run and experiment with this example directly in the playground.',
+                slug: 'ui-prompt',
+                source: '/playground/examples/ui-prompt.html',
+            },
+            {
+                title: 'Notification',
+                description: 'Display desktop notifications with Puter.js UI API. Run and experiment with this example directly in the playground.',
+                slug: 'ui-notify',
+                source: '/playground/examples/ui-notify.html',
+            },
+            {
+                title: 'Context Menu',
+                description: 'Display context menus with submenus and separators using Puter.js UI API. Run and experiment with this example directly in the playground.',
+                slug: 'ui-context-menu',
+                source: '/playground/examples/ui-context-menu.html',
+            },
+            {
+                title: 'Color Picker',
+                description: 'Present a color picker dialog with Puter.js UI API. Run and experiment with this example directly in the playground.',
+                slug: 'ui-show-color-picker',
+                source: '/playground/examples/ui-show-color-picker.html',
+            },
+            {
+                title: 'Font Picker',
+                description: 'Present a font picker dialog with Puter.js UI API. Run and experiment with this example directly in the playground.',
+                slug: 'ui-show-font-picker',
+                source: '/playground/examples/ui-show-font-picker.html',
+            },
+            {
+                title: 'Spinner (Show/Hide)',
+                description: 'Show and hide a loading spinner overlay with Puter.js UI API. Run and experiment with this example directly in the playground.',
+                slug: 'ui-spinner',
+                source: '/playground/examples/ui-spinner.html',
+            },
+            {
+                title: 'Menubar',
+                description: 'Create a menubar with nested menus using Puter.js UI API. Run and experiment with this example directly in the playground.',
+                slug: 'ui-set-menubar',
+                source: '/playground/examples/ui-set-menubar.html',
+            },
+        ],
+    },
+    {
         title: 'Workers',
         children: [
             {

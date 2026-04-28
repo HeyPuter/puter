@@ -1,10 +1,10 @@
 ---
 title: puter.ui.notify()
 description: Displays a desktop notification in Puter.
-platforms: [apps]
+platforms: [ websites, apps]
 ---
 
-Displays a desktop notification in Puter. Use this to surface app events without interrupting the user.
+Displays a notification. Use this to surface events without interrupting the user.
 
 ## Syntax
 ```js
@@ -27,7 +27,7 @@ An object that configures the notification.
 A `Promise` that resolves to the notification UID.
 
 ## Examples
-```html
+```html;ui-notify
 <script src="https://js.puter.com/v2/"></script>
 <script>
   puter.ui.notify({

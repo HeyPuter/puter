@@ -35,11 +35,13 @@ import type {
     ThumbnailUploadPreparePayload,
 } from './types.js';
 
-const { Controller, ExtensionController, HttpError, Post } = extension.import('extensionController');
+const { Controller, ExtensionController, HttpError, Post } = extension.import(
+    'extensionController',
+);
 const { Context } = extension.import('core');
-const getApp = extension.import('core').util.helpers.get_app as (
-    query: { uid: string },
-) => Promise<{ id?: unknown } | null>;
+const getApp = extension.import('core').util.helpers.get_app as (query: {
+    uid: string;
+}) => Promise<{ id?: unknown } | null>;
 class UploadProgressTracker implements UploadProgressTrackerLike {
     total = 0;
     progress = 0;
@@ -74,7 +76,6 @@ const DEFAULT_BATCH_WRITE_SIDE_EFFECT_CONCURRENCY = 8;
 
 @Controller('/fs')
 export class FSController extends ExtensionController {
-
     constructor (
         private fsEntryService: FSEntryService,
         private eventService: EventService,
@@ -82,20 +83,32 @@ export class FSController extends ExtensionController {
         super();
     }
     @Post('/startWrite', { subdomain: 'api' })
-    async startWrite (req: Request<RouteParams, null, SignedWriteRequest>, res: Response<SignedWriteResponse>) {
+    async startWrite (
+        req: Request<RouteParams, null, SignedWriteRequest>,
+        res: Response<SignedWriteResponse>,
+    ) {
         const userId = this.#getActorUserId(req);
         const storageAllowanceMax = this.#getStorageAllowanceMaxOverride(req);
         const requestBody = this.#withGuiMetadata(req.body, req.body);
-        requestBody.fileMetadata = this.#normalizeFileMetadataPath(req, requestBody.fileMetadata, requestBody);
-        requestBody.fileMetadata = await this.#resolveAssociatedAppMetadata(requestBody.fileMetadata, requestBody);
+        requestBody.fileMetadata = this.#normalizeFileMetadataPath(
+            req,
+            requestBody.fileMetadata,
+            requestBody,
+        );
+        requestBody.fileMetadata = await this.#resolveAssociatedAppMetadata(
+            requestBody.fileMetadata,
+            requestBody,
+        );
         await this.#assertWriteAccess(req, requestBody.fileMetadata, {
             pathAlreadyNormalized: true,
         });
 
-        const {
-            response,
-            createdDirectoryEntries,
-        } = await this.fsEntryService.startUrlWriteWithCreatedDirectories(userId, requestBody, storageAllowanceMax);
+        const { response, createdDirectoryEntries } =
+            await this.fsEntryService.startUrlWriteWithCreatedDirectories(
+                userId,
+                requestBody,
+                storageAllowanceMax,
+            );
         await this.#attachSignedThumbnailUploadTargets([requestBody], [response]);
         if ( ! requestBody.directory ) {
             await this.#runNonCritical(async () => {
@@ -117,25 +130,35 @@ export class FSController extends ExtensionController {
     }
 
     @Post('/startBatchWrite', { subdomain: 'api' })
-    async startBatchWrites (req: Request<RouteParams, null, SignedWriteRequest[]>, res: Response<SignedWriteResponse[]>) {
+    async startBatchWrites (
+        req: Request<RouteParams, null, SignedWriteRequest[]>,
+        res: Response<SignedWriteResponse[]>,
+    ) {
         const userId = this.#getActorUserId(req);
         const storageAllowanceMax = this.#getStorageAllowanceMaxOverride(req);
         const appUidLookupCache = new Map<string, Promise<number | null>>();
         const requests = Array.isArray(req.body)
-            ? await Promise.all(req.body.map(async (requestBody) => {
-                const normalizedRequestBody = this.#withGuiMetadata(requestBody, req.body);
-                normalizedRequestBody.fileMetadata = this.#normalizeFileMetadataPath(
-                    req,
-                    normalizedRequestBody.fileMetadata,
-                    normalizedRequestBody,
-                );
-                normalizedRequestBody.fileMetadata = await this.#resolveAssociatedAppMetadata(
-                    normalizedRequestBody.fileMetadata,
-                    normalizedRequestBody,
-                    appUidLookupCache,
-                );
-                return normalizedRequestBody;
-            }))
+            ? await Promise.all(
+                req.body.map(async (requestBody) => {
+                    const normalizedRequestBody = this.#withGuiMetadata(
+                        requestBody,
+                        req.body,
+                    );
+                    normalizedRequestBody.fileMetadata =
+                        this.#normalizeFileMetadataPath(
+                            req,
+                            normalizedRequestBody.fileMetadata,
+                            normalizedRequestBody,
+                        );
+                    normalizedRequestBody.fileMetadata =
+                        await this.#resolveAssociatedAppMetadata(
+                            normalizedRequestBody.fileMetadata,
+                            normalizedRequestBody,
+                            appUidLookupCache,
+                        );
+                    return normalizedRequestBody;
+                }),
+            )
             : [];
         await this.#assertBatchWriteAccess(
             req,
@@ -143,11 +166,16 @@ export class FSController extends ExtensionController {
             { pathAlreadyNormalized: true },
         );
 
-        const {
-            responses,
-            createdDirectoryEntries,
-        } = await this.fsEntryService.batchStartUrlWritesWithCreatedDirectories(userId, requests, storageAllowanceMax);
-        const directoryGuiMetadataByPath = new Map<string, WriteGuiMetadata | undefined>(
+        const { responses, createdDirectoryEntries } =
+            await this.fsEntryService.batchStartUrlWritesWithCreatedDirectories(
+                userId,
+                requests,
+                storageAllowanceMax,
+            );
+        const directoryGuiMetadataByPath = new Map<
+            string,
+      WriteGuiMetadata | undefined
+        >(
             requests
                 .filter((request) => request.directory)
                 .map((request) => [request.fileMetadata.path, request.guiMetadata]),
@@ -163,7 +191,11 @@ export class FSController extends ExtensionController {
                     const requestBody = requests[index];
                     if ( requestBody && writeResponse ) {
                         if ( ! requestBody.directory ) {
-                            await this.#emitGuiPendingWriteEvent(userId, requestBody, writeResponse);
+                            await this.#emitGuiPendingWriteEvent(
+                                userId,
+                                requestBody,
+                                writeResponse,
+                            );
                         }
                     }
                 },
@@ -188,12 +220,18 @@ export class FSController extends ExtensionController {
     }
 
     @Post('/completeWrite', { subdomain: 'api' })
-    async completeWrite (req: Request<RouteParams, null, CompleteWriteRequest>, res: Response<CompleteWriteResponse>) {
+    async completeWrite (
+        req: Request<RouteParams, null, CompleteWriteRequest>,
+        res: Response<CompleteWriteResponse>,
+    ) {
         const userId = this.#getActorUserId(req);
         const requestBody = this.#withGuiMetadata(req.body, req.body);
         this.#assertNoInlineSignedThumbnailData(requestBody.thumbnailData);
 
-        const response = await this.fsEntryService.completeUrlWrite(userId, requestBody);
+        const response = await this.fsEntryService.completeUrlWrite(
+            userId,
+            requestBody,
+        );
         const writeResponse = await this.#applyWriteResponseSideEffects(
             userId,
             {
@@ -221,7 +259,10 @@ export class FSController extends ExtensionController {
         for ( const requestBody of requests ) {
             this.#assertNoInlineSignedThumbnailData(requestBody.thumbnailData);
         }
-        const response = await this.fsEntryService.batchCompleteUrlWrite(userId, requests);
+        const response = await this.fsEntryService.batchCompleteUrlWrite(
+            userId,
+            requests,
+        );
         const updatedResponse = await runWithConcurrencyLimit(
             response,
             DEFAULT_BATCH_WRITE_SIDE_EFFECT_CONCURRENCY,
@@ -244,7 +285,10 @@ export class FSController extends ExtensionController {
     }
 
     @Post('/abortWrite', { subdomain: 'api' })
-    async abortWrite (req: Request<RouteParams, null, AbortWriteRequest>, res: Response<{ ok: true }>) {
+    async abortWrite (
+        req: Request<RouteParams, null, AbortWriteRequest>,
+        res: Response<{ ok: true }>,
+    ) {
         const userId = this.#getActorUserId(req);
         if ( ! req.body?.uploadId ) {
             throw new HttpError(400, 'Missing uploadId');
@@ -260,17 +304,30 @@ export class FSController extends ExtensionController {
         res: Response<SignMultipartPartsResponse>,
     ) {
         const userId = this.#getActorUserId(req);
-        const response = await this.fsEntryService.signMultipartParts(userId, req.body);
+        const response = await this.fsEntryService.signMultipartParts(
+            userId,
+            req.body,
+        );
         res.json(response);
     }
 
     @Post('/write', { subdomain: 'api' })
-    async write (req: Request<RouteParams, null, WriteRequest>, res: Response<WriteResponse>) {
+    async write (
+        req: Request<RouteParams, null, WriteRequest>,
+        res: Response<WriteResponse>,
+    ) {
         const userId = this.#getActorUserId(req);
         const storageAllowanceMax = this.#getStorageAllowanceMaxOverride(req);
         const requestBody = this.#withGuiMetadata(req.body, req.body);
-        requestBody.fileMetadata = this.#normalizeFileMetadataPath(req, requestBody.fileMetadata, requestBody);
-        requestBody.fileMetadata = await this.#resolveAssociatedAppMetadata(requestBody.fileMetadata, requestBody);
+        requestBody.fileMetadata = this.#normalizeFileMetadataPath(
+            req,
+            requestBody.fileMetadata,
+            requestBody,
+        );
+        requestBody.fileMetadata = await this.#resolveAssociatedAppMetadata(
+            requestBody.fileMetadata,
+            requestBody,
+        );
         await this.#assertWriteAccess(req, requestBody.fileMetadata, {
             pathAlreadyNormalized: true,
         });
@@ -282,7 +339,12 @@ export class FSController extends ExtensionController {
             Number(requestBody.fileMetadata.size ?? 0),
             requestBody.guiMetadata,
         );
-        const response = await this.fsEntryService.write(userId, requestBody, uploadTracker, storageAllowanceMax);
+        const response = await this.fsEntryService.write(
+            userId,
+            requestBody,
+            uploadTracker,
+            storageAllowanceMax,
+        );
         const updatedResponse = await this.#applyWriteResponseSideEffects(
             userId,
             response,
@@ -292,7 +354,10 @@ export class FSController extends ExtensionController {
     }
 
     @Post('/batchWrite', { subdomain: 'api' })
-    async batchWrites (req: Request<RouteParams, null, WriteRequest[]>, res: Response<WriteResponse[]>) {
+    async batchWrites (
+        req: Request<RouteParams, null, WriteRequest[]>,
+        res: Response<WriteResponse[]>,
+    ) {
         const userId = this.#getActorUserId(req);
         const storageAllowanceMax = this.#getStorageAllowanceMaxOverride(req);
         const requestMode = this.#resolveBatchWriteRequestMode(req);
@@ -321,14 +386,21 @@ export class FSController extends ExtensionController {
 
             busboy.on('field', (fieldName, value, info) => {
                 if ( info.fieldnameTruncated || info.valueTruncated ) {
-                    failParse(new HttpError(400, 'Batch write manifest field is truncated'));
+                    failParse(
+                        new HttpError(400, 'Batch write manifest field is truncated'),
+                    );
                     return;
                 }
                 if ( fieldName !== 'manifest' ) {
                     return;
                 }
                 if ( manifestPreparationPromise ) {
-                    failParse(new HttpError(409, 'Batch write manifest was provided more than once'));
+                    failParse(
+                        new HttpError(
+                            409,
+                            'Batch write manifest was provided more than once',
+                        ),
+                    );
                     return;
                 }
 
@@ -339,7 +411,11 @@ export class FSController extends ExtensionController {
                         ...parsedManifest,
                         items: parsedManifest.items.map((item) => ({
                             ...item,
-                            fileMetadata: this.#normalizeFileMetadataPath(req, item.fileMetadata, item),
+                            fileMetadata: this.#normalizeFileMetadataPath(
+                                req,
+                                item.fileMetadata,
+                                item,
+                            ),
                         })),
                         ignoredItemIndexes,
                     };
@@ -355,17 +431,20 @@ export class FSController extends ExtensionController {
                             }
                             parsedManifest = {
                                 ...parsedManifest,
-                                items: await Promise.all(parsedManifest.items.map(async (item) => ({
-                                    ...item,
-                                    fileMetadata: await this.#resolveAssociatedAppMetadata(
-                                        item.fileMetadata,
-                                        item,
-                                        appUidLookupCache,
-                                    ),
-                                }))),
+                                items: await Promise.all(
+                                    parsedManifest.items.map(async (item) => ({
+                                        ...item,
+                                        fileMetadata: await this.#resolveAssociatedAppMetadata(
+                                            item.fileMetadata,
+                                            item,
+                                            appUidLookupCache,
+                                        ),
+                                    })),
+                                ),
                             };
-                            const activeManifestItems = parsedManifest.items
-                                .filter((item) => !parsedManifest?.ignoredItemIndexes?.has(item.index));
+                            const activeManifestItems = parsedManifest.items.filter(
+                                (item) => !parsedManifest?.ignoredItemIndexes?.has(item.index),
+                            );
 
                             await this.#assertBatchWriteAccess(
                                 req,
@@ -405,7 +484,10 @@ export class FSController extends ExtensionController {
                             throw parseFailure;
                         }
                         if ( ! manifestPreparationPromise ) {
-                            throw new HttpError(400, 'Batch write manifest must come before file content');
+                            throw new HttpError(
+                                400,
+                                'Batch write manifest must come before file content',
+                            );
                         }
 
                         await manifestPreparationPromise;
@@ -428,13 +510,19 @@ export class FSController extends ExtensionController {
                             return null;
                         }
                         if ( uploadedIndexes.has(itemIndex) ) {
-                            throw new HttpError(409, `Duplicate file content for batch index ${itemIndex}`);
+                            throw new HttpError(
+                                409,
+                                `Duplicate file content for batch index ${itemIndex}`,
+                            );
                         }
                         uploadedIndexes.add(itemIndex);
 
                         const preparedItem = preparedBatch.itemsByIndex.get(itemIndex);
                         if ( ! preparedItem ) {
-                            throw new HttpError(400, `Batch write metadata was not found for index ${itemIndex}`);
+                            throw new HttpError(
+                                400,
+                                `Batch write metadata was not found for index ${itemIndex}`,
+                            );
                         }
 
                         const uploadTracker = await this.#createUploadTracker(
@@ -475,27 +563,47 @@ export class FSController extends ExtensionController {
             await manifestPreparationPromise;
             const uploadResults = await Promise.allSettled(uploadPromises);
             const uploadedItems = uploadResults
-                .filter((result): result is PromiseFulfilledResult<UploadedBatchWriteItem | null> => result.status === 'fulfilled')
+                .filter(
+                    (
+                        result,
+                    ): result is PromiseFulfilledResult<UploadedBatchWriteItem | null> =>
+                        result.status === 'fulfilled',
+                )
                 .map((result) => result.value)
-                .filter((uploadedItem): uploadedItem is UploadedBatchWriteItem => uploadedItem !== null);
+                .filter(
+                    (uploadedItem): uploadedItem is UploadedBatchWriteItem =>
+                        uploadedItem !== null,
+                );
             if ( parseFailure ) {
                 if ( preparedBatch ) {
-                    await this.fsEntryService.cleanupPreparedBatchUploads(preparedBatch, uploadedItems);
+                    await this.fsEntryService.cleanupPreparedBatchUploads(
+                        preparedBatch,
+                        uploadedItems,
+                    );
                 }
                 throw parseFailure;
             }
             if ( ! preparedBatch ) {
                 throw new HttpError(500, 'Failed to prepare batch write operation');
             }
-            const failedUpload = uploadResults.find((result) => result.status === 'rejected');
+            const failedUpload = uploadResults.find(
+                (result) => result.status === 'rejected',
+            );
             if ( failedUpload?.status === 'rejected' ) {
-                await this.fsEntryService.cleanupPreparedBatchUploads(preparedBatch, uploadedItems);
-                throw (failedUpload.reason instanceof Error
+                await this.fsEntryService.cleanupPreparedBatchUploads(
+                    preparedBatch,
+                    uploadedItems,
+                );
+                throw failedUpload.reason instanceof Error
                     ? failedUpload.reason
-                    : new Error('Failed to upload multipart batch item'));
+                    : new Error('Failed to upload multipart batch item');
             }
 
-            const writeResponses = await this.fsEntryService.finalizePreparedBatchWrites(preparedBatch, uploadedItems);
+            const writeResponses =
+                await this.fsEntryService.finalizePreparedBatchWrites(
+                    preparedBatch,
+                    uploadedItems,
+                );
             const updatedResponses = await runWithConcurrencyLimit(
                 writeResponses,
                 32,
@@ -513,20 +621,27 @@ export class FSController extends ExtensionController {
         }
 
         const requests = Array.isArray(req.body)
-            ? await Promise.all(req.body.map(async (requestBody) => {
-                const normalizedRequestBody = this.#withGuiMetadata(requestBody, req.body);
-                normalizedRequestBody.fileMetadata = this.#normalizeFileMetadataPath(
-                    req,
-                    normalizedRequestBody.fileMetadata,
-                    normalizedRequestBody,
-                );
-                normalizedRequestBody.fileMetadata = await this.#resolveAssociatedAppMetadata(
-                    normalizedRequestBody.fileMetadata,
-                    normalizedRequestBody,
-                    appUidLookupCache,
-                );
-                return normalizedRequestBody;
-            }))
+            ? await Promise.all(
+                req.body.map(async (requestBody) => {
+                    const normalizedRequestBody = this.#withGuiMetadata(
+                        requestBody,
+                        req.body,
+                    );
+                    normalizedRequestBody.fileMetadata =
+                        this.#normalizeFileMetadataPath(
+                            req,
+                            normalizedRequestBody.fileMetadata,
+                            normalizedRequestBody,
+                        );
+                    normalizedRequestBody.fileMetadata =
+                        await this.#resolveAssociatedAppMetadata(
+                            normalizedRequestBody.fileMetadata,
+                            normalizedRequestBody,
+                            appUidLookupCache,
+                        );
+                    return normalizedRequestBody;
+                }),
+            )
             : [];
         const filteredRequests = requests.filter((requestBody) => {
             return !this.#shouldIgnoreUploadPath(requestBody.fileMetadata.path);
@@ -562,7 +677,9 @@ export class FSController extends ExtensionController {
             async (requestBody, index) => {
                 const preparedItem = preparedBatch.items[index];
                 if ( ! preparedItem ) {
-                    throw new Error(`Failed to resolve prepared batch item for index ${index}`);
+                    throw new Error(
+                        `Failed to resolve prepared batch item for index ${index}`,
+                    );
                 }
                 const uploadTracker = await this.#createUploadTracker(
                     userId,
@@ -581,17 +698,29 @@ export class FSController extends ExtensionController {
             },
         );
         const uploadedItems = uploadResults
-            .filter((result): result is PromiseFulfilledResult<UploadedBatchWriteItem> => result.status === 'fulfilled')
+            .filter(
+                (result): result is PromiseFulfilledResult<UploadedBatchWriteItem> =>
+                    result.status === 'fulfilled',
+            )
             .map((result) => result.value);
-        const failedUpload = uploadResults.find((result) => result.status === 'rejected');
+        const failedUpload = uploadResults.find(
+            (result) => result.status === 'rejected',
+        );
         if ( failedUpload?.status === 'rejected' ) {
-            await this.fsEntryService.cleanupPreparedBatchUploads(preparedBatch, uploadedItems);
-            throw (failedUpload.reason instanceof Error
+            await this.fsEntryService.cleanupPreparedBatchUploads(
+                preparedBatch,
+                uploadedItems,
+            );
+            throw failedUpload.reason instanceof Error
                 ? failedUpload.reason
-                : new Error('Failed to upload batch write item'));
+                : new Error('Failed to upload batch write item');
         }
 
-        const writeResponses = await this.fsEntryService.finalizePreparedBatchWrites(preparedBatch, uploadedItems);
+        const writeResponses =
+            await this.fsEntryService.finalizePreparedBatchWrites(
+                preparedBatch,
+                uploadedItems,
+            );
         const updatedResponses = await runWithConcurrencyLimit(
             writeResponses,
             32,
@@ -607,14 +736,14 @@ export class FSController extends ExtensionController {
         res.json(updatedResponses);
     }
 
-    #getActorUserId (
-        req: Request,
-    ): number {
-        const requestUser = (req as Request & {
-            user?: {
-                id?: unknown;
-            };
-        }).user;
+    #getActorUserId (req: Request): number {
+        const requestUser = (
+            req as Request & {
+                user?: {
+                    id?: unknown;
+                };
+            }
+        ).user;
         const actorUser = req.actor?.type?.user;
         const candidateUserId = requestUser?.id ?? actorUser?.id;
         if ( candidateUserId === undefined || candidateUserId === null ) {
@@ -629,17 +758,20 @@ export class FSController extends ExtensionController {
         return userId;
     }
 
-    #getActorUsername (
-        req: Request,
-    ): string {
-        const requestUser = (req as Request & {
-            user?: {
-                username?: unknown;
-            };
-        }).user;
+    #getActorUsername (req: Request): string {
+        const requestUser = (
+            req as Request & {
+                user?: {
+                    username?: unknown;
+                };
+            }
+        ).user;
         const actorUser = req.actor?.type?.user;
         const actorUsername = requestUser?.username ?? actorUser?.username;
-        if ( typeof actorUsername !== 'string' || actorUsername.trim().length === 0 ) {
+        if (
+            typeof actorUsername !== 'string' ||
+            actorUsername.trim().length === 0
+        ) {
             throw new HttpError(401, 'Unauthorized');
         }
         return actorUsername.trim();
@@ -721,7 +853,9 @@ export class FSController extends ExtensionController {
             normalizedFileMetadata.path = path;
         }
 
-        const size = this.#toNumber(this.#firstDefined(metadataRecord.size, fallbackRecord.size));
+        const size = this.#toNumber(
+            this.#firstDefined(metadataRecord.size, fallbackRecord.size),
+        );
         if ( size !== undefined ) {
             normalizedFileMetadata.size = size;
         }
@@ -746,70 +880,79 @@ export class FSController extends ExtensionController {
             normalizedFileMetadata.checksumSha256 = checksumSha256;
         }
 
-        const overwrite = this.#toBoolean(this.#firstDefined(
-            metadataRecord.overwrite,
-            fallbackRecord.overwrite,
-        ));
+        const overwrite = this.#toBoolean(
+            this.#firstDefined(metadataRecord.overwrite, fallbackRecord.overwrite),
+        );
         if ( overwrite !== undefined ) {
             normalizedFileMetadata.overwrite = overwrite;
         }
 
-        const dedupeName = this.#toBoolean(this.#firstDefined(
-            metadataRecord.dedupeName,
-            metadataRecord.dedupe_name,
-            fallbackRecord.dedupeName,
-            fallbackRecord.dedupe_name,
-            fallbackRecord.rename,
-            fallbackRecord.change_name,
-        ));
+        const dedupeName = this.#toBoolean(
+            this.#firstDefined(
+                metadataRecord.dedupeName,
+                metadataRecord.dedupe_name,
+                fallbackRecord.dedupeName,
+                fallbackRecord.dedupe_name,
+                fallbackRecord.rename,
+                fallbackRecord.change_name,
+            ),
+        );
         if ( dedupeName !== undefined ) {
             normalizedFileMetadata.dedupeName = dedupeName;
         }
 
-        const createMissingParents = this.#toBoolean(this.#firstDefined(
-            metadataRecord.createMissingParents,
-            metadataRecord.create_missing_parents,
-            metadataRecord.create_missing_ancestors,
-            fallbackRecord.createMissingParents,
-            fallbackRecord.create_missing_parents,
-            fallbackRecord.createMissingAncestors,
-            fallbackRecord.create_missing_ancestors,
-            fallbackRecord.createFileParent,
-            fallbackRecord.create_file_parent,
-        ));
+        const createMissingParents = this.#toBoolean(
+            this.#firstDefined(
+                metadataRecord.createMissingParents,
+                metadataRecord.create_missing_parents,
+                metadataRecord.create_missing_ancestors,
+                fallbackRecord.createMissingParents,
+                fallbackRecord.create_missing_parents,
+                fallbackRecord.createMissingAncestors,
+                fallbackRecord.create_missing_ancestors,
+                fallbackRecord.createFileParent,
+                fallbackRecord.create_file_parent,
+            ),
+        );
         if ( createMissingParents !== undefined ) {
             normalizedFileMetadata.createMissingParents = createMissingParents;
         }
 
-        const immutable = this.#toBoolean(this.#firstDefined(
-            metadataRecord.immutable,
-            fallbackRecord.immutable,
-        ));
+        const immutable = this.#toBoolean(
+            this.#firstDefined(metadataRecord.immutable, fallbackRecord.immutable),
+        );
         if ( immutable !== undefined ) {
             normalizedFileMetadata.immutable = immutable;
         }
 
-        const isPublic = this.#toBoolean(this.#firstDefined(
-            metadataRecord.isPublic,
-            metadataRecord.is_public,
-            fallbackRecord.isPublic,
-            fallbackRecord.is_public,
-        ));
+        const isPublic = this.#toBoolean(
+            this.#firstDefined(
+                metadataRecord.isPublic,
+                metadataRecord.is_public,
+                fallbackRecord.isPublic,
+                fallbackRecord.is_public,
+            ),
+        );
         if ( isPublic !== undefined ) {
             normalizedFileMetadata.isPublic = isPublic;
         }
 
-        const multipartPartSize = this.#toNumber(this.#firstDefined(
-            metadataRecord.multipartPartSize,
-            metadataRecord.multipart_part_size,
-            fallbackRecord.multipartPartSize,
-            fallbackRecord.multipart_part_size,
-        ));
+        const multipartPartSize = this.#toNumber(
+            this.#firstDefined(
+                metadataRecord.multipartPartSize,
+                metadataRecord.multipart_part_size,
+                fallbackRecord.multipartPartSize,
+                fallbackRecord.multipart_part_size,
+            ),
+        );
         if ( multipartPartSize !== undefined && multipartPartSize > 0 ) {
             normalizedFileMetadata.multipartPartSize = multipartPartSize;
         }
 
-        const bucket = this.#firstDefined(metadataRecord.bucket, fallbackRecord.bucket);
+        const bucket = this.#firstDefined(
+            metadataRecord.bucket,
+            fallbackRecord.bucket,
+        );
         if ( typeof bucket === 'string' && bucket.length > 0 ) {
             normalizedFileMetadata.bucket = bucket;
         }
@@ -824,12 +967,14 @@ export class FSController extends ExtensionController {
             normalizedFileMetadata.bucketRegion = bucketRegion;
         }
 
-        const associatedAppId = this.#toNumber(this.#firstDefined(
-            metadataRecord.associatedAppId,
-            metadataRecord.associated_app_id,
-            fallbackRecord.associatedAppId,
-            fallbackRecord.associated_app_id,
-        ));
+        const associatedAppId = this.#toNumber(
+            this.#firstDefined(
+                metadataRecord.associatedAppId,
+                metadataRecord.associated_app_id,
+                fallbackRecord.associatedAppId,
+                fallbackRecord.associated_app_id,
+            ),
+        );
         if ( associatedAppId !== undefined ) {
             normalizedFileMetadata.associatedAppId = associatedAppId;
         }
@@ -845,12 +990,14 @@ export class FSController extends ExtensionController {
         const metadataRecord = this.#toObjectRecord(fileMetadata);
         const fallbackRecord = this.#toObjectRecord(fallbackSource);
 
-        const associatedAppId = this.#toNumber(this.#firstDefined(
-            metadataRecord.associatedAppId,
-            metadataRecord.associated_app_id,
-            fallbackRecord.associatedAppId,
-            fallbackRecord.associated_app_id,
-        ));
+        const associatedAppId = this.#toNumber(
+            this.#firstDefined(
+                metadataRecord.associatedAppId,
+                metadataRecord.associated_app_id,
+                fallbackRecord.associatedAppId,
+                fallbackRecord.associated_app_id,
+            ),
+        );
         if ( associatedAppId !== undefined ) {
             return {
                 ...fileMetadata,
@@ -947,7 +1094,10 @@ export class FSController extends ExtensionController {
         fileMetadata: FSEntryWriteInput | undefined,
         fallbackSource?: unknown,
     ): FSEntryWriteInput {
-        const resolvedFileMetadata = this.#resolveWriteFileMetadata(fileMetadata, fallbackSource);
+        const resolvedFileMetadata = this.#resolveWriteFileMetadata(
+            fileMetadata,
+            fallbackSource,
+        );
         if ( typeof resolvedFileMetadata.path !== 'string' ) {
             throw new HttpError(400, 'Missing path');
         }
@@ -959,46 +1109,60 @@ export class FSController extends ExtensionController {
         };
     }
 
-    #extractGuiMetadata (input: unknown, fallback: WriteGuiMetadata | undefined): WriteGuiMetadata | undefined {
-        const source = input && typeof input === 'object'
-            ? input as Record<string, unknown>
-            : {};
+    #extractGuiMetadata (
+        input: unknown,
+        fallback: WriteGuiMetadata | undefined,
+    ): WriteGuiMetadata | undefined {
+        const source =
+            input && typeof input === 'object'
+                ? (input as Record<string, unknown>)
+                : {};
         const guiMetadata: WriteGuiMetadata = {
-            originalClientSocketId: typeof source.originalClientSocketId === 'string'
-                ? source.originalClientSocketId
-                : typeof source.original_client_socket_id === 'string'
-                    ? source.original_client_socket_id
-                    : fallback?.originalClientSocketId,
-            socketId: typeof source.socketId === 'string'
-                ? source.socketId
-                : typeof source.socket_id === 'string'
-                    ? source.socket_id
-                    : fallback?.socketId,
-            operationId: typeof source.operationId === 'string'
-                ? source.operationId
-                : typeof source.operation_id === 'string'
-                    ? source.operation_id
-                    : fallback?.operationId,
-            itemUploadId: typeof source.itemUploadId === 'string'
-                ? source.itemUploadId
-                : typeof source.item_upload_id === 'string'
-                    ? source.item_upload_id
-                    : fallback?.itemUploadId,
+            originalClientSocketId:
+        typeof source.originalClientSocketId === 'string'
+            ? source.originalClientSocketId
+            : typeof source.original_client_socket_id === 'string'
+                ? source.original_client_socket_id
+                : fallback?.originalClientSocketId,
+            socketId:
+        typeof source.socketId === 'string'
+            ? source.socketId
+            : typeof source.socket_id === 'string'
+                ? source.socket_id
+                : fallback?.socketId,
+            operationId:
+        typeof source.operationId === 'string'
+            ? source.operationId
+            : typeof source.operation_id === 'string'
+                ? source.operation_id
+                : fallback?.operationId,
+            itemUploadId:
+        typeof source.itemUploadId === 'string'
+            ? source.itemUploadId
+            : typeof source.item_upload_id === 'string'
+                ? source.item_upload_id
+                : fallback?.itemUploadId,
         };
 
         if (
-            !guiMetadata.originalClientSocketId
-            && !guiMetadata.socketId
-            && !guiMetadata.operationId
-            && !guiMetadata.itemUploadId
+            !guiMetadata.originalClientSocketId &&
+            !guiMetadata.socketId &&
+            !guiMetadata.operationId &&
+            !guiMetadata.itemUploadId
         ) {
             return undefined;
         }
         return guiMetadata;
     }
 
-    #withGuiMetadata<T extends { guiMetadata?: WriteGuiMetadata }> (value: T, fallbackSource: unknown): T {
-        const guiMetadata = this.#extractGuiMetadata(value, this.#extractGuiMetadata(fallbackSource, undefined));
+    #withGuiMetadata<T extends { guiMetadata?: WriteGuiMetadata }>(
+        value: T,
+        fallbackSource: unknown,
+    ): T {
+        const guiMetadata = this.#extractGuiMetadata(
+            value,
+            this.#extractGuiMetadata(fallbackSource, undefined),
+        );
         if ( ! guiMetadata ) {
             return value;
         }
@@ -1038,14 +1202,16 @@ export class FSController extends ExtensionController {
         const dedupeEnabled = this.#isDedupeEnabled(normalizedFileMetadata);
         let pathToCheck = parentPath;
         if ( Boolean(normalizedFileMetadata.overwrite) && !dedupeEnabled ) {
-            const destinationExists = await this.fsEntryService.entryExistsByPath(targetPath);
+            const destinationExists =
+                await this.fsEntryService.entryExistsByPath(targetPath);
             if ( destinationExists ) {
                 pathToCheck = targetPath;
             }
         }
 
         const fsEntryService = this.fsEntryService;
-        let ancestorsCache: Promise<Array<{ uid: string; path: string }>> | null = null;
+        let ancestorsCache: Promise<Array<{ uid: string; path: string }>> | null =
+            null;
         const resourceDescriptor = {
             path: pathToCheck,
             resolveAncestors () {
@@ -1061,7 +1227,11 @@ export class FSController extends ExtensionController {
             return;
         }
 
-        const safeAclError = await aclService.get_safe_acl_error(actor, resourceDescriptor, 'write') as {
+        const safeAclError = (await aclService.get_safe_acl_error(
+            actor,
+            resourceDescriptor,
+            'write',
+        )) as {
             status?: unknown;
             message?: unknown;
             fields?: {
@@ -1069,15 +1239,17 @@ export class FSController extends ExtensionController {
             };
         };
         const safeAclStatus = Number(safeAclError?.status);
-        const safeAclMessage = typeof safeAclError?.message === 'string' && safeAclError.message.length > 0
-            ? safeAclError.message
-            : 'Write access denied for destination';
-        const safeAclCode = typeof safeAclError?.fields?.code === 'string'
-            ? safeAclError.fields.code
-            : undefined;
-        const legacyCode = safeAclCode === 'forbidden'
-            ? 'access_denied'
-            : safeAclCode;
+        const safeAclMessage =
+            typeof safeAclError?.message === 'string' &&
+            safeAclError.message.length > 0
+                ? safeAclError.message
+                : 'Write access denied for destination';
+        const safeAclCode =
+            typeof safeAclError?.fields?.code === 'string'
+                ? safeAclError.fields.code
+                : undefined;
+        const legacyCode =
+            safeAclCode === 'forbidden' ? 'access_denied' : safeAclCode;
 
         if ( safeAclStatus === 404 ) {
             throw new HttpError(404, safeAclMessage, {
@@ -1122,8 +1294,12 @@ export class FSController extends ExtensionController {
                 ? { original_client_socket_id: guiMetadata.originalClientSocketId }
                 : {}),
             ...(guiMetadata.socketId ? { socket_id: guiMetadata.socketId } : {}),
-            ...(guiMetadata.operationId ? { operation_id: guiMetadata.operationId } : {}),
-            ...(guiMetadata.itemUploadId ? { item_upload_id: guiMetadata.itemUploadId } : {}),
+            ...(guiMetadata.operationId
+                ? { operation_id: guiMetadata.operationId }
+                : {}),
+            ...(guiMetadata.itemUploadId
+                ? { item_upload_id: guiMetadata.itemUploadId }
+                : {}),
         };
     }
 
@@ -1157,15 +1333,20 @@ export class FSController extends ExtensionController {
             associated_app_id: entry.associatedAppId,
         };
 
-        if ( typeof response.thumbnail === 'string' && response.thumbnail.length > 0 ) {
+        if (
+            typeof response.thumbnail === 'string' &&
+            response.thumbnail.length > 0
+        ) {
             const thumbnailEntry = {
                 uuid: entry.uuid,
                 thumbnail: response.thumbnail,
             };
             await this.eventService.emit('thumbnail.read', thumbnailEntry);
-            response.thumbnail = typeof thumbnailEntry.thumbnail === 'string' && thumbnailEntry.thumbnail.length > 0
-                ? thumbnailEntry.thumbnail
-                : null;
+            response.thumbnail =
+                typeof thumbnailEntry.thumbnail === 'string' &&
+                thumbnailEntry.thumbnail.length > 0
+                    ? thumbnailEntry.thumbnail
+                    : null;
         }
 
         return response;
@@ -1177,13 +1358,23 @@ export class FSController extends ExtensionController {
         guiMetadata: WriteGuiMetadata | undefined,
     ): Promise<void> {
         const response = {
-            ...await this.#toGuiFsEntry(fsEntry),
+            ...(await this.#toGuiFsEntry(fsEntry)),
             ...this.#toEventGuiMetadata(guiMetadata, false),
             from_new_service: true,
         };
         await this.eventService.emit(eventName, {
             user_id_list: [fsEntry.userId],
             response,
+        });
+    }
+
+    async #emitFsLifecycleEvent (
+        eventName: 'fs.write.file' | 'fs.create.file',
+        fsEntry: FSEntry,
+    ): Promise<void> {
+        await this.eventService.emit(eventName, {
+            node: fsEntry,
+            context: Context.get(),
         });
     }
 
@@ -1223,7 +1414,7 @@ export class FSController extends ExtensionController {
     #estimateDataUrlSize (dataUrl: string): number {
         const commaIndex = dataUrl.indexOf(',');
         const base64 = commaIndex === -1 ? dataUrl : dataUrl.slice(commaIndex + 1);
-        return Math.ceil(base64.length * 3 / 4);
+        return Math.ceil((base64.length * 3) / 4);
     }
 
     #isOversizedThumbnailDataUrl (thumbnail: string): boolean {
@@ -1247,15 +1438,21 @@ export class FSController extends ExtensionController {
 
         const thumbnailPayload = { url: requestedThumbnail };
         await this.eventService.emit('thumbnail.created', thumbnailPayload);
-        const finalThumbnail = typeof thumbnailPayload.url === 'string' && thumbnailPayload.url.length > 0
-            ? thumbnailPayload.url
-            : null;
+        const finalThumbnail =
+            typeof thumbnailPayload.url === 'string' &&
+            thumbnailPayload.url.length > 0
+                ? thumbnailPayload.url
+                : null;
 
         if ( finalThumbnail === fsEntry.thumbnail || finalThumbnail === null ) {
             return fsEntry;
         }
 
-        return this.fsEntryService.updateEntryThumbnail(userId, fsEntry.uuid, finalThumbnail);
+        return this.fsEntryService.updateEntryThumbnail(
+            userId,
+            fsEntry.uuid,
+            finalThumbnail,
+        );
     }
 
     #toThumbnailPrepareItem (
@@ -1271,11 +1468,15 @@ export class FSController extends ExtensionController {
             return null;
         }
 
-        const contentType = typeof thumbnailMetadata.contentType === 'string'
-            ? thumbnailMetadata.contentType.trim()
-            : '';
+        const contentType =
+            typeof thumbnailMetadata.contentType === 'string'
+                ? thumbnailMetadata.contentType.trim()
+                : '';
         if ( ! contentType ) {
-            throw new HttpError(400, 'thumbnailMetadata.contentType is required for signed thumbnail upload');
+            throw new HttpError(
+                400,
+                'thumbnailMetadata.contentType is required for signed thumbnail upload',
+            );
         }
 
         if ( thumbnailMetadata.size === undefined ) {
@@ -1284,7 +1485,10 @@ export class FSController extends ExtensionController {
 
         const size = Number(thumbnailMetadata.size);
         if ( !Number.isFinite(size) || size < 0 ) {
-            throw new HttpError(400, 'thumbnailMetadata.size must be a non-negative number');
+            throw new HttpError(
+                400,
+                'thumbnailMetadata.size must be a non-negative number',
+            );
         }
         if ( size > MAX_THUMBNAIL_BYTES ) {
             return null;
@@ -1298,30 +1502,39 @@ export class FSController extends ExtensionController {
         responses: SignedWriteResponse[],
     ): Promise<void> {
         const prepareItems = requests
-            .map((requestBody, index) => this.#toThumbnailPrepareItem(requestBody, index))
+            .map((requestBody, index) =>
+                this.#toThumbnailPrepareItem(requestBody, index))
             .filter((item): item is ThumbnailUploadPrepareItem => Boolean(item));
         if ( prepareItems.length === 0 ) {
             return;
         }
 
         const payload: ThumbnailUploadPreparePayload = {
-            items: prepareItems.map((item): ThumbnailUploadPrepareItem => ({
-                index: item.index,
-                contentType: item.contentType,
-                ...(item.size !== undefined ? { size: item.size } : {}),
-            })),
+            items: prepareItems.map(
+                (item): ThumbnailUploadPrepareItem => ({
+                    index: item.index,
+                    contentType: item.contentType,
+                    ...(item.size !== undefined ? { size: item.size } : {}),
+                }),
+            ),
         };
         await this.eventService.emit('thumbnail.upload.prepare', payload);
 
         for ( const item of payload.items ) {
             const response = responses[item.index];
             if ( ! response ) {
-                throw new HttpError(500, 'Failed to resolve signed thumbnail response target');
+                throw new HttpError(
+                    500,
+                    'Failed to resolve signed thumbnail response target',
+                );
             }
             if ( typeof item.uploadUrl !== 'string' || item.uploadUrl.length === 0 ) {
                 continue;
             }
-            if ( typeof item.thumbnailUrl !== 'string' || item.thumbnailUrl.length === 0 ) {
+            if (
+                typeof item.thumbnailUrl !== 'string' ||
+                item.thumbnailUrl.length === 0
+            ) {
                 continue;
             }
 
@@ -1356,13 +1569,14 @@ export class FSController extends ExtensionController {
         }
 
         const contentTypeHeader = req.headers['content-type'];
-        const contentType = typeof contentTypeHeader === 'string'
-            ? contentTypeHeader.toLowerCase()
-            : '';
+        const contentType =
+            typeof contentTypeHeader === 'string'
+                ? contentTypeHeader.toLowerCase()
+                : '';
 
         if (
-            contentType.includes('application/json')
-            || contentType.startsWith('text/plain;actually=json')
+            contentType.includes('application/json') ||
+            contentType.startsWith('text/plain;actually=json')
         ) {
             return 'json';
         }
@@ -1373,11 +1587,17 @@ export class FSController extends ExtensionController {
         );
     }
 
-    async #runNonCritical (work: () => Promise<void>, operationName: string): Promise<void> {
+    async #runNonCritical (
+        work: () => Promise<void>,
+        operationName: string,
+    ): Promise<void> {
         try {
             await work();
         } catch ( error ) {
-            console.error(`prodfsv2 non-critical operation failed: ${operationName}`, error);
+            console.error(
+                `prodfsv2 non-critical operation failed: ${operationName}`,
+                error,
+            );
         }
     }
 
@@ -1410,7 +1630,10 @@ export class FSController extends ExtensionController {
         return uploadTracker;
     }
 
-    async #emitWriteHashEvent (contentHashSha256: string | null | undefined, entryUuid: string): Promise<void> {
+    async #emitWriteHashEvent (
+        contentHashSha256: string | null | undefined,
+        entryUuid: string,
+    ): Promise<void> {
         if ( ! contentHashSha256 ) {
             return;
         }
@@ -1441,11 +1664,20 @@ export class FSController extends ExtensionController {
 
         await this.#runNonCritical(async () => {
             await this.#emitGuiWriteEvent(
-                response.wasOverwrite ? 'outer.gui.item.updated' : 'outer.gui.item.added',
+                response.wasOverwrite
+                    ? 'outer.gui.item.updated'
+                    : 'outer.gui.item.added',
                 fsEntry,
                 guiMetadata,
             );
         }, 'emitGuiWriteEvent');
+
+        await this.#runNonCritical(async () => {
+            await this.#emitFsLifecycleEvent(
+                response.wasOverwrite ? 'fs.write.file' : 'fs.create.file',
+                fsEntry,
+            );
+        }, 'emitFsLifecycleEvent');
 
         await hashEventPromise;
 
@@ -1469,32 +1701,55 @@ export class FSController extends ExtensionController {
 
         const manifest: BatchWriteManifest = Array.isArray(parsedManifest)
             ? { items: parsedManifest as BatchWriteManifestItem[] }
-            : parsedManifest as BatchWriteManifest;
+            : (parsedManifest as BatchWriteManifest);
 
-        if ( !manifest || !Array.isArray(manifest.items) || manifest.items.length === 0 ) {
-            throw new HttpError(400, 'Batch write manifest must include a non-empty items array');
+        if (
+            !manifest ||
+            !Array.isArray(manifest.items) ||
+            manifest.items.length === 0
+        ) {
+            throw new HttpError(
+                400,
+                'Batch write manifest must include a non-empty items array',
+            );
         }
 
-        const manifestGuiMetadata = this.#extractGuiMetadata(manifest, fallbackGuiMetadata);
+        const manifestGuiMetadata = this.#extractGuiMetadata(
+            manifest,
+            fallbackGuiMetadata,
+        );
         const normalizedItems = manifest.items.map((item, orderIndex) => {
             if ( !item || typeof item !== 'object' ) {
-                throw new HttpError(400, `Batch write manifest item at position ${orderIndex} is invalid`);
+                throw new HttpError(
+                    400,
+                    `Batch write manifest item at position ${orderIndex} is invalid`,
+                );
             }
 
-            const candidateIndex = (item as { index?: number | string }).index ?? orderIndex;
+            const candidateIndex =
+                (item as { index?: number | string }).index ?? orderIndex;
             const index = Number(candidateIndex);
             if ( !Number.isInteger(index) || index < 0 ) {
-                throw new HttpError(400, `Batch write manifest item index is invalid at position ${orderIndex}`);
+                throw new HttpError(
+                    400,
+                    `Batch write manifest item index is invalid at position ${orderIndex}`,
+                );
             }
 
             if ( !item.fileMetadata || typeof item.fileMetadata !== 'object' ) {
-                throw new HttpError(400, `Batch write manifest item ${index} is missing fileMetadata`);
+                throw new HttpError(
+                    400,
+                    `Batch write manifest item ${index} is missing fileMetadata`,
+                );
             }
 
             return {
                 index,
                 fileMetadata: item.fileMetadata,
-                thumbnailData: typeof item.thumbnailData === 'string' ? item.thumbnailData : undefined,
+                thumbnailData:
+          typeof item.thumbnailData === 'string'
+              ? item.thumbnailData
+              : undefined,
                 guiMetadata: this.#extractGuiMetadata(item, manifestGuiMetadata),
             };
         });
@@ -1503,7 +1758,10 @@ export class FSController extends ExtensionController {
         const fieldIndexMap = new Map<string, number>();
         for ( const item of normalizedItems ) {
             if ( seenIndexes.has(item.index) ) {
-                throw new HttpError(409, `Batch write manifest has duplicate index ${item.index}`);
+                throw new HttpError(
+                    409,
+                    `Batch write manifest has duplicate index ${item.index}`,
+                );
             }
             seenIndexes.add(item.index);
             fieldIndexMap.set(String(item.index), item.index);
@@ -1548,7 +1806,9 @@ export class FSController extends ExtensionController {
             return fallbackItem.index;
         }
 
-        throw new HttpError(400, `Batch write file part "${fieldName}" does not map to manifest metadata`);
+        throw new HttpError(
+            400,
+            `Batch write file part "${fieldName}" does not map to manifest metadata`,
+        );
     }
-
 }

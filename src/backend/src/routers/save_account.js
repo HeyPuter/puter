@@ -107,7 +107,7 @@ router.post('/save_account', auth, express.json(), async (req, res, next) => {
     const clean_email = svc_cleanEmail.clean(req.body.email);
 
     if ( ! await svc_cleanEmail.validate(clean_email) ) {
-        return res.status(400).send('This email does not seem to be valid.');
+        return res.status(400).send('This email cannot be used. Please try a different email address.');
     }
 
     const svc_edgeRateLimit = req.services.get('edge-rate-limit');
@@ -123,13 +123,13 @@ router.post('/save_account', auth, express.json(), async (req, res, next) => {
         // duplicate username check, do this only if user has supplied a new username
         if ( req.body.username !== req.user.username && await username_exists(req.body.username) )
         {
-            return res.status(400).send('This username already exists in our database. Please use another one.');
+            return res.status(400).send('Username already taken. Try another one.');
         }
         // duplicate email check (pseudo-users don't count)
         let rows2 = await db.read('SELECT EXISTS(SELECT 1 FROM user WHERE email=? AND password IS NOT NULL) AS email_exists', [req.body.email]);
         if ( rows2[0].email_exists )
         {
-            return res.status(400).send('This email already exists in our database. Please use another one.');
+            return res.status(400).send('An account with this email already exists. Please use another email.');
         }
         // get pseudo user, if exists
         let pseudo_user = await db.read('SELECT * FROM user WHERE email = ? AND password IS NULL', [req.body.email]);
