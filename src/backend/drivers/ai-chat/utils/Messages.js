@@ -42,7 +42,7 @@ export const normalize_single_message = (message, params = {}) => {
                 });
             }
             delete message.tool_calls;
-        } else if (!message.role === 'tool') {
+        } else if (message.role !== 'tool') {
             throw new Error("each message must have a 'content' property");
         }
     }
