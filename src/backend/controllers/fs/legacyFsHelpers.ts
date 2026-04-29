@@ -293,6 +293,11 @@ export async function toLegacyEntry(
     const mimeType = entry.isDir
         ? 'folder'
         : contentTypeFromMime(entry.name) || null;
+
+    const pathComponents = entry.path.split('/');
+    const appdata_app =
+        pathComponents[2] === 'AppData' ? pathComponents[3] : undefined;
+
     const response: Record<string, unknown> = {
         id: entry.uuid,
         uid: entry.uuid,
@@ -327,6 +332,7 @@ export async function toLegacyEntry(
             entry.associatedAppId !== null && opts.appsById
                 ? (opts.appsById.get(entry.associatedAppId) ?? null)
                 : null,
+        appdata_app,
     };
 
     // `is_empty` — only meaningful for directories. Single-row probe so we
