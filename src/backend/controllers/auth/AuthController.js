@@ -57,22 +57,6 @@ export class AuthController extends PuterController {
         super(config, clients, stores, services);
     }
 
-    get permissionService() {
-        return this.services.permission;
-    }
-    get authService() {
-        return this.services.auth;
-    }
-    get tokenService() {
-        return this.services.token;
-    }
-    get userStore() {
-        return this.stores.user;
-    }
-    get groupStore() {
-        return this.stores.group;
-    }
-
     registerRoutes(
         /** @type {import('../../core/http/PuterRouter.js').PuterRouter} */ router,
     ) {
@@ -103,9 +87,9 @@ export class AuthController extends PuterController {
                 if (username) {
                     if (typeof username !== 'string')
                         throw new HttpError(400, 'username must be a string.');
-                    user = await this.userStore.getByUsername(username);
+                    user = await this.stores.user.getByUsername(username);
                 } else {
-                    user = await this.userStore.getByEmail(email);
+                    user = await this.stores.user.getByEmail(email);
                 }
 
                 if (!user) {
@@ -141,7 +125,7 @@ export class AuthController extends PuterController {
 
                 // OTP branching — if 2FA enabled, return a short-lived OTP JWT
                 if (user.otp_enabled) {
-                    const otp_jwt_token = this.tokenService.sign(
+                    const otp_jwt_token = this.services.token.sign(
                         'otp',
                         {
                             user_uid: user.uuid,
@@ -181,7 +165,7 @@ export class AuthController extends PuterController {
 
                 let decoded;
                 try {
-                    decoded = this.tokenService.verify('otp', token);
+                    decoded = this.services.token.verify('otp', token);
                 } catch {
                     throw new HttpError(400, 'Invalid token.');
                 }
@@ -189,7 +173,7 @@ export class AuthController extends PuterController {
                     throw new HttpError(400, 'Invalid token.');
                 }
 
-                const user = await this.userStore.getByUuid(decoded.user_uid);
+                const user = await this.stores.user.getByUuid(decoded.user_uid);
                 if (!user) throw new HttpError(400, 'User not found.');
                 if (user.suspended) {
                     throw new HttpError(401, 'This account is suspended.');
@@ -223,7 +207,7 @@ export class AuthController extends PuterController {
 
                 let decoded;
                 try {
-                    decoded = this.tokenService.verify('otp', token);
+                    decoded = this.services.token.verify('otp', token);
                 } catch {
                     throw new HttpError(400, 'Invalid token.');
                 }
@@ -231,7 +215,7 @@ export class AuthController extends PuterController {
                     throw new HttpError(400, 'Invalid token.');
                 }
 
-                const user = await this.userStore.getByUuid(decoded.user_uid);
+                const user = await this.stores.user.getByUuid(decoded.user_uid);
                 if (!user) throw new HttpError(400, 'User not found.');
                 if (user.suspended) {
                     throw new HttpError(401, 'This account is suspended.');
@@ -252,7 +236,7 @@ export class AuthController extends PuterController {
                     'UPDATE `user` SET `otp_recovery_codes` = ? WHERE `uuid` = ?',
                     [codes.join(','), user.uuid],
                 );
-                await this.userStore.invalidateById(user.id);
+                await this.stores.user.invalidateById(user.id);
 
                 return this.#completeLogin(req, res, user);
             },
@@ -341,7 +325,7 @@ export class AuthController extends PuterController {
                 }
 
                 // Duplicate username check
-                if (await this.userStore.getByUsername(body.username)) {
+                if (await this.stores.user.getByUsername(body.username)) {
                     throw new HttpError(
                         400,
                         'This username already exists in our database. Please use another one.',
@@ -370,8 +354,8 @@ export class AuthController extends PuterController {
                 if (!is_temp) {
                     const canonical = cleanEmail(body.email);
                     const existing =
-                        (await this.userStore.getByEmail(body.email)) ??
-                        (await this.userStore.getByCleanEmail(canonical));
+                        (await this.stores.user.getByEmail(body.email)) ??
+                        (await this.stores.user.getByCleanEmail(canonical));
                     if (existing) {
                         // Confirmed account (regardless of credential type) → reject.
                         if (
@@ -442,7 +426,7 @@ export class AuthController extends PuterController {
                 let user;
                 if (pseudo_user) {
                     // ── Pseudo-user claim (convert the placeholder row) ──
-                    await this.userStore.update(pseudo_user.id, {
+                    await this.stores.user.update(pseudo_user.id, {
                         username: body.username,
                         password: password_hash,
                         uuid: user_uuid,
@@ -458,7 +442,7 @@ export class AuthController extends PuterController {
                     // Move from temp group to regular user group
                     if (this.config.default_temp_group) {
                         try {
-                            await this.groupStore.removeUsers(
+                            await this.stores.group.removeUsers(
                                 this.config.default_temp_group,
                                 [body.username],
                             );
@@ -468,7 +452,7 @@ export class AuthController extends PuterController {
                     }
                     if (this.config.default_user_group) {
                         try {
-                            await this.groupStore.addUsers(
+                            await this.stores.group.addUsers(
                                 this.config.default_user_group,
                                 [body.username],
                             );
@@ -480,7 +464,7 @@ export class AuthController extends PuterController {
                         }
                     }
 
-                    user = await this.userStore.getById(pseudo_user.id, {
+                    user = await this.stores.user.getById(pseudo_user.id, {
                         force: true,
                     });
                 } else {
@@ -492,7 +476,7 @@ export class AuthController extends PuterController {
                             ? req.ips.join(', ')
                             : null;
 
-                    user = await this.userStore.create({
+                    user = await this.stores.user.create({
                         username: body.username,
                         uuid: user_uuid,
                         password: password_hash,
@@ -523,7 +507,7 @@ export class AuthController extends PuterController {
                         : this.config.default_user_group;
                     if (defaultGroup) {
                         try {
-                            await this.groupStore.addUsers(defaultGroup, [
+                            await this.stores.group.addUsers(defaultGroup, [
                                 user.username,
                             ]);
                         } catch (e) {
@@ -541,7 +525,7 @@ export class AuthController extends PuterController {
                 try {
                     await generateDefaultFsentries(
                         this.clients.db,
-                        this.userStore,
+                        this.stores.user,
                         user,
                     );
                 } catch (e) {
@@ -625,7 +609,7 @@ export class AuthController extends PuterController {
 
                 // Remove the session (fire-and-forget)
                 if (req.token) {
-                    this.authService
+                    this.services.auth
                         .removeSessionByToken(req.token)
                         .catch(() => {});
                 }
@@ -634,7 +618,7 @@ export class AuthController extends PuterController {
                 // same path as /user-protected/delete-own-user — so we don't
                 // orphan fsentries/sessions/permissions.
                 if (req.actor?.user && !req.actor.user.email) {
-                    const user = await this.userStore.getByUuid(
+                    const user = await this.stores.user.getByUuid(
                         req.actor.user.uuid,
                     );
                     if (user && user.password === null && user.email === null) {
@@ -666,7 +650,7 @@ export class AuthController extends PuterController {
                 },
             },
             async (req, res) => {
-                const user = await this.userStore.getById(req.actor.user.id, {
+                const user = await this.stores.user.getById(req.actor.user.id, {
                     force: true,
                 });
                 if (!user) throw new HttpError(404, 'User not found.');
@@ -675,7 +659,7 @@ export class AuthController extends PuterController {
                 if (!user.email) throw new HttpError(400, 'No email on file.');
 
                 const code = String(crypto.randomInt(100000, 1000000));
-                await this.userStore.update(user.id, {
+                await this.stores.user.update(user.id, {
                     email_confirm_code: code,
                 });
 
@@ -710,7 +694,7 @@ export class AuthController extends PuterController {
                 const { code, original_client_socket_id } = req.body ?? {};
                 if (!code) throw new HttpError(400, 'Missing `code`.');
 
-                const user = await this.userStore.getById(req.actor.user.id, {
+                const user = await this.stores.user.getById(req.actor.user.id, {
                     force: true,
                 });
                 if (!user) throw new HttpError(404, 'User not found.');
@@ -727,7 +711,7 @@ export class AuthController extends PuterController {
                     });
                 }
 
-                await this.userStore.update(user.id, {
+                await this.stores.user.update(user.id, {
                     email_confirmed: 1,
                     requires_email_confirmation: 0,
                     email_confirm_code: null,
@@ -735,7 +719,7 @@ export class AuthController extends PuterController {
                 });
 
                 await promoteToVerifiedGroup(
-                    this.groupStore,
+                    this.stores.group,
                     this.config,
                     user,
                 );
@@ -781,11 +765,11 @@ export class AuthController extends PuterController {
 
                 let user;
                 if (username) {
-                    user = await this.userStore.getByUsername(username);
+                    user = await this.stores.user.getByUsername(username);
                 } else {
                     if (!validator.isEmail(email))
                         throw new HttpError(400, 'Invalid email.');
-                    user = await this.userStore.getByEmail(email);
+                    user = await this.stores.user.getByEmail(email);
                 }
 
                 if (!user || user.suspended || !user.email) {
@@ -793,9 +777,9 @@ export class AuthController extends PuterController {
                 }
 
                 const pass_recovery_token = uuidv4();
-                await this.userStore.update(user.id, { pass_recovery_token });
+                await this.stores.user.update(user.id, { pass_recovery_token });
 
-                const jwt = this.tokenService.sign(
+                const jwt = this.services.token.sign(
                     'otp',
                     {
                         token: pass_recovery_token,
@@ -844,7 +828,7 @@ export class AuthController extends PuterController {
 
                 let decoded;
                 try {
-                    decoded = this.tokenService.verify('otp', token);
+                    decoded = this.services.token.verify('otp', token);
                 } catch {
                     throw new HttpError(400, 'Invalid or expired token.');
                 }
@@ -852,7 +836,7 @@ export class AuthController extends PuterController {
                     throw new HttpError(400, 'Invalid or expired token.');
                 }
 
-                const user = await this.userStore.getByUuid(decoded.user_uid);
+                const user = await this.stores.user.getByUuid(decoded.user_uid);
                 if (!user || user.email !== decoded.email) {
                     throw new HttpError(400, 'Token is no longer valid.');
                 }
@@ -893,7 +877,7 @@ export class AuthController extends PuterController {
 
                 let decoded;
                 try {
-                    decoded = this.tokenService.verify('otp', token);
+                    decoded = this.services.token.verify('otp', token);
                 } catch {
                     throw new HttpError(400, 'Invalid or expired token.');
                 }
@@ -901,7 +885,7 @@ export class AuthController extends PuterController {
                     throw new HttpError(400, 'Invalid or expired token.');
                 }
 
-                const user = await this.userStore.getByUuid(decoded.user_uid);
+                const user = await this.stores.user.getByUuid(decoded.user_uid);
                 if (!user || user.email !== decoded.email) {
                     throw new HttpError(400, 'Token is no longer valid.');
                 }
@@ -919,7 +903,7 @@ export class AuthController extends PuterController {
                 if (affected === 0) {
                     throw new HttpError(400, 'Token has already been used.');
                 }
-                await this.userStore.invalidateById(user.id);
+                await this.stores.user.invalidateById(user.id);
 
                 res.send('Password successfully updated.');
             },
@@ -931,7 +915,7 @@ export class AuthController extends PuterController {
         // `req.userProtected.user` and don't re-check the old password.
         const userProtectedDeps = {
             config: this.config,
-            userStore: this.userStore,
+            userStore: this.stores.user,
             oidcService: this.services.oidc,
             tokenService: this.services.token,
         };
@@ -963,7 +947,7 @@ export class AuthController extends PuterController {
                 const user = req.userProtected.user;
 
                 const password_hash = await bcrypt.hash(new_pass, 8);
-                await this.userStore.update(user.id, {
+                await this.stores.user.update(user.id, {
                     password: password_hash,
                     pass_recovery_token: null,
                     change_email_confirm_token: null,
@@ -1026,11 +1010,11 @@ export class AuthController extends PuterController {
                 if (RESERVED_USERNAMES.has(new_username.toLowerCase())) {
                     throw new HttpError(400, 'This username is not available.');
                 }
-                if (await this.userStore.getByUsername(new_username)) {
+                if (await this.stores.user.getByUsername(new_username)) {
                     throw new HttpError(400, 'This username is already taken.');
                 }
 
-                await this.userStore.update(req.actor.user.id, {
+                await this.stores.user.update(req.actor.user.id, {
                     username: new_username,
                 });
 
@@ -1097,8 +1081,8 @@ export class AuthController extends PuterController {
                 // aliases.
                 const canonical = cleanEmail(new_email);
                 const existing =
-                    (await this.userStore.getByEmail(new_email)) ??
-                    (await this.userStore.getByCleanEmail(canonical));
+                    (await this.stores.user.getByEmail(new_email)) ??
+                    (await this.stores.user.getByCleanEmail(canonical));
                 if (
                     existing &&
                     (existing.email_confirmed || existing.password !== null)
@@ -1107,12 +1091,12 @@ export class AuthController extends PuterController {
                 }
 
                 const confirm_token = uuidv4();
-                await this.userStore.update(req.actor.user.id, {
+                await this.stores.user.update(req.actor.user.id, {
                     unconfirmed_change_email: new_email,
                     change_email_confirm_token: confirm_token,
                 });
 
-                const linkJwt = this.tokenService.sign(
+                const linkJwt = this.services.token.sign(
                     'otp',
                     {
                         token: confirm_token,
@@ -1138,7 +1122,7 @@ export class AuthController extends PuterController {
                         );
                     }
                     // Notify the old address too
-                    const user = await this.userStore.getById(
+                    const user = await this.stores.user.getById(
                         req.actor.user.id,
                         { force: true },
                     );
@@ -1181,7 +1165,7 @@ export class AuthController extends PuterController {
 
                 let decoded;
                 try {
-                    decoded = this.tokenService.verify('otp', jwtToken);
+                    decoded = this.services.token.verify('otp', jwtToken);
                 } catch {
                     throw new HttpError(400, 'Invalid or expired token.');
                 }
@@ -1205,8 +1189,8 @@ export class AuthController extends PuterController {
                 // password-holding) already owns it.
                 const canonical = cleanEmail(newEmail);
                 const owner =
-                    (await this.userStore.getByEmail(newEmail)) ??
-                    (await this.userStore.getByCleanEmail(canonical));
+                    (await this.stores.user.getByEmail(newEmail)) ??
+                    (await this.stores.user.getByCleanEmail(canonical));
                 if (
                     owner &&
                     owner.id !== user.id &&
@@ -1215,7 +1199,7 @@ export class AuthController extends PuterController {
                     throw new HttpError(400, 'This email is already in use.');
                 }
 
-                await this.userStore.update(user.id, {
+                await this.stores.user.update(user.id, {
                     email: newEmail,
                     clean_email: cleanEmail(newEmail),
                     unconfirmed_change_email: null,
@@ -1262,7 +1246,7 @@ export class AuthController extends PuterController {
             async (req, res) => {
                 const { username, email, password } = req.body ?? {};
 
-                const user = await this.userStore.getById(req.actor.user.id, {
+                const user = await this.stores.user.getById(req.actor.user.id, {
                     force: true,
                 });
                 if (!user) throw new HttpError(404, 'User not found');
@@ -1309,7 +1293,7 @@ export class AuthController extends PuterController {
 
                 // Duplicate checks
                 const existingUsername =
-                    await this.userStore.getByUsername(username);
+                    await this.stores.user.getByUsername(username);
                 if (existingUsername && existingUsername.id !== user.id) {
                     throw new HttpError(400, 'This username is already taken.');
                 }
@@ -1318,8 +1302,8 @@ export class AuthController extends PuterController {
                 // password=null but are real) — not just password-holders.
                 const canonical = cleanEmail(email);
                 const existingEmail =
-                    (await this.userStore.getByEmail(email)) ??
-                    (await this.userStore.getByCleanEmail(canonical));
+                    (await this.stores.user.getByEmail(email)) ??
+                    (await this.stores.user.getByCleanEmail(canonical));
                 if (
                     existingEmail &&
                     existingEmail.id !== user.id &&
@@ -1336,7 +1320,7 @@ export class AuthController extends PuterController {
                 );
                 const email_confirm_token = uuidv4();
 
-                await this.userStore.update(user.id, {
+                await this.stores.user.update(user.id, {
                     username,
                     email,
                     clean_email: cleanEmail(email),
@@ -1368,7 +1352,7 @@ export class AuthController extends PuterController {
                 // Move from temp group to user group
                 if (this.config.default_temp_group) {
                     try {
-                        await this.groupStore.removeUsers(
+                        await this.stores.group.removeUsers(
                             this.config.default_temp_group,
                             [username],
                         );
@@ -1378,7 +1362,7 @@ export class AuthController extends PuterController {
                 }
                 if (this.config.default_user_group) {
                     try {
-                        await this.groupStore.addUsers(
+                        await this.stores.group.addUsers(
                             this.config.default_user_group,
                             [username],
                         );
@@ -1420,7 +1404,7 @@ export class AuthController extends PuterController {
                     // best-effort
                 }
 
-                const updatedUser = await this.userStore.getById(user.id, {
+                const updatedUser = await this.stores.user.getById(user.id, {
                     force: true,
                 });
                 res.json({
@@ -1476,7 +1460,7 @@ export class AuthController extends PuterController {
                         'Missing `target_username` or `permission`',
                     );
                 }
-                await this.permissionService.grantUserUserPermission(
+                await this.services.permission.grantUserUserPermission(
                     req.actor,
                     target_username,
                     permission,
@@ -1498,7 +1482,7 @@ export class AuthController extends PuterController {
                         'Missing `app_uid` or `permission`',
                     );
                 }
-                await this.permissionService.grantUserAppPermission(
+                await this.services.permission.grantUserAppPermission(
                     req.actor,
                     app_uid,
                     permission,
@@ -1520,9 +1504,9 @@ export class AuthController extends PuterController {
                         'Missing `group_uid` or `permission`',
                     );
                 }
-                const group = await this.groupStore.getByUid(group_uid);
+                const group = await this.stores.group.getByUid(group_uid);
                 if (!group) throw new HttpError(404, 'Group not found');
-                await this.permissionService.grantUserGroupPermission(
+                await this.services.permission.grantUserGroupPermission(
                     req.actor,
                     group,
                     permission,
@@ -1546,7 +1530,7 @@ export class AuthController extends PuterController {
                         'Missing `target_username` or `permission`',
                     );
                 }
-                await this.permissionService.revokeUserUserPermission(
+                await this.services.permission.revokeUserUserPermission(
                     req.actor,
                     target_username,
                     permission,
@@ -1568,13 +1552,13 @@ export class AuthController extends PuterController {
                     );
                 }
                 if (permission === '*') {
-                    await this.permissionService.revokeUserAppAll(
+                    await this.services.permission.revokeUserAppAll(
                         req.actor,
                         app_uid,
                         meta,
                     );
                 } else {
-                    await this.permissionService.revokeUserAppPermission(
+                    await this.services.permission.revokeUserAppPermission(
                         req.actor,
                         app_uid,
                         permission,
@@ -1596,7 +1580,7 @@ export class AuthController extends PuterController {
                         'Missing `group_uid` or `permission`',
                     );
                 }
-                await this.permissionService.revokeUserGroupPermission(
+                await this.services.permission.revokeUserGroupPermission(
                     req.actor,
                     { uid: group_uid },
                     permission,
@@ -1624,7 +1608,7 @@ export class AuthController extends PuterController {
                 const result = {};
                 let granted;
                 try {
-                    granted = await this.permissionService.checkMany(
+                    granted = await this.services.permission.checkMany(
                         req.actor,
                         unique,
                     );
@@ -1644,7 +1628,9 @@ export class AuthController extends PuterController {
             '/auth/list-sessions',
             { subdomain: 'api', requireUserActor: true },
             async (req, res) => {
-                const sessions = await this.authService.listSessions(req.actor);
+                const sessions = await this.services.auth.listSessions(
+                    req.actor,
+                );
                 res.json(sessions);
             },
         );
@@ -1667,8 +1653,10 @@ export class AuthController extends PuterController {
                         { legacyCode: 'unauthorized' },
                     );
                 }
-                await this.authService.revokeSession(uuid);
-                const sessions = await this.authService.listSessions(req.actor);
+                await this.services.auth.revokeSession(uuid);
+                const sessions = await this.services.auth.listSessions(
+                    req.actor,
+                );
                 res.json({ sessions });
             },
         );
@@ -1681,7 +1669,7 @@ export class AuthController extends PuterController {
             async (req, res) => {
                 let { app_uid, origin, permission, extra, meta } = req.body;
                 if (origin && !app_uid) {
-                    app_uid = await this.authService.appUidFromOrigin(origin);
+                    app_uid = await this.services.auth.appUidFromOrigin(origin);
                 }
                 if (!app_uid || !permission) {
                     throw new HttpError(
@@ -1689,7 +1677,7 @@ export class AuthController extends PuterController {
                         'Missing `app_uid` or `permission`',
                     );
                 }
-                await this.permissionService.grantDevAppPermission(
+                await this.services.permission.grantDevAppPermission(
                     req.actor,
                     app_uid,
                     permission,
@@ -1706,7 +1694,7 @@ export class AuthController extends PuterController {
             async (req, res) => {
                 let { app_uid, origin, permission, meta } = req.body;
                 if (origin && !app_uid) {
-                    app_uid = await this.authService.appUidFromOrigin(origin);
+                    app_uid = await this.services.auth.appUidFromOrigin(origin);
                 }
                 if (!app_uid || !permission) {
                     throw new HttpError(
@@ -1715,13 +1703,13 @@ export class AuthController extends PuterController {
                     );
                 }
                 if (permission === '*') {
-                    await this.permissionService.revokeDevAppAll(
+                    await this.services.permission.revokeDevAppAll(
                         req.actor,
                         app_uid,
                         meta,
                     );
                 }
-                await this.permissionService.revokeDevAppPermission(
+                await this.services.permission.revokeDevAppPermission(
                     req.actor,
                     app_uid,
                     permission,
@@ -1796,7 +1784,7 @@ export class AuthController extends PuterController {
             async (req, res) => {
                 const origin = req.body?.origin || req.query?.origin;
                 if (!origin) throw new HttpError(400, 'Missing `origin`');
-                const uid = await this.authService.appUidFromOrigin(origin);
+                const uid = await this.services.auth.appUidFromOrigin(origin);
                 res.json({ uid });
             },
         );
@@ -1809,7 +1797,7 @@ export class AuthController extends PuterController {
             async (req, res) => {
                 let { app_uid, origin } = req.body;
                 if (!app_uid && origin) {
-                    app_uid = await this.authService.appUidFromOrigin(origin);
+                    app_uid = await this.services.auth.appUidFromOrigin(origin);
                 }
                 if (!app_uid) {
                     throw new HttpError(400, 'Missing `app_uid` or `origin`');
@@ -1821,7 +1809,7 @@ export class AuthController extends PuterController {
                 }
                 // Grant the app-is-authenticated flag
                 const userPermGrantPromise =
-                    await this.permissionService.grantUserAppPermission(
+                    await this.services.permission.grantUserAppPermission(
                         req.actor,
                         app_uid,
                         'flag:app-is-authenticated',
@@ -1829,7 +1817,7 @@ export class AuthController extends PuterController {
                         {},
                     );
 
-                const token = this.authService.getUserAppToken(
+                const token = this.services.auth.getUserAppToken(
                     req.actor,
                     app_uid,
                 );
@@ -1868,13 +1856,13 @@ export class AuthController extends PuterController {
             async (req, res) => {
                 let { app_uid, origin } = req.body;
                 if (!app_uid && origin) {
-                    app_uid = await this.authService.appUidFromOrigin(origin);
+                    app_uid = await this.services.auth.appUidFromOrigin(origin);
                 }
                 if (!app_uid)
                     throw new HttpError(400, 'Missing `app_uid` or `origin`');
 
                 // Check if the app is authenticated for this user
-                const authenticated = await this.permissionService
+                const authenticated = await this.services.permission
                     .check(
                         req.actor,
                         `service:${app_uid}:ii:flag:app-is-authenticated`,
@@ -1883,7 +1871,7 @@ export class AuthController extends PuterController {
 
                 const result = { app_uid, authenticated };
                 if (authenticated) {
-                    result.token = this.authService.getUserAppToken(
+                    result.token = this.services.auth.getUserAppToken(
                         req.actor,
                         app_uid,
                     );
@@ -1916,7 +1904,7 @@ export class AuthController extends PuterController {
                     );
                 });
 
-                const token = await this.authService.createAccessToken(
+                const token = await this.services.auth.createAccessToken(
                     req.actor,
                     normalized,
                     expiresIn ? { expiresIn } : {},
@@ -1938,7 +1926,7 @@ export class AuthController extends PuterController {
                     const match = tokenOrUuid.match(/\/token-read\/([^\s/?]+)/);
                     if (match) tokenOrUuid = match[1];
                 }
-                await this.authService.revokeAccessToken(
+                await this.services.auth.revokeAccessToken(
                     req.actor,
                     tokenOrUuid,
                 );
@@ -1956,7 +1944,7 @@ export class AuthController extends PuterController {
             },
             async (req, res) => {
                 const action = req.params.action;
-                const user = await this.userStore.getById(req.actor.user.id, {
+                const user = await this.stores.user.getById(req.actor.user.id, {
                     force: true,
                 });
                 if (!user) throw new HttpError(404, 'User not found');
@@ -1979,7 +1967,7 @@ export class AuthController extends PuterController {
                         'UPDATE `user` SET `otp_secret` = ?, `otp_recovery_codes` = ? WHERE `uuid` = ?',
                         [result.secret, hashedCodes.join(','), user.uuid],
                     );
-                    await this.userStore.invalidateById(user.id);
+                    await this.stores.user.invalidateById(user.id);
 
                     return res.json({
                         url: result.url,
@@ -2016,7 +2004,7 @@ export class AuthController extends PuterController {
                         'UPDATE `user` SET `otp_enabled` = 1 WHERE `uuid` = ?',
                         [user.uuid],
                     );
-                    await this.userStore.invalidateById(user.id);
+                    await this.stores.user.invalidateById(user.id);
 
                     if (this.clients.email && user.email) {
                         try {
@@ -2058,7 +2046,7 @@ export class AuthController extends PuterController {
                 middleware: createUserProtectedGate(userProtectedDeps),
             },
             async (req, res) => {
-                const user = await this.userStore.getById(req.actor.user.id, {
+                const user = await this.stores.user.getById(req.actor.user.id, {
                     force: true,
                 });
                 if (!user) throw new HttpError(404, 'User not found');
@@ -2067,7 +2055,7 @@ export class AuthController extends PuterController {
                     'UPDATE `user` SET `otp_enabled` = 0, `otp_recovery_codes` = NULL, `otp_secret` = NULL WHERE `uuid` = ?',
                     [user.uuid],
                 );
-                await this.userStore.invalidateById(user.id);
+                await this.stores.user.invalidateById(user.id);
 
                 if (this.clients.email && user.email) {
                     try {
@@ -2096,7 +2084,7 @@ export class AuthController extends PuterController {
                 requireUserActor: true,
             },
             async (req, res) => {
-                const user = await this.userStore.getById(req.actor.user.id, {
+                const user = await this.stores.user.getById(req.actor.user.id, {
                     force: true,
                 });
                 if (!user) throw new HttpError(404, 'User not found');
@@ -2128,7 +2116,7 @@ export class AuthController extends PuterController {
                 if (typeof metadata !== 'object' || Array.isArray(metadata))
                     throw new HttpError(400, '`metadata` must be an object');
 
-                const uid = await this.groupStore.create({
+                const uid = await this.stores.group.create({
                     ownerUserId: req.actor.user.id,
                     extra: {},
                     metadata,
@@ -2146,12 +2134,12 @@ export class AuthController extends PuterController {
                 if (!Array.isArray(users))
                     throw new HttpError(400, '`users` must be an array');
 
-                const group = await this.groupStore.getByUid(uid);
+                const group = await this.stores.group.getByUid(uid);
                 if (!group) throw new HttpError(404, 'Group not found');
                 if (group.owner_user_id !== req.actor.user.id)
                     throw new HttpError(403, 'Forbidden');
 
-                await this.groupStore.addUsers(uid, users);
+                await this.stores.group.addUsers(uid, users);
                 res.json({});
             },
         );
@@ -2165,12 +2153,12 @@ export class AuthController extends PuterController {
                 if (!Array.isArray(users))
                     throw new HttpError(400, '`users` must be an array');
 
-                const group = await this.groupStore.getByUid(uid);
+                const group = await this.stores.group.getByUid(uid);
                 if (!group) throw new HttpError(404, 'Group not found');
                 if (group.owner_user_id !== req.actor.user.id)
                     throw new HttpError(403, 'Forbidden');
 
-                await this.groupStore.removeUsers(uid, users);
+                await this.stores.group.removeUsers(uid, users);
                 res.json({});
             },
         );
@@ -2181,8 +2169,8 @@ export class AuthController extends PuterController {
             async (req, res) => {
                 const userId = req.actor.user.id;
                 const [owned, member] = await Promise.all([
-                    this.groupStore.listByOwner(userId),
-                    this.groupStore.listByMember(userId),
+                    this.stores.group.listByOwner(userId),
+                    this.stores.group.listByMember(userId),
                 ]);
                 res.json({
                     owned_groups: owned,
@@ -2210,9 +2198,9 @@ export class AuthController extends PuterController {
             async (req, res) => {
                 if (!req.actor?.session?.uid)
                     throw new HttpError(400, 'No session bound to this actor');
-                const user = await this.userStore.getById(req.actor.user.id);
+                const user = await this.stores.user.getById(req.actor.user.id);
                 if (!user) throw new HttpError(404, 'User not found');
-                const guiToken = this.authService.createGuiToken(
+                const guiToken = this.services.auth.createGuiToken(
                     user,
                     req.actor.session.uid,
                 );
@@ -2228,13 +2216,13 @@ export class AuthController extends PuterController {
                     res.status(400).end();
                     return;
                 }
-                const user = await this.userStore.getById(req.actor.user.id);
+                const user = await this.stores.user.getById(req.actor.user.id);
                 if (!user) {
                     res.status(404).end();
                     return;
                 }
                 const sessionToken =
-                    this.authService.createSessionTokenForSession(
+                    this.services.auth.createSessionTokenForSession(
                         user,
                         req.actor.session.uid,
                     );
@@ -2290,7 +2278,7 @@ export class AuthController extends PuterController {
         await this.clients.db.write('DELETE FROM `user` WHERE `id` = ?', [
             userId,
         ]);
-        await this.userStore.invalidateById(userId);
+        await this.stores.user.invalidateById(userId);
     }
 
     // ── Helpers ──────────────────────────────────────────────────────
@@ -2303,7 +2291,7 @@ export class AuthController extends PuterController {
             attempts++;
             if (attempts > 20)
                 throw new Error('Failed to generate unique username');
-        } while (await this.userStore.getByUsername(username));
+        } while (await this.stores.user.getByUsername(username));
         return username;
     }
 
@@ -2316,7 +2304,7 @@ export class AuthController extends PuterController {
         };
 
         const { token: sessionToken, gui_token } =
-            await this.authService.createSessionToken(user, meta);
+            await this.services.auth.createSessionToken(user, meta);
 
         // HTTP-only cookie gets the session token
         res.cookie(this.config.cookie_name, sessionToken, {

@@ -319,6 +319,33 @@ export class OIDCService extends PuterService {
                 ? req.ips.join(', ')
                 : null;
 
+        // Run abuse-prevention validate hook. OIDC ignores
+        // requires_email_confirmation (provider already verified) and
+        // no_temp_user (OIDC users are never temp), so only `allow` matters.
+        const validateEvent = {
+            req,
+            data: { username, email: claims.email ?? '' },
+            allow: true,
+            no_temp_user: false,
+            requires_email_confirmation: false,
+            message: null as string | null,
+        };
+        try {
+            await this.clients.event?.emitAndWait(
+                'puter.signup.validate',
+                validateEvent,
+                {},
+            );
+        } catch (e) {
+            console.warn('[oidc] validate hook failed:', e);
+        }
+        if (!validateEvent.allow) {
+            return {
+                success: false,
+                error: validateEvent.message ?? 'Signup blocked',
+            };
+        }
+
         const created = await this.stores.user.create({
             username,
             uuid: uuidv4(),
@@ -330,15 +357,15 @@ export class OIDCService extends PuterService {
             audit_metadata: {
                 ip: clientIp,
                 ip_fwd: proxyIpChain,
-                user_agent: req.headers?.['user-agent'],
-                origin: req.headers?.origin,
+                user_agent: req?.headers?.['user-agent'],
+                origin: req?.headers?.origin,
             },
             signup_ip: clientIp,
             signup_ip_forwarded: proxyIpChain,
             signup_user_agent: req?.headers?.['user-agent'] ?? null,
-            signup_origin: req?.headers.origin,
+            signup_origin: req?.headers?.origin,
             signup_server: this.config.serverId,
-            referrer: req.body.referrer ?? null,
+            referrer: req?.body?.referrer ?? null,
         });
 
         if (!created) {
