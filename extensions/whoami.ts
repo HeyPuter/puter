@@ -109,7 +109,7 @@ extension.get(
                         /\/auth\/oidc\/callback\/login$/,
                         '',
                     );
-                    details.oidc_revalidate_url = `${origin}/auth/oidc/${provider}/start?flow=revalidate&user_id=${user.id}`;
+                    details.oidc_revalidate_url = `${origin}/auth/oidc/${provider}/start?flow=revalidateflow=revalidate&user_uuid=${encodeURIComponent(user.uuid)}`;
                 }
             } catch {
                 // OIDC not configured
