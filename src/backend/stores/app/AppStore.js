@@ -183,6 +183,50 @@ export class AppStore extends PuterStore {
     }
 
     /**
+     * Find the oldest app whose `index_url` matches one of `candidates`.
+     * Used by the driver to detect duplicate puter-hosted index_url rows
+     * (origin-bootstrap apps + same-owner duplicates) so they can be
+     * merged on `create` / `update`. Returns the minimal row shape
+     * needed by the merge path; falsy when nothing matches.
+     */
+    async findByIndexUrlCandidates(candidates, { excludeAppId } = {}) {
+        if (!Array.isArray(candidates) || candidates.length === 0) return null;
+        const placeholders = candidates.map(() => '?').join(', ');
+        const params = [...candidates];
+        let sql = `SELECT \`id\`, \`uid\`, \`owner_user_id\`, \`index_url\` FROM \`apps\` WHERE \`index_url\` IN (${placeholders})`;
+        if (Number.isInteger(excludeAppId) && excludeAppId > 0) {
+            sql += ' AND `id` != ?';
+            params.push(excludeAppId);
+        }
+        sql += ' ORDER BY `timestamp` ASC, `id` ASC LIMIT 1';
+        const rows = await this.clients.db.read(sql, params);
+        return rows[0] ?? null;
+    }
+
+    /**
+     * Set `owner_user_id` on an app row only if it has no current owner.
+     * Used by the merge path to claim ownership of an origin-bootstrap
+     * app row (auto-created with no owner) before merging into it.
+     * Returns true iff the row was modified.
+     */
+    async claimOwnership(appId, userId) {
+        if (!Number.isInteger(appId) || appId <= 0) return false;
+        if (!Number.isInteger(userId) || userId <= 0) return false;
+        const result = await this.clients.db.write(
+            'UPDATE `apps` SET `owner_user_id` = ? WHERE `id` = ? AND `owner_user_id` IS NULL',
+            [userId, appId],
+        );
+        const affected = (result?.affectedRows ?? result?.changes ?? 0) > 0;
+        if (affected) {
+            const fresh = await this.getById(appId);
+            if (fresh) {
+                await this.invalidate(fresh);
+            }
+        }
+        return affected;
+    }
+
+    /**
      * List apps with optional filters. Returns raw normalised rows —
      * the driver is responsible for permission filtering + icon URL
      * resolution when serving to clients.

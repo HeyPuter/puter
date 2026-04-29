@@ -21,6 +21,36 @@ const APP_NAME_MAX_LEN = 100;
 const APP_TITLE_MAX_LEN = 100;
 const APP_DESCRIPTION_MAX_LEN = 7000;
 
+// Index-url uniqueness exemptions: legacy "coming soon" placeholder apps
+// that intentionally share the same hosted index_url. Anything starting
+// with one of these strings skips the uniqueness check so multiple rows
+// can keep that placeholder URL without merging into each other.
+const INDEX_URL_UNIQUENESS_EXEMPTION_CANDIDATES = [
+    'https://dev-center.puter.com/coming-soon',
+];
+
+// Canonical-uid alias namespace. When a user-created app is merged into
+// an existing origin-bootstrap row, the source uid is mapped to the
+// canonical (kept) uid so any client that still holds the old uid keeps
+// resolving to the joined row. TTL keeps abandoned entries from
+// accumulating indefinitely.
+const APP_UID_ALIAS_KEY_PREFIX = 'app:canonicalUidAlias';
+const APP_UID_ALIAS_REVERSE_KEY_PREFIX = 'app:canonicalUidAliasReverse';
+const APP_UID_ALIAS_TTL_SECONDS = 60 * 60 * 24 * 90;
+
+const hasIndexUrlUniquenessExemption = (candidates) => {
+    for (const candidate of candidates) {
+        if (
+            INDEX_URL_UNIQUENESS_EXEMPTION_CANDIDATES.find((exception) =>
+                candidate.startsWith(exception),
+            )
+        ) {
+            return true;
+        }
+    }
+    return false;
+};
+
 /**
  * Driver exposing the `puter-apps` interface.
  *
@@ -60,6 +90,28 @@ export class AppDriver extends PuterDriver {
         this.#requireUserOrAppActor(actor);
 
         const fields = await this.#validateInput(object, { isCreate: true });
+
+        // Puter-hosted index_url handling. Order matches v1 AppES:
+        //   1. Refuse if the index_url's subdomain isn't owned by this user.
+        //   2. Try to merge into an existing row with the same index_url
+        //      (origin-bootstrap takeover, or claiming an unowned row).
+        //   3. Otherwise enforce index_url uniqueness so two rows can't
+        //      share a hosted URL.
+        await this.#ensurePuterSiteSubdomainIsOwned(
+            fields.index_url,
+            actor.user,
+        );
+        const joinedApp = await this.#maybeJoinOwnedHostedIndexUrlApp({
+            object,
+            options,
+            user: actor.user,
+        });
+        if (joinedApp) {
+            return joinedApp;
+        }
+        await this.#ensureIndexUrlNotAlreadyInUse({
+            indexUrl: fields.index_url,
+        });
 
         // Name conflict handling
         if (await this.appStore.existsByName(fields.name)) {
@@ -222,6 +274,30 @@ export class AppDriver extends PuterDriver {
             isCreate: false,
             existing: app,
         });
+
+        // Puter-hosted index_url handling on update — same flow as create
+        // but only when the index_url is actually changing. Self-app is
+        // excluded from the conflict search via `excludeAppId`.
+        if (fields.index_url && fields.index_url !== app.index_url) {
+            await this.#ensurePuterSiteSubdomainIsOwned(
+                fields.index_url,
+                actor.user,
+            );
+            const joinedApp = await this.#maybeJoinOwnedHostedIndexUrlApp({
+                object,
+                options: undefined,
+                user: actor.user,
+                sourceAppUid: app.uid,
+                excludeAppId: app.id,
+            });
+            if (joinedApp) {
+                return joinedApp;
+            }
+            await this.#ensureIndexUrlNotAlreadyInUse({
+                indexUrl: fields.index_url,
+                excludeAppId: app.id,
+            });
+        }
 
         // Name conflict check (only if name is changing)
         if (fields.name && fields.name !== app.name) {
@@ -456,12 +532,38 @@ export class AppDriver extends PuterDriver {
     }
 
     async #resolve({ uid, id }) {
-        if (uid) return this.appStore.getByUid(uid);
-        if (id?.uid) return this.appStore.getByUid(id.uid);
+        if (uid) return this.#getByUidWithAlias(uid);
+        if (id?.uid) return this.#getByUidWithAlias(id.uid);
         if (id?.name) return this.appStore.getByName(id.name);
         if (id?.id) return this.appStore.getById(id.id);
         if (typeof id === 'number') return this.appStore.getById(id);
-        if (typeof id === 'string') return this.appStore.getByUid(id);
+        if (typeof id === 'string') return this.#getByUidWithAlias(id);
+        return null;
+    }
+
+    /**
+     * uid lookup with canonical-uid alias fallback. When two app rows
+     * have been merged (see {@link #maybeJoinOwnedHostedIndexUrlApp}),
+     * the source uid is recorded as an alias to the canonical uid. A
+     * direct uid miss therefore re-queries with the canonical uid so
+     * any client still holding the old uid keeps resolving to the
+     * joined row. Mirrors v1 AppES's `#read` alias plumbing.
+     *
+     * The alias query is fired in parallel with the direct lookup so
+     * the common (no-alias) case pays only one round-trip.
+     */
+    async #getByUidWithAlias(uid) {
+        const aliasPromise = this.#readCanonicalAppUidAlias(uid);
+        const direct = await this.appStore.getByUid(uid);
+        if (direct) return direct;
+        const canonicalUid = await aliasPromise;
+        if (
+            typeof canonicalUid === 'string' &&
+            canonicalUid &&
+            canonicalUid !== uid
+        ) {
+            return this.appStore.getByUid(canonicalUid);
+        }
         return null;
     }
 
@@ -510,21 +612,50 @@ export class AppDriver extends PuterDriver {
     // ── Serialization ────────────────────────────────────────────────
 
     /**
-     * Derive `created_from_origin`: the app's own `index_url` origin, but
-     * only when AuthService agrees the origin canonically hashes back to
-     * this app's UID. Apps hosted elsewhere (or mis-routed) get `null`.
-     * Mirrors the v1 AppES behaviour one-for-one.
+     * Resolve the canonical app row that backs `app.index_url`.
+     *
+     * Returns `{ origin, expectedUid, canonicalApp }`:
+     *   - `origin`    — the parsed origin string from `index_url`.
+     *   - `expectedUid` — the canonical app uid for that origin (oldest
+     *     `apps.index_url` match, or a deterministic UUIDv5 fallback for
+     *     unknown origins).
+     *   - `canonicalApp` — the actual `apps` row at `expectedUid`, or
+     *     `null` when the uid is a UUIDv5 fallback with no DB row.
+     *
+     * Used in `#toClient` for two things:
+     *   1. `created_from_origin` derivation (only set when
+     *      `expectedUid === app.uid`, mirroring v1 AppES).
+     *   2. The canonical-private gate — when `expectedUid !== app.uid`
+     *      and `canonicalApp.is_private`, the row is squatting on
+     *      someone else's private hosted URL. We must run the
+     *      privateAccess gate against the *canonical* row, not the
+     *      possibly-public squatter row, otherwise pre-existing data
+     *      from before the `subdomain_not_owned` check leaks the
+     *      victim's index_url.
+     *
+     * Returns `null` when there's no `index_url` or it doesn't parse.
      */
-    async #resolveCreatedFromOrigin(app) {
+    async #resolveCanonicalForIndexUrl(app) {
         if (!app.index_url) return null;
+        let origin;
         try {
             const parsed = new URL(app.index_url);
-            const origin = `${parsed.protocol}//${parsed.hostname}${
+            origin = `${parsed.protocol}//${parsed.hostname}${
                 parsed.port ? `:${parsed.port}` : ''
             }`;
+        } catch {
+            return null;
+        }
+        try {
             const expectedUid =
                 await this.services.auth.appUidFromOrigin(origin);
-            return expectedUid === app.uid ? origin : null;
+            // Avoid a needless DB hit on the self-match common case —
+            // `app` is already the row we'd be re-fetching.
+            const canonicalApp =
+                expectedUid && expectedUid !== app.uid
+                    ? await this.appStore.getByUid(expectedUid)
+                    : app;
+            return { origin, expectedUid, canonicalApp };
         } catch {
             return null;
         }
@@ -537,12 +668,17 @@ export class AppDriver extends PuterDriver {
         // batched query and threads them through `params.filetypes` to
         // avoid the N+1 in this hot loop. Single-app callers (`read`,
         // `create`, `update`) fall back to the per-app query.
-        const [filetypes, createdFromOrigin] = await Promise.all([
+        const [filetypes, canonicalForIndexUrl] = await Promise.all([
             params.filetypes !== undefined
                 ? Promise.resolve(params.filetypes)
                 : this.appStore.getFiletypeAssociations(app.id),
-            this.#resolveCreatedFromOrigin(app),
+            this.#resolveCanonicalForIndexUrl(app),
         ]);
+
+        const createdFromOrigin =
+            canonicalForIndexUrl && canonicalForIndexUrl.expectedUid === app.uid
+                ? canonicalForIndexUrl.origin
+                : null;
 
         const result = {
             uid: app.uid,
@@ -587,17 +723,45 @@ export class AppDriver extends PuterDriver {
         // render a purchase CTA. Owners + entitled users pass through
         // unchanged. Attach `privateAccess` so clients know to redirect to
         // app-center rather than launch.
-        if (result.is_private) {
+        //
+        // Gate target picking:
+        //   1. Canonical mismatch + canonical is private → gate against
+        //      the *canonical* row. Catches pre-existing bug data where
+        //      a row's `index_url` points at someone else's private hosted
+        //      URL but the row itself has `is_private = 0`. The
+        //      authoritative privacy decision belongs to the canonical
+        //      row's owner, not the squatter.
+        //   2. Otherwise, if this row is itself private → gate against
+        //      this row (the legitimate path).
+        //   3. Otherwise no gate — public app, no entitlement check.
+        const canonicalApp = canonicalForIndexUrl?.canonicalApp ?? null;
+        const expectedUid = canonicalForIndexUrl?.expectedUid;
+        const canonicalMismatchPrivate =
+            !!expectedUid &&
+            expectedUid !== app.uid &&
+            !!canonicalApp?.is_private;
+        const gateTarget = canonicalMismatchPrivate
+            ? canonicalApp
+            : result.is_private
+              ? app
+              : null;
+        if (gateTarget) {
             const isOwner =
                 actor?.user?.id !== undefined &&
-                actor.user.id === app.owner_user_id;
+                actor.user.id === gateTarget.owner_user_id;
             const privateAccess = isOwner
                 ? { hasAccess: true, checkedBy: 'core/app-owner' }
                 : await resolvePrivateLaunchAccess({
-                      app: { uid: app.uid, name: app.name, is_private: true },
+                      app: {
+                          uid: gateTarget.uid,
+                          name: gateTarget.name,
+                          is_private: true,
+                      },
                       eventClient: this.clients.event,
                       userUid: actor?.user?.uuid ?? null,
-                      source: 'appDriver:toClient',
+                      source: canonicalMismatchPrivate
+                          ? 'appDriver:toClient:canonical-private'
+                          : 'appDriver:toClient',
                       args: {},
                   });
             result.privateAccess = privateAccess;
@@ -607,5 +771,389 @@ export class AppDriver extends PuterDriver {
         }
 
         return result;
+    }
+
+    // ── Puter-hosted index_url merge logic ───────────────────────────
+    //
+    // Ported from v1 AppES (`#maybeJoinOwnedHostedIndexUrlAppOnCreate`,
+    // `#ensure_puter_site_subdomain_is_owned`, `#ensureIndexUrlNotAlreadyInUse`,
+    // and the `app:canonicalUidAlias:*` kvstore pair). When a user creates
+    // or repoints an app at a puter-hosted subdomain (`*.puter.site`,
+    // `*.puter.app`, …) we want exactly one app row to back that URL:
+    //   • If a no-owner row exists (origin-bootstrap stub auto-created
+    //     when an unknown origin first hit Puter) → claim it for the
+    //     user, merge the new fields into it.
+    //   • If the same user already has an origin-bootstrap row at that
+    //     URL → merge into it; otherwise reject as a duplicate.
+    //   • If a different user owns the row → reject with
+    //     `app_index_url_already_in_use`.
+    // Source uid (when called from `update`) is recorded in a kvstore
+    // alias so `#resolve` can redirect old uids to the canonical row.
+
+    #normalizeConfiguredHostedDomain(domainValue) {
+        if (typeof domainValue !== 'string') return null;
+        const normalizedDomain = domainValue
+            .trim()
+            .toLowerCase()
+            .replace(/^\./, '');
+        if (!normalizedDomain) return null;
+        return normalizedDomain.split(':')[0] || null;
+    }
+
+    #getPuterHostedDomains() {
+        const domains = new Set();
+        const config = this.config ?? {};
+        for (const configuredDomain of [
+            config.static_hosting_domain,
+            config.static_hosting_domain_alt,
+            config.private_app_hosting_domain,
+            config.private_app_hosting_domain_alt,
+        ]) {
+            const normalized =
+                this.#normalizeConfiguredHostedDomain(configuredDomain);
+            if (normalized) domains.add(normalized);
+        }
+        return [...domains];
+    }
+
+    #extractPuterHostedSubdomain(indexUrl) {
+        if (typeof indexUrl !== 'string' || !indexUrl) return null;
+
+        let hostname;
+        try {
+            hostname = new URL(indexUrl).hostname.toLowerCase();
+        } catch {
+            return null;
+        }
+
+        // Sort longest-first so `foo.puter.app` matches `puter.app` (not
+        // a shorter `app` if it ever appeared in the configured list).
+        const hostedDomains = this.#getPuterHostedDomains().sort(
+            (a, b) => b.length - a.length,
+        );
+
+        for (const hostedDomain of hostedDomains) {
+            const suffix = `.${hostedDomain}`;
+            if (hostname.endsWith(suffix)) {
+                const subdomain = hostname.slice(
+                    0,
+                    hostname.length - suffix.length,
+                );
+                return subdomain || null;
+            }
+        }
+
+        return null;
+    }
+
+    #isPuterHostedIndexUrl(indexUrl) {
+        return !!this.#extractPuterHostedSubdomain(indexUrl);
+    }
+
+    /**
+     * Generate the set of equivalent index_url strings that should
+     * collide with a given input. We only collapse trailing-slash and
+     * `/index.html` variants — the underlying `apps.index_url` column
+     * is matched by exact string, so anything not in this list won't
+     * be deduped. Mirrors v1 AppES exactly.
+     */
+    #buildEquivalentIndexUrlCandidates(indexUrl) {
+        if (typeof indexUrl !== 'string' || !indexUrl.trim()) {
+            return [];
+        }
+
+        try {
+            const parsed = new URL(indexUrl);
+            const origin = `${parsed.protocol}//${parsed.host.toLowerCase()}`;
+            const pathname = parsed.pathname || '/';
+
+            const candidates = new Set();
+            if (pathname === '/' || pathname.toLowerCase() === '/index.html') {
+                candidates.add(origin);
+                candidates.add(`${origin}/`);
+                candidates.add(`${origin}/index.html`);
+            } else {
+                const normalizedPath = pathname.endsWith('/')
+                    ? pathname.slice(0, -1)
+                    : pathname;
+                candidates.add(`${origin}${normalizedPath}`);
+                candidates.add(`${origin}${normalizedPath}/`);
+            }
+
+            return [...candidates];
+        } catch {
+            return [indexUrl.trim()];
+        }
+    }
+
+    async #findIndexUrlConflictRow({ indexUrl, excludeAppId } = {}) {
+        if (!this.#isPuterHostedIndexUrl(indexUrl)) return null;
+
+        const candidates = this.#buildEquivalentIndexUrlCandidates(indexUrl);
+        if (candidates.length === 0) return null;
+        if (hasIndexUrlUniquenessExemption(candidates)) return null;
+
+        return this.appStore.findByIndexUrlCandidates(candidates, {
+            excludeAppId,
+        });
+    }
+
+    async #ensureIndexUrlNotAlreadyInUse({ indexUrl, excludeAppId } = {}) {
+        const conflictRow = await this.#findIndexUrlConflictRow({
+            indexUrl,
+            excludeAppId,
+        });
+        if (conflictRow) {
+            throw new HttpError(400, 'App index_url already in use', {
+                legacyCode: 'app_index_url_already_in_use',
+                fields: {
+                    index_url: indexUrl,
+                    app_uid: conflictRow.uid,
+                },
+            });
+        }
+    }
+
+    async #ensurePuterSiteSubdomainIsOwned(indexUrl, user) {
+        if (!user) return;
+        const subdomain = this.#extractPuterHostedSubdomain(indexUrl);
+        if (!subdomain) return;
+
+        const row = await this.stores.subdomain.getBySubdomain(subdomain);
+        if (!row || row.user_id !== user.id) {
+            throw new HttpError(400, 'Subdomain not owned by user', {
+                legacyCode: 'subdomain_not_owned',
+                fields: { subdomain },
+            });
+        }
+    }
+
+    /**
+     * Origin-bootstrap detection: rows auto-created when an unknown
+     * origin first needed an app row (no human-supplied metadata).
+     * Marker is `name === uid && title === uid` and a description
+     * starting with "App created from origin ". Only these rows are
+     * eligible for same-owner merging — refusing to merge arbitrary
+     * same-owner apps prevents accidental data loss.
+     */
+    #isOriginBootstrapApp(app) {
+        if (!app || typeof app !== 'object') return false;
+        if (typeof app.uid !== 'string' || !app.uid) return false;
+        if (app.name !== app.uid) return false;
+        if (app.title !== app.uid) return false;
+        if (typeof app.description !== 'string') return false;
+        return app.description.startsWith('App created from origin ');
+    }
+
+    // ── Canonical-uid alias kvstore pair ─────────────────────────────
+    //
+    // After a merge, the source app uid → canonical uid mapping is
+    // kept in `stores.kv` (system namespace) so any client that still
+    // holds the old uid keeps resolving to the joined row via
+    // `#getByUidWithAlias`. Reverse map lets callers enumerate aliases
+    // for a canonical uid (matches v1 plumbing).
+
+    #buildCanonicalAppUidAliasKey(oldAppUid) {
+        return `${APP_UID_ALIAS_KEY_PREFIX}:${oldAppUid}`;
+    }
+
+    #buildCanonicalAppUidAliasReverseKey(canonicalAppUid) {
+        return `${APP_UID_ALIAS_REVERSE_KEY_PREFIX}:${canonicalAppUid}`;
+    }
+
+    #normalizeCanonicalAliasUidList(value) {
+        if (!Array.isArray(value)) return [];
+        const out = [];
+        const seen = new Set();
+        for (const item of value) {
+            if (typeof item !== 'string' || !item) continue;
+            if (seen.has(item)) continue;
+            seen.add(item);
+            out.push(item);
+        }
+        return out;
+    }
+
+    async #readCanonicalAppUidAlias(oldAppUid) {
+        if (typeof oldAppUid !== 'string' || !oldAppUid) return null;
+        const key = this.#buildCanonicalAppUidAliasKey(oldAppUid);
+        try {
+            const { res } = await this.stores.kv.get({ key });
+            if (typeof res === 'string' && res) return res;
+        } catch {
+            // Alias reads are best-effort.
+        }
+        return null;
+    }
+
+    async #writeCanonicalAppUidAlias({ oldAppUid, canonicalAppUid }) {
+        if (typeof oldAppUid !== 'string' || !oldAppUid) return;
+        if (typeof canonicalAppUid !== 'string' || !canonicalAppUid) return;
+        if (oldAppUid === canonicalAppUid) return;
+
+        const key = this.#buildCanonicalAppUidAliasKey(oldAppUid);
+        const reverseKey =
+            this.#buildCanonicalAppUidAliasReverseKey(canonicalAppUid);
+        const expireAt =
+            Math.floor(Date.now() / 1000) + APP_UID_ALIAS_TTL_SECONDS;
+        try {
+            const { res: reverseValue } = await this.stores.kv.get({
+                key: reverseKey,
+            });
+            const reverseAliases =
+                this.#normalizeCanonicalAliasUidList(reverseValue);
+            if (!reverseAliases.includes(oldAppUid)) {
+                reverseAliases.push(oldAppUid);
+            }
+
+            await this.stores.kv.set({
+                key,
+                value: canonicalAppUid,
+                expireAt,
+            });
+            await this.stores.kv.set({
+                key: reverseKey,
+                value: reverseAliases,
+                expireAt,
+            });
+        } catch {
+            // Alias writes are best-effort.
+        }
+    }
+
+    /**
+     * Merge an incoming create/update into an existing app row that
+     * already owns the same puter-hosted index_url. Returns the joined
+     * (client-shaped) app on success, or `null` when no merge applied.
+     * Throws `app_index_url_already_in_use` when a conflict exists but
+     * cannot be merged (different owner, or same-owner non-bootstrap).
+     *
+     * `sourceAppUid` is set when called from update — when present and
+     * different from the conflict row's uid, the source row is deleted
+     * and an alias is recorded so old-uid clients keep resolving.
+     */
+    async #maybeJoinOwnedHostedIndexUrlApp({
+        object,
+        options,
+        user,
+        sourceAppUid,
+        excludeAppId,
+    } = {}) {
+        const indexUrl = object?.index_url;
+        if (!this.#isPuterHostedIndexUrl(indexUrl)) return null;
+
+        const conflictRow = await this.#findIndexUrlConflictRow({
+            indexUrl,
+            excludeAppId,
+        });
+        if (!conflictRow) return null;
+
+        const conflictOwnerUserId = Number(conflictRow.owner_user_id);
+        if (
+            Number.isInteger(conflictOwnerUserId) &&
+            conflictOwnerUserId > 0 &&
+            conflictOwnerUserId !== user.id
+        ) {
+            throw new HttpError(400, 'App index_url already in use', {
+                legacyCode: 'app_index_url_already_in_use',
+                fields: {
+                    index_url: indexUrl,
+                    app_uid: conflictRow.uid,
+                },
+            });
+        }
+
+        // Unowned (origin-bootstrap) row → claim it before merging.
+        if (
+            !Number.isInteger(conflictOwnerUserId) ||
+            conflictOwnerUserId <= 0
+        ) {
+            await this.appStore.claimOwnership(conflictRow.id, user.id);
+        }
+
+        const appToJoin = await this.appStore.getByUid(conflictRow.uid);
+        if (!appToJoin || appToJoin.uid !== conflictRow.uid) {
+            throw new HttpError(400, 'App index_url already in use', {
+                legacyCode: 'app_index_url_already_in_use',
+                fields: {
+                    index_url: indexUrl,
+                    app_uid: conflictRow.uid,
+                },
+            });
+        }
+        if (appToJoin.owner_user_id !== user.id) {
+            throw new HttpError(400, 'App index_url already in use', {
+                legacyCode: 'app_index_url_already_in_use',
+                fields: {
+                    index_url: indexUrl,
+                    app_uid: conflictRow.uid,
+                },
+            });
+        }
+        if (
+            Number.isInteger(conflictOwnerUserId) &&
+            conflictOwnerUserId === user.id &&
+            !this.#isOriginBootstrapApp(appToJoin)
+        ) {
+            // Prevent merging arbitrary same-owner apps; only allow the
+            // auto-created origin bootstrap row to be absorbed.
+            throw new HttpError(400, 'App index_url already in use', {
+                legacyCode: 'app_index_url_already_in_use',
+                fields: {
+                    index_url: indexUrl,
+                    app_uid: conflictRow.uid,
+                },
+            });
+        }
+
+        // Build the joined input. Pass the original (unvalidated)
+        // object through the recursive `update` so its `#validateInput`
+        // re-runs cleanly — `fields` is post-validation (stringified
+        // metadata, 0/1 bools) and would fail a second pass.
+        const joinedObject = { ...object };
+        const requestedJoinedName =
+            (typeof joinedObject.name === 'string'
+                ? joinedObject.name.trim()
+                : '') || null;
+        const shouldReapplyRequestedNameAfterMerge =
+            !!sourceAppUid && !!requestedJoinedName;
+        // When called from update, defer the rename until after the
+        // source row is deleted — otherwise the rename would collide
+        // with the still-existing source app's name.
+        if (sourceAppUid && joinedObject.name !== undefined) {
+            delete joinedObject.name;
+        }
+
+        let joinedApp = await this.update({
+            uid: appToJoin.uid,
+            object: joinedObject,
+            options,
+        });
+
+        if (sourceAppUid && sourceAppUid !== appToJoin.uid) {
+            await this.#writeCanonicalAppUidAlias({
+                oldAppUid: sourceAppUid,
+                canonicalAppUid: appToJoin.uid,
+            });
+            const sourceApp = await this.appStore.getByUid(sourceAppUid);
+            if (sourceApp) {
+                await this.appStore.delete(sourceApp.id);
+                this.#emitAppChanged({
+                    app: null,
+                    old_app: sourceApp,
+                    action: 'deleted',
+                });
+            }
+        }
+
+        if (shouldReapplyRequestedNameAfterMerge) {
+            joinedApp = await this.update({
+                uid: appToJoin.uid,
+                object: { name: requestedJoinedName },
+                options,
+            });
+        }
+
+        return joinedApp;
     }
 }
