@@ -2,7 +2,7 @@ import type { LayerInstances } from '../../types';
 import type { puterServices } from '../index';
 import type { UserRow } from '../../stores/user/UserStore';
 import { PuterService } from '../types';
-import { cleanEmail } from '../../util/email.js';
+import { cleanEmail, isBlockedEmail } from '../../util/email.js';
 import { generate_identifier } from '../../util/identifier.js';
 import { generateDefaultFsentries } from '../../util/userProvisioning.js';
 import { Context } from '../../core';
@@ -344,6 +344,40 @@ export class OIDCService extends PuterService {
                 success: false,
                 error: validateEvent.message ?? 'Signup blocked',
             };
+        }
+
+        // Email validation — mirrors AuthController#validateEmail. Skipped
+        // when the IdP didn't return an email (createUserFromOIDC is
+        // reachable with `email` undefined).
+        if (claims.email) {
+            if (isBlockedEmail(claims.email, this.config.blockedEmailDomains)) {
+                return {
+                    success: false,
+                    error: 'This email is not allowed.',
+                };
+            }
+            const emailEvent = {
+                email: cleanEmail(claims.email),
+                allow: true,
+                message: null as string | null,
+            };
+            try {
+                await this.clients.event?.emitAndWait(
+                    'puter.email.validate',
+                    emailEvent,
+                    {},
+                );
+            } catch (e) {
+                console.warn('[oidc] email validate hook failed:', e);
+            }
+            if (!emailEvent.allow) {
+                return {
+                    success: false,
+                    error:
+                        emailEvent.message ??
+                        'This email cannot be used. Please try a different email address.',
+                };
+            }
         }
 
         const created = await this.stores.user.create({

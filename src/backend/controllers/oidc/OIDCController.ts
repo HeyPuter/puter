@@ -193,6 +193,7 @@ export class OIDCController extends PuterController {
                 const origin = this.config.origin ?? '';
                 const result = await this.#processCallback(req, 'login');
                 if ('error' in result) {
+                    console.warn(`OIDC login callback error: ${result.error}`);
                     return res.redirect(
                         302,
                         buildErrorRedirectUrl(
@@ -210,6 +211,9 @@ export class OIDCController extends PuterController {
                     userinfo,
                 );
                 if ('error' in resolved) {
+                    console.warn(
+                        `OIDC login user resolution error: ${resolved.error}`,
+                    );
                     return res.redirect(
                         302,
                         buildErrorRedirectUrl(
@@ -224,6 +228,9 @@ export class OIDCController extends PuterController {
                 const user = resolved.user;
 
                 if (user.suspended) {
+                    console.warn(
+                        `Suspended user tried to login via oidc: ${user.username}`,
+                    );
                     return res.redirect(
                         302,
                         buildErrorRedirectUrl(

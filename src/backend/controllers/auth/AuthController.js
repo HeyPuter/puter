@@ -301,16 +301,7 @@ export class AuthController extends PuterController {
                             400,
                             'Please enter a valid email address.',
                         );
-                    // Block listed/disposable domains (env=dev bypasses to keep fixtures working).
-                    if (
-                        this.config.env !== 'dev' &&
-                        isBlockedEmail(
-                            body.email,
-                            this.config.blockedEmailDomains,
-                        )
-                    ) {
-                        throw new HttpError(400, 'This email is not allowed.');
-                    }
+                    await this.#validateEmail(body.email);
                     if (!body.password)
                         throw new HttpError(400, 'Password is required');
                     if (typeof body.password !== 'string')
@@ -711,6 +702,11 @@ export class AuthController extends PuterController {
                     });
                 }
 
+                // Re-validate the email at confirmation time — the address may
+                // have been added to the blocklist (or flagged by an extension)
+                // after signup but before confirmation.
+                await this.#validateEmail(user.email);
+
                 await this.stores.user.update(user.id, {
                     email_confirmed: 1,
                     requires_email_confirmation: 0,
@@ -1075,6 +1071,7 @@ export class AuthController extends PuterController {
                         'Please enter a valid email address.',
                     );
                 }
+                await this.#validateEmail(new_email);
 
                 // Block if any confirmed account (password or OIDC) already
                 // owns that email. Match raw + canonical to collapse gmail
@@ -1280,6 +1277,7 @@ export class AuthController extends PuterController {
                         'Please enter a valid email address.',
                     );
                 }
+                await this.#validateEmail(email);
                 if (!password || typeof password !== 'string') {
                     throw new HttpError(400, 'Password is required.');
                 }
@@ -2293,6 +2291,40 @@ export class AuthController extends PuterController {
                 throw new Error('Failed to generate unique username');
         } while (await this.stores.user.getByUsername(username));
         return username;
+    }
+
+    /**
+     * Config-blocklist + extension-driven email validation.
+     * Config blocklist (suffix match on cleaned email) blocks first; then
+     * the `puter.email.validate` event lets extensions (abuse) reject.
+     * Throws HttpError(400) on rejection.
+     */
+    async #validateEmail(email) {
+        if (isBlockedEmail(email, this.config.blockedEmailDomains)) {
+            throw new HttpError(400, 'This email is not allowed.');
+        }
+
+        const validateEvent = {
+            email: cleanEmail(email),
+            allow: true,
+            message: null,
+        };
+        try {
+            await this.clients.event?.emitAndWait(
+                'puter.email.validate',
+                validateEvent,
+                {},
+            );
+        } catch (e) {
+            console.warn('[email-validate] hook failed:', e);
+        }
+        if (!validateEvent.allow) {
+            throw new HttpError(
+                400,
+                validateEvent.message ??
+                    'This email cannot be used. Please try a different email address.',
+            );
+        }
     }
 
     async #completeLogin(req, res, user) {
