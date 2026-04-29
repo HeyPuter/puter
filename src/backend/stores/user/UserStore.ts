@@ -251,11 +251,23 @@ export class UserStore extends PuterStore {
     }): Promise<UserRow> {
         const result = await this.clients.db.write(
             `INSERT INTO \`user\`
-            (username, email, clean_email, password, uuid, free_storage,
-             requires_email_confirmation, email_confirm_code, email_confirm_token,
-             audit_metadata, signup_ip, signup_ip_forwarded,
-             signup_user_agent, signup_origin, signup_server, referrer)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            (username,
+             email,
+             clean_email,
+             password, 
+             uuid, 
+             free_storage,
+             requires_email_confirmation, 
+             email_confirm_code, 
+             email_confirm_token,
+             audit_metadata, 
+             signup_ip, 
+             signup_ip_forwarded,
+             signup_user_agent, 
+             signup_origin, 
+             signup_server, 
+             referrer)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
                 fields.username,
                 fields.email,
