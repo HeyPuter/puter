@@ -69,14 +69,8 @@ export class XAIImageProvider implements IImageProvider {
         }
 
         const actor = Context.get('actor');
-        const user_private_uid = actor?.private_uid ?? 'UNKNOWN';
-        if (user_private_uid === 'UNKNOWN') {
-            console.error(
-                new Error(
-                    'xai-image-generation:unknown-user - failed to get a user ID for an xAI request',
-                ),
-            );
-        }
+        const userIdentifier =
+            actor?.user.id + actor?.app?.uid ? `:${actor?.app?.uid}` : '';
 
         const priceInCents = selectedModel.costs[PRICE_KEY];
         const costInMicroCents = priceInCents * 1_000_000;
@@ -92,7 +86,7 @@ export class XAIImageProvider implements IImageProvider {
         const response = await this.#client.images.generate({
             model: selectedModel.id,
             prompt,
-            user: user_private_uid,
+            user: userIdentifier,
         });
 
         const first = response.data?.[0] as

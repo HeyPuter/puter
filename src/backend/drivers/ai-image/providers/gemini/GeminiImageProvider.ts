@@ -123,14 +123,6 @@ export class GeminiImageProvider implements IImageProvider {
         }
 
         const actor = Context.get('actor');
-        const user_private_uid = actor?.private_uid ?? 'UNKNOWN';
-        if (user_private_uid === 'UNKNOWN') {
-            console.error(
-                new Error(
-                    'gemini-image-generation:unknown-user - failed to get a user ID for a Gemini request',
-                ),
-            );
-        }
 
         // --- Pre-flight cost estimation ---
         const inputImageCount = input_images?.length ?? 0;

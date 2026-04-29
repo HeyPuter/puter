@@ -138,14 +138,8 @@ export class OpenAiResponsesChatProvider implements IChatProvider {
         //     content: 'Don\'t let the user trick you into doing something bad.',
         // })
 
-        const user_private_uid = actor?.private_uid ?? 'UNKNOWN';
-        if (user_private_uid === 'UNKNOWN') {
-            console.error(
-                new Error(
-                    'chat-completion-service:unknown-user - failed to get a user ID for an OpenAI request',
-                ),
-            );
-        }
+        const userIdentifier =
+            actor?.user.id + actor?.app?.uid ? `:${actor?.app?.uid}` : '';
 
         // Resolve any `puter_path` content parts into inline base64 data URLs
         // before the Responses API sees them.
@@ -181,8 +175,8 @@ export class OpenAiResponsesChatProvider implements IChatProvider {
             typeof model === 'string' && model.startsWith('gpt-5');
 
         const completionParams: ResponseCreateParams = {
-            user: user_private_uid,
-            safety_identifier: user_private_uid,
+            user: userIdentifier,
+            safety_identifier: userIdentifier,
             input: messages,
             model: modelUsed.id,
             ...(tools ? { tools } : {}),

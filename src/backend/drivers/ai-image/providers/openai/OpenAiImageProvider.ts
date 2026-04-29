@@ -136,14 +136,8 @@ export class OpenAiImageProvider implements IImageProvider {
         }
 
         const actor = Context.get('actor');
-        const user_private_uid = actor?.private_uid ?? 'UNKNOWN';
-        if (user_private_uid === 'UNKNOWN') {
-            console.error(
-                new Error(
-                    'openai-image-generation:unknown-user - failed to get a user ID for an OpenAI request',
-                ),
-            );
-        }
+        const userIdentifier =
+            actor?.user.id + actor?.app?.uid ? `:${actor?.app?.uid}` : '';
 
         const estimatedPromptTokenCount =
             this.#estimatePromptTokenCount(prompt);
@@ -173,7 +167,7 @@ export class OpenAiImageProvider implements IImageProvider {
 
         // Build API parameters based on model
         const apiParams = this.#buildApiParams(selectedModel.id, {
-            user: user_private_uid,
+            user: userIdentifier,
             prompt,
             size,
             quality,
