@@ -10,10 +10,9 @@ import { PEER_COSTS } from './costs.js';
  * Strips an `app-` prefix and dashes, then reinterprets the hex bytes.
  */
 const uuidToBase64url = (uuid: string): string =>
-    Buffer.from(
-        uuid.replace(/^app-/, '').replaceAll('-', ''),
-        'hex',
-    ).toString('base64url');
+    Buffer.from(uuid.replace(/^app-/, '').replaceAll('-', ''), 'hex').toString(
+        'base64url',
+    );
 
 /**
  * Decode a base64url-encoded hex UUID back to dashed form.
@@ -130,7 +129,7 @@ export class PeerController extends PuterController {
                 cfRes.status,
                 body,
             );
-            throw new HttpError(502, 'TURN credential generation failed');
+            throw new HttpError(500, 'TURN credential generation failed');
         }
 
         const data = (await cfRes.json()) as { iceServers?: unknown };

@@ -37,6 +37,12 @@ import {
  *     validation to allow arbitrary hostnames first.
  */
 
+const SUBDOMAIN_404 = `<div style="font-size: 20px;
+        text-align: center;
+        height: calc(100vh);
+        display: flex;
+        justify-content: center;
+        flex-direction: column;"><h1 style="margin:0; color:#727272;">404</h1><p style="margin-top:10px;">Subdomain or site is not pointing to a directory.</p></div>`;
 interface SubdomainRow {
     id: number;
     uuid: string;
@@ -373,9 +379,9 @@ export const createPuterSiteMiddleware = (
         }
 
         if (site.root_dir_id === null || site.root_dir_id === undefined) {
-            res.status(502)
-                .type('text/plain')
-                .send('Subdomain is not pointing to a directory');
+            res.status(404)
+                .type('text/html; charset=UTF-8')
+                .send(SUBDOMAIN_404);
             return;
         }
 
@@ -383,15 +389,15 @@ export const createPuterSiteMiddleware = (
             site.root_dir_id,
         );
         if (!rootEntry) {
-            res.status(502)
-                .type('text/plain')
-                .send('Subdomain is pointing to deleted directory');
+            res.status(404)
+                .type('text/html; charset=UTF-8')
+                .send(SUBDOMAIN_404);
             return;
         }
         if (!rootEntry.isDir) {
-            res.status(502)
-                .type('text/plain')
-                .send('Subdomain is pointing to non-directory');
+            res.status(404)
+                .type('text/html; charset=UTF-8')
+                .send(SUBDOMAIN_404);
             return;
         }
 

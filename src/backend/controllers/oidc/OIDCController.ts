@@ -173,7 +173,7 @@ export class OIDCController extends PuterController {
                 );
                 if (!url)
                     throw new HttpError(
-                        502,
+                        500,
                         'Could not build authorization URL.',
                     );
 

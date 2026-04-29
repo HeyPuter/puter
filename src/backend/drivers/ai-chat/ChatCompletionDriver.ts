@@ -298,7 +298,7 @@ export class ChatCompletionDriver extends PuterDriver {
         }
 
         if (!res) {
-            throw new HttpError(502, 'All providers failed', {
+            throw new HttpError(500, 'All providers failed', {
                 fields: { attempts },
             });
         }
