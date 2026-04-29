@@ -672,8 +672,9 @@ export class PuterServer {
                             status,
                             method: req.method,
                             path: req.originalUrl,
+                            body: req.body,
                             route: routePath,
-                            actor: req.actor?.user?.uuid,
+                            actor: req.actor,
                         },
                     );
                 },

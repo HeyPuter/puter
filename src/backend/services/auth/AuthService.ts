@@ -205,7 +205,10 @@ export class AuthService extends PuterService {
      */
     async appUidFromOrigin(origin: string): Promise<string> {
         const parsed = this.#originFromUrl(origin);
-        if (!parsed) throw new Error('Invalid origin URL');
+        if (!parsed) {
+            console.error('[auth] failed to parse origin URL', { origin });
+            throw new Error('Invalid origin URL');
+        }
         const event = { origin: parsed };
         await this.clients.event?.emitAndWait('app.from-origin', event, {});
 
