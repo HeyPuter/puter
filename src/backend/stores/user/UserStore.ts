@@ -246,13 +246,15 @@ export class UserStore extends PuterStore {
         signup_ip_forwarded?: string | null;
         signup_user_agent?: string | null;
         signup_origin?: string | null;
+        signup_server?: string | null;
+        referrer?: string | null;
     }): Promise<UserRow> {
         const result = await this.clients.db.write(
             `INSERT INTO \`user\`
             (username, email, clean_email, password, uuid, free_storage,
              requires_email_confirmation, email_confirm_code, email_confirm_token,
              audit_metadata, signup_ip, signup_ip_forwarded,
-             signup_user_agent, signup_origin)
+             signup_user_agent, signup_origin, signup_server, referrer)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
                 fields.username,
@@ -271,6 +273,8 @@ export class UserStore extends PuterStore {
                 fields.signup_ip_forwarded ?? null,
                 fields.signup_user_agent ?? null,
                 fields.signup_origin ?? null,
+                fields.signup_server ?? null,
+                fields.referrer ?? null,
             ],
         );
 

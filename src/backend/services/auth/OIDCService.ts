@@ -5,6 +5,7 @@ import { PuterService } from '../types';
 import { cleanEmail } from '../../util/email.js';
 import { generate_identifier } from '../../util/identifier.js';
 import { generateDefaultFsentries } from '../../util/userProvisioning.js';
+import { Context } from '../../core';
 
 const GOOGLE_DISCOVERY_URL =
     'https://accounts.google.com/.well-known/openid-configuration';
@@ -311,6 +312,13 @@ export class OIDCService extends PuterService {
 
         // Create user — no password, email assumed confirmed by provider
         const { v4: uuidv4 } = await import('uuid');
+        const req = Context.get('req');
+        const clientIp = req.ip || req.socket?.remoteAddress || null;
+        const proxyIpChain =
+            Array.isArray(req.ips) && req.ips.length > 0
+                ? req.ips.join(', ')
+                : null;
+
         const created = await this.stores.user.create({
             username,
             uuid: uuidv4(),
@@ -319,6 +327,18 @@ export class OIDCService extends PuterService {
             clean_email: claims.email ? cleanEmail(claims.email) : null,
             free_storage: this.config.storage_capacity ?? null,
             requires_email_confirmation: false,
+            audit_metadata: {
+                ip: clientIp,
+                ip_fwd: proxyIpChain,
+                user_agent: req.headers?.['user-agent'],
+                origin: req.headers?.origin,
+            },
+            signup_ip: clientIp,
+            signup_ip_forwarded: proxyIpChain,
+            signup_user_agent: req?.headers?.['user-agent'] ?? null,
+            signup_origin: req?.headers.origin,
+            signup_server: this.config.serverId,
+            referrer: req.body.referrer ?? null,
         });
 
         if (!created) {

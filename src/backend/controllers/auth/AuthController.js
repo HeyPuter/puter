@@ -513,6 +513,8 @@ export class AuthController extends PuterController {
                         signup_ip_forwarded: proxyIpChain,
                         signup_user_agent: req.headers?.['user-agent'] ?? null,
                         signup_origin: req.headers?.origin ?? null,
+                        signup_server: this.config.serverId,
+                        referrer: req.body.referrer ?? null,
                     });
 
                     // Add to default group
