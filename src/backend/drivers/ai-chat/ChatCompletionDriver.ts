@@ -137,7 +137,10 @@ export class ChatCompletionDriver extends PuterDriver {
             normalize_tools_object(args.tools);
         }
 
-        const completionId = crypto.randomUUID();
+        const completionId = crypto
+            .randomUUID()
+            .replaceAll('-', '')
+            .slice(0, 25);
 
         const validateEvent: Record<string, unknown> = {
             actor,
