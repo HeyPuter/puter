@@ -424,20 +424,20 @@ export class AuthService extends PuterService {
         });
     }
 
-    verifyPrivateAssetToken(
+    async verifyPrivateAssetToken(
         token: string,
         expected: {
             expectedAppUid?: string;
             expectedSubdomain?: string;
             expectedPrivateHost?: string;
         } = {},
-    ): {
+    ): Promise<{
         userUid: string;
         sessionUuid?: string;
         appUid?: string;
         subdomain?: string;
         privateHost?: string;
-    } {
+    }> {
         const decoded = this.#verifyHostedAssetToken(token, 'private');
         this.#assertExpected(
             decoded,
@@ -457,9 +457,25 @@ export class AuthService extends PuterService {
             expected.expectedPrivateHost,
             'expectedPrivateHost',
         );
+
+        // Bind the cookie to the user's session lifetime: the session row
+        // referenced at mint must still exist. Logging out drops the row,
+        // which transitively invalidates every private-app cookie issued
+        // under that session — matching v1's `expectedSessionUuid` check
+        // (private apps only; public hosted-actor cookies stay informational).
+        // Cookies minted without a session_uuid (e.g. from an access-token
+        // actor) skip this check; nothing to bind.
+        const sessionUuid = decoded.session_uuid as string | undefined;
+        if (sessionUuid) {
+            const session = await this.stores.session.getByUuid(sessionUuid);
+            if (!session) {
+                throw new Error('private-asset token session no longer valid');
+            }
+        }
+
         return {
             userUid: decoded.user_uid as string,
-            sessionUuid: decoded.session_uuid as string | undefined,
+            sessionUuid,
             appUid: decoded.app_uid as string | undefined,
             subdomain: decoded.subdomain as string | undefined,
             privateHost: decoded.host as string | undefined,

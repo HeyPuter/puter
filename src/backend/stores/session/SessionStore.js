@@ -87,7 +87,10 @@ export class SessionStore extends PuterStore {
         await this.clients.db.write('DELETE FROM `sessions` WHERE `uuid` = ?', [
             uuid,
         ]);
-        await this.publishCacheKeys({ keys: [this.#cacheKey(uuid)] });
+        await this.publishCacheKeys({
+            keys: [this.#cacheKey(uuid)],
+            broadcast: true,
+        });
     }
 
     /** Update session activity timestamp. */
