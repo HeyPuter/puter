@@ -456,6 +456,10 @@ export class PuterServer {
                 services: this.services,
             }),
         );
+
+        extensionStore.globalMiddlewares.forEach((mw) => {
+            this.#app.use(mw);
+        });
     }
 
     // ── Host header validation ──────────────────────────────────────
@@ -983,7 +987,7 @@ export class PuterServer {
         }
     }
 
-    async start() {
+    async start(noHttpServer = false) {
         await this.#ready;
 
         // Create the http server explicitly (instead of `app.listen()`) so we
@@ -1001,67 +1005,83 @@ export class PuterServer {
             }
         }
 
-        this.#server = httpServer.listen(this.#config.port, async () => {
-            const cfg = this.#config;
-            const liveUrl =
-                cfg.origin ??
-                `${cfg.protocol ?? 'http'}://${cfg.domain ?? 'localhost'}:${this.#config.port}`;
-            console.log(
-                '\n************************************************************',
-            );
-            console.log(`* Puter is now live at: ${liveUrl}`);
-            console.log(
-                '************************************************************\n',
-            );
+        if (!noHttpServer) {
+            this.#server = httpServer.listen(this.#config.port, async () => {
+                const cfg = this.#config;
+                const liveUrl =
+                    cfg.origin ??
+                    `${cfg.protocol ?? 'http'}://${cfg.domain ?? 'localhost'}:${this.#config.port}`;
+                console.log(
+                    '\n************************************************************',
+                );
+                console.log(`* Puter is now live at: ${liveUrl}`);
+                console.log(
+                    '************************************************************\n',
+                );
 
-            for (const client of Object.values(
-                this.clients,
-            ) as WithLifecycle[]) {
-                if (client.onServerStart) {
-                    await client.onServerStart();
+                for (const client of Object.values(
+                    this.clients,
+                ) as WithLifecycle[]) {
+                    if (client.onServerStart) {
+                        await client.onServerStart();
+                    }
                 }
-            }
-            for (const store of Object.values(this.stores) as WithLifecycle[]) {
-                if (store.onServerStart) {
-                    await store.onServerStart();
+                for (const store of Object.values(
+                    this.stores,
+                ) as WithLifecycle[]) {
+                    if (store.onServerStart) {
+                        await store.onServerStart();
+                    }
                 }
-            }
-            for (const service of Object.values(
-                this.services,
-            ) as WithLifecycle[]) {
-                if (service.onServerStart) {
-                    await service.onServerStart();
+                for (const service of Object.values(
+                    this.services,
+                ) as WithLifecycle[]) {
+                    if (service.onServerStart) {
+                        await service.onServerStart();
+                    }
                 }
-            }
-            for (const controller of Object.values(
-                this.controllers,
-            ) as WithLifecycle[]) {
-                if (controller.onServerStart) {
-                    await controller.onServerStart();
+                for (const controller of Object.values(
+                    this.controllers,
+                ) as WithLifecycle[]) {
+                    if (controller.onServerStart) {
+                        await controller.onServerStart();
+                    }
                 }
-            }
-            for (const driver of Object.values(
-                this.drivers,
-            ) as WithLifecycle[]) {
-                if (driver.onServerStart) {
-                    await driver.onServerStart();
+                for (const driver of Object.values(
+                    this.drivers,
+                ) as WithLifecycle[]) {
+                    if (driver.onServerStart) {
+                        await driver.onServerStart();
+                    }
                 }
-            }
-            console.log('PuterServer has fully booted.');
-            // Auto-launch the browser on dev boot (matches v1 WebServerService).
-            // Opt out via `no_browser_launch: true` in config.
-            if (this.#config.env === 'dev' && !cfg.no_browser_launch) {
-                try {
-                    const openModule = await import('open');
-                    await openModule.default(liveUrl);
-                } catch (e) {
-                    console.log(
-                        '[server] could not auto-open browser:',
-                        (e as Error).message,
+                console.log('PuterServer has fully booted.');
+                // Auto-launch the browser on dev boot (matches v1 WebServerService).
+                // Opt out via `no_browser_launch: true` in config.
+                if (this.#config.env === 'dev' && !cfg.no_browser_launch) {
+                    try {
+                        const openModule = await import('open');
+                        await openModule.default(liveUrl);
+                    } catch (e) {
+                        console.log(
+                            '[server] could not auto-open browser:',
+                            (e as Error).message,
+                        );
+                    }
+                }
+            });
+        } else {
+            this.#server = {
+                close: (cb) => {
+                    console.debug('PuterServer mock close called');
+                    cb();
+                },
+                closeAllConnections: () => {
+                    console.debug(
+                        'PuterServer mock closeAllConnections called',
                     );
-                }
-            }
-        });
+                },
+            };
+        }
     }
 
     async prepareShutdown() {

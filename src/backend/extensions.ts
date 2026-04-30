@@ -36,6 +36,7 @@ export const extensionStore = {
     services: {} as IPuterServiceRegistry,
     controllers: {} as IPuterControllerRegistry,
     drivers: {} as IPuterDriverRegistry,
+    globalMiddlewares: [] as RequestHandler[],
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     events: {} as Record<string, ((...args: any[]) => void)[]>,
     /**
@@ -211,6 +212,9 @@ export const extension = {
         driver: IPuterDriverRegistry[keyof IPuterDriverRegistry],
     ) => {
         extensionStore.drivers[name] = driver;
+    },
+    registerGlobalMiddleware: (middleware: RequestHandler) => {
+        extensionStore.globalMiddlewares.push(middleware);
     },
 
     // ── Route registration ───────────────────────────────────────────
