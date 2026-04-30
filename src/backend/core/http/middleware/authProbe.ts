@@ -49,9 +49,21 @@ export const createAuthProbe = (opts: AuthProbeOptions): RequestHandler => {
             if (actor) {
                 req.actor = actor;
                 req.token = token;
+            } else {
+                // Token was present but didn't resolve — covers v1-shape
+                // tokens v2 can't authenticate (e.g. FPE-encrypted session
+                // UUIDs), as well as tokens whose session/user/app rows
+                // have been deleted. `requireAuthGate` reads this flag
+                // to emit `token_auth_failed` (matching v1) so clients
+                // trigger their re-login flow instead of retrying.
+                req.tokenAuthFailed = true;
             }
         } catch {
-            // Probe never rejects — invalid tokens just leave `req.actor` undefined.
+            // Probe never rejects — invalid tokens just leave `req.actor`
+            // undefined. Same flag as above so the gate's response shape
+            // is identical regardless of whether the failure came from
+            // jwt.verify or a downstream lookup.
+            req.tokenAuthFailed = true;
         }
         next();
     };

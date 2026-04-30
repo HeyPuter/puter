@@ -341,7 +341,7 @@ export async function resolvePrivateIdentity(opts: {
             : null;
     if (privateCookieToken) {
         try {
-            const claims = authService.verifyPrivateAssetToken(
+            const claims = await authService.verifyPrivateAssetToken(
                 privateCookieToken,
                 {
                     expectedAppUid,
@@ -356,7 +356,7 @@ export async function resolvePrivateIdentity(opts: {
                 hasValidPrivateCookie: true,
             };
         } catch {
-            /* fall through — stale / mismatched cookie */
+            /* fall through — stale / mismatched / logged-out cookie */
         }
     }
 

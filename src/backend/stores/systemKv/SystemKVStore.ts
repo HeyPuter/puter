@@ -6,6 +6,7 @@ import {
     SYSTEM_ACTOR_UUID,
 } from '../../core/actor';
 import { PUTER_KV_STORE_TABLE_DEFINITION } from './tableDefinition';
+import { HttpError } from '../../core/http';
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -38,6 +39,7 @@ export interface RecursiveRecord<T> {
 const GLOBAL_APP_KEY = 'os-global';
 const SYSTEM_NAMESPACE = `v1:${SYSTEM_ACTOR_UUID}:${GLOBAL_APP_KEY}`;
 const MAX_KEY_BYTES = 1024;
+const MAX_VALUE_BYTES = 399 * 1024;
 const BATCH_GET_CHUNK = 100;
 const PATH_CLEANER_REGEX = /[:\-+/*]/g;
 
@@ -67,9 +69,27 @@ const getNamespace = (actor: Actor, appUuidOverride?: string): string => {
 };
 
 const assertKey = (key: string): void => {
-    if (key === '') throw new Error('kv: key is empty');
+    if (key === '')
+        throw new HttpError(400, 'kv: key is empty', {
+            legacyCode: 'bad_request',
+        });
     if (Buffer.byteLength(key, 'utf8') > MAX_KEY_BYTES) {
-        throw new Error(`kv: key exceeds ${MAX_KEY_BYTES} byte limit`);
+        throw new HttpError(
+            400,
+            `kv: key exceeds ${MAX_KEY_BYTES} byte limit`,
+            { legacyCode: 'bad_request' },
+        );
+    }
+};
+
+const assertValueSize = (value: unknown): void => {
+    const size = Buffer.byteLength(JSON.stringify(value ?? null), 'utf8');
+    if (size > MAX_VALUE_BYTES) {
+        throw new HttpError(
+            400,
+            `kv: value exceeds ${MAX_VALUE_BYTES} byte limit`,
+            { legacyCode: 'bad_request' },
+        );
     }
 };
 
@@ -93,7 +113,9 @@ const decodeCursor = (
         try {
             return JSON.parse(trimmed);
         } catch {
-            throw new Error('kv: invalid cursor');
+            throw new HttpError(400, 'kv: invalid cursor', {
+                legacyCode: 'bad_request',
+            });
         }
     }
 };
@@ -102,7 +124,9 @@ const normalizeLimit = (limit?: number): number | undefined => {
     if (limit === undefined || limit === null) return undefined;
     const parsed = Number(limit);
     if (!Number.isFinite(parsed) || parsed <= 0) {
-        throw new Error('kv: limit must be a positive number');
+        throw new HttpError(400, 'kv: limit must be a positive number', {
+            legacyCode: 'bad_request',
+        });
     }
     return Math.floor(parsed);
 };
@@ -110,7 +134,9 @@ const normalizeLimit = (limit?: number): number | undefined => {
 const normalizePattern = (pattern?: string): string | undefined => {
     if (pattern === undefined || pattern === null) return undefined;
     if (typeof pattern !== 'string')
-        throw new Error('kv: pattern must be a string');
+        throw new HttpError(400, 'kv: pattern must be a string', {
+            legacyCode: 'bad_request',
+        });
     const trimmed = pattern.trim();
     if (trimmed === '') return undefined;
     if (trimmed.endsWith('*')) {
@@ -226,6 +252,7 @@ export class SystemKVStore extends PuterStore {
         opts?: KVOpts,
     ): Promise<KVResult<boolean>> {
         assertKey(key);
+        assertValueSize(value);
         const actor = ensureActor(opts);
         const namespace = getNamespace(actor, opts?.appUuid);
 
@@ -261,6 +288,7 @@ export class SystemKVStore extends PuterStore {
         for (const item of items) {
             const k = String(item.key);
             assertKey(k);
+            assertValueSize(item.value);
             byKey.set(k, {
                 key: k,
                 value: item.value,
@@ -368,7 +396,11 @@ export class SystemKVStore extends PuterStore {
 
         const kind = as ?? 'entries';
         if (!['keys', 'values', 'entries'].includes(kind)) {
-            throw new Error('kv: list "as" must be keys, values, or entries');
+            throw new HttpError(
+                400,
+                'kv: list "as" must be keys, values, or entries',
+                { legacyCode: 'bad_request' },
+            );
         }
 
         let items: string[] | unknown[] | { key: string; value: unknown }[] =
@@ -459,12 +491,16 @@ export class SystemKVStore extends PuterStore {
     > {
         assertKey(key);
         if (!pathAndAmountMap)
-            throw new Error('kv: incr requires pathAndAmountMap');
+            throw new HttpError(400, 'kv: incr requires pathAndAmountMap', {
+                legacyCode: 'bad_request',
+            });
         if (
             Object.values(pathAndAmountMap).some((v) => typeof v !== 'number')
         ) {
-            throw new Error(
+            throw new HttpError(
+                400,
                 'kv: all values in pathAndAmountMap must be numbers',
+                { legacyCode: 'bad_request' },
             );
         }
 
@@ -544,7 +580,12 @@ export class SystemKVStore extends PuterStore {
     ): Promise<KVResult<unknown>> {
         assertKey(key);
         if (!pathAndValueMap || Object.keys(pathAndValueMap).length === 0) {
-            throw new Error('kv: add requires pathAndValueMap');
+            throw new HttpError(400, 'kv: add requires pathAndValueMap', {
+                legacyCode: 'bad_request',
+            });
+        }
+        for (const val of Object.values(pathAndValueMap)) {
+            assertValueSize(val);
         }
 
         const actor = ensureActor(opts);
@@ -608,7 +649,9 @@ export class SystemKVStore extends PuterStore {
     ): Promise<KVResult<unknown>> {
         assertKey(key);
         if (!paths || paths.length === 0) {
-            throw new Error('kv: remove requires paths');
+            throw new HttpError(400, 'kv: remove requires paths', {
+                legacyCode: 'bad_request',
+            });
         }
 
         const actor = ensureActor(opts);
@@ -684,7 +727,12 @@ export class SystemKVStore extends PuterStore {
     ): Promise<KVResult<unknown>> {
         assertKey(key);
         if (!pathAndValueMap || Object.keys(pathAndValueMap).length === 0) {
-            throw new Error('kv: update requires pathAndValueMap');
+            throw new HttpError(400, 'kv: update requires pathAndValueMap', {
+                legacyCode: 'bad_request',
+            });
+        }
+        for (const val of Object.values(pathAndValueMap)) {
+            assertValueSize(val);
         }
 
         const actor = ensureActor(opts);
@@ -728,7 +776,9 @@ export class SystemKVStore extends PuterStore {
         if (ttl !== undefined) {
             const ttlSeconds = Number(ttl);
             if (Number.isNaN(ttlSeconds))
-                throw new Error('kv: ttl must be a number');
+                throw new HttpError(400, 'kv: ttl must be a number', {
+                    legacyCode: 'bad_request',
+                });
             const timestamp = Math.floor(Date.now() / 1000) + ttlSeconds;
             setStatements.push('#ttl = :ttl');
             valueAttributeValues[':ttl'] = timestamp;

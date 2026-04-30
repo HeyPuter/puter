@@ -1,8 +1,26 @@
-import type { RequestHandler } from 'express';
+import type { Request, RequestHandler } from 'express';
 import { HttpError } from '../HttpError';
 
 // Make sure the `Express.Request.actor` augmentation is in scope.
 import '../expressAugmentation';
+
+/**
+ * Build the 401 a route gate emits when `req.actor` is absent. Splits the
+ * legacy code so old clients can tell the two cases apart: `token_missing`
+ * means "send a token", `token_auth_failed` means "your token didn't work,
+ * re-login". Matches the v1 backend's auth-failure shape so the existing
+ * client retry-vs-reauth logic doesn't need to change.
+ */
+const rejectAuth = (req: Request): HttpError => {
+    if (req.tokenAuthFailed) {
+        return new HttpError(401, 'Authentication failed', {
+            legacyCode: 'token_auth_failed',
+        });
+    }
+    return new HttpError(401, 'Missing authentication token', {
+        legacyCode: 'token_missing',
+    });
+};
 
 /**
  * Per-route gate middlewares.
@@ -55,11 +73,7 @@ export const subdomainGate = (allowed: string | string[]): RequestHandler => {
 export const requireAuthGate = (): RequestHandler => {
     return (req, _res, next) => {
         if (!req.actor) {
-            next(
-                new HttpError(401, 'Authentication required', {
-                    legacyCode: 'token_required',
-                }),
-            );
+            next(rejectAuth(req));
             return;
         }
         if (req.actor.user.suspended) {
@@ -86,11 +100,7 @@ export const requireUserActorGate = (): RequestHandler => {
         const actor = req.actor;
         // requireAuth runs first; this gate just narrows the actor type.
         if (!actor) {
-            next(
-                new HttpError(401, 'Authentication required', {
-                    legacyCode: 'token_required',
-                }),
-            );
+            next(rejectAuth(req));
             return;
         }
         if (actor.app || actor.accessToken) {
