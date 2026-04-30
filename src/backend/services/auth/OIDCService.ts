@@ -322,6 +322,13 @@ export class OIDCService extends PuterService {
         const validateEvent = {
             req,
             data: { username, email: claims.email ?? '' },
+            ip:
+                (req?.headers?.['x-forwarded-for'] as string | undefined) ||
+                req?.connection?.remoteAddress ||
+                req?.ip ||
+                req?.socket?.remoteAddress ||
+                null,
+            email: claims.email ?? '',
             allow: true,
             no_temp_user: false,
             requires_email_confirmation: false,

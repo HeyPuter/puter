@@ -373,7 +373,12 @@ export class AuthController extends PuterController {
                 const validateEvent = {
                     req,
                     data: body,
-                    ip: req.ip || req.socket?.remoteAddress || null,
+                    ip:
+                        req.headers?.['x-forwarded-for'] ||
+                        req.connection?.remoteAddress ||
+                        req.ip ||
+                        req.socket?.remoteAddress ||
+                        null,
                     email: body.email,
                     allow: true,
                     no_temp_user: false,
