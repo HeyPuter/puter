@@ -719,12 +719,23 @@ export class AuthService extends PuterService {
     async #actorFromAppUnderUserToken(
         decoded: AppUnderUserTokenPayload,
     ): Promise<Actor | null> {
-        // App tokens may or may not carry a session reference. If present,
-        // the token is bound to that session — log out invalidates it.
+        // Best-effort session resolution. v1 enforced session presence
+        // strictly here, but two factors make that unsafe right now:
+        //   1. Old v1 tokens still in circulation carry FPE-encrypted
+        //      session UUIDs that won't resolve against the v2 session
+        //      store no matter what.
+        //   2. Pre-token_auth_failed clients (older puter-js builds, the
+        //      signalling worker, etc.) don't auto-relogin on 401 — they
+        //      just bubble "Unauthorized" — so cascading invalidation
+        //      strands users until they manually log back in.
+        // Once the legacy-token bleed has stopped and the puter-js
+        // re-login patch has propagated, re-add the strict
+        // `if (!session) return null` to restore logout-cascades-to-app
+        // behavior. The private-asset cookie path still enforces session
+        // presence; the bound-to-session property is preserved there.
         let session: SessionRow | null = null;
         if (decoded.session) {
             session = await this.stores.session.getByUuid(decoded.session);
-            if (!session) return null;
         }
 
         const user = await this.stores.user.getByUuid(decoded.user_uid);
