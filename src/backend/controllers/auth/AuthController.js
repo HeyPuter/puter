@@ -462,10 +462,7 @@ export class AuthController extends PuterController {
                     // ── New user ────────────────────────────────────────
                     const clientIp =
                         req.ip || req.socket?.remoteAddress || null;
-                    const proxyIpChain =
-                        Array.isArray(req.ips) && req.ips.length > 0
-                            ? req.ips.join(', ')
-                            : null;
+                    const proxyIpChain = req.headers['x-forwarded-for'];
 
                     user = await this.stores.user.create({
                         username: body.username,

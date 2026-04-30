@@ -314,10 +314,7 @@ export class OIDCService extends PuterService {
         const { v4: uuidv4 } = await import('uuid');
         const req = Context.get('req');
         const clientIp = req.ip || req.socket?.remoteAddress || null;
-        const proxyIpChain =
-            Array.isArray(req.ips) && req.ips.length > 0
-                ? req.ips.join(', ')
-                : null;
+        const proxyIpChain = req.headers['x-forwarded-for'];
 
         // Run abuse-prevention validate hook. OIDC ignores
         // requires_email_confirmation (provider already verified) and
