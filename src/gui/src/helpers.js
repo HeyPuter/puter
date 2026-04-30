@@ -77,9 +77,11 @@ window.suggest_apps_for_fsentry = async (options) => {
  * @returns
  */
 window.byte_format = (bytes) => {
-    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB'];
     if ( bytes === 0 ) return '0 Byte';
-    const i = parseInt(Math.floor(Math.log(bytes) / Math.log(1024)));
+    let i = parseInt(Math.floor(Math.log(bytes) / Math.log(1024)));
+    if ( i < 0 ) i = 0;
+    if ( i >= sizes.length ) i = sizes.length - 1;
     return `${(bytes / Math.pow(1024, i)).toFixed(2) } ${ sizes[i]}`;
 };
 

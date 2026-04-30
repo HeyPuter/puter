@@ -1,204 +1,131 @@
 import js from '@eslint/js';
-import stylistic from '@stylistic/eslint-plugin';
 import tseslintPlugin from '@typescript-eslint/eslint-plugin';
 import tseslintParser from '@typescript-eslint/parser';
+import prettierPlugin from 'eslint-plugin-prettier';
+import prettierConfig from 'eslint-config-prettier';
 import { defineConfig } from 'eslint/config';
 import globals from 'globals';
-import bangSpaceIf from './eslint/bang-space-if.js';
-import controlStructureSpacing from './eslint/control-structure-spacing.js';
-import spaceUnaryOpsWithException from './eslint/space-unary-ops-with-exception.js';
 
-export const rules = {
-    'no-invalid-this': 'error',
-    'no-unused-vars': ['error', {
-        vars: 'all',
-        args: 'after-used',
-        caughtErrors: 'none',
-        ignoreRestSiblings: false,
-        ignoreUsingDeclarations: false,
-        reportUsedIgnorePattern: false,
-        argsIgnorePattern: '^_',
-        destructuredArrayIgnorePattern: '^_',
+// typescript-eslint's flat/recommended preset is an array of configs (base +
+// eslint-recommended overrides + recommended rules). Flatten its rules so we
+// can apply them via our own `files`-scoped blocks.
+const tsRecommendedRules = tseslintPlugin.configs['flat/recommended'].reduce(
+    (acc, cfg) => ({ ...acc, ...(cfg.rules ?? {}) }),
+    {},
+);
 
-    }],
-    curly: ['error', 'multi-line'],
-    '@stylistic/curly-newline': ['error', 'always'],
-    '@stylistic/object-curly-spacing': ['error', 'always'],
-    '@stylistic/indent': ['error', 4, {
-        SwitchCase: 1,
-        CallExpression: {
-            arguments: 1,
-        },
-    }],
-    '@stylistic/indent-binary-ops': ['error', 4],
-    '@stylistic/array-bracket-newline': ['error', 'consistent'],
-    '@stylistic/semi': ['error', 'always'],
-    '@stylistic/quotes': ['error', 'single', { 'avoidEscape': true }],
-    '@stylistic/function-call-argument-newline': ['error', 'consistent'],
-    '@stylistic/function-paren-newline': ['error', 'multiline-arguments'],
-    '@stylistic/arrow-spacing': ['error', { before: true, after: true }],
-    '@stylistic/space-before-function-paren': 'error',
-    '@stylistic/key-spacing': ['error', { 'beforeColon': false, 'afterColon': true }],
-    '@stylistic/keyword-spacing': ['error', { 'before': true, 'after': true }],
-    '@stylistic/no-multiple-empty-lines': ['error', { max: 1, maxEOF: 0 }],
-    '@stylistic/comma-spacing': ['error', { 'before': false, 'after': true }],
-    '@stylistic/comma-dangle': ['error', 'always-multiline'],
-    '@stylistic/object-property-newline': ['error', { allowAllPropertiesOnSameLine: true }],
-    '@stylistic/dot-location': ['error', 'property'],
-    '@stylistic/space-infix-ops': ['error'],
-    'no-undef': 'error',
-    'custom/control-structure-spacing': 'error',
-    'custom/bang-space-if': 'error',
-    '@stylistic/no-trailing-spaces': 'error',
-    '@stylistic/space-before-blocks': ['error', 'always'],
-    'prefer-template': 'error',
-    '@stylistic/no-mixed-spaces-and-tabs': ['error', 'smart-tabs'],
-    'custom/space-unary-ops-with-exception': ['error', { words: true, nonwords: false }],
-    '@stylistic/no-multi-spaces': ['error', { exceptions: { 'VariableDeclarator': true } }],
-    '@stylistic/type-annotation-spacing': 'error',
-    '@stylistic/type-generic-spacing': 'error',
-    '@stylistic/type-named-tuple-spacing': ['error'],
-    'no-use-before-define': ['error', {
-        'functions': false,
-    }],
-    '@stylistic/array-bracket-spacing': ['error', 'never'],
-    '@stylistic/linebreak-style': ['error', 'unix'],
-    'no-useless-computed-key': 'error',
-    'no-sequences': [
-        'error', {
-            allowInParentheses: false,
-        },
-    ],
+const prettierRules = {
+    ...prettierConfig.rules,
+    'prettier/prettier': 'error',
 };
 
-const tsRules = {
-    '@typescript-eslint/no-explicit-any': 'warn',
-    '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', caughtErrors: 'none' }],
-    '@typescript-eslint/ban-ts-comment': 'warn',
-    '@typescript-eslint/consistent-type-definitions': ['error', 'interface'],
+const unusedVarsOptions = {
+    args: 'after-used',
+    argsIgnorePattern: '^_',
+    varsIgnorePattern: '^_',
+    caughtErrorsIgnorePattern: '^_',
+    destructuredArrayIgnorePattern: '^_',
+    ignoreRestSiblings: true,
 };
 
-const sharedPlugins = {
-    js,
-    '@stylistic': stylistic,
-    custom: {
-        rules: {
-            'control-structure-spacing': controlStructureSpacing,
-            'bang-space-if': bangSpaceIf,
-            'space-unary-ops-with-exception': spaceUnaryOpsWithException,
-        },
-    },
+const preferConstOptions = {
+    destructuring: 'all',
+    ignoreReadBeforeAssign: false,
 };
 
-const sharedJsConfig = {
-    rules,
-    plugins: sharedPlugins,
+const lintedGlobals = {
+    ...globals.node,
+    extension: 'readonly',
+    config: 'readonly',
+    global_config: 'readonly',
 };
 
-const recommendedJsConfig = {
-    ...sharedJsConfig,
-    extends: ['js/recommended'],
-};
+const jsFiles = [
+    'src/backend/**/*.{js,mjs,cjs}',
+    'extensions/**/*.{js,mjs,cjs}',
+];
 
-const createTsConfig = ({ files, project, ignores = [], globals: tsGlobals }) => ({
+const tsIgnores = [
+    '**/*.test.ts',
+    '**/*.test.mts',
+    '**/*.spec.ts',
+    '**/*.spec.mts',
+    'src/backend/test/**',
+    'src/backend/tools/**',
+    'src/backend/vitest.config.ts',
+    'src/backend/vitest.bench.config.ts',
+];
+
+const createTsConfig = ({ files, project }) => ({
     files,
-    ignores,
+    ignores: tsIgnores,
     languageOptions: {
         parser: tseslintParser,
-        ...(tsGlobals ? { globals: tsGlobals } : {}),
+        globals: lintedGlobals,
         parserOptions: {
             ecmaVersion: 'latest',
             sourceType: 'module',
-            project,
+            projectService: { defaultProject: project },
+            tsconfigRootDir: import.meta.dirname,
         },
     },
     plugins: {
         '@typescript-eslint': tseslintPlugin,
+        prettier: prettierPlugin,
     },
-    rules: tsRules,
+    rules: {
+        ...tsRecommendedRules,
+        ...prettierRules,
+        '@typescript-eslint/no-unused-vars': ['error', unusedVarsOptions],
+        '@typescript-eslint/no-explicit-any': 'warn',
+        'prefer-const': ['error', preferConstOptions],
+    },
 });
 
-const backendConfig = {
-    ...recommendedJsConfig,
-    files: [
-        'src/backend/**/*.{js,mjs,cjs,ts}',
-        'src/putility/**/*.{js,mjs,cjs,ts}',
-    ],
-    ignores: [
-        '**/*.test.js',
-        '**/*.test.ts',
-        '**/*.test.mts',
-    ],
-    languageOptions: { globals: globals.node },
-};
-
-const testConfig = {
-    ...sharedJsConfig,
-    files: [
-        '**/*.test.js',
-        '**/*.test.ts',
-        '**/*.test.mts',
-    ],
-    languageOptions: { globals: { ...globals.node, ...globals.vitest } },
-};
-
-const extensionConfig = {
-    ...recommendedJsConfig,
-    files: ['extensions/**/*.{js,mjs,cjs,ts}'],
-    languageOptions: {
-        globals: {
-            extension: 'readonly',
-            config: 'readonly',
-            global_config: 'readonly',
-            ...globals.node,
-        },
-    },
-};
-
-const frontendConfig = {
-    ...recommendedJsConfig,
-    files: ['**/*.{js,mjs,cjs,ts}', 'src/gui/src/**/*.js'],
-    ignores: [
-        'src/backend/**/*.{js,mjs,cjs,ts}',
-        'extensions/**/*.{js,mjs,cjs,ts}',
-        'submodules/**',
-        '**/*.test.{js,ts,mts,mjs}',
-        '**/*.min.js',
-        '**/*.min.cjs',
-        '**/*.min.mjs',
-        '**/socket.io.js',
-        '**/dist/*.js',
-        'src/gui/src/lib/**',
-        'src/gui/dist/**',
-    ],
-    languageOptions: {
-        globals: {
-            ...globals.browser,
-            ...globals.jquery,
-            i18n: 'readonly',
-            puter: 'readonly',
-        },
-    },
-};
-
 export default defineConfig([
+    {
+        ignores: [
+            '**/*.dbmig.js',
+            'dist/**',
+            'build/**',
+            'volatile/**',
+            'node_modules/**',
+            'puter.js/**',
+            'apps/**',
+            'experiment/**',
+            'workers/**',
+            'src/public/**',
+            'src/gui/**',
+            'src/docs/**',
+            'src/puter-js/**',
+            'src/useapi/**',
+            'src/worker/**',
+            'submodules/**',
+            'tests/**',
+            'tools/**',
+        ],
+    },
+    {
+        files: jsFiles,
+        ignores: ['**/*.test.js'],
+        plugins: {
+            js,
+            prettier: prettierPlugin,
+        },
+        extends: ['js/recommended'],
+        languageOptions: {
+            ecmaVersion: 'latest',
+            sourceType: 'module',
+            globals: lintedGlobals,
+        },
+        rules: {
+            ...prettierRules,
+            'no-unused-vars': ['error', unusedVarsOptions],
+            'prefer-const': ['error', preferConstOptions],
+        },
+    },
     createTsConfig({
-        files: ['**/*.test.ts', '**/*.test.mts', '**/*.test.setup.ts'],
-        ignores: ['tests/playwright/tests/**/*.ts'],
-        project: './tests/tsconfig.json',
-        globals: { ...globals.node, ...globals.vitest },
-    }),
-    createTsConfig({
-        files: ['**/*.ts'],
-        ignores: ['**/*.test.ts', '**/*.test.mts', 'extensions/**/*.ts'],
+        files: ['src/backend/**/*.ts', 'extensions/**/*.ts'],
         project: './tsconfig.json',
     }),
-    createTsConfig({
-        files: ['extensions/**/*.ts'],
-        project: './extensions/tsconfig.json',
-    }),
-    backendConfig,
-    testConfig,
-    extensionConfig,
-    frontendConfig,
 ]);

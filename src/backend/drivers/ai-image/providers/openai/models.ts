@@ -1,0 +1,170 @@
+import type { IImageModel } from '../../types.js';
+
+export const OPEN_AI_IMAGE_GENERATION_MODELS: IImageModel[] = [
+    {
+        puterId: 'openai:openai/gpt-image-2',
+        id: 'gpt-image-2',
+        aliases: ['openai/gpt-image-2', 'gpt-image-2-2026-04-21'],
+        name: 'GPT Image 2',
+        version: '2.0',
+        costs_currency: 'usd-cents',
+        index_cost_key: 'low:1024x1024',
+        costs: {
+            // Text tokens (per 1M tokens)
+            text_input: 500, // $5.00
+            text_cached_input: 125, // $1.25
+            text_output: 1000, // $10.00
+            // Image tokens (per 1M tokens)
+            image_input: 800, // $8.00
+            image_cached_input: 200, // $2.00
+            image_output: 3000, // $30.00
+            'low:1024x1024': 0.588,
+        },
+        allowedQualityLevels: ['low', 'medium', 'high', 'auto'],
+    },
+    {
+        puterId: 'openai:openai/gpt-image-1.5',
+        id: 'gpt-image-1.5',
+        aliases: ['openai/gpt-image-1.5'],
+        name: 'GPT Image 1.5',
+        version: '1.5',
+        costs_currency: 'usd-cents',
+        index_cost_key: 'low:1024x1024',
+        costs: {
+            // Text tokens (per 1M tokens)
+            text_input: 500, // $5.00
+            text_cached_input: 125, // $1.25
+            text_output: 1000, // $10.00
+            // Image tokens (per 1M tokens)
+            image_input: 800, // $8.00
+            image_cached_input: 200, // $2.00
+            image_output: 3200, // $32.00
+            // Image generation (per image)
+            'low:1024x1024': 0.9,
+            'low:1024x1536': 1.3,
+            'low:1536x1024': 1.3,
+            'medium:1024x1024': 3.4,
+            'medium:1024x1536': 5,
+            'medium:1536x1024': 5,
+            'high:1024x1024': 13.3,
+            'high:1024x1536': 20,
+            'high:1536x1024': 20,
+        },
+        allowedQualityLevels: ['low', 'medium', 'high'],
+        allowedRatios: [
+            { w: 1024, h: 1024 },
+            { w: 1024, h: 1536 },
+            { w: 1536, h: 1024 },
+        ],
+    },
+    {
+        puterId: 'openai:openai/gpt-image-1-mini',
+        id: 'gpt-image-1-mini',
+        aliases: ['openai/gpt-image-1-mini'],
+        name: 'GPT Image 1 Mini',
+        version: '1.0',
+        costs_currency: 'usd-cents',
+        index_cost_key: 'low:1024x1024',
+        costs: {
+            // Text tokens (per 1M tokens)
+            text_input: 200, // $2.00
+            text_cached_input: 20, // $0.20
+            // Image tokens (per 1M tokens)
+            image_input: 250, // $2.50
+            image_cached_input: 25, // $0.25
+            image_output: 800, // $8.00
+            // Image generation (per image)
+            'low:1024x1024': 0.5,
+            'low:1024x1536': 0.6,
+            'low:1536x1024': 0.6,
+            'medium:1024x1024': 1.1,
+            'medium:1024x1536': 1.5,
+            'medium:1536x1024': 1.5,
+            'high:1024x1024': 3.6,
+            'high:1024x1536': 5.2,
+            'high:1536x1024': 5.2,
+        },
+        allowedQualityLevels: ['low', 'medium', 'high'],
+        allowedRatios: [
+            { w: 1024, h: 1024 },
+            { w: 1024, h: 1536 },
+            { w: 1536, h: 1024 },
+        ],
+    },
+    {
+        puterId: 'openai:openai/gpt-image-1',
+        id: 'gpt-image-1',
+        aliases: ['openai/gpt-image-1'],
+        name: 'GPT Image 1',
+        version: '1.0',
+        costs_currency: 'usd-cents',
+        index_cost_key: 'low:1024x1024',
+        costs: {
+            // Text tokens (per 1M tokens)
+            text_input: 500, // $5.00
+            text_cached_input: 125, // $1.25
+            // Image tokens (per 1M tokens)
+            image_input: 1000, // $10.00
+            image_cached_input: 250, // $2.50
+            image_output: 4000, // $40.00
+            // Image generation (per image)
+            'low:1024x1024': 1.1,
+            'low:1024x1536': 1.6,
+            'low:1536x1024': 1.6,
+            'medium:1024x1024': 4.2,
+            'medium:1024x1536': 6.3,
+            'medium:1536x1024': 6.3,
+            'high:1024x1024': 16.7,
+            'high:1024x1536': 25,
+            'high:1536x1024': 25,
+        },
+        allowedQualityLevels: ['low', 'medium', 'high'],
+        allowedRatios: [
+            { w: 1024, h: 1024 },
+            { w: 1024, h: 1536 },
+            { w: 1536, h: 1024 },
+        ],
+    },
+    {
+        puterId: 'openai:openai/dall-e-3',
+        id: 'dall-e-3',
+        aliases: ['openai/dall-e-3'],
+        name: 'DALL-E 3',
+        version: '1.0',
+        costs_currency: 'usd-cents',
+        index_cost_key: '1024x1024',
+        costs: {
+            '1024x1024': 4,
+            '1024x1792': 8,
+            '1792x1024': 8,
+            'hd:1024x1024': 8,
+            'hd:1024x1792': 12,
+            'hd:1792x1024': 12,
+        },
+        allowedQualityLevels: ['', 'hd'],
+        allowedRatios: [
+            { w: 1024, h: 1024 },
+            { w: 1024, h: 1792 },
+            { w: 1792, h: 1024 },
+        ],
+    },
+    {
+        puterId: 'openai:openai/dall-e-2',
+        id: 'dall-e-2',
+        aliases: ['openai/dall-e-2'],
+        name: 'DALL-E 2',
+        version: '1.0',
+        costs_currency: 'usd-cents',
+        index_cost_key: '1024x1024',
+        costs: {
+            '256x256': 1.6,
+            '512x512': 1.8,
+            '1024x1024': 2,
+        },
+        allowedRatios: [
+            { w: 256, h: 256 },
+            { w: 512, h: 512 },
+            { w: 1024, h: 1024 },
+        ],
+    },
+];

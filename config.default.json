@@ -1,0 +1,42 @@
+{
+    "config_name": "oss-default",
+    "env": "dev",
+    "port": 4100,
+    "protocol": "http",
+    "domain": "puter.localhost",
+    "cookie_name": "puter_auth_token",
+    "jwt_secret": "dev-jwt-secret-change-me",
+    "url_signature_secret": "dev-url-signature-secret-change-me",
+    "allow_all_host_values": true,
+    "allow_no_host_header": true,
+    "enable_public_folders": true,
+    "is_storage_limited": false,
+    "min_pass_length": 6,
+    "static_hosting_domain": "site.puter.localhost",
+    "static_hosting_domain_alt": "host.puter.localhost",
+    "private_app_hosting_domain": "app.puter.localhost",
+    "private_app_hosting_domain_alt": "dev.puter.localhost",
+    "captcha": { "enabled": false },
+    "default_user_group": "78b1b1dd-c959-44d2-b02c-8735671f9997",
+    "default_temp_group": "b7220104-7905-4985-b996-649fdcdb3c8f",
+    "storage_capacity": 104857600,
+    "strict_email_verification_required": false,
+    "gui_assets_root": "./src/gui",
+    "puterjs_root": "./src/puter-js/dist",
+    "builtin_apps": {
+        "dev-center": "./src/dev-center"
+    },
+    "extensions": [
+        "./extensions"
+    ],
+    "database": {
+        "engine": "sqlite",
+        "path": "volatile/runtime/puter-database.sqlite"
+    },
+    "s3": {
+        "localConfig": {
+            "dataDir": "volatile/runtime/fauxqs-data",
+            "s3StorageDir": "volatile/runtime/fauxqs-s3-data"
+        }
+    }
+}

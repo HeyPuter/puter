@@ -195,14 +195,16 @@ const launch_app = async (options) => {
             return fallbackLaunchOutcome ?? { launchResult: redirectedLaunchResult };
         }
 
-        const deniedAppTitle = app_info.title ?? app_info.name ?? options.name ?? 'this app';
-        const safeDeniedAppTitle = window.html_encode
-            ? window.html_encode(deniedAppTitle)
-            : deniedAppTitle;
-        if ( typeof window.UIAlert === 'function' ) {
-            await window.UIAlert(`You don't have access to ${safeDeniedAppTitle}.`);
-        } else {
-            window.alert(`You don't have access to ${deniedAppTitle}.`);
+        if ( ! options?.silent_on_failure ) {
+            const deniedAppTitle = app_info.title ?? app_info.name ?? options.name ?? 'this app';
+            const safeDeniedAppTitle = window.html_encode
+                ? window.html_encode(deniedAppTitle)
+                : deniedAppTitle;
+            if ( typeof window.UIAlert === 'function' ) {
+                await window.UIAlert(`You don't have access to ${safeDeniedAppTitle}.`);
+            } else {
+                window.alert(`You don't have access to ${deniedAppTitle}.`);
+            }
         }
 
         const deniedLaunchResult = {
@@ -453,14 +455,18 @@ const launch_app = async (options) => {
                     tokenResult,
                 });
 
-                const tokenErrorAppTitle = app_info?.title ?? app_info?.name ?? options?.name ?? 'this app';
-                const safeTokenErrorAppTitle = window.html_encode
-                    ? window.html_encode(tokenErrorAppTitle)
-                    : tokenErrorAppTitle;
-                if ( typeof window.UIAlert === 'function' ) {
-                    await window.UIAlert(`Couldn't open ${safeTokenErrorAppTitle}. Please try again.`);
-                } else {
-                    window.alert(`Couldn't open ${tokenErrorAppTitle}. Please try again.`);
+                // `silent_on_failure` callers (e.g. best-effort auto-launches
+                // like the AI panel on desktop boot) skip the blocking alert.
+                if ( ! options?.silent_on_failure ) {
+                    const tokenErrorAppTitle = app_info?.title ?? app_info?.name ?? options?.name ?? 'this app';
+                    const safeTokenErrorAppTitle = window.html_encode
+                        ? window.html_encode(tokenErrorAppTitle)
+                        : tokenErrorAppTitle;
+                    if ( typeof window.UIAlert === 'function' ) {
+                        await window.UIAlert(`Couldn't open ${safeTokenErrorAppTitle}. Please try again.`);
+                    } else {
+                        window.alert(`Couldn't open ${tokenErrorAppTitle}. Please try again.`);
+                    }
                 }
 
                 const tokenFailureLaunchResult = {

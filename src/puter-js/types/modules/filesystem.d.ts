@@ -154,7 +154,5 @@ export class FS {
 
     sign (appUid: string, items: unknown | unknown[], success?: (result: SignResult) => void, error?: (reason: unknown) => void): Promise<SignResult>;
 
-    symlink (target: string, linkPath: string): Promise<void>;
-
     getReadURL (path: string, expiresIn?: string): Promise<string>;
 }

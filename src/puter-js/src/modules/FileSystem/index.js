@@ -23,7 +23,6 @@ import revokeReadURL from './operations/revokeReadUrl.js';
 import sign from './operations/sign.js';
 import space from './operations/space.js';
 import stat from './operations/stat.js';
-import symlink from './operations/symlink.js';
 import upload from './operations/upload.js';
 import write from './operations/write.js';
 
@@ -41,7 +40,6 @@ export class PuterJSFileSystemModule {
     move = move;
     write = write;
     sign = sign;
-    symlink = symlink;
     getReadURL = getReadURL;
     revokeReadURL = revokeReadURL;
     readdir = readdir;

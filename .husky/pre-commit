@@ -1,13 +1,15 @@
 #!/usr/bin/env sh
 
-tmpfile="$(mktemp)"
-git diff --cached --name-only -z --diff-filter=ACMR -- \
-  '*.js' '*.mjs' '*.cjs' '*.jsx' '*.ts' '*.tsx' '*.vue' \
-  > "$tmpfile"
+files=$(git diff --cached --name-only --diff-filter=ACMR | \
+  grep -E '^(src/backend|extensions)/.*\.(js|mjs|cjs|ts)$' || true)
 
-if [ -s "$tmpfile" ]; then
-  xargs -0 eslint --fix < "$tmpfile" || true
-  xargs -0 git add < "$tmpfile"
+if [ -z "$files" ]; then
+  exit 0
 fi
 
-rm -f "$tmpfile"
+echo "$files" | xargs npx eslint --fix --no-warn-ignored
+status=$?
+
+echo "$files" | xargs git add
+
+exit $status

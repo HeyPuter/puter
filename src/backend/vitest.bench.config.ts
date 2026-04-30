@@ -10,4 +10,3 @@ export default defineConfig({
         root: __dirname,
     },
 });
-

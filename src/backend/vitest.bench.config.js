@@ -1,5 +1,8 @@
-import { defineConfig } from 'vitest/config';
-export default defineConfig({
+'use strict';
+Object.defineProperty(exports, '__esModule', { value: true });
+// vitest.bench.config.ts - Vitest benchmark configuration for Puter backend
+var config_1 = require('vitest/config');
+exports.default = (0, config_1.defineConfig)({
     test: {
         benchmark: {
             include: ['src/**/*.bench.{js,ts}'],
@@ -8,4 +11,3 @@ export default defineConfig({
         root: __dirname,
     },
 });
-//# sourceMappingURL=vitest.bench.config.js.map

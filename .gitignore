@@ -22,6 +22,11 @@ dist/
 .env
 !.env.example
 
+# Per-developer / deployment config override. `config.default.json` ships in
+# the repo and is the authoritative source; `config.json` (if present) wins
+# at runtime for the local machine only.
+config.json
+
 # this is for jetbrain IDEs
 .idea/
 /puter
@@ -63,3 +68,5 @@ AGENTS.md
 coverage/
 *.log
 undefined
+servers.json
+config.*.json

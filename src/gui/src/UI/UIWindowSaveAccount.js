@@ -178,7 +178,13 @@ async function UIWindowSaveAccount (options) {
                     $(el_window).find('input').prop('disabled', false);
                 },
                 error: function (err) {
-                    $(el_window).find('.signup-error-msg').html(html_encode(err.responseText));
+                    const errorText = err.responseText || '';
+                    let msg = errorText;
+                    try {
+                        const errorJson = JSON.parse(errorText);
+                        msg = errorJson.message || errorJson.error || errorText;
+                    } catch (_) { /* not JSON, use responseText */ }
+                    $(el_window).find('.signup-error-msg').html(html_encode(msg));
                     $(el_window).find('.signup-error-msg').fadeIn();
                     // re-enable 'Create Account' button
                     $(el_window).find('.signup-btn').prop('disabled', false);
