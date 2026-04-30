@@ -406,6 +406,7 @@ body {
     border-radius: 6px;
     cursor: pointer;
     transition: background-color 0.15s;
+    overflow: hidden !important;
 }
 
 @media (hover: hover) {
@@ -416,6 +417,7 @@ body {
 
 .dashboard-user-btn.has-open-contextmenu {
     background: var(--dashboard-hover);
+    overflow: hidden !important;
 }
 
 .dashboard-user-avatar {
