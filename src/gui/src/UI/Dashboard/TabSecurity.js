@@ -85,8 +85,10 @@ const TabSecurity = {
             h += `<span class="user-otp-state">${i18n(user.otp ? 'two_factor_enabled' : 'two_factor_disabled')}</span>`;
             h += '</div>';
             h += '</div>';
-            h += `<button class="button enable-2fa" style="${user.otp ? 'display:none;' : ''}">${i18n('enable_2fa')}</button>`;
-            h += `<button class="button disable-2fa" style="${user.otp ? '' : 'display:none;'}">${i18n('disable_2fa')}</button>`;
+            h += '<label class="dashboard-switch toggle-2fa-label">';
+            h += `<input type="checkbox" class="toggle-2fa"${user.otp ? ' checked' : ''}>`;
+            h += '<span class="dashboard-switch-slider"></span>';
+            h += '</label>';
             h += '</div>';
         }
 
@@ -124,47 +126,39 @@ const TabSecurity = {
             });
         });
 
-        $el_window.find('.dashboard-section-security .enable-2fa').on('click', async function (e) {
-            const { promise } = await UIWindow2FASetup({
-                window_options: {
-                    parent_uuid: $el_window.attr('data-element_uuid'),
-                    backdrop: true,
-                    close_on_backdrop_click: true,
-                    stay_on_top: true,
-                    has_head: false,
-                    parent_center: true,
-                },
-            });
-            const tfa_was_enabled = await promise;
+        $el_window.find('.dashboard-section-security .toggle-2fa').on('change', async function (e) {
+            const $toggle = $(this);
+            const enabling = $toggle.is(':checked');
+            $toggle.prop('disabled', true);
 
-            if ( tfa_was_enabled ) {
-                $el_window.find('.dashboard-section-security .enable-2fa').hide();
-                $el_window.find('.dashboard-section-security .disable-2fa').show();
-                $el_window.find('.dashboard-section-security .user-otp-state').text(i18n('two_factor_enabled'));
-                $el_window.find('.dashboard-section-security .dashboard-settings-card-2fa').removeClass('dashboard-settings-card-warning');
-                $el_window.find('.dashboard-section-security .dashboard-settings-card-2fa').addClass('dashboard-settings-card-success');
+            const window_options = {
+                parent_uuid: $el_window.attr('data-element_uuid'),
+                backdrop: true,
+                close_on_backdrop_click: true,
+                parent_center: true,
+                stay_on_top: true,
+                has_head: false,
+            };
+
+            const { promise } = enabling
+                ? await UIWindow2FASetup({ window_options })
+                : await UIWindowDisable2FA({ window_options });
+            const succeeded = await promise;
+
+            $toggle.prop('disabled', false);
+
+            if ( ! succeeded ) {
+                $toggle.prop('checked', ! enabling);
+                return;
             }
-        });
 
-        $el_window.find('.dashboard-section-security .disable-2fa').on('click', async function (e) {
-            const { promise } = await UIWindowDisable2FA({
-                window_options: {
-                    parent_uuid: $el_window.attr('data-element_uuid'),
-                    backdrop: true,
-                    close_on_backdrop_click: true,
-                    parent_center: true,
-                    stay_on_top: true,
-                    has_head: false,
-                },
-            });
-            const tfa_was_disabled = await promise;
-
-            if ( tfa_was_disabled ) {
-                $el_window.find('.dashboard-section-security .enable-2fa').show();
-                $el_window.find('.dashboard-section-security .disable-2fa').hide();
+            const $card = $el_window.find('.dashboard-section-security .dashboard-settings-card-2fa');
+            if ( enabling ) {
+                $el_window.find('.dashboard-section-security .user-otp-state').text(i18n('two_factor_enabled'));
+                $card.removeClass('dashboard-settings-card-warning').addClass('dashboard-settings-card-success');
+            } else {
                 $el_window.find('.dashboard-section-security .user-otp-state').text(i18n('two_factor_disabled'));
-                $el_window.find('.dashboard-section-security .dashboard-settings-card-2fa').removeClass('dashboard-settings-card-success');
-                $el_window.find('.dashboard-section-security .dashboard-settings-card-2fa').addClass('dashboard-settings-card-warning');
+                $card.removeClass('dashboard-settings-card-success').addClass('dashboard-settings-card-warning');
             }
         });
     },
