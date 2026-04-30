@@ -31,6 +31,7 @@ import type {
     IImageModel,
     IImageProvider,
 } from '../../types.js';
+import { HttpError } from '@heyputer/backend/src/core/http/HttpError.js';
 
 const MIME_SIGNATURES: Record<string, string> = {
     '/9j/': 'image/jpeg',
@@ -141,8 +142,10 @@ export class GeminiImageProvider implements IImageProvider {
             GEMINI_ESTIMATED_IMAGE_TOKENS[imageTokenKey] ??
             GEMINI_ESTIMATED_IMAGE_TOKENS[selectedModel.id];
         if (estimatedOutputImageTokens === undefined) {
-            throw new Error(
+            throw new HttpError(
+                400,
                 `No estimated image token count configured for '${imageTokenKey}'.`,
+                { legacyCode: 'bad_request' },
             );
         }
         const estimatedOutputImageCostInCents = this.#calculateTokenCostInCents(
@@ -165,7 +168,11 @@ export class GeminiImageProvider implements IImageProvider {
         );
 
         if (!usageAllowed) {
-            throw new Error('Insufficient credits for image generation');
+            throw new HttpError(
+                402,
+                'Insufficient credits for image generation',
+                { legacyCode: 'insufficient_funds' },
+            );
         }
 
         // --- API call ---
@@ -248,12 +255,16 @@ export class GeminiImageProvider implements IImageProvider {
     ): Promise<string> {
         const actor = Context.get('actor');
         if (!actor) {
-            throw new Error('actor not found in context');
+            throw new HttpError(401, 'actor not found in context', {
+                legacyCode: 'unauthorized',
+            });
         }
         const costCents = selectedModel.costs?.['per-image'];
         if (costCents === undefined) {
-            throw new Error(
+            throw new HttpError(
+                400,
                 `No per-image cost configured for model '${selectedModel.id}'`,
+                { legacyCode: 'bad_request' },
             );
         }
         const costInMicroCents = Math.ceil(costCents * 1_000_000);
@@ -263,7 +274,11 @@ export class GeminiImageProvider implements IImageProvider {
             costInMicroCents,
         );
         if (!usageAllowed) {
-            throw new Error('Insufficient credits for image generation');
+            throw new HttpError(
+                402,
+                'Insufficient credits for image generation',
+                { legacyCode: 'insufficient_funds' },
+            );
         }
 
         const allowedRatios = selectedModel.allowedRatios ?? [
