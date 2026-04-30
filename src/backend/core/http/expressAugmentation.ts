@@ -28,6 +28,17 @@ declare global {
             token?: string;
 
             /**
+             * Set by the global auth probe when a token was extracted from
+             * the request but failed to resolve to an actor (bad signature,
+             * expired, references a deleted session/user/app, or has a
+             * legacy shape v2 can't authenticate). Lets `requireAuthGate`
+             * distinguish "no token" from "token present but invalid" and
+             * emit the legacy `token_auth_failed` error so old clients
+             * trigger their re-login flow.
+             */
+            tokenAuthFailed?: boolean;
+
+            /**
              * Raw request body bytes, captured by the global JSON parser's
              * `verify` callback. Available for any JSON request — needed by
              * webhook handlers that verify an HMAC over the exact bytes the
