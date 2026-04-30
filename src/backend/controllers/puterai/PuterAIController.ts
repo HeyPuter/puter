@@ -184,19 +184,15 @@ export class PuterAIController extends PuterController {
         };
     }
 
-    #modelDetails(driverKey: string) {
+    #modelDetails(driverKey: 'aiChat' | 'aiImage' | 'aiVideo') {
         return async (_req: Request, res: Response): Promise<void> => {
-            const driver = (this.drivers as Record<string, unknown>)[
-                driverKey
-            ] as { models?: () => Array<{ id: string }> } | undefined;
+            const driver = this.drivers[driverKey];
             if (!driver?.models)
                 throw new HttpError(501, 'Model details not available');
-            const models = driver.models();
+            const models = await driver.models();
             const HIDDEN = ['costly', 'fake', 'abuse', 'model-fallback-test-1'];
             res.json({
-                models: (models as Array<{ id: string }>).filter(
-                    (m) => !HIDDEN.includes(m.id),
-                ),
+                models: models?.filter((m) => !HIDDEN.includes(m.id)),
             });
         };
     }
