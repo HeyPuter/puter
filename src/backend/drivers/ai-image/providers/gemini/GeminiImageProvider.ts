@@ -67,15 +67,9 @@ export class GeminiImageProvider implements IImageProvider {
     }
 
     async generate(params: IGenerateParams): Promise<string> {
-        const {
-            prompt,
-            test_mode,
-            input_image,
-            input_image_mime_type,
-            model,
-            quality,
-        } = params;
-        let { ratio, input_images } = params;
+        const { prompt, test_mode, input_image, input_image_mime_type, model } =
+            params;
+        let { ratio, input_images, quality } = params;
 
         const selectedModel =
             (this.models() as IGeminiImageModel[]).find(
@@ -133,6 +127,11 @@ export class GeminiImageProvider implements IImageProvider {
             estimatedPromptTokenCount,
             selectedModel.costs.input,
         );
+
+        if (!quality) {
+            quality = selectedModel.allowedQualityLevels?.[0] ?? '';
+            params.quality = quality;
+        }
 
         // Estimate output image tokens
         const imageTokenKey = quality
