@@ -260,6 +260,32 @@ export interface IGuiParams {
     [key: string]: unknown;
 }
 
+export interface IDevWatcherConfig {
+    /** Force-enable/disable the dev watcher. Defaults to enabled in dev. */
+    enabled?: boolean;
+    /** Root path for watcher entries. Relative paths resolve from package root. */
+    root?: string;
+    /** Delay after watcher startup before boot continues. Default: 5000. */
+    ready_delay_ms?: number;
+    /** Optional extra child processes to start with the dev watcher. */
+    commands?: Array<{
+        name: string;
+        directory: string;
+        command: string;
+        args?: string[];
+        env?: Record<string, string>;
+    }>;
+    /**
+     * Optional webpack watcher entries.
+     * Omit to use the built-in GUI/puter.js watchers.
+     */
+    webpack?: Array<{
+        name?: string;
+        directory: string;
+        env?: Record<string, string>;
+    }>;
+}
+
 /**
  * Complete shape of Puter's root config. Everything is optional here —
  * mandatory fields (only `port` + `extensions`) are pulled out of the
@@ -327,6 +353,10 @@ interface IConfigOptional {
     trust_proxy: boolean | number | string | string[];
     /** Don't launch browser when starting. */
     no_browser_launch: boolean;
+    /** Disable dev-time frontend webpack watchers. */
+    no_devwatch: boolean;
+    /** Optional dev-time frontend watcher overrides. */
+    devwatch: IDevWatcherConfig;
 
     // ── Auth / session ──────────────────────────────────────────────
 

@@ -25,6 +25,10 @@
     "custom_domains_enabled": false,
     "enable_ip_validation": false,
     "no_browser_launch": false,
+    "no_devwatch": false,
+    "devwatch": {
+        "ready_delay_ms": 5000
+    },
     "jwt_secret": "change-me",
     "url_signature_secret": "change-me",
     "cookie_name": "puter_auth_token",
