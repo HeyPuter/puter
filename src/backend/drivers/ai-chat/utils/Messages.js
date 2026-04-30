@@ -1,3 +1,5 @@
+import { HttpError } from '@heyputer/backend/src/core/http';
+
 /**
  * Normalizes a single message into a standardized format with role and content array.
  * Converts string messages to objects, ensures content is an array of content blocks,
@@ -6,9 +8,9 @@
  * @param {string|Object} message - The message to normalize, either a string or message object
  * @param {Object} params - Optional parameters including default role
  * @returns {Object} Normalized message with role and content array
- * @throws {Error} If message is not a string or object
- * @throws {Error} If message has no content property and no tool_calls
- * @throws {Error} If any content item is not a string or object
+ * @throws {HttpError} If message is not a string or object
+ * @throws {HttpError} If message has no content property and no tool_calls
+ * @throws {HttpError} If any content item is not a string or object
  */
 export const normalize_single_message = (message, params = {}) => {
     params = Object.assign(
@@ -24,7 +26,9 @@ export const normalize_single_message = (message, params = {}) => {
         };
     }
     if (!message || typeof message !== 'object' || Array.isArray(message)) {
-        throw new Error('each message must be a string or object');
+        throw new HttpError(400, 'each message must be a string or object', {
+            legacyCode: 'bad_request',
+        });
     }
     if (!message.role) {
         message.role = params.role;
@@ -43,7 +47,11 @@ export const normalize_single_message = (message, params = {}) => {
             }
             delete message.tool_calls;
         } else if (message.role !== 'tool') {
-            throw new Error("each message must have a 'content' property");
+            throw new HttpError(
+                400,
+                "each message must have a 'content' property",
+                { legacyCode: 'bad_request' },
+            );
         }
     }
 
@@ -80,8 +88,10 @@ export const normalize_single_message = (message, params = {}) => {
             typeof message.content[i] !== 'object' ||
             Array.isArray(message.content[i])
         ) {
-            throw new Error(
+            throw new HttpError(
+                400,
                 'each message content item must be a string or object',
+                { legacyCode: 'bad_request' },
             );
         }
         if (
@@ -199,7 +209,7 @@ export const extract_and_remove_system_messages = (messages) => {
  *
  * @param {Array} messages - Array of messages to extract text from
  * @returns {string} Concatenated text content from all messages
- * @throws {Error} If text content is not a string
+ * @throws {HttpError} If text content is not a string
  */
 export const extract_text = (messages) => {
     return messages
@@ -221,7 +231,11 @@ export const extract_text = (messages) => {
                     !Object.prototype.hasOwnProperty.call(m.content, 'type');
                 if (is_text_type) {
                     if (typeof m.content.text !== 'string') {
-                        throw new Error('text content must be a string');
+                        throw new HttpError(
+                            400,
+                            'text content must be a string',
+                            { legacyCode: 'bad_request' },
+                        );
                     }
                     return m.content.text;
                 }
