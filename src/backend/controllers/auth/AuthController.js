@@ -414,6 +414,11 @@ export class AuthController extends PuterController {
                     ? null
                     : await bcrypt.hash(body.password, 8);
 
+                const signupSqlTs = new Date()
+                    .toISOString()
+                    .slice(0, 19)
+                    .replace('T', ' ');
+
                 let user;
                 if (pseudo_user) {
                     // ── Pseudo-user claim (convert the placeholder row) ──
@@ -428,6 +433,7 @@ export class AuthController extends PuterController {
                         // validate hook can only tighten, not loosen, so `1`
                         // stays hardcoded here.
                         requires_email_confirmation: 1,
+                        last_activity_ts: signupSqlTs,
                     });
 
                     // Move from temp group to regular user group
@@ -487,6 +493,7 @@ export class AuthController extends PuterController {
                         signup_origin: req.headers?.origin ?? null,
                         signup_server: this.config.serverId,
                         referrer: req.body.referrer ?? null,
+                        last_activity_ts: signupSqlTs,
                     });
 
                     // Add to default group

@@ -693,6 +693,10 @@ export class AuthService extends PuterService {
         const user = await this.stores.user.getByUuid(decoded.user_uid);
         if (!user) return null;
 
+        this.stores.session
+            .touch({ uuid: session.uuid, userId: user.id })
+            .catch(() => {});
+
         return this.#buildUserActor(user, session);
     }
 
@@ -712,6 +716,10 @@ export class AuthService extends PuterService {
 
         const app = await this.stores.app.getByUid(decoded.app_uid);
         if (!app) return null;
+
+        this.stores.session
+            .touch({ uuid: session?.uuid, userId: user.id })
+            .catch(() => {});
 
         return this.#buildAppUnderUserActor(user, app, session);
     }
