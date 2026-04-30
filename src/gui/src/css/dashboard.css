@@ -2795,7 +2795,14 @@ body {
 }
 
 .dashboard .bento-plan-badge.active {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 500;
     color: var(--dashboard-success-text);
+    background: var(--dashboard-success-background);
+    border: 1px solid var(--dashboard-success-border);
 }
 
 .dashboard .bento-plan-upgrade {

@@ -272,7 +272,7 @@ const TabHome = {
             $el_window.find('.bento-plan-name').text(i18n(planName));
 
             if ( hasSubscription ) {
-                $el_window.find('.bento-plan-badge').text('Active subscription').addClass('active');
+                $el_window.find('.bento-plan-badge').text('Current').addClass('active');
                 $el_window.find('.bento-plan-upgrade').text('Manage →').show();
             } else {
                 $el_window.find('.bento-plan-badge').text('Upgrade for more features').addClass('free');
