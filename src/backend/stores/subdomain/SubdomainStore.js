@@ -233,6 +233,7 @@ export class SubdomainStore extends PuterStore {
         if (before?.subdomain && before.subdomain !== after?.subdomain) {
             await this.publishCacheKeys({
                 keys: [this.#cacheKey(before.subdomain)],
+                broadcast: true,
             });
         }
         if (after) {
@@ -268,6 +269,7 @@ export class SubdomainStore extends PuterStore {
         if (affected && row?.subdomain) {
             await this.publishCacheKeys({
                 keys: [this.#cacheKey(row.subdomain)],
+                broadcast: true,
             });
             if (row.user_id != null) {
                 await this.#invalidatePrefixListsForUser(row.user_id);
@@ -292,6 +294,7 @@ export class SubdomainStore extends PuterStore {
             keys: [this.#cacheKey(row.subdomain)],
             serializedData: JSON.stringify(row),
             ttlSeconds: CACHE_TTL_SECONDS,
+            broadcast: true,
         });
     }
 
@@ -306,6 +309,9 @@ export class SubdomainStore extends PuterStore {
         }
         const keysToInvalidate = [...cacheKeys, trackerKey];
         if (keysToInvalidate.length === 0) return;
-        await this.publishCacheKeys({ keys: keysToInvalidate });
+        await this.publishCacheKeys({
+            keys: keysToInvalidate,
+            broadcast: true,
+        });
     }
 }
