@@ -134,6 +134,24 @@ async function handle_resp (success_cb, error_cb, resolve_func, reject_func, res
     const resp = await parseResponse(response);
     // error - unauthorized
     if ( response.status === 401 ) {
+        // Backend signals "token is no longer valid, prompt re-login" via
+        // the legacy `token_auth_failed` code (matches v1 backend's
+        // APIError.create('token_auth_failed') shape). Trigger the same
+        // reset + re-auth flow the driver-call handler uses, so stale or
+        // legacy-shaped tokens auto-recover instead of bubbling a raw
+        // "Unauthorized" up to every caller.
+        if ( resp?.code === 'token_auth_failed' && puter.env === 'web' ) {
+            try {
+                puter.resetAuthToken();
+                await puter.ui.authenticateWithPuter();
+            } catch (e) {
+                return reject_func({
+                    error: {
+                        code: 'auth_canceled', message: 'Authentication canceled',
+                    },
+                });
+            }
+        }
         // if error callback is provided, call it
         if ( error_cb && typeof error_cb === 'function' )
         {
