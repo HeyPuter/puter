@@ -19,6 +19,10 @@
 
 const update_username_in_gui = function (new_username) {
     // ------------------------------------------------------------
+    // Flush cache
+    // ------------------------------------------------------------
+    puter._cache.flushall();
+    // ------------------------------------------------------------
     // Update all item/window/... paths, with the new username
     // ------------------------------------------------------------
     $(':not([data-path=""]),:not([data-item-path=""])').each((i, el) => {

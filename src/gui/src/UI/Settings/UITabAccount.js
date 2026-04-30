@@ -157,8 +157,9 @@ export default {
                     canvas.height = 150;
                     ctx.drawImage(img, 0, 0, 150, 150);
                     const base64data = canvas.toDataURL('image/png');
-                    // update profile picture
+                    // update profile picture everywhere (matches helpers.js session refresh)
                     $el_window.find('.profile-picture').css('background-image', `url(${ html_encode(base64data) })`);
+                    $('.profile-pic').css('background-image', `url(${ html_encode(base64data) })`);
                     $('.profile-image').css('background-image', `url(${ html_encode(base64data) })`);
                     $('.profile-image').addClass('profile-image-has-picture');
                     // update profile picture

@@ -1982,7 +1982,6 @@ const TabFiles = {
         const metadata = JSON.parse(file.metadata) || {};
         const displayName = metadata.original_name || file.name;
         let website_url = window.determine_website_url(file.path);
-        const is_shared_with_me = (file.path !== `/${window.user.username}` && !file.path.startsWith(`/${window.user.username}/`));
         const is_worker = file.workers?.length > 0;
         const worker_url = is_worker ? file.workers[0]?.address : '';
         const iconResult = await item_icon(file);
@@ -2026,21 +2025,6 @@ const TabFiles = {
                     src="${html_encode(window.icons['link.svg'])}" 
                     data-item-id="${item_id}"
                 >
-                <img class="item-badge item-badge-has-permission" 
-                    style="display: ${ is_shared_with_me ? 'block' : 'none'};
-                        background-color: #ffffff;
-                        padding: 2px;" src="${html_encode(window.icons['shared.svg'])}" 
-                    data-item-id="${item_id}"
-                    title="A user has shared this item with you."
-                />
-                <img class="item-badge item-is-shared" 
-                    style="background-color: #ffffff; padding: 2px; ${!is_shared_with_me && file.is_shared ? 'display:block;' : ''}" 
-                    src="${html_encode(window.icons['owner-shared.svg'])}" 
-                    data-item-id="${item_id}"
-                    data-item-uid="${file.uid}"
-                    data-item-path="${html_encode(file.path)}"
-                    title="You have shared this item with at least one other user."
-                />
                 <img class="item-badge item-shortcut" 
                     style="background-color: #ffffff; padding: 2px; ${file.is_shortcut !== 0 ? 'display:block;' : ''}" 
                     src="${html_encode(window.icons['shortcut.svg'])}" 

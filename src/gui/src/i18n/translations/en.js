@@ -492,6 +492,8 @@ const en = {
         'signup_error': 'An error occurred during signup. Please try again.',
 
         // Welcome Window
+        'welcome': 'Welcome',
+        'your_personal_internet_computer': 'To your personal internet computer',
         'welcome_title': 'Welcome to your Personal Internet Computer',
         'welcome_description': 'Store files, play games, find awesome apps, and much more! All in one place, accessible from anywhere at any time.',
         'welcome_get_started': 'Get Started',
