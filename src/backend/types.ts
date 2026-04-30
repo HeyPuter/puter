@@ -27,39 +27,6 @@ export interface IPagerConfig {
     };
 }
 
-/**
- * Legacy billing extension — retained for existing Puter-paid subscribers
- * while a rebuilt flow ships. New customers go through the metering/
- * appStore stack instead.
- */
-export interface ILegacyBillingConfig {
-    /** Stripe secret key. Unset → extension disables itself. */
-    api_secret?: string;
-    /** Stripe publishable key (client-side). */
-    stripe_publishable_key?: string;
-    /** Stripe webhook signing secret. */
-    endpoint_secret?: string;
-    /** Map from `price_pseudo_id` (e.g. `price_basic`) → actual Stripe price id. */
-    price_ids?: Record<string, string>;
-}
-
-export interface IAbuseConfig {
-    /** Master toggle. When false the extension short-circuits every handler. */
-    enabled?: boolean;
-    /** IPs that bypass every signup check. */
-    allowed_ips?: string[];
-    /** IPInfo token used for geo / hosting / ASN lookups. Unset → checks disabled. */
-    ipinfo_token?: string;
-    /** Kickbox API key used for email deliverability. Unset → check skipped (permissive). */
-    kickbox_api_key?: string;
-    /** PagerDuty personal REST token (NOT an Events API routing key). */
-    pagerduty_token?: string;
-    /** PagerDuty service UID that incidents are filed against. */
-    pagerduty_service_id?: string;
-    /** `From:` header required by the Incidents API. */
-    pagerduty_from_email?: string;
-}
-
 export interface ICfFileCacheConfig {
     /** POST endpoint that accepts batched `{ site, path }[]` invalidation payloads. */
     endpoint: string;
@@ -455,10 +422,7 @@ interface IConfigOptional {
     workers: IWorkersConfig;
     /** Optional CORS-stripping signed-Worker proxy used by `secureFetch`. */
     secureCorsProxy: ISecureCorsProxyConfig;
-    /** IPInfo / Kickbox / PagerDuty signup-abuse integration. */
-    abuse: IAbuseConfig;
     /** Legacy Stripe billing extension. */
-    legacyBilling: ILegacyBillingConfig;
 
     // ── GUI / static mounts ─────────────────────────────────────────
 

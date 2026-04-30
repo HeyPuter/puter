@@ -278,15 +278,6 @@
         "applicationId": "",
         "secret": ""
     },
-    "abuse": {
-        "enabled": false,
-        "allowed_ips": [],
-        "ipinfo_token": "",
-        "kickbox_api_key": "",
-        "pagerduty_token": "",
-        "pagerduty_service_id": "",
-        "pagerduty_from_email": ""
-    },
    
     "gui_assets_root": "./src/gui",
     "gui_profile": "development",
