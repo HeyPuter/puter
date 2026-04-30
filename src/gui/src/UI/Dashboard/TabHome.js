@@ -301,7 +301,10 @@ const TabHome = {
             $el_window.find('.bento-storage-used').text(`${window.byte_format(general_used)} Used`);
             $el_window.find('.bento-storage-capacity').text(window.byte_format(res.capacity));
             $el_window.find('.bento-storage-percent').text(`${usage_percentage}%`);
-            $el_window.find('.bento-storage-bar').css('width', `${usage_percentage}%`);
+            $el_window.find('.bento-storage-bar').css({
+                width: `${usage_percentage}%`,
+                'background-color': window.usage_bar_color(usage_percentage),
+            });
         } catch (e) {
             console.error('Failed to load storage data:', e);
         }
@@ -317,7 +320,10 @@ const TabHome = {
             $el_window.find('.bento-resources-used').text(`${window.number_format(totalUsage / 100_000_000, { decimals: 2, prefix: '$' })} Used`);
             $el_window.find('.bento-resources-capacity').text(window.number_format(monthlyAllowance / 100_000_000, { decimals: 2, prefix: '$' }));
             $el_window.find('.bento-resources-percent').text(`${totalUsagePercentage}%`);
-            $el_window.find('.bento-resources-bar').css('width', `${totalUsagePercentage}%`);
+            $el_window.find('.bento-resources-bar').css({
+                width: `${totalUsagePercentage}%`,
+                'background-color': window.usage_bar_color(totalUsagePercentage),
+            });
         } catch (e) {
             console.error('Failed to load monthly usage data:', e);
         }

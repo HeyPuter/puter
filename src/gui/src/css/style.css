@@ -4760,71 +4760,26 @@ fieldset[name=number-code] {
     margin-bottom: 5px;
 }
 
-#storage-bar-wrapper {
+#storage-bar-wrapper, .usage-progbar-wrapper {
     width: 100%;
-    height: 20px;
-    border: 1px solid #dddddd;
-    border-radius: 3px;
-    background-color: #fbfbfb;
-    position: relative;
+    height: 14px;
+    flex-shrink: 0;
+    background-color: var(--dashboard-usage-bar-background, #e5e7eb);
+    border-radius: 7px;
+    overflow: hidden;
     display: flex;
-    align-items: center;
+    align-items: stretch;
 }
 
-#storage-bar {
-    float: left;
-    height: 20px;
-    background: linear-gradient(#dbe3ef, #c2ccdc, #dbe3ef);
-    border-top-left-radius: 3px;
-    border-bottom-left-radius: 3px;
-    width: 0;
-}
-
-#storage-bar-host {
-    float: left;
+#storage-bar, #storage-bar-host, .usage-progbar {
     height: 100%;
-    background: linear-gradient(#dbe3ef, #c2ccdc, #dbe3ef);
-    border-top-left-radius: 3px;
-    border-bottom-left-radius: 3px;
+    background-color: var(--dashboard-bento-usage-bar-fill, #ea580c);
     width: 0;
+    transition: width 0.4s ease, background-color 0.4s ease;
 }
 
-#storage-used-percent {
-    position: absolute;
-    text-align: center;
-    display: inline-block;
-    width: 100%;
-    font-size: 13px;
-}
-
-.usage-progbar-wrapper {
-    width: 100%;
-    height: 20px;
-    border: 1px solid #dddddd;
-    border-radius: 3px;
-    background-color: #fbfbfb;
-    position: relative;
-    display: flex;
-    align-items: center;
-}
-
-.usage-progbar {
-    float: left;
-    height: 20px;
-    background: linear-gradient(#dbe3ef, #c2ccdc, #dbe3ef);
-    border-top-left-radius: 3px;
-    border-bottom-left-radius: 3px;
-    width: 0;
-}
-
-.usage-progbar-percent {
-    position: absolute;
-    left: calc(50% - 20px);
-    text-align: center;
-    display: inline-block;
-    width: 40px;
-    font-size: 13px;
-    line-height: 20px;
+#storage-used-percent, .usage-progbar-percent {
+    font-weight: 500;
 }
 .driver-usage-container{
     flex-grow: 1;

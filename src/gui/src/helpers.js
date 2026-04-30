@@ -86,6 +86,20 @@ window.byte_format = (bytes) => {
 };
 
 /**
+ * Returns a fill color for a usage progress bar that shifts from green at 0%
+ * toward red as the percentage approaches 100%, passing through yellow/orange
+ * in the middle. Uses HSL so the transition is smooth.
+ *
+ * @param {number} percent - 0..100 (clamped)
+ * @returns {string} CSS color
+ */
+window.usage_bar_color = (percent) => {
+    const p = Math.max(0, Math.min(100, Number(percent) || 0)) / 100;
+    const hue = 120 * (1 - p);
+    return `hsl(${hue.toFixed(0)}, 70%, 45%)`;
+};
+
+/**
  * A function that generates a UUID (Universally Unique Identifier) using the version 4 format,
  * which are random UUIDs. It uses the cryptographic number generator available in modern browsers.
  *

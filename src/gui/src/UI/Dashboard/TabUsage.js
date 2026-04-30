@@ -40,6 +40,8 @@ const TabUsage = {
                 <div class="driver-usage-header">
                     <h3 style="margin:0; font-size: 14px; flex-grow: 1; font-weight: 500;">${i18n('Storage')}</h3>
                     <div style="font-size: 13px; margin-bottom: 3px; opacity:0.85;">
+                        <span id="storage-used-percent"></span>
+                        <span> &middot; </span>
                         <span id="storage-used"></span>
                         <span> used of </span>
                         <span id="storage-capacity"></span>
@@ -47,7 +49,6 @@ const TabUsage = {
                     </div>
                 </div>
                 <div id="storage-bar-wrapper">
-                    <span id="storage-used-percent"></span>
                     <div id="storage-bar"></div>
                     <div id="storage-bar-host"></div>
                 </div>
@@ -55,15 +56,15 @@ const TabUsage = {
                     <div class="driver-usage-header">
                         <h3 style="margin:0; font-size: 14px; flex-grow: 1; font-weight: 500;">${i18n('Resources')}</h3>
                         <div style="font-size: 13px; margin-bottom: 3px; opacity:0.85;">
+                            <span class="usage-progbar-percent"></span>
+                            <span> &middot; </span>
                             <span id="total-usage"></span>
                             <span> used of </span>
                             <span id="total-capacity"></span>
                         </div>
                     </div>
                     <div class="usage-progbar-wrapper">
-                        <div class="usage-progbar" style="width: 0;">
-                            <span class="usage-progbar-percent"></span>
-                        </div>
+                        <div class="usage-progbar" style="width: 0;"></div>
                     </div>
                     <h3 style="margin:15px 0 10px 0; font-size: 14px; font-weight: 500;">Usage Details</h3>
                     <div class="driver-usage-details-content visible">
@@ -221,7 +222,10 @@ async function update_usage_details ($el_window) {
         $('#total-usage').html(window.number_format(totalUsage / 100_000_000, { decimals: 2, prefix: '$' }));
         $('#total-capacity').html(window.number_format(monthlyAllowance / 100_000_000, { decimals: 2, prefix: '$' }));
         $('.usage-progbar-percent').html(`${totalUsagePercentage }%`);
-        $('.usage-progbar').css('width', `${totalUsagePercentage }%`);
+        $('.usage-progbar').css({
+            width: `${totalUsagePercentage }%`,
+            'background-color': window.usage_bar_color(totalUsagePercentage),
+        });
 
         // Store raw data for sorting
         usageTableData = [];
@@ -276,14 +280,16 @@ async function update_usage_details ($el_window) {
                 host_usage_percentage > 0
                     ? ` / ${ host_usage_percentage }%` : ''}`,
         );
-        $('#storage-bar').css('width', `${usage_percentage }%`);
-        $('#storage-bar-host').css('width', `${host_usage_percentage }%`);
-        if ( usage_percentage >= 100 ) {
-            $('#storage-bar').css({
-                'border-top-right-radius': '3px',
-                'border-bottom-right-radius': '3px',
-            });
-        }
+        const totalStoragePercent = Number(usage_percentage) + Number(host_usage_percentage);
+        const storageColor = window.usage_bar_color(totalStoragePercent);
+        $('#storage-bar').css({
+            width: `${usage_percentage }%`,
+            'background-color': storageColor,
+        });
+        $('#storage-bar-host').css({
+            width: `${host_usage_percentage }%`,
+            'background-color': storageColor,
+        });
     });
 
     // Wait for both promises to complete

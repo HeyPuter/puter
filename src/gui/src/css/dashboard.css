@@ -493,15 +493,6 @@ body {
         background: linear-gradient(to bottom, rgba(30, 30, 30, 0) 0%, rgba(30, 30, 30, 0.85) 40%, rgba(30, 30, 30, 1) 100%);
     }
 
-    #storage-bar-wrapper, .usage-progbar-wrapper {
-        background-color: var(--dashboard-input-background);
-    }
-
-    #storage-bar-host, .usage-progbar {
-        background: linear-gradient(#64748b, #8494ab, #64748b);
-    }
-
-
     .dashboard-section-billing .billing-card {
         background: var(--dashboard-card-background);
     }
@@ -2890,7 +2881,7 @@ body {
     background-color: var(--dashboard-bento-usage-bar-fill);
     border-radius: 7px;
     width: 0;
-    transition: width 0.4s ease;
+    transition: width 0.4s ease, background-color 0.4s ease;
 }
 
 .dashboard .bento-usage-card-info {
