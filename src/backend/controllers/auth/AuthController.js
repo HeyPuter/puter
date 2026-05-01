@@ -577,7 +577,12 @@ export class AuthController extends PuterController {
                             user_uuid: user.uuid,
                             email: user.email,
                             username: user.username,
-                            ip: req.ip || req.socket?.remoteAddress,
+                            ip:
+                                req?.headers?.['x-forwarded-for'] ||
+                                req?.connection?.remoteAddress ||
+                                req?.ip ||
+                                req?.socket?.remoteAddress ||
+                                null,
                         },
                         {},
                     );

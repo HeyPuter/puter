@@ -462,6 +462,12 @@ export class OIDCService extends PuterService {
                     user_uuid: resolved.uuid,
                     email: resolved.email,
                     username: resolved.username,
+                    ip:
+                        req?.headers?.['x-forwarded-for'] ||
+                        req?.connection?.remoteAddress ||
+                        req?.ip ||
+                        req?.socket?.remoteAddress ||
+                        null,
                 },
                 {},
             );
