@@ -367,7 +367,7 @@ export class OIDCService extends PuterService {
             };
             try {
                 await this.clients.event?.emitAndWait(
-                    'puter.email.validate',
+                    'email.validate',
                     emailEvent,
                     {},
                 );

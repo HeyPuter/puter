@@ -2307,7 +2307,7 @@ export class AuthController extends PuterController {
     /**
      * Config-blocklist + extension-driven email validation.
      * Config blocklist (suffix match on cleaned email) blocks first; then
-     * the `puter.email.validate` event lets extensions (abuse) reject.
+     * the `email.validate` event lets extensions (abuse) reject.
      * Throws HttpError(400) on rejection.
      */
     async #validateEmail(email) {
