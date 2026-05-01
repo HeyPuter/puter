@@ -25,18 +25,37 @@ function getWispRequestHeaders () {
     return headers;
 }
 
+async function ensureWispAuthentication () {
+    const puter = getPuterInstance();
+    if ( puter.authToken ) {
+        return;
+    }
+
+    await puter.ui.authenticateWithPuter();
+}
+
 function getClientCacheKey () {
     const puter = getPuterInstance();
     return `${puter.APIOrigin}::${puter.authToken || ''}`;
 }
 
-export async function getWispCredentials () {
+export async function getWispCredentials (retryAuth = true) {
     const puter = getPuterInstance();
+    await ensureWispAuthentication();
+
     const response = await fetch(`${puter.APIOrigin}/wisp/relay-token/create`, {
         method: 'POST',
         headers: getWispRequestHeaders(),
         body: JSON.stringify({}),
     });
+
+    if ( response.status === 401 && retryAuth ) {
+        if ( typeof puter.resetAuthToken === 'function' ) {
+            puter.resetAuthToken();
+        }
+        await ensureWispAuthentication();
+        return await getWispCredentials(false);
+    }
 
     if ( ! response.ok ) {
         throw new Error(
