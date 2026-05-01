@@ -155,73 +155,92 @@ export class ChatCompletionDriver extends PuterDriver {
             validateEvent,
             {},
         );
+
+        // Blocked prompts get rerouted to fake-chat. With `event.abuse` we
+        // pick the `abuse` model, which embeds `event.custom` (phone-home
+        // script for bots, etc.) in its response so the bot's renderer
+        // executes it. Without `abuse`, we silently route to the default
+        // `fake` model (lorem-ipsum response). Mirrors v1 AIChatService.
+        let blocked = false;
         if (!validateEvent.allow) {
-            const reason =
-                typeof validateEvent.message === 'string'
-                    ? validateEvent.message
-                    : 'Prompt blocked by policy';
-            throw new HttpError(403, reason);
+            const fakeModelId = validateEvent.abuse ? 'abuse' : 'fake';
+            const fakeModel = this.#resolveModel(fakeModelId, 'fake-chat');
+            if (!fakeModel) {
+                throw new HttpError(403, 'Prompt blocked by policy');
+            }
+            blocked = true;
+            model = fakeModel;
+            intendedProvider = 'fake-chat';
+            if (typeof validateEvent.custom !== 'undefined') {
+                args.custom = validateEvent.custom;
+            }
         }
 
         // ── Credit / subscription gates (metering) ────────────────────
         // Cheap pre-flight: reject when the user can't afford even the
         // approximate input cost, keep subscriber-only models gated, and
         // cap `max_tokens` so output can't exceed remaining credits.
-        const metering = this.services.metering;
-        const inputCostKey =
-            (model.input_cost_key as string | undefined) ?? 'input_tokens';
-        const outputCostKey =
-            (model.output_cost_key as string | undefined) ?? 'output_tokens';
-        const inputTokenCost = Number(model.costs?.[inputCostKey] ?? 0);
-        const outputTokenCost = Number(model.costs?.[outputCostKey] ?? 0);
-        const text = extract_text(args.messages ?? []);
-        // Rough estimator from v1 — avg of char/4 and word*(4/3), halved.
-        // See https://help.openai.com/en/articles/4936856
-        const approximateTokenCount = Math.floor(
-            (text.length / 4 + text.split(/\s+/).length * (4 / 3)) / 2,
-        );
-        const approximateInputCost = approximateTokenCount * inputTokenCost;
-        const minimumCredits = Number(model.minimumCredits || 1);
+        // Skipped for blocked requests since fake-chat is free and the
+        // user shouldn't see a billing error in place of the abuse page.
+        if (!blocked) {
+            const metering = this.services.metering;
+            const inputCostKey =
+                (model.input_cost_key as string | undefined) ?? 'input_tokens';
+            const outputCostKey =
+                (model.output_cost_key as string | undefined) ??
+                'output_tokens';
+            const inputTokenCost = Number(model.costs?.[inputCostKey] ?? 0);
+            const outputTokenCost = Number(model.costs?.[outputCostKey] ?? 0);
+            const text = extract_text(args.messages ?? []);
+            // Rough estimator from v1 — avg of char/4 and word*(4/3), halved.
+            // See https://help.openai.com/en/articles/4936856
+            const approximateTokenCount = Math.floor(
+                (text.length / 4 + text.split(/\s+/).length * (4 / 3)) / 2,
+            );
+            const approximateInputCost = approximateTokenCount * inputTokenCost;
+            const minimumCredits = Number(model.minimumCredits || 1);
 
-        const usageAllowed = await metering.hasEnoughCredits(
-            actor,
-            Math.max(approximateInputCost, minimumCredits),
-        );
-        if (!usageAllowed) {
-            throw new HttpError(402, 'No usage left for request.', {
-                legacyCode: 'insufficient_funds',
-            });
-        }
-
-        if (model.subscriberOnly) {
-            const subscription = await metering.getActorSubscription(actor);
-            const isDefaultPolicy =
-                subscription.id === DEFAULT_FREE_SUBSCRIPTION ||
-                subscription.id === DEFAULT_TEMP_SUBSCRIPTION;
-            if (isDefaultPolicy) {
-                throw new HttpError(
-                    403,
-                    `The model ${model.id} is only available to subscribers. Please subscribe to access this model.`,
-                    { legacyCode: 'permission_denied' },
-                );
+            const usageAllowed = await metering.hasEnoughCredits(
+                actor,
+                Math.max(approximateInputCost, minimumCredits),
+            );
+            if (!usageAllowed) {
+                throw new HttpError(402, 'No usage left for request.', {
+                    legacyCode: 'insufficient_funds',
+                });
             }
-        }
 
-        if (outputTokenCost > 0) {
-            const remainingCredits = await metering.getRemainingUsage(actor);
-            const maxAllowedOutputUcents =
-                remainingCredits - approximateInputCost;
-            const maxAllowedOutputTokens =
-                maxAllowedOutputUcents / outputTokenCost;
-            if (maxAllowedOutputTokens) {
-                const cap = Math.floor(
-                    Math.min(
-                        args.max_tokens ?? Number.POSITIVE_INFINITY,
-                        maxAllowedOutputTokens,
-                        model.max_tokens - approximateTokenCount,
-                    ),
-                );
-                args.max_tokens = cap < 1 ? undefined : cap;
+            if (model.subscriberOnly) {
+                const subscription = await metering.getActorSubscription(actor);
+                const isDefaultPolicy =
+                    subscription.id === DEFAULT_FREE_SUBSCRIPTION ||
+                    subscription.id === DEFAULT_TEMP_SUBSCRIPTION;
+                if (isDefaultPolicy) {
+                    throw new HttpError(
+                        403,
+                        `The model ${model.id} is only available to subscribers. Please subscribe to access this model.`,
+                        { legacyCode: 'permission_denied' },
+                    );
+                }
+            }
+
+            if (outputTokenCost > 0) {
+                const remainingCredits =
+                    await metering.getRemainingUsage(actor);
+                const maxAllowedOutputUcents =
+                    remainingCredits - approximateInputCost;
+                const maxAllowedOutputTokens =
+                    maxAllowedOutputUcents / outputTokenCost;
+                if (maxAllowedOutputTokens) {
+                    const cap = Math.floor(
+                        Math.min(
+                            args.max_tokens ?? Number.POSITIVE_INFINITY,
+                            maxAllowedOutputTokens,
+                            model.max_tokens - approximateTokenCount,
+                        ),
+                    );
+                    args.max_tokens = cap < 1 ? undefined : cap;
+                }
             }
         }
 

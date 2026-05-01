@@ -321,6 +321,9 @@ export class OIDCService extends PuterService {
         // no_temp_user (OIDC users are never temp), so only `allow` matters.
         const validateEvent = {
             req,
+            // IdP already authenticated the user, so captcha listeners
+            // (e.g. Turnstile) should skip — abuse/IP/email checks still run.
+            source: 'oidc' as const,
             data: { username, email: claims.email ?? '' },
             ip:
                 (req?.headers?.['x-forwarded-for'] as string | undefined) ||
