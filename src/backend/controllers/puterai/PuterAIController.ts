@@ -174,17 +174,15 @@ export class PuterAIController extends PuterController {
         ).pipe(res);
     };
 
-    #listModels(driverKey: string) {
+    #listModels(driverKey: 'aiChat' | 'aiImage' | 'aiVideo') {
         return async (_req: Request, res: Response): Promise<void> => {
-            const driver = (this.drivers as Record<string, unknown>)[
-                driverKey
-            ] as { list?: () => string[] } | undefined;
+            const driver = this.drivers[driverKey];
             if (!driver?.list)
                 throw new HttpError(501, 'Model listing not available');
-            const models = driver.list();
+            const models = await driver.list();
             const HIDDEN = ['costly', 'fake', 'abuse', 'model-fallback-test-1'];
             res.json({
-                models: (models as string[]).filter((m) => !HIDDEN.includes(m)),
+                models: models?.filter((m) => !HIDDEN.includes(m)),
             });
         };
     }
