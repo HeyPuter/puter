@@ -165,11 +165,12 @@ export class TogetherVideoProvider extends VideoProvider {
 
         if (finalJob.status === 'failed') {
             const errorMessage =
+                finalJob?.error.message ??
                 finalJob?.info?.errors?.[0]?.message ??
                 finalJob?.info?.errors?.message ??
                 finalJob?.info?.errors ??
                 'Video generation failed';
-            throw new Error(errorMessage);
+            throw new HttpError(500, errorMessage);
         }
 
         if (finalJob.status === 'cancelled') {
