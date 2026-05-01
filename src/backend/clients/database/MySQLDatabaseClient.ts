@@ -60,7 +60,7 @@ export class MySQLDatabaseClient extends AbstractDatabaseClient {
         });
         console.log('[mysql] connected to primary');
 
-        this.db = new SQLBatcher(this.primaryPool, 40, 10);
+        this.db = new SQLBatcher(this.primaryPool, 30, 5);
 
         if (dbConf.replica) {
             this.replicaPool = this.createPool(dbConf.replica);
@@ -71,7 +71,7 @@ export class MySQLDatabaseClient extends AbstractDatabaseClient {
             this.configuration = Configuration.SINGLE;
         }
 
-        this.dbReplica = new SQLBatcher(this.replicaPool, 10, 10);
+        this.dbReplica = new SQLBatcher(this.replicaPool, 10, 5);
     }
 
     override async onServerPrepareShutdown(): Promise<void> {
@@ -201,6 +201,7 @@ export class MySQLDatabaseClient extends AbstractDatabaseClient {
     private createPool(poolConfig: PoolConfig): Pool {
         return createPool({
             maxPreparedStatements: 900,
+            connectionLimit: 30,
             ...poolConfig,
             multipleStatements: true,
         } as PoolConfig);
@@ -219,11 +220,11 @@ export class MySQLDatabaseClient extends AbstractDatabaseClient {
             password: dbConf.password ?? '',
             database: dbConf.database ?? 'puter',
         });
-        this.db = new SQLBatcher(this.primaryPool, 40, 10);
+        this.db = new SQLBatcher(this.primaryPool, 30, 5);
 
         if (this.configuration === Configuration.SINGLE) {
             this.replicaPool = this.primaryPool;
-            this.dbReplica = new SQLBatcher(this.primaryPool, 10, 10);
+            this.dbReplica = new SQLBatcher(this.primaryPool, 10, 5);
         }
 
         if (previous && previous !== this.primaryPool) {
@@ -237,7 +238,7 @@ export class MySQLDatabaseClient extends AbstractDatabaseClient {
 
         const previous = this.replicaPool;
         this.replicaPool = this.createPool(this.config.database.replica);
-        this.dbReplica = new SQLBatcher(this.replicaPool, 10);
+        this.dbReplica = new SQLBatcher(this.replicaPool, 10, 5);
 
         if (
             previous &&

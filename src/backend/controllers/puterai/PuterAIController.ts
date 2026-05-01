@@ -30,56 +30,61 @@ const GEMINI_DOWNLOAD_BASE =
  */
 export class PuterAIController extends PuterController {
     registerRoutes(router: PuterRouter): void {
-        const apiOpts = { subdomain: 'api', requireAuth: true } as const;
+        const apiAuthOpts = { subdomain: 'api', requireAuth: true } as const;
+        const publicOpts = { subdomain: 'api', requireAuth: false } as const;
 
         // Every route below carries the `/puterai` prefix for wire
         // compatibility with puter-js and existing API tests.
         router.post(
             '/puterai/openai/v1/chat/completions',
-            apiOpts,
+            apiAuthOpts,
             this.openaiChatCompletions,
         );
         router.post(
             '/puterai/openai/v1/completions',
-            apiOpts,
+            apiAuthOpts,
             this.openaiCompletions,
         );
         router.post(
             '/puterai/openai/v1/responses',
-            apiOpts,
+            apiAuthOpts,
             this.openaiResponses,
         );
         router.post(
             '/puterai/anthropic/v1/messages',
-            apiOpts,
+            apiAuthOpts,
             this.anthropicMessages,
         );
 
         // Model listing — enumerate available models per AI service
-        router.get('/puterai/chat/models', apiOpts, this.#listModels('aiChat'));
+        router.get(
+            '/puterai/chat/models',
+            publicOpts,
+            this.#listModels('aiChat'),
+        );
         router.get(
             '/puterai/chat/models/details',
-            apiOpts,
+            publicOpts,
             this.#modelDetails('aiChat'),
         );
         router.get(
             '/puterai/image/models',
-            apiOpts,
+            publicOpts,
             this.#listModels('aiImage'),
         );
         router.get(
             '/puterai/image/models/details',
-            apiOpts,
+            publicOpts,
             this.#modelDetails('aiImage'),
         );
         router.get(
             '/puterai/video/models',
-            apiOpts,
+            publicOpts,
             this.#listModels('aiVideo'),
         );
         router.get(
             '/puterai/video/models/details',
-            apiOpts,
+            publicOpts,
             this.#modelDetails('aiVideo'),
         );
 
