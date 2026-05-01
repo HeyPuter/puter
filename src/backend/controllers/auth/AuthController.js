@@ -405,6 +405,7 @@ export class AuthController extends PuterController {
                         403,
                         validateEvent.message ??
                             'Temporary accounts are disabled',
+                        { legacyCode: 'must_login_or_signup' },
                     );
                 }
                 const force_email_confirmation = Boolean(
@@ -660,9 +661,14 @@ export class AuthController extends PuterController {
                 const user = await this.stores.user.getById(req.actor.user.id, {
                     force: true,
                 });
-                if (!user) throw new HttpError(404, 'User not found.');
+                if (!user)
+                    throw new HttpError(404, 'User not found.', {
+                        legacyCode: 'user_not_found',
+                    });
                 if (user.suspended)
-                    throw new HttpError(403, 'Account suspended.');
+                    throw new HttpError(403, 'Account suspended.', {
+                        legacyCode: 'account_suspended',
+                    });
                 if (!user.email) throw new HttpError(400, 'No email on file.');
 
                 const code = String(crypto.randomInt(100000, 1000000));
