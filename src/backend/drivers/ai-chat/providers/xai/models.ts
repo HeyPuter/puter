@@ -158,6 +158,28 @@ export const XAI_MODELS: IChatModel[] = [
         max_tokens: 8192,
     },
     {
+        puterId: 'x-ai:x-ai/grok-4.3',
+        id: 'grok-4.3',
+        modalities: { input: ['text', 'image'], output: ['text'] },
+        open_weights: false,
+        tool_call: true,
+        release_date: '2026-05-01',
+        name: 'Grok 4.3',
+        aliases: ['x-ai/grok-4.3'],
+        context: 1_000_000,
+        costs_currency: 'usd-cents',
+        input_cost_key: 'prompt_tokens',
+        output_cost_key: 'completion_tokens',
+        costs: {
+            tokens: 1_000_000,
+            prompt_tokens: 125,
+            completion_tokens: 250,
+            // Cached tokens billed at 20 cents / 1M tokens = 20 micro-cents / token
+            cached_tokens: 20,
+        },
+        max_tokens: 30_000,
+    },
+    {
         puterId: 'x-ai:x-ai/grok-4-1-fast',
         id: 'grok-4-1-fast',
         modalities: { input: ['text', 'image'], output: ['text'] },
