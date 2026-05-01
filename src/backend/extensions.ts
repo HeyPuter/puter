@@ -278,9 +278,19 @@ export const extension = {
                     get: (_target: object, prop: string) => {
                         const proxiedObj = clientsContainers[prop];
                         if (!proxiedObj) {
-                            throw new Error(
-                                `Called before initialization: ${name}.${prop}`,
-                            );
+                            const proxyProxyHandler = {
+                                get: (_target2: object, prop2: string) => {
+                                    const proxiedObj2 =
+                                        clientsContainers[prop][prop2];
+                                    if (!proxiedObj2) {
+                                        throw new Error(
+                                            `extension.import('client:${prop}') missing property '${prop2}'`,
+                                        );
+                                    }
+                                    return proxiedObj2;
+                                },
+                            };
+                            return new Proxy({}, proxyProxyHandler) as object;
                         }
                         return proxiedObj;
                     },
@@ -292,10 +302,21 @@ export const extension = {
                 const proxyHandler = {
                     get: (_target: object, prop: string) => {
                         const proxiedObj = storesContainers[prop];
+
                         if (!proxiedObj) {
-                            throw new Error(
-                                `Called before initialization: ${name}.${prop}`,
-                            );
+                            const proxyProxyHandler = {
+                                get: (_target2: object, prop2: string) => {
+                                    const proxiedObj2 =
+                                        clientsContainers[prop][prop2];
+                                    if (!proxiedObj2) {
+                                        throw new Error(
+                                            `extension.import('client:${prop}') missing property '${prop2}'`,
+                                        );
+                                    }
+                                    return proxiedObj2;
+                                },
+                            };
+                            return new Proxy({}, proxyProxyHandler) as object;
                         }
                         return proxiedObj;
                     },
@@ -307,10 +328,21 @@ export const extension = {
                 const proxyHandler = {
                     get: (_target: object, prop: string) => {
                         const proxiedObj = servicesContainers[prop];
+
                         if (!proxiedObj) {
-                            throw new Error(
-                                `Called before initialization: ${name}.${prop}`,
-                            );
+                            const proxyProxyHandler = {
+                                get: (_target2: object, prop2: string) => {
+                                    const proxiedObj2 =
+                                        clientsContainers[prop][prop2];
+                                    if (!proxiedObj2) {
+                                        throw new Error(
+                                            `extension.import('client:${prop}') missing property '${prop2}'`,
+                                        );
+                                    }
+                                    return proxiedObj2;
+                                },
+                            };
+                            return new Proxy({}, proxyProxyHandler) as object;
                         }
                         return proxiedObj;
                     },
@@ -322,10 +354,21 @@ export const extension = {
                 const proxyHandler = {
                     get: (_target: object, prop: string) => {
                         const proxiedObj = controllersContainers[prop];
+
                         if (!proxiedObj) {
-                            throw new Error(
-                                `Called before initialization: ${name}.${prop}`,
-                            );
+                            const proxyProxyHandler = {
+                                get: (_target2: object, prop2: string) => {
+                                    const proxiedObj2 =
+                                        clientsContainers[prop][prop2];
+                                    if (!proxiedObj2) {
+                                        throw new Error(
+                                            `extension.import('client:${prop}') missing property '${prop2}'`,
+                                        );
+                                    }
+                                    return proxiedObj2;
+                                },
+                            };
+                            return new Proxy({}, proxyProxyHandler) as object;
                         }
                         return proxiedObj;
                     },
@@ -337,10 +380,21 @@ export const extension = {
                 const proxyHandler = {
                     get: (_target: object, prop: string) => {
                         const proxiedObj = driversContainers[prop];
+
                         if (!proxiedObj) {
-                            throw new Error(
-                                `Called before initialization: ${name}.${prop}`,
-                            );
+                            const proxyProxyHandler = {
+                                get: (_target2: object, prop2: string) => {
+                                    const proxiedObj2 =
+                                        clientsContainers[prop][prop2];
+                                    if (!proxiedObj2) {
+                                        throw new Error(
+                                            `extension.import('client:${prop}') missing property '${prop2}'`,
+                                        );
+                                    }
+                                    return proxiedObj2;
+                                },
+                            };
+                            return new Proxy({}, proxyProxyHandler) as object;
                         }
                         return proxiedObj;
                     },
