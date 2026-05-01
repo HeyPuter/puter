@@ -3060,7 +3060,7 @@ export class FSService extends PuterService {
                 {},
             );
         } catch {
-            // Non-critical — the response is the source of truth.
+            console.warn('missing event emissions');
         }
     }
 

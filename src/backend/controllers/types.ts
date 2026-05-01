@@ -63,7 +63,7 @@ export const PuterController =
         public onServerShutdown() {
             return;
         }
-        public getReportedCosts(): Record<string, unknown>[] {
+        public async getReportedCosts() {
             return [];
         }
         public registerRoutes(_router: PuterRouter) {}
