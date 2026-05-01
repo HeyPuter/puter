@@ -1816,6 +1816,7 @@ export class AuthController extends PuterController {
             { subdomain: 'api', requireUserActor: true },
             async (req, res) => {
                 let { app_uid, origin } = req.body;
+                const resolvedFromOrigin = !app_uid && !!origin;
                 if (!app_uid && origin) {
                     app_uid = await this.services.auth.appUidFromOrigin(origin);
                 }
@@ -1823,7 +1824,13 @@ export class AuthController extends PuterController {
                     throw new HttpError(400, 'Missing `app_uid` or `origin`');
                 }
 
-                const app = await this.stores.app.getByUid(app_uid);
+                let app = await this.stores.app.getByUid(app_uid);
+                if (!app && resolvedFromOrigin) {
+                    app = await this.stores.app.createFromOrigin(
+                        app_uid,
+                        origin,
+                    );
+                }
                 if (!app) {
                     throw new HttpError(404, `App ${app_uid} does not exist`);
                 }

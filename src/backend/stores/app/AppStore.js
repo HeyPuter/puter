@@ -325,6 +325,44 @@ export class AppStore extends PuterStore {
         return fresh;
     }
 
+    /**
+     * Create an origin-bootstrap app row for `origin` with the
+     * deterministic `uid` (UUIDv5 of origin). No owner — the row stays
+     * unclaimed until a developer registers an app for the same origin
+     * and AppDriver's merge path takes ownership. Marker shape
+     * (`name === uid && title === uid` + description prefix) is what
+     * `#isOriginBootstrapApp` checks.
+     */
+    async createFromOrigin(uid, origin) {
+        const fields = {
+            name: uid,
+            title: uid,
+            description: `App created from origin ${origin}`,
+            index_url: origin,
+            owner_user_id: null,
+        };
+
+        const columns = ['uid', ...Object.keys(fields)];
+        const values = [uid, ...Object.values(fields)];
+
+        const placeholders = columns.map(() => '?').join(', ');
+        const colList = columns.map((c) => `\`${c}\``).join(', ');
+
+        const result = await this.clients.db.write(
+            `INSERT INTO \`apps\` (${colList}) VALUES (${placeholders})`,
+            values,
+        );
+        const insertId = result?.insertId;
+        if (!insertId)
+            throw new Error(
+                'Failed to create origin-bootstrap app — no insertId returned',
+            );
+
+        const fresh = await this.getById(insertId);
+        await this.#invalidateListCachesForApps([fresh]);
+        return fresh;
+    }
+
     /** Updates + refreshes cache (local + peers) with the post-update row. */
     async update(appId, patch) {
         const allowed = this.#filterEditable(patch);
