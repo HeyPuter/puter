@@ -213,6 +213,17 @@ export class SubdomainDriver extends PuterDriver {
         const [shaped] = await this.#hydrateRows(
             updated ? [updated as Record<string, unknown>] : [],
         );
+
+        try {
+            this.clients.event.emit(
+                'subdomain.update',
+                { subdomain: row.subdomain as string },
+                {},
+            );
+        } catch {
+            // Non-critical.
+        }
+
         return shaped ?? null;
     }
 
@@ -299,6 +310,17 @@ export class SubdomainDriver extends PuterDriver {
         await this.stores.subdomain.deleteByUuid(row.uuid, {
             userId: row.user_id,
         });
+
+        try {
+            this.clients.event.emit(
+                'subdomain.delete',
+                { subdomain: row.subdomain as string },
+                {},
+            );
+        } catch {
+            // Non-critical.
+        }
+
         return { success: true, uid: row.uuid };
     }
 
