@@ -98,7 +98,6 @@ export default defineConfig([
             'src/gui/**',
             'src/docs/**',
             'src/puter-js/**',
-            'src/useapi/**',
             'src/worker/**',
             'submodules/**',
             'tests/**',
