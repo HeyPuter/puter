@@ -26,6 +26,7 @@ import type {
     IImageProvider,
 } from '../../types.js';
 import { TOGETHER_IMAGE_GENERATION_MODELS } from './models.js';
+import { HttpError } from '@heyputer/backend/src/core/http/HttpError.js';
 
 const TOGETHER_DEFAULT_RATIO = { w: 1024, h: 1024 };
 type TogetherGenerateParams = IGenerateParams & {
@@ -81,14 +82,18 @@ export class TogetherImageProvider implements IImageProvider {
         }
 
         if (typeof prompt !== 'string' || prompt.trim().length === 0) {
-            throw new Error('`prompt` must be a non-empty string');
+            throw new HttpError(400, '`prompt` must be a non-empty string', {
+                legacyCode: 'bad_request',
+            });
         }
 
         ratio = ratio || TOGETHER_DEFAULT_RATIO;
 
         const actor = Context.get('actor');
         if (!actor) {
-            throw new Error('actor not found in context');
+            throw new HttpError(401, 'actor not found in context', {
+                legacyCode: 'unauthorized',
+            });
         }
 
         const pricingUnit = selectedModel.pricing_unit ?? 'per-MP';
@@ -138,7 +143,11 @@ export class TogetherImageProvider implements IImageProvider {
         );
 
         if (!usageAllowed) {
-            throw new Error('Insufficient credits for image generation');
+            throw new HttpError(
+                402,
+                'Insufficient credits for image generation',
+                { legacyCode: 'insufficient_funds' },
+            );
         }
 
         // Resolve abstract aspect ratios (e.g. 1:1, 16:9) to concrete pixel
@@ -290,8 +299,10 @@ export class TogetherImageProvider implements IImageProvider {
                   : undefined;
 
             if (!conditionSource) {
-                throw new Error(
+                throw new HttpError(
+                    400,
                     `Model ${request.model} requires an image_url or image_base64 input`,
+                    { legacyCode: 'bad_request' },
                 );
             }
 

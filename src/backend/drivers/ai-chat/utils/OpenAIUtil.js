@@ -1,3 +1,5 @@
+import { HttpError } from '@heyputer/backend/src/core/http';
+
 /**
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
@@ -425,7 +427,9 @@ export const handle_completion_output = async ({
     if (moderate && mod_text !== null) {
         const moderation_result = await moderate(mod_text);
         if (moderation_result.flagged) {
-            throw new Error('message is not allowed');
+            throw new HttpError(400, 'message is not allowed', {
+                legacyCode: 'bad_request',
+            });
         }
     }
 
@@ -498,7 +502,9 @@ export const handle_completion_output_responses_api = async ({
     if (is_empty && responseToolCalls.length < 1) {
         // GPT refuses to generate an empty response if you ask it to,
         // so this will probably only happen on an error condition.
-        throw new Error('an empty response was generated');
+        throw new HttpError(400, 'an empty response was generated', {
+            legacyCode: 'bad_response',
+        });
     }
 
     // We need to moderate the completion too
@@ -506,7 +512,9 @@ export const handle_completion_output_responses_api = async ({
     if (moderate && mod_text !== null) {
         const moderation_result = await moderate(mod_text);
         if (moderation_result.flagged) {
-            throw new Error('message is not allowed');
+            throw new HttpError(400, 'message is not allowed', {
+                legacyCode: 'bad_request',
+            });
         }
     }
 

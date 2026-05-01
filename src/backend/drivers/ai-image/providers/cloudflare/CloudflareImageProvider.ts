@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { HttpError } from '@heyputer/backend/src/core/http/HttpError.js';
 import { Context } from '../../../../core/context.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import type {
@@ -88,12 +89,16 @@ export class CloudflareImageProvider implements IImageProvider {
         }
 
         if (typeof prompt !== 'string' || prompt.trim().length === 0) {
-            throw new Error('`prompt` must be a non-empty string');
+            throw new HttpError(400, '`prompt` must be a non-empty string', {
+                legacyCode: 'bad_request',
+            });
         }
 
         const actor = Context.get('actor');
         if (!actor) {
-            throw new Error('actor not found in context');
+            throw new HttpError(401, 'actor not found in context', {
+                legacyCode: 'unauthorized',
+            });
         }
 
         const steps = this.#resolveSteps(selectedModel, options);
@@ -111,7 +116,11 @@ export class CloudflareImageProvider implements IImageProvider {
             totalCostInMicroCents,
         );
         if (!usageAllowed) {
-            throw new Error('Insufficient credits for image generation');
+            throw new HttpError(
+                402,
+                'Insufficient credits for image generation',
+                { legacyCode: 'insufficient_funds' },
+            );
         }
 
         const response = await this.#runModel(selectedModel, {
@@ -383,7 +392,7 @@ export class CloudflareImageProvider implements IImageProvider {
             const message =
                 this.#extractErrorMessage(payload) ||
                 `Cloudflare image generation failed with status ${response.status}`;
-            throw new Error(message);
+            throw new HttpError(400, message, { legacyCode: 'unknown_error' });
         }
 
         if (typeof payload === 'object' && payload !== null) {
@@ -392,14 +401,18 @@ export class CloudflareImageProvider implements IImageProvider {
                 const message =
                     this.#extractErrorMessage(payload) ||
                     'Cloudflare image generation failed';
-                throw new Error(message);
+                throw new HttpError(400, message, {
+                    legacyCode: 'unknown_error',
+                });
             }
         }
 
         const imageString = this.#extractImageString(payload);
         if (!imageString) {
-            throw new Error(
+            throw new HttpError(
+                400,
                 'Cloudflare image generation response did not include image data',
+                { legacyCode: 'unknown_error' },
             );
         }
 

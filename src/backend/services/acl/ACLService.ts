@@ -24,6 +24,7 @@ import type { Actor } from '../../core/actor';
 import { isSystemActor } from '../../core/actor';
 import { PermissionUtil } from '../permission/permissionUtil';
 import { MANAGE_PERM_PREFIX } from '../permission/consts';
+import { HttpError } from '../../core/http/HttpError.js';
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -280,9 +281,13 @@ export class ACLService extends PuterService {
         resource: ResourceDescriptor,
     ): Promise<StatPermissionsResult> {
         if (issuer.app || issuer.accessToken)
-            throw new Error('issuer must be a user actor');
+            throw new HttpError(403, 'issuer must be a user actor', {
+                legacyCode: 'forbidden',
+            });
         if (holder.app || holder.accessToken)
-            throw new Error('holder must be a user actor');
+            throw new HttpError(403, 'holder must be a user actor', {
+                legacyCode: 'forbidden',
+            });
 
         const out: StatPermissionsResult = {};
         const ancestors = await resource.resolveAncestors();
@@ -315,11 +320,17 @@ export class ACLService extends PuterService {
         options: { onlyIfHigher?: boolean } = {},
     ): Promise<boolean> {
         if (issuer.app || issuer.accessToken)
-            throw new Error('issuer must be a user actor');
+            throw new HttpError(403, 'issuer must be a user actor', {
+                legacyCode: 'forbidden',
+            });
         if (holder.app || holder.accessToken)
-            throw new Error('holder must be a user actor');
+            throw new HttpError(403, 'holder must be a user actor', {
+                legacyCode: 'forbidden',
+            });
         if (!holder.user.username)
-            throw new Error('holder is missing username');
+            throw new HttpError(400, 'holder is missing username', {
+                legacyCode: 'bad_request',
+            });
 
         const stat = await this.statUserUser(issuer, holder, resource);
         const existing = stat[resource.path] ?? [];
@@ -350,7 +361,11 @@ export class ACLService extends PuterService {
         const ancestors = await resource.resolveAncestors();
         const self = ancestors[0];
         if (!self)
-            throw new Error('resource has no ancestor chain (is it root?)');
+            throw new HttpError(
+                400,
+                'resource has no ancestor chain (is it root?)',
+                { legacyCode: 'bad_request' },
+            );
         const uid = self.uid;
 
         const newPerm =

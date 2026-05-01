@@ -36,6 +36,7 @@ import path from 'node:path';
 import type { IConfig } from '../../types';
 import { nativeImport } from '../../util/nativeImport.js';
 import { PuterClient } from '../types';
+import { HttpError } from '../../core/http';
 
 const DEFAULT_MULTIPART_PART_SIZE_BYTES = 5 * 1024 * 1024;
 const FAUXQS_SAFE_PUT_OBJECT_LIMIT_BYTES = 10 * 1024 * 1024;
@@ -292,8 +293,10 @@ export class S3Client extends PuterClient {
                 );
 
                 if (!ETag)
-                    throw new Error(
+                    throw new HttpError(
+                        400,
                         `No ETag for ${filePath} part ${partNumber}`,
+                        { legacyCode: 'bad_request' },
                     );
                 uploadedParts.push({ ETag, PartNumber: partNumber });
 

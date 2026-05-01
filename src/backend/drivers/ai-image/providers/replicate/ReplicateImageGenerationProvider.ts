@@ -78,12 +78,16 @@ export class ReplicateImageGenerationProvider implements IImageProvider {
         }
 
         if (typeof prompt !== 'string' || prompt.trim().length === 0) {
-            throw new Error('`prompt` must be a non-empty string');
+            throw new HttpError(400, '`prompt` must be a non-empty string', {
+                legacyCode: 'bad_request',
+            });
         }
 
         const actor = Context.get('actor');
         if (!actor) {
-            throw new HttpError(401, 'actor not found in context');
+            throw new HttpError(401, 'actor not found in context', {
+                legacyCode: 'unauthorized',
+            });
         }
 
         const goFast = selectedModel.supportsGoFast
@@ -116,8 +120,10 @@ export class ReplicateImageGenerationProvider implements IImageProvider {
             inputMp,
         );
         if (totalCostMicroCents <= 0) {
-            throw new Error(
+            throw new HttpError(
+                400,
                 `Error calculating cost for Replicate model ${selectedModel.id}`,
+                { legacyCode: 'unknown_error' },
             );
         }
         const usageAllowed = await this.#meteringService.hasEnoughCredits(
@@ -125,7 +131,13 @@ export class ReplicateImageGenerationProvider implements IImageProvider {
             totalCostMicroCents,
         );
         if (!usageAllowed) {
-            throw new Error('Insufficient credits for image generation');
+            throw new HttpError(
+                402,
+                'Insufficient credits for image generation',
+                {
+                    legacyCode: 'insufficient_funds',
+                },
+            );
         }
 
         const input: Record<string, unknown> = {
@@ -172,8 +184,10 @@ export class ReplicateImageGenerationProvider implements IImageProvider {
 
         const url = this.#extractUrl(output);
         if (!url) {
-            throw new Error(
+            throw new HttpError(
+                400,
                 'Failed to extract image URL from Replicate response',
+                { legacyCode: 'unknown_error' },
             );
         }
 
@@ -256,8 +270,10 @@ export class ReplicateImageGenerationProvider implements IImageProvider {
         if (model.billingScheme === 'per-image') {
             const cents = costs.output;
             if (!cents || cents <= 0) {
-                throw new Error(
+                throw new HttpError(
+                    400,
                     `Replicate model ${model.id} has no valid per-image cost configured`,
+                    { legacyCode: 'bad_request' },
                 );
             }
             return Math.round(cents * 1_000_000);
@@ -266,8 +282,10 @@ export class ReplicateImageGenerationProvider implements IImageProvider {
         const runCents = costs.run ?? 0;
         const outputMpCents = costs.output_mp;
         if (!outputMpCents || outputMpCents <= 0) {
-            throw new Error(
+            throw new HttpError(
+                400,
                 `Replicate model ${model.id} has no valid output_mp cost configured`,
+                { legacyCode: 'bad_request' },
             );
         }
         const inputMpCents = (costs.input_mp ?? 0) * inputMp;

@@ -526,6 +526,9 @@ interface IConfigOptional {
     max_subdomains_per_user: number;
     /** Health-check tuning. */
     server_health: IServerHealthConfig;
+
+    //Metering
+    unlimitedMetering?: boolean;
 }
 
 export type IConfig = Partial<IConfigOptional> & {

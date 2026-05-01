@@ -18,6 +18,7 @@
  */
 
 import { PuterStore } from '../types';
+import { HttpError } from '../../core/http/HttpError.js';
 
 /**
  * CRUD over the `user_oidc_providers` table.
@@ -67,8 +68,10 @@ export class OIDCStore extends PuterStore {
         const existing = await this.getByProviderSub(provider, providerSub);
         if (!existing) return;
         if (existing.user_id !== userId) {
-            throw new Error(
+            throw new HttpError(
+                409,
                 `OIDC link conflict: (${provider}, ${providerSub}) already bound to user ${existing.user_id}`,
+                { legacyCode: 'conflict' },
             );
         }
     }

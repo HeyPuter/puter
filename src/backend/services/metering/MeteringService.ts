@@ -21,6 +21,7 @@ import murmurhash from 'murmurhash';
 import { PuterService } from '../types';
 import type { Actor } from '../../core/actor';
 import { isSystemActor } from '../../core/actor';
+import { HttpError } from '../../core/http/HttpError.js';
 import {
     DEFAULT_FREE_SUBSCRIPTION,
     DEFAULT_TEMP_SUBSCRIPTION,
@@ -28,6 +29,7 @@ import {
     METRICS_PREFIX,
     PERIOD_ESCAPE,
     POLICY_PREFIX,
+    UNLIMITED_SUBSCRIPTION,
 } from './consts';
 import type { AppTotals, UsageAddons, UsageByType, UsageRecord } from './types';
 import { toMicroCents } from './utils';
@@ -459,7 +461,13 @@ export class MeteringService extends PuterService {
         appTotals: Record<string, AppTotals>;
     }> {
         if (!actor.user?.uuid)
-            throw new Error('Actor must be a user to get usage details');
+            throw new HttpError(
+                403,
+                'Actor must be a user to get usage details',
+                {
+                    legacyCode: 'forbidden',
+                },
+            );
 
         const currentMonth = this.monthYearString();
         const keys = [
@@ -506,9 +514,21 @@ export class MeteringService extends PuterService {
         totalCost: number,
     ): Promise<UsageByType> {
         if (!actor.user?.uuid)
-            throw new Error('Actor must be a user to set usage details');
+            throw new HttpError(
+                403,
+                'Actor must be a user to set usage details',
+                {
+                    legacyCode: 'forbidden',
+                },
+            );
         if (!Number.isFinite(totalCost) || totalCost < 0) {
-            throw new Error('Total cost must be a non-negative number');
+            throw new HttpError(
+                400,
+                'Total cost must be a non-negative number',
+                {
+                    legacyCode: 'bad_request',
+                },
+            );
         }
 
         const normalizedTotal = Math.round(totalCost);
@@ -578,7 +598,13 @@ export class MeteringService extends PuterService {
         appId?: string,
     ): Promise<UsageByType> {
         if (!actor.user?.uuid)
-            throw new Error('Actor must be a user to get usage details');
+            throw new HttpError(
+                403,
+                'Actor must be a user to get usage details',
+                {
+                    legacyCode: 'forbidden',
+                },
+            );
 
         const resolvedAppId = appId || actor.app?.uid || GLOBAL_APP_KEY;
 
@@ -588,8 +614,10 @@ export class MeteringService extends PuterService {
             actorAppId !== resolvedAppId &&
             resolvedAppId !== GLOBAL_APP_KEY
         ) {
-            throw new Error(
+            throw new HttpError(
+                403,
                 'Actor can only get usage details for their own app or global app',
+                { legacyCode: 'forbidden' },
             );
         }
 
@@ -642,11 +670,15 @@ export class MeteringService extends PuterService {
 
     async getActorSubscription(actor: Actor): Promise<SubscriptionPolicy> {
         if (!actor.user?.uuid)
-            throw new Error('Actor must be a user to get policy');
+            throw new HttpError(403, 'Actor must be a user to get policy', {
+                legacyCode: 'forbidden',
+            });
 
-        const fallbackDefault = actor.user.email
-            ? DEFAULT_FREE_SUBSCRIPTION
-            : DEFAULT_TEMP_SUBSCRIPTION;
+        const fallbackDefault = this.config.unlimitedMetering
+            ? UNLIMITED_SUBSCRIPTION
+            : actor.user.email
+              ? DEFAULT_FREE_SUBSCRIPTION
+              : DEFAULT_TEMP_SUBSCRIPTION;
 
         const resolvedDefault =
             (await this.firstResolver(
@@ -660,6 +692,7 @@ export class MeteringService extends PuterService {
         const availablePolicies: SubscriptionPolicy[] = [
             ...this.extraPolicies,
             ...SUB_POLICIES,
+            ...(this.config.unlimitedMetering ? [UNLIMITED_SUBSCRIPTION] : []),
         ];
         return (
             availablePolicies.find((p) => p.id === resolvedUser) ??
@@ -669,7 +702,13 @@ export class MeteringService extends PuterService {
 
     async getActorAddons(actor: Actor): Promise<UsageAddons> {
         if (!actor.user?.uuid)
-            throw new Error('Actor must be a user to get policy addons');
+            throw new HttpError(
+                403,
+                'Actor must be a user to get policy addons',
+                {
+                    legacyCode: 'forbidden',
+                },
+            );
         const key = `${POLICY_PREFIX}:actor:${actor.user.uuid}:addons`;
         const { res } = await this.stores.kv.get({ key });
         return (res ?? {}) as UsageAddons;
@@ -677,9 +716,15 @@ export class MeteringService extends PuterService {
 
     async getActorAppUsage(actor: Actor, appId: string): Promise<UsageByType> {
         if (!actor.user?.uuid)
-            throw new Error('Actor must be a user to get app usage');
+            throw new HttpError(403, 'Actor must be a user to get app usage', {
+                legacyCode: 'forbidden',
+            });
         if (actor.app?.uid && actor.app.uid !== appId) {
-            throw new Error('Actor can only get usage for their own app');
+            throw new HttpError(
+                403,
+                'Actor can only get usage for their own app',
+                { legacyCode: 'forbidden' },
+            );
         }
 
         const currentMonth = this.monthYearString();

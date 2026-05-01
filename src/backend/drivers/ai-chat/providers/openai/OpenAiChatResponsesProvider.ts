@@ -28,6 +28,7 @@ import type { IChatProvider, ICompleteArguments } from '../../types.js';
 import * as OpenAiUtil from '../../utils/OpenAIUtil.js';
 import { processPuterPathUploads } from './fileUpload.js';
 import { OPEN_AI_MODELS } from './models.js';
+import { HttpError } from '@heyputer/backend/src/core/http/HttpError.js';
 
 /**
  * OpenAICompletionService class provides an interface to OpenAI's chat completion API.
@@ -119,7 +120,9 @@ export class OpenAiResponsesChatProvider implements IChatProvider {
     }: ICompleteArguments): ReturnType<IChatProvider['complete']> {
         // Validate messages
         if (!Array.isArray(messages)) {
-            throw new Error('`messages` must be an array');
+            throw new HttpError(400, '`messages` must be an array', {
+                legacyCode: 'bad_request',
+            });
         }
         const actor = Context.get('actor');
 

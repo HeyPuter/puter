@@ -26,6 +26,7 @@ import type {
     IImageProvider,
 } from '../../types.js';
 import { XAI_IMAGE_GENERATION_MODELS } from './models.js';
+import { HttpError } from '../../../../core/http/HttpError.js';
 
 const DEFAULT_MODEL = 'grok-2-image';
 const PRICE_KEY = 'output';
@@ -65,7 +66,9 @@ export class XAIImageProvider implements IImageProvider {
         }
 
         if (typeof prompt !== 'string' || prompt.trim().length === 0) {
-            throw new Error('`prompt` must be a non-empty string');
+            throw new HttpError(400, '`prompt` must be a non-empty string', {
+                legacyCode: 'bad_request',
+            });
         }
 
         const actor = Context.get('actor');
@@ -80,7 +83,11 @@ export class XAIImageProvider implements IImageProvider {
         );
 
         if (!usageAllowed) {
-            throw new Error('Insufficient credits for image generation');
+            throw new HttpError(
+                402,
+                'Insufficient credits for image generation',
+                { legacyCode: 'insufficient_funds' },
+            );
         }
 
         const response = await this.#client.images.generate({

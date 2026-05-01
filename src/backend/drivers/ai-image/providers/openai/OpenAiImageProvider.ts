@@ -30,6 +30,7 @@ import type {
     IImageProvider,
 } from '../../types.js';
 import { OPEN_AI_IMAGE_GENERATION_MODELS } from './models.js';
+import { HttpError } from '@heyputer/backend/src/core/http/HttpError.js';
 
 interface OpenAIImageUsage {
     inputTokens: number;
@@ -89,7 +90,9 @@ export class OpenAiImageProvider implements IImageProvider {
         }
 
         if (typeof prompt !== 'string') {
-            throw new Error('`prompt` must be a string');
+            throw new HttpError(400, '`prompt` must be a string', {
+                legacyCode: 'bad_request',
+            });
         }
 
         const validRatios = selectedModel?.allowedRatios;
@@ -130,8 +133,10 @@ export class OpenAiImageProvider implements IImageProvider {
             const availableSizes = Object.keys(selectedModel?.costs).filter(
                 (key) => !OpenAiImageProvider.#NON_SIZE_COST_KEYS.includes(key),
             );
-            throw new Error(
+            throw new HttpError(
+                400,
                 `Invalid size/quality combination. Expected one of: ${availableSizes.join(', ')}. Got: ${price_key}`,
+                { legacyCode: 'bad_request' },
             );
         }
 
@@ -162,7 +167,11 @@ export class OpenAiImageProvider implements IImageProvider {
         );
 
         if (!usageAllowed) {
-            throw new Error('Insufficient credits for image generation');
+            throw new HttpError(
+                402,
+                'Insufficient credits for image generation',
+                { legacyCode: 'insufficient_funds' },
+            );
         }
 
         // Build API parameters based on model
@@ -232,7 +241,11 @@ export class OpenAiImageProvider implements IImageProvider {
                 : null);
 
         if (!url) {
-            throw new Error('Failed to extract image URL from OpenAI response');
+            throw new HttpError(
+                400,
+                'Failed to extract image URL from OpenAI response',
+                { legacyCode: 'unknown_error' },
+            );
         }
 
         return url;

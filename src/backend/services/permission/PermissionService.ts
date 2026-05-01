@@ -21,6 +21,7 @@ import { PuterService } from '../types';
 import type { Actor, ActorUser } from '../../core/actor';
 import { actorUid, isSystemActor, userRelatedActor } from '../../core/actor';
 import { Context } from '../../core/context';
+import { HttpError } from '../../core/http/HttpError.js';
 import {
     PermissionUtil,
     readingHasTerminal,
@@ -841,15 +842,24 @@ export class PermissionService extends PuterService {
     ): Promise<void> {
         permission = await this.rewritePermission(permission);
         const user = await this.stores.user.getByUsername(username);
-        if (!user) throw new Error(`user_does_not_exist: ${username}`);
+        if (!user)
+            throw new HttpError(404, `user_does_not_exist: ${username}`, {
+                legacyCode: 'subject_does_not_exist',
+            });
         if (user.id === actor.user?.id)
-            throw new Error('cannot grant permissions to yourself');
+            throw new HttpError(400, 'cannot grant permissions to yourself', {
+                legacyCode: 'bad_request',
+            });
 
         if (!(await this.canManagePermission(actor, permission))) {
-            throw new Error(`permission_denied: ${permission}`);
+            throw new HttpError(403, `permission_denied: ${permission}`, {
+                legacyCode: 'permission_denied',
+            });
         }
         if (!actor.user?.id)
-            throw new Error('grantUserUserPermission: actor lacks user.id');
+            throw new HttpError(403, 'actor must be a user', {
+                legacyCode: 'forbidden',
+            });
         const issuerId = actor.user.id;
 
         // Flat upsert (awaited so callers see immediate effect)
@@ -883,13 +893,20 @@ export class PermissionService extends PuterService {
     ): Promise<void> {
         permission = await this.rewritePermission(permission);
         const user = await this.stores.user.getByUsername(username);
-        if (!user) throw new Error(`user_does_not_exist: ${username}`);
+        if (!user)
+            throw new HttpError(404, `user_does_not_exist: ${username}`, {
+                legacyCode: 'subject_does_not_exist',
+            });
 
         if (!(await this.canManagePermission(actor, permission))) {
-            throw new Error(`permission_denied: ${permission}`);
+            throw new HttpError(403, `permission_denied: ${permission}`, {
+                legacyCode: 'permission_denied',
+            });
         }
         if (!actor.user?.id)
-            throw new Error('revokeUserUserPermission: actor lacks user.id');
+            throw new HttpError(403, 'actor must be a user', {
+                legacyCode: 'forbidden',
+            });
         const issuerId = actor.user.id;
 
         await this.stores.permission.delFlatUserPerm(user.id, permission);
@@ -926,9 +943,14 @@ export class PermissionService extends PuterService {
             Context.set('is_grant_user_app_permission', false);
         }
         const app = await this.stores.app.resolveApp(appIdentifier);
-        if (!app) throw new Error(`entity_not_found: app:${appIdentifier}`);
+        if (!app)
+            throw new HttpError(404, `entity_not_found: app:${appIdentifier}`, {
+                legacyCode: 'subject_does_not_exist',
+            });
         if (!actor.user?.id)
-            throw new Error('grantUserAppPermission: actor lacks user.id');
+            throw new HttpError(403, 'actor must be a user', {
+                legacyCode: 'forbidden',
+            });
 
         // Skip redundant upserts (saves db roundtrip + cache invalidation)
         if (
@@ -971,11 +993,19 @@ export class PermissionService extends PuterService {
         meta: GrantMeta = {},
     ): Promise<void> {
         permission = await this.rewritePermission(permission);
-        if (actor.app) throw new Error('actor must be a user');
+        if (actor.app)
+            throw new HttpError(403, 'actor must be a user', {
+                legacyCode: 'forbidden',
+            });
         const app = await this.stores.app.resolveApp(appIdentifier);
-        if (!app) throw new Error(`entity_not_found: app${appIdentifier}`);
+        if (!app)
+            throw new HttpError(404, `entity_not_found: app:${appIdentifier}`, {
+                legacyCode: 'subject_does_not_exist',
+            });
         if (!actor.user?.id)
-            throw new Error('revokeUserAppPermission: actor lacks user.id');
+            throw new HttpError(403, 'actor must be a user', {
+                legacyCode: 'forbidden',
+            });
 
         await this.stores.permission.deleteUserAppPerm(
             actor.user.id,
@@ -998,11 +1028,19 @@ export class PermissionService extends PuterService {
         appIdentifier: string,
         meta: GrantMeta = {},
     ): Promise<void> {
-        if (actor.app) throw new Error('actor must be a user');
+        if (actor.app)
+            throw new HttpError(403, 'actor must be a user', {
+                legacyCode: 'forbidden',
+            });
         const app = await this.stores.app.resolveApp(appIdentifier);
-        if (!app) throw new Error(`entity_not_found: app${appIdentifier}`);
+        if (!app)
+            throw new HttpError(404, `entity_not_found: app:${appIdentifier}`, {
+                legacyCode: 'subject_does_not_exist',
+            });
         if (!actor.user?.id)
-            throw new Error('revokeUserAppAll: actor lacks user.id');
+            throw new HttpError(403, 'actor must be a user', {
+                legacyCode: 'forbidden',
+            });
 
         await this.stores.permission.deleteUserAppAll(actor.user.id, app.id);
         this.stores.permission
@@ -1025,11 +1063,18 @@ export class PermissionService extends PuterService {
     ): Promise<void> {
         permission = await this.rewritePermission(permission);
         const app = await this.stores.app.resolveApp(appIdentifier);
-        if (!app) throw new Error(`entity_not_found: app:${appIdentifier}`);
+        if (!app)
+            throw new HttpError(404, `entity_not_found: app:${appIdentifier}`, {
+                legacyCode: 'subject_does_not_exist',
+            });
         if (!(await this.canManagePermission(actor, permission)))
-            throw new Error(`permission_denied: ${permission}`);
+            throw new HttpError(403, `permission_denied: ${permission}`, {
+                legacyCode: 'permission_denied',
+            });
         if (!actor.user?.id)
-            throw new Error('grantDevAppPermission: actor lacks user.id');
+            throw new HttpError(403, 'actor must be a user', {
+                legacyCode: 'forbidden',
+            });
 
         await this.stores.permission.upsertDevAppPerm(
             actor.user.id,
@@ -1055,11 +1100,19 @@ export class PermissionService extends PuterService {
         meta: GrantMeta = {},
     ): Promise<void> {
         permission = await this.rewritePermission(permission);
-        if (actor.app) throw new Error('actor must be a user');
+        if (actor.app)
+            throw new HttpError(403, 'actor must be a user', {
+                legacyCode: 'forbidden',
+            });
         const app = await this.stores.app.resolveApp(appIdentifier);
-        if (!app) throw new Error(`entity_not_found: app${appIdentifier}`);
+        if (!app)
+            throw new HttpError(404, `entity_not_found: app:${appIdentifier}`, {
+                legacyCode: 'subject_does_not_exist',
+            });
         if (!actor.user?.id)
-            throw new Error('revokeDevAppPermission: actor lacks user.id');
+            throw new HttpError(403, 'actor must be a user', {
+                legacyCode: 'forbidden',
+            });
 
         await this.stores.permission.deleteDevAppPerm(
             actor.user.id,
@@ -1082,11 +1135,19 @@ export class PermissionService extends PuterService {
         appIdentifier: string,
         meta: GrantMeta = {},
     ): Promise<void> {
-        if (actor.app) throw new Error('actor must be a user');
+        if (actor.app)
+            throw new HttpError(403, 'actor must be a user', {
+                legacyCode: 'forbidden',
+            });
         const app = await this.stores.app.resolveApp(appIdentifier);
-        if (!app) throw new Error(`entity_not_found: app${appIdentifier}`);
+        if (!app)
+            throw new HttpError(404, `entity_not_found: app:${appIdentifier}`, {
+                legacyCode: 'subject_does_not_exist',
+            });
         if (!actor.user?.id)
-            throw new Error('revokeDevAppAll: actor lacks user.id');
+            throw new HttpError(403, 'actor must be a user', {
+                legacyCode: 'forbidden',
+            });
 
         await this.stores.permission.deleteDevAppAll(actor.user.id, app.id);
         this.stores.permission
@@ -1109,9 +1170,13 @@ export class PermissionService extends PuterService {
     ): Promise<void> {
         permission = await this.rewritePermission(permission);
         if (!(await this.canManagePermission(actor, permission)))
-            throw new Error(`permission_denied: ${permission}`);
+            throw new HttpError(403, `permission_denied: ${permission}`, {
+                legacyCode: 'permission_denied',
+            });
         if (!actor.user?.id)
-            throw new Error('grantUserGroupPermission: actor lacks user.id');
+            throw new HttpError(403, 'actor must be a user', {
+                legacyCode: 'forbidden',
+            });
 
         await this.stores.permission.upsertUserGroupPerm(
             actor.user.id,
@@ -1138,7 +1203,9 @@ export class PermissionService extends PuterService {
     ): Promise<void> {
         permission = await this.rewritePermission(permission);
         if (!actor.user?.id)
-            throw new Error('revokeUserGroupPermission: actor lacks user.id');
+            throw new HttpError(403, 'actor must be a user', {
+                legacyCode: 'forbidden',
+            });
 
         await this.stores.permission.deleteUserGroupPerm(
             actor.user.id,

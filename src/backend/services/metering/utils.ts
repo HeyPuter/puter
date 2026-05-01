@@ -17,5 +17,10 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+/**
+ *
+ * @param dollars
+ * @returns microcents
+ */
 export const toMicroCents = (dollars: number): number =>
     dollars * 1_000_000 * 100;
