@@ -1,0 +1,22 @@
+version: 1
+applications:
+  - frontend:
+      phases:
+        preBuild:
+          commands:
+            - nvm use 24
+            - export HUSKY=0
+            - rm -rf src/docs/node_modules
+            - npm install --ignore-scripts
+        build:
+          commands:
+            - npm run build -w src/docs
+      artifacts:
+        baseDirectory: src/docs/dist
+        files:
+          - "**/*"
+      cache:
+        paths:
+          - node_modules/**/*
+      buildPath: /
+    appRoot: src/docs
