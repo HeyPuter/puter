@@ -1,3 +1,0 @@
-[submodule "submodules/epoxy-tls"]
-	path = submodules/epoxy-tls
-	url = git@github.com:MercuryWorkshop/epoxy-tls.git
