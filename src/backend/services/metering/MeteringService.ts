@@ -29,6 +29,7 @@ import {
     METRICS_PREFIX,
     PERIOD_ESCAPE,
     POLICY_PREFIX,
+    UNLIMITED_SUBSCRIPTION,
 } from './consts';
 import type { AppTotals, UsageAddons, UsageByType, UsageRecord } from './types';
 import { toMicroCents } from './utils';
@@ -673,9 +674,11 @@ export class MeteringService extends PuterService {
                 legacyCode: 'forbidden',
             });
 
-        const fallbackDefault = actor.user.email
-            ? DEFAULT_FREE_SUBSCRIPTION
-            : DEFAULT_TEMP_SUBSCRIPTION;
+        const fallbackDefault = this.config.unlimitedMetering
+            ? UNLIMITED_SUBSCRIPTION
+            : actor.user.email
+              ? DEFAULT_FREE_SUBSCRIPTION
+              : DEFAULT_TEMP_SUBSCRIPTION;
 
         const resolvedDefault =
             (await this.firstResolver(
@@ -689,6 +692,7 @@ export class MeteringService extends PuterService {
         const availablePolicies: SubscriptionPolicy[] = [
             ...this.extraPolicies,
             ...SUB_POLICIES,
+            ...(this.config.unlimitedMetering ? [UNLIMITED_SUBSCRIPTION] : []),
         ];
         return (
             availablePolicies.find((p) => p.id === resolvedUser) ??

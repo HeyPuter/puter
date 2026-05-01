@@ -17,14 +17,11 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-// Constants for the metering service, including prefixes for keys and default subscription IDs.
-export const GLOBAL_APP_KEY = 'os-global';
-export const METRICS_PREFIX = 'metering';
-export const POLICY_PREFIX = 'policy';
-/** dots in usage types are escaped so they don't collide with kv nested paths */
-export const PERIOD_ESCAPE = '_dot_';
-export const DEFAULT_FREE_SUBSCRIPTION = 'user_free';
-export const DEFAULT_TEMP_SUBSCRIPTION = 'temp_free';
+import { UNLIMITED_SUBSCRIPTION } from '../../services/metering/consts.js';
+import { toMicroCents } from '../../services/metering/utils.js';
 
-// WARNING: DO NOT USE THESE IN PROD
-export const UNLIMITED_SUBSCRIPTION = 'unlimited';
+export const LOCAL_UNLIMITED_USER = {
+    id: UNLIMITED_SUBSCRIPTION,
+    monthUsageAllowance: toMicroCents(1_000_000),
+    monthlyStorageAllowance: 100 * 1000 * 1024 * 1024, // 100GB
+} as const;
