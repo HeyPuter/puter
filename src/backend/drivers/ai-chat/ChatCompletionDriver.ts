@@ -20,6 +20,7 @@ import { OpenAiResponsesChatProvider } from './providers/openai/OpenAiChatRespon
 import { OpenRouterProvider } from './providers/openrouter/OpenRouterProvider.js';
 import { TogetherAIProvider } from './providers/together/TogetherAIProvider.js';
 import { XAIProvider } from './providers/xai/XAIProvider.js';
+import { ZAIProvider } from './providers/zai/ZAIProvider.js';
 import type {
     IChatCompleteResult,
     IChatModel,
@@ -584,6 +585,18 @@ export class ChatCompletionDriver extends PuterDriver {
         if (xaiKey) {
             this.#providers['xai'] = new XAIProvider(
                 { apiKey: xaiKey },
+                metering,
+            );
+        }
+
+        const zai = providers['zai'];
+        const zaiKey = readKey(zai);
+        if (zaiKey) {
+            this.#providers['zai'] = new ZAIProvider(
+                {
+                    apiKey: zaiKey,
+                    apiBaseUrl: zai?.apiBaseUrl as string | undefined,
+                },
                 metering,
             );
         }
