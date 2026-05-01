@@ -24,13 +24,6 @@ async function UIWindowQR (options) {
     return new Promise(async (resolve) => {
         options = options ?? {};
 
-        if ( ! window.user.email_confirmed ) {
-            await UIAlert({
-                message: i18n('contact_us_verification_required'),
-            });
-            return resolve();
-        }
-
         let h = '';
         h += '<div style="padding: 20px; margin-top: 0;">';
         // success
