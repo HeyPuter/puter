@@ -20,24 +20,8 @@ file storage.
 Generates release notes between a hard-coded pair of versions. These versions
 need to be modified manually in the script source before running.
 
-### `check-translations.js`
-
-Checks for missing translations in `src/gui/src/i18n/translations`
-
 ## Utilities
 
 ### `module-docgen`
 
 Document a module.
-
-## Libraries
-
-### comment-parser
-
-This is a package used by the `license-headers` tool to process existing
-comments.
-
-### file-walker
-
-This is used by `license-headers` to walk through
-source files.
