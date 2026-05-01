@@ -3558,7 +3558,11 @@ $.fn.close = async function (options) {
                 // close any open FileDialogs belonging to this window
                 $(`.window-filedialog[data-parent_uuid="${window_uuid}"]`).close();
                 // reset URL to desktop first; focusWindow will set the correct URL for the next focused window
-                window.history.replaceState(null, document.title, '/');
+                // only reset the URL if this window was the one that owns it (mirrors the open-side check in focusWindow)
+                const update_window_url = $(this).attr('data-update_window_url');
+                if ( ! window.is_dashboard_mode && (update_window_url === 'true' || update_window_url === null) ) {
+                    window.history.replaceState(null, document.title, '/');
+                }
                 // bring focus to the last window in the window-stack (only if not minimized)
                 let next_window_focused = false;
                 if ( window.window_stack.length > 0 ) {
@@ -4008,9 +4012,12 @@ $.fn.hideWindow = async function (options) {
                 });
             }, 250);
 
-            // update title and window URL
-            window.history.replaceState(null, document.title, '/');
-            document.title = i18n('window_title_puter');
+            // update title and window URL — only if this window was the one that owns the URL
+            const update_window_url = $(this).attr('data-update_window_url');
+            if ( ! window.is_dashboard_mode && (update_window_url === 'true' || update_window_url === null) ) {
+                window.history.replaceState(null, document.title, '/');
+                document.title = i18n('window_title_puter');
+            }
         }
     });
     return this;
