@@ -85,9 +85,14 @@ export class WispController extends PuterController {
                 'wisp',
                 bodyToken,
             );
-            if (decoded.$ !== 'token:wisp') throw new Error('wrong token type');
+            if (decoded.$ !== 'token:wisp')
+                throw new HttpError(403, 'wrong token type', {
+                    legacyCode: 'invalid_token',
+                });
         } catch {
-            throw new HttpError(403, 'Forbidden');
+            throw new HttpError(403, 'Forbidden', {
+                legacyCode: 'invalid_token',
+            });
         }
 
         // Build policy event — extensions can deny via extension.on('wisp.get-policy')

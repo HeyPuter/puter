@@ -2336,7 +2336,11 @@ export class AuthController extends PuterController {
             username = generate_identifier();
             attempts++;
             if (attempts > 20)
-                throw new Error('Failed to generate unique username');
+                throw new HttpError(
+                    409,
+                    'Failed to generate unique username. Try again later.',
+                    { legacyCode: 'conflict' },
+                );
         } while (await this.stores.user.getByUsername(username));
         return username;
     }

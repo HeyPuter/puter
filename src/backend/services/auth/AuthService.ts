@@ -357,7 +357,10 @@ export class AuthService extends PuterService {
      * Requires a user actor in the provided actor.
      */
     getUserAppToken(actor: Actor, appUid: string): string {
-        if (!actor.user) throw new Error('Actor must be a user');
+        if (!actor.user)
+            throw new HttpError(403, 'Actor must be a user', {
+                legacyCode: 'forbidden',
+            });
         return this.services.token.sign('auth', {
             type: 'app-under-user',
             version: '0.0.0',
@@ -488,7 +491,11 @@ export class AuthService extends PuterService {
         if (sessionUuid) {
             const session = await this.stores.session.getByUuid(sessionUuid);
             if (!session) {
-                throw new Error('private-asset token session no longer valid');
+                throw new HttpError(
+                    401,
+                    'private-asset token session no longer valid',
+                    { legacyCode: 'session_required' },
+                );
             }
         }
 
@@ -552,10 +559,16 @@ export class AuthService extends PuterService {
             token,
         );
         if (decoded.kind !== expectedKind) {
-            throw new Error(`hosted-asset token is not ${expectedKind}`);
+            throw new HttpError(
+                401,
+                `hosted-asset token is not ${expectedKind}`,
+                { legacyCode: 'token_invalid' },
+            );
         }
         if (typeof decoded.user_uid !== 'string' || !decoded.user_uid) {
-            throw new Error('hosted-asset token missing user_uid');
+            throw new HttpError(401, 'hosted-asset token missing user_uid', {
+                legacyCode: 'token_invalid',
+            });
         }
         return decoded;
     }
@@ -568,7 +581,9 @@ export class AuthService extends PuterService {
     ): void {
         if (expected === undefined) return;
         if (decoded[field] !== expected) {
-            throw new Error(`hosted-asset token ${label} mismatch`);
+            throw new HttpError(401, `hosted-asset token ${label} mismatch`, {
+                legacyCode: 'token_invalid',
+            });
         }
     }
 
@@ -608,7 +623,10 @@ export class AuthService extends PuterService {
         permissions: Array<[string, Record<string, unknown>?]>,
         options: { expiresIn?: string } = {},
     ): Promise<string> {
-        if (!actor.user) throw new Error('Actor must have a user');
+        if (!actor.user)
+            throw new HttpError(403, 'Actor must be a user', {
+                legacyCode: 'forbidden',
+            });
         if (actor.accessToken) {
             throw new HttpError(
                 403,
@@ -664,7 +682,10 @@ export class AuthService extends PuterService {
      * guessing/leaking the token_uid.
      */
     async revokeAccessToken(actor: Actor, tokenOrUuid: string): Promise<void> {
-        if (!actor.user) throw new Error('Actor must have a user');
+        if (!actor.user)
+            throw new HttpError(403, 'Actor must be a user', {
+                legacyCode: 'forbidden',
+            });
 
         let tokenUid: string;
         let issuerUuidFromJwt: string | undefined;

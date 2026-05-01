@@ -19,6 +19,7 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import { PuterStore } from '../types';
+import { HttpError } from '../../core/http/HttpError.js';
 
 /**
  * Persistence + cache for the `apps` table.
@@ -864,8 +865,10 @@ export class AppStore extends PuterStore {
 
         if (grouping) {
             if (!MYSQL_DATE_FORMATS[grouping]) {
-                throw new Error(
+                throw new HttpError(
+                    400,
                     `Invalid grouping: ${grouping}. Supported: hour, day, week, month, year`,
+                    { legacyCode: 'bad_request' },
                 );
             }
             return this.#queryGroupedStats(

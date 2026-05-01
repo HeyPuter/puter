@@ -19,6 +19,7 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import { PuterStore } from '../types';
+import { HttpError } from '../../core/http/HttpError.js';
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -165,7 +166,13 @@ export class GroupStore extends PuterStore {
             [ownerUserId],
         );
         if (Number(countRow?.n_groups ?? 0) >= CREATE_RATE_LIMIT_PER_HOUR) {
-            throw new Error('too_many_requests');
+            throw new HttpError(
+                429,
+                'Too many groups created in the last hour',
+                {
+                    legacyCode: 'too_many_requests',
+                },
+            );
         }
 
         const uid = uuidv4();

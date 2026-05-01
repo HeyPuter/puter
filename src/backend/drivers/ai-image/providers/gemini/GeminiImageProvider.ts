@@ -85,7 +85,9 @@ export class GeminiImageProvider implements IImageProvider {
         }
 
         if (typeof prompt !== 'string' || prompt.trim().length === 0) {
-            throw new Error('`prompt` must be a non-empty string');
+            throw new HttpError(400, '`prompt` must be a non-empty string', {
+                legacyCode: 'bad_request',
+            });
         }
 
         if (selectedModel.apiType === 'generateImages') {
@@ -110,8 +112,10 @@ export class GeminiImageProvider implements IImageProvider {
             for (const img of input_images) {
                 const mime = this.#detectMimeType(img) ?? input_image_mime_type;
                 if (!mime) {
-                    throw new Error(
+                    throw new HttpError(
+                        400,
                         'Could not detect MIME type for an input image. Provide a known image format (JPEG, PNG, WebP) or set `input_image_mime_type`.',
+                        { legacyCode: 'bad_request' },
                     );
                 }
             }
@@ -242,7 +246,11 @@ export class GeminiImageProvider implements IImageProvider {
         const url = this.#extractImageUrl(response);
 
         if (!url) {
-            throw new Error('Failed to extract image URL from Gemini response');
+            throw new HttpError(
+                400,
+                'Failed to extract image URL from Gemini response',
+                { legacyCode: 'unknown_error' },
+            );
         }
 
         return url;
@@ -310,17 +318,29 @@ export class GeminiImageProvider implements IImageProvider {
 
         const generated = response?.generatedImages;
         if (!generated || generated.length === 0) {
-            throw new Error('Imagen response did not include an image');
+            throw new HttpError(
+                400,
+                'Imagen response did not include an image',
+                { legacyCode: 'unknown_error' },
+            );
         }
 
         const entry = generated[0];
         if (entry.raiFilteredReason) {
-            throw new Error(`Image was filtered: ${entry.raiFilteredReason}`);
+            throw new HttpError(
+                400,
+                `Image was filtered: ${entry.raiFilteredReason}`,
+                { legacyCode: 'bad_request' },
+            );
         }
 
         const image = entry.image;
         if (!image?.imageBytes) {
-            throw new Error('Imagen response did not include image bytes');
+            throw new HttpError(
+                400,
+                'Imagen response did not include image bytes',
+                { legacyCode: 'unknown_error' },
+            );
         }
 
         const usageKey = `gemini:${selectedModel.id}`;

@@ -71,7 +71,9 @@ export class OpenAIVideoProvider extends VideoProvider {
         const selectedModel = await this.#selectModel(requestedModel);
 
         if (!selectedModel) {
-            throw new Error(`Unknown video model: ${requestedModel}`);
+            throw new HttpError(400, `Unknown video model: ${requestedModel}`, {
+                legacyCode: 'bad_request',
+            });
         }
 
         if (testMode) {

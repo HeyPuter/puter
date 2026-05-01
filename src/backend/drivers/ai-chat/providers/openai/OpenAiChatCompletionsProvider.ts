@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { HttpError } from '@heyputer/backend/src/core/http/HttpError.js';
 import { OpenAI } from 'openai';
 import { ChatCompletionCreateParams } from 'openai/resources/index.js';
 import { Context } from '../../../../core/context.js';
@@ -116,15 +117,19 @@ export class OpenAiChatProvider implements IChatProvider {
             // web_search is a Responses-API-only tool — hand the whole call
             // off to the sibling provider when the user requested it.
             if (!this.#responsesProvider) {
-                throw new Error(
+                throw new HttpError(
+                    400,
                     'web_search tool requires the OpenAI Responses provider, which is not configured',
+                    { legacyCode: 'bad_request' },
                 );
             }
             return await this.#responsesProvider.complete(params);
         }
         // Validate messages
         if (!Array.isArray(messages)) {
-            throw new Error('`messages` must be an array');
+            throw new HttpError(400, '`messages` must be an array', {
+                legacyCode: 'bad_request',
+            });
         }
         const actor = Context.get('actor');
 

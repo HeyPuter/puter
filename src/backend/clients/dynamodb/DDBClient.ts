@@ -41,6 +41,7 @@ import { once } from 'node:events';
 import { Agent as httpsAgent } from 'node:https';
 import { PuterClient } from '../types';
 import type { IConfig, IDynamoConfig } from '../../types';
+import { HttpError } from '../../core/http';
 
 const LOCAL_DYNAMO_PATH_KEY = ':memory:';
 const localDynaliteEndpointPromises = new Map<string, Promise<string>>();
@@ -281,7 +282,11 @@ export class DDBClient extends PuterClient {
             }
 
             if (Object.keys(requestItems).length > 0) {
-                throw new Error('Failed to batch write all items to DynamoDB');
+                throw new HttpError(
+                    400,
+                    'Failed to batch write all items to DynamoDB',
+                    { legacyCode: 'bad_request' },
+                );
             }
         }
 

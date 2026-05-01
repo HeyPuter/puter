@@ -214,7 +214,11 @@ export class GeminiVideoProvider extends VideoProvider {
                 const reasons =
                     completed.response?.raiMediaFilteredReasons?.join(', ') ||
                     'content policy';
-                throw new Error(`Video was filtered due to ${reasons}`);
+                throw new HttpError(
+                    400,
+                    `Video was filtered due to ${reasons}`,
+                    { legacyCode: 'disallowed_value' },
+                );
             }
             throw new Error('Gemini response did not include a video');
         }
