@@ -33,7 +33,10 @@ const TabUsage = {
     html: () => {
         return `
             <div class="dashboard-section-header">
-                <h2>${i18n('usage')}</h2>
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <h2>${i18n('usage')}</h2>
+                    <a href="#" class="billing-plan-btn usage-plan-btn" style="display: none;"></a>
+                </div>
                 <p>Puter resources and AI usage</p>
             </div>
             <div class="driver-usage">
@@ -73,6 +76,19 @@ const TabUsage = {
             </div>`;
     },
     init: ($el_window) => {
+        // Upgrade / Manage Plan button (same logic as billing tab)
+        const $planBtn = $($el_window).find('.usage-plan-btn');
+        const hasSubscription = window.user?.subscription?.active;
+        if ( hasSubscription ) {
+            $planBtn.text('Manage Plan').addClass('manage').show();
+        } else {
+            $planBtn.text('Upgrade').addClass('upgrade').show();
+        }
+        $planBtn.on('click', (e) => {
+            e.preventDefault();
+            (new window.UIUpgradeAccount()).open_as_window();
+        });
+
         update_usage_details($el_window);
         $($el_window).find('.update-usage-details').on('click', function () {
             update_usage_details($el_window);
