@@ -152,10 +152,6 @@
         "batch_size": 500,
         "flush_interval_ms": 5000
     },
-    "cf_file_cache": {
-        "endpoint": "https://example.com/invalidate",
-        "throttle_ms": 500
-    },
     "rate_limit": {
         "backend": "redis"
     },

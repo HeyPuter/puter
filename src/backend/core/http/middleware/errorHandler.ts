@@ -82,6 +82,9 @@ export const createErrorHandler = (
 
         if (isHttpError(err)) {
             opts.onError?.(err, req);
+            if (err.statusCode === 402 || err.statusCode === 413) {
+                res.setHeader('X-Needs-Upgrade', true); // Instruct clients to retry after 1 hour for payment/storage limit issues
+            }
             res.status(err.statusCode).json(serializeHttpError(err));
             return;
         }

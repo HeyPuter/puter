@@ -148,6 +148,7 @@ export async function loadFileInput(
         throw new HttpError(
             413,
             `File exceeds max size (${options.maxBytes} bytes)`,
+            { legacyCode: 'storage_limit_reached' },
         );
     }
 
@@ -163,6 +164,7 @@ export async function loadFileInput(
             throw new HttpError(
                 413,
                 `File exceeds max size (${options.maxBytes} bytes)`,
+                { legacyCode: 'storage_limit_reached' },
             );
         }
         chunks.push(buf);
@@ -188,7 +190,9 @@ export async function loadFileInput(
 
 function assertMax(buffer: Buffer, maxBytes?: number): void {
     if (maxBytes && buffer.byteLength > maxBytes) {
-        throw new HttpError(413, `Input exceeds max size (${maxBytes} bytes)`);
+        throw new HttpError(413, `Input exceeds max size (${maxBytes} bytes)`, {
+            legacyCode: 'storage_limit_reached',
+        });
     }
 }
 

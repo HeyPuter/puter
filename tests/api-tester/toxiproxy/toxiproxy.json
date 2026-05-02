@@ -1,8 +1,0 @@
-[
-  {
-    "name": "mysql",
-    "listen": "[::]:8888",
-    "upstream": "localhost:8889",
-    "enabled": true
-  }
-]
