@@ -567,6 +567,10 @@ if (window.opener) {
             target = origin || '/';
         }
 
+        if (stateDecoded.embedded_in_popup) {
+            target = appendQueryParam(target, 'oidc_login', 'true');
+        }
+
         if (extraQueryParams) {
             for (const [k, v] of Object.entries(extraQueryParams)) {
                 if (v != null) target = appendQueryParam(target, k, v);

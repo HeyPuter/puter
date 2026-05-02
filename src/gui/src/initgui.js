@@ -476,16 +476,23 @@ window.initgui = async function (options) {
                 // let's log the error for now in case a change in state occurred.
                 console.error('error in \'sign-in\' flow', e);
             }
-            // Always show session list so user sees their account(s); after OIDC they will see the one they signed into
-            picked_a_user_for_sdk_login = await UIWindowSessionList({
-                reload_on_success: false,
-                draggable_body: false,
-                has_head: false,
-                cover_page: true,
-            });
 
-            if ( picked_a_user_for_sdk_login ) {
+            if ( window.url_query_params.get('oidc_login') === 'true' ) {
+                // OIDC login just completed in popup — skip session list and finish the flow
+                picked_a_user_for_sdk_login = true;
                 await window.getUserAppToken(window.openerOrigin);
+            } else {
+                // Show session list so user can pick which account to use
+                picked_a_user_for_sdk_login = await UIWindowSessionList({
+                    reload_on_success: false,
+                    draggable_body: false,
+                    has_head: false,
+                    cover_page: true,
+                });
+
+                if ( picked_a_user_for_sdk_login ) {
+                    await window.getUserAppToken(window.openerOrigin);
+                }
             }
         }
     }
