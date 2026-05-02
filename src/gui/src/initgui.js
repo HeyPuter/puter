@@ -644,6 +644,9 @@ window.initgui = async function (options) {
                     is_verified = await UIWindowEmailConfirmationRequired({
                         stay_on_top: true,
                         has_head: false,
+                        window_options: {
+                            is_draggable: false,
+                        },
                     });
                 }
                 while ( !is_verified );
@@ -683,6 +686,108 @@ window.initgui = async function (options) {
         }
     };
 
+    /**
+     * Event handler for a custom 'logout' event attached to the document.
+     * This function handles the process of logging out, including user confirmation,
+     * communication with the backend, and subsequent UI updates. It takes special
+     * precautions if the user is identified as using a temporary account.
+     *
+     * @listens Document#event:logout
+     * @async
+     * @param {Event} event - The JQuery event object associated with the logout event.
+     * @returns {Promise<void>} - This function does not return anything meaningful, but it performs an asynchronous operation.
+     */
+    $(document).on('logout', async function (event) {
+        // is temp user?
+        if ( window.user && window.user.is_temp && !window.user.deleted ) {
+            const alert_resp = await UIAlert({
+                message: '<strong>Save account before logging out!</strong><p>You are using a temporary account and logging out will erase all your data.</p>',
+                buttons: [
+                    {
+                        label: i18n('save_account'),
+                        value: 'save_account',
+                        type: 'primary',
+                    },
+                    {
+                        label: i18n('log_out'),
+                        value: 'log_out',
+                        type: 'danger',
+                    },
+                    {
+                        label: i18n('cancel'),
+                    },
+                ],
+            });
+            if ( alert_resp === 'save_account' ) {
+                let saved = await UIWindowSaveAccount({
+                    send_confirmation_code: false,
+                    default_username: window.user.username,
+                });
+                if ( saved )
+                {
+                    window.logout();
+                }
+            } else if ( alert_resp === 'log_out' ) {
+                window.logout();
+            }
+            else {
+                return;
+            }
+        }
+
+        // logout
+        try {
+            const resp = await fetch(`${window.gui_origin}/get-anticsrf-token`);
+            const { token } = await resp.json();
+            await $.ajax({
+                url: `${window.gui_origin }/logout`,
+                type: 'POST',
+                async: true,
+                contentType: 'application/json',
+                headers: {
+                    'Authorization': `Bearer ${ window.auth_token}`,
+                },
+                data: JSON.stringify({ anti_csrf: token }),
+                statusCode: {
+                    401: function () {
+                    },
+                },
+            });
+        } catch (e) {
+            // Ignored
+        }
+
+        // remove this user from the array of logged_in_users
+        for ( let i = 0; i < window.logged_in_users.length; i++ ) {
+            if ( window.logged_in_users[i].uuid === window.user.uuid ) {
+                window.logged_in_users.splice(i, 1);
+                break;
+            }
+        }
+
+        // update logged_in_users in local storage
+        localStorage.setItem('logged_in_users', JSON.stringify(window.logged_in_users));
+
+        // delete this user from local storage
+        window.user = null;
+        localStorage.removeItem('user');
+        window.auth_token = null;
+        localStorage.removeItem('auth_token');
+
+        // close all windows
+        $('.window').close();
+        // close all ctxmenus
+        $('.context-menu').remove();
+        // remove desktop
+        $('.desktop').remove();
+        // remove taskbar
+        $('.taskbar').remove();
+        // disable native browser exit confirmation
+        window.onbeforeunload = null;
+        // go to home page
+        window.location.replace('/');
+    });
+
     // -------------------------------------------------------------------------------------
     // Authed
     // -------------------------------------------------------------------------------------
@@ -709,6 +814,7 @@ window.initgui = async function (options) {
                         has_head: false,
                         logout_in_footer: true,
                         window_options: {
+                            is_draggable: false,
                             cover_page: window.is_embedded,
                         },
                     });
@@ -1685,107 +1791,6 @@ window.initgui = async function (options) {
         }
     });
 
-    /**
-     * Event handler for a custom 'logout' event attached to the document.
-     * This function handles the process of logging out, including user confirmation,
-     * communication with the backend, and subsequent UI updates. It takes special
-     * precautions if the user is identified as using a temporary account.
-     *
-     * @listens Document#event:logout
-     * @async
-     * @param {Event} event - The JQuery event object associated with the logout event.
-     * @returns {Promise<void>} - This function does not return anything meaningful, but it performs an asynchronous operation.
-     */
-    $(document).on('logout', async function (event) {
-        // is temp user?
-        if ( window.user && window.user.is_temp && !window.user.deleted ) {
-            const alert_resp = await UIAlert({
-                message: '<strong>Save account before logging out!</strong><p>You are using a temporary account and logging out will erase all your data.</p>',
-                buttons: [
-                    {
-                        label: i18n('save_account'),
-                        value: 'save_account',
-                        type: 'primary',
-                    },
-                    {
-                        label: i18n('log_out'),
-                        value: 'log_out',
-                        type: 'danger',
-                    },
-                    {
-                        label: i18n('cancel'),
-                    },
-                ],
-            });
-            if ( alert_resp === 'save_account' ) {
-                let saved = await UIWindowSaveAccount({
-                    send_confirmation_code: false,
-                    default_username: window.user.username,
-                });
-                if ( saved )
-                {
-                    window.logout();
-                }
-            } else if ( alert_resp === 'log_out' ) {
-                window.logout();
-            }
-            else {
-                return;
-            }
-        }
-
-        // logout
-        try {
-            const resp = await fetch(`${window.gui_origin}/get-anticsrf-token`);
-            const { token } = await resp.json();
-            await $.ajax({
-                url: `${window.gui_origin }/logout`,
-                type: 'POST',
-                async: true,
-                contentType: 'application/json',
-                headers: {
-                    'Authorization': `Bearer ${ window.auth_token}`,
-                },
-                data: JSON.stringify({ anti_csrf: token }),
-                statusCode: {
-                    401: function () {
-                    },
-                },
-            });
-        } catch (e) {
-            // Ignored
-        }
-
-        // remove this user from the array of logged_in_users
-        for ( let i = 0; i < window.logged_in_users.length; i++ ) {
-            if ( window.logged_in_users[i].uuid === window.user.uuid ) {
-                window.logged_in_users.splice(i, 1);
-                break;
-            }
-        }
-
-        // update logged_in_users in local storage
-        localStorage.setItem('logged_in_users', JSON.stringify(window.logged_in_users));
-
-        // delete this user from local storage
-        window.user = null;
-        localStorage.removeItem('user');
-        window.auth_token = null;
-        localStorage.removeItem('auth_token');
-
-        // close all windows
-        $('.window').close();
-        // close all ctxmenus
-        $('.context-menu').remove();
-        // remove desktop
-        $('.desktop').remove();
-        // remove taskbar
-        $('.taskbar').remove();
-        // disable native browser exit confirmation
-        window.onbeforeunload = null;
-        // go to home page
-        window.location.replace('/');
-    });
 };
 
 function requestOpenerOrigin () {
