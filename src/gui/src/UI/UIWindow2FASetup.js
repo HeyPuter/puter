@@ -29,7 +29,7 @@
             - cancel action
 
         Screen 2: Recovery codes
-            Components: Flexer < RecoveryCodesView, ConfirmationsView, ActionsView >
+            Components: Flexer < RecoveryCodesView, ActionsView >
             Logic:
             - done action
             - cancel action
@@ -41,7 +41,6 @@ import TeePromise from '../util/TeePromise.js';
 import ValueHolder from '../util/ValueHolder.js';
 import Button from './Components/Button.js';
 import CodeEntryView from './Components/CodeEntryView.js';
-import ConfirmationsView from './Components/ConfirmationsView.js';
 import Flexer from './Components/Flexer.js';
 import UIQRCode from './UIQRCode.js';
 import RecoveryCodesView from './Components/RecoveryCodesView.js';
@@ -180,12 +179,32 @@ const UIWindow2FASetup = async function UIWindow2FASetup () {
                                 </div>
                             `,
                         }),
-                        new ConfirmationsView({
-                            confirmations: [
-                                i18n('setup2fa_5_confirmation_1'),
-                                i18n('setup2fa_5_confirmation_2'),
-                            ],
-                            confirmed: done_enabled,
+                        new JustHTML({
+                            _ref: me => {
+                                me.dom_.addEventListener('change', (e) => {
+                                    if ( ! e.target.matches('input[type="checkbox"]') ) return;
+                                    const inputs = me.dom_.querySelectorAll('input[type="checkbox"]');
+                                    const all_checked = Array.from(inputs).every(i => i.checked);
+                                    done_enabled.set(all_checked);
+                                    const looks_good = me.dom_.querySelector('.looks-good');
+                                    if ( looks_good ) {
+                                        looks_good.style.display = all_checked ? 'block' : 'none';
+                                    }
+                                });
+                            },
+                            html: `
+                                <div style="display: flex; flex-direction: column;">
+                                    <div>
+                                        <input type="checkbox" id="confirmation-0" name="confirmation-0">
+                                        <label for="confirmation-0">${html_encode(i18n('setup2fa_5_confirmation_1'))}</label>
+                                    </div>
+                                    <div>
+                                        <input type="checkbox" id="confirmation-1" name="confirmation-1">
+                                        <label for="confirmation-1">${html_encode(i18n('setup2fa_5_confirmation_2'))}</label>
+                                    </div>
+                                    <span class="looks-good" style="display: none; margin-top: 20px; color: hsl(220, 25%, 31%); font-size: 20px; font-weight: 700;">${html_encode(i18n('looks_good'))}</span>
+                                </div>
+                            `,
                         }),
                         new Button({
                             enabled: done_enabled,
