@@ -4843,20 +4843,19 @@ html.dark-mode .usage-table-fade-overlay {
 /* Show more button */
 .usage-table-show-more {
     pointer-events: auto;
-    background: #3b82f6;
-    color: white;
+    background: white;
+    color: black;
     border: none;
     padding: 8px 20px;
     border-radius: 6px;
     font-size: 13px;
     font-weight: 500;
     cursor: pointer;
-    transition: background-color 0.15s ease, transform 0.1s ease;
-    box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
+    transition: background-color .15s ease, transform .1s ease;
+    box-shadow: 0 2px 8px rgb(58 58 58 / 30%);
 }
 
 .usage-table-show-more:hover {
-    background: #2563eb;
     transform: translateY(-1px);
 }
 
