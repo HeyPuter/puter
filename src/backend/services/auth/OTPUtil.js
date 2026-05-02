@@ -19,7 +19,11 @@
 
 import { TOTP } from 'otpauth';
 import crypto from 'node:crypto';
-import { encode } from 'hi-base32';
+import hiBase32 from 'hi-base32';
+
+// hi-base32 is CJS without static named-export detection, so destructure
+// off the default import.
+const { encode } = hiBase32;
 
 /**
  * Standalone OTP utilities — no service class, just functions.

@@ -174,7 +174,7 @@ const hardcoded_user_group_permissions = {
     },
 };
 
-module.exports = {
+export {
     implicit_user_app_permissions,
     default_implicit_user_app_permissions,
     hardcoded_user_group_permissions,

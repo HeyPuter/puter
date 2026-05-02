@@ -18,7 +18,7 @@
  */
 
 import dedent from 'dedent';
-import handlebars, { template } from 'handlebars';
+import handlebars from 'handlebars';
 import nodemailer from 'nodemailer';
 import type { IConfig } from '../../types';
 import { PuterClient } from '../types';
@@ -46,8 +46,8 @@ export interface SendMailOptions {
 export type EmailValidator = (email: string) => Promise<boolean> | boolean;
 
 interface CompiledTemplate {
-    subject: ReturnType<typeof template>;
-    html: ReturnType<typeof template>;
+    subject: ReturnType<typeof handlebars.template>;
+    html: ReturnType<typeof handlebars.template>;
 }
 
 // ── Clean-email rules ────────────────────────────────────────────────

@@ -5,7 +5,7 @@ writeFileSync(
     'dist/package.json',
     `${JSON.stringify({
         name: '@heyputer/backend',
-        type: 'commonjs',
+        type: 'module',
         exports: {
             // Post-flatten: `src/backend/` is the backend root. The `src/`
             // in the compiled path (`dist/src/backend/...`) is an artifact

@@ -1,8 +1,8 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "module": "CommonJS",
-    "moduleResolution": "Node",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
     "rootDir": ".",
     "outDir": "./dist",
     "baseUrl": ".",
@@ -19,7 +19,6 @@
     },
     "allowJs": true,
     "checkJs": false,
-    "noCheck": true,
     "strict": true,
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
@@ -27,7 +26,7 @@
     "sourceMap": true,
     "inlineSources": true,
     "removeComments": true,
-    "noEmit": false,
+    "noEmit": true,
     "noEmitOnError": false,
     "noImplicitAny": false
   },

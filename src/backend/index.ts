@@ -17,8 +17,9 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { puterClients } from './clients';
 import { puterControllers } from './controllers';
 import { puterDrivers } from './drivers';
@@ -164,8 +165,22 @@ const loadConfig = (): IConfig => {
     return config;
 };
 
-// if called directly, start the server
-if (require.main === module) {
+// if called directly, start the server. ESM equivalent of CJS
+// `require.main === module`: compare the running module's file path to
+// argv[1], normalizing through realpath so symlinked launches still match.
+const isMainModule = (() => {
+    const entry = process.argv[1];
+    if (!entry) return false;
+    try {
+        return (
+            realpathSync(fileURLToPath(import.meta.url)) === realpathSync(entry)
+        );
+    } catch {
+        return false;
+    }
+})();
+
+if (isMainModule) {
     const config = loadConfig();
     const server = new PuterServer(
         config,

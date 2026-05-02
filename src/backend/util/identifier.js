@@ -269,7 +269,4 @@ function generate_random_code(
     return code;
 }
 
-module.exports = {
-    generate_identifier,
-    generate_random_code,
-};
+export { generate_identifier, generate_random_code };
