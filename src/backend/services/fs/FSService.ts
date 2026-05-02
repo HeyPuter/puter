@@ -417,7 +417,14 @@ export class FSService extends PuterService {
             const pathReservedInBatch = reservedPaths.has(normalizedInput.path);
 
             if (pathReservedInBatch || existingEntry) {
-                if (normalizedInput.dedupeName) {
+                if (normalizedInput.overwrite) {
+                    if (pathReservedInBatch) {
+                        throw new HttpError(
+                            409,
+                            `Batch contains duplicate target path: ${normalizedInput.path}`,
+                        );
+                    }
+                } else if (normalizedInput.dedupeName) {
                     const dedupedPath = await this.#findDedupedPath(
                         normalizedInput.path,
                         reservedPaths,

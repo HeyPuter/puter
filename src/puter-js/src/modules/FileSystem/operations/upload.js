@@ -716,7 +716,7 @@ const upload = async function (items, dirPath, options = {}) {
                         size: file.size,
                         contentType: file.type || 'application/octet-stream',
                         overwrite: overwriteEnabled,
-                        dedupeName: options.dedupeName ?? true,
+                        dedupeName: overwriteEnabled? false: options.dedupeName ?? true,
                         createMissingParents: shouldCreateMissingParents,
                         app_uid: options.appUID,
                     };

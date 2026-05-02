@@ -1443,21 +1443,6 @@ export class FSController extends PuterController {
         return candidate;
     }
 
-    #isDedupeEnabled(fileMetadata: FSEntryWriteInput | undefined): boolean {
-        if (!fileMetadata) {
-            return false;
-        }
-        const metadataRecord = fileMetadata as unknown as Record<
-            string,
-            unknown
-        >;
-        const dedupeCandidate = this.#firstDefined(
-            fileMetadata.dedupeName,
-            metadataRecord.dedupe_name,
-        );
-        return this.#toBoolean(dedupeCandidate) ?? false;
-    }
-
     #resolveWriteFileMetadata(
         fileMetadata: FSEntryWriteInput | undefined,
         fallbackSource?: unknown,
@@ -1834,9 +1819,8 @@ export class FSController extends PuterController {
             throw new HttpError(400, 'Cannot write to root path');
         }
 
-        const dedupeEnabled = this.#isDedupeEnabled(normalizedFileMetadata);
         let pathToCheck = parentPath;
-        if (Boolean(normalizedFileMetadata.overwrite) && !dedupeEnabled) {
+        if (Boolean(normalizedFileMetadata.overwrite)) {
             const destinationExists =
                 await this.services.fs.entryExistsByPath(targetPath);
             if (destinationExists) {

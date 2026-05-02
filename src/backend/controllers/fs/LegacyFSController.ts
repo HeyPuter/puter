@@ -448,16 +448,31 @@ export class LegacyFSController extends PuterController {
         if (!rawPath) throw new HttpError(400, '`path` is required');
 
         // Supports `{ parent, path }` where `path` is a relative suffix.
+        // When `parent` is a path string, use it directly without requiring
+        // the entry to exist — `services.fs.mkdir` honors `create_missing_parents`
+        // and will materialize any missing intermediate directories.
         let targetPath = rawPath;
         if (body.parent !== undefined && !rawPath.startsWith('/')) {
-            const parent = await resolveV1Selector(
-                this.stores.fsEntry,
-                body.parent,
-            );
+            let parentPath: string;
+            if (
+                typeof body.parent === 'string' &&
+                (body.parent.startsWith('/') || body.parent.startsWith('~'))
+            ) {
+                parentPath = this.#expandTilde(
+                    body.parent,
+                    actor.user?.username,
+                );
+            } else {
+                const parent = await resolveV1Selector(
+                    this.stores.fsEntry,
+                    body.parent,
+                );
+                parentPath = parent.path;
+            }
             targetPath =
-                parent.path === '/'
+                parentPath === '/'
                     ? `/${rawPath}`
-                    : `${parent.path}/${rawPath}`;
+                    : `${parentPath.replace(/\/+$/, '')}/${rawPath}`;
         }
 
         const parentPath = pathPosix.dirname(

@@ -218,6 +218,7 @@ export class SubdomainStore extends PuterStore {
         };
         await this.#refreshCache(row);
         await this.#invalidatePrefixListsForUser(userId);
+        await this.#invalidateRootDirEntry(row.root_dir_id);
 
         return row;
     }
@@ -268,6 +269,15 @@ export class SubdomainStore extends PuterStore {
         for (const uid of affectedUsers) {
             await this.#invalidatePrefixListsForUser(uid);
         }
+        // FSEntry rows embed a `subdomains_agg` JSON of associated subdomains,
+        // so any rename / root_dir reassignment must drop the stale entry
+        // caches on both the old and new root_dir_id.
+        const affectedRootDirIds = new Set(
+            [before?.root_dir_id, after?.root_dir_id].filter((v) => v != null),
+        );
+        for (const id of affectedRootDirIds) {
+            await this.#invalidateRootDirEntry(id);
+        }
         return after;
     }
 
@@ -293,6 +303,7 @@ export class SubdomainStore extends PuterStore {
             if (row.user_id != null) {
                 await this.#invalidatePrefixListsForUser(row.user_id);
             }
+            await this.#invalidateRootDirEntry(row.root_dir_id);
         }
         return affected;
     }
@@ -315,6 +326,25 @@ export class SubdomainStore extends PuterStore {
             ttlSeconds: CACHE_TTL_SECONDS,
             broadcast: true,
         });
+    }
+
+    // FSEntryStore caches each row with an embedded `subdomains_agg` JSON
+    // (uuid + subdomain) keyed on `root_dir_id`. Without this, a deleted or
+    // renamed subdomain keeps showing up under its old folder in the GUI
+    // (website badge, "associated websites" popover) until the entry's
+    // independent TTL expires.
+    async #invalidateRootDirEntry(rootDirId) {
+        if (rootDirId == null) return;
+        const id =
+            typeof rootDirId === 'number' ? rootDirId : Number(rootDirId);
+        if (!Number.isFinite(id)) return;
+        const fsEntry = this.stores?.fsEntry;
+        if (!fsEntry?.invalidateEntryCacheById) return;
+        try {
+            await fsEntry.invalidateEntryCacheById(id);
+        } catch {
+            /* best-effort */
+        }
     }
 
     async #invalidatePrefixListsForUser(userId) {

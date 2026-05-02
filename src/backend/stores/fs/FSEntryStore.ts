@@ -345,6 +345,36 @@ export class FSEntryStore extends PuterStore {
         });
     }
 
+    async invalidateEntryCacheById(id: number): Promise<void> {
+        if (typeof id !== 'number' || !Number.isFinite(id)) {
+            return;
+        }
+
+        const rows = (await this.clients.db.read(
+            `SELECT ${this.#selectFsentriesColumns()} FROM fsentries WHERE id = ? LIMIT 1`,
+            [id],
+        )) as unknown as FSEntryRow[];
+        const row = rows[0];
+
+        if (row) {
+            const entry = this.#mapFSEntryRow(row);
+            await this.#invalidateEntryCache(entry);
+            return;
+        }
+
+        const cached = await this.#readEntryFromCache(
+            `prodfsv2:fsentry:id:${id}`,
+        );
+        if (cached) {
+            await this.#invalidateEntryCache(cached);
+            return;
+        }
+
+        await this.publishCacheKeys({
+            keys: [`prodfsv2:fsentry:id:${id}`],
+        });
+    }
+
     #chunk<T>(values: T[], size: number): T[][] {
         if (values.length === 0) {
             return [];
