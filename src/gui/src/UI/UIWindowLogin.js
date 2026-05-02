@@ -22,7 +22,6 @@ import Button from './Components/Button.js';
 import CodeEntryView from './Components/CodeEntryView.js';
 import Flexer from './Components/Flexer.js';
 import JustHTML from './Components/JustHTML.js';
-import RecoveryCodeEntryView from './Components/RecoveryCodeEntryView.js';
 import StepView from './Components/StepView.js';
 import UIComponentWindow from './UIComponentWindow.js';
 import UIWindow from './UIWindow.js';
@@ -330,52 +329,81 @@ async function UIWindowLogin (options) {
                                         }</p>
                                     `,
                                 }),
-                                new RecoveryCodeEntryView({
-                                    _ref: me => recovery_entry = me,
-                                    async 'property.value' (value, { component }) {
-                                        let error_i18n_key = 'something_went_wrong';
-                                        if ( ! value ) return;
-                                        try {
-                                            const resp = await fetch(`${window.api_origin}/login/recovery-code`, {
-                                                method: 'POST',
-                                                headers: {
-                                                    'Content-Type': 'application/json',
-                                                },
-                                                body: JSON.stringify({
-                                                    token: data.otp_jwt_token,
-                                                    code: value,
-                                                }),
-                                            });
-
-                                            if ( resp.status === 429 ) {
-                                                error_i18n_key = 'confirm_code_generic_too_many_requests';
-                                                throw new Error('expected error');
+                                new JustHTML({
+                                    _ref: me => {
+                                        recovery_entry = me;
+                                        const set_error = (msg) => {
+                                            const err = me.dom_.querySelector('.error');
+                                            if ( ! err ) return;
+                                            if ( ! msg ) {
+                                                err.style.display = 'none';
+                                                err.textContent = '';
+                                            } else {
+                                                err.textContent = msg;
+                                                err.style.display = 'block';
                                             }
+                                        };
+                                        me.clear_input = () => {
+                                            const input = me.dom_.querySelector('.recovery-code-input');
+                                            if ( input ) input.value = '';
+                                        };
+                                        me.clear_error = () => set_error(undefined);
+                                        me.dom_.addEventListener('input', async (e) => {
+                                            if ( ! e.target.matches('.recovery-code-input') ) return;
+                                            const value = e.target.value;
+                                            if ( value.length !== 8 ) return;
+                                            let error_i18n_key = 'something_went_wrong';
+                                            try {
+                                                const resp = await fetch(`${window.api_origin}/login/recovery-code`, {
+                                                    method: 'POST',
+                                                    headers: {
+                                                        'Content-Type': 'application/json',
+                                                    },
+                                                    body: JSON.stringify({
+                                                        token: data.otp_jwt_token,
+                                                        code: value,
+                                                    }),
+                                                });
 
-                                            const next_data = await resp.json();
+                                                if ( resp.status === 429 ) {
+                                                    error_i18n_key = 'confirm_code_generic_too_many_requests';
+                                                    throw new Error('expected error');
+                                                }
 
-                                            if ( ! next_data.proceed ) {
-                                                error_i18n_key = 'confirm_code_generic_incorrect';
-                                                throw new Error('expected error');
+                                                const next_data = await resp.json();
+
+                                                if ( ! next_data.proceed ) {
+                                                    error_i18n_key = 'confirm_code_generic_incorrect';
+                                                    throw new Error('expected error');
+                                                }
+
+                                                data = next_data;
+
+                                                $(win).close();
+                                                p.resolve();
+                                            } catch (e) {
+                                                set_error(i18n(error_i18n_key));
                                             }
-
-                                            data = next_data;
-
-                                            $(win).close();
-                                            p.resolve();
-                                        } catch (e) {
-                                            // keeping this log; useful in screenshots
-                                            component.set('error', i18n(error_i18n_key));
-                                        }
+                                        });
                                     },
+                                    html: `
+                                        <div class="recovery-code-entry">
+                                            <form>
+                                                <div class="error" style="display: none; color: red; border: 1px solid red; border-radius: 4px; padding: 9px; margin-bottom: 15px; text-align: center; font-size: 13px;"></div>
+                                                <fieldset name="recovery-code" style="border: none; padding: 0; display: flex;" data-recovery-code-form>
+                                                    <input type="text" class="recovery-code-input" placeholder="${html_encode(i18n('login2fa_recovery_placeholder'))}" maxlength="8" required style="flex-grow: 1; box-sizing: border-box; height: 50px; font-size: 25px; text-align: center; border-radius: 0.5rem; font-family: 'Courier New', Courier, monospace;">
+                                                </fieldset>
+                                            </form>
+                                        </div>
+                                    `,
                                 }),
                                 new Button({
                                     label: i18n('login2fa_recovery_back'),
                                     style: 'link',
                                     on_click: async () => {
                                         stepper.back();
-                                        recovery_entry.set('value', undefined);
-                                        recovery_entry.set('error', undefined);
+                                        recovery_entry.clear_input();
+                                        recovery_entry.clear_error();
                                     },
                                 }),
                             ],
