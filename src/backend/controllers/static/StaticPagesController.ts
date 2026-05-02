@@ -82,7 +82,7 @@ export class StaticPagesController extends PuterController {
     width: 56px;
     height: 56px;
     border-radius: 50%;
-    background: ${color}0F;
+    background: ${color}30;
     display: inline-flex;
     align-items: center;
     justify-content: center;
