@@ -47,9 +47,9 @@
   "dependencies": {
     "file-type": "21.3.3",
     "json-colorizer": "^3.0.1",
-    "mocha": "7.2.0",
     "music-metadata": "11.12.3",
+    "nodemailer": "8.0.7",
     "string-template": "^1.0.0",
-    "uuid": "^9.0.1"
+    "uuid": "^14.0.0"
   }
 }
