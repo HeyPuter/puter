@@ -37,9 +37,6 @@ export const Component = def(class Component extends HTMLElement {
 
         // Automatically define components for all HTML elements
         on_other_registered(({ cls }) => {
-            if ( cls.ID === 'ui.component.StepHeading' ) {
-                globalThis.sh_shouldbe = cls;
-            }
             if ( globalThis.lib.is_subclass(cls, HTMLElement) ) {
                 defineComponent(cls);
             }

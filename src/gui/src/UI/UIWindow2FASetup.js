@@ -45,7 +45,6 @@ import ConfirmationsView from './Components/ConfirmationsView.js';
 import Flexer from './Components/Flexer.js';
 import UIQRCode from './UIQRCode.js';
 import RecoveryCodesView from './Components/RecoveryCodesView.js';
-import StepHeading from './Components/StepHeading.js';
 import StepView from './Components/StepView.js';
 import JustHTML from './Components/JustHTML.js';
 import UIComponentWindow from './UIComponentWindow.js';
@@ -109,23 +108,35 @@ const UIWindow2FASetup = async function UIWindow2FASetup () {
             children: [
                 new Flexer({
                     children: [
-                        new StepHeading({
-                            symbol: '1',
-                            text: i18n('setup2fa_1_step_heading'),
+                        new JustHTML({
+                            html: `
+                                <div style="display: flex; align-items: center;">
+                                    <div style="display: flex; justify-content: center; align-items: center; width: 25px; height: 25px; border-radius: 50%; background-color: #3e5362; color: #FFFFFF; font-size: 15px; font-weight: 700;">1</div>
+                                    <div style="margin-left: 10px; font-size: 18px; color: hsl(220, 25%, 31%); font-weight: 500;">${html_encode(i18n('setup2fa_1_step_heading'))}</div>
+                                </div>
+                            `,
                         }),
                         new JustHTML({
                             html: `<div style="color: #3b4863">${i18n('setup2fa_1_instructions', [], false)}</div>`,
                         }),
-                        new StepHeading({
-                            symbol: '2',
-                            text: i18n('setup2fa_2_step_heading'),
+                        new JustHTML({
+                            html: `
+                                <div style="display: flex; align-items: center;">
+                                    <div style="display: flex; justify-content: center; align-items: center; width: 25px; height: 25px; border-radius: 50%; background-color: #3e5362; color: #FFFFFF; font-size: 15px; font-weight: 700;">2</div>
+                                    <div style="margin-left: 10px; font-size: 18px; color: hsl(220, 25%, 31%); font-weight: 500;">${html_encode(i18n('setup2fa_2_step_heading'))}</div>
+                                </div>
+                            `,
                         }),
                         UIQRCode({
                             value: data.url,
                         }),
-                        new StepHeading({
-                            symbol: '3',
-                            text: i18n('setup2fa_3_step_heading'),
+                        new JustHTML({
+                            html: `
+                                <div style="display: flex; align-items: center;">
+                                    <div style="display: flex; justify-content: center; align-items: center; width: 25px; height: 25px; border-radius: 50%; background-color: #3e5362; color: #FFFFFF; font-size: 15px; font-weight: 700;">3</div>
+                                    <div style="margin-left: 10px; font-size: 18px; color: hsl(220, 25%, 31%); font-weight: 500;">${html_encode(i18n('setup2fa_3_step_heading'))}</div>
+                                </div>
+                            `,
                         }),
                         new CodeEntryView({
                             _ref: me => code_entry = me,
@@ -147,9 +158,13 @@ const UIWindow2FASetup = async function UIWindow2FASetup () {
                 }),
                 new Flexer({
                     children: [
-                        new StepHeading({
-                            symbol: '4',
-                            text: i18n('setup2fa_4_step_heading'),
+                        new JustHTML({
+                            html: `
+                                <div style="display: flex; align-items: center;">
+                                    <div style="display: flex; justify-content: center; align-items: center; width: 25px; height: 25px; border-radius: 50%; background-color: #3e5362; color: #FFFFFF; font-size: 15px; font-weight: 700;">4</div>
+                                    <div style="margin-left: 10px; font-size: 18px; color: hsl(220, 25%, 31%); font-weight: 500;">${html_encode(i18n('setup2fa_4_step_heading'))}</div>
+                                </div>
+                            `,
                         }),
                         new JustHTML({
                             html: `<div style="color: #3b4863">${i18n('setup2fa_4_instructions', [], false)}</div>`,
@@ -157,9 +172,13 @@ const UIWindow2FASetup = async function UIWindow2FASetup () {
                         new RecoveryCodesView({
                             values: data.codes,
                         }),
-                        new StepHeading({
-                            symbol: '5',
-                            text: i18n('setup2fa_5_step_heading'),
+                        new JustHTML({
+                            html: `
+                                <div style="display: flex; align-items: center;">
+                                    <div style="display: flex; justify-content: center; align-items: center; width: 25px; height: 25px; border-radius: 50%; background-color: #3e5362; color: #FFFFFF; font-size: 15px; font-weight: 700;">5</div>
+                                    <div style="margin-left: 10px; font-size: 18px; color: hsl(220, 25%, 31%); font-weight: 500;">${html_encode(i18n('setup2fa_5_step_heading'))}</div>
+                                </div>
+                            `,
                         }),
                         new ConfirmationsView({
                             confirmations: [
