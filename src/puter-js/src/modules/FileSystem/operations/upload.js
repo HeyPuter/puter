@@ -365,10 +365,10 @@ const upload = async function (items, dirPath, options = {}) {
                 e?.status === 413 ||
                 e?.code === 'storage_limit_reached';
             if ( isStorageError ) {
-                if ( puter.env === 'web' ) {
-                    showUsageLimitDialog('Not enough storage space available.<br>Please upgrade to continue.');
-                } else if ( puter.env === 'app' ) {
+                if ( puter.env === 'app' ) {
                     puter.ui.requestUpgrade();
+                } else {
+                    showUsageLimitDialog('Not enough storage space available.<br>Please upgrade to continue.');
                 }
             }
 
