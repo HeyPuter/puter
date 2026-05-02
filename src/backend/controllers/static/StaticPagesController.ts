@@ -36,12 +36,109 @@ import { promoteToVerifiedGroup } from '../../util/userProvisioning.js';
  */
 export class StaticPagesController extends PuterController {
     registerRoutes(router: PuterRouter) {
-        const wrap = (inner: string) =>
-            `<body style="display:flex; flex-direction: column; justify-content: center; height: 100vh;">${inner}</body>`;
+        const origin = this.config.origin ?? '';
+        const docsOrigin = (() => {
+            const d = this.config.domain;
+            return d ? `https://docs.${d}` : '';
+        })();
+
+        const page = (
+            icon: string,
+            title: string,
+            msg: string,
+            color: string,
+        ) => `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${title} — Puter</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+                 Helvetica, Arial, sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    background: #f8f9fa;
+    color: #1a1a1a;
+    -webkit-font-smoothing: antialiased;
+  }
+  .card {
+    background: #fff;
+    border-radius: 12px;
+    box-shadow: 0 1px 3px rgba(0,0,0,.08), 0 4px 12px rgba(0,0,0,.04);
+    padding: 48px 40px;
+    max-width: 420px;
+    width: 100%;
+    margin: 24px;
+    text-align: center;
+  }
+  .icon {
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    background: ${color}0F;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 20px;
+    font-size: 26px;
+    line-height: 1;
+  }
+  h1 {
+    font-size: 20px;
+    font-weight: 600;
+    margin-bottom: 8px;
+    color: #111;
+  }
+  p {
+    font-size: 15px;
+    line-height: 1.5;
+    color: #555;
+  }
+  .links {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    padding: 16px;
+    display: flex;
+    justify-content: center;
+    gap: 24px;
+  }
+  .links a {
+    font-size: 13px;
+    color: #888;
+    text-decoration: none;
+    transition: color .15s;
+  }
+  .links a:hover { color: #111; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="icon">${icon}</div>
+    <h1>${title}</h1>
+    <p>${msg}</p>
+  </div>
+  <div class="links">
+    <a href="${origin}">Home</a>
+    <a href="${origin}/action/login">Log In</a>
+    ${docsOrigin ? `<a href="${docsOrigin}">Docs</a>` : ''}
+    <a href="${origin}/terms">Terms</a>
+    <a href="${origin}/privacy">Privacy</a>
+    <a href="https://github.com/HeyPuter/puter">GitHub</a>
+  </div>
+</body>
+</html>`;
         const err = (msg: string) =>
-            wrap(`<p style="text-align:center; color:red;">${msg}</p>`);
-        const ok = (msg: string) =>
-            wrap(`<p style="text-align:center; color:green;">${msg}</p>`);
+            page('&#10005;', 'Something went wrong', msg, '#e53e3e');
+        const ok = (msg: string) => page('&#10003;', 'Success', msg, '#38a169');
 
         // ── /robots.txt ─────────────────────────────────────────────
         router.get('/robots.txt', {}, (req, res) => {
