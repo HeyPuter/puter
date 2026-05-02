@@ -1145,7 +1145,7 @@ window.initgui = async function (options) {
             const whoarewe = await resp.json();
             await UIWindowLogin({
                 reload_on_success: !window.embedded_in_popup,
-                send_confirmation_code: false,
+                send_confirmation_code: true,
                 show_signup_button: ( !whoarewe.disable_user_signup ),
                 redirect_url: needs_action ? window.location.href : undefined,
                 window_options: {

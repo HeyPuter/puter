@@ -2302,6 +2302,15 @@ label {
     cursor: pointer;
 }
 
+.window-confirm-email-using-code .window-body {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+.window-cover-page.window-confirm-email-using-code .generic-close-window-button{
+    display: none;
+}
+
 .email-confirm-code-hyphen {
     display: inline-block;
     flex-grow: 1;
