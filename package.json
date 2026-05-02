@@ -6,7 +6,6 @@
   "description": "Desktop environment in the browser!",
   "homepage": "https://puter.com",
   "type": "module",
-  "main": "exports.js",
   "directories": {
     "lib": "lib"
   },
