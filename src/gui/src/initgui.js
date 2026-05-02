@@ -455,7 +455,7 @@ window.initgui = async function (options) {
             // show signup window
             if ( await UIWindowSignup({
                 reload_on_success: false,
-                send_confirmation_code: false,
+                send_confirmation_code: true,
                 show_close_button: false,
                 window_options: {
                     has_head: false,
@@ -593,6 +593,7 @@ window.initgui = async function (options) {
         if ( ! window.is_auth() ) {
             opts.window_options = { cover_page: true, has_head: false };
         }
+        opts.send_confirmation_code = true;
         await UIWindowSignup(Object.keys(opts).length ? opts : undefined);
     }
     // -------------------------------------------------------------------------------------
@@ -642,6 +643,7 @@ window.initgui = async function (options) {
                 let is_verified;
                 do {
                     is_verified = await UIWindowEmailConfirmationRequired({
+                        show_close_button: false,
                         stay_on_top: true,
                         has_head: false,
                         window_options: {
@@ -810,6 +812,7 @@ window.initgui = async function (options) {
                 let is_verified;
                 do {
                     is_verified = await UIWindowEmailConfirmationRequired({
+                        show_close_button: false,
                         stay_on_top: true,
                         has_head: false,
                         logout_in_footer: true,
@@ -1287,7 +1290,7 @@ window.initgui = async function (options) {
 
                         await UIWindowSignup({
                             reload_on_success: !window.embedded_in_popup,
-                            send_confirmation_code: false,
+                            send_confirmation_code: true,
                             window_options: {
                                 has_head: false,
                                 cover_page: true,

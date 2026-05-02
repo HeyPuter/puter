@@ -30,7 +30,9 @@ function UIWindowEmailConfirmationRequired (options) {
         const submit_btn_txt = 'Confirm Email';
 
         let h = '';
-        h += '<div class="qr-code-window-close-btn generic-close-window-button"> &times; </div>';
+        if(options.show_close_button !== false) {
+            h += '<div class="qr-code-window-close-btn generic-close-window-button"> &times; </div>';
+        }
         h += '<div style="-webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; color: #3e5362; max-width: 350px; margin: 0 auto;">';
         h += `<img src="${html_encode(window.icons['mail.svg'])}" style="display:block; margin:10px auto 10px;">`;
         h += `<h3 style="text-align:center; font-weight: 500; font-size: 20px;">${i18n('confirm_your_email_address')}</h3>`;
