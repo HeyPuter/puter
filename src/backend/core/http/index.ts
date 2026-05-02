@@ -17,8 +17,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-export { HttpError, isHttpError, type HttpErrorOptions } from './HttpError';
-export { PuterRouter } from './PuterRouter';
 export {
     All,
     Controller,
@@ -37,6 +35,18 @@ export {
     Put,
     Unlock,
 } from './decorators';
+export { HttpError, isHttpError, type HttpErrorOptions } from './HttpError';
+export { createErrorHandler } from './middleware/errorHandler';
+export {
+    adminOnlyGate,
+    allowedAppIdsGate,
+    DEFAULT_ADMIN_USERNAMES,
+    requireAuthGate,
+    requireUserActorGate,
+    subdomainGate,
+} from './middleware/gates';
+export { createNotFoundHandler } from './middleware/notFoundHandler';
+export { PuterRouter } from './PuterRouter';
 export {
     PREFIX_METADATA_KEY,
     ROUTES_METADATA_KEY,
@@ -49,13 +59,3 @@ export {
     type TypedHandler,
     type TypedRequest,
 } from './types';
-export {
-    DEFAULT_ADMIN_USERNAMES,
-    adminOnlyGate,
-    allowedAppIdsGate,
-    requireAuthGate,
-    requireUserActorGate,
-    subdomainGate,
-} from './middleware/gates';
-export { createErrorHandler } from './middleware/errorHandler';
-export { createNotFoundHandler } from './middleware/notFoundHandler';

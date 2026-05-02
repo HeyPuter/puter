@@ -544,7 +544,9 @@ export class FSService extends PuterService {
 
         const projectedUsage = allowance.curr - existingSize + incomingSize;
         if (projectedUsage > maxStorage) {
-            throw new HttpError(413, 'Storage limit reached');
+            throw new HttpError(413, 'Storage limit reached', {
+                legacyCode: 'storage_limit_reached',
+            });
         }
     }
 
@@ -576,7 +578,9 @@ export class FSService extends PuterService {
         }
 
         if (projectedUsage > maxStorage) {
-            throw new HttpError(413, 'Storage limit reached');
+            throw new HttpError(413, 'Storage limit reached', {
+                legacyCode: 'storage_limit_reached',
+            });
         }
     }
 
