@@ -29,7 +29,7 @@
             - cancel action
 
         Screen 2: Recovery codes
-            Components: Flexer < RecoveryCodesView, ActionsView >
+            Components: Flexer < ActionsView >
             Logic:
             - done action
             - cancel action
@@ -43,7 +43,6 @@ import Button from './Components/Button.js';
 import CodeEntryView from './Components/CodeEntryView.js';
 import Flexer from './Components/Flexer.js';
 import UIQRCode from './UIQRCode.js';
-import RecoveryCodesView from './Components/RecoveryCodesView.js';
 import StepView from './Components/StepView.js';
 import JustHTML from './Components/JustHTML.js';
 import UIComponentWindow from './UIComponentWindow.js';
@@ -168,8 +167,33 @@ const UIWindow2FASetup = async function UIWindow2FASetup () {
                         new JustHTML({
                             html: `<div style="color: #3b4863">${i18n('setup2fa_4_instructions', [], false)}</div>`,
                         }),
-                        new RecoveryCodesView({
-                            values: data.codes,
+                        new JustHTML({
+                            _ref: me => {
+                                me.dom_.addEventListener('click', (e) => {
+                                    const action = e.target.closest('[data-action]')?.dataset.action;
+                                    if ( action === 'copy' ) {
+                                        navigator.clipboard.writeText(data.codes.join('\n'));
+                                    } else if ( action === 'print' ) {
+                                        const target = me.dom_.querySelector('.recovery-codes-list');
+                                        const print_frame = me.dom_.querySelector('iframe[name="print_frame"]');
+                                        print_frame.contentWindow.document.body.innerHTML = target.outerHTML;
+                                        print_frame.contentWindow.window.focus();
+                                        print_frame.contentWindow.window.print();
+                                    }
+                                });
+                            },
+                            html: `
+                                <iframe name="print_frame" width="0" height="0" frameborder="0" src="about:blank"></iframe>
+                                <div style="display: flex; flex-direction: column; gap: 10px; border: 1px solid #ccc; padding: 20px; margin: 20px auto; width: 90%; max-width: 600px; background-color: #f9f9f9; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);">
+                                    <div class="recovery-codes-list" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 10px; padding: 0;">
+                                        ${data.codes.map(code => `<div style="background-color: #fff; border: 1px solid #ddd; padding: 10px; text-align: center; font-family: 'Courier New', Courier, monospace; font-size: 12px; letter-spacing: 1px;">${html_encode(code)}</div>`).join('')}
+                                    </div>
+                                    <div style="flex-direction: row-reverse; display: flex; gap: 10px;">
+                                        <button class="button" data-action="copy">${html_encode(i18n('copy'))}</button>
+                                        <button class="button" data-action="print">${html_encode(i18n('print'))}</button>
+                                    </div>
+                                </div>
+                            `,
                         }),
                         new JustHTML({
                             html: `
