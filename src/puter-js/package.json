@@ -1,8 +1,8 @@
 {
     "name": "@heyputer/puter.js",
-    "version": "2.2.14",
+    "version": "2.3.0",
     "description": "Puter.js - A JavaScript library for interacting with Puter services.",
-    "homepage": "https://developer.puter.com",
+    "homepage": "https://docs.puter.com",
     "main": "src/index.js",
     "types": "./index.d.ts",
     "typings": "./index.d.ts",
