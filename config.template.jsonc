@@ -178,6 +178,9 @@
         "xai": {
             "apiKey": ""
         },
+        "moonshot": {
+            "apiKey": ""
+        },
         "openrouter": {
             "apiKey": "",
             "apiBaseUrl": "https://openrouter.ai/api/v1"
