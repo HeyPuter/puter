@@ -265,6 +265,14 @@ export interface IDatabaseConfig {
         password?: string;
         database?: string;
     };
+    /**
+     * Ordered list of directories whose `.sql` files are run sequentially at
+     * server start (mysql engine only). Files within a directory are sorted
+     * lexically; directories are processed in array order. Files MUST be
+     * idempotent — there is no per-file applied-state tracking.
+     * Relative paths resolve from `process.cwd()`.
+     */
+    migrationPaths?: string[];
 }
 
 /**
