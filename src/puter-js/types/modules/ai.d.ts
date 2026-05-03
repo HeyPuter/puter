@@ -132,6 +132,7 @@ export interface Speech2TxtResult {
 interface BaseSpeech2TxtOptions {
     file?: string | File | Blob;
     audio?: string | File | Blob;
+    provider?: string;
     model?: string;
     language?: string;
     prompt?: string;
@@ -144,6 +145,12 @@ interface BaseSpeech2TxtOptions {
     known_speaker_names?: string[];
     known_speaker_references?: string[];
     extra_body?: Record<string, unknown>;
+    format?: boolean;
+    diarize?: boolean;
+    multichannel?: boolean;
+    channels?: number;
+    audio_format?: string;
+    sample_rate?: number;
     test_mode?: boolean;
 }
 

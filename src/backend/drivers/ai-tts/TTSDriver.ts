@@ -25,6 +25,7 @@ import { AWSPollyTTSProvider } from './providers/awsPolly/AWSPollyTTSProvider.js
 import { ElevenLabsTTSProvider } from './providers/elevenlabs/ElevenLabsTTSProvider.js';
 import { GeminiTTSProvider } from './providers/gemini/GeminiTTSProvider.js';
 import { OpenAITTSProvider } from './providers/openai/OpenAITTSProvider.js';
+import { XAITTSProvider } from './providers/xai/XAITTSProvider.js';
 import type {
     ISynthesizeArgs,
     ITTSEngine,
@@ -49,6 +50,7 @@ const TTS_ALIASES = [
     'openai-tts',
     'elevenlabs-tts',
     'gemini-tts',
+    'xai-tts',
 ] as const;
 type TTSAlias = (typeof TTS_ALIASES)[number];
 const ALIAS_TO_PROVIDER: Record<TTSAlias, string> = {
@@ -56,6 +58,7 @@ const ALIAS_TO_PROVIDER: Record<TTSAlias, string> = {
     'openai-tts': 'openai',
     'elevenlabs-tts': 'elevenlabs',
     'gemini-tts': 'gemini',
+    'xai-tts': 'xai',
 };
 
 export class TTSDriver extends PuterDriver {
@@ -256,6 +259,7 @@ export class TTSDriver extends PuterDriver {
         }
 
         this.#registerGeminiProvider(providers);
+        this.#registerXAIProvider(providers);
     }
 
     #registerGeminiProvider(providers: Record<string, unknown>) {
@@ -275,6 +279,29 @@ export class TTSDriver extends PuterDriver {
             } catch (e) {
                 console.warn(
                     '[TTSDriver] Failed to init Gemini TTS provider:',
+                    (e as Error).message,
+                );
+            }
+        }
+    }
+
+    #registerXAIProvider(providers: Record<string, unknown>) {
+        const m = this.services.metering;
+        const xai = (providers['xai'] ?? providers['xai-tts']) as
+            | Record<string, unknown>
+            | undefined;
+        const xaiKey =
+            (xai?.apiKey as string | undefined) ??
+            (xai?.api_key as string | undefined) ??
+            (xai?.key as string | undefined);
+        if (xaiKey) {
+            try {
+                this.#providers['xai'] = new XAITTSProvider(m, {
+                    apiKey: xaiKey,
+                });
+            } catch (e) {
+                console.warn(
+                    '[TTSDriver] Failed to init xAI TTS provider:',
                     (e as Error).message,
                 );
             }

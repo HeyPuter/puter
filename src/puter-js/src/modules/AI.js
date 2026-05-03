@@ -8,6 +8,7 @@ const normalizeTTSProvider = (value) => {
     if ( lower === 'openai' ) return 'openai';
     if ( ['elevenlabs', 'eleven', '11labs', '11-labs', 'eleven-labs', 'elevenlabs-tts'].includes(lower) ) return 'elevenlabs';
     if ( ['gemini', 'google', 'gemini-tts', 'google-tts'].includes(lower) ) return 'gemini';
+    if ( ['xai', 'grok', 'x-ai', 'xai-tts', 'grok-tts'].includes(lower) ) return 'xai';
     if ( lower === 'aws' || lower === 'polly' || lower === 'aws-polly' ) return 'aws-polly';
     return value;
 };
@@ -275,6 +276,10 @@ class AI {
             provider = 'gemini';
         }
 
+        if ( options.engine && normalizeTTSProvider(options.engine) === 'xai' && !options.provider ) {
+            provider = 'xai';
+        }
+
         if ( provider === 'openai' ) {
             if ( !options.model && typeof options.engine === 'string' ) {
                 options.model = options.engine;
@@ -317,6 +322,14 @@ class AI {
                 options.model = 'gemini-2.5-flash-preview-tts';
             }
             delete options.engine;
+        } else if ( provider === 'xai' ) {
+            if ( ! options.voice ) {
+                options.voice = 'eve';
+            }
+            if ( ! options.language ) {
+                options.language = 'en';
+            }
+            delete options.engine;
         } else {
             provider = 'aws-polly';
 
@@ -352,6 +365,7 @@ class AI {
             'openai': 'openai-tts',
             'elevenlabs': 'elevenlabs-tts',
             'gemini': 'gemini-tts',
+            'xai': 'xai-tts',
         };
         const driverName = driverNameMap[provider] || 'aws-polly';
 
@@ -554,9 +568,19 @@ class AI {
         const driverArgs = { ...options };
         delete driverArgs.translate;
 
+        const sttProvider = driverArgs.provider;
+        delete driverArgs.provider;
+
+        const sttDriverNameMap = {
+            'xai': 'xai-speech2txt',
+            'grok': 'xai-speech2txt',
+            'x-ai': 'xai-speech2txt',
+        };
+        const sttDriverName = (sttProvider && sttDriverNameMap[sttProvider.toLowerCase()]) || 'openai-speech2txt';
+
         const responseFormat = driverArgs.response_format;
 
-        return await utils.make_driver_method([], 'puter-speech2txt', 'openai-speech2txt', driverMethod, {
+        return await utils.make_driver_method([], 'puter-speech2txt', sttDriverName, driverMethod, {
             test_mode: testMode,
             transform: async (result) => {
                 if ( responseFormat === 'text' && result && typeof result === 'object' && typeof result.text === 'string' ) {
@@ -597,10 +621,15 @@ class AI {
                 params.provider = 'gemini';
             }
 
+            if ( provider === 'xai' ) {
+                params.provider = 'xai';
+            }
+
             const driverNameMap = {
                 'openai': 'openai-tts',
                 'elevenlabs': 'elevenlabs-tts',
                 'gemini': 'gemini-tts',
+                'xai': 'xai-tts',
             };
             const driverName = driverNameMap[provider] || 'aws-polly';
 
@@ -640,10 +669,16 @@ class AI {
                 delete params.engine;
             }
 
+            if ( provider === 'xai' ) {
+                params.provider = 'xai';
+                delete params.engine;
+            }
+
             const driverNameMap2 = {
                 'openai': 'openai-tts',
                 'elevenlabs': 'elevenlabs-tts',
                 'gemini': 'gemini-tts',
+                'xai': 'xai-tts',
             };
             const driverName = driverNameMap2[provider] || 'aws-polly';
 
