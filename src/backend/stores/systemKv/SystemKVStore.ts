@@ -203,9 +203,12 @@ export class SystemKVStore extends PuterStore {
 
     override async onServerStart(): Promise<void> {
         // For local/dynalite runs we need to create the table up front.
-        // For real AWS we assume the table already exists.
+        // Real AWS deployments provision tables externally (Terraform), so
+        // we skip — unless the operator explicitly opts in via
+        // `dynamo.bootstrapTables` (e.g. self-hosting against
+        // dynamodb-local in docker-compose).
         const ddbConfig = this.config.dynamo ?? {};
-        if (ddbConfig.aws) return;
+        if (ddbConfig.aws && !ddbConfig.bootstrapTables) return;
 
         this.initialized = this.clients.dynamo.createTableIfNotExists(
             { ...PUTER_KV_STORE_TABLE_DEFINITION, TableName: this.tableName },

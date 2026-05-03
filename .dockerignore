@@ -1,4 +1,40 @@
 .dockerignore
 Dockerfile
+docker-compose.yml
+
+# Dev / build artifacts (recreated inside the build stage)
 node_modules
+dist
+src/gui/dist
+src/puter-js/dist
+*.tsbuildinfo
+
+# Local runtime data
+volatile
+config.json
+config.dev.json
 /puter
+
+# OS / editor
+.DS_Store
+.vscode
+.idea
+
+# Git / CI
+.git
+.github
+
+# Logs
+*.log
+npm-debug.log*
+.npm
+
+# Tests / coverage
+coverage
+.nyc_output
+
+# Secrets
+.env
+.env.*
+creds*
+*.pem

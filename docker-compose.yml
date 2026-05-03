@@ -1,21 +1,30 @@
 ---
-version: "3.8"
 services:
   puter:
     container_name: puter
     image: ghcr.io/heyputer/puter:latest
     pull_policy: always
-    # build: ./
+    # Uncomment to build from this directory instead of pulling the published image:
+    # build:
+    #   context: .
+    #   # buildx-only: cross-compile to both archs in a single push
+    #   # platforms:
+    #   #   - linux/amd64
+    #   #   - linux/arm64
     restart: unless-stopped
     ports:
       - '4100:4100'
     environment:
       # TZ: Europe/Paris
-      # CONFIG_PATH: /etc/puter
       PUID: 1000
       PGID: 1000
     volumes:
+      # Drop your config.json into ./puter/config/. It is deep-merged over
+      # config.default.json — only override what you care to change.
+      # Image expects /etc/puter/config.json (see PUTER_CONFIG_PATH in Dockerfile).
       - ./puter/config:/etc/puter
+      # Persistent runtime data (sqlite db, uploads, etc. — depends on your
+      # config). Maps to volatile/ inside the container by default.
       - ./puter/data:/var/puter
     healthcheck:
       test: wget --no-verbose --tries=1 --spider http://puter.localhost:4100/test || exit 1

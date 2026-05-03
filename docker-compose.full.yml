@@ -1,0 +1,187 @@
+---
+# Self-hosted Puter — full stack.
+#
+# Brings up Puter + every external service it needs:
+#   - nginx    : reverse proxy (mirrors prod ALB; handles TLS + Host fan-out)
+#   - valkey   : redis-compatible cache / rate-limiter backend
+#   - mariadb  : SQL database (Puter applies its schema on first boot)
+#   - dynamo   : DynamoDB-local (KV store; Puter creates the table itself)
+#   - s3       : RustFS — S3-compatible object storage
+#   - s3-init  : one-shot init container that creates the bucket
+#   - puter    : the application
+#
+# Quick start:
+#   1. Copy .env.example to .env (or set the variables in your shell).
+#   2. Drop a config.json into ./puter/config/ — see selfhosting.md
+#      for the example that pairs with this compose.
+#   3. docker compose -f docker-compose.full.yml up -d
+#
+# Production:
+#   - Always replace the default passwords / S3 keys / Puter secrets.
+#   - Front Puter with TLS-terminating reverse proxy (Caddy / nginx).
+#   - Move state-bearing volumes to a backed-up location.
+
+services:
+  valkey:
+    image: valkey/valkey:8-alpine
+    container_name: puter-valkey
+    restart: unless-stopped
+    command:
+      - "valkey-server"
+      - "--save"
+      - "60"
+      - "1"
+      - "--appendonly"
+      - "yes"
+    volumes:
+      - ./puter/data/valkey:/data
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  mariadb:
+    image: mariadb:11
+    container_name: puter-mariadb
+    restart: unless-stopped
+    environment:
+      MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD:-root-change-me}
+      MARIADB_DATABASE: ${MARIADB_DATABASE:-puter}
+      MARIADB_USER: ${MARIADB_USER:-puter}
+      MARIADB_PASSWORD: ${MARIADB_PASSWORD:-puter-change-me}
+    volumes:
+      - ./puter/data/mariadb:/var/lib/mysql
+    healthcheck:
+      # `healthcheck.sh` ships with the mariadb image; --connect verifies
+      # the server is accepting auth, not just listening on the socket.
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+  dynamo:
+    # Puter creates the `store-kv-v1` table itself on startup
+    # (config.dynamo.bootstrapTables = true does the work).
+    image: amazon/dynamodb-local:latest
+    container_name: puter-dynamo
+    restart: unless-stopped
+    user: "1000:1000"
+    working_dir: /home/dynamodblocal
+    command:
+      - "-jar"
+      - "DynamoDBLocal.jar"
+      - "-sharedDb"
+      - "-dbPath"
+      - "/home/dynamodblocal/data"
+    volumes:
+      - ./puter/data/dynamo:/home/dynamodblocal/data
+
+  s3:
+    # RustFS — S3-compatible object storage. Drop-in alternative:
+    # MinIO (image: minio/minio, command: ["server", "/data", "--console-address", ":9001"]).
+    image: rustfs/rustfs:latest
+    container_name: puter-s3
+    restart: unless-stopped
+    environment:
+      RUSTFS_ACCESS_KEY: ${S3_ACCESS_KEY:-puter}
+      RUSTFS_SECRET_KEY: ${S3_SECRET_KEY:-puter-secret-change-me}
+    volumes:
+      - ./puter/data/s3:/data
+    healthcheck:
+      # RustFS exposes /health on the S3 port. Use wget (curl is not in
+      # the slim image).
+      test:
+        [
+          "CMD-SHELL",
+          "wget -qO- --tries=1 --timeout=2 http://localhost:9000/health || exit 1",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+
+  s3-init:
+    # One-shot container that creates the `puter-local` bucket on first
+    # boot. Exits 0 once the bucket exists; stays exited 0 thereafter.
+    image: amazon/aws-cli:latest
+    container_name: puter-s3-init
+    depends_on:
+      s3:
+        condition: service_healthy
+    environment:
+      AWS_ACCESS_KEY_ID: ${S3_ACCESS_KEY:-puter}
+      AWS_SECRET_ACCESS_KEY: ${S3_SECRET_KEY:-puter-secret-change-me}
+      AWS_DEFAULT_REGION: us-east-1
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        set -e
+        endpoint=http://s3:9000
+        bucket=${S3_BUCKET:-puter-local}
+        if aws --endpoint-url "$$endpoint" s3api head-bucket --bucket "$$bucket" 2>/dev/null; then
+          echo "bucket $$bucket already exists"
+        else
+          echo "creating bucket $$bucket"
+          aws --endpoint-url "$$endpoint" s3 mb "s3://$$bucket"
+        fi
+    restart: "no"
+
+  puter:
+    image: ghcr.io/heyputer/puter:latest
+    pull_policy: always
+    container_name: puter
+    restart: unless-stopped
+    depends_on:
+      valkey:
+        condition: service_healthy
+      mariadb:
+        condition: service_healthy
+      dynamo:
+        condition: service_started
+      s3-init:
+        condition: service_completed_successfully
+    # Internal-only: nginx reaches it on the compose network. Uncomment
+    # to also expose port 4100 directly on the host (useful for debugging).
+    # ports:
+    #   - "4100:4100"
+    expose:
+      - "4100"
+    environment:
+      PUID: 1000
+      PGID: 1000
+    volumes:
+      # Drop your config.json here — see selfhosting.md.
+      - ./puter/config:/etc/puter
+      # Persistent runtime data (anything your config points at /var/puter).
+      - ./puter/data/puter:/var/puter
+    healthcheck:
+      test: wget --no-verbose --tries=1 --spider http://puter.localhost:4100/test || exit 1
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 30s
+
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: puter-nginx
+    restart: unless-stopped
+    depends_on:
+      puter:
+        condition: service_started
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      # Uncomment when you enable TLS in nginx/nginx.conf:
+      # - "${HTTPS_PORT:-443}:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      # TLS certs (fullchain.pem + privkey.pem). Read-only inside.
+      - ./puter/tls:/etc/nginx/tls:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- --tries=1 --timeout=2 http://localhost/ || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s

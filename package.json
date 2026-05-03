@@ -54,7 +54,7 @@
     "check-translations": "node tools/check-translations.js",
     "prepare": "husky",
     "build:ts": "tsc -p tsconfig.json && node ./tools/write-dist-package-json.mjs",
-    "postinstall": "./tools/extensionSetup.sh"
+    "postinstall": "node ./tools/extensionSetup.mjs"
   },
   "workspaces": [
     "src/*",

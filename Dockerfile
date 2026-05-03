@@ -1,91 +1,88 @@
-# /!\ NOTICE /!\
+# syntax=docker/dockerfile:1.7
+#
+# OSS Puter image — multi-arch (linux/amd64, linux/arm64).
+#
+# Build & push:
+#   docker buildx build --platform linux/amd64,linux/arm64 \
+#       -t ghcr.io/heyputer/puter:latest --push .
+#
+# Local single-arch build:
+#   docker build -t puter .
+#
+# Self-hosters inject configuration by mounting a config.json at
+# /etc/puter/config.json. It is deep-merged over the bundled
+# config.default.json, so partial overrides work. Absent file = defaults.
 
-# Many of the developers DO NOT USE the Dockerfile or image.
-# While we do test new changes to Docker configuration, it's
-# possible that future changes to the repo might break it.
-# When changing this file, please try to make it as resiliant
-# to such changes as possible; developers shouldn't need to
-# worry about Docker unless the build/run process changes.
+# ---- Build stage ----
+FROM node:24-slim AS build
 
-# Build stage
-FROM node:24-alpine AS build
+WORKDIR /opt/puter
 
-# Install build dependencies
-RUN apk add --no-cache git python3 make g++ \
-    && ln -sf /usr/bin/python3 /usr/bin/python
+# Build toolchain needed for native deps (bcrypt, sharp, better-sqlite3, …).
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends python3 make g++ git && \
+    rm -rf /var/lib/apt/lists/*
 
-# Set up working directory
-WORKDIR /app
+ENV HUSKY=0
+ENV npm_config_fund=false
+ENV npm_config_audit=false
 
-# Copy package.json and package-lock.json
+# ---- Dependency layer ---------------------------------------------------
+# Copy ONLY package manifests + lockfile first so the npm-install layer
+# stays cached when only source files change.
 COPY package.json package-lock.json ./
+COPY src/backend/package.json src/backend/
+COPY src/gui/package.json src/gui/
+COPY src/puter-js/package.json src/puter-js/package-lock.json src/puter-js/
+COPY src/worker/package.json src/worker/
+COPY src/docs/package.json src/docs/
 
-# Fail early if lockfile or manifest is missing
-RUN test -f package.json && test -f package-lock.json
+# extensionSetup.mjs runs as the postinstall hook during npm ci. (No-ops
+# unless any packages/puter/extensions/* gain a package.json.)
+COPY tools/extensionSetup.mjs tools/extensionSetup.mjs
 
-# Copy the source files
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci
+
+# ---- Source layer -------------------------------------------------------
 COPY . .
 
-# Install mocha
-RUN npm i -g npm@latest
-RUN npm install -g mocha
+# Compile backend TS, then build GUI + puter-js webpack bundles in
+# parallel. The GUI/puter-js bundles are how /dist/bundle.min.{js,css}
+# and /sdk/puter.js fall back to local assets when the kernel-config
+# CDN keys are unset.
+RUN npm run build:ts
+RUN set -e; \
+    (cd src/gui && node ./build.js) & gui_pid=$!; \
+    (cd src/puter-js && npm run build) & pjs_pid=$!; \
+    wait $gui_pid; \
+    wait $pjs_pid
 
-# Install node modules
-RUN npm cache clean --force && \
-    for i in 1 2 3; do \
-        npm ci && break || \
-        if [ $i -lt 3 ]; then \
-            sleep 15; \
-        else \
-            LOG_DIR="$(npm config get cache | tr -d '\"')/_logs"; \
-            echo "npm install failed; dumping logs from $LOG_DIR"; \
-            if [ -d "$LOG_DIR" ]; then \
-                ls -al "$LOG_DIR" || true; \
-                cat "$LOG_DIR"/* || true; \
-            else \
-                echo "Log directory not found (npm cache: $(npm config get cache))"; \
-            fi; \
-            exit 1; \
-        fi; \
-    done
+# ---- Runtime stage (slim — no build tools) ----
+FROM node:24-slim
 
-# Run the build command if necessary
-RUN cd src/gui && npm run build && cd -
+WORKDIR /opt/puter
 
-# Production stage
-FROM node:24-alpine
+# git: runtime version probe. wget: HEALTHCHECK.
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends git wget && \
+    rm -rf /var/lib/apt/lists/*
 
-# Set labels
-LABEL repo="https://github.com/HeyPuter/puter"
-LABEL license="AGPL-3.0,https://github.com/HeyPuter/puter/blob/master/LICENSE.txt"
-LABEL version="1.2.46-beta-1"
+COPY --from=build --chown=node:node /opt/puter .
 
-# Install git (required by Puter to check version)
-RUN apk add --no-cache git
+RUN mkdir -p /etc/puter /var/puter && \
+    chown -R node:node /etc/puter /var/puter
 
-# Set up working directory
-RUN mkdir -p /opt/puter/app
-WORKDIR /opt/puter/app
-
-# Copy built artifacts and necessary files from the build stage
-COPY --from=build /app/src/gui/dist ./dist
-COPY --from=build /app/node_modules ./node_modules
-COPY . .
-
-# Set permissions
-RUN chown -R node:node /opt/puter/app
-USER node
+# Self-hosters mount their override at this exact path. The v2 loader
+# deep-merges it over config.default.json (see backend/index.ts).
+ENV PUTER_CONFIG_PATH=/etc/puter/config.json
+ENV NODE_OPTIONS=--enable-source-maps
 
 EXPOSE 4100
 
-HEALTHCHECK --interval=30s --timeout=3s \
+USER node
+
+HEALTHCHECK --interval=30s --timeout=3s --start-period=30s --retries=3 \
     CMD wget --no-verbose --tries=1 --spider http://puter.localhost:4100/test || exit 1
 
-ENV NO_VAR_RUNTUME=1
-ENV NODE_OPTIONS=--enable-source-maps
-
-# Attempt to fix `lru-cache@11.0.2` missing after build stage
-# by doing a redundant `npm install` at this stage
-RUN npm install
-
-CMD ["npm", "start"]
+CMD ["node", "-r", "./dist/src/backend/telemetry.js", "./dist/src/backend/index.js"]

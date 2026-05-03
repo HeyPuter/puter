@@ -29,6 +29,13 @@ export interface IDynamoConfig {
     aws?: IAWSCredentials;
     endpoint?: string;
     path?: string;
+    /**
+     * Create required tables on startup if they don't exist. Off by
+     * default because real-AWS deployments provision tables externally
+     * (Terraform / IaC). Set to `true` when pointing at a local
+     * DynamoDB emulator so self-hosters don't have to bootstrap by hand.
+     */
+    bootstrapTables?: boolean;
 }
 
 export interface IRedisConfig {
