@@ -1,0 +1,19 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <button id="play">Use xAI voice</button>
+    <script>
+        document.getElementById('play').addEventListener('click', async ()=>{
+            const audio = await puter.ai.txt2speech(
+                "Hello! This sample uses the xAI Eve voice.",
+                {
+                    provider: "xai",
+                    voice: "eve",
+                    language: "en"
+                }
+            );
+            audio.play();
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,34 @@
+/**
+ * Copyright (C) 2024-present Puter Technologies Inc.
+ *
+ * This file is part of Puter.
+ *
+ * Puter is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published
+ * by the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+// xAI TTS pricing: $4.20 per 1M characters
+// = 420 cents per 1M characters
+// = 0.00042 cents per character
+// = 0.42 microcents per character
+// We store microcents per character (cents * 1_000_000 / 1_000_000 chars).
+// $4.20 / 1M chars = 420 cents / 1M chars = 0.00042 cents/char = 0.42 ucents/char
+// But metering uses integer microcents, so we round up to 1 microcent per char
+// to avoid undercharging. More precisely: 420 * 1_000_000 / 1_000_000 = 420 ucents per char? No.
+// Let's be precise:
+// $4.20 per 1M chars = 420 cents per 1M chars
+// In microcents: 420 * 1_000_000 = 420_000_000 microcents per 1M chars
+// Per character: 420_000_000 / 1_000_000 = 420 microcents per character
+export const XAI_TTS_COSTS: Record<string, number> = {
+    'xai-tts': 420,
+};
