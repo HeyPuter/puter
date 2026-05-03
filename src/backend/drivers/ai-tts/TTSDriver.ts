@@ -23,6 +23,7 @@ import type { DriverStreamResult } from '../meta.js';
 import { PuterDriver } from '../types.js';
 import { AWSPollyTTSProvider } from './providers/awsPolly/AWSPollyTTSProvider.js';
 import { ElevenLabsTTSProvider } from './providers/elevenlabs/ElevenLabsTTSProvider.js';
+import { GeminiTTSProvider } from './providers/gemini/GeminiTTSProvider.js';
 import { OpenAITTSProvider } from './providers/openai/OpenAITTSProvider.js';
 import type {
     ISynthesizeArgs,
@@ -43,12 +44,18 @@ import type {
 // than passing `{ provider }` in args, so alias the unified driver under
 // the names the client expects. `#providerFromAlias` normalizes those
 // aliases to the internal provider keys used by `#providers`.
-const TTS_ALIASES = ['aws-polly', 'openai-tts', 'elevenlabs-tts'] as const;
+const TTS_ALIASES = [
+    'aws-polly',
+    'openai-tts',
+    'elevenlabs-tts',
+    'gemini-tts',
+] as const;
 type TTSAlias = (typeof TTS_ALIASES)[number];
 const ALIAS_TO_PROVIDER: Record<TTSAlias, string> = {
     'aws-polly': 'aws-polly',
     'openai-tts': 'openai',
     'elevenlabs-tts': 'elevenlabs',
+    'gemini-tts': 'gemini',
 };
 
 export class TTSDriver extends PuterDriver {
@@ -247,14 +254,40 @@ export class TTSDriver extends PuterDriver {
                 );
             }
         }
+
+        this.#registerGeminiProvider(providers);
+    }
+
+    #registerGeminiProvider(providers: Record<string, unknown>) {
+        const m = this.services.metering;
+        const gemini = (providers['gemini'] ?? providers['gemini-tts']) as
+            | Record<string, unknown>
+            | undefined;
+        const geminiKey =
+            (gemini?.apiKey as string | undefined) ??
+            (gemini?.api_key as string | undefined) ??
+            (gemini?.key as string | undefined);
+        if (geminiKey) {
+            try {
+                this.#providers['gemini'] = new GeminiTTSProvider(m, {
+                    apiKey: geminiKey,
+                });
+            } catch (e) {
+                console.warn(
+                    '[TTSDriver] Failed to init Gemini TTS provider:',
+                    (e as Error).message,
+                );
+            }
+        }
     }
 
     #getDefaultProviderName(): string | null {
         const names = Object.keys(this.#providers);
         if (names.length === 0) return null;
-        // Prefer openai, then elevenlabs, then aws-polly
+        // Prefer openai, then elevenlabs, then gemini, then aws-polly
         if (this.#providers['openai']) return 'openai';
         if (this.#providers['elevenlabs']) return 'elevenlabs';
+        if (this.#providers['gemini']) return 'gemini';
         return names[0];
     }
 }

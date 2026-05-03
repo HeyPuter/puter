@@ -226,6 +226,7 @@ You can see various Puter.js AI features in action from the following examples:
   - [Text to Speech with options](/playground/ai-txt2speech-options/)
   - [Text to Speech with engines](/playground/ai-txt2speech-engines/)
   - [Text to Speech with OpenAI voices](/playground/ai-txt2speech-openai/)
+  - [Text to Speech with Gemini voices](/playground/ai-txt2speech-gemini/)
   - [Transcribe audio with `speech2txt`](/AI/speech2txt/)
 - Text to Video
   - [Generate a sample Sora clip](/AI/txt2vid/)
