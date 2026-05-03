@@ -40,6 +40,7 @@ import { OpenRouterProvider } from './providers/openrouter/OpenRouterProvider.js
 import { TogetherAIProvider } from './providers/together/TogetherAIProvider.js';
 import { XAIProvider } from './providers/xai/XAIProvider.js';
 import { ZAIProvider } from './providers/zai/ZAIProvider.js';
+import { MoonshotProvider } from './providers/moonshot/MoonshotProvider.js';
 import type {
     IChatCompleteResult,
     IChatModel,
@@ -604,6 +605,14 @@ export class ChatCompletionDriver extends PuterDriver {
         if (xaiKey) {
             this.#providers['xai'] = new XAIProvider(
                 { apiKey: xaiKey },
+                metering,
+            );
+        }
+
+        const moonshotKey = readKey(providers['moonshot']);
+        if (moonshotKey) {
+            this.#providers['moonshot'] = new MoonshotProvider(
+                { apiKey: moonshotKey },
                 metering,
             );
         }
