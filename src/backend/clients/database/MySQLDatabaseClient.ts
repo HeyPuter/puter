@@ -242,7 +242,9 @@ export class MySQLDatabaseClient extends AbstractDatabaseClient {
                 let files: string[];
                 try {
                     files = readdirSync(dir)
-                        .filter((f) => f.endsWith('.sql'))
+                        .filter(
+                            (f) => f.endsWith('.sql') && f.startsWith('mysql'),
+                        )
                         .sort();
                 } catch (e) {
                     throw new Error(
