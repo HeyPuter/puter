@@ -10,15 +10,15 @@
 
 ## What's running
 
-| Container       | Image                          | Role                                                      |
-| --------------- | ------------------------------ | --------------------------------------------------------- |
-| `puter-nginx`   | `nginx:1.27-alpine`            | Reverse proxy on 80 (and 443 if TLS); forwards to Puter   |
-| `puter`         | `ghcr.io/heyputer/puter`       | The app                                                   |
-| `puter-mariadb` | `mariadb:11`                   | SQL database — schema applied automatically on first boot |
-| `puter-valkey`  | `valkey/valkey:8-alpine`       | Redis-compatible cache + rate-limiter                     |
-| `puter-dynamo`  | `amazon/dynamodb-local`        | KV store — table auto-created on first boot               |
-| `puter-s3`      | `rustfs/rustfs`                | S3-compatible object storage (MinIO drop-in noted in file)|
-| `puter-s3-init` | `amazon/aws-cli`               | One-shot — creates the bucket on first boot, then exits   |
+| Container       | Image                    | Role                                                       |
+| --------------- | ------------------------ | ---------------------------------------------------------- |
+| `puter-nginx`   | `nginx:1.27-alpine`      | Reverse proxy on 80 (and 443 if TLS); forwards to Puter    |
+| `puter`         | `ghcr.io/heyputer/puter` | The app                                                    |
+| `puter-mariadb` | `mariadb:11`             | SQL database — schema applied automatically on first boot  |
+| `puter-valkey`  | `valkey/valkey:8-alpine` | Redis-compatible cache + rate-limiter                      |
+| `puter-dynamo`  | `amazon/dynamodb-local`  | KV store — table auto-created on first boot                |
+| `puter-s3`      | `rustfs/rustfs`          | S3-compatible object storage (MinIO drop-in noted in file) |
+| `puter-s3-init` | `amazon/aws-cli`         | One-shot — creates the bucket on first boot, then exits    |
 
 State lives under `./puter/data/<service>/`.
 
@@ -65,7 +65,8 @@ Drop this into `puter/config/config.json`. Replace the `REPLACE-...` markers and
 
     "database": {
         "engine": "mysql",
-        "host": "mariadb", "port": 3306,
+        "host": "mariadb",
+        "port": 3306,
         "user": "puter",
         "password": "MUST-MATCH-MARIADB_PASSWORD-IN-DOTENV",
         "database": "puter",
@@ -77,7 +78,11 @@ Drop this into `puter/config/config.json`. Replace the `REPLACE-...` markers and
     "dynamo": {
         "endpoint": "http://dynamo:8000",
         "bootstrapTables": true,
-        "aws": { "access_key": "fake", "secret_key": "fake", "region": "us-east-1" }
+        "aws": {
+            "access_key": "fake",
+            "secret_key": "fake",
+            "region": "us-east-1"
+        }
     },
 
     "s3": {
@@ -97,7 +102,7 @@ Why these knobs:
 
 - `database.migrationPaths` — Puter applies the bundled MySQL schema on boot. `mysql_mig_1.sql` (tables) and `mysql_mig_2.sql` (default apps: editor, viewer, pdf, camera, player, recorder, git, dev-center, puter-linux). Idempotent — safe to re-run.
 - `dynamo.bootstrapTables: true` — Puter creates its KV table on boot. **Only set against a local emulator**, never real AWS.
-- `dynamo.aws` keys are dummies; DynamoDB-local doesn't validate them but the AWS SDK requires *something*. **Note:** DynamoDB uses `access_key` / `secret_key` (snake_case); S3 below uses `accessKeyId` / `secretAccessKey` (camelCase). Not interchangeable.
+- `dynamo.aws` keys are dummies; DynamoDB-local doesn't validate them but the AWS SDK requires _something_. **Note:** DynamoDB uses `access_key` / `secret_key` (snake_case); S3 below uses `accessKeyId` / `secretAccessKey` (camelCase). Not interchangeable.
 
 ## Step 3 — Point DNS at the server
 
@@ -130,9 +135,9 @@ Drop the resulting `fullchain.pem` and `privkey.pem` into `./puter/tls/`.
 3. In [docker-compose.full.yml](../docker-compose.full.yml), uncomment the `443:443` port mapping under the `nginx` service.
 4. In `.env`, uncomment `HTTPS_PORT=443`.
 5. In `config.json`, switch:
-   ```json
-   { "protocol": "https", "pub_port": 443 }
-   ```
+    ```json
+    { "protocol": "https", "pub_port": 443 }
+    ```
 
 ## Step 5 — Bring it up
 
@@ -171,7 +176,9 @@ If you want to test local Dockerfile changes against the full stack, uncomment t
 docker compose -f docker-compose.full.yml up -d --build
 ```
 
-## Day 2
+---
+
+## Re-starting backend
 
 ```bash
 # update
