@@ -35,7 +35,6 @@ import UITaskbar from './UITaskbar.js';
 import new_context_menu_item from '../helpers/new_context_menu_item.js';
 import refresh_item_container from '../helpers/refresh_item_container.js';
 import changeLanguage from '../i18n/i18nChangeLanguage.js';
-import UIWindowSettings from './Settings/UIWindowSettings.js';
 import UIWindowTaskManager from './UIWindowTaskManager.js';
 import truncate_filename from '../helpers/truncate_filename.js';
 import UINotification from './UINotification.js';
@@ -1296,16 +1295,10 @@ async function UIDesktop (options) {
         }
     }
     //--------------------------------------------------------------------------------------
-    // /settings will open settings in fullpage mode
+    // /settings redirects to /dashboard
     //--------------------------------------------------------------------------------------
     else if ( window.url_paths[0]?.toLocaleLowerCase() === 'settings' ) {
-        // open settings
-        UIWindowSettings({
-            tab: window.url_paths[1] || 'about',
-            window_options: {
-                is_fullpage: true,
-            },
-        });
+        window.open('/dashboard', '_blank');
     }
     // ---------------------------------------------
     // Run apps from insta-login URL
@@ -2201,7 +2194,7 @@ $(document).on('click', '.user-options-menu-btn', async function (e) {
                 html: i18n('keyboard_shortcuts'),
                 id: 'keyboard_shortcuts',
                 onClick: async function () {
-                    UIWindowSettings({ tab: 'keyboard-shortcuts' });
+                    window.open('/dashboard', '_blank');
                 },
             },
             //--------------------------------------------------
