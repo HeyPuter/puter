@@ -14,14 +14,14 @@
 /*!40014 SET @OLD_FOREIGN_KEY_CHECKS=@@FOREIGN_KEY_CHECKS, FOREIGN_KEY_CHECKS=0 */;
 /*!40101 SET @OLD_SQL_MODE=@@SQL_MODE, SQL_MODE='NO_AUTO_VALUE_ON_ZERO' */;
 /*!40111 SET @OLD_SQL_NOTES=@@SQL_NOTES, SQL_NOTES=0 */;
-SET @MYSQLDUMP_TEMP_LOG_BIN = @@SESSION.SQL_LOG_BIN;
-SET @@SESSION.SQL_LOG_BIN= 0;
 
 --
--- GTID state at the beginning of the backup 
+-- mysqldump prelude that required SUPER / BINLOG_ADMIN / GTID_PURGED
+-- privileges has been stripped (SQL_LOG_BIN toggle, GTID_PURGED set).
+-- These are only meaningful for replication-aware restores; self-host
+-- single-instance MariaDB doesn't need them and the bundled `puter`
+-- user doesn't have those privileges.
 --
-
-SET @@GLOBAL.GTID_PURGED=/*!80000 '+'*/ '';
 
 --
 -- Idempotent column-ensure helper (used by CALLs below; dropped at end of file)
@@ -1334,7 +1334,6 @@ CALL _puter_add_col('user_update_audit', 'reason', '`reason` varchar(255) COLLAT
 
 
 DROP PROCEDURE IF EXISTS _puter_add_col;
-SET @@SESSION.SQL_LOG_BIN = @MYSQLDUMP_TEMP_LOG_BIN;
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
 
 /*!40101 SET SQL_MODE=@OLD_SQL_MODE */;
