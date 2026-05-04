@@ -78,6 +78,11 @@ const buildCluster = (config: IConfig): Cluster => {
         ]) as unknown as Cluster;
     }
 
+    // TLS defaults on (matches the existing prod ElastiCache behavior).
+    // Self-hosters running cluster mode against a plain-TCP Valkey set
+    // `redis.tls: false` to opt out.
+    const tlsEnabled = redisConfig.tls !== false;
+
     const cluster = new Redis.Cluster(
         startupNodes as ConstructorParameters<typeof Redis.Cluster>[0],
         {
@@ -90,7 +95,7 @@ const buildCluster = (config: IConfig): Cluster => {
             slotsRefreshTimeout: redisSlotsRefreshTimeoutMs,
             enableOfflineQueue: true,
             redisOptions: {
-                tls: {},
+                ...(tlsEnabled ? { tls: {} } : {}),
                 connectTimeout: redisConnectTimeoutMs,
                 maxRetriesPerRequest: 1,
             },

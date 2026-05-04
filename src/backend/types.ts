@@ -29,6 +29,13 @@ export interface IDynamoConfig {
     aws?: IAWSCredentials;
     endpoint?: string;
     path?: string;
+    /**
+     * Create required tables on startup if they don't exist. Off by
+     * default because real-AWS deployments provision tables externally
+     * (Terraform / IaC). Set to `true` when pointing at a local
+     * DynamoDB emulator so self-hosters don't have to bootstrap by hand.
+     */
+    bootstrapTables?: boolean;
 }
 
 export interface IRedisConfig {
@@ -36,6 +43,11 @@ export interface IRedisConfig {
         host: string;
         port: number;
     }>;
+    /**
+     * Use TLS for cluster connections. Defaults to `true` (matches prod
+     * ElastiCache). Set `false` for self-host plain-TCP Valkey/Redis.
+     */
+    tls?: boolean;
     useMock?: boolean;
 }
 
@@ -265,6 +277,14 @@ export interface IDatabaseConfig {
         password?: string;
         database?: string;
     };
+    /**
+     * Ordered list of directories whose `.sql` files are run sequentially at
+     * server start (mysql engine only). Files within a directory are sorted
+     * lexically; directories are processed in array order. Files MUST be
+     * idempotent — there is no per-file applied-state tracking.
+     * Relative paths resolve from `process.cwd()`.
+     */
+    migrationPaths?: string[];
 }
 
 /**
@@ -349,6 +369,23 @@ interface IConfigOptional {
     private_app_hosting_domain: string;
     /** Alt private app hosting domain. */
     private_app_hosting_domain_alt: string;
+    /**
+     * Groups of equivalent app index_url hosts. Each group lists hosts that
+     * should resolve to the same canonical app: `appUidFromOrigin` looks up
+     * any DB row whose `index_url` is one of the group's hosts and returns
+     * that row's UID for every host in the group.
+     *
+     * Hosts listed here are also reserved — `apps.create` / `apps.update`
+     * reject any attempt to register a different app under one of these
+     * hosts, so the group is owned by exactly one app row.
+     *
+     * Entries are bare hosts (no scheme), lowercased. Example:
+     *   [
+     *     ["camera.puter.com", "camera.puter.site", "camera.ca"],
+     *     ["player.puter.com", "player.puter.site"],
+     *   ]
+     */
+    app_origin_aliases?: string[][];
     /** When true, accept any Host header value. Dev/testing only. */
     allow_all_host_values: boolean;
     /** When true, accept requests without a Host header. */

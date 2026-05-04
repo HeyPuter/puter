@@ -17,9 +17,12 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { readdirSync, readFileSync } from 'fs';
+import { isAbsolute, resolve as resolvePath } from 'path';
 import { createPool, type Pool } from 'mysql2';
 import { AbstractDatabaseClient, type WriteResult } from './DatabaseClient';
 import { SQLBatcher } from './SQLBatcher.js';
+import { splitMysqlStatements } from './splitMysqlStatements.js';
 import type { IConfig } from '../../types';
 
 const RETRIABLE_ERROR_CODES = new Set([
@@ -91,6 +94,8 @@ export class MySQLDatabaseClient extends AbstractDatabaseClient {
         }
 
         this.dbReplica = new SQLBatcher(this.replicaPool, 10, 5);
+
+        await this.runMigrations();
     }
 
     override async onServerPrepareShutdown(): Promise<void> {
@@ -211,6 +216,74 @@ export class MySQLDatabaseClient extends AbstractDatabaseClient {
 
         const primaryResult = await primaryPromise;
         return (primaryResult?.[0] as Record<string, unknown>[]) ?? [];
+    }
+
+    // ------------------------------------------------------------------
+    // Migrations
+    // ------------------------------------------------------------------
+
+    /**
+     * Apply `.sql` files from each configured migration directory in order.
+     * Files within a directory are sorted lexically. Files MUST be
+     * idempotent — there is no per-file applied-state tracking. Failures
+     * abort startup so operators see schema problems loud.
+     */
+    private async runMigrations(): Promise<void> {
+        const paths = this.config.database?.migrationPaths;
+        if (!paths || paths.length === 0) return;
+
+        const conn = await this.primaryPool.promise().getConnection();
+        try {
+            for (const rawPath of paths) {
+                const dir = isAbsolute(rawPath)
+                    ? rawPath
+                    : resolvePath(process.cwd(), rawPath);
+
+                let files: string[];
+                try {
+                    files = readdirSync(dir)
+                        .filter(
+                            (f) => f.endsWith('.sql') && f.startsWith('mysql'),
+                        )
+                        .sort();
+                } catch (e) {
+                    throw new Error(
+                        `[mysql] migration path is unreadable: ${dir}`,
+                        { cause: e },
+                    );
+                }
+
+                if (files.length === 0) {
+                    console.log(`[mysql] no migrations in ${dir}`);
+                    continue;
+                }
+
+                console.log(
+                    `[mysql] running migrations from ${dir}: ${files.length} file(s)`,
+                );
+
+                for (const file of files) {
+                    const filePath = resolvePath(dir, file);
+                    const contents = readFileSync(filePath, 'utf8');
+                    const statements = splitMysqlStatements(contents);
+                    for (let i = 0; i < statements.length; i++) {
+                        try {
+                            await conn.query(statements[i]);
+                        } catch (e) {
+                            throw new Error(
+                                `[mysql] failed to apply ${file} at statement ${i}`,
+                                { cause: e },
+                            );
+                        }
+                    }
+                    console.log(
+                        `[mysql] applied ${file} (${statements.length} statements)`,
+                    );
+                }
+            }
+        } finally {
+            conn.release();
+        }
     }
 
     // ------------------------------------------------------------------

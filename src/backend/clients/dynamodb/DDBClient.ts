@@ -401,9 +401,12 @@ export class DDBClient extends PuterClient {
         params: CreateTableCommandInput,
         ttlAttribute?: string,
     ) {
-        if (this.#ddbConfig.aws) {
+        // Real-AWS deployments provision tables externally (Terraform / IaC),
+        // so we no-op there by default. Self-hosters pointing at
+        // dynamodb-local opt in via `dynamo.bootstrapTables: true`.
+        if (this.#ddbConfig.aws && !this.#ddbConfig.bootstrapTables) {
             console.warn(
-                'Creating DynamoDB tables in AWS is disabled by default, but if needed, update DDBClient',
+                'Creating DynamoDB tables is disabled by default; set `dynamo.bootstrapTables: true` in config to enable (intended for local emulators).',
             );
             return;
         }
