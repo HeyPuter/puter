@@ -71,7 +71,7 @@ cat > puter/config/config.json <<EOF
         "user": "puter",
         "password": "$MARIADB_PASSWORD",
         "database": "puter",
-        "migrationPaths": ["/opt/puter/src/backend/clients/database/migrations/mysql"]
+        "migrationPaths": ["/opt/puter/dist/src/backend/clients/database/migrations/mysql"]
     },
 
     "redis": { "startupNodes": [{ "host": "valkey", "port": 6379 }] },
@@ -128,7 +128,7 @@ A      *.puter.devlocal    → <your server's public IP>
 
 The wildcard is required — Puter routes via subdomains.
 
-If you only need these to resolve these locally to test you can add this to your hosts file
+If you only need these to resolve these locally to test you can add this (any any other needed subdomain) to your hosts file
 
 ```
 127.0.0.1 puter.local
@@ -174,7 +174,7 @@ Healthy startup:
 
 ```
 [config] override from /etc/puter/config.json
-[mysql] running migrations from /opt/puter/src/backend/clients/database/migrations/mysql: 2 file(s)
+[mysql] running migrations from /opt/puter/dist/src/backend/clients/database/migrations/mysql: 2 file(s)
 [mysql] applied mysql_mig_1.sql (...)
 [mysql] applied mysql_mig_2.sql (9 statements)
 ```

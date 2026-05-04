@@ -67,7 +67,7 @@ Puter applies its schema on first boot when you set `migrationPaths`:
         "engine": "mysql",
         "host": "db.internal", "port": 3306,
         "user": "puter", "password": "...", "database": "puter",
-        "migrationPaths": ["/opt/puter/src/backend/clients/database/migrations/mysql"]
+        "migrationPaths": ["/opt/puter/dist/src/backend/clients/database/migrations/mysql"]
     }
 }
 ```
