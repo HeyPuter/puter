@@ -39,6 +39,7 @@ The UI API provides a comprehensive set of tools for creating rich user interfac
 
 ### Event Handling
 - **[`puter.ui.on()`](/UI/on/)** - Register event handlers
+- **[`puter.ui.onItemsOpened()`](/UI/onItemsOpened/)** - Handle items opened by user action
 - **[`puter.ui.onLaunchedWithItems()`](/UI/onLaunchedWithItems/)** - Handle launch with items
 - **[`puter.ui.wasLaunchedWithItems()`](/UI/wasLaunchedWithItems/)** - Check if launched with items
 - **[`puter.ui.onWindowClose()`](/UI/onWindowClose/)** - Handle window close events

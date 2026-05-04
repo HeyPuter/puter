@@ -7,14 +7,25 @@ platforms: [websites, apps]
 Presents the user with a file picker dialog allowing them to specify where and with what name to save a file.
 
 ## Syntax
+
 ```js
 puter.ui.showSaveFilePicker()
-puter.ui.showSaveFilePicker(data, defaultFileName)
+puter.ui.showSaveFilePicker(content, suggestedName)
 ```
 
 ## Parameters
-#### `defaultFileName` (String)
-The default file name to use.
+
+#### `content` (String) (Optional)
+
+The data to write to the chosen file.
+
+#### `suggestedName` (String) (Optional)
+
+The default file name to pre-fill in the dialog.
+
+## Return value
+
+A `Promise` that resolves to an [`FSItem`](/Objects/fsitem) describing the saved file. If the user cancels, the promise stays pending.
 
 ## Examples
 
