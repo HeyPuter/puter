@@ -43,6 +43,11 @@ export interface IRedisConfig {
         host: string;
         port: number;
     }>;
+    /**
+     * Use TLS for cluster connections. Defaults to `true` (matches prod
+     * ElastiCache). Set `false` for self-host plain-TCP Valkey/Redis.
+     */
+    tls?: boolean;
     useMock?: boolean;
 }
 

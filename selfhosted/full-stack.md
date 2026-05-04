@@ -74,7 +74,10 @@ cat > puter/config/config.json <<EOF
         "migrationPaths": ["/opt/puter/dist/src/backend/clients/database/migrations/mysql"]
     },
 
-    "redis": { "startupNodes": [{ "host": "valkey", "port": 6379 }] },
+    "redis": {
+        "startupNodes": [{ "host": "valkey", "port": 6379 }],
+        "tls": false
+    },
 
     "dynamo": {
         "endpoint": "http://dynamo:8000",

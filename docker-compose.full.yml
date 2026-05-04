@@ -26,20 +26,38 @@ services:
     image: valkey/valkey:8-alpine
     container_name: puter-valkey
     restart: unless-stopped
+    # Run as a single-node cluster so Puter's ioredis Cluster client
+    # (the only mode it speaks) can connect. On first boot we assign all
+    # 16384 slots to ourselves; subsequent boots find them already in
+    # nodes.conf and skip. `cluster-require-full-coverage no` keeps reads
+    # working if we ever land partial slots.
     command:
-      - "valkey-server"
-      - "--save"
-      - "60"
-      - "1"
-      - "--appendonly"
-      - "yes"
+      - sh
+      - -c
+      - |
+        valkey-server \
+          --port 6379 \
+          --cluster-enabled yes \
+          --cluster-config-file /data/nodes.conf \
+          --cluster-node-timeout 5000 \
+          --cluster-require-full-coverage no \
+          --appendonly yes \
+          --save "60 1" &
+        SERVER_PID=$$!
+        until valkey-cli -p 6379 PING > /dev/null 2>&1; do sleep 0.5; done
+        if ! valkey-cli -p 6379 CLUSTER NODES | grep -q '0-16383'; then
+          valkey-cli -p 6379 CLUSTER ADDSLOTSRANGE 0 16383
+        fi
+        wait $$SERVER_PID
     volumes:
       - ./puter/data/valkey:/data
     healthcheck:
-      test: ["CMD", "valkey-cli", "ping"]
+      test:
+        ["CMD-SHELL", "valkey-cli -p 6379 cluster info | grep -q cluster_state:ok"]
       interval: 5s
       timeout: 3s
-      retries: 10
+      retries: 20
+      start_period: 10s
 
   mariadb:
     image: mariadb:11

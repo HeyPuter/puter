@@ -108,11 +108,26 @@ Provision the table externally (e.g. Terraform):
 
 The KV table is named `store-kv-v1`. Schema: hash `namespace` (S), range `key` (S), LSI `lsi1-index` on `lsi1` (S), TTL on `ttl`.
 
-### Redis cluster
+### Redis / Valkey cluster
+
+Puter speaks ioredis cluster protocol. Real Redis cluster:
 
 ```json
 { "redis": { "startupNodes": [{ "host": "redis-0", "port": 6379 }] } }
 ```
+
+For a self-hosted single Valkey/Redis container, run it in cluster mode (one node, all 16384 slots assigned to itself) and turn off TLS:
+
+```json
+{
+    "redis": {
+        "startupNodes": [{ "host": "valkey", "port": 6379 }],
+        "tls": false
+    }
+}
+```
+
+TLS defaults to on (matches the prod ElastiCache shape) — set `false` for plain-TCP self-host.
 
 ## What persists?
 
