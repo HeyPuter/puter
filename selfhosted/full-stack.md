@@ -40,22 +40,6 @@ S3_BUCKET=puter-local
 
 HTTP_PORT=80
 # HTTPS_PORT=443     # uncomment after enabling TLS in Step 4
-```
-
-Edit `.env`. Replace every `replace-with-...` value (use `openssl rand -hex 32` per secret):
-
-```bash
-MARIADB_ROOT_PASSWORD=$(openssl rand -hex 32)
-MARIADB_DATABASE=puter
-MARIADB_USER=puter
-MARIADB_PASSWORD=$(openssl rand -hex 32)
-
-S3_ACCESS_KEY=puter
-S3_SECRET_KEY=$(openssl rand -hex 32)
-S3_BUCKET=puter-local
-
-HTTP_PORT=80
-# HTTPS_PORT=443     # uncomment after enabling TLS in Step 4
 
 mkdir -p puter/config puter/data puter/tls
 
