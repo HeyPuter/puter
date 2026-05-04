@@ -48,7 +48,6 @@ import { IPCService } from './services/IPCService.js';
 import { LaunchOnInitService } from './services/LaunchOnInitService.js';
 import { LocaleService } from './services/LocaleService.js';
 import { ProcessService } from './services/ProcessService.js';
-import { SettingsService } from './services/SettingsService.js';
 import { ThemeService } from './services/ThemeService.js';
 import { privacy_aware_path } from './util/desktop.js';
 
@@ -92,7 +91,6 @@ const launch_services = async function (options) {
     register('theme', new ThemeService());
     register('process', new ProcessService());
     register('locale', new LocaleService());
-    register('settings', new SettingsService());
     register('anti-csrf', new AntiCSRFService());
     register('__launch-on-init', new LaunchOnInitService());
 
