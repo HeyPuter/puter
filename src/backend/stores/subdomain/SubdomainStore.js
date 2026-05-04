@@ -57,21 +57,21 @@ const CACHE_KEY_PREFIX = 'subdomains';
 const CACHE_TTL_SECONDS = 60 * 60;
 // Sentinel so 404s on the same public subdomain don't hit the DB repeatedly.
 const NEGATIVE_CACHE_MARKER = '__none__';
-const NEGATIVE_CACHE_TTL_SECONDS = 60;
+const NEGATIVE_CACHE_TTL_SECONDS = 10;
 
 export class SubdomainStore extends PuterStore {
     // ── Reads ────────────────────────────────────────────────────────
 
-    async getByUuid(uuid, { userId } = {}) {
+    async getByUuid(uuid, { userId, primary = false } = {}) {
         const where =
             userId !== undefined
                 ? 'WHERE `uuid` = ? AND `user_id` = ?'
                 : 'WHERE `uuid` = ?';
         const params = userId !== undefined ? [uuid, userId] : [uuid];
-        const rows = await this.clients.db.read(
-            `SELECT * FROM \`subdomains\` ${where} LIMIT 1`,
-            params,
-        );
+        const sql = `SELECT * FROM \`subdomains\` ${where} LIMIT 1`;
+        const rows = primary
+            ? await this.clients.db.pread(sql, params)
+            : await this.clients.db.read(sql, params);
         return rows[0] ?? null;
     }
 
@@ -290,14 +290,15 @@ export class SubdomainStore extends PuterStore {
                 : 'WHERE `uuid` = ?';
         const params = userId !== undefined ? [uuid, userId] : [uuid];
 
-        const result = await this.clients.db.write(
+        await this.clients.db.write(
             `DELETE FROM \`subdomains\` ${where}`,
             params,
         );
-        const affected = (result?.affectedRows ?? result?.changes ?? 0) > 0;
-        if (affected && row?.subdomain) {
+        if (row?.subdomain) {
             await this.publishCacheKeys({
                 keys: [this.#cacheKey(row.subdomain)],
+                serializedData: NEGATIVE_CACHE_MARKER,
+                ttlSeconds: NEGATIVE_CACHE_TTL_SECONDS,
                 broadcast: true,
             });
             if (row.user_id != null) {
@@ -305,7 +306,6 @@ export class SubdomainStore extends PuterStore {
             }
             await this.#invalidateRootDirEntry(row.root_dir_id);
         }
-        return affected;
     }
 
     // ── Internals ────────────────────────────────────────────────────
