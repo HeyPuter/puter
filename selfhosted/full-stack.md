@@ -52,9 +52,14 @@ EOF
 mkdir -p puter/config puter/data puter/tls
 cat > puter/config/config.json <<EOF
 {
-    "domain": "puter.example.com",
+    "domain": "puter.local",
     "protocol": "http",
     "pub_port": 80,
+
+    "static_hosting_domain": "puter.sitelocal",
+    "static_hosting_domain_alt": "puter.hostlocal",
+    "private_app_hosting_domain": "puter.applocal",
+    "private_app_hosting_domain_alt": "puter.devlocal",
 
     "jwt_secret": "$JWT_SECRET",
     "url_signature_secret": "$URL_SIGNATURE_SECRET",
@@ -95,7 +100,7 @@ cat > puter/config/config.json <<EOF
 EOF
 ```
 
-Replace `puter.example.com` with your actual domain (or leave it for a localhost-only trial).
+Replace `puter.local`, `puter.sitelocal`, `puter.hostlocal`, `puter.applocal` and `puter.devlocal` with your actual domain (or leave it for a localhost-only trial).
 
 Why these knobs:
 
@@ -110,11 +115,24 @@ Why these knobs:
 In your DNS provider, add **two records**:
 
 ```
-A      puter.example.com         → <your server's public IP>
-A      *.puter.example.com       → <your server's public IP>
+A      puter.local         → <your server's public IP>
+A      puter.sitelocal     → <your server's public IP>
+A      *.puter.sitelocal   → <your server's public IP>
+A      puter.hostlocal     → <your server's public IP>
+A      *.puter.hostlocal   → <your server's public IP>
+A      puter.applocal      → <your server's public IP>
+A      *.puter.applocal    → <your server's public IP>
+A      puter.devlocal      → <your server's public IP>
+A      *.puter.devlocal    → <your server's public IP>
 ```
 
 The wildcard is required — Puter routes via subdomains.
+
+If you only need these to resolve these locally to test you can add this to your hosts file
+
+```
+127.0.0.1 puter.local
+```
 
 ## Step 3 — TLS (recommended for public installs) \[Optional\]
 
@@ -124,7 +142,7 @@ Skip this for a quick local demo. Don't skip it for users typing passwords.
 
 ```bash
 sudo certbot certonly --manual --preferred-challenges dns \
-    -d puter.example.com -d "*.puter.example.com"
+    -d puter.local -d puter.sitelocal -d "*.puter.sitelocal" -d puter.hostlocal -d "*.puter.hostlocal" -d puter.applocal -d "*.puter.applocal" -d puter.devlocal -d "*.puter.devlocal"
 ```
 
 Drop the resulting `fullchain.pem` and `privkey.pem` into `./puter/tls/`.
