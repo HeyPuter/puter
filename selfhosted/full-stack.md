@@ -24,39 +24,50 @@ State lives under `./puter/data/<service>/`.
 
 ---
 
-## Step 1 — Create and set secrets (`.env` and `puter/config/config.json`)
+## Step 1 — Create `.env` and `puter/config/config.json`
+
+> ⚠️ **Run this whole block in one shell session.** It generates secrets once and writes them into both `.env` (read by docker compose) and `config.json` (read by Puter). The two files **must** agree on the MariaDB password and the S3 secret — if they drift, MariaDB initialises with one password and Puter tries to log in with another, and you get `ER_ACCESS_DENIED_ERROR`.
 
 ```bash
-cp .env.example .env
-
+# 1. Generate every secret once
 MARIADB_ROOT_PASSWORD=$(openssl rand -hex 32)
+MARIADB_PASSWORD=$(openssl rand -hex 32)
+S3_SECRET_KEY=$(openssl rand -hex 32)
+JWT_SECRET=$(openssl rand -hex 64)
+URL_SIGNATURE_SECRET=$(openssl rand -hex 64)
+
+# 2. Write .env (consumed by docker compose for the bundled services)
+cat > .env <<EOF
+HTTP_PORT=80
+# HTTPS_PORT=443     # uncomment after enabling TLS in Step 3
+
+MARIADB_ROOT_PASSWORD=$MARIADB_ROOT_PASSWORD
 MARIADB_DATABASE=puter
 MARIADB_USER=puter
-MARIADB_PASSWORD=$(openssl rand -hex 32)
+MARIADB_PASSWORD=$MARIADB_PASSWORD
 
 S3_ACCESS_KEY=puter
-S3_SECRET_KEY=$(openssl rand -hex 32)
+S3_SECRET_KEY=$S3_SECRET_KEY
 S3_BUCKET=puter-local
+EOF
 
-HTTP_PORT=80
-# HTTPS_PORT=443     # uncomment after enabling TLS in Step 4
-
+# 3. Write config.json (consumed by Puter — must match .env above)
 mkdir -p puter/config puter/data puter/tls
-
-puter % echo '{
+cat > puter/config/config.json <<EOF
+{
     "domain": "puter.example.com",
     "protocol": "http",
     "pub_port": 80,
 
-    "jwt_secret": "'$(openssl rand -hex 64)'",
-    "url_signature_secret": "'$(openssl rand -hex 64)'",
+    "jwt_secret": "$JWT_SECRET",
+    "url_signature_secret": "$URL_SIGNATURE_SECRET",
 
     "database": {
         "engine": "mysql",
         "host": "mariadb",
         "port": 3306,
         "user": "puter",
-        "password": "'$MARIADB_PASSWORD'",
+        "password": "$MARIADB_PASSWORD",
         "database": "puter",
         "migrationPaths": ["/opt/puter/src/backend/clients/database/migrations"]
     },
@@ -77,22 +88,25 @@ puter % echo '{
         "s3Config": {
             "endpoint": "http://s3:9000",
             "accessKeyId": "puter",
-            "secretAccessKey": "'$S3_SECRET_KEY'",
+            "secretAccessKey": "$S3_SECRET_KEY",
             "region": "us-east-1"
         }
     },
     "s3_bucket": "puter-local",
     "s3_region": "us-east-1"
-}'> puter/config/config.json
-
-
+}
+EOF
 ```
+
+Replace `puter.example.com` with your actual domain (or leave it for a localhost-only trial).
 
 Why these knobs:
 
 - `database.migrationPaths` — Puter applies the bundled MySQL schema on boot. `mysql_mig_1.sql` (tables) and `mysql_mig_2.sql` (default apps: editor, viewer, pdf, camera, player, recorder, git, dev-center, puter-linux). Idempotent — safe to re-run.
 - `dynamo.bootstrapTables: true` — Puter creates its KV table on boot. **Only set against a local emulator**, never real AWS.
 - `dynamo.aws` keys are dummies; DynamoDB-local doesn't validate them but the AWS SDK requires _something_. **Note:** DynamoDB uses `access_key` / `secret_key` (snake_case); S3 below uses `accessKeyId` / `secretAccessKey` (camelCase). Not interchangeable.
+
+> If you ever change `MARIADB_PASSWORD` after first boot, `.env` alone won't update MariaDB — its credentials are baked into `./puter/data/mariadb/` on first init. Either rotate the password inside MariaDB by hand or `docker compose down && rm -rf ./puter/data/mariadb` to start fresh.
 
 ## Step 2 — Point DNS at the server \[Optional\]
 
@@ -129,7 +143,7 @@ Drop the resulting `fullchain.pem` and `privkey.pem` into `./puter/tls/`.
     { "protocol": "https", "pub_port": 443 }
     ```
 
-## Step 5 — Bring it up
+## Step 4 — Bring it up
 
 ```bash
 docker compose -f docker-compose.full.yml up -d
