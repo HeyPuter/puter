@@ -29,14 +29,12 @@ State lives under `./puter/data/<service>/`.
 > ⚠️ **Run this whole block in one shell session.** It generates secrets once and writes them into both `.env` (read by docker compose) and `config.json` (read by Puter). The two files **must** agree on the MariaDB password and the S3 secret — if they drift, MariaDB initialises with one password and Puter tries to log in with another, and you get `ER_ACCESS_DENIED_ERROR`.
 
 ```bash
-# 1. Generate every secret once
 MARIADB_ROOT_PASSWORD=$(openssl rand -hex 32)
 MARIADB_PASSWORD=$(openssl rand -hex 32)
 S3_SECRET_KEY=$(openssl rand -hex 32)
 JWT_SECRET=$(openssl rand -hex 64)
 URL_SIGNATURE_SECRET=$(openssl rand -hex 64)
 
-# 2. Write .env (consumed by docker compose for the bundled services)
 cat > .env <<EOF
 HTTP_PORT=80
 # HTTPS_PORT=443     # uncomment after enabling TLS in Step 3
@@ -51,7 +49,6 @@ S3_SECRET_KEY=$S3_SECRET_KEY
 S3_BUCKET=puter-local
 EOF
 
-# 3. Write config.json (consumed by Puter — must match .env above)
 mkdir -p puter/config puter/data puter/tls
 cat > puter/config/config.json <<EOF
 {
