@@ -241,17 +241,8 @@ export class MySQLDatabaseClient extends AbstractDatabaseClient {
 
                 let files: string[];
                 try {
-                    // Only consume MySQL-flavored migrations. The migrations
-                    // dir also ships SQLite migrations (`NNNN_*.sql`) used by
-                    // SqliteDatabaseClient — those use `INTEGER PRIMARY KEY`
-                    // and would create non-AUTO_INCREMENT columns on MariaDB,
-                    // which then break later INSERTs in strict mode.
                     files = readdirSync(dir)
-                        .filter(
-                            (f) =>
-                                f.startsWith('mysql_mig_') &&
-                                f.endsWith('.sql'),
-                        )
+                        .filter((f) => f.endsWith('.sql'))
                         .sort();
                 } catch (e) {
                     throw new Error(

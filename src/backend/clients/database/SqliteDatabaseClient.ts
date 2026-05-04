@@ -23,7 +23,7 @@ import { createContext, runInContext } from 'vm';
 import { AbstractDatabaseClient, type WriteResult } from './DatabaseClient';
 import type { IConfig } from '../../types';
 
-const MIGRATIONS_DIR = resolve(__dirname, './migrations');
+const MIGRATIONS_DIR = resolve(__dirname, './migrations/sqlite');
 
 /**
  * Ordered list of [threshold_version, files[]] pairs.

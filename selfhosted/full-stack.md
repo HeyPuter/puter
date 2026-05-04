@@ -71,7 +71,7 @@ cat > puter/config/config.json <<EOF
         "user": "puter",
         "password": "$MARIADB_PASSWORD",
         "database": "puter",
-        "migrationPaths": ["/opt/puter/src/backend/clients/database/migrations"]
+        "migrationPaths": ["/opt/puter/src/backend/clients/database/migrations/mysql"]
     },
 
     "redis": { "startupNodes": [{ "host": "valkey", "port": 6379 }] },
@@ -174,12 +174,12 @@ Healthy startup:
 
 ```
 [config] override from /etc/puter/config.json
-[mysql] running migrations from /opt/puter/src/backend/clients/database/migrations: 2 file(s)
+[mysql] running migrations from /opt/puter/src/backend/clients/database/migrations/mysql: 2 file(s)
 [mysql] applied mysql_mig_1.sql (...)
 [mysql] applied mysql_mig_2.sql (9 statements)
 ```
 
-Then open **<https://puter.example.com>** (or `http://` if you skipped TLS). Login is `admin` — the temp password is printed once in the puter container logs on first boot:
+Then open **<https://puter.local>** (or `http://` if you skipped TLS). Login is `admin` — the temp password is printed once in the puter container logs on first boot:
 
 ```bash
 docker compose -f docker-compose.full.yml logs puter | grep tmp_password

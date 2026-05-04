@@ -19,7 +19,6 @@
 
 DROP TABLE IF EXISTS `monthly_usage_counts`;
 DROP TABLE IF EXISTS `access_token_permissions`;
-DROP TABLE IF EXISTS `auth_audit`;
 DROP TABLE IF EXISTS `general_analytics`;
 DROP TABLE IF EXISTS `audit_user_to_app_permissions`;
 DROP TABLE IF EXISTS `user_to_app_permissions`;
@@ -341,26 +340,6 @@ CREATE TABLE `general_analytics` (
 
     FOREIGN KEY (`user_id`) REFERENCES `user` (`id`) ON DELETE SET NULL ON UPDATE CASCADE,
     FOREIGN KEY (`app_id`) REFERENCES `apps` (`id`) ON DELETE SET NULL ON UPDATE CASCADE
-);
-
--- 0014
-
-CREATE TABLE `auth_audit` (
-    `id` INTEGER PRIMARY KEY,
-    `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-    `uid` CHAR(40) NOT NULL,
-    `ip_address` VARCHAR(45) DEFAULT NULL,
-    `ua_string` VARCHAR(255) DEFAULT NULL,
-
-    `action` VARCHAR(40) DEFAULT NULL,
-
-    `requester` JSON,
-    `body` JSON,
-    `extra` JSON,
-
-    `has_parse_error` TINYINT(1) DEFAULT 0
-
 );
 
 -- 0017

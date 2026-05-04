@@ -398,37 +398,6 @@ CALL _puter_add_col('audit_user_to_user_permissions', 'action', '`action` varcha
 CALL _puter_add_col('audit_user_to_user_permissions', 'reason', '`reason` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL');
 CALL _puter_add_col('audit_user_to_user_permissions', 'created_at', '`created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP');
 
---
--- Table structure for table `auth_audit`
---
-
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!50503 SET character_set_client = utf8mb4 */;
-CREATE TABLE IF NOT EXISTS `auth_audit` (
-  `id` int unsigned NOT NULL AUTO_INCREMENT,
-  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `uid` char(40) NOT NULL,
-  `ip_address` varchar(45) DEFAULT NULL,
-  `ua_string` varchar(255) DEFAULT NULL,
-  `action` varchar(40) DEFAULT NULL,
-  `requester` json DEFAULT NULL,
-  `body` json DEFAULT NULL,
-  `extra` json DEFAULT NULL,
-  `has_parse_error` tinyint(1) DEFAULT '0',
-  PRIMARY KEY (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
-CALL _puter_add_col('auth_audit', 'id', '`id` int unsigned NOT NULL AUTO_INCREMENT');
-CALL _puter_add_col('auth_audit', 'created_at', '`created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP');
-CALL _puter_add_col('auth_audit', 'uid', '`uid` char(40) NOT NULL');
-CALL _puter_add_col('auth_audit', 'ip_address', '`ip_address` varchar(45) DEFAULT NULL');
-CALL _puter_add_col('auth_audit', 'ua_string', '`ua_string` varchar(255) DEFAULT NULL');
-CALL _puter_add_col('auth_audit', 'action', '`action` varchar(40) DEFAULT NULL');
-CALL _puter_add_col('auth_audit', 'requester', '`requester` json DEFAULT NULL');
-CALL _puter_add_col('auth_audit', 'body', '`body` json DEFAULT NULL');
-CALL _puter_add_col('auth_audit', 'extra', '`extra` json DEFAULT NULL');
-CALL _puter_add_col('auth_audit', 'has_parse_error', '`has_parse_error` tinyint(1) DEFAULT ''0''');
 
 --
 -- Table structure for table `dev_to_app_permissions`
