@@ -22,6 +22,7 @@ import { metrics } from '@opentelemetry/api';
 const DEFAULT_MAX_QUEUE_SIZE = 1000;
 const DEFAULT_FAILURE_THRESHOLD = 5;
 const DEFAULT_COOLDOWN_MS = 5_000;
+const FALLBACK_RETRY_CONCURRENCY = 8;
 
 const meter = metrics.getMeter('puter-backend');
 const enqueueDroppedCounter = meter.createCounter(
@@ -38,6 +39,20 @@ const enqueueRejectedCounter = meter.createCounter(
 const flushFailureCounter = meter.createCounter('sql_batcher.flush.failed', {
     description: 'SQLBatcher flush attempts that threw',
 });
+const fallbackInvocationsCounter = meter.createCounter(
+    'sql_batcher.fallback.invocations',
+    {
+        description:
+            'Times SQLBatcher fell back to per-item retry after a batch error',
+    },
+);
+const fallbackItemFailuresCounter = meter.createCounter(
+    'sql_batcher.fallback.item_failures',
+    {
+        description:
+            'Per-item failures observed during SQLBatcher per-item retry',
+    },
+);
 
 export class SQLBatcher {
     dbPool;
@@ -137,24 +152,111 @@ export class SQLBatcher {
         const query = `${batch.map((b) => b.sql.replace(/;+\s*$/, '')).join(';')}; SELECT 1`; // SELECT 1 forces mysql2 to return array
         const values = batch.map((b) => b.values ?? []).flat();
 
+        let connection;
         try {
-            const [results, fields] = await this.dbPool
-                .promise()
-                .query(query, values);
+            connection = await this.dbPool.promise().getConnection();
+        } catch (error) {
+            this.#consecutiveFailures++;
+            this.#lastFailureAt = Date.now();
+            flushFailureCounter.add(1);
+            console.warn(
+                'SQLBatcher could not acquire connection for flush:',
+                error,
+            );
+            for (const b of batch) {
+                b.reject(this.#createPublicBatchError());
+            }
+            return;
+        }
 
+        // Run the coalesced multi-statement inside an explicit transaction so
+        // a single bad statement (e.g. a duplicate-key INSERT) rolls back the
+        // whole batch atomically, leaving us free to re-run each item
+        // individually below. Without this, MySQL would commit every
+        // statement up to the failure point and a per-item retry would
+        // misreport already-committed inserts as duplicate-key failures.
+        let batchSucceeded = false;
+        try {
+            await connection.beginTransaction();
+            const [results, fields] = await connection.query(query, values);
+            await connection.commit();
+            batchSucceeded = true;
             this.#consecutiveFailures = 0;
             for (let i = 0; i < batch.length; i++) {
                 const b = batch[i];
                 b.resolve([results[i], fields?.[i]]);
             }
-        } catch (error) {
-            this.#consecutiveFailures++;
-            this.#lastFailureAt = Date.now();
-            flushFailureCounter.add(1);
-            console.warn('Error in SQLBatcher flush:', error);
-            for (const b of batch) {
-                b.reject(this.#createPublicBatchError());
+        } catch (batchError) {
+            try {
+                await connection.rollback();
+            } catch (rollbackError) {
+                console.warn('SQLBatcher rollback failed:', rollbackError);
             }
+            console.warn(
+                'SQLBatcher batch failed; retrying items individually:',
+                batchError,
+            );
+        } finally {
+            connection.release();
+        }
+
+        if (batchSucceeded) return;
+
+        // Per-item fallback. The transaction was rolled back so no statement
+        // committed; re-running each item independently produces clean
+        // success/failure outcomes for each caller. Concurrency is capped to
+        // avoid briefly saturating the pool when a large batch fails.
+        flushFailureCounter.add(1);
+        fallbackInvocationsCounter.add(1);
+
+        const settled = new Array(batch.length);
+        let cursor = 0;
+        const workers = Array.from(
+            { length: Math.min(FALLBACK_RETRY_CONCURRENCY, batch.length) },
+            async () => {
+                while (cursor < batch.length) {
+                    const i = cursor++;
+                    const b = batch[i];
+                    try {
+                        settled[i] = {
+                            ok: true,
+                            value: await this.dbPool
+                                .promise()
+                                .query(b.sql, b.values ?? []),
+                        };
+                    } catch (error) {
+                        settled[i] = { ok: false, error };
+                    }
+                }
+            },
+        );
+        await Promise.all(workers);
+
+        let anySucceeded = false;
+        let failureCount = 0;
+        for (let i = 0; i < batch.length; i++) {
+            const b = batch[i];
+            const r = settled[i];
+            if (r.ok) {
+                anySucceeded = true;
+                b.resolve(r.value);
+            } else {
+                failureCount++;
+                b.reject(r.error);
+            }
+        }
+        if (failureCount > 0) {
+            fallbackItemFailuresCounter.add(failureCount);
+        }
+
+        // Only escalate the breaker when the database itself looks unhealthy
+        // (no item got through). Row-level errors like duplicate-key are
+        // application concerns, not DB outages, and shouldn't trip it.
+        this.#lastFailureAt = Date.now();
+        if (anySucceeded) {
+            this.#consecutiveFailures = 0;
+        } else {
+            this.#consecutiveFailures++;
         }
     }
 }

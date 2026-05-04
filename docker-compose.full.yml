@@ -12,7 +12,7 @@
 #
 # Quick start:
 #   1. Copy .env.example to .env (or set the variables in your shell).
-#   2. Drop a config.json into ./puter/config/ — see selfhosting.md
+#   2. Drop a config.json into ./puter/config/ — see selfhosted/full-stack.md
 #      for the example that pairs with this compose.
 #   3. docker compose -f docker-compose.full.yml up -d
 #
@@ -130,8 +130,17 @@ services:
     restart: "no"
 
   puter:
-    image: ghcr.io/heyputer/puter:latest
+    # image: ghcr.io/heyputer/puter:latest
     pull_policy: always
+    # Uncomment to build from this directory instead of pulling the published
+    # image. Also flip pull_policy to `never` so compose doesn't overwrite
+    # your local build by re-pulling :latest.
+    build:
+      context: .
+      # buildx-only: cross-compile to both archs in a single push
+      platforms:
+        # - linux/amd64
+        - linux/arm64
     container_name: puter
     restart: unless-stopped
     depends_on:
@@ -153,7 +162,7 @@ services:
       PUID: 1000
       PGID: 1000
     volumes:
-      # Drop your config.json here — see selfhosting.md.
+      # Drop your config.json here — see selfhosted/full-stack.md.
       - ./puter/config:/etc/puter
       # Persistent runtime data (anything your config points at /var/puter).
       - ./puter/data/puter:/var/puter

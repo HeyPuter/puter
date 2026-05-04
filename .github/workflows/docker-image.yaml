@@ -62,8 +62,9 @@ jobs:
           # Tag plan:
           #   * version tag (vX.Y.Z) push  → 1.2.3, 1.2, latest
           #   * branch push (main)         → main
-          # selfhosting.md tells users to pull `:latest`, which only resolves
-          # for tag pushes — never main, so unstable code can't claim `:latest`.
+          # selfhosted/docker.md tells users to pull `:latest`, which only
+          # resolves for tag pushes — never main, so unstable code can't
+          # claim `:latest`.
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
