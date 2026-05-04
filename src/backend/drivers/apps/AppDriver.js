@@ -870,6 +870,50 @@ export class AppDriver extends PuterDriver {
     }
 
     /**
+     * Read normalized origin-alias groups from config. Each group is a deduped
+     * list of lowercased, trimmed bare hosts. Malformed entries are skipped so
+     * a bad config row doesn't brick app create/update for everyone else.
+     */
+    #getOriginAliasGroups() {
+        const config = this.config ?? {};
+        const raw = config.app_origin_aliases;
+        if (!Array.isArray(raw)) return [];
+
+        const groups = [];
+        for (const group of raw) {
+            if (!Array.isArray(group)) continue;
+            const normalized = [
+                ...new Set(
+                    group
+                        .filter((h) => typeof h === 'string')
+                        .map((h) => h.trim().toLowerCase())
+                        .filter((h) => h.length > 0),
+                ),
+            ];
+            if (normalized.length > 0) groups.push(normalized);
+        }
+        return groups;
+    }
+
+    /**
+     * Return the alias group containing this index_url's host, or null when
+     * the host isn't claimed by any group.
+     */
+    #findOriginAliasGroupForIndexUrl(indexUrl) {
+        if (typeof indexUrl !== 'string' || !indexUrl) return null;
+        let hostname;
+        try {
+            hostname = new URL(indexUrl).hostname.toLowerCase();
+        } catch {
+            return null;
+        }
+        for (const group of this.#getOriginAliasGroups()) {
+            if (group.includes(hostname)) return group;
+        }
+        return null;
+    }
+
+    /**
      * Generate the set of equivalent index_url strings that should
      * collide with a given input. We only collapse trailing-slash and
      * `/index.html` variants — the underlying `apps.index_url` column
@@ -906,13 +950,32 @@ export class AppDriver extends PuterDriver {
     }
 
     async #findIndexUrlConflictRow({ indexUrl, excludeAppId } = {}) {
-        if (!this.#isPuterHostedIndexUrl(indexUrl)) return null;
+        const aliasGroup = this.#findOriginAliasGroupForIndexUrl(indexUrl);
+        if (!this.#isPuterHostedIndexUrl(indexUrl) && !aliasGroup) return null;
 
-        const candidates = this.#buildEquivalentIndexUrlCandidates(indexUrl);
-        if (candidates.length === 0) return null;
-        if (hasIndexUrlUniquenessExemption(candidates)) return null;
+        const candidates = new Set(
+            this.#buildEquivalentIndexUrlCandidates(indexUrl),
+        );
 
-        return this.appStore.findByIndexUrlCandidates(candidates, {
+        // For alias-group hosts, treat the group as a host-level reservation:
+        // any row whose index_url is the root URL of any group member counts
+        // as a conflict, so a single app owns the whole group.
+        if (aliasGroup) {
+            for (const host of aliasGroup) {
+                for (const proto of ['https', 'http']) {
+                    const base = `${proto}://${host}`;
+                    candidates.add(base);
+                    candidates.add(`${base}/`);
+                    candidates.add(`${base}/index.html`);
+                }
+            }
+        }
+
+        if (candidates.size === 0) return null;
+        const candidateList = [...candidates];
+        if (hasIndexUrlUniquenessExemption(candidateList)) return null;
+
+        return this.appStore.findByIndexUrlCandidates(candidateList, {
             excludeAppId,
         });
     }

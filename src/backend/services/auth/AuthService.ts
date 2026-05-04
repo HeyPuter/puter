@@ -230,7 +230,11 @@ export class AuthService extends PuterService {
                 legacyCode: 'no_origin_for_app',
             });
         }
-        const event = { origin: parsed };
+        // Aliased hosts collapse to a single canonical representative so the
+        // event listeners and the UUIDv5 fallback resolve to the same value
+        // for every member of an alias group.
+        const aliased = this.#canonicalizeAliasedOrigin(parsed) ?? parsed;
+        const event = { origin: aliased };
         await this.clients.event?.emitAndWait('app.from-origin', event, {});
 
         const canonicalUid = await this.#findCanonicalAppUidForOrigin(
@@ -240,6 +244,74 @@ export class AuthService extends PuterService {
 
         const uid = uuidv5(event.origin, APP_ORIGIN_UUID_NAMESPACE);
         return `app-${uid}`;
+    }
+
+    /**
+     * Read `app_origin_aliases` from config and return normalized groups —
+     * each group is a deduped list of lowercased, trimmed host strings.
+     * Malformed entries are skipped silently so a bad config row doesn't
+     * brick UID resolution for everyone else.
+     */
+    #getOriginAliasGroups(): string[][] {
+        const config = this.config as { app_origin_aliases?: unknown };
+        const raw = config.app_origin_aliases;
+        if (!Array.isArray(raw)) return [];
+
+        const groups: string[][] = [];
+        for (const group of raw) {
+            if (!Array.isArray(group)) continue;
+            const normalized = [
+                ...new Set(
+                    group
+                        .filter((h): h is string => typeof h === 'string')
+                        .map((h) => h.trim().toLowerCase())
+                        .filter((h) => h.length > 0),
+                ),
+            ];
+            if (normalized.length > 0) groups.push(normalized);
+        }
+        return groups;
+    }
+
+    /**
+     * Find the alias group containing `host` (case-insensitive). Returns the
+     * normalized group, or null when no group claims this host.
+     */
+    #findOriginAliasGroup(host: string): string[] | null {
+        const lower = host.trim().toLowerCase();
+        if (!lower) return null;
+        for (const group of this.#getOriginAliasGroups()) {
+            if (group.includes(lower)) return group;
+        }
+        return null;
+    }
+
+    /**
+     * If the origin's host belongs to an alias group, swap it for the group's
+     * canonical representative (alphabetically first member — chosen for
+     * order-independence so config reordering doesn't shift UUIDs). Returns
+     * null when the host isn't in any group, so the caller keeps the original.
+     */
+    #canonicalizeAliasedOrigin(origin: string): string | null {
+        let parsed: URL;
+        try {
+            parsed = new URL(origin);
+        } catch {
+            return null;
+        }
+        const hostRaw = parsed.host.toLowerCase();
+        const hostStripped = parsed.hostname.toLowerCase();
+        const group =
+            this.#findOriginAliasGroup(hostRaw) ??
+            this.#findOriginAliasGroup(hostStripped);
+        if (!group) return null;
+
+        const canonical = [...group].sort()[0];
+        if (!canonical || canonical === hostRaw || canonical === hostStripped) {
+            return null;
+        }
+        parsed.host = canonical;
+        return parsed.toString();
     }
 
     /**
@@ -322,6 +394,16 @@ export class AuthService extends PuterService {
             for (const d of hostingDomains) {
                 hostCandidates.add(`${subdomain}.${d}`);
             }
+        }
+        // Origin alias group expansion: every host listed alongside the
+        // request's host in `app_origin_aliases` becomes a lookup candidate,
+        // so any one of the group's hosts being registered as an `index_url`
+        // resolves the whole group to that row's UID.
+        const aliasGroup =
+            this.#findOriginAliasGroup(hostRaw) ??
+            this.#findOriginAliasGroup(hostStripped);
+        if (aliasGroup) {
+            for (const h of aliasGroup) hostCandidates.add(h);
         }
 
         const protocolCandidates = new Set<string>([

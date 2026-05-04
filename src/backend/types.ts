@@ -365,18 +365,22 @@ interface IConfigOptional {
     /** Alt private app hosting domain. */
     private_app_hosting_domain_alt: string;
     /**
-     * Map of incoming origin host → canonical host for app UID resolution.
-     * When a request hits an aliased host, `appUidFromOrigin` swaps the host
-     * for the canonical one before looking up the app, so multiple owned
-     * domains can resolve to the same canonical app UID.
+     * Groups of equivalent app index_url hosts. Each group lists hosts that
+     * should resolve to the same canonical app: `appUidFromOrigin` looks up
+     * any DB row whose `index_url` is one of the group's hosts and returns
+     * that row's UID for every host in the group.
      *
-     * Keys and values are bare hosts (no scheme), lowercased. Example:
-     *   {
-     *     "camera.puter.com": "camera.puter.site",
-     *     "camera.ca":        "camera.puter.site",
-     *   }
+     * Hosts listed here are also reserved — `apps.create` / `apps.update`
+     * reject any attempt to register a different app under one of these
+     * hosts, so the group is owned by exactly one app row.
+     *
+     * Entries are bare hosts (no scheme), lowercased. Example:
+     *   [
+     *     ["camera.puter.com", "camera.puter.site", "camera.ca"],
+     *     ["player.puter.com", "player.puter.site"],
+     *   ]
      */
-    app_origin_aliases?: Record<string, string>;
+    app_origin_aliases?: string[][];
     /** When true, accept any Host header value. Dev/testing only. */
     allow_all_host_values: boolean;
     /** When true, accept requests without a Host header. */
