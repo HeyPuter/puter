@@ -2191,7 +2191,7 @@ $(document).on('click', '.user-options-menu-btn', async function (e) {
                 html: i18n('settings'),
                 id: 'settings',
                 onClick: async function () {
-                    UIWindowSettings();
+                    window.open('/dashboard', '_blank');
                 },
             },
             //--------------------------------------------------
@@ -2313,7 +2313,7 @@ $(document).on('click', '.search-btn', function () {
 });
 
 $(document).on('click', '.toolbar-puter-logo', function () {
-    UIWindowSettings();
+    window.open('/dashboard', '_blank');
 });
 
 $(document).on('click', '.user-options-create-account-btn', async function (e) {
