@@ -792,6 +792,14 @@ let sidebar = [
                 path: '/UI/on',
             },
             {
+                title: '<code>onItemsOpened()</code>',
+                page_title: '<code>puter.ui.onItemsOpened()</code>',
+                title_tag: 'puter.ui.onItemsOpened()',
+                icon: '/assets/img/function.svg',
+                source: '/UI/onItemsOpened.md',
+                path: '/UI/onItemsOpened',
+            },
+            {
                 title: '<code>onLaunchedWithItems()</code>',
                 page_title: '<code>puter.ui.onLaunchedWithItems()</code>',
                 title_tag: 'puter.ui.onLaunchedWithItems()',

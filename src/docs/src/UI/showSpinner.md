@@ -9,7 +9,13 @@ Shows an overlay with a spinner in the center of the screen. If multiple instanc
 ## Syntax
 ```js
 puter.ui.showSpinner()
+puter.ui.showSpinner(html)
 ```
+
+## Parameters
+
+#### `html` (String) (optional)
+Custom message rendered under the spinner. Accepts plain text or HTML. Defaults to `"Working..."`.
 
 ## Examples
 ```html;ui-spinner

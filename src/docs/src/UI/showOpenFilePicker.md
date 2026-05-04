@@ -20,6 +20,7 @@ A set of key/value pairs that configure the file picker dialog.
 * `accept` (String): The list of MIME types or file extensions that are accepted by the file picker. Default is `*/*`.
     - Example: `image/*` will allow the user to select any image file.
     - Example: `['.jpg', '.png']` will allow the user to select files with `.jpg` or `.png` extensions.
+* `path` (String): The initial directory to open the file picker in. Default is the user's Desktop. The special prefix `%appdata%` resolves to your app's private appdata directory (for example, `%appdata%/saves` opens that subdirectory inside your appdata).
 
 ## Return value 
 A `Promise` that resolves to either one [`FSItem`](/Objects/fsitem) or an array of [`FSItem`](/Objects/fsitem) objects, depending on how many files were selected by the user. 

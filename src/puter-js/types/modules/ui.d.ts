@@ -6,6 +6,14 @@ export interface AlertButton {
     type?: 'primary' | 'success' | 'info' | 'warning' | 'danger';
 }
 
+export interface AlertOptions {
+    type?: 'primary' | 'success' | 'info' | 'warning' | 'danger';
+}
+
+export interface PromptOptions {
+    defaultValue?: string;
+}
+
 export interface ContextMenuItem {
     label: string;
     action?: () => void;
@@ -14,6 +22,12 @@ export interface ContextMenuItem {
     disabled?: boolean;
     items?: (ContextMenuItem | '-')[];
 }
+
+export interface WindowHandle {
+    id: string;
+}
+
+export type WindowIdentifier = string | WindowHandle;
 
 export interface ContextMenuOptions {
     items: (ContextMenuItem | '-')[];
@@ -29,8 +43,6 @@ export interface WindowOptions {
     show_in_taskbar?: boolean;
     title?: string;
     width?: number;
-    x?: number;
-    y?: number;
 }
 
 export interface LaunchAppOptions {
@@ -54,20 +66,32 @@ export interface ThemeData {
 }
 
 export interface MenubarOptions {
-    items: MenuItem[];
+    items: (MenuItem | '-')[];
 }
 
 export interface MenuItem {
     label: string;
+    id?: string;
     action?: () => void;
-    items?: MenuItem[];
+    items?: (MenuItem | '-')[];
     icon?: string;
+    icon_active?: string;
     checked?: boolean;
+    disabled?: boolean;
 }
 
 export interface FilePickerOptions {
     multiple?: boolean;
     accept?: string | string[];
+    path?: string;
+}
+
+export interface ColorPickerOptions {
+    defaultColor?: string;
+}
+
+export interface FontPickerOptions {
+    defaultFont?: string;
 }
 
 export interface DirectoryPickerOptions {
@@ -121,37 +145,40 @@ export class AppConnection {
 }
 
 export class UI {
-    alert (message?: string, buttons?: AlertButton[]): Promise<string>;
-    prompt (message?: string, placeholder?: string): Promise<string | null>;
+    alert (message?: string, buttons?: AlertButton[], options?: AlertOptions): Promise<string>;
+    prompt (message?: string, placeholder?: string, options?: PromptOptions): Promise<string | null>;
     notify (options?: NotificationOptions): Promise<string>;
     authenticateWithPuter (): Promise<void>;
     contextMenu (options: ContextMenuOptions): void;
-    createWindow (options?: WindowOptions): void;
+    createWindow (options?: WindowOptions): Promise<WindowHandle>;
     exit (statusCode?: number): void;
     getLanguage (): Promise<string>;
     hideSpinner (): void;
     hideWindow (): void;
-    showSpinner (): void;
+    showSpinner (html?: string): void;
     showWindow (): void;
-    showColorPicker (defaultColor?: string | Record<string, unknown>): Promise<string>;
+    showColorPicker (defaultColor?: string): Promise<string>;
+    showColorPicker (options?: ColorPickerOptions): Promise<string>;
     showDirectoryPicker (options?: DirectoryPickerOptions): Promise<FSItem | FSItem[]>;
-    showFontPicker (defaultFont?: string | Record<string, unknown>): Promise<{ fontFamily: string }>;
+    showFontPicker (defaultFont?: string): Promise<{ fontFamily: string }>;
+    showFontPicker (options?: FontPickerOptions): Promise<{ fontFamily: string }>;
     showOpenFilePicker (options?: FilePickerOptions): CancelAwarePromise<FSItem | FSItem[]>;
-    showSaveFilePicker (data?: unknown, defaultFileName?: string): CancelAwarePromise<FSItem>;
+    showSaveFilePicker (
+        content?: unknown,
+        suggestedName?: string,
+    ): CancelAwarePromise<FSItem>;
     socialShare (url: string, message?: string, options?: { left?: number; top?: number }): void;
     setMenubar (options: MenubarOptions): void;
     setMenuItemIcon (itemId: string, icon: string): void;
     setMenuItemIconActive (itemId: string, icon: string): void;
     setMenuItemChecked (itemId: string, checked: boolean): void;
-    setWindowHeight (height: number): void;
-    setWindowPosition (x: number, y: number): void;
-    setWindowSize (width: number, height: number): void;
-    setWindowTitle (title: string): void;
-    setWindowWidth (width: number): void;
-    setWindowX (x: number): void;
-    setWindowY (y: number): void;
-    showColorPicker (options?: Record<string, unknown>): Promise<string>;
-    showSaveFilePicker (data?: unknown, defaultFileName?: string): Promise<FSItem>;
+    setWindowHeight (height: number, window_id?: WindowIdentifier): void;
+    setWindowPosition (x: number, y: number, window_id?: WindowIdentifier): void;
+    setWindowSize (width: number, height: number, window_id?: WindowIdentifier): void;
+    setWindowTitle (title: string, window_id?: WindowIdentifier): void;
+    setWindowWidth (width: number, window_id?: WindowIdentifier): void;
+    setWindowX (x: number, window_id?: WindowIdentifier): void;
+    setWindowY (y: number, window_id?: WindowIdentifier): void;
     wasLaunchedWithItems (): boolean;
     onItemsOpened (handler: (items: FSItem[]) => void): void;
     onLaunchedWithItems (handler: (items: FSItem[]) => void): void;
