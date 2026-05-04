@@ -206,6 +206,18 @@ const examples = [
                 source: '/playground/examples/ai-txt2speech-xai.html',
             },
             {
+                title: 'List TTS Engines',
+                description: 'Query available TTS engines/models from each provider using puter.ai.txt2speech.listEngines().',
+                slug: 'ai-txt2speech-list-engines',
+                source: '/playground/examples/ai-txt2speech-list-engines.html',
+            },
+            {
+                title: 'List TTS Voices',
+                description: 'Browse available TTS voices from each provider using puter.ai.txt2speech.listVoices().',
+                slug: 'ai-txt2speech-list-voices',
+                source: '/playground/examples/ai-txt2speech-list-voices.html',
+            },
+            {
                 title: 'Voice Changer',
                 description: 'Swap a sample clip into a new voice using Puter.js AI speech-to-speech helpers.',
                 slug: 'ai-voice-changer',

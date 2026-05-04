@@ -1,0 +1,14 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        (async () => {
+            const engines = await puter.ai.txt2speech.listEngines('openai');
+            puter.print('OpenAI TTS engines:');
+            for (const engine of engines) {
+                puter.print(`  ${engine.id} - ${engine.name}`);
+            }
+        })();
+    </script>
+</body>
+</html>

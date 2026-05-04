@@ -196,6 +196,8 @@ These AI features are supported out of the box when using Puter.js:
 - **[`puter.ai.txt2img()`](/AI/txt2img/)** - Generate images from text descriptions
 - **[`puter.ai.img2txt()`](/AI/img2txt/)** - Extract text from images (OCR)
 - **[`puter.ai.txt2speech()`](/AI/txt2speech/)** - Convert text to speech
+- **[`puter.ai.txt2speech.listEngines()`](/AI/txt2speech.listEngines/)** - List available TTS engines/models
+- **[`puter.ai.txt2speech.listVoices()`](/AI/txt2speech.listVoices/)** - List available TTS voices
 - **[`puter.ai.speech2speech()`](/AI/speech2speech/)** - Convert speech in one voice to another voice
 - **[`puter.ai.txt2vid()`](/AI/txt2vid/)** - Generate short videos with OpenAI Sora models
 - **[`puter.ai.speech2txt()`](/AI/speech2txt/)** - Transcribe or translate audio recordings into text
@@ -227,6 +229,8 @@ You can see various Puter.js AI features in action from the following examples:
   - [Text to Speech with engines](/playground/ai-txt2speech-engines/)
   - [Text to Speech with OpenAI voices](/playground/ai-txt2speech-openai/)
   - [Text to Speech with Gemini voices](/playground/ai-txt2speech-gemini/)
+  - [List TTS Engines](/playground/ai-txt2speech-list-engines/)
+  - [List TTS Voices](/playground/ai-txt2speech-list-voices/)
   - [Transcribe audio with `speech2txt`](/AI/speech2txt/)
 - Text to Video
   - [Generate a sample Sora clip](/AI/txt2vid/)

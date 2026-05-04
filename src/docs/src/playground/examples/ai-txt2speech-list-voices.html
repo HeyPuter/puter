@@ -1,0 +1,14 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        (async () => {
+            const voices = await puter.ai.txt2speech.listVoices({ provider: 'openai' });
+            puter.print('OpenAI voices:');
+            for (const voice of voices) {
+                puter.print(`  ${voice.id} - ${voice.name}`);
+            }
+        })();
+    </script>
+</body>
+</html>

@@ -83,6 +83,22 @@ let sidebar = [
                 path: '/AI/txt2speech',
             },
             {
+                title: '<code>txt2speech.listEngines()</code>',
+                page_title: '<code>puter.ai.txt2speech.listEngines()</code>',
+                title_tag: 'puter.ai.txt2speech.listEngines()',
+                icon: '/assets/img/function.svg',
+                source: '/AI/txt2speech.listEngines.md',
+                path: '/AI/txt2speech.listEngines',
+            },
+            {
+                title: '<code>txt2speech.listVoices()</code>',
+                page_title: '<code>puter.ai.txt2speech.listVoices()</code>',
+                title_tag: 'puter.ai.txt2speech.listVoices()',
+                icon: '/assets/img/function.svg',
+                source: '/AI/txt2speech.listVoices.md',
+                path: '/AI/txt2speech.listVoices',
+            },
+            {
                 title: '<code>txt2vid()</code>',
                 page_title: '<code>puter.ai.txt2vid()</code>',
                 title_tag: 'puter.ai.txt2vid()',
