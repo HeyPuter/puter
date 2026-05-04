@@ -55,6 +55,7 @@ cat > puter/config/config.json <<EOF
     "domain": "puter.local",
     "protocol": "http",
     "pub_port": 80,
+    "env": "prod",
 
     "static_hosting_domain": "puter.sitelocal",
     "static_hosting_domain_alt": "puter.hostlocal",
@@ -107,6 +108,7 @@ Replace `puter.local`, `puter.sitelocal`, `puter.hostlocal`, `puter.applocal` an
 
 Why these knobs:
 
+- `env: "prod"` — the bundled `config.default.json` ships with `env: "dev"` (matches the source-tree `npm run start=gui` workflow, which expects webpack-dev-server emitting a CSS manifest). Self-host runs against pre-built static bundles, so `env: "prod"` makes the homepage emit the `/dist/bundle.min.css` `<link>` tag instead of waiting on a manifest that doesn't exist.
 - `database.migrationPaths` — Puter applies the bundled MySQL schema on boot. `mysql_mig_1.sql` (tables) and `mysql_mig_2.sql` (default apps: editor, viewer, pdf, camera, player, recorder, git, dev-center, puter-linux). Idempotent — safe to re-run.
 - `dynamo.bootstrapTables: true` — Puter creates its KV table on boot. **Only set against a local emulator**, never real AWS.
 - `dynamo.aws` keys are dummies; DynamoDB-local doesn't validate them but the AWS SDK requires _something_. **Note:** DynamoDB uses `access_key` / `secret_key` (snake_case); S3 below uses `accessKeyId` / `secretAccessKey` (camelCase). Not interchangeable.

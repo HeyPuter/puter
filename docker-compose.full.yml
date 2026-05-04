@@ -41,6 +41,9 @@ services:
           --cluster-config-file /data/nodes.conf \
           --cluster-node-timeout 5000 \
           --cluster-require-full-coverage no \
+          --cluster-announce-ip valkey \
+          --cluster-announce-port 6379 \
+          --cluster-announce-bus-port 16379 \
           --appendonly yes \
           --save "60 1" &
         SERVER_PID=$$!

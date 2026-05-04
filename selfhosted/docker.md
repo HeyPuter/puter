@@ -34,6 +34,7 @@ cat > puter/config/config.json <<'JSON'
     "domain": "puter.example.com",
     "protocol": "https",
     "pub_port": 443,
+    "env": "prod",
 
     "jwt_secret": "REPLACE-WITH-openssl-rand-hex-64",
     "url_signature_secret": "REPLACE-WITH-A-DIFFERENT-openssl-rand-hex-64"
