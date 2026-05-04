@@ -59,9 +59,16 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
+          # Tag plan:
+          #   * version tag (vX.Y.Z) push  → 1.2.3, 1.2, latest
+          #   * branch push (main)         → main
+          # selfhosting.md tells users to pull `:latest`, which only resolves
+          # for tag pushes — never main, so unstable code can't claim `:latest`.
           tags: |
             type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
             type=ref,event=branch
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/') }}
 
       # This step uses the `docker/build-push-action` action to build the
       # image, based on your repository's `Dockerfile`. If the build succeeds,

@@ -241,7 +241,7 @@ State lives under `./puter/data/<service>/`.
    ```
 
    Why these matter:
-   - `database.migrationPaths` — Puter applies the bundled MySQL schema (idempotent) on boot.
+   - `database.migrationPaths` — Puter applies the bundled MySQL schema (idempotent) on boot. Two files run in order: `mysql_mig_1.sql` (tables) and `mysql_mig_2.sql` (default apps — editor, viewer, pdf, camera, player, recorder, git, dev-center, puter-linux). Same defaults as the SQLite path.
    - `dynamo.bootstrapTables: true` — Puter creates its KV table on boot. **Only set against a local emulator**, never real AWS.
    - The `dynamo.aws` keys are dummies; DynamoDB-local doesn't validate them but the AWS SDK requires *something*.
 
