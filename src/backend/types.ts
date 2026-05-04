@@ -252,6 +252,13 @@ export interface IS3RemoteConfig {
     accessKeyId: string;
     secretAccessKey: string;
     region?: string;
+    /**
+     * Use path-style URLs (`<endpoint>/<bucket>`) instead of virtual-hosted
+     * style (`<bucket>.<endpoint>`). Defaults to AWS SDK's default (virtual-
+     * hosted, which only works on real AWS S3). Set `true` for S3-compatible
+     * servers (RustFS, MinIO, fauxqs) where DNS-style addressing fails.
+     */
+    forcePathStyle?: boolean;
 }
 
 export interface IS3Config {

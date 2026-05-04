@@ -143,6 +143,7 @@ export class SqliteDatabaseClient extends AbstractDatabaseClient {
 
         return {
             insertId: info.lastInsertRowid,
+            affectedRows: info.changes,
             anyRowsAffected: info.changes > 0,
         };
     }

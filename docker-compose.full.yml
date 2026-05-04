@@ -150,6 +150,68 @@ services:
         fi
     restart: "no"
 
+  # ── Optional: local LLM ───────────────────────────────────────────
+  # Behind the `ai` compose profile — only starts when explicitly opted
+  # into. Bring up with:
+  #   docker compose -f docker-compose.full.yml --profile ai up -d
+  # When enabled, also set in your `puter/config/config.json`:
+  #   "providers": { "ollama": { "apiBaseUrl": "http://ollama:11434" } }
+  # When NOT enabled, set:
+  #   "providers": { "ollama": { "enabled": false } }
+  # otherwise Puter spams `ECONNREFUSED 127.0.0.1:11434` on startup.
+  ollama:
+    profiles: ["ai"]
+    # CPU-only out of the box; uncomment the GPU `deploy:` block below
+    # if you've got nvidia-docker for much faster inference. Disk + RAM
+    # scale with the model — `tinyllama` (1.1B, ~640 MB on disk, ~700
+    # MB RAM) is the cheapest sane default. Swap via OLLAMA_DEFAULT_MODEL.
+    image: ollama/ollama:latest
+    container_name: puter-ollama
+    restart: unless-stopped
+    volumes:
+      - ./puter/data/ollama:/root/.ollama
+    # Uncomment to expose Ollama directly on the host (`localhost:11434`)
+    # for `ollama` CLI / OpenAI-API compatible tools. Internal-only by default.
+    # ports:
+    #   - "11434:11434"
+    healthcheck:
+      test:
+        ["CMD-SHELL", "ollama list >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    # GPU passthrough (NVIDIA). Requires nvidia-container-toolkit on host.
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
+  ollama-init:
+    profiles: ["ai"]
+    # One-shot — ensures the default model is present. `ollama pull` is
+    # idempotent: present-and-up-to-date → fast no-op; missing → downloads.
+    image: ollama/ollama:latest
+    container_name: puter-ollama-init
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+      OLLAMA_DEFAULT_MODEL: ${OLLAMA_DEFAULT_MODEL:-tinyllama}
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        set -e
+        echo "[ollama-init] ensuring $${OLLAMA_DEFAULT_MODEL}"
+        ollama pull "$${OLLAMA_DEFAULT_MODEL}"
+        echo "[ollama-init] done"
+    restart: "no"
+
   puter:
     # image: ghcr.io/heyputer/puter:latest
     pull_policy: always

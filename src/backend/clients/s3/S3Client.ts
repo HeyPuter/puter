@@ -74,6 +74,7 @@ export class S3Client extends PuterClient {
                 secretAccessKey,
                 region,
                 useCredentialChain,
+                forcePathStyle,
             } = s3Conf.s3Config;
 
             if (useCredentialChain) {
@@ -86,6 +87,10 @@ export class S3Client extends PuterClient {
                     endpoint,
                     credentials: { accessKeyId, secretAccessKey },
                     ...(region ? { region } : {}),
+                    // Defaults to virtual-hosted style (real-AWS S3 native).
+                    // S3-compatible servers (RustFS, MinIO, fauxqs) need
+                    // `forcePathStyle: true` — see `IS3RemoteConfig`.
+                    ...(forcePathStyle === undefined ? {} : { forcePathStyle }),
                 };
             }
 
