@@ -75,6 +75,7 @@ const AVAILABLE_MIGRATIONS: [number, string[]][] = [
     [40, ['0044_dev-center-godmode.sql']],
     [41, ['0045_user_oidc_providers.sql']],
     [42, ['0046_is-private-apps.sql']],
+    [43, ['0047_app-url-updates.sql']],
 ];
 
 export class SqliteDatabaseClient extends AbstractDatabaseClient {
