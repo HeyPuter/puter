@@ -55,6 +55,15 @@ export class S3ObjectStore extends PuterStore {
         return this.clients.s3.get(region);
     }
 
+    /**
+     * Client to use when minting presigned URLs handed back to the
+     * browser. Same instance as `#getClientForRegion` unless
+     * `s3Config.publicEndpoint` is set — see `clients/s3/S3Client.ts`.
+     */
+    #getPresignClientForRegion(region: string): S3Client {
+        return this.clients.s3.getForPresign(region);
+    }
+
     // Older entries (migrated from v1) can have a null bucketRegion; callers
     // use this to fall back to the configured default instead of erroring.
     resolveRegion(region?: string | null): string {
@@ -103,6 +112,7 @@ export class S3ObjectStore extends PuterStore {
         region: string,
     ): Promise<SignedUploadResult[]> {
         const client = this.#getClientForRegion(region);
+        const presignClient = this.#getPresignClientForRegion(region);
         const now = Date.now();
         const settledResults = await Promise.allSettled(
             filesMetadata.map(async (fileMetadata) => {
@@ -122,7 +132,7 @@ export class S3ObjectStore extends PuterStore {
                         Key: fileMetadata.objectKey,
                         ContentType: fileMetadata.contentType,
                     });
-                    const url = await getSignedUrl(client, command, {
+                    const url = await getSignedUrl(presignClient, command, {
                         expiresIn: expiresInSeconds,
                     });
                     return {
@@ -244,7 +254,7 @@ export class S3ObjectStore extends PuterStore {
         input: SignedMultipartPartUrlsInput,
         region: string,
     ): Promise<SignedUploadPart[]> {
-        const client = this.#getClientForRegion(region);
+        const presignClient = this.#getPresignClientForRegion(region);
         const expiresInSeconds = Math.max(
             60,
             Math.min(60 * 60, input.expiresInSeconds),
@@ -258,7 +268,7 @@ export class S3ObjectStore extends PuterStore {
                     UploadId: input.multipartUploadId,
                     PartNumber: partNumber,
                 });
-                const url = await getSignedUrl(client, command, {
+                const url = await getSignedUrl(presignClient, command, {
                     expiresIn: expiresInSeconds,
                 });
                 return {

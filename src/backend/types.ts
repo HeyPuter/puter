@@ -249,6 +249,14 @@ export interface IS3LocalConfig {
 export interface IS3RemoteConfig {
     useCredentialChain?: boolean;
     endpoint: string;
+    /**
+     * Endpoint used when generating presigned URLs handed to clients
+     * (browser uploads/downloads). Defaults to `endpoint`. Set this when
+     * the server-side S3 endpoint isn't reachable from the browser — e.g.
+     * self-host with `endpoint: http://s3:9000` (docker-internal) and
+     * `publicEndpoint: http://localhost:9000` (host-published port).
+     */
+    publicEndpoint?: string;
     accessKeyId: string;
     secretAccessKey: string;
     region?: string;

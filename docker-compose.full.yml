@@ -110,6 +110,12 @@ services:
       RUSTFS_SECRET_KEY: ${S3_SECRET_KEY:-puter-secret-change-me}
     volumes:
       - ./puter/data/s3:/data
+    # Internal-only — browsers reach RustFS via nginx (`s3.<domain>`),
+    # which preserves the Host header for S3 signature validation and
+    # rides the same TLS termination as Puter. Uncomment to also expose
+    # 9000 directly on the host for `aws-cli` / debugging.
+    # ports:
+    #   - "9000:9000"
     healthcheck:
       # RustFS exposes /health on the S3 port. Use wget (curl is not in
       # the slim image).

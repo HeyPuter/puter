@@ -100,6 +100,7 @@ cat > puter/config/config.json <<EOF
     "s3": {
         "s3Config": {
             "endpoint": "http://s3:9000",
+            "publicEndpoint": "http://s3.puter.local",
             "accessKeyId": "puter",
             "secretAccessKey": "$S3_SECRET_KEY",
             "region": "us-east-1",
@@ -126,15 +127,17 @@ Why these knobs:
 - `dynamo.aws` keys are dummies; DynamoDB-local doesn't validate them but the AWS SDK requires _something_. **Note:** DynamoDB uses `access_key` / `secret_key` (snake_case); S3 below uses `accessKeyId` / `secretAccessKey` (camelCase). Not interchangeable.
 - `providers.ollama.enabled: false` — Puter auto-probes a local Ollama at `127.0.0.1:11434` by default; without one running you'd see `ECONNREFUSED` on every boot. To run a bundled Ollama, see [Optional: local LLM (Ollama)](#optional-local-llm-ollama) below.
 - `s3.s3Config.forcePathStyle: true` — RustFS / MinIO / fauxqs need path-style URLs (`<endpoint>/<bucket>`). Real AWS S3 wants virtual-hosted (`<bucket>.<endpoint>`) — drop this flag (or set `false`) when you swap to real S3.
+- `s3.s3Config.publicEndpoint` — `endpoint` (`http://s3:9000`) only resolves inside the docker network; presigned upload/download URLs handed to the browser need a host-reachable URL. nginx routes the `s3.<domain>` subdomain to RustFS internally and preserves the Host header end-to-end (required for S3 signature validation), so the browser hits the same port/protocol as the rest of the app — no separate published port, no mixed-content surprises when you turn on TLS. Switch to `https://s3.<your-domain>` once you enable TLS in Step 3. Real AWS S3 doesn't need this — its endpoint is already public; drop the field entirely.
 
 > If you ever change `MARIADB_PASSWORD` after first boot, `.env` alone won't update MariaDB — its credentials are baked into `./puter/data/mariadb/` on first init. Either rotate the password inside MariaDB by hand or `docker compose down && rm -rf ./puter/data/mariadb` to start fresh.
 
 ## Step 2 — Point DNS at the server \[Optional\]
 
-In your DNS provider, add **two records**:
+In your DNS provider, add records for the main domain plus the subdomains Puter and nginx route on (`api.*`, `site.*`, `app.*`, `s3.*`):
 
 ```
 A      puter.local         → <your server's public IP>
+A      *.puter.local       → <your server's public IP>
 A      puter.sitelocal     → <your server's public IP>
 A      *.puter.sitelocal   → <your server's public IP>
 A      puter.hostlocal     → <your server's public IP>
@@ -145,12 +148,12 @@ A      puter.devlocal      → <your server's public IP>
 A      *.puter.devlocal    → <your server's public IP>
 ```
 
-The wildcard is required — Puter routes via subdomains.
+The wildcards are required — Puter routes via subdomains (`api.*`, `app.*`, etc.) and nginx routes browser S3 traffic via `s3.*` to RustFS.
 
-If you only need these to resolve these locally to test you can add this (any any other needed subdomain) to your hosts file
+For local-only testing, add this, and any specific subdomains, your hosts file (`/etc/hosts` on macOS/Linux, `C:\Windows\System32\drivers\etc\hosts` on Windows):
 
 ```
-127.0.0.1 puter.local
+127.0.0.1 puter.local s3.puter.local
 ```
 
 ## Step 3 — TLS (recommended for public installs) \[Optional\]
@@ -161,20 +164,30 @@ Skip this for a quick local demo. Don't skip it for users typing passwords.
 
 ```bash
 sudo certbot certonly --manual --preferred-challenges dns \
-    -d puter.local -d puter.sitelocal -d "*.puter.sitelocal" -d puter.hostlocal -d "*.puter.hostlocal" -d puter.applocal -d "*.puter.applocal" -d puter.devlocal -d "*.puter.devlocal"
+    -d puter.local -d "*.puter.local" \
+    -d puter.sitelocal -d "*.puter.sitelocal" \
+    -d puter.hostlocal -d "*.puter.hostlocal" \
+    -d puter.applocal -d "*.puter.applocal" \
+    -d puter.devlocal -d "*.puter.devlocal"
 ```
+
+The cert needs to cover `*.puter.local` so that `s3.puter.local` (browser S3 endpoint), plus Puter's own `api.*` / `app.*` subdomains, all validate.
 
 Drop the resulting `fullchain.pem` and `privkey.pem` into `./puter/tls/`.
 
 **Wire nginx to use them:**
 
-1. Open [nginx/nginx.conf](../nginx/nginx.conf), uncomment the entire `# server { listen 443 ssl … }` block.
-2. (Optional) Replace the body of the port-80 block with `return 301 https://$host$request_uri;` to force HTTPS.
+1. Open [nginx/nginx.conf](../nginx/nginx.conf), uncomment **both** `# server { listen 443 ssl … }` blocks (one for `s3.*`, one for the catch-all).
+2. (Optional) Replace the body of the port-80 blocks with `return 301 https://$host$request_uri;` to force HTTPS everywhere.
 3. In [docker-compose.full.yml](../docker-compose.full.yml), uncomment the `443:443` port mapping under the `nginx` service.
 4. In `.env`, uncomment `HTTPS_PORT=443`.
 5. In `config.json`, switch:
     ```json
     { "protocol": "https", "pub_port": 443 }
+    ```
+    …and update the S3 public endpoint:
+    ```json
+    "s3": { "s3Config": { "publicEndpoint": "https://s3.puter.local", ... } }
     ```
 
 ## Step 4 — Bring it up
