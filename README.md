@@ -50,13 +50,13 @@ npm start
 #### Linux/macOS
 
 ```bash
-curl -fsSL https://puter.com/install | sh
+curl -fsSL https://puter.com/selfhost | sh
 ```
 
 #### Windows
 
 ```powershell
-irm https://puter.com/install?os=windows | iex
+irm https://puter.com/selfhost?os=windows | iex
 ```
 
 <br/>
