@@ -33,20 +33,19 @@ import {
 const DEFAULT_MODEL = 'black-forest-labs/flux-schnell';
 const DEFAULT_RATIO = { w: 1024, h: 1024 };
 
-type ReplicateGenerateParams = IGenerateParams & {
-    go_fast?: boolean;
-    seed?: number;
-    steps?: number;
-    guidance?: number;
-    output_quality?: number;
-    output_megapixels?: string;
-    prompt_strength?: number;
-    negative_prompt?: string;
-    response_format?: string;
-    disable_safety_checker?: boolean;
-};
-
 export class ReplicateImageGenerationProvider implements IImageProvider {
+    static readonly #CORE_PARAMS: readonly string[] = [
+        'prompt',
+        'model',
+        'ratio',
+        'quality',
+        'provider',
+        'test_mode',
+        'input_image',
+        'input_image_mime_type',
+        'input_images',
+    ];
+
     #client: Replicate;
     #meteringService: MeteringService;
 
@@ -67,11 +66,10 @@ export class ReplicateImageGenerationProvider implements IImageProvider {
     }
 
     async generate(params: IGenerateParams): Promise<string> {
-        const extra = params as ReplicateGenerateParams;
-        const { prompt, test_mode } = extra;
+        const { prompt, test_mode } = params;
 
-        const selectedModel = this.#getModel(extra.model);
-        const ratio = this.#normalizeRatio(extra.ratio);
+        const selectedModel = this.#getModel(params.model);
+        const ratio = this.#normalizeRatio(params.ratio);
 
         if (test_mode) {
             return 'https://puter-sample-data.puter.site/image_example.png';
@@ -90,34 +88,61 @@ export class ReplicateImageGenerationProvider implements IImageProvider {
             });
         }
 
-        const goFast = selectedModel.supportsGoFast
-            ? extra.go_fast !== undefined
-                ? !!extra.go_fast
-                : (selectedModel.goFastDefault ?? false)
-            : false;
+        const filtered = this.#filterAllowedParams(params, selectedModel);
+        const aliased = this.#applyParamAliases(filtered, selectedModel);
+        const transformed = this.#applyTransforms(aliased, selectedModel);
+
+        const goFast = !!transformed.go_fast;
+        const generationMode =
+            typeof transformed.generation_mode === 'string'
+                ? transformed.generation_mode
+                : undefined;
 
         const inputImages: string[] = [];
         if (selectedModel.imageInputKey) {
-            if (extra.input_image) inputImages.push(extra.input_image);
-            if (extra.input_images?.length)
-                inputImages.push(...extra.input_images);
+            if (params.input_image) inputImages.push(params.input_image);
+            if (params.input_images?.length)
+                inputImages.push(...params.input_images);
+            if (inputImages.length === 0) {
+                const nativeVal = (params as Record<string, unknown>)[
+                    selectedModel.imageInputKey
+                ];
+                if (typeof nativeVal === 'string') {
+                    inputImages.push(nativeVal);
+                } else if (Array.isArray(nativeVal)) {
+                    for (const v of nativeVal) {
+                        if (typeof v === 'string') inputImages.push(v);
+                    }
+                }
+            }
         }
-        const singleImage = selectedModel.singleImageInputKey
-            ? extra.input_image
-            : undefined;
+        let singleImage: string | undefined;
+        if (selectedModel.singleImageInputKey) {
+            if (typeof params.input_image === 'string') {
+                singleImage = params.input_image;
+            } else {
+                const nativeVal = (params as Record<string, unknown>)[
+                    selectedModel.singleImageInputKey
+                ];
+                if (typeof nativeVal === 'string') singleImage = nativeVal;
+            }
+        }
         const allInputUrls = singleImage ? [singleImage] : inputImages;
         const inputMp =
             allInputUrls.length > 0
                 ? await this.#measureInputMegapixels(allInputUrls)
                 : 0;
 
-        const outputMp = this.#resolveOutputMegapixels(extra.output_megapixels);
+        const outputMp = this.#resolveOutputMegapixels(
+            params.output_megapixels as string | undefined,
+        );
 
         const totalCostMicroCents = this.#estimateCost(
             selectedModel,
             outputMp,
             goFast,
             inputMp,
+            generationMode,
         );
         if (totalCostMicroCents <= 0) {
             throw new HttpError(
@@ -140,42 +165,13 @@ export class ReplicateImageGenerationProvider implements IImageProvider {
             );
         }
 
-        const input: Record<string, unknown> = {
+        const input = this.#buildRequest(selectedModel, {
             prompt,
-            aspect_ratio: this.#toAspectRatio(ratio),
-            disable_safety_checker: !!extra.disable_safety_checker,
-        };
-        if (selectedModel.supportsGoFast) {
-            input.go_fast = goFast;
-        }
-        if (inputImages.length && selectedModel.imageInputKey) {
-            input[selectedModel.imageInputKey] = inputImages;
-        } else if (singleImage && selectedModel.singleImageInputKey) {
-            input[selectedModel.singleImageInputKey] = singleImage;
-        }
-        if (Number.isFinite(extra.seed))
-            input.seed = Math.round(extra.seed as number);
-        if (Number.isFinite(extra.steps))
-            input.num_inference_steps = Math.round(extra.steps as number);
-        if (Number.isFinite(extra.guidance)) input.guidance = extra.guidance;
-        if (Number.isFinite(extra.output_quality))
-            input.output_quality = Math.round(extra.output_quality as number);
-        if (
-            typeof extra.output_megapixels === 'string' &&
-            selectedModel.resolutionInputKey
-        ) {
-            input[selectedModel.resolutionInputKey] =
-                extra.output_megapixels +
-                (selectedModel.resolutionSuffix ?? '');
-        } else if (typeof extra.output_megapixels === 'string') {
-            input.megapixels = extra.output_megapixels;
-        }
-        if (Number.isFinite(extra.prompt_strength))
-            input.prompt_strength = extra.prompt_strength;
-        if (typeof extra.negative_prompt === 'string')
-            input.negative_prompt = extra.negative_prompt;
-        if (typeof extra.response_format === 'string')
-            input.output_format = extra.response_format;
+            ratio,
+            transformed,
+            inputImages,
+            singleImage,
+        });
 
         const output = await this.#client.run(
             selectedModel.replicateId as `${string}/${string}`,
@@ -191,7 +187,14 @@ export class ReplicateImageGenerationProvider implements IImageProvider {
             );
         }
 
-        this.#recordUsage(actor, selectedModel, outputMp, goFast, inputMp);
+        this.#recordUsage(
+            actor,
+            selectedModel,
+            outputMp,
+            goFast,
+            inputMp,
+            generationMode,
+        );
 
         return url;
     }
@@ -202,6 +205,130 @@ export class ReplicateImageGenerationProvider implements IImageProvider {
             (m) => m.id === model || m.aliases?.includes(model ?? ''),
         );
         return found ?? models.find((m) => m.id === DEFAULT_MODEL)!;
+    }
+
+    /**
+     * Builds the Replicate API input payload from already-aliased+transformed
+     * params. Image inputs and prompt/ratio are placed explicitly; everything
+     * else is spread verbatim so newly-allowed keys flow through without
+     * needing a code change here.
+     */
+    #buildRequest(
+        model: ReplicateImageModel,
+        ctx: {
+            prompt: string;
+            ratio: { w: number; h: number };
+            transformed: Record<string, unknown>;
+            inputImages: string[];
+            singleImage?: string;
+        },
+    ): Record<string, unknown> {
+        const { prompt, ratio, transformed, inputImages, singleImage } = ctx;
+
+        const input: Record<string, unknown> = {
+            prompt,
+            aspect_ratio: this.#toAspectRatio(ratio),
+        };
+
+        const handled = new Set<string>(
+            ReplicateImageGenerationProvider.#CORE_PARAMS,
+        );
+        if (model.imageInputKey) handled.add(model.imageInputKey);
+        if (model.singleImageInputKey) handled.add(model.singleImageInputKey);
+
+        if (inputImages.length && model.imageInputKey) {
+            input[model.imageInputKey] = inputImages;
+        } else if (singleImage && model.singleImageInputKey) {
+            input[model.singleImageInputKey] = singleImage;
+        }
+
+        for (const [key, value] of Object.entries(transformed)) {
+            if (handled.has(key)) continue;
+            if (value === undefined || value === null) continue;
+            input[key] = value;
+        }
+
+        return input;
+    }
+
+    /**
+     * Drops params not in `model.allowed_params` (plus `#CORE_PARAMS` and any
+     * alias targets, so the native key is also accepted).
+     */
+    #filterAllowedParams(
+        params: IGenerateParams,
+        model: ReplicateImageModel,
+    ): IGenerateParams {
+        const allowedSet = model.allowed_params;
+        if (!allowedSet) return params;
+
+        const aliasTargets = model.param_aliases
+            ? Object.values(model.param_aliases)
+            : [];
+        const nativeImageKeys: string[] = [];
+        if (model.imageInputKey) nativeImageKeys.push(model.imageInputKey);
+        if (model.singleImageInputKey)
+            nativeImageKeys.push(model.singleImageInputKey);
+
+        const filtered: Record<string, unknown> = {};
+        for (const key of Object.keys(params)) {
+            if (
+                ReplicateImageGenerationProvider.#CORE_PARAMS.includes(key) ||
+                allowedSet.includes(key) ||
+                aliasTargets.includes(key) ||
+                nativeImageKeys.includes(key)
+            ) {
+                filtered[key] = params[key];
+            }
+        }
+        return filtered as IGenerateParams;
+    }
+
+    /**
+     * Renames canonical keys to the model's native API names per
+     * `model.param_aliases` (e.g. `steps` → `num_inference_steps`).
+     */
+    #applyParamAliases(
+        params: IGenerateParams,
+        model: ReplicateImageModel,
+    ): Record<string, unknown> {
+        const aliases = model.param_aliases;
+        if (!aliases) return params as Record<string, unknown>;
+
+        const result: Record<string, unknown> = {};
+        for (const [key, value] of Object.entries(params)) {
+            const nativeKey = aliases[key] ?? key;
+            result[nativeKey] = value;
+        }
+        return result;
+    }
+
+    /**
+     * Applies `param_transforms` on top of the aliased map: injects defaults
+     * for missing keys, then appends any configured string suffix to the
+     * value. Returns the original map unchanged when the model declares no
+     * transforms.
+     */
+    #applyTransforms(
+        aliased: Record<string, unknown>,
+        model: ReplicateImageModel,
+    ): Record<string, unknown> {
+        const transforms = model.param_transforms;
+        if (!transforms) return aliased;
+
+        const result = { ...aliased };
+        for (const [key, cfg] of Object.entries(transforms)) {
+            let value = result[key];
+            if (value === undefined && cfg.default !== undefined) {
+                value = cfg.default;
+            }
+            if (value === undefined) continue;
+            if (cfg.suffix !== undefined && typeof value === 'string') {
+                value = value + cfg.suffix;
+            }
+            result[key] = value;
+        }
+        return result;
     }
 
     #normalizeRatio(ratio?: { w: number; h: number }) {
@@ -253,10 +380,16 @@ export class ReplicateImageGenerationProvider implements IImageProvider {
     #resolveCosts(
         model: ReplicateImageModel,
         goFast: boolean,
+        generationMode?: string,
     ): Record<string, number> {
-        return goFast && model.costs_go_fast
-            ? model.costs_go_fast
-            : model.costs;
+        if (goFast && model.costs_go_fast) return model.costs_go_fast;
+        if (
+            generationMode &&
+            model.costs_by_generation_mode?.[generationMode]
+        ) {
+            return model.costs_by_generation_mode[generationMode];
+        }
+        return model.costs;
     }
 
     #estimateCost(
@@ -264,8 +397,9 @@ export class ReplicateImageGenerationProvider implements IImageProvider {
         outputMp: number,
         goFast: boolean,
         inputMp: number,
+        generationMode?: string,
     ): number {
-        const costs = this.#resolveCosts(model, goFast);
+        const costs = this.#resolveCosts(model, goFast, generationMode);
 
         if (model.billingScheme === 'per-image') {
             const cents = costs.output;
@@ -300,9 +434,10 @@ export class ReplicateImageGenerationProvider implements IImageProvider {
         outputMp: number,
         goFast: boolean,
         inputMp: number,
+        generationMode?: string,
     ) {
         const prefix = `replicate:${model.id}`;
-        const costs = this.#resolveCosts(model, goFast);
+        const costs = this.#resolveCosts(model, goFast, generationMode);
 
         if (model.billingScheme === 'per-image') {
             const cents = costs.output;

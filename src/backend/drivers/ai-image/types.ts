@@ -63,6 +63,7 @@ export interface IGenerateParams {
     input_image?: string;
     input_image_mime_type?: string;
     input_images?: string[];
+    [key: string]: unknown;
 }
 
 export interface IImageProvider {

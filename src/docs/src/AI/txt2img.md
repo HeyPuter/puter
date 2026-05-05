@@ -95,24 +95,37 @@ For more details, see the [Together AI API reference](https://docs.together.ai/r
 
 Available when `provider: 'replicate-image-generation'` or inferred from model:
 
+##### Common options
+
 | Option | Type | Description |
 |--------|------|-------------|
-| `model` | `String` | Image model to use. |
-| `ratio` | `Object` | Aspect ratio as `{ w, h }` (e.g., `{ w: 16, h: 9 }`) |
-| `seed` | `Number` | Random seed for reproducible generation |
-| `steps` | `Number` | Number of inference steps |
-| `guidance` | `Number` | Guidance scale for generation |
-| `go_fast` | `Boolean` | Use optimized fast mode. Defaults to `true` for `flux-2-dev`. Affects pricing on supported models |
-| `output_quality` | `Number` | Output quality (0-100). |
-| `output_megapixels` | `String` | Approximate output megapixels (`'0.25'`, `'0.5'`, `'1'`, `'2'`, `'4'`) |
-| `input_image` | `String` | URL of an input image for image-to-image generation |
-| `input_images` | `Array<String>` | Array of input image URLs for multi-image generation |
-| `negative_prompt` | `String` | Text to guide what to avoid in the image |
-| `prompt_strength` | `Number` | How strongly the prompt influences the output |
-| `disable_safety_checker` | `Boolean` | If `true`, disables the safety checker |
-| `response_format` | `String` | Output format: `'webp'`, `'jpg'`, `'png'` |
+| `model` | `String` | Model id (e.g. `'black-forest-labs/flux-schnell'`, `'leonardoai/lucid-origin'`). |
+| `ratio` | `Object` | Aspect ratio as `{ w, h }` (e.g., `{ w: 16, h: 9 }`). |
+| `input_image` | `String` | URL of an input image for image-to-image generation. |
+| `input_images` | `Array<String>` | Array of input image URLs for multi-image generation. |
 
-For more details, see the [Replicate API reference](https://replicate.com/docs).
+##### Per-model options
+
+These keys are only forwarded for models that whitelist them (see per-model `allowed_params`):
+
+| Option | Type | Models | Description |
+|--------|------|--------|-------------|
+| `seed` | `Number` | most models | Random seed for reproducible generation. |
+| `steps` | `Number` | `flux-schnell` | Number of inference steps. |
+| `guidance` | `Number` | `flux-2-klein-9b-base` | Guidance scale. |
+| `go_fast` | `Boolean` | `flux-2-dev` | Use optimized fast mode. Defaults to `true` for `flux-2-dev`; affects pricing. |
+| `output_quality` | `Number` | flux family | Output quality (0–100). |
+| `output_megapixels` | `String` | flux family | Approximate output megapixels (e.g. `'0.25'`, `'0.5'`, `'1'`, `'2'`). |
+| `disable_safety_checker` | `Boolean` | flux-2-dev / klein / flux-schnell | If `true`, disables the safety checker. |
+| `safety_tolerance` | `Number` | `flux-2-pro`, `flux-1.1-pro` | Safety tolerance level. |
+| `prompt_upsampling` | `Boolean` | `flux-1.1-pro` | Enable prompt upsampling. |
+| `response_format` | `String` | most models | Output format (e.g. `'webp'`, `'jpg'`, `'png'`). |
+| `generation_mode` | `String` | Leonardo (`lucid-origin`, `phoenix-1.0`) | Generation tier — affects pricing. e.g. `'standard'`/`'ultra'` (lucid-origin), `'fast'`/`'quality'`/`'ultra'` (phoenix-1.0). |
+| `style` | `String` | Leonardo | Stylistic preset. |
+| `contrast` | `String` | Leonardo | Contrast preset. |
+| `prompt_enhance` | `Boolean` | Leonardo | Server-side prompt enhancement. |
+
+For more details, see the [Replicate API reference](https://replicate.com/docs) and each model's schema page on Replicate.
 
 Any properties not set fall back to provider defaults.
 

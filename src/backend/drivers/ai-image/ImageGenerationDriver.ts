@@ -135,6 +135,9 @@ export class ImageGenerationDriver extends PuterDriver {
             throw new HttpError(500, `No provider found for model ${model.id}`);
         }
 
+        // `width`/`height` or `aspect_ratio` -> `ratio: {w,h}`
+        this.#normalizeRatio(args);
+
         // Audit log for abuse / billing. Fired before the upstream call
         // so a failed generate still shows up in the log (prompt_block
         // uses this to track user-by-user image prompts).
@@ -157,6 +160,34 @@ export class ImageGenerationDriver extends PuterDriver {
             model: model.id,
             provider: model.provider,
         });
+    }
+
+    #normalizeRatio(parameters: IGenerateParams) {
+        if (parameters.ratio) return;
+
+        const w = parameters.width as number | undefined;
+        const h = parameters.height as number | undefined;
+        if (typeof w === 'number' && typeof h === 'number') {
+            parameters.ratio = { w, h };
+            delete parameters.width;
+            delete parameters.height;
+            return;
+        }
+
+        const ar = parameters.aspect_ratio as string | undefined;
+        if (typeof ar === 'string' && ar.includes(':')) {
+            const [aw, ah] = ar.split(':').map(Number);
+            if (
+                Number.isFinite(aw) &&
+                Number.isFinite(ah) &&
+                aw > 0 &&
+                ah > 0
+            ) {
+                parameters.ratio = { w: aw, h: ah };
+                delete parameters.aspect_ratio;
+                return;
+            }
+        }
     }
 
     #registerProviders() {
