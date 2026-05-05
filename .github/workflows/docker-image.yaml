@@ -1,12 +1,25 @@
 name: Docker Image CI
 
-# Builds only on calver tag pushes: YY.MM or YY.MM.p (all numeric).
-# Each build publishes three tags: <version>, latest, main.
+# Two ways in:
+#   - push of a calver tag (YY.MM or YY.MM.p) → publishes <version>, latest, main
+#   - workflow_dispatch → publishes latest + main from whichever ref the user
+#     picks in the Actions UI. Used to fast-forward :latest/:main when the
+#     branch has moved ahead of the most recent release tag.
 on:
   push:
     tags:
       - '[0-9][0-9].[0-9][0-9]'
       - '[0-9][0-9].[0-9][0-9].[0-9]*'
+  workflow_dispatch:
+    inputs:
+      push_latest:
+        description: 'Push :latest tag'
+        type: boolean
+        default: true
+      push_main:
+        description: 'Push :main tag'
+        type: boolean
+        default: true
 
 env:
   REGISTRY: ghcr.io
@@ -22,6 +35,7 @@ jobs:
 
     steps:
       - name: Validate calver tag
+        if: github.event_name == 'push'
         env:
           REF_NAME: ${{ github.ref_name }}
         run: |
@@ -51,10 +65,13 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
+          # type=ref,event=tag only emits on tag pushes, so manual runs skip
+          # the calver tag and just publish whichever of latest / main the
+          # dispatch inputs asked for. On a tag push, both default to true.
           tags: |
             type=ref,event=tag
-            type=raw,value=latest
-            type=raw,value=main
+            type=raw,value=latest,enable=${{ github.event_name == 'push' || inputs.push_latest }}
+            type=raw,value=main,enable=${{ github.event_name == 'push' || inputs.push_main }}
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
