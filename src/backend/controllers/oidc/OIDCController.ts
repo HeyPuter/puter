@@ -21,6 +21,7 @@ import type { Request, Response } from 'express';
 import { HttpError } from '../../core/http/HttpError.js';
 import type { PuterRouter } from '../../core/http/PuterRouter.js';
 import { PuterController } from '../types.js';
+import { sessionCookieFlags } from '../../util/cookieFlags.js';
 
 const REVALIDATION_COOKIE_NAME = 'puter_revalidation';
 const REVALIDATION_EXPIRY_SEC = 300;
@@ -374,8 +375,8 @@ export class OIDCController extends PuterController {
 
                 const token = this.services.oidc.signRevalidation(user.uuid);
                 res.cookie(REVALIDATION_COOKIE_NAME, token, {
-                    sameSite: 'lax',
-                    secure: true,
+                    // Revalidation flow is same-site only — `lax` even on HTTPS.
+                    ...sessionCookieFlags(this.config, { crossSite: false }),
                     httpOnly: true,
                     maxAge: REVALIDATION_EXPIRY_SEC * 1000,
                     path: '/',
@@ -556,8 +557,7 @@ if (window.opener) {
 
         const cookieName = this.config.cookie_name ?? 'puter_token';
         res.cookie(cookieName, sessionToken, {
-            sameSite: 'none',
-            secure: true,
+            ...sessionCookieFlags(this.config),
             httpOnly: true,
         });
 

@@ -32,6 +32,7 @@ import {
     verify as verifyOtp,
 } from '../../services/auth/OTPUtil.js';
 import { cleanEmail, isBlockedEmail } from '../../util/email.js';
+import { sessionCookieFlags } from '../../util/cookieFlags.js';
 import { generate_identifier } from '../../util/identifier.js';
 import { getTaskbarItems } from '../../util/taskbarItems.js';
 import {
@@ -2273,7 +2274,7 @@ export class AuthController extends PuterController {
                         req.actor.session.uid,
                     );
                 res.cookie(this.config.cookie_name, sessionToken, {
-                    ...this.#sessionCookieOptions(),
+                    ...sessionCookieFlags(this.config),
                     httpOnly: true,
                 });
                 res.status(204).end();
@@ -2378,19 +2379,6 @@ export class AuthController extends PuterController {
         }
     }
 
-    // `sameSite: 'none'` requires `secure: true`, and a `secure` cookie
-    // is silently dropped by browsers over plain HTTP — so a config with
-    // `protocol: http` (self-host without TLS) needs the matched
-    // `secure: false` + `sameSite: 'lax'` pair, otherwise the session
-    // cookie never lands and every authenticated request 401s.
-    #sessionCookieOptions() {
-        const isHttps = this.config.protocol === 'https';
-        return {
-            sameSite: isHttps ? 'none' : 'lax',
-            secure: isHttps,
-        };
-    }
-
     async #completeLogin(req, res, user) {
         const meta = {
             ip: req.ip || req.socket?.remoteAddress,
@@ -2404,7 +2392,7 @@ export class AuthController extends PuterController {
 
         // HTTP-only cookie gets the session token
         res.cookie(this.config.cookie_name, sessionToken, {
-            ...this.#sessionCookieOptions(),
+            ...sessionCookieFlags(this.config),
             httpOnly: true,
         });
 
