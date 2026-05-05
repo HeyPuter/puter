@@ -17,10 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { Resolver } from 'node:dns';
 import net, { BlockList } from 'node:net';
-import { Agent as UndiciAgent } from 'undici';
-import type { LookupFunction } from 'node:net';
 import { HttpError } from '../core/http/HttpError.js';
 import { configContainer } from '../exports.js';
 import type { ISecureCorsProxyConfig } from '../types.js';
@@ -28,7 +25,6 @@ import type { ISecureCorsProxyConfig } from '../types.js';
 // Cloudflare's malware-blocking resolver. Used for all outbound fetches we
 // make on behalf of user-provided URLs, so if a user points us at something
 // on a CF block-list we resolve to the sinkhole rather than the real IP.
-const SECURE_DNS_SERVER = '1.1.1.3';
 const BLOCKED_RESOLVED_IPS = new BlockList();
 const BLOCKED_IPV4_MAPPED_IPS = new BlockList();
 
@@ -101,73 +97,6 @@ export function isPublicResolvedAddress(address: string): boolean {
     return !BLOCKED_RESOLVED_IPS.check(address, family === 6 ? 'ipv6' : 'ipv4');
 }
 
-function selectPublicAddress(addresses: string[] | undefined): string | null {
-    return addresses?.find(isPublicResolvedAddress) ?? null;
-}
-
-function blockedResolvedAddressError(hostname: string): HttpError {
-    return new HttpError(
-        400,
-        `Resolved address for ${hostname} is not allowed`,
-        {
-            code: 'resolved_address_not_allowed',
-        },
-    );
-}
-
-const secureLookup: LookupFunction = (hostname, options, cb) => {
-    // Normalise options (same shape as dns.lookup overloads).
-    const optsObj =
-        typeof options === 'number' ? { family: options } : (options ?? {});
-    const family = optsObj.family ?? 0;
-
-    const resolver = new Resolver();
-    resolver.setServers([SECURE_DNS_SERVER]);
-
-    const done4 = (err: Error | null, addrs?: string[]) => {
-        const publicAddress = selectPublicAddress(addrs);
-        if (!err && publicAddress) return cb(null, publicAddress, 4);
-        if (family === 4) {
-            if (addrs?.length) {
-                return cb(blockedResolvedAddressError(hostname), '', 4);
-            }
-            return cb(err ?? new Error('no IPv4 addresses'), '', 4);
-        }
-        resolver.resolve6(hostname, (e6, a6) => {
-            const publicIpv6Address = selectPublicAddress(a6);
-            if (!e6 && publicIpv6Address) {
-                return cb(null, publicIpv6Address, 6);
-            }
-            if (addrs?.length || a6?.length) {
-                return cb(blockedResolvedAddressError(hostname), '', 4);
-            }
-            return cb(e6 ?? err ?? new Error('no addresses'), '', 4);
-        });
-    };
-
-    if (family === 6) {
-        resolver.resolve6(hostname, (e, a) => {
-            const publicAddress = selectPublicAddress(a);
-            if (!e && publicAddress) return cb(null, publicAddress, 6);
-            if (a?.length) {
-                return cb(blockedResolvedAddressError(hostname), '', 6);
-            }
-            return cb(e ?? new Error('no IPv6 addresses'), '', 6);
-        });
-        return;
-    }
-    resolver.resolve4(hostname, done4);
-};
-
-// Shared dispatcher — built once so we're not re-creating the DNS resolver
-// on every request. `keepAlive: false` matches v1's behaviour (short-lived
-// connections; no risk of a stale DNS cache across requests).
-const secureDispatcher = new UndiciAgent({
-    connect: { lookup: secureLookup },
-    keepAliveTimeout: 0,
-    keepAliveMaxTimeout: 0,
-});
-
 function proxyConfig(): ISecureCorsProxyConfig | undefined {
     const cfg = configContainer.secureCorsProxy;
     if (cfg?.url && cfg?.secret) return cfg;
@@ -221,10 +150,6 @@ export async function secureFetch(
         ...rest,
         headers,
         redirect: 'manual',
-        // undici-specific; tsc's lib.dom.d.ts doesn't know about it but
-        // Node's fetch forwards it through. Cast-through Record to avoid
-        // the type error without opening an `any`.
-        ...({ dispatcher: secureDispatcher } as Record<string, unknown>),
     });
 
     if (response.status >= 300 && response.status < 400) {

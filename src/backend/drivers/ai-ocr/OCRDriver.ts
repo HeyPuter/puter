@@ -167,6 +167,7 @@ export class OCRDriver extends PuterDriver {
             this.services.fs,
             actor,
             input,
+            { acceptWebInput: true },
         );
 
         if (provider === 'aws-textract') {

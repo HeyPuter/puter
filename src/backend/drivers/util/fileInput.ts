@@ -25,6 +25,7 @@ import { expandTildePath, resolveNode } from '../../services/fs/resolveNode.js';
 import type { FSEntryStore } from '../../stores/fs/FSEntryStore.js';
 import type { S3ObjectStore } from '../../stores/fs/S3ObjectStore.js';
 import { mimeFromName } from '../../util/fileSigning.js';
+import { secureFetch } from '../../util/secureHttp.js';
 
 /**
  * Resolve a file-like input sent through the drivers API into a Buffer.
@@ -32,6 +33,7 @@ import { mimeFromName } from '../../util/fileSigning.js';
  * puter-js sends driver args as plain JSON (no multipart). `audio`, `source`,
  * and similar file fields arrive as one of:
  *   • a data URL string (`data:image/png;base64,...`)
+ *   • a web URL string (`https://example.com/image.png`)
  *   • a plain path string (`/alice/music/sample.mp3`)
  *   • an object with `{ path?, uid?, uuid? }`
  *
@@ -62,7 +64,7 @@ export async function loadFileInput(
     fsService: FSService,
     actor: Actor,
     input: unknown,
-    options: { maxBytes?: number } = {},
+    options: { maxBytes?: number; acceptWebInput?: true } = {},
 ): Promise<LoadedFile> {
     if (!input) {
         throw new HttpError(400, 'Missing file input');
@@ -86,6 +88,35 @@ export async function loadFileInput(
         return {
             buffer,
             filename: filenameFromMime(mime),
+            mimeType: mime,
+            fsEntry: null,
+        };
+    }
+
+    // Web URL — fetch via SSRF-guarded secureFetch.
+    if (
+        typeof input === 'string' &&
+        (input.startsWith('https://') || input.startsWith('http://')) &&
+        options.acceptWebInput
+    ) {
+        const response = await secureFetch(input);
+        if (!response.ok) {
+            throw new HttpError(
+                400,
+                `Failed to fetch URL (status ${response.status})`,
+            );
+        }
+        const arrayBuf = await response.arrayBuffer();
+        const buffer = Buffer.from(arrayBuf);
+        assertMax(buffer, options.maxBytes);
+        const contentType = response.headers.get('content-type');
+        const mime =
+            contentType?.split(';')[0]?.trim() ||
+            mimeFromName(input) ||
+            'application/octet-stream';
+        return {
+            buffer,
+            filename: inferFilenameFromUrlOrPath(input),
             mimeType: mime,
             fsEntry: null,
         };
