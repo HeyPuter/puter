@@ -15,11 +15,14 @@ const MAX_THUMBNAIL_PIXELS = 64e6;
 
 // S3 client + bucket config — lazily resolved after boot from config.
 let s3Client: S3Client | null = null;
+let s3PresignClient: S3Client | null = null;
 let thumbnailBucketName = 'puter-local';
 let extensionBucketEndpoint = 'http://127.0.0.1:4566/puter-local/';
 
-function getClient(): S3Client {
-    if (s3Client) return s3Client;
+function resolveClients(): { send: S3Client; presign: S3Client } {
+    if (s3Client && s3PresignClient) {
+        return { send: s3Client, presign: s3PresignClient };
+    }
 
     // Top-level `thumbnailStore` config when the extension should use a
     // dedicated S3 bucket instead of the main one.
@@ -31,17 +34,32 @@ function getClient(): S3Client {
             endpoint: thumbStore.endpoint,
             credentials: thumbStore.credentials,
         });
+        // Dedicated thumbnail buckets use a single endpoint for both
+        // server-side ops and browser-facing presigned URLs.
+        s3PresignClient = s3Client;
         thumbnailBucketName = thumbStore.name ?? 'puter-local';
         extensionBucketEndpoint = thumbStore.endpoint;
     } else {
         // Fall back to the project's S3 wrapper. `clients.s3` is the Puter
         // `S3Client` wrapper (region-cache + lifecycle), not an AWS
-        // `S3Client`. Call `.get()` to obtain the underlying AWS client that
-        // `getSignedUrl` / `.send(command)` both expect.
+        // `S3Client`. `.get()` is for server-side ops (uses the internal
+        // `endpoint`); `.getForPresign()` is for browser-facing presigned
+        // URLs (uses `publicEndpoint` when configured — required for
+        // self-host where the docker-internal endpoint isn't reachable
+        // from the browser).
         const wrapper = clients.s3;
         s3Client = wrapper.get();
+        s3PresignClient = wrapper.getForPresign();
     }
-    return s3Client;
+    return { send: s3Client, presign: s3PresignClient };
+}
+
+function getClient(): S3Client {
+    return resolveClients().send;
+}
+
+function getPresignClient(): S3Client {
+    return resolveClients().presign;
 }
 
 function base64ParseDataUrl(dataURL: string) {
@@ -111,7 +129,7 @@ extension.on(
     'thumbnail.upload.prepare',
     async (event: Record<string, unknown>) => {
         if (!event || !Array.isArray(event.items)) return;
-        const client = getClient();
+        const presignClient = getPresignClient();
 
         for (const item of event.items as Array<Record<string, unknown>>) {
             if (!item || typeof item !== 'object') {
@@ -140,7 +158,7 @@ extension.on(
                 Key: key,
                 ContentType: contentType,
             });
-            item.uploadUrl = await getSignedUrl(client, command, {
+            item.uploadUrl = await getSignedUrl(presignClient, command, {
                 expiresIn: 900,
             });
             item.thumbnailUrl = `s3://${thumbnailBucketName}/${key}`;
@@ -154,12 +172,12 @@ extension.on(
 extension.on('thumbnail.read', async (entry: Record<string, unknown>) => {
     const thumb = entry.thumbnail;
     if (typeof thumb !== 'string' || !thumb) return;
-    const client = getClient();
+    const presignClient = getPresignClient();
 
     if (thumb.startsWith('s3://')) {
         const [bucket, key] = thumb.slice(5).split('/');
         entry.thumbnail = await getSignedUrl(
-            client,
+            presignClient,
             new GetObjectCommand({ Bucket: bucket, Key: key }),
             { expiresIn: 604800 },
         );
@@ -170,7 +188,7 @@ extension.on('thumbnail.read', async (entry: Record<string, unknown>) => {
         // Legacy format — remove after full migration
         const [bucket, key] = new URL(thumb).pathname.slice(1).split('/');
         entry.thumbnail = await getSignedUrl(
-            client,
+            presignClient,
             new GetObjectCommand({ Bucket: bucket, Key: key }),
             { expiresIn: 604800 },
         );
@@ -180,7 +198,7 @@ extension.on('thumbnail.read', async (entry: Record<string, unknown>) => {
         const { mimeType, data } = base64ParseDataUrl(thumb);
         const newUrl = `s3://${thumbnailBucketName}/${key}`;
 
-        await client.send(
+        await getClient().send(
             new PutObjectCommand({
                 Bucket: thumbnailBucketName,
                 Key: key,
@@ -203,7 +221,7 @@ extension.on('thumbnail.read', async (entry: Record<string, unknown>) => {
         }
 
         entry.thumbnail = await getSignedUrl(
-            client,
+            presignClient,
             new GetObjectCommand({ Bucket: thumbnailBucketName, Key: key }),
             { expiresIn: 604800 },
         );
