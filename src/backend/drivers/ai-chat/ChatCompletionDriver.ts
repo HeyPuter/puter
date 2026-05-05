@@ -611,7 +611,7 @@ export class ChatCompletionDriver extends PuterDriver {
 
         const moonshotKey = readKey(providers['moonshot']);
         if (moonshotKey) {
-            this.#providers['moonshot'] = new MoonshotProvider(
+            this.#providers['moonshotai'] = new MoonshotProvider(
                 { apiKey: moonshotKey },
                 metering,
             );
