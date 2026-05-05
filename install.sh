@@ -52,10 +52,21 @@ cd "$PUTER_DIR"
 mkdir -p puter/config puter/data puter/tls
 log "install dir: $(pwd)"
 
-# ── Step 3: docker-compose.yml ──────────────────────────────────────
+# ── Step 3: docker-compose.yml + nginx config ──────────────────────
 log "downloading docker-compose.yml from $PUTER_URL"
 curl -fsSL "$PUTER_URL/docker-compose.yml" -o docker-compose.yml \
     || die "could not fetch $PUTER_URL/docker-compose.yml"
+
+# nginx is mounted as `./nginx/nginx.conf:/etc/nginx/nginx.conf:ro` — if
+# the host file is missing, docker silently creates a directory at that
+# path and the mount fails with "not a directory" at container start.
+log "downloading nginx/nginx.conf from $PUTER_URL"
+mkdir -p nginx
+# If the path was previously auto-created as a dir by a failed `compose up`,
+# remove it so curl can write the file.
+[ -d nginx/nginx.conf ] && rmdir nginx/nginx.conf 2>/dev/null || true
+curl -fsSL "$PUTER_URL/nginx/nginx.conf" -o nginx/nginx.conf \
+    || die "could not fetch $PUTER_URL/nginx/nginx.conf"
 
 # ── Step 4: secrets, .env, config.json ──────────────────────────────
 write_config=1
