@@ -3285,6 +3285,14 @@ body {
     cursor: not-allowed;
 }
 
+.dashboard-switch.dashboard-switch-pending input + .dashboard-switch-slider {
+    background-color: #b0b0b0;
+}
+
+.dashboard-switch.dashboard-switch-pending input + .dashboard-switch-slider::before {
+    transform: translateX(10px);
+}
+
 /* Danger zone */
 .dashboard-danger-zone {
     padding-top: 24px;

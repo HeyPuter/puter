@@ -128,8 +128,10 @@ const TabSecurity = {
 
         $el_window.find('.dashboard-section-security .toggle-2fa').on('change', async function (e) {
             const $toggle = $(this);
+            const $label = $toggle.closest('.dashboard-switch');
             const enabling = $toggle.is(':checked');
             $toggle.prop('disabled', true);
+            $label.addClass('dashboard-switch-pending');
 
             const window_options = {
                 parent_uuid: $el_window.attr('data-element_uuid'),
@@ -146,6 +148,7 @@ const TabSecurity = {
             const succeeded = await promise;
 
             $toggle.prop('disabled', false);
+            $label.removeClass('dashboard-switch-pending');
 
             if ( ! succeeded ) {
                 $toggle.prop('checked', ! enabling);
