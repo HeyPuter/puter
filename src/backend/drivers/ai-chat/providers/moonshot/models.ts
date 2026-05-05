@@ -22,10 +22,15 @@ import type { IChatModel } from '../../types.js';
 export const MOONSHOT_MODELS: IChatModel[] = [
     // ── Flagship ────────────────────────────────────────────────────
     {
-        puterId: 'moonshot:moonshot/kimi-k2.6',
+        puterId: 'moonshotai:moonshotai/kimi-k2.6',
         id: 'kimi-k2.6',
         name: 'Kimi K2.6',
-        aliases: ['moonshot/kimi-k2.6', 'kimi-k26', 'kimi'],
+        aliases: [
+            'moonshotai/kimi-k2.6',
+            'moonshot/kimi-k2.6',
+            'kimi-k26',
+            'kimi',
+        ],
         modalities: { input: ['text'], output: ['text'] },
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
@@ -44,10 +49,10 @@ export const MOONSHOT_MODELS: IChatModel[] = [
 
     // ── Kimi K2.5 ──────────────────────────────────────────────────
     {
-        puterId: 'moonshot:moonshot/kimi-k2.5',
+        puterId: 'moonshotai:moonshotai/kimi-k2.5',
         id: 'kimi-k2.5',
         name: 'Kimi K2.5',
-        aliases: ['moonshot/kimi-k2.5', 'kimi-k25'],
+        aliases: ['moonshotai/kimi-k2.5', 'moonshot/kimi-k2.5', 'kimi-k25'],
         modalities: { input: ['text', 'image', 'video'], output: ['text'] },
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
@@ -66,10 +71,10 @@ export const MOONSHOT_MODELS: IChatModel[] = [
 
     // ── Moonshot V1 (Legacy) ───────────────────────────────────────
     {
-        puterId: 'moonshot:moonshot/moonshot-v1-8k',
+        puterId: 'moonshotai:moonshotai/moonshot-v1-8k',
         id: 'moonshot-v1-8k',
         name: 'Moonshot V1 8K',
-        aliases: ['moonshot/moonshot-v1-8k'],
+        aliases: ['moonshotai/moonshot-v1-8k', 'moonshot/moonshot-v1-8k'],
         modalities: { input: ['text'], output: ['text'] },
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
@@ -85,10 +90,10 @@ export const MOONSHOT_MODELS: IChatModel[] = [
         tool_call: true,
     },
     {
-        puterId: 'moonshot:moonshot/moonshot-v1-32k',
+        puterId: 'moonshotai:moonshotai/moonshot-v1-32k',
         id: 'moonshot-v1-32k',
         name: 'Moonshot V1 32K',
-        aliases: ['moonshot/moonshot-v1-32k'],
+        aliases: ['moonshotai/moonshot-v1-32k', 'moonshot/moonshot-v1-32k'],
         modalities: { input: ['text'], output: ['text'] },
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
@@ -104,10 +109,10 @@ export const MOONSHOT_MODELS: IChatModel[] = [
         tool_call: true,
     },
     {
-        puterId: 'moonshot:moonshot/moonshot-v1-128k',
+        puterId: 'moonshotai:moonshotai/moonshot-v1-128k',
         id: 'moonshot-v1-128k',
         name: 'Moonshot V1 128K',
-        aliases: ['moonshot/moonshot-v1-128k'],
+        aliases: ['moonshotai/moonshot-v1-128k', 'moonshot/moonshot-v1-128k'],
         modalities: { input: ['text'], output: ['text'] },
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
@@ -123,10 +128,10 @@ export const MOONSHOT_MODELS: IChatModel[] = [
         tool_call: true,
     },
     {
-        puterId: 'moonshot:moonshot/moonshot-v1-auto',
+        puterId: 'moonshotai:moonshotai/moonshot-v1-auto',
         id: 'moonshot-v1-auto',
         name: 'Moonshot V1 Auto',
-        aliases: ['moonshot/moonshot-v1-auto'],
+        aliases: ['moonshotai/moonshot-v1-auto', 'moonshot/moonshot-v1-auto'],
         modalities: { input: ['text'], output: ['text'] },
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
@@ -142,10 +147,13 @@ export const MOONSHOT_MODELS: IChatModel[] = [
         tool_call: true,
     },
     {
-        puterId: 'moonshot:moonshot/moonshot-v1-8k-vision-preview',
+        puterId: 'moonshotai:moonshotai/moonshot-v1-8k-vision-preview',
         id: 'moonshot-v1-8k-vision-preview',
         name: 'Moonshot V1 8K Vision',
-        aliases: ['moonshot/moonshot-v1-8k-vision-preview'],
+        aliases: [
+            'moonshotai/moonshot-v1-8k-vision-preview',
+            'moonshot/moonshot-v1-8k-vision-preview',
+        ],
         modalities: { input: ['text', 'image'], output: ['text'] },
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
@@ -161,10 +169,13 @@ export const MOONSHOT_MODELS: IChatModel[] = [
         tool_call: true,
     },
     {
-        puterId: 'moonshot:moonshot/moonshot-v1-32k-vision-preview',
+        puterId: 'moonshotai:moonshotai/moonshot-v1-32k-vision-preview',
         id: 'moonshot-v1-32k-vision-preview',
         name: 'Moonshot V1 32K Vision',
-        aliases: ['moonshot/moonshot-v1-32k-vision-preview'],
+        aliases: [
+            'moonshotai/moonshot-v1-32k-vision-preview',
+            'moonshot/moonshot-v1-32k-vision-preview',
+        ],
         modalities: { input: ['text', 'image'], output: ['text'] },
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
@@ -180,10 +191,13 @@ export const MOONSHOT_MODELS: IChatModel[] = [
         tool_call: true,
     },
     {
-        puterId: 'moonshot:moonshot/moonshot-v1-128k-vision-preview',
+        puterId: 'moonshotai:moonshotai/moonshot-v1-128k-vision-preview',
         id: 'moonshot-v1-128k-vision-preview',
         name: 'Moonshot V1 128K Vision',
-        aliases: ['moonshot/moonshot-v1-128k-vision-preview'],
+        aliases: [
+            'moonshotai/moonshot-v1-128k-vision-preview',
+            'moonshot/moonshot-v1-128k-vision-preview',
+        ],
         modalities: { input: ['text', 'image'], output: ['text'] },
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',

@@ -105,7 +105,7 @@ export class MoonshotProvider implements IChatProvider {
                 this.#meteringService.utilRecordUsageObject(
                     trackedUsage,
                     actor,
-                    `moonshot:${modelUsed.id}`,
+                    `moonshotai:${modelUsed.id}`,
                     costsOverride,
                 );
                 return trackedUsage;
