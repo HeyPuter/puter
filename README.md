@@ -47,11 +47,19 @@ npm start
 
 ### 🚀 Self-Hosting
 
+#### Linux/macOS
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/HeyPuter/puter/main/install.sh | sh
 ```
 
-**→** For more details, see [Self-Hosting Documentation](./doc/selfhosting/README.md).
+#### Windows
+
+```powershell
+irm https://puter.com/install?os=windows | iex
+```
+
+**→** For more details, see [Self-Hosting Documentation](./doc/self-hosting.md).
 
 <br/>
 
