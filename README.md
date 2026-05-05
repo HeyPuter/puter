@@ -1,6 +1,6 @@
 <h3 align="center"><img width="80" alt="Puter.com, The Personal Cloud Computer: All your files, apps, and games in one place accessible from anywhere at any time." src="https://assets.puter.site/puter-logo.png"></h3>
 
-<h3 align="center">The Internet OS! Free, Open-Source, and Self-Hostable.</h3>
+<h3 align="center">The Open-Source Internet Computer!</h3>
 
 <p align="center">
     <a href="https://puter.com/?ref=github.com"><strong>« LIVE DEMO »</strong></a>
@@ -12,8 +12,6 @@
     ·
     <a href="https://developer.puter.com" target="_blank">Developers</a>
     ·
-    <a href="https://github.com/heyputer/puter-cli" target="_blank">CLI</a>
-    ·
     <a href="https://discord.com/invite/PQcx7Teh8u">Discord</a>
     ·
     <a href="https://reddit.com/r/puter">Reddit</a>
@@ -21,7 +19,7 @@
     <a href="https://twitter.com/HeyPuter">X</a>
 </p>
 
-<h3 align="center"><img width="800" style="border-radius:5px;" alt="screenshot" src="https://assets.puter.site/puter.com-screenshot-3.webp"></h3>
+<h3 align="center"><img width="800" style="border-radius:5px;" alt="screenshot" src="https://assets.puter.site/puter.com-screenshot.webp"></h3>
 
 <br/>
 
@@ -52,37 +50,21 @@ npm start
 <font color="red"> http://puter.localhost:4100 (or the next available port). </font>
 
 
-
-If this does not work, see [First Run Issues](./doc/self-hosters/first-run-issues.md) for
-troubleshooting steps.
-
 <br/>
 
-### 🚀 Self-Hosting (one-line install)
+### 🚀 Self-Hosting
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/HeyPuter/puter/main/install.sh | sh
 ```
 
-Brings up Puter + every external service it needs (MariaDB, Valkey, DynamoDB-local, RustFS S3, nginx) on a single host. Generates secrets, writes `.env` + `puter/config/config.json`, downloads `docker-compose.yml`, and runs `docker compose up -d`.
-
-For the manual walkthrough, TLS setup, and post-install configuration knobs, see [Self-Hosting Documentation](./doc/selfhosting/README.md).
+**→** For more details, see [Self-Hosting Documentation](./doc/selfhosting/README.md).
 
 <br/>
 
 ### ☁️ Puter.com
 
 Puter is available as a hosted service at [**puter.com**](https://puter.com).
-
-<br/>
-
-## System Requirements
-
-- **Operating Systems:** Linux, macOS, Windows
-- **RAM:** 2GB minimum (4GB recommended)
-- **Disk Space:** 1GB free space
-- **Node.js:** Version 24+
-- **npm:** Latest stable version
 
 <br/>
 
