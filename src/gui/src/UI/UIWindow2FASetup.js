@@ -687,10 +687,6 @@ const UIWindow2FASetup = async function UIWindow2FASetup () {
     // ── Screen 2: Recovery Codes ─────────────────────────────────────────
     h += '<div class="tfa-screen" data-screen="2">';
     h += `<p class="tfa-recovery-intro">${i18n('setup2fa_4_instructions', [], false)}</p>`;
-    h += '<div class="tfa-recovery-warning">';
-    h += `  ${SVG_WARN}`;
-    h += '  <span>These codes can only be viewed once. Store them in a safe place &mdash; you will need them if you lose access to your authenticator app.</span>';
-    h += '</div>';
 
     h += '<div class="tfa-codes-card">';
     h += '  <div class="tfa-codes-grid">';
