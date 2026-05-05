@@ -397,12 +397,7 @@ const en = {
 
         // === 2FA Setup ===
         setup2fa_1_step_heading: 'Open your authenticator app',
-        setup2fa_1_instructions: `
-            You can use any authenticator app that supports the Time-based One-Time Password (TOTP) protocol.
-            There are many to choose from, but if you're unsure
-            <a target="_blank" href="https://authy.com/download">Authy</a>
-            is a solid choice for Android and iOS.
-        `,
+        setup2fa_1_instructions: 'Scan the QR code with your authenticator app, then enter the 6-digit code it generates.',
         setup2fa_2_step_heading: 'Scan the QR code',
         setup2fa_3_step_heading: 'Enter the 6-digit code',
         setup2fa_4_step_heading: 'Copy your recovery codes',
