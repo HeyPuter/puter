@@ -36,6 +36,7 @@ import {
     adminOnlyGate,
     allowedAppIdsGate,
     requireAuthGate,
+    requireEmailConfirmedGate,
     requireUserActorGate,
     requireVerifiedGate,
     subdomainGate,
@@ -784,6 +785,15 @@ export class PuterServer {
             opts.requireVerified,
         );
         if (needsAuth) mwChain.push(requireAuthGate());
+
+        // Default-on email confirmation gate. Every authenticated route
+        // rejects users pending confirmation unless `allowUnconfirmed`
+        // opts out. This prevents unconfirmed accounts from accessing
+        // AI, FS, driver, etc. endpoints while still allowing essential
+        // flows (logout, confirm-email, whoami, save-account, …).
+        if (needsAuth && !opts.allowUnconfirmed) {
+            mwChain.push(requireEmailConfirmedGate());
+        }
 
         // `requireVerified` intentionally does NOT imply `requireUserActor`:
         // FS routes (and similar) want the user's email to be confirmed even

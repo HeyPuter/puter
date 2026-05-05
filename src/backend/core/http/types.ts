@@ -57,8 +57,9 @@ export type RoutePath = string | RegExp | Array<string | RegExp>;
  * The materializer (`v2/server.ts#materializeRoute`) translates these into a
  * middleware chain in this order:
  *
- *     subdomain → requireAuth (+ suspended) → requireUserActor →
- *     adminOnly → allowedAppIds → caller `middleware: []` → handler
+ *     subdomain → requireAuth (+ suspended) → emailConfirmed →
+ *     requireUserActor → adminOnly → allowedAppIds →
+ *     caller `middleware: []` → handler
  *
  * `requireUserActor`, `adminOnly`, and `allowedAppIds` all imply
  * `requireAuth`; the materializer dedupes so only one auth gate ends up
@@ -98,6 +99,19 @@ export interface RouteOptions {
 
     /** Reject unless the actor is acting through one of these apps. Implies `requireAuth`. */
     allowedAppIds?: string[];
+
+    /**
+     * Allow users whose account is pending email confirmation to access
+     * this route. By default, any authenticated route rejects users where
+     * `requires_email_confirmation && !email_confirmed` with 403. Set
+     * this to `true` on essential flows that must remain accessible
+     * before confirmation: logout, email-confirm, whoami, save-account,
+     * anti-CSRF token, etc.
+     *
+     * Only meaningful when the route also requires authentication (via
+     * `requireAuth`, `requireUserActor`, `adminOnly`, or `allowedAppIds`).
+     */
+    allowUnconfirmed?: boolean;
 
     /**
      * Reject unless the actor's user has a confirmed email. 400 with

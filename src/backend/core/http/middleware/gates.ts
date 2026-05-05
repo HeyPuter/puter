@@ -49,8 +49,9 @@ const rejectAuth = (req: Request): HttpError => {
  * per-route `RouteOptions` and pushes the relevant gate(s) onto the express
  * middleware chain in this order:
  *
- *     subdomain → requireAuth (+ suspended check) → requireUserActor →
- *     adminOnly → allowedAppIds → caller middleware → handler
+ *     subdomain → requireAuth (+ suspended check) → emailConfirmed →
+ *     requireUserActor → adminOnly → allowedAppIds →
+ *     caller middleware → handler
  *
  * Each gate either calls `next()` to pass through, calls `next('route')` to
  * skip (subdomain only), or throws an `HttpError` for the terminal error
@@ -190,6 +191,32 @@ export const requireVerifiedGate = (strictFlag: boolean): RequestHandler => {
             next(
                 new HttpError(400, 'Account email is not verified', {
                     legacyCode: 'account_is_not_verified',
+                }),
+            );
+            return;
+        }
+        next();
+    };
+};
+
+// ── requireEmailConfirmed ────────────────────────────────────────────
+
+/**
+ * Reject authenticated users whose account is pending email confirmation
+ * (`requires_email_confirmation && !email_confirmed`). Runs on every
+ * authenticated route by default; routes that set `allowUnconfirmed: true`
+ * skip this gate.
+ *
+ * Returns 403 with `email_confirmation_required` so clients can show the
+ * confirmation prompt instead of a generic error.
+ */
+export const requireEmailConfirmedGate = (): RequestHandler => {
+    return (req, _res, next) => {
+        const user = req.actor?.user;
+        if (user?.requires_email_confirmation && !user?.email_confirmed) {
+            next(
+                new HttpError(403, 'Please confirm your email to continue', {
+                    legacyCode: 'email_confirmation_required',
                 }),
             );
             return;

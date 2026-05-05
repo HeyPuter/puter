@@ -630,7 +630,12 @@ export class AuthController extends PuterController {
 
         router.post(
             '/logout',
-            { subdomain: ['api', ''], requireAuth: true, antiCsrf: true },
+            {
+                subdomain: ['api', ''],
+                requireAuth: true,
+                allowUnconfirmed: true,
+                antiCsrf: true,
+            },
             async (req, res) => {
                 // Clear the session cookie
                 res.clearCookie(this.config.cookie_name);
@@ -670,6 +675,7 @@ export class AuthController extends PuterController {
             {
                 subdomain: ['api', ''],
                 requireUserActor: true,
+                allowUnconfirmed: true,
                 rateLimit: {
                     scope: 'send-confirm-email',
                     limit: 10,
@@ -716,6 +722,7 @@ export class AuthController extends PuterController {
             {
                 subdomain: ['api', ''],
                 requireUserActor: true,
+                allowUnconfirmed: true,
                 rateLimit: {
                     scope: 'confirm-email',
                     limit: 10,
@@ -1274,6 +1281,7 @@ export class AuthController extends PuterController {
             {
                 subdomain: ['api', ''],
                 requireUserActor: true,
+                allowUnconfirmed: true,
                 captcha: true,
                 rateLimit: {
                     scope: 'save-account',
@@ -1477,7 +1485,7 @@ export class AuthController extends PuterController {
 
         router.get(
             '/get-anticsrf-token',
-            { subdomain: '', requireAuth: true },
+            { subdomain: '', requireAuth: true, allowUnconfirmed: true },
             async (req, res) => {
                 const sessionId = req.actor?.user?.uuid;
                 if (!sessionId)
@@ -1677,7 +1685,12 @@ export class AuthController extends PuterController {
 
         router.post(
             '/auth/revoke-session',
-            { subdomain: 'api', requireUserActor: true, antiCsrf: true },
+            {
+                subdomain: 'api',
+                requireUserActor: true,
+                allowUnconfirmed: true,
+                antiCsrf: true,
+            },
             async (req, res) => {
                 const { uuid } = req.body;
                 if (!uuid || typeof uuid !== 'string') {
@@ -2241,7 +2254,11 @@ export class AuthController extends PuterController {
 
         router.get(
             '/get-gui-token',
-            { subdomain: ['api', ''], requireUserActor: true },
+            {
+                subdomain: ['api', ''],
+                requireUserActor: true,
+                allowUnconfirmed: true,
+            },
             async (req, res) => {
                 if (!req.actor?.session?.uid)
                     throw new HttpError(400, 'No session bound to this actor');
@@ -2257,7 +2274,11 @@ export class AuthController extends PuterController {
 
         router.get(
             '/session/sync-cookie',
-            { subdomain: ['api', ''], requireUserActor: true },
+            {
+                subdomain: ['api', ''],
+                requireUserActor: true,
+                allowUnconfirmed: true,
+            },
             async (req, res) => {
                 if (!req.actor?.session?.uid) {
                     res.status(400).end();
@@ -2293,6 +2314,7 @@ export class AuthController extends PuterController {
             {
                 subdomain: ['api', ''],
                 requireUserActor: true,
+                allowUnconfirmed: true,
                 middleware: createUserProtectedGate(userProtectedDeps, {
                     allowTempUsers: true,
                 }),

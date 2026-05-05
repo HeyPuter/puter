@@ -25,7 +25,7 @@ const CLIENT_VISIBLE_FEATURE_FLAGS: ReadonlySet<string> = new Set([
 
 extension.get(
     '/whoami',
-    { subdomain: 'api', requireAuth: true },
+    { subdomain: 'api', requireAuth: true, allowUnconfirmed: true },
     async (req, res) => {
         const actor = Context.get('actor');
         if (!actor?.user?.id) {
