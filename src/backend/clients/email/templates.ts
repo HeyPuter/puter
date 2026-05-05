@@ -69,7 +69,7 @@ The Puter Team
         html: `
 <p>Hi{{#if owner_username}} {{owner_username}}{{/if}},</p>
 <p>
-Please update <a href="https://apps.puter.com/apps/{{app_name}}">{{app_title}}</a>.
+Please update <a href="https://apps.puter.com/app/{{app_name}}">{{app_title}}</a>.
 </p>
 <p><strong>Requested updates:</strong></p>
 <blockquote>{{message}}</blockquote>
