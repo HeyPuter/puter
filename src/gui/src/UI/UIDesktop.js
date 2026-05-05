@@ -1193,11 +1193,6 @@ async function UIDesktop (options) {
     // github
     ht += `<a href="https://github.com/HeyPuter/puter" target="_blank" class="toolbar-btn" title="${i18n('toolbar.github')}" style="background-image:url(${window.icons['logo-github-white.svg']});"></a>`;
 
-    // do not show the fullscreen button on mobile devices since it's broken
-    if ( ! isMobile.phone ) {
-        // fullscreen button
-        ht += `<div class="toolbar-btn fullscreen-btn" title="${i18n('toolbar.enter_fullscreen')}" style="background-image:url(${window.icons['fullscreen.svg']})"></div>`;
-    }
 
     // qr code button -- only show if not embedded
     if ( ! window.is_embedded )
@@ -2266,31 +2261,6 @@ $(document).on('click', '.user-options-menu-btn', async function (e) {
     });
 });
 
-$(document).on('click', '.fullscreen-btn', async function (e) {
-    if ( ! window.is_fullscreen() ) {
-        var elem = document.documentElement;
-        if ( elem.requestFullscreen ) {
-            elem.requestFullscreen();
-        } else if ( elem.webkitRequestFullscreen ) { /* Safari */
-            elem.webkitRequestFullscreen();
-        } else if ( elem.mozRequestFullScreen ) { /* moz */
-            elem.mozRequestFullScreen();
-        } else if ( elem.msRequestFullscreen ) { /* IE11 */
-            elem.msRequestFullscreen();
-        }
-    }
-    else {
-        if ( document.exitFullscreen ) {
-            document.exitFullscreen();
-        } else if ( document.webkitExitFullscreen ) {
-            document.webkitExitFullscreen();
-        } else if ( document.mozCancelFullScreen ) {
-            document.mozCancelFullScreen();
-        } else if ( document.msExitFullscreen ) {
-            document.msExitFullscreen();
-        }
-    }
-});
 
 $(document).on('click', '.close-launch-popover', function () {
     $('.launch-popover').closest('.popover').fadeOut(200, function () {
@@ -2408,21 +2378,6 @@ $(document).on('click', '.launch-search-clear', function (e) {
     $('.launch-search').focus();
 });
 
-document.addEventListener('fullscreenchange', (event) => {
-    // document.fullscreenElement will point to the element that
-    // is in fullscreen mode if there is one. If there isn't one,
-    // the value of the property is null.
-
-    if ( document.fullscreenElement ) {
-        $('.fullscreen-btn').css('background-image', `url(${window.icons['shrink.svg']})`);
-        $('.fullscreen-btn').attr('title', i18n('desktop_exit_full_screen'));
-        window.user_preferences.clock_visible === 'auto' && $('#clock').show();
-    } else {
-        $('.fullscreen-btn').css('background-image', `url(${window.icons['fullscreen.svg']})`);
-        $('.fullscreen-btn').attr('title', i18n('desktop_enter_full_screen'));
-        window.user_preferences.clock_visible === 'auto' && $('#clock').hide();
-    }
-});
 
 window.set_desktop_background = function (options) {
     if ( options.fit ) {
