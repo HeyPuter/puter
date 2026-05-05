@@ -1,34 +1,72 @@
 {
-    // Comprehensive template — every key the backend or shipped extensions read.
-    // Copy to `config.json` and trim what you don't need; unset keys fall back to
-    // documented defaults (see src/backend/types.ts for per-field comments).
+    // Comprehensive template — every key the OSS backend or shipped (non-prod)
+    // extensions read. Copy to `config.json` and trim what you don't need;
+    // unset keys fall back to documented defaults. See
+    // `src/backend/types.ts` for the per-field source of truth.
+    //
     // Each setting lives at exactly one canonical key — there are no fallback
     // aliases. Values shown are illustrative, not production secrets.
-    
+    //
+    // Keys consumed only by closed-source / hosted-prod extensions (clickhouse,
+    // cacheUpdateHandler, pages, prodMeteringAndBilling, …) are intentionally
+    // omitted.
+
+    // ── Environment / identity ──────────────────────────────────────────
     "config_name": "template",
+    // `dev` opens a browser on boot, skips blocked-email checks, and runs the
+    // dev-time webpack watcher; `prod` serves pre-built bundles.
     "env": "dev",
     "version": "0.0.0",
+    // Stable identity for this server node — used by pager alerts and
+    // graceful-shutdown coordination.
     "serverId": "node-1",
+
+    // ── Networking / URLs ───────────────────────────────────────────────
+    // Port Puter listens on internally.
     "port": 4100,
+    // Externally-visible port (set this when behind a reverse proxy on 80/443).
     "pub_port": 4100,
     "protocol": "http",
     "domain": "puter.localhost",
+    // Fully-qualified externally-visible URL. Computed from protocol/domain/
+    // pub_port if unset.
     "origin": "http://puter.localhost:4100",
+    // Public base URL for the API subdomain (used to build signed URLs and
+    // surfaced to the client by the `installedApps` and `whoami` extensions).
     "api_base_url": "http://api.puter.localhost:4100",
+    // Subdomains Puter routes on. Wildcard DNS (`*.<domain>`) must point at
+    // this server for site/app hosting to work.
     "static_hosting_domain": "site.puter.localhost",
     "static_hosting_domain_alt": "host.puter.localhost",
     "private_app_hosting_domain": "app.puter.localhost",
     "private_app_hosting_domain_alt": "dev.puter.localhost",
+    // Host-header / domain handling. Defaults below are the dev-friendly
+    // settings; tighten for any public install.
     "allow_all_host_values": true,
     "allow_no_host_header": true,
     "allow_nipio_domains": false,
     "custom_domains_enabled": false,
     "enable_ip_validation": false,
+    // Express `trust proxy` setting — set to the number of reverse-proxy
+    // hops in front of the server (1 = nginx/Cloudflare, 2 = CF→ALB→app),
+    // or to a CIDR / IP / list. `false` (safe default) makes `req.ip` the
+    // direct socket peer. NEVER set to `true` in prod — it trusts every hop
+    // and makes X-Forwarded-For forgeable.
+    "trust_proxy": false,
     "no_browser_launch": false,
+
+    // ── Dev watcher (devWatcher extension) ──────────────────────────────
+    // Rebuilds GUI + puter.js on file changes when running from source.
+    // Ignored when `env: "prod"` unless `devwatch.enabled: true`.
     "no_devwatch": false,
     "devwatch": {
+        // Delay after watcher startup before boot continues. Lets webpack
+        // emit its first build so the homepage doesn't 404 on bundle.min.js.
         "ready_delay_ms": 5000
     },
+
+    // ── Auth / session ──────────────────────────────────────────────────
+    // ALWAYS replace these for any public install — `openssl rand -hex 64`.
     "jwt_secret": "change-me",
     "url_signature_secret": "change-me",
     "cookie_name": "puter_auth_token",
@@ -41,11 +79,13 @@
     },
     "oidc": {
         "providers": {
+            // Google uses OIDC discovery — only ids are required.
             "google": {
                 "client_id": "",
                 "client_secret": "",
                 "scopes": "openid email profile"
             },
+            // Custom OIDC providers must also supply the three endpoints.
             "custom-oidc": {
                 "client_id": "",
                 "client_secret": "",
@@ -56,10 +96,18 @@
             }
         }
     },
+
+    // ── Groups / provisioning ───────────────────────────────────────────
+    // UIDs of the persistent groups new users are auto-enrolled in.
     "default_user_group": "78b1b1dd-c959-44d2-b02c-8735671f9997",
     "default_temp_group": "b7220104-7905-4985-b996-649fdcdb3c8f",
+    // When true, ACL grants read/list on `/<user>/Public` to any actor.
     "enable_public_folders": true,
+
+    // ── Storage / S3 ────────────────────────────────────────────────────
     "s3": {
+        // Local fauxqs (in-process S3-compatible) — used in dev and the
+        // bundled-defaults Docker mode. Files land under `dataDir`.
         "localConfig": {
             "inMemory": false,
             "host": "127.0.0.1",
@@ -67,22 +115,35 @@
             "dataDir": "volatile/runtime/fauxqs-data",
             "s3StorageDir": "volatile/runtime/fauxqs-s3-data"
         },
+        // For real / external S3, replace `localConfig` above with `s3Config`.
         "_remote_example": {
             "s3Config": {
                 "useCredentialChain": false,
                 "endpoint": "https://s3.example.com",
+                // Endpoint used in presigned URLs handed to the browser. Set
+                // this when the server-side endpoint isn't reachable from the
+                // browser (e.g. docker-internal `http://s3:9000`).
+                "publicEndpoint": "",
                 "accessKeyId": "",
                 "secretAccessKey": "",
-                "region": "us-west-2"
+                "region": "us-west-2",
+                // Set true for RustFS / MinIO / fauxqs (path-style URLs).
+                // Real AWS S3 wants virtual-hosted — leave unset / false.
+                "forcePathStyle": false
             }
         }
     },
     "s3_bucket": "puter-local",
     "s3_region": "us-west-2",
     "region": "us-west-2",
+    // Default per-user storage cap (bytes). 100 MB.
     "storage_capacity": 104857600,
     "is_storage_limited": false,
     "available_device_storage": 0,
+    // ── Thumbnails (thumbnails extension) ───────────────────────────────
+    // Optional dedicated S3-compatible bucket for generated thumbnails.
+    // When unset (or `endpoint` empty), the extension falls back to the
+    // main S3 client / bucket above.
     "thumbnailStore": {
         "name": "puter-local",
         "endpoint": "",
@@ -91,15 +152,21 @@
             "secretAccessKey": ""
         }
     },
+
+    // ── Database ────────────────────────────────────────────────────────
     "database": {
+        // `sqlite` for single-node / dev; `mysql` for self-host with MariaDB.
         "engine": "sqlite",
+        // sqlite — file path on disk
         "path": "volatile/runtime/puter-database.sqlite",
         "targetVersion": 0,
+        // mysql — connection details
         "host": "",
         "port": 3306,
         "user": "",
         "password": "",
         "database": "",
+        // Optional read-replica pool. Reads route here when populated.
         "replica": {
             "host": "",
             "port": 3306,
@@ -107,31 +174,48 @@
             "password": "",
             "database": ""
         }
+        // mysql self-host bootstrap: set `migrationPaths` to apply the bundled
+        // schema on first boot. Idempotent — safe to leave on.
+        // "migrationPaths": ["./src/backend/clients/database/migrations/mysql"]
     },
+
+    // ── DynamoDB (KV store) ─────────────────────────────────────────────
     "dynamo": {
+        // Local emulator (dynamodb-local) endpoint. Drop this field for real
+        // AWS DynamoDB.
         "endpoint": "http://localhost:8000",
+        // Set true when pointing at a local emulator so Puter creates the KV
+        // table on boot. NEVER set against real AWS — provision via IaC.
+        // "bootstrapTables": true,
         "path": "",
+        // Credentials. NOTE: snake_case here, unlike `s3.s3Config` below.
+        // For dynamodb-local, any non-empty values work.
         "aws": {
             "access_key": "",
             "secret_key": "",
             "region": "us-west-2"
         }
     },
+
+    // ── Redis / Valkey (cache + cross-node rate limit) ──────────────────
     "redis": {
+        // True → in-process redis-mock (dev / single-node).
         "useMock": true,
+        // Cluster nodes for ioredis. For a single Valkey/Redis container,
+        // run it in cluster mode (one node, all slots).
         "startupNodes": [
             {
                 "host": "127.0.0.1",
                 "port": 7000
             }
         ]
+        // Defaults to true (matches prod ElastiCache). Set false for plain-TCP
+        // self-host Valkey/Redis.
+        // "tls": false
     },
-    "pager": {
-        "pagerduty": {
-            "enabled": false,
-            "routingKey": ""
-        }
-    },
+
+    // ── Email (transactional) ───────────────────────────────────────────
+    // Nodemailer transport — used for password resets, email confirmation, etc.
     "email": {
         "from": "\"Puter\" <no-reply@puter.com>",
         "host": "smtp.example.com",
@@ -143,84 +227,58 @@
             "pass": ""
         }
     },
-    "clickhouse": {
-        "url": "http://127.0.0.1:8123",
-        "username": "",
-        "password": "",
-        "request_timeout": 15000,
-        "max_buffer_size": 100000,
-        "batch_size": 500,
-        "flush_interval_ms": 5000
-    },
+
+    // ── Rate limiting ───────────────────────────────────────────────────
+    // `memory` for single-node, `redis` for multi-node (default), `kv` for
+    // dynamo-backed counters.
     "rate_limit": {
         "backend": "redis"
     },
+
+    // ── AI / integration providers ──────────────────────────────────────
+    // All AI drivers (chat, image, video, TTS, OCR, STT) read from here.
+    // Provider id == driver-side identifier. Leave empty / omit to disable.
     "providers": {
-        "_": "All AI / integration drivers read from here. Provider id = driver-side identifier.",
-        "claude": {
-            "apiKey": ""
-        },
-        "openai-completion": {
-            "apiKey": ""
-        },
-        "gemini": {
-            "apiKey": ""
-        },
-        "groq": {
-            "apiKey": ""
-        },
-        "deepseek": {
-            "apiKey": ""
-        },
-        "mistral": {
-            "apiKey": ""
-        },
-        "xai": {
-            "apiKey": ""
-        },
-        "moonshot": {
-            "apiKey": ""
-        },
+        // ─ Chat / completion ─
+        "claude": { "apiKey": "" },
+        "openai-completion": { "apiKey": "" },
+        "gemini": { "apiKey": "" },
+        "groq": { "apiKey": "" },
+        "deepseek": { "apiKey": "" },
+        "mistral": { "apiKey": "" },
+        "xai": { "apiKey": "" },
+        "moonshot": { "apiKey": "" },
         "openrouter": {
             "apiKey": "",
             "apiBaseUrl": "https://openrouter.ai/api/v1"
         },
-        "together-ai": {
-            "apiKey": ""
-        },
+        "together-ai": { "apiKey": "" },
+        // Local Ollama. `enabled: false` skips the auto-probe at startup
+        // (otherwise Puter logs ECONNREFUSED on every boot when no Ollama
+        // is running).
         "ollama": {
             "enabled": false,
             "apiBaseUrl": "http://localhost:11434"
         },
-        "openai-image-generation": {
-            "apiKey": ""
-        },
-        "gemini-image-generation": {
-            "apiKey": ""
-        },
-        "together-image-generation": {
-            "apiKey": ""
-        },
+
+        // ─ Image generation ─
+        "openai-image-generation": { "apiKey": "" },
+        "gemini-image-generation": { "apiKey": "" },
+        "together-image-generation": { "apiKey": "" },
         "cloudflare-image-generation": {
             "apiToken": "",
             "accountId": "",
             "apiBaseUrl": "https://api.cloudflare.com/client/v4"
         },
-        "xai-image-generation": {
-            "apiKey": ""
-        },
-        "openai-video-generation": {
-            "apiKey": ""
-        },
-        "together-video-generation": {
-            "apiKey": ""
-        },
-        "gemini-video-generation": {
-            "apiKey": ""
-        },
-        "openai": {
-            "apiKey": ""
-        },
+        "xai-image-generation": { "apiKey": "" },
+
+        // ─ Video generation ─
+        "openai-video-generation": { "apiKey": "" },
+        "together-video-generation": { "apiKey": "" },
+        "gemini-video-generation": { "apiKey": "" },
+
+        // ─ Speech / OCR ─
+        "openai": { "apiKey": "" },
         "elevenlabs": {
             "apiKey": "",
             "apiBaseUrl": "https://api.elevenlabs.io",
@@ -237,56 +295,17 @@
             "secret_key": "",
             "region": "us-west-2"
         },
-        "mistral-ocr": {
-            "apiKey": ""
-        }
+        "mistral-ocr": { "apiKey": "" }
     },
-    "broadcast": {
-        "peers": [
-            {
-                "peerId": "peer-a",
-                "webhook": true,
-                "webhook_url": "https://peer-a.example.com/broadcast/webhook",
-                "webhook_secret": "shared-secret"
-            }
-        ],
-        "webhook": {
-            "peerId": "this-node",
-            "secret": "shared-secret"
-        },
-        "webhook_replay_window_seconds": 300,
-        "outbound_flush_ms": 2000
-    },
-    "peers": {
-        "signaller_url": "wss://signaller.example.com",
-        "fallback_ice": [],
-        "turn": {
-            "cloudflare_turn_service_id": "",
-            "cloudflare_turn_api_token": "",
-            "ttl": 86400
-        },
-        "internal_auth_secret": ""
-    },
-    "wisp": {
-        "server": "wss://wisp.example.com"
-    },
-    "workers": {
-        "XAUTHKEY": "",
-        "ACCOUNTID": "",
-        "namespace": "",
-        "internetExposedUrl": "https://api.puter.com",
-        "loggingUrl": ""
-    },
-    "entri": {
-        "applicationId": "",
-        "secret": ""
-    },
-   
+
+    // ── GUI / static mounts ─────────────────────────────────────────────
     "gui_assets_root": "./src/gui",
     "gui_profile": "development",
     "builtin_apps": {
         "dev-center": "./src/dev-center"
     },
+    // Force the bundled GUI even in dev — set true when running from a
+    // pre-built tree without webpack-dev-server.
     "use_bundled_gui": false,
     "gui_bundle": "/dist/bundle.min.js",
     "gui_css": "/dist/bundle.min.css",
@@ -296,22 +315,38 @@
         "short_description": "Your personal cloud computer",
         "social_media_image": ""
     },
+    // Optional roots for native app bundles and custom puter.js builds.
     "native_apps_root": "",
     "client_libs_root": "",
     "puterjs_root": "./src/puter-js/dist",
+
+    // ── Feature flags (whoami extension) ────────────────────────────────
+    // Flat `{ flag_name: boolean }` bag. Server-only by default — flags are
+    // only surfaced to the client if their key is on the allowlist in
+    // `extensions/whoami.ts` (CLIENT_VISIBLE_FEATURE_FLAGS).
     "feature_flags": {
         "example_flag": false
     },
+
+    // ── Misc / safety ───────────────────────────────────────────────────
+    // TLDs / domains rejected at signup (prod only).
     "blockedEmailDomains": [],
     "support_email": "support@puter.com",
+    // Worker / subdomain names users can't claim.
     "reserved_words": [],
     "max_subdomains_per_user": 10,
     "server_health": {
         "db_liveness_latency_fail_ms": 1500,
         "stale_health_loop_fail_ms": 0
     },
+
+    // ── Extensions ──────────────────────────────────────────────────────
+    // Directories scanned for extension entrypoints (`*.ts` / subdirs).
     "extensions": [
         "./extensions"
     ],
+
+    // ── Metering ────────────────────────────────────────────────────────
+    // When true, all metering checks pass — no per-actor limits enforced.
     "unlimitedMetering": false
 }
