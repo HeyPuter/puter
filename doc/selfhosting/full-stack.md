@@ -1,6 +1,14 @@
-# 3. Full self-hosted stack
+# Full self-hosted stack
 
-`docker-compose.full.yml` brings up Puter **plus every external service it needs** — MariaDB, Valkey, DynamoDB-local, RustFS S3, nginx — wired together. Closest thing to a production deployment you can self-manage on a single host.
+`docker-compose.yml` brings up Puter **plus every external service it needs** — MariaDB, Valkey, DynamoDB-local, RustFS S3, nginx — wired together. Closest thing to a production deployment you can self-manage on a single host.
+
+## One-line installer (recommended)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/HeyPuter/puter/main/install.sh | sh
+```
+
+Generates secrets, writes `.env` + `puter/config/config.json`, downloads `docker-compose.yml` from the OSS repo, and runs `docker compose up -d`. Re-running is safe — it won't overwrite existing config (set `PUTER_FORCE=1` to rotate). Use the manual steps below if you want to inspect or tweak each step yourself.
 
 ## Requirements
 
@@ -176,7 +184,7 @@ Drop the resulting `fullchain.pem` and `privkey.pem` into `./puter/tls/`.
 
 1. Open [nginx/nginx.conf](../nginx/nginx.conf), uncomment **both** `# server { listen 443 ssl … }` blocks (one for `s3.*`, one for the catch-all).
 2. (Optional) Replace the body of the port-80 blocks with `return 301 https://$host$request_uri;` to force HTTPS everywhere.
-3. In [docker-compose.full.yml](../docker-compose.full.yml), uncomment the `443:443` port mapping under the `nginx` service.
+3. In [docker-compose.yml](../docker-compose.yml), uncomment the `443:443` port mapping under the `nginx` service.
 4. In `.env`, uncomment `HTTPS_PORT=443`.
 5. In `config.json`, switch:
     ```json
@@ -190,13 +198,13 @@ Drop the resulting `fullchain.pem` and `privkey.pem` into `./puter/tls/`.
 ## Step 4 — Bring it up
 
 ```bash
-docker compose -f docker-compose.full.yml up -d
+docker compose up -d
 ```
 
 First boot takes ~30s while MariaDB initialises and Puter applies the schema + default apps. Watch:
 
 ```bash
-docker compose -f docker-compose.full.yml logs -f puter
+docker compose logs -f puter
 ```
 
 Healthy startup:
@@ -211,14 +219,14 @@ Healthy startup:
 Then open **<https://puter.local>** (or `http://` if you skipped TLS). Login is `admin` — the temp password is printed once in the puter container logs on first boot:
 
 ```bash
-docker compose -f docker-compose.full.yml logs puter | grep tmp_password
+docker compose logs puter | grep tmp_password
 ```
 
 Change it in Settings after first login.
 
 ## Additional configuration
 
-All optional. Drop any of the blocks below into `puter/config/config.json` and `docker compose -f docker-compose.full.yml restart puter`. See [config.template.jsonc](../config.template.jsonc) for the full list. Per-key documentation lives in [src/backend/types.ts](../src/backend/types.ts).
+All optional. Drop any of the blocks below into `puter/config/config.json` and `docker compose restart puter`. See [config.template.jsonc](../config.template.jsonc) for the full list. Per-key documentation lives in [src/backend/types.ts](../src/backend/types.ts).
 
 ### Email (SMTP)
 
@@ -328,21 +336,21 @@ The `ollama` and `ollama-init` services live behind a compose profile so they do
     ```
 3. Bring up with the `ai` profile:
     ```bash
-    docker compose -f docker-compose.full.yml --profile ai up -d
-    docker compose -f docker-compose.full.yml logs -f ollama-init
+    docker compose --profile ai up -d
+    docker compose logs -f ollama-init
     ```
     `ollama-init` exits 0 once the model is pulled. Subsequent boots find the model already on disk and the pull is a fast no-op.
 
 Without `--profile ai`, the `ollama` containers stay down and Puter (with `enabled: false`) doesn't try to reach them — the rest of the stack runs identically.
 
-For GPU acceleration (NVIDIA), uncomment the `deploy:` block under the `ollama` service in [docker-compose.full.yml](../docker-compose.full.yml). Requires `nvidia-container-toolkit` on the host.
+For GPU acceleration (NVIDIA), uncomment the `deploy:` block under the `ollama` service in [docker-compose.yml](../docker-compose.yml). Requires `nvidia-container-toolkit` on the host.
 
 ## Building from source instead of pulling
 
-If you want to test local Dockerfile changes against the full stack, uncomment the `build:` block in [docker-compose.full.yml](../docker-compose.full.yml) under the `puter` service, change `pull_policy: always` → `pull_policy: never`, then:
+If you want to test local Dockerfile changes against the full stack, uncomment the `build:` block in [docker-compose.yml](../docker-compose.yml) under the `puter` service, change `pull_policy: always` → `pull_policy: never`, then:
 
 ```bash
-docker compose -f docker-compose.full.yml up -d --build
+docker compose up -d --build
 ```
 
 ---
@@ -351,17 +359,17 @@ docker compose -f docker-compose.full.yml up -d --build
 
 ```bash
 # update
-docker compose -f docker-compose.full.yml pull
-docker compose -f docker-compose.full.yml up -d
+docker compose pull
+docker compose up -d
 
 # logs
-docker compose -f docker-compose.full.yml logs -f puter
+docker compose logs -f puter
 
 # stop, keep data
-docker compose -f docker-compose.full.yml down
+docker compose down
 
 # stop, NUKE all state (irreversible)
-docker compose -f docker-compose.full.yml down
+docker compose down
 rm -rf puter/data
 ```
 
@@ -370,10 +378,10 @@ Migrations re-apply idempotently across pulls. Volumes are preserved.
 ## Troubleshooting
 
 **Site loads but I get "Bad Gateway" / nginx errors.**
-The puter container failed to come up. `docker compose -f docker-compose.full.yml logs puter` will tell you which dependency rejected it (most often DB password mismatch between `.env` and `config.json`).
+The puter container failed to come up. `docker compose logs puter` will tell you which dependency rejected it (most often DB password mismatch between `.env` and `config.json`).
 
 **Login screen says "admin password not set".**
-First-boot temp password is logged once. Find it: `docker compose -f docker-compose.full.yml logs puter | grep "tmp_password"`. After login, change it in Settings.
+First-boot temp password is logged once. Find it: `docker compose logs puter | grep "tmp_password"`. After login, change it in Settings.
 
 **Healthcheck reports unhealthy but the site works.**
 The healthcheck hits `puter.localhost:4100/test` from inside the container. If you changed `domain` or `port`, the check still uses defaults. The site itself is fine.
@@ -382,7 +390,7 @@ The healthcheck hits `puter.localhost:4100/test` from inside the container. If y
 DNS propagates slowly. `dig puter.example.com` and `dig api.puter.example.com` should both return your server IP. If not, give it 5–60 minutes.
 
 **`docker compose up` hangs at "waiting for service to be healthy".**
-`docker compose -f docker-compose.full.yml ps` shows which container is unhealthy. MariaDB takes ~20–30s on a cold boot; everything else under 5s. If something stays unhealthy, `logs <service>` will tell you why.
+`docker compose ps` shows which container is unhealthy. MariaDB takes ~20–30s on a cold boot; everything else under 5s. If something stays unhealthy, `logs <service>` will tell you why.
 
 **`Error: DynamoDB aws config requires both access_key and secret_key`.**
 You wrote `accessKeyId` / `secretAccessKey` under `dynamo.aws`. That config block uses snake_case (`access_key` / `secret_key`). Only the `s3.s3Config` block uses camelCase.
