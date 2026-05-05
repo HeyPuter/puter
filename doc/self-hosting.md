@@ -1,4 +1,4 @@
-# Full self-hosted stack
+# Self-Hosting Puter
 
 `docker-compose.yml` brings up Puter **plus every external service it needs** — MariaDB, Valkey, DynamoDB-local, RustFS S3, nginx — wired together. Closest thing to a production deployment you can self-manage on a single host.
 

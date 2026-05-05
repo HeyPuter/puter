@@ -58,8 +58,8 @@ curl -fsSL https://raw.githubusercontent.com/HeyPuter/puter/main/install.sh | sh
 ```powershell
 irm https://puter.com/install?os=windows | iex
 ```
-
-**→** For more details, see [Self-Hosting Documentation](./doc/self-hosting.md).
+<br/>
+**→** For more details, see [Self-Hosting Puter](./doc/self-hosting.md).
 
 <br/>
 
