@@ -153,7 +153,7 @@ The wildcards are required — Puter routes via subdomains (`api.*`, `app.*`, et
 For local-only testing, add this, and any specific subdomains, your hosts file (`/etc/hosts` on macOS/Linux, `C:\Windows\System32\drivers\etc\hosts` on Windows):
 
 ```
-127.0.0.1 puter.local s3.puter.local api.puter.local
+127.0.0.1 puter.local s3.puter.local api.puter.local puter-app-icons.puter.sitelocal
 ```
 
 ## Step 3 — TLS (recommended for public installs) \[Optional\]
