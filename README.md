@@ -25,11 +25,7 @@
 
 ## Puter
 
-Puter is an advanced, open-source, self-hostable internet computer designed to be feature-rich, fast, and highly extensible.
-
-**For Users:**  Puter's goal is to provide you with every app and feature you need to work, play, and create under one roof.
-
-**For Developers:** Puter's goal is to provide you with everything you need to build, deploy, distribute, and monetize your apps and games.
+Puter is an advanced, open-source, self-hostable internet computer designed to be feature-rich, fast, and highly extensible. Puter's goal is to provide you with every app and feature you need to work, play, and create under one roof.
 
 <br/>
 
