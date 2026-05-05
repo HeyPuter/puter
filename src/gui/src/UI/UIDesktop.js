@@ -2178,16 +2178,6 @@ $(document).on('click', '.user-options-menu-btn', async function (e) {
                 },
             },
             //--------------------------------------------------
-            // Keyboard Shortcuts
-            //--------------------------------------------------
-            {
-                html: i18n('keyboard_shortcuts'),
-                id: 'keyboard_shortcuts',
-                onClick: async function () {
-                    window.open('/dashboard', '_blank');
-                },
-            },
-            //--------------------------------------------------
             // My Websites
             //--------------------------------------------------
             {
