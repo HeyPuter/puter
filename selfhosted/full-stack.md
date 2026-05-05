@@ -153,7 +153,7 @@ The wildcards are required — Puter routes via subdomains (`api.*`, `app.*`, et
 For local-only testing, add this, and any specific subdomains, your hosts file (`/etc/hosts` on macOS/Linux, `C:\Windows\System32\drivers\etc\hosts` on Windows):
 
 ```
-127.0.0.1 puter.local s3.puter.local
+127.0.0.1 puter.local s3.puter.local api.puter.local
 ```
 
 ## Step 3 — TLS (recommended for public installs) \[Optional\]
@@ -285,7 +285,7 @@ The puter container failed to come up. `docker compose -f docker-compose.full.ym
 First-boot temp password is logged once. Find it: `docker compose -f docker-compose.full.yml logs puter | grep "tmp_password"`. After login, change it in Settings.
 
 **Healthcheck reports unhealthy but the site works.**
-The healthcheck hits `puter.localhost:4100/test` from inside the container. If you changed `domain` or `port`, the check still uses defaults. The site itself is fine.
+The healthcheck hits `puter.local/test` from inside the container. If you changed `domain` or `port`, the check still uses defaults. The site itself is fine.
 
 **Nothing resolves at `puter.example.com` after DNS changes.**
 DNS propagates slowly. `dig puter.example.com` and `dig api.puter.example.com` should both return your server IP. If not, give it 5–60 minutes.
