@@ -2722,15 +2722,44 @@ export class FSService extends PuterService {
             }
         }
 
-        const created = await this.stores.fsEntry.createNonFileEntry({
-            userId,
-            parent,
-            name,
-            kind: 'directory',
-            thumbnail: input.thumbnail ?? null,
-        });
+        let created: FSEntry;
+        try {
+            created = await this.stores.fsEntry.createNonFileEntry({
+                userId,
+                parent,
+                name,
+                kind: 'directory',
+                thumbnail: input.thumbnail ?? null,
+            });
+        } catch (err) {
+            // Concurrent mkdir race: another caller inserted the same
+            // (parent_id, name) between our existence check above and the
+            // INSERT, tripping the unique key. mkdir on an existing dir is
+            // documented as idempotent — re-fetch and return the winner if
+            // it's a directory; otherwise surface the same 409 the pre-INSERT
+            // check would have produced.
+            if (!this.#isUniqueViolation(err)) throw err;
+            const insertedPath =
+                parent.path === '/' ? `/${name}` : `${parent.path}/${name}`;
+            const raced =
+                await this.stores.fsEntry.getEntryByPath(insertedPath);
+            if (raced?.isDir) return raced;
+            if (raced) {
+                throw new HttpError(
+                    409,
+                    `An entry already exists at ${insertedPath}`,
+                );
+            }
+            throw err;
+        }
         this.#emitFsEvent('fs.create.directory', created);
         return created;
+    }
+
+    #isUniqueViolation(err: unknown): boolean {
+        if (!(err instanceof Error) || !('code' in err)) return false;
+        const code = (err as { code?: unknown }).code;
+        return code === 'ER_DUP_ENTRY' || code === 'SQLITE_CONSTRAINT';
     }
 
     /**
