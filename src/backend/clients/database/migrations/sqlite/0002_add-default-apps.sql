@@ -15,33 +15,7 @@
 -- You should have received a copy of the GNU Affero General Public License
 -- along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-INSERT INTO `apps` (
-    `uid`,
-    `owner_user_id`,
-    `icon`,
-    `name`,
-    `title`,
-    `description`,
-    `index_url`,
-    `approved_for_listing`,
-    `approved_for_opening_items`,
-    `approved_for_incentive_program`,
-    `timestamp`,
-    `last_review`
-) VALUES (
-    'app-838dfbc4-bf8b-48c2-b47b-c4adc77fab58',
-    1,
-    'data:image/svg+xml;base64,PHN2ZyB2ZXJzaW9uPSIxLjIiIGJhc2VQcm9maWxlPSJ0aW55LXBzIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA0OCA0OCIgd2lkdGg9IjQ4IiBoZWlnaHQ9IjQ4Ij4KCTx0aXRsZT5hcHAtaWNvbi1lZGl0b3Itc3ZnPC90aXRsZT4KCTxkZWZzPgoJCTxsaW5lYXJHcmFkaWVudCBpZD0iZ3JkMSIgZ3JhZGllbnRVbml0cz0idXNlclNwYWNlT25Vc2UiICB4MT0iNDciIHkxPSIzOS41MTQiIHgyPSIxIiB5Mj0iOC40ODYiPgoJCQk8c3RvcCBvZmZzZXQ9IjAiIHN0b3AtY29sb3I9IiM3MTAxZTgiICAvPgoJCQk8c3RvcCBvZmZzZXQ9IjEiIHN0b3AtY29sb3I9IiM5MTY3YmUiICAvPgoJCTwvbGluZWFyR3JhZGllbnQ+Cgk8L2RlZnM+Cgk8c3R5bGU+CgkJdHNwYW4geyB3aGl0ZS1zcGFjZTpwcmUgfQoJCS5zaHAwIHsgZmlsbDogdXJsKCNncmQxKSB9IAoJCS5zaHAxIHsgZmlsbDogI2ZmZmZmZiB9IAoJPC9zdHlsZT4KCTxnIGlkPSJMYXllciI+CgkJPHBhdGggaWQ9IkxheWVyIiBjbGFzcz0ic2hwMCIgZD0iTTQ3IDNMNDcgNDVDNDcgNDYuMSA0Ni4xIDQ3IDQ1IDQ3TDMgNDdDMS45IDQ3IDEgNDYuMSAxIDQ1TDEgM0MxIDEuOSAxLjkgMSAzIDFMNDUgMUM0Ni4xIDEgNDcgMS45IDQ3IDNaIiAvPgoJCTxwYXRoIGlkPSJMYXllciIgZmlsbC1ydWxlPSJldmVub2RkIiBjbGFzcz0ic2hwMSIgZD0iTTI4LjYyIDQwTDI4LjYyIDM3LjYxTDMyLjI1IDM3LjIyTDI5Ljg2IDMwTDE3LjUzIDMwTDE1LjE4IDM3LjIyTDE4Ljc2IDM3LjYxTDE4Ljc2IDQwTDguNiA0MEw4LjYgMzcuNjZMMTAuNSAzNy4xN0MxMS4yMSAzNi45OSAxMS40MyAzNi44NiAxMS42IDM2LjMzTDIxLjMzIDhMMjYuNDUgOEwzNi4zNiAzNi4zOEMzNi41MyAzNi45MSAzNi44OCAzNi45OSAzNy40MiAzNy4xM0wzOS40IDM3LjYxTDM5LjQgNDBMMjguNjIgNDBaTTIzLjc2IDExLjQ1TDE4LjU0IDI3TDI4Ljg4IDI3TDIzLjc2IDExLjQ1WiIgLz4KCTwvZz4KPC9zdmc+',
-    'editor',
-    'Editor',
-    'A simple text editor',
-    'https://editor.puter.com/index.html',
-    1, 1, 0,
-    '2020-01-01 00:00:00',
-    NULL
-);
-
-
+-- TEMP: editor app insert removed — broken, will fix later
 
 INSERT INTO `apps` (
     `id`, `uid`, `owner_user_id`, `icon`, `name`, `title`, `description`, `godmode`, `maximize_on_start`, `index_url`, `approved_for_listing`, `approved_for_opening_items`, `approved_for_incentive_program`, `timestamp`, `last_review`, `tags`, `app_owner`
