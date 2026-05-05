@@ -1836,8 +1836,14 @@ export class FSEntryStore extends PuterStore {
                         );
                     }
 
+                    // Use INSERT IGNORE so a row that lost the (parent_id,
+                    // name) race against another writer doesn't take down
+                    // the whole chunk. Skipped rows are recovered below by
+                    // detecting uuids missing from the post-INSERT SELECT
+                    // and running the same overwrite-or-409 logic the
+                    // upfront existence check uses.
                     await this.clients.db.write(
-                        `INSERT INTO fsentries (
+                        `${this.#insertIgnoreIntoFsentriesSql()} (
                             uuid,
                             bucket,
                             bucket_region,
@@ -1906,6 +1912,132 @@ export class FSEntryStore extends PuterStore {
                         );
                     }
                 }
+            }
+
+            // Recovery for INSERT IGNORE skips. An insertCandidate whose
+            // uuid is missing from the post-INSERT SELECT lost the
+            // (parent_id, name) race against a concurrent writer. Re-check
+            // primary-aware and either UPDATE (overwrite=true) or surface
+            // a clear 409. Other rows in the batch already persisted.
+            const racedCandidates = insertCandidates.filter(
+                (entry) => !insertedEntriesByUuid.has(entry.input.uuid),
+            );
+            const insertConflictErrors: Error[] = [];
+            if (racedCandidates.length > 0) {
+                const racedExistingByPath =
+                    await this.#readEntriesByPathsForUser(
+                        userId,
+                        racedCandidates.map((entry) => entry.targetPath),
+                        { useTryHardRead: true, skipCache: true },
+                    );
+                for (const entry of racedCandidates) {
+                    const parentEntry = parentByPath.get(entry.parentPath);
+                    if (!parentEntry) {
+                        throw new Error(
+                            `Failed to resolve parent directory for ${entry.targetPath}`,
+                        );
+                    }
+                    const existing = racedExistingByPath.get(entry.targetPath);
+                    if (!existing) {
+                        insertConflictErrors.push(
+                            new HttpError(
+                                409,
+                                `Entry already exists at ${entry.targetPath}`,
+                            ),
+                        );
+                        continue;
+                    }
+                    if (existing.isDir) {
+                        insertConflictErrors.push(
+                            new HttpError(
+                                409,
+                                `Cannot overwrite a directory at ${entry.targetPath}`,
+                            ),
+                        );
+                        continue;
+                    }
+                    if (!entry.input.overwrite) {
+                        insertConflictErrors.push(
+                            new HttpError(
+                                409,
+                                `Entry already exists at ${entry.targetPath}`,
+                            ),
+                        );
+                        continue;
+                    }
+
+                    const updatedEntry: FSEntry = {
+                        ...existing,
+                        bucket: entry.bucket,
+                        bucketRegion: entry.bucketRegion,
+                        parentId: parentEntry.id,
+                        parentUid: parentEntry.uuid,
+                        associatedAppId: entry.input.associatedAppId ?? null,
+                        isPublic:
+                            entry.input.isPublic === undefined
+                                ? null
+                                : Boolean(entry.input.isPublic),
+                        thumbnail: entry.input.thumbnail ?? null,
+                        immutable: Boolean(entry.input.immutable),
+                        name: entry.fileName,
+                        path: entry.targetPath,
+                        metadata: entry.metadataJson,
+                        modified: now,
+                        accessed: now,
+                        size: entry.size,
+                    };
+                    await this.clients.db.write(
+                        `UPDATE fsentries
+                         SET bucket = ?,
+                             bucket_region = ?,
+                             parent_id = ?,
+                             parent_uid = ?,
+                             associated_app_id = ?,
+                             is_public = ?,
+                             thumbnail = ?,
+                             immutable = ?,
+                             name = ?,
+                             path = ?,
+                             metadata = ?,
+                             modified = ?,
+                             accessed = ?,
+                             size = ?
+                         WHERE id = ?`,
+                        [
+                            entry.bucket,
+                            entry.bucketRegion,
+                            parentEntry.id,
+                            parentEntry.uuid,
+                            entry.input.associatedAppId ?? null,
+                            entry.input.isPublic === undefined
+                                ? null
+                                : entry.input.isPublic
+                                  ? 1
+                                  : 0,
+                            entry.input.thumbnail ?? null,
+                            entry.input.immutable ? 1 : 0,
+                            entry.fileName,
+                            entry.targetPath,
+                            entry.metadataJson,
+                            now,
+                            now,
+                            entry.size,
+                            existing.id,
+                        ],
+                    );
+                    await this.#invalidateEntryCache(existing);
+                    await this.#writeEntryToCache(updatedEntry);
+                    updatedResultsByIndex.set(entry.index, updatedEntry);
+                }
+            }
+
+            if (insertConflictErrors.length > 0) {
+                // Other rows in this user's batch already persisted (the
+                // INSERT IGNORE landed them and overwrite=true racers ran
+                // UPDATE above). Surface the first non-recoverable conflict
+                // as a clean 409 instead of letting ER_DUP_ENTRY escape
+                // through SQLBatcher as a 500.
+                throw insertConflictErrors[0]!;
             }
 
             for (const entry of userEntries) {

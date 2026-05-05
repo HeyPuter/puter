@@ -19,7 +19,7 @@
     },
     "allowJs": true,
     "checkJs": false,
-    "noCheck": true,
+    "noCheck": false,
     "strict": true,
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
@@ -29,7 +29,7 @@
     "removeComments": true,
     "noEmit": false,
     "noEmitOnError": false,
-    "noImplicitAny": false
+    "noImplicitAny": true
   },
   "include": [
     "src/backend/**/*",
@@ -44,17 +44,6 @@
     "**/node_modules/**",
     "dist/**",
     "volatile/**",
-    "extensions/**/node_modules/**",
-    "src/backend/test/**",
-    "src/backend/tools/**",
-    "src/backend/vitest.config.ts",
-    "src/backend/vitest.bench.config.ts",
-    "src/backend/vitest.bench.config.js",
-    "src/backend/services/worker/template/puter-portable.js",
-    "src/backend/services/DynamoKVStore/DynamoKVStore.ts",
-    "src/backend/clients/s3/S3Client.js",
-    "src/backend/clients/s3/s3ClientProvider.js",
-    "src/backend/clients/redis/RedisClient.js",
-    "src/backend/clients/dynamodb/DDBClient.js"
-  ]
+    "extensions/**/node_modules/**" 
+   ]
 }

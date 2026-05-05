@@ -53,7 +53,7 @@
     "build:workerLib": "cd src/puter-js && npm run build && cd ../worker && npm run build",
     "check-translations": "node tools/check-translations.js",
     "prepare": "husky",
-    "build:ts": "tsc -p tsconfig.json && node ./tools/write-dist-package-json.mjs",
+    "build:ts": "tsc -p tsconfig.build.json && node ./tools/write-dist-package-json.mjs",
     "postinstall": "node ./tools/extensionSetup.mjs"
   },
   "workspaces": [

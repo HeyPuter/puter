@@ -72,7 +72,7 @@ The Puter Team
 Please update <a href="https://apps.puter.com/app/{{app_name}}">{{app_title}}</a>.
 </p>
 <p><strong>Requested updates:</strong></p>
-<blockquote>{{message}}</blockquote>
+<blockquote>{{nl2br message}}</blockquote>
 <p>Best,<br />
 The Puter Team
 </p>
