@@ -1,34 +1,290 @@
 ---
+# Self-hosted Puter — full stack.
+#
+# Brings up Puter + every external service it needs:
+#   - nginx    : reverse proxy (mirrors prod ALB; handles TLS + Host fan-out)
+#   - valkey   : redis-compatible cache / rate-limiter backend
+#   - mariadb  : SQL database (Puter applies its schema on first boot)
+#   - dynamo   : DynamoDB-local (KV store; Puter creates the table itself)
+#   - s3       : RustFS — S3-compatible object storage
+#   - s3-init  : one-shot init container that creates the bucket
+#   - puter    : the application
+#
+# Quick start:
+#   1. Copy .env.example to .env (or set the variables in your shell).
+#   2. Drop a config.json into ./puter/config/ — see selfhosted/full-stack.md
+#      for the example that pairs with this compose.
+#   3. docker compose up -d
+#
+# Easiest path:
+#   curl -fsSL https://raw.githubusercontent.com/HeyPuter/puter/main/install.sh | sh
+# grabs this file, generates secrets, writes .env + config.json, and runs
+# the compose up for you.
+#
+# Production:
+#   - Always replace the default passwords / S3 keys / Puter secrets.
+#   - Front Puter with TLS-terminating reverse proxy (Caddy / nginx).
+#   - Move state-bearing volumes to a backed-up location.
+
 services:
+  valkey:
+    image: valkey/valkey:8-alpine
+    container_name: puter-valkey
+    restart: unless-stopped
+    # Run as a single-node cluster so Puter's ioredis Cluster client
+    # (the only mode it speaks) can connect. On first boot we assign all
+    # 16384 slots to ourselves; subsequent boots find them already in
+    # nodes.conf and skip. `cluster-require-full-coverage no` keeps reads
+    # working if we ever land partial slots.
+    command:
+      - sh
+      - -c
+      - |
+        valkey-server \
+          --port 6379 \
+          --cluster-enabled yes \
+          --cluster-config-file /data/nodes.conf \
+          --cluster-node-timeout 5000 \
+          --cluster-require-full-coverage no \
+          --cluster-announce-ip valkey \
+          --cluster-announce-port 6379 \
+          --cluster-announce-bus-port 16379 \
+          --appendonly yes \
+          --save "60 1" &
+        SERVER_PID=$$!
+        until valkey-cli -p 6379 PING > /dev/null 2>&1; do sleep 0.5; done
+        if ! valkey-cli -p 6379 CLUSTER NODES | grep -q '0-16383'; then
+          valkey-cli -p 6379 CLUSTER ADDSLOTSRANGE 0 16383
+        fi
+        wait $$SERVER_PID
+    volumes:
+      - ./puter/data/valkey:/data
+    healthcheck:
+      test:
+        ["CMD-SHELL", "valkey-cli -p 6379 cluster info | grep -q cluster_state:ok"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+
+  mariadb:
+    image: mariadb:11
+    container_name: puter-mariadb
+    restart: unless-stopped
+    environment:
+      MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD:-root-change-me}
+      MARIADB_DATABASE: ${MARIADB_DATABASE:-puter}
+      MARIADB_USER: ${MARIADB_USER:-puter}
+      MARIADB_PASSWORD: ${MARIADB_PASSWORD:-puter-change-me}
+    volumes:
+      - ./puter/data/mariadb:/var/lib/mysql
+    healthcheck:
+      # `healthcheck.sh` ships with the mariadb image; --connect verifies
+      # the server is accepting auth, not just listening on the socket.
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+  dynamo:
+    # Puter creates the `store-kv-v1` table itself on startup
+    # (config.dynamo.bootstrapTables = true does the work).
+    image: amazon/dynamodb-local:latest
+    container_name: puter-dynamo
+    restart: unless-stopped
+    user: "1000:1000"
+    working_dir: /home/dynamodblocal
+    command:
+      - "-jar"
+      - "DynamoDBLocal.jar"
+      - "-sharedDb"
+      - "-dbPath"
+      - "/home/dynamodblocal/data"
+    volumes:
+      - ./puter/data/dynamo:/home/dynamodblocal/data
+
+  s3:
+    # RustFS — S3-compatible object storage. Drop-in alternative:
+    # MinIO (image: minio/minio, command: ["server", "/data", "--console-address", ":9001"]).
+    image: rustfs/rustfs:latest
+    container_name: puter-s3
+    restart: unless-stopped
+    environment:
+      RUSTFS_ACCESS_KEY: ${S3_ACCESS_KEY:-puter}
+      RUSTFS_SECRET_KEY: ${S3_SECRET_KEY:-puter-secret-change-me}
+    volumes:
+      - ./puter/data/s3:/data
+    # Internal-only — browsers reach RustFS via nginx (`s3.<domain>`),
+    # which preserves the Host header for S3 signature validation and
+    # rides the same TLS termination as Puter. Uncomment to also expose
+    # 9000 directly on the host for `aws-cli` / debugging.
+    # ports:
+    #   - "9000:9000"
+    healthcheck:
+      # RustFS exposes /health on the S3 port. Use wget (curl is not in
+      # the slim image).
+      test:
+        [
+          "CMD-SHELL",
+          "wget -qO- --tries=1 --timeout=2 http://localhost:9000/health || exit 1",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+
+  s3-init:
+    # One-shot container that creates the `puter-local` bucket on first
+    # boot. Exits 0 once the bucket exists; stays exited 0 thereafter.
+    image: amazon/aws-cli:latest
+    container_name: puter-s3-init
+    depends_on:
+      s3:
+        condition: service_healthy
+    environment:
+      AWS_ACCESS_KEY_ID: ${S3_ACCESS_KEY:-puter}
+      AWS_SECRET_ACCESS_KEY: ${S3_SECRET_KEY:-puter-secret-change-me}
+      AWS_DEFAULT_REGION: us-east-1
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        set -e
+        endpoint=http://s3:9000
+        bucket=${S3_BUCKET:-puter-local}
+        if aws --endpoint-url "$$endpoint" s3api head-bucket --bucket "$$bucket" 2>/dev/null; then
+          echo "bucket $$bucket already exists"
+        else
+          echo "creating bucket $$bucket"
+          aws --endpoint-url "$$endpoint" s3 mb "s3://$$bucket"
+        fi
+    restart: "no"
+
+  # ── Optional: local LLM ───────────────────────────────────────────
+  # Behind the `ai` compose profile — only starts when explicitly opted
+  # into. Bring up with:
+  #   docker compose --profile ai up -d
+  # When enabled, also set in your `puter/config/config.json`:
+  #   "providers": { "ollama": { "apiBaseUrl": "http://ollama:11434" } }
+  # When NOT enabled, set:
+  #   "providers": { "ollama": { "enabled": false } }
+  # otherwise Puter spams `ECONNREFUSED 127.0.0.1:11434` on startup.
+  ollama:
+    profiles: ["ai"]
+    # CPU-only out of the box; uncomment the GPU `deploy:` block below
+    # if you've got nvidia-docker for much faster inference. Disk + RAM
+    # scale with the model — `tinyllama` (1.1B, ~640 MB on disk, ~700
+    # MB RAM) is the cheapest sane default. Swap via OLLAMA_DEFAULT_MODEL.
+    image: ollama/ollama:latest
+    container_name: puter-ollama
+    restart: unless-stopped
+    volumes:
+      - ./puter/data/ollama:/root/.ollama
+    # Uncomment to expose Ollama directly on the host (`localhost:11434`)
+    # for `ollama` CLI / OpenAI-API compatible tools. Internal-only by default.
+    # ports:
+    #   - "11434:11434"
+    healthcheck:
+      test:
+        ["CMD-SHELL", "ollama list >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    # GPU passthrough (NVIDIA). Requires nvidia-container-toolkit on host.
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
+  ollama-init:
+    profiles: ["ai"]
+    # One-shot — ensures the default model is present. `ollama pull` is
+    # idempotent: present-and-up-to-date → fast no-op; missing → downloads.
+    image: ollama/ollama:latest
+    container_name: puter-ollama-init
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+      OLLAMA_DEFAULT_MODEL: ${OLLAMA_DEFAULT_MODEL:-tinyllama}
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        set -e
+        echo "[ollama-init] ensuring $${OLLAMA_DEFAULT_MODEL}"
+        ollama pull "$${OLLAMA_DEFAULT_MODEL}"
+        echo "[ollama-init] done"
+    restart: "no"
+
   puter:
-    container_name: puter
-    image: ghcr.io/heyputer/puter:latest
+    image: ghcr.io/heyputer/puter:main
     pull_policy: always
-    # Uncomment to build from this directory instead of pulling the published image:
+    # Uncomment to build from this directory instead of pulling the published
+    # image. Also flip pull_policy to `never` so compose doesn't overwrite
+    # your local build by re-pulling :latest.
     # build:
     #   context: .
     #   # buildx-only: cross-compile to both archs in a single push
     #   # platforms:
     #   #   - linux/amd64
     #   #   - linux/arm64
+    container_name: puter
     restart: unless-stopped
-    ports:
-      - '4100:4100'
+    depends_on:
+      valkey:
+        condition: service_healthy
+      mariadb:
+        condition: service_healthy
+      dynamo:
+        condition: service_started
+      s3-init:
+        condition: service_completed_successfully
+    # Internal-only: nginx reaches it on the compose network. Uncomment
+    # to also expose port 4100 directly on the host (useful for debugging).
+    # ports:
+    #   - "4100:4100"
+    expose:
+      - "4100"
     environment:
-      # TZ: Europe/Paris
       PUID: 1000
       PGID: 1000
     volumes:
-      # Drop your config.json into ./puter/config/. It is deep-merged over
-      # config.default.json — only override what you care to change.
-      # Image expects /etc/puter/config.json (see PUTER_CONFIG_PATH in Dockerfile).
+      # Drop your config.json here — see selfhosted/full-stack.md.
       - ./puter/config:/etc/puter
-      # Persistent runtime data (sqlite db, uploads, etc. — depends on your
-      # config). Maps to volatile/ inside the container by default.
-      - ./puter/data:/var/puter
+      # Persistent runtime data (anything your config points at /var/puter).
+      - ./puter/data/puter:/var/puter
     healthcheck:
       test: wget --no-verbose --tries=1 --spider http://puter.localhost:4100/test || exit 1
       interval: 30s
       timeout: 3s
       retries: 3
       start_period: 30s
+
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: puter-nginx
+    restart: unless-stopped
+    depends_on:
+      puter:
+        condition: service_started
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      # Uncomment when you enable TLS in nginx/nginx.conf:
+      # - "${HTTPS_PORT:-443}:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      # TLS certs (fullchain.pem + privkey.pem). Read-only inside.
+      - ./puter/tls:/etc/nginx/tls:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- --tries=1 --timeout=2 http://localhost/ || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
