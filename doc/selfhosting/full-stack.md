@@ -112,7 +112,9 @@ cat > puter/config/config.json <<EOF
 
     "providers": {
         "ollama": { "enabled": false }
-    }
+    },
+
+    "trust_proxy": 1
 }
 EOF
 ```
@@ -128,6 +130,7 @@ Why these knobs:
 - `providers.ollama.enabled: false` — Puter auto-probes a local Ollama at `127.0.0.1:11434` by default; without one running you'd see `ECONNREFUSED` on every boot. To run a bundled Ollama, see [Optional: local LLM (Ollama)](#optional-local-llm-ollama) below.
 - `s3.s3Config.forcePathStyle: true` — RustFS / MinIO / fauxqs need path-style URLs (`<endpoint>/<bucket>`). Real AWS S3 wants virtual-hosted (`<bucket>.<endpoint>`) — drop this flag (or set `false`) when you swap to real S3.
 - `s3.s3Config.publicEndpoint` — `endpoint` (`http://s3:9000`) only resolves inside the docker network; presigned upload/download URLs handed to the browser need a host-reachable URL. nginx routes the `s3.<domain>` subdomain to RustFS internally and preserves the Host header end-to-end (required for S3 signature validation), so the browser hits the same port/protocol as the rest of the app — no separate published port, no mixed-content surprises when you turn on TLS. Switch to `https://s3.<your-domain>` once you enable TLS in Step 3. Real AWS S3 doesn't need this — its endpoint is already public; drop the field entirely.
+- `trust_proxy: 1` — nginx terminates TLS and forwards `X-Forwarded-For`. Without this, `req.ip` is the docker-network address of the nginx container instead of the real client IP, which breaks rate limiting and IP-based audit logs. `1` = one trusted hop (nginx). Bump to `2` if you put Cloudflare in front of nginx; never set `true` (it trusts every hop and makes XFF forgeable).
 
 > If you ever change `MARIADB_PASSWORD` after first boot, `.env` alone won't update MariaDB — its credentials are baked into `./puter/data/mariadb/` on first init. Either rotate the password inside MariaDB by hand or `docker compose down && rm -rf ./puter/data/mariadb` to start fresh.
 
@@ -219,6 +222,100 @@ docker compose -f docker-compose.full.yml logs puter | grep tmp_password
 
 Change it in Settings after first login.
 
+## Additional configuration
+
+All optional. Drop any of the blocks below into `puter/config/config.json` and `docker compose -f docker-compose.full.yml restart puter`. See [config.template.jsonc](../config.template.jsonc) for the full list. Per-key documentation lives in [src/backend/types.ts](../src/backend/types.ts).
+
+### Email (SMTP)
+
+Used for password resets, email confirmation, and notifications. Without it those flows silently fail.
+
+```json
+"email": {
+    "from": "\"Puter\" <no-reply@puter.example.com>",
+    "host": "smtp.example.com",
+    "port": 587,
+    "secure": false,
+    "auth": { "user": "...", "pass": "..." }
+}
+```
+
+To require email confirmation before login, also set `"strict_email_verification_required": true`.
+
+### Sign in with Google (or another OIDC provider)
+
+```json
+"oidc": {
+    "providers": {
+        "google": {
+            "client_id": "...apps.googleusercontent.com",
+            "client_secret": "...",
+            "scopes": "openid email profile"
+        }
+    }
+}
+```
+
+Add `https://puter.<your-domain>/auth/oidc/callback/login` to the OAuth client's authorized redirect URIs in the Google Cloud Console. For non-Google providers, replace `google` with a custom id and supply `authorization_endpoint` / `token_endpoint` / `userinfo_endpoint` explicitly.
+
+### AI providers
+
+Any provider with a key set is auto-enabled. Same shape as `ollama` above:
+
+```json
+"providers": {
+    "claude":            { "apiKey": "sk-ant-..." },
+    "openai-completion": { "apiKey": "sk-..." },
+    "gemini":            { "apiKey": "..." },
+    "openai-image-generation": { "apiKey": "sk-..." }
+}
+```
+
+Full provider list (chat, image, video, TTS, OCR) is in the template.
+
+### Per-user storage quota
+
+Default is 100 MB per user.
+
+```json
+"storage_capacity": 5368709120,   // 5 GB
+"is_storage_limited": true
+```
+
+Set `is_storage_limited: false` for unlimited (bounded by host disk).
+
+### Captcha on signup / login
+
+Built-in proof-of-work captcha — no external service needed.
+
+```json
+"captcha": { "enabled": true, "difficulty": "medium" }
+```
+
+`difficulty` is one of `easy` / `medium` / `hard`.
+
+### Block disposable email TLDs
+
+Only enforced when `env: "prod"`.
+
+```json
+"blockedEmailDomains": ["mailinator.com", "tempmail.com", "guerrillamail.com"]
+```
+
+### Password policy
+
+```json
+"min_pass_length": 12
+```
+
+### Contact-form recipient
+
+Where the in-app contact form posts. Defaults to `support@puter.com`.
+
+```json
+"support_email": "support@puter.example.com"
+```
+
 ## Optional: local LLM (Ollama)
 
 The `ollama` and `ollama-init` services live behind a compose profile so they don't run unless you ask for them. By default, `puter/config/config.json` has `"ollama": { "enabled": false }` — Puter skips the auto-probe entirely. To run a local model:
@@ -256,7 +353,7 @@ docker compose -f docker-compose.full.yml up -d --build
 
 ---
 
-## Re-starting backend
+## Managing running backend
 
 ```bash
 # update
