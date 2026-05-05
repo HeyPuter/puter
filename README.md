@@ -25,13 +25,11 @@
 
 ## Puter
 
-Puter is an advanced, open-source internet operating system designed to be feature-rich, fast, and highly extensible. Puter can be used as:
+Puter is an advanced, open-source, self-hostable internet computer designed to be feature-rich, fast, and highly extensible.
 
-- A privacy-first personal cloud to keep all your files, apps, and games in one secure place, accessible from anywhere at any time.
-- A platform for building and publishing websites, web apps, and games.
-- An alternative to Dropbox, Google Drive, OneDrive, etc. with a fresh interface and powerful features.
-- A remote desktop environment for servers and workstations.
-- A friendly, open-source project and community to learn about web development, cloud computing, distributed systems, and much more!
+**For Users:**  Puter's goal is to provide you with every app and feature you need to work, play, and create under one roof.
+
+**For Developers:** Puter's goal is to provide you with everything you need to build, deploy, distribute, and monetize your apps and games.
 
 <br/>
 
@@ -46,8 +44,7 @@ cd puter
 npm install
 npm start
 ```
-**→** This should launch Puter at 
-<font color="red"> http://puter.localhost:4100 (or the next available port). </font>
+**→** This should launch Puter at  http://puter.localhost:4100 (or the next available port).
 
 
 <br/>
