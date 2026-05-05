@@ -59,15 +59,15 @@ EOF
 mkdir -p puter/config puter/data puter/tls
 cat > puter/config/config.json <<EOF
 {
-    "domain": "puter.local",
+    "domain": "puter.localhost",
     "protocol": "http",
     "pub_port": 80,
     "env": "prod",
 
-    "static_hosting_domain": "puter.sitelocal",
-    "static_hosting_domain_alt": "puter.hostlocal",
-    "private_app_hosting_domain": "puter.applocal",
-    "private_app_hosting_domain_alt": "puter.devlocal",
+    "static_hosting_domain": "site.puter.localhost",
+    "static_hosting_domain_alt": "host.puter.localhost",
+    "private_app_hosting_domain": "app.puter.localhost",
+    "private_app_hosting_domain_alt": "dev.puter.localhost",
 
     "jwt_secret": "$JWT_SECRET",
     "url_signature_secret": "$URL_SIGNATURE_SECRET",
@@ -100,7 +100,7 @@ cat > puter/config/config.json <<EOF
     "s3": {
         "s3Config": {
             "endpoint": "http://s3:9000",
-            "publicEndpoint": "http://s3.puter.local",
+            "publicEndpoint": "http://s3.puter.localhost",
             "accessKeyId": "puter",
             "secretAccessKey": "$S3_SECRET_KEY",
             "region": "us-east-1",
@@ -119,7 +119,7 @@ cat > puter/config/config.json <<EOF
 EOF
 ```
 
-Replace `puter.local`, `puter.sitelocal`, `puter.hostlocal`, `puter.applocal` and `puter.devlocal` with your actual domain (or leave it for a localhost-only trial).
+Replace `puter.localhost`, `site.puter.localhost`, `host.puter.localhost`, `dev.puter.localhost` and `app.puter.localhost` with your actual domain (or leave it for a localhost-only trial).
 
 Why these knobs:
 
@@ -139,25 +139,19 @@ Why these knobs:
 In your DNS provider, add records for the main domain plus the subdomains Puter and nginx route on (`api.*`, `site.*`, `app.*`, `s3.*`):
 
 ```
-A      puter.local         → <your server's public IP>
-A      *.puter.local       → <your server's public IP>
-A      puter.sitelocal     → <your server's public IP>
-A      *.puter.sitelocal   → <your server's public IP>
-A      puter.hostlocal     → <your server's public IP>
-A      *.puter.hostlocal   → <your server's public IP>
-A      puter.applocal      → <your server's public IP>
-A      *.puter.applocal    → <your server's public IP>
-A      puter.devlocal      → <your server's public IP>
-A      *.puter.devlocal    → <your server's public IP>
+A      puter.localhost          → <your server's public IP>
+A      *.puter.localhost        → <your server's public IP>
+A      site.puter.localhost     → <your server's public IP>
+A      *.site.puter.localhost   → <your server's public IP>
+A      host.puter.localhost     → <your server's public IP>
+A      *.host.puter.localhost   → <your server's public IP>
+A      app.puter.localhost      → <your server's public IP>
+A      *.app.puter.localhost    → <your server's public IP>
+A      dev.puter.localhost      → <your server's public IP>
+A      *.dev.puter.localhost    → <your server's public IP>
 ```
 
 The wildcards are required — Puter routes via subdomains (`api.*`, `app.*`, etc.) and nginx routes browser S3 traffic via `s3.*` to RustFS.
-
-For local-only testing, add this, and any specific subdomains, your hosts file (`/etc/hosts` on macOS/Linux, `C:\Windows\System32\drivers\etc\hosts` on Windows):
-
-```
-127.0.0.1 puter.local s3.puter.local api.puter.local puter-app-icons.puter.sitelocal
-```
 
 ## Step 3 — TLS (recommended for public installs) \[Optional\]
 
@@ -167,14 +161,14 @@ Skip this for a quick local demo. Don't skip it for users typing passwords.
 
 ```bash
 sudo certbot certonly --manual --preferred-challenges dns \
-    -d puter.local -d "*.puter.local" \
-    -d puter.sitelocal -d "*.puter.sitelocal" \
-    -d puter.hostlocal -d "*.puter.hostlocal" \
-    -d puter.applocal -d "*.puter.applocal" \
-    -d puter.devlocal -d "*.puter.devlocal"
+    -d puter.localhost -d "*.puter.localhost" \
+    -d site.puter.localhost -d "*.site.puter.localhost" \
+    -d host.puter.localhost -d "*.host.puter.localhost" \
+    -d app.puter.localhost -d "*.app.puter.localhost" \
+    -d dev.puter.localhost -d "*.dev.puter.localhost"
 ```
 
-The cert needs to cover `*.puter.local` so that `s3.puter.local` (browser S3 endpoint), plus Puter's own `api.*` / `app.*` subdomains, all validate.
+The cert needs to cover `*.puter.localhost` so that `s3.puter.localhost` (browser S3 endpoint), plus Puter's own `api.*` / `app.*` subdomains, all validate.
 
 Drop the resulting `fullchain.pem` and `privkey.pem` into `./puter/tls/`.
 
