@@ -22,6 +22,7 @@ import { PuterClient } from '../types';
 
 export interface WriteResult {
     insertId: number | bigint;
+    affectedRows: number;
     anyRowsAffected: boolean;
 }
 

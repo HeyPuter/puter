@@ -249,9 +249,24 @@ export interface IS3LocalConfig {
 export interface IS3RemoteConfig {
     useCredentialChain?: boolean;
     endpoint: string;
+    /**
+     * Endpoint used when generating presigned URLs handed to clients
+     * (browser uploads/downloads). Defaults to `endpoint`. Set this when
+     * the server-side S3 endpoint isn't reachable from the browser — e.g.
+     * self-host with `endpoint: http://s3:9000` (docker-internal) and
+     * `publicEndpoint: http://localhost:9000` (host-published port).
+     */
+    publicEndpoint?: string;
     accessKeyId: string;
     secretAccessKey: string;
     region?: string;
+    /**
+     * Use path-style URLs (`<endpoint>/<bucket>`) instead of virtual-hosted
+     * style (`<bucket>.<endpoint>`). Defaults to AWS SDK's default (virtual-
+     * hosted, which only works on real AWS S3). Set `true` for S3-compatible
+     * servers (RustFS, MinIO, fauxqs) where DNS-style addressing fails.
+     */
+    forcePathStyle?: boolean;
 }
 
 export interface IS3Config {

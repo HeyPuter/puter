@@ -162,7 +162,11 @@ export class EmailClient extends PuterClient {
      */
     async sendRaw(options: SendMailOptions): Promise<void> {
         if (!this.transport) {
-            throw new Error('EmailClient transport is not configured');
+            console.warn(
+                '[email] attempted to send email without transport. If you need to send email, configure an SMTP transport in your config file (see docs for details). Email content:',
+                options,
+            );
+            return;
         }
         await this.transport.sendMail({
             from: options.from ?? this.defaultFrom(),

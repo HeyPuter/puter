@@ -1,41 +1,38 @@
-#
 name: Docker Image CI
 
-# Configures this workflow to run every time a change is pushed to the
-# branch called `main`.
+# Builds only on calver tag pushes: YY.MM or YY.MM.p (all numeric).
+# Each build publishes three tags: <version>, latest, main.
 on:
   push:
     tags:
-      - '*.*.*'
-    branches:
-      - 'main'
+      - '[0-9][0-9].[0-9][0-9]'
+      - '[0-9][0-9].[0-9][0-9].[0-9]*'
 
-# Defines two custom environment variables for the workflow. These are used
-# for the Container registry domain, and a name for the Docker image that
-# this workflow builds.
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
 
-# There is a single job in this workflow. It's configured to run on the
-# latest available version of Ubuntu.
 jobs:
   build-and-push-image:
     runs-on: ubuntu-latest
 
-    # Sets the permissions granted to the `GITHUB_TOKEN` for the actions
-    # in this job.
     permissions:
       contents: read
       packages: write
 
     steps:
+      - name: Validate calver tag
+        env:
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          if ! [[ "$REF_NAME" =~ ^[0-9]{2}\.[0-9]{2}(\.[0-9]+)?$ ]]; then
+            echo "Tag '$REF_NAME' does not match YY.MM or YY.MM.p calver format."
+            exit 1
+          fi
+
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # Uses the `docker/login-action` action to log in to the Container
-      # registry using the account and password that will publish the packages.
-      # Once published, the packages are scoped to the account defined here.
       - name: Log in to GitHub Package Container registry
         uses: docker/login-action@v3
         with:
@@ -49,43 +46,22 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      # This step uses [docker/metadata-action](https://github.com/docker/metadata-action#about)
-      # to extract tags and labels that will be applied to the specified image.
-      # The `id` "meta" allows the output of this step to be referenced in
-      # a subsequent step. The `images` value provides the base name for the
-      # tags and labels.
       - name: Extract metadata (tags, labels) for Docker
         id: meta
         uses: docker/metadata-action@v5
         with:
           images: "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
-          # Tag plan:
-          #   * version tag (vX.Y.Z) push  → 1.2.3, 1.2, latest
-          #   * branch push (main)         → main
-          # selfhosted/docker.md tells users to pull `:latest`, which only
-          # resolves for tag pushes — never main, so unstable code can't
-          # claim `:latest`.
           tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=ref,event=branch
-            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/') }}
+            type=ref,event=tag
+            type=raw,value=latest
+            type=raw,value=main
 
-      # This step uses the `docker/build-push-action` action to build the
-      # image, based on your repository's `Dockerfile`. If the build succeeds,
-      # it pushes the image to GitHub Packages.
-      # It uses the `context` parameter to define the build's context as the
-      # set of files located in the specified path. For more information, see
-      # "[Usage](https://github.com/docker/build-push-action#usage)" in the
-      # README of the `docker/build-push-action` repository.
-      # It uses the `tags` and `labels` parameters to tag and label the image
-      # with the output from the "meta" step.
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
           platforms: linux/amd64,linux/arm64
           context: .
-          push: ${{ github.event_name != 'pull_request' }}
+          push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha

@@ -24,6 +24,7 @@ import type { UserRow } from '../../stores/user/UserStore';
 import type { LayerInstances } from '../../types';
 import type { puterServices } from '../index';
 import { PuterService } from '../types';
+import { sessionCookieFlags } from '../../util/cookieFlags.js';
 import type {
     AccessTokenPayload,
     AnyTokenPayload,
@@ -677,8 +678,7 @@ export class AuthService extends PuterService {
         // subdomains — each app sees only its own cookie.
         const options: Record<string, unknown> = {
             httpOnly: true,
-            secure: true,
-            sameSite: 'none',
+            ...sessionCookieFlags(this.config),
             maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
             path: '/',
         };

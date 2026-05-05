@@ -8,8 +8,9 @@
 -- INSERT IGNORE makes it safe to re-run; uid has a UNIQUE constraint.
 --
 -- FK temporarily disabled because apps.owner_user_id references user.id,
--- and the admin (id=1) is created by DefaultUserService AFTER this
--- migration runs. Once the admin row exists, the references resolve.
+-- and the `system` user (id=1) is created by mysql_mig_3.sql which
+-- runs after this one. Once mig 3 inserts that row, the references
+-- resolve. Matches the SQLite ordering: 0002 (apps) → 0025 (system user).
 
 /*!40014 SET @OLD_FK = @@FOREIGN_KEY_CHECKS, FOREIGN_KEY_CHECKS=0 */;
 

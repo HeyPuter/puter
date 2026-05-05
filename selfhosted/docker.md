@@ -93,6 +93,8 @@ Two files run in order: `mysql_mig_1.sql` (tables) and `mysql_mig_2.sql` (defaul
 
 The bucket must exist already — Puter doesn't create it.
 
+For real AWS S3 the example above works as-is — virtual-hosted DNS form (`<bucket>.s3.amazonaws.com`) is the AWS SDK default. For S3-compatible servers (RustFS, MinIO, fauxqs), add `"forcePathStyle": true` inside the `s3Config` block — virtual-hosted DNS doesn't resolve there.
+
 > ⚠️ **S3 uses camelCase keys** (`accessKeyId` / `secretAccessKey`). DynamoDB below uses snake_case. They're not the same.
 
 ### DynamoDB (real AWS)

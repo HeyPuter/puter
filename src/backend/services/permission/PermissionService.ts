@@ -469,6 +469,22 @@ export class PermissionService extends PuterService {
      * `hardcoded-permissions.js`, merged with any runtime grants registered
      * through `registerSystemGrantForEveryone` / `registerSystemGrantForUsers`.
      */
+    /**
+     * Hardcoded user-group permissions, granted by `system` (the only
+     * issuer). DB-free: the default groups are static fixtures we never
+     * assign at runtime via DB, so we infer membership from the actor:
+     *   - `username === 'admin'`     → admin group
+     *   - `email_confirmed === true` → `default_user_group`
+     *   - otherwise                  → `default_temp_group`
+     *
+     * The admin username + group UID are matched verbatim against
+     * `DefaultUserService` and the seed migration; if either is renamed,
+     * update both ends.
+     *
+     * Permissions for non-default groups (custom operator-managed
+     * groups) still flow through `#scanUserGroup`, which reads
+     * `user_to_group_permissions` directly.
+     */
     async #scanHcUserGroupUser(
         actor: Actor,
         options: string[],
@@ -477,78 +493,50 @@ export class PermissionService extends PuterService {
         if (actor.app || actor.accessToken) return;
         if (!actor.user?.id) return;
 
-        const memberGroups = await this.stores.group.listGroupsWithMember(
-            actor.user.id,
-        );
-        if (memberGroups.length === 0) return;
+        const userGroupUid = this.config.default_user_group;
+        const tempGroupUid = this.config.default_temp_group;
+        const isAdmin = actor.user.username === 'admin';
+        const inferredGroupUid = isAdmin
+            ? 'ca342a5e-b13d-4dee-9048-58b11a57cc55' // admin group
+            : actor.user.email_confirmed
+              ? userGroupUid
+              : tempGroupUid;
+        if (!inferredGroupUid) return;
 
-        const groupByUid: Record<string, { id: number; uid: string }> = {};
-        for (const g of memberGroups) {
-            groupByUid[g.uid] = { id: g.id, uid: g.uid };
-        }
+        const hcSystem =
+            (
+                hardcoded_user_group_permissions as Record<
+                    string,
+                    Record<string, Record<string, unknown>>
+                >
+            ).system ?? {};
 
-        // Compose the effective issuer → group → permission → data map by
-        // merging the imported hardcoded data with runtime-registered system
-        // grants. Runtime grants are always attributed to the `system` issuer.
-        const hcMap = hardcoded_user_group_permissions as Record<
-            string,
-            Record<string, Record<string, unknown>>
-        >;
-        const hasRuntimeGrants =
-            Object.keys(this.systemGrantsByGroupUid).length > 0;
-        const byIssuer: Record<
-            string,
-            Record<string, Record<string, unknown>>
-        > = hasRuntimeGrants
-            ? { ...hcMap, system: { ...(hcMap.system ?? {}) } }
-            : hcMap;
-        if (hasRuntimeGrants) {
-            for (const [gUid, perms] of Object.entries(
-                this.systemGrantsByGroupUid,
-            )) {
-                byIssuer.system[gUid] = {
-                    ...(byIssuer.system[gUid] ?? {}),
-                    ...perms,
-                };
+        // Hardcoded grants + runtime `registerSystemGrant*` additions.
+        // Runtime grants always shadow the static map for the same key.
+        const groupPerms: Record<string, unknown> = {
+            ...(hcSystem[inferredGroupUid] ?? {}),
+            ...(this.systemGrantsByGroupUid[inferredGroupUid] ?? {}),
+        };
+        if (Object.keys(groupPerms).length === 0) return;
+
+        for (const permission of options) {
+            if (!Object.prototype.hasOwnProperty.call(groupPerms, permission)) {
+                continue;
             }
-        }
-
-        for (const issuerUsername of Object.keys(byIssuer)) {
-            const issuerUser =
-                await this.stores.user.getByUsername(issuerUsername);
-            if (!issuerUser) continue;
-            const issuerActor = this.#userToActor(issuerUser);
-            const issuerGroups = byIssuer[issuerUsername];
-
-            for (const groupUid of Object.keys(issuerGroups)) {
-                if (!groupByUid[groupUid]) continue;
-                const issuerGroupPerms = issuerGroups[groupUid];
-
-                for (const permission of options) {
-                    if (
-                        !Object.prototype.hasOwnProperty.call(
-                            issuerGroupPerms,
-                            permission,
-                        )
-                    )
-                        continue;
-                    const issuerReading = await this.scan(
-                        issuerActor,
-                        permission,
-                    );
-                    reading.push({
-                        $: 'path',
-                        via: 'hc-user-group',
-                        has_terminal: readingHasTerminal(issuerReading),
-                        permission,
-                        data: issuerGroupPerms[permission],
-                        holder_username: actor.user.username,
-                        issuer_username: issuerUsername,
-                        reading: issuerReading,
-                        group_id: groupByUid[groupUid].id,
-                    });
-                }
-            }
+            reading.push({
+                $: 'path',
+                via: 'hc-user-group',
+                // `system` is the issuer; `isSystemActor` short-circuits
+                // any scan to grant, so the chain is terminal by
+                // definition — no recursive verify needed.
+                has_terminal: true,
+                permission,
+                data: groupPerms[permission],
+                holder_username: actor.user.username,
+                issuer_username: 'system',
+                reading: null,
+                vgroup_id: inferredGroupUid,
+            });
         }
     }
 

@@ -46,7 +46,9 @@ type S3CommandSender = Pick<AwsS3Client, 'send'>;
 
 export class S3Client extends PuterClient {
     private clientMap = new Map<string, AwsS3Client>();
+    private presignClientMap = new Map<string, AwsS3Client>();
     private awsConfig: Partial<S3ClientConfig> = {};
+    private presignAwsConfig: Partial<S3ClientConfig> | null = null;
     private fauxqsServer: FauxqsServer | null = null;
     private useProviderChain = false;
 
@@ -70,10 +72,12 @@ export class S3Client extends PuterClient {
             // Real S3 / S3-compatible endpoint
             const {
                 endpoint,
+                publicEndpoint,
                 accessKeyId,
                 secretAccessKey,
                 region,
                 useCredentialChain,
+                forcePathStyle,
             } = s3Conf.s3Config;
 
             if (useCredentialChain) {
@@ -86,7 +90,22 @@ export class S3Client extends PuterClient {
                     endpoint,
                     credentials: { accessKeyId, secretAccessKey },
                     ...(region ? { region } : {}),
+                    // Defaults to virtual-hosted style (real-AWS S3 native).
+                    // S3-compatible servers (RustFS, MinIO, fauxqs) need
+                    // `forcePathStyle: true` — see `IS3RemoteConfig`.
+                    ...(forcePathStyle === undefined ? {} : { forcePathStyle }),
                 };
+                // Separate config for clients that mint browser-facing
+                // presigned URLs. Defaults to the same endpoint when
+                // unset, so prod (single public S3 endpoint) needs no
+                // change. Self-hosters with a docker-internal endpoint
+                // override this to a host-reachable URL.
+                if (publicEndpoint && publicEndpoint !== endpoint) {
+                    this.presignAwsConfig = {
+                        ...this.awsConfig,
+                        endpoint: publicEndpoint,
+                    };
+                }
             }
 
             console.log('[s3] configured with remote endpoint');
@@ -153,7 +172,11 @@ export class S3Client extends PuterClient {
         for (const client of this.clientMap.values()) {
             client.destroy();
         }
+        for (const client of this.presignClientMap.values()) {
+            client.destroy();
+        }
         this.clientMap.clear();
+        this.presignClientMap.clear();
     }
 
     // ------------------------------------------------------------------
@@ -185,6 +208,39 @@ export class S3Client extends PuterClient {
         });
 
         this.clientMap.set(region, client);
+        return client;
+    }
+
+    /**
+     * Client used to generate browser-facing presigned URLs. When
+     * `s3Config.publicEndpoint` is set, this returns a client bound to
+     * that endpoint — its signatures resolve against the public host
+     * the browser will actually hit. When unset, falls back to the
+     * regular client (prod behavior: one public endpoint everywhere).
+     */
+    getForPresign(
+        region = this.config.s3_region || this.config.region || 'us-west-2',
+    ): AwsS3Client {
+        if (!this.presignAwsConfig) return this.get(region);
+
+        const existing = this.presignClientMap.get(region);
+        if (existing) return existing;
+
+        const client = new AwsS3Client({
+            region,
+            requestStreamBufferSize: 32 * 1024,
+            requestHandler: new NodeHttpHandler({
+                socketTimeout: 5000,
+                httpsAgent: new HttpsAgent({
+                    maxSockets: 500,
+                    keepAlive: true,
+                    keepAliveMsecs: 1000,
+                }),
+            }),
+            ...this.presignAwsConfig,
+        });
+
+        this.presignClientMap.set(region, client);
         return client;
     }
 

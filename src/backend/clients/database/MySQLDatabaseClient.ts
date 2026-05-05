@@ -159,9 +159,11 @@ export class MySQLDatabaseClient extends AbstractDatabaseClient {
             insertId?: number;
             affectedRows?: number;
         };
+        const affectedRows = header.affectedRows ?? 0;
         return {
             insertId: header.insertId ?? 0,
-            anyRowsAffected: (header.affectedRows ?? 0) > 0,
+            affectedRows,
+            anyRowsAffected: affectedRows > 0,
         };
     }
 
