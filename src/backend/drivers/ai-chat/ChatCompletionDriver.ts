@@ -357,13 +357,15 @@ export class ChatCompletionDriver extends PuterDriver {
             const init = res.init_chat_stream;
             const cleanup = res.finally_fn;
 
-            // Intercept `chatStream.end(usage)` so we can fire the same
-            // complete + cost-calculated events the non-streaming branch
-            // emits. Providers always terminate streams via `.end(usage)`;
-            // if they skip it, we just lose the cost event (no worse than
-            // not emitting).
+            // Intercept `chatStream.end(usage)` to fire complete + cost events
+            // (mirrors the non-streaming branch). Clone usage so providers that
+            // meter after this call (e.g. Claude) don't pick up `usd_cents`.
             const originalEnd = chatStream.end.bind(chatStream);
             chatStream.end = (usage?: Record<string, number>) => {
+                const enrichedUsage = usage ? { ...usage } : usage;
+                if (enrichedUsage) {
+                    this.#injectUsdCents(enrichedUsage, model);
+                }
                 this.clients.event.emit(
                     'ai.prompt.complete',
                     {
@@ -371,7 +373,7 @@ export class ChatCompletionDriver extends PuterDriver {
                         completionId,
                         intended_service: intendedProvider,
                         parameters: args,
-                        result: { usage, stream: true },
+                        result: { usage: enrichedUsage, stream: true },
                         model_used: model.id,
                         service_used: model.provider,
                     },
@@ -386,7 +388,7 @@ export class ChatCompletionDriver extends PuterDriver {
                         intendedProvider,
                     });
                 }
-                return originalEnd(usage!);
+                return originalEnd(enrichedUsage!);
             };
 
             // Fire-and-forget — the stream writes happen async while the
@@ -435,6 +437,7 @@ export class ChatCompletionDriver extends PuterDriver {
         );
 
         if ('usage' in res && res.usage) {
+            this.#injectUsdCents(res.usage, model);
             this.#emitCostCalculated({
                 completionId,
                 username,
@@ -461,6 +464,116 @@ export class ChatCompletionDriver extends PuterDriver {
         return { ...res, via_ai_chat_service: true };
     }
 
+    // Compute per-token cost in microcents (1 cent = 1_000_000 ucents).
+    // Shape-agnostic: multiplies every usage key by its matching rate in
+    // `model.costs`. Returns `null` when cost data is unavailable.
+    #computeCost(
+        usage: Record<string, number>,
+        model: IChatModel,
+    ): {
+        inputKey: string;
+        outputKey: string;
+        inputTokens: number;
+        outputTokens: number;
+        inputUcents: number;
+        outputUcents: number;
+        totalUcents: number;
+    } | null {
+        const inputKey =
+            (model.input_cost_key as string | undefined) ?? 'input_tokens';
+        const outputKey =
+            (model.output_cost_key as string | undefined) ?? 'output_tokens';
+
+        const costs = model.costs;
+        if (!costs) return null;
+
+        const outputRateRaw = costs[outputKey];
+        const outputRate =
+            typeof outputRateRaw === 'number' && Number.isFinite(outputRateRaw)
+                ? outputRateRaw
+                : undefined;
+
+        const isOutputKey = (key: string) =>
+            key === outputKey ||
+            key === 'output_tokens' ||
+            key === 'completion_tokens' ||
+            key === 'thinking_tokens';
+
+        let inputUcents = 0;
+        let outputUcents = 0;
+        let sawAnyRate = false;
+
+        for (const [key, rawAmount] of Object.entries(usage)) {
+            if (typeof rawAmount !== 'number' || !Number.isFinite(rawAmount)) {
+                continue;
+            }
+
+            if (key === 'usd_cents') continue;
+            if (key === 'tokens') continue;
+
+            // thinking_tokens → output rate fallback
+            let rate = costs[key];
+            if (typeof rate !== 'number' || !Number.isFinite(rate)) {
+                if (key === 'thinking_tokens' && outputRate !== undefined) {
+                    rate = outputRate;
+                } else {
+                    continue;
+                }
+            }
+
+            const sub = rawAmount * rate;
+            sawAnyRate = true;
+            if (isOutputKey(key)) {
+                outputUcents += sub;
+            } else {
+                inputUcents += sub;
+            }
+        }
+
+        if (!sawAnyRate) return null;
+
+        inputUcents = Math.max(0, Math.round(inputUcents));
+        outputUcents = Math.max(0, Math.round(outputUcents));
+
+        const inputTokens = Number(
+            usage[inputKey] ?? usage.prompt_tokens ?? usage.input_tokens ?? 0,
+        );
+        const outputTokens = Number(
+            usage[outputKey] ??
+                usage.completion_tokens ??
+                usage.output_tokens ??
+                0,
+        );
+
+        return {
+            inputKey,
+            outputKey,
+            inputTokens,
+            outputTokens,
+            inputUcents,
+            outputUcents,
+            totalUcents: inputUcents + outputUcents,
+        };
+    }
+
+    // Add `usd_cents` to the usage object. Skips if the provider already
+    // set an authoritative value (e.g. OpenRouter's `usage.cost`).
+    // Sets `null` when cost data is unavailable for the model.
+    #injectUsdCents(usage: Record<string, number>, model: IChatModel): void {
+        if (
+            typeof usage.usd_cents === 'number' &&
+            Number.isFinite(usage.usd_cents)
+        ) {
+            return;
+        }
+        const cost = this.#computeCost(usage, model);
+        if (!cost) {
+            (usage as Record<string, number | null>).usd_cents = null;
+            return;
+        }
+        usage.usd_cents = cost.totalUcents / 1_000_000;
+    }
+
     // Compute per-token cost in microcents using the model's cost map,
     // then emit `ai.prompt.cost-calculated` for listeners that persist
     // billing/abuse rows keyed on the completion id.
@@ -474,23 +587,15 @@ export class ChatCompletionDriver extends PuterDriver {
         const { completionId, username, usage, model, intendedProvider } =
             params;
 
+        const cost = this.#computeCost(usage, model);
         const inputKey =
             (model.input_cost_key as string | undefined) ?? 'input_tokens';
         const outputKey =
             (model.output_cost_key as string | undefined) ?? 'output_tokens';
-        const inputCostPer = Number(model.costs?.[inputKey] ?? 0);
-        const outputCostPer = Number(model.costs?.[outputKey] ?? 0);
-        const inputTokens = Number(
-            usage[inputKey] ?? usage.prompt_tokens ?? usage.input_tokens ?? 0,
-        );
-        const outputTokens = Number(
-            usage[outputKey] ??
-                usage.completion_tokens ??
-                usage.output_tokens ??
-                0,
-        );
-        const inputUcents = Math.round(inputTokens * inputCostPer);
-        const outputUcents = Math.round(outputTokens * outputCostPer);
+        const inputTokens = cost?.inputTokens ?? 0;
+        const outputTokens = cost?.outputTokens ?? 0;
+        const inputUcents = cost?.inputUcents ?? 0;
+        const outputUcents = cost?.outputUcents ?? 0;
 
         this.clients.event.emit(
             'ai.prompt.cost-calculated',
