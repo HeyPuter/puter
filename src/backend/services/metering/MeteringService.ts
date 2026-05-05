@@ -161,6 +161,7 @@ export class MeteringService extends PuterService {
                 {
                     userId: actor.user?.uuid,
                     username: actor.user?.username,
+                    email: actor.user?.email,
                     appId: actor.app?.uid,
                     usageType,
                     usageAmount,
@@ -286,6 +287,7 @@ export class MeteringService extends PuterService {
                 {
                     userId: actor.user?.uuid,
                     username: actor.user?.username,
+                    email: actor.user?.email,
                     appId: actor.app?.uid,
                     error: e as Error,
                     usageType,
@@ -334,6 +336,7 @@ export class MeteringService extends PuterService {
                         {
                             userId: actor.user?.uuid,
                             username: actor.user?.username,
+                            email: actor.user?.email,
                             appId: actor.app?.uid,
                             usageType,
                             usageAmount,
@@ -444,6 +447,7 @@ export class MeteringService extends PuterService {
                 {
                     userId: actor.user?.uuid,
                     username: actor.user?.username,
+                    email: actor.user?.email,
                     appId: actor.app?.uid,
                     error: e as Error,
                     actor,
@@ -910,6 +914,7 @@ export class MeteringService extends PuterService {
             {
                 userId: actor.user?.uuid,
                 username: actor.user?.username,
+                email: actor.user?.email,
                 appId: actor.app?.uid,
                 usageType: ctx.usageType,
                 usageAmount: ctx.usageAmount,
