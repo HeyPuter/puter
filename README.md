@@ -50,7 +50,7 @@ npm start
 #### Linux/macOS
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/HeyPuter/puter/main/install.sh | sh
+curl -fsSL https://puter.com/install | sh
 ```
 
 #### Windows
