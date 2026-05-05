@@ -2741,8 +2741,12 @@ export class FSService extends PuterService {
             if (!this.#isUniqueViolation(err)) throw err;
             const insertedPath =
                 parent.path === '/' ? `/${name}` : `${parent.path}/${name}`;
-            const raced =
-                await this.stores.fsEntry.getEntryByPath(insertedPath);
+            // The dup violation proves a row exists, so a replica miss here
+            // would surface the raw ER_DUP_ENTRY as a 500. Read primary too.
+            const raced = await this.stores.fsEntry.getEntryByPath(
+                insertedPath,
+                { useTryHardRead: true },
+            );
             if (raced?.isDir) return raced;
             if (raced) {
                 throw new HttpError(

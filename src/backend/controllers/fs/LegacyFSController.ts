@@ -34,6 +34,7 @@ import { FS_COSTS } from './costs.js';
 import {
     asRecord,
     assertAccess,
+    assertCanCreate,
     getBoolean,
     getString,
     loadLegacyAssociatedApps,
@@ -475,15 +476,14 @@ export class LegacyFSController extends PuterController {
                     : `${parentPath.replace(/\/+$/, '')}/${rawPath}`;
         }
 
-        const parentPath = pathPosix.dirname(
-            targetPath.startsWith('/') ? targetPath : `/${targetPath}`,
-        );
-        await assertAccess(
+        const normalizedTarget = targetPath.startsWith('/')
+            ? targetPath
+            : `/${targetPath}`;
+        await assertCanCreate(
             this.services.acl,
             this.services.fs,
             actor,
-            parentPath === '/' ? targetPath : parentPath,
-            'write',
+            normalizedTarget,
         );
 
         const entry = await this.services.fs.mkdir(userId, {

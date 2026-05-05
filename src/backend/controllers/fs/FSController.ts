@@ -1001,20 +1001,14 @@ export class FSController extends PuterController {
         if (!rawPath.trim()) throw new HttpError(400, 'Missing `path`');
 
         // Normalize first: expands `~`, collapses `..`, ensures leading `/`
-        // and no trailing `/`. Without this, `pathPosix.dirname(...)` below
+        // and no trailing `/`. Without this, parent-path derivation below
         // would compute a wrong parent for `~/...` inputs (e.g. dirname of
         // `/~/Documents/foo` is `/~/Documents`, not `/<username>/Documents`).
         const username = this.#getActorUsername(req);
         const path = this.#normalizePath(rawPath, username);
         if (path === '/') throw new HttpError(400, 'Cannot mkdir at root');
 
-        // ACL: write on parent (or on target path if overwriting existing).
-        const parentPath = pathPosix.dirname(path);
-        await this.#assertAccess(
-            actor,
-            parentPath === '/' ? path : parentPath,
-            'write',
-        );
+        await this.#assertCanCreate(actor, path);
 
         const entry = await this.services.fs.mkdir(userId, {
             path,
@@ -1221,6 +1215,52 @@ export class FSController extends PuterController {
             throw new HttpError(404, 'Entry not found');
         }
         return entry;
+    }
+
+    /**
+     * Authorize creation of a new entry at `targetPath`. The standard rule
+     * is write on the parent, but we also accept write on the target itself
+     * — this lets an app create its own `/<user>/AppData/<app_uid>` folder
+     * (parent `AppData` is off-limits, but the target is the app's own
+     * subtree per ACLService's short-circuit) and lets recipients of a
+     * direct share on a not-yet-existent path materialize it.
+     */
+    async #assertCanCreate(actor: Actor, targetPath: string) {
+        const parent = pathPosix.dirname(targetPath);
+        const parentForCheck = parent === '/' ? targetPath : parent;
+        const fsService = this.services.fs;
+
+        const makeDescriptor = (path: string) => {
+            let cache: Promise<Array<{ uid: string; path: string }>> | null =
+                null;
+            return {
+                path,
+                resolveAncestors() {
+                    if (!cache) cache = fsService.getAncestorChain(path);
+                    return cache;
+                },
+            };
+        };
+
+        if (
+            await this.services.acl.check(
+                actor,
+                makeDescriptor(parentForCheck),
+                'write',
+            )
+        ) {
+            return;
+        }
+        if (
+            await this.services.acl.check(
+                actor,
+                makeDescriptor(targetPath),
+                'write',
+            )
+        ) {
+            return;
+        }
+        await this.#assertAccess(actor, parentForCheck, 'write');
     }
 
     async #assertAccess(

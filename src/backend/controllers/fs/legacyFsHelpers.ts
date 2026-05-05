@@ -210,6 +210,48 @@ export async function assertAccess(
     });
 }
 
+/**
+ * Authorize creation of a new entry at `targetPath`. The standard rule is
+ * write on the parent, but we also allow it when the actor has explicit
+ * write on the target itself — this covers an app creating its own
+ * `/<user>/AppData/<app_uid>` folder (parent `AppData` is off-limits, but
+ * the target is the app's own subtree per ACLService's short-circuit) and
+ * shares granted directly on a not-yet-created path.
+ *
+ * On failure, delegates to `assertAccess` on the parent so the error
+ * shape stays identical to the previous parent-only check.
+ */
+export async function assertCanCreate(
+    aclService: ACLService,
+    fsService: FSService,
+    actor: Actor,
+    targetPath: string,
+): Promise<void> {
+    const parent = pathPosix.dirname(targetPath);
+    const parentForCheck = parent === '/' ? targetPath : parent;
+
+    const makeDescriptor = (path: string) => {
+        let cache: Promise<Array<{ uid: string; path: string }>> | null = null;
+        return {
+            path,
+            resolveAncestors() {
+                if (!cache) cache = fsService.getAncestorChain(path);
+                return cache;
+            },
+        };
+    };
+
+    if (
+        await aclService.check(actor, makeDescriptor(parentForCheck), 'write')
+    ) {
+        return;
+    }
+    if (await aclService.check(actor, makeDescriptor(targetPath), 'write')) {
+        return;
+    }
+    await assertAccess(aclService, fsService, actor, parentForCheck, 'write');
+}
+
 // ── Response shaping ────────────────────────────────────────────────
 
 type AppRowLookup = {
