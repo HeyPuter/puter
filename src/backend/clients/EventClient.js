@@ -17,9 +17,11 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { extensionStore } from '../extensions';
 import { PuterClient } from './types';
 
 export class EventClient extends PuterClient {
+    /** @type {Record<string,(()=>void)[]>} */
     #eventListeners = {};
 
     onServerStart() {
@@ -60,7 +62,10 @@ export class EventClient extends PuterClient {
                 i === parts.length - 1
                     ? key
                     : `${parts.slice(0, i + 1).join('.')}.*`;
-            const listeners = this.#eventListeners[matchKey];
+            const extensionListeners = extensionStore.events[matchKey];
+            const listeners = (this.#eventListeners[matchKey] || []).concat(
+                extensionListeners || [],
+            );
             if (!listeners) continue;
             for (const listener of listeners) {
                 this.#emitEvent(listener, key, data, meta);
@@ -93,7 +98,10 @@ export class EventClient extends PuterClient {
                 i === parts.length - 1
                     ? key
                     : `${parts.slice(0, i + 1).join('.')}.*`;
-            const listeners = this.#eventListeners[matchKey];
+            const extensionListeners = extensionStore.events[matchKey];
+            const listeners = (this.#eventListeners[matchKey] || []).concat(
+                extensionListeners || [],
+            );
             if (!listeners) continue;
             for (const listener of listeners) {
                 try {

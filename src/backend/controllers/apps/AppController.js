@@ -123,7 +123,7 @@ export class AppController extends PuterController {
                 }
 
                 try {
-                    this.clients.event?.emit(
+                    this.clients.event?.emitAndWait(
                         'app.opened',
                         {
                             app_uid,
