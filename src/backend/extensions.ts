@@ -56,8 +56,10 @@ export const extensionStore = {
     controllers: {} as IPuterControllerRegistry,
     drivers: {} as IPuterDriverRegistry,
     globalMiddlewares: [] as RequestHandler[],
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    events: {} as Record<string, ((...args: any[]) => void)[]>,
+    events: {} as Record<
+        string,
+        ((key: string, data: unknown, meta: unknown) => void)[]
+    >,
     /**
      * Extension-declared routes. Shape matches the controller-layer
      * `RouteDescriptor`, so both flow through the same materializer
@@ -192,8 +194,11 @@ export const extension = {
 
     // ── Event subscription ───────────────────────────────────────────
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    on: (event: string, handler: (...args: any[]) => void) => {
+    on: (
+        event: string,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        handler: (key: string, data: any, meta: any) => void,
+    ) => {
         if (!extensionStore.events[event]) {
             extensionStore.events[event] = [];
         }
@@ -281,6 +286,7 @@ export const extension = {
                             const proxyProxyHandler = {
                                 get: (_target2: object, prop2: string) => {
                                     const proxiedObj2 =
+                                        // @ts-expect-error any type needed
                                         clientsContainers[prop][prop2];
                                     if (!proxiedObj2) {
                                         throw new Error(
@@ -307,6 +313,7 @@ export const extension = {
                             const proxyProxyHandler = {
                                 get: (_target2: object, prop2: string) => {
                                     const proxiedObj2 =
+                                        // @ts-expect-error any type needed
                                         clientsContainers[prop][prop2];
                                     if (!proxiedObj2) {
                                         throw new Error(
@@ -333,6 +340,7 @@ export const extension = {
                             const proxyProxyHandler = {
                                 get: (_target2: object, prop2: string) => {
                                     const proxiedObj2 =
+                                        // @ts-expect-error any type needed
                                         clientsContainers[prop][prop2];
                                     if (!proxiedObj2) {
                                         throw new Error(
@@ -359,6 +367,7 @@ export const extension = {
                             const proxyProxyHandler = {
                                 get: (_target2: object, prop2: string) => {
                                     const proxiedObj2 =
+                                        // @ts-expect-error any type needed
                                         clientsContainers[prop][prop2];
                                     if (!proxiedObj2) {
                                         throw new Error(
@@ -385,6 +394,7 @@ export const extension = {
                             const proxyProxyHandler = {
                                 get: (_target2: object, prop2: string) => {
                                     const proxiedObj2 =
+                                        // @ts-expect-error any type needed
                                         clientsContainers[prop][prop2];
                                     if (!proxiedObj2) {
                                         throw new Error(

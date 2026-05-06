@@ -99,35 +99,38 @@ async function decodeAndValidateThumbnail(
 // Intercept data-URL thumbnails before they hit the DB: upload to S3
 // and replace the URL with an s3:// pointer.
 
-extension.on('thumbnail.created', async (event: Record<string, unknown>) => {
-    const url = event.url;
-    if (typeof url !== 'string' || !url.startsWith('data:')) return;
+extension.on(
+    'thumbnail.created',
+    async (_key, event: Record<string, unknown>) => {
+        const url = event.url;
+        if (typeof url !== 'string' || !url.startsWith('data:')) return;
 
-    const decoded = await decodeAndValidateThumbnail(url);
-    if (!decoded) {
-        event.url = null;
-        return;
-    }
+        const decoded = await decodeAndValidateThumbnail(url);
+        if (!decoded) {
+            event.url = null;
+            return;
+        }
 
-    const key = crypto.randomUUID();
-    event.url = `s3://${thumbnailBucketName}/${key}`;
+        const key = crypto.randomUUID();
+        event.url = `s3://${thumbnailBucketName}/${key}`;
 
-    await getClient().send(
-        new PutObjectCommand({
-            Bucket: thumbnailBucketName,
-            Key: key,
-            Body: decoded.data,
-            ContentType: decoded.mimeType,
-        }),
-    );
-});
+        await getClient().send(
+            new PutObjectCommand({
+                Bucket: thumbnailBucketName,
+                Key: key,
+                Body: decoded.data,
+                ContentType: decoded.mimeType,
+            }),
+        );
+    },
+);
 
 // ── thumbnail.upload.prepare ────────────────────────────────────────
 // Generate pre-signed upload URLs so the client can PUT directly to S3.
 
 extension.on(
     'thumbnail.upload.prepare',
-    async (event: Record<string, unknown>) => {
+    async (_key, event: Record<string, unknown>) => {
         if (!event || !Array.isArray(event.items)) return;
         const presignClient = getPresignClient();
 
@@ -169,7 +172,7 @@ extension.on(
 // ── thumbnail.read ──────────────────────────────────────────────────
 // Convert s3:// or legacy https:// thumbnails to signed URLs.
 
-extension.on('thumbnail.read', async (entry: Record<string, unknown>) => {
+extension.on('thumbnail.read', async (_key, entry: Record<string, unknown>) => {
     const thumb = entry.thumbnail;
     if (typeof thumb !== 'string' || !thumb) return;
     const presignClient = getPresignClient();
@@ -233,7 +236,7 @@ extension.on('thumbnail.read', async (entry: Record<string, unknown>) => {
 
 extension.on(
     'fs.remove.node',
-    async ({ target }: { target: Record<string, unknown> }) => {
+    async (_key, { target }: { target: Record<string, unknown> }) => {
         const thumbnailUrl = target.thumbnail as string | undefined;
         if (!thumbnailUrl || !thumbnailUrl.startsWith('s3://')) return;
 
