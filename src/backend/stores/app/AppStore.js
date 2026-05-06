@@ -38,6 +38,10 @@ const LIST_CACHE_TTL_SECONDS = 15 * 60;
 const FILETYPE_CACHE_KEY_PREFIX = 'apps:by-filetype';
 const FILETYPE_CACHE_TTL_SECONDS = 60;
 const APP_ID_PROPERTIES = ['id', 'uid', 'name'];
+// Old-name redirect window. After this many months an entry in
+// `old_app_names` is considered stale and is deleted on the next read
+// against that name (lazy GC — no background sweep needed).
+const OLD_APP_NAME_TTL_MONTHS = 3;
 // Cap on placeholders per `IN (?, ?, …)` query. SQLite's default parameter
 // limit is 999; staying well under that keeps `getByIds` portable across
 // backends without splitting the cap by driver.
@@ -341,6 +345,9 @@ export class AppStore extends PuterStore {
             throw new Error('Failed to create app — no insertId returned');
 
         const fresh = await this.getById(insertId);
+        if (fresh?.name) {
+            await this.#clearOldAppNamesForName(fresh.name);
+        }
         await this.#invalidateListCachesForApps([fresh]);
         return fresh;
     }
@@ -398,12 +405,73 @@ export class AppStore extends PuterStore {
             [...values, appId],
         );
 
+        const renamed =
+            before &&
+            typeof allowed.name === 'string' &&
+            allowed.name !== before.name;
+        if (renamed) {
+            await this.#recordOldAppName(before.uid, before.name);
+            // The new name now belongs to `appId`, so any redirect that
+            // used to point to a different app for that name is no
+            // longer accurate — drop it. Also covers the reclaim case
+            // where this same app's earlier (uid, newName) row would
+            // otherwise linger as a self-redirect.
+            await this.#clearOldAppNamesForName(allowed.name);
+        }
+
         const fresh = await this.#readFromDb('id', appId);
         await this.#invalidateListCachesForApps([before, fresh]);
         if (fresh) {
             await this.#refreshCache({ ...fresh, ...allowed });
         }
+        if (renamed) {
+            // Drop any stale `apps:name:<old>` cache so the next
+            // getByName(old) goes through the redirect path with fresh
+            // data instead of returning a copy of the app under its old
+            // name.
+            await this.publishCacheKeys({
+                keys: [this.#cacheKey('name', before.name)],
+                broadcast: true,
+            });
+        }
         return fresh;
+    }
+
+    /**
+     * Record `oldName` as a redirect to the app identified by `appUid`.
+     * The (app_uid, name) tuple is unique in `old_app_names`, so the
+     * upsert refreshes the timestamp when the same app re-records the
+     * same previous name (which happens whenever a user renames back
+     * and forth) — that resets the TTL clock so the redirect stays live
+     * for another {@link OLD_APP_NAME_TTL_MONTHS} months.
+     */
+    async #recordOldAppName(appUid, oldName) {
+        if (!appUid || typeof oldName !== 'string' || oldName.length === 0) {
+            return;
+        }
+        const upsertClause = this.clients.db.case({
+            mysql: 'ON DUPLICATE KEY UPDATE `timestamp` = CURRENT_TIMESTAMP',
+            otherwise:
+                'ON CONFLICT(`app_uid`, `name`) DO UPDATE SET `timestamp` = CURRENT_TIMESTAMP',
+        });
+        await this.clients.db.write(
+            `INSERT INTO \`old_app_names\` (\`app_uid\`, \`name\`) VALUES (?, ?) ${upsertClause}`,
+            [appUid, oldName],
+        );
+    }
+
+    /**
+     * Drop every `old_app_names` row for `name`. Called whenever a name
+     * is freshly claimed in `apps` (create or rename-into) so the
+     * authoritative live row isn't shadowed by a stale redirect that
+     * pointed `name` at some prior owner.
+     */
+    async #clearOldAppNamesForName(name) {
+        if (typeof name !== 'string' || name.length === 0) return;
+        await this.clients.db.write(
+            'DELETE FROM `old_app_names` WHERE `name` = ?',
+            [name],
+        );
     }
 
     /**
@@ -595,9 +663,52 @@ export class AppStore extends PuterStore {
     }
 
     async #readFromDb(prop, value) {
+        if (prop === 'name') {
+            // Direct match on the live `apps.name` always wins — a current
+            // owner of the name takes precedence over any historical
+            // redirect still lingering in `old_app_names`.
+            const directRows = await this.clients.db.read(
+                'SELECT * FROM `apps` WHERE `name` = ? LIMIT 1',
+                [value],
+            );
+            if (directRows.length > 0) {
+                return this.#normalizeRow(directRows[0]);
+            }
+            return this.#resolveByOldName(value);
+        }
+
         const rows = await this.clients.db.read(
             `SELECT * FROM \`apps\` WHERE \`${prop}\` = ? LIMIT 1`,
             [value],
+        );
+        if (rows.length === 0) return null;
+        return this.#normalizeRow(rows[0]);
+    }
+
+    /**
+     * Resolve an app by a previously-used name via `old_app_names`.
+     * Lazy-GCs entries older than {@link OLD_APP_NAME_TTL_MONTHS}: a
+     * cutoff DELETE runs before the JOIN, so an expired redirect is
+     * removed and the lookup returns null on the very same call.
+     */
+    async #resolveByOldName(name) {
+        const cutoffClause = this.clients.db.case({
+            sqlite: `datetime('now', '-${OLD_APP_NAME_TTL_MONTHS} months')`,
+            otherwise: `(NOW() - INTERVAL ${OLD_APP_NAME_TTL_MONTHS} MONTH)`,
+        });
+
+        await this.clients.db.write(
+            `DELETE FROM \`old_app_names\` WHERE \`name\` = ? AND \`timestamp\` < ${cutoffClause}`,
+            [name],
+        );
+
+        const rows = await this.clients.db.read(
+            `SELECT a.* FROM \`apps\` AS a
+             INNER JOIN \`old_app_names\` AS o ON o.\`app_uid\` = a.\`uid\`
+             WHERE o.\`name\` = ?
+             ORDER BY o.\`timestamp\` DESC
+             LIMIT 1`,
+            [name],
         );
         if (rows.length === 0) return null;
         return this.#normalizeRow(rows[0]);
