@@ -100,13 +100,12 @@ extension.get(
         // OIDC revalidate URL for password-less accounts
         if (oidcOnly) {
             try {
-                const providers = await services.oidc.getEnabledProviderIds();
-                const provider = providers?.[0];
+                const provider = await services.oidc.getLinkedProviderForUser(
+                    user.id as number,
+                );
                 if (provider) {
-                    const callbackUrl =
-                        services.oidc.getCallbackUrl?.('login') ?? '';
-                    const origin = callbackUrl.replace(
-                        /\/auth\/oidc\/callback\/login$/,
+                    const origin = (extension.config.origin ?? '').replace(
+                        /\/$/,
                         '',
                     );
                     details.oidc_revalidate_url = `${origin}/auth/oidc/${provider}/start?flow=revalidate&user_uuid=${encodeURIComponent(user.uuid)}`;
