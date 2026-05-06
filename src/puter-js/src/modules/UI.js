@@ -881,7 +881,7 @@ class UI extends EventListener {
         return new Promise((resolve) => {
             const opts = typeof options === 'string' ? { defaultColor: options } : (options ?? {});
             const el = document.createElement('puter-color-picker');
-            const defaultColor = opts.defaultColor || opts.default || '#3b82f6';
+            const defaultColor = opts.defaultValue || opts.defaultColor || opts.default || '#3b82f6';
             el.setAttribute('default-color', defaultColor);
             el.addEventListener('response', (e) => resolve(e.detail));
             document.body.appendChild(el);
