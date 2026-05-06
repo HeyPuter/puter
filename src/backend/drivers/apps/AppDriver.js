@@ -103,7 +103,9 @@ export class AppDriver extends PuterDriver {
 
     async create({ object, options } = {}) {
         if (!object || typeof object !== 'object') {
-            throw new HttpError(400, 'Missing or invalid `object`');
+            throw new HttpError(400, 'Missing or invalid `object`', {
+                legacyCode: 'bad_request',
+            });
         }
         const actor = this.#requireActor();
         this.#requireUserOrAppActor(actor);
@@ -140,7 +142,9 @@ export class AppDriver extends PuterDriver {
                 do {
                     candidate = `${fields.name}-${++n}`;
                     if (n > 50)
-                        throw new HttpError(400, 'Failed to dedupe app name');
+                        throw new HttpError(400, 'Failed to dedupe app name', {
+                            legacyCode: 'bad_request',
+                        });
                 } while (await this.appStore.existsByName(candidate));
                 fields.name = candidate;
             } else {
@@ -174,7 +178,10 @@ export class AppDriver extends PuterDriver {
     async read({ uid, id, params = {}, ...rest } = {}) {
         const actor = this.#requireActor();
         const app = await this.#resolve({ uid, id });
-        if (!app) throw new HttpError(404, 'App not found');
+        if (!app)
+            throw new HttpError(404, 'App not found', {
+                legacyCode: 'not_found',
+            });
 
         await this.#checkReadAccess(app, actor);
 
@@ -279,13 +286,18 @@ export class AppDriver extends PuterDriver {
 
     async update({ uid, id, object } = {}) {
         if (!object || typeof object !== 'object') {
-            throw new HttpError(400, 'Missing or invalid `object`');
+            throw new HttpError(400, 'Missing or invalid `object`', {
+                legacyCode: 'bad_request',
+            });
         }
         const actor = this.#requireActor();
         this.#requireUserOrAppActor(actor);
 
         const app = await this.#resolve({ uid, id });
-        if (!app) throw new HttpError(404, 'App not found');
+        if (!app)
+            throw new HttpError(404, 'App not found', {
+                legacyCode: 'not_found',
+            });
 
         await this.#checkWriteAccess(app, actor);
 
@@ -322,8 +334,9 @@ export class AppDriver extends PuterDriver {
         if (fields.name && fields.name !== app.name) {
             if (await this.appStore.existsByName(fields.name)) {
                 throw new HttpError(
-                    400,
+                    409,
                     'An app with this name already exists',
+                    { legacyCode: 'conflict' },
                 );
             }
         }
@@ -359,10 +372,15 @@ export class AppDriver extends PuterDriver {
         this.#requireUserOrAppActor(actor);
 
         const app = await this.#resolve({ uid, id });
-        if (!app) throw new HttpError(404, 'App not found');
+        if (!app)
+            throw new HttpError(404, 'App not found', {
+                legacyCode: 'not_found',
+            });
 
         if (app.protected) {
-            throw new HttpError(403, 'Cannot delete a protected app');
+            throw new HttpError(403, 'Cannot delete a protected app', {
+                legacyCode: 'forbidden',
+            });
         }
 
         await this.#checkWriteAccess(app, actor);
@@ -495,12 +513,14 @@ export class AppDriver extends PuterDriver {
                         throw new HttpError(
                             400,
                             '`icon` data URL must use an image MIME type',
+                            { legacyCode: 'bad_request' },
                         );
                     }
                 } else if (!isAppIconEndpointUrl(iconStr, this.config)) {
                     throw new HttpError(
                         400,
                         '`icon` must be base64, a data:image/… URL, or an app-icon endpoint URL',
+                        { legacyCode: 'bad_request' },
                     );
                 }
             }
@@ -542,12 +562,18 @@ export class AppDriver extends PuterDriver {
 
     #requireActor() {
         const actor = Context.get('actor');
-        if (!actor) throw new HttpError(401, 'Authentication required');
+        if (!actor)
+            throw new HttpError(401, 'Authentication required', {
+                legacyCode: 'unauthorized',
+            });
         return actor;
     }
 
     #requireUserOrAppActor(actor) {
-        if (!actor.user) throw new HttpError(403, 'User actor required');
+        if (!actor.user)
+            throw new HttpError(403, 'User actor required', {
+                legacyCode: 'forbidden',
+            });
     }
 
     async #resolve({ uid, id }) {
@@ -605,7 +631,7 @@ export class AppDriver extends PuterDriver {
 
     async #checkReadAccess(app, actor) {
         if (await this.#canReadApp(app, actor)) return;
-        throw new HttpError(403, 'Access denied');
+        throw new HttpError(403, 'Access denied', { legacyCode: 'forbidden' });
     }
 
     async #checkWriteAccess(app, actor) {
@@ -624,7 +650,9 @@ export class AppDriver extends PuterDriver {
             );
         }
         if (!hasAccess) {
-            throw new HttpError(403, 'Access denied');
+            throw new HttpError(403, 'Access denied', {
+                legacyCode: 'forbidden',
+            });
         }
     }
 
