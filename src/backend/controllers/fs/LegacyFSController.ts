@@ -66,7 +66,8 @@ async function loadAdditionalRouter(
         return (mod.default ?? mod) as RequestHandler;
     } catch (err) {
         console.error(
-            `[legacy-fs] failed to load additional route module '${key}':`,
+            '[legacy-fs] failed to load additional route module:',
+            key,
             err,
         );
         return null;
@@ -79,7 +80,7 @@ export class LegacyFSController extends PuterController {
     #additionalCache: RouterCache = new Map();
 
     registerRoutes(router: PuterRouter): void {
-        const apiOptions = { subdomain: 'api', requireVerified: true } as const;
+        const apiOptions = { subdomain: 'api', requireAuth: true, requireVerified: true } as const;
         // Signed-URL routes: the handler validates the URL signature itself,
         // so no auth gate is applied (matches v1, which mounted these routers
         // with no middleware).
