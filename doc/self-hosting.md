@@ -260,6 +260,23 @@ To require email confirmation before login, also set `"strict_email_verification
 
 Add `https://puter.<your-domain>/auth/oidc/callback/login` to the OAuth client's authorized redirect URIs in the Google Cloud Console. For non-Google providers, replace `google` with a custom id and supply `authorization_endpoint` / `token_endpoint` / `userinfo_endpoint` explicitly.
 
+### Sign in with Apple
+
+```json
+"oidc": {
+    "providers": {
+        "apple": {
+            "client_id": "com.example.your-service-id",
+            "team_id": "YOUR_TEAM_ID",
+            "key_id": "YOUR_KEY_ID",
+            "private_key": "-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----"
+        }
+    }
+}
+```
+
+The `client_id` is your Apple Services ID. `team_id`, `key_id`, and `private_key` come from the Apple Developer Portal (Keys section — create a key with "Sign in with Apple" enabled). The `private_key` is the contents of the `.p8` file Apple provides. Add `https://puter.<your-domain>/auth/oidc/callback/login` and `https://puter.<your-domain>/auth/oidc/callback/signup` as return URLs in the Apple Services ID configuration.
+
 ### AI providers
 
 Any provider with a key set is auto-enabled. Same shape as `ollama` above:

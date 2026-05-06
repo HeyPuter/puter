@@ -149,6 +149,12 @@ export interface IOIDCProviderConfig {
     userinfo_endpoint?: string;
     /** Space-separated OAuth scopes. Default depends on provider. */
     scopes?: string;
+    /** Apple Developer Team ID (apple provider only). */
+    team_id?: string;
+    /** Key ID for the Sign in with Apple private key (apple provider only). */
+    key_id?: string;
+    /** PKCS#8 PEM private key content from Apple (apple provider only). */
+    private_key?: string;
     [key: string]: unknown;
 }
 

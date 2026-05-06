@@ -513,6 +513,8 @@ const en = {
         'signup_confirm_password': 'Confirm Password',
         sign_in_with_google: 'Sign in with Google',
         sign_up_with_google: 'Sign up with Google',
+        sign_in_with_apple: 'Sign in with Apple',
+        sign_up_with_apple: 'Sign up with Apple',
         oidc_switched_to_login_message: 'You have been logged in to an existing account.',
 
         // Login Window
