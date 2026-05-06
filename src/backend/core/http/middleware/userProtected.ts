@@ -82,9 +82,9 @@ async function buildRevalidateFields(
     user: UserRow,
 ): Promise<Record<string, string> | undefined> {
     const origin = (config.origin ?? '').replace(/\/$/, '');
-    const providers = await oidcService.getEnabledProviderIds();
-    const provider = providers && providers[0];
-    if (!provider || !origin) return undefined;
+    if (!origin) return undefined;
+    const provider = await oidcService.getLinkedProviderForUser(user.id);
+    if (!provider) return undefined;
     return {
         revalidate_url: `${origin}/auth/oidc/${provider}/start?flow=revalidate&user_uuid=${encodeURIComponent(user.uuid)}`,
     };

@@ -294,6 +294,12 @@ export class OIDCService extends PuterService {
         return this.stores.user.getById(link.user_id as number);
     }
 
+    async getLinkedProviderForUser(userId: number): Promise<string | null> {
+        const links = await this.stores.oidc.listByUserId(userId);
+        if (!links || links.length === 0) return null;
+        return links[0].provider as string;
+    }
+
     /**
      * Find an existing Puter user by the email claimed by the OIDC provider.
      *
