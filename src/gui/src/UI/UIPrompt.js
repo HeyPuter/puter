@@ -47,7 +47,7 @@ function UIPrompt (options) {
         h += `<div class="window-prompt-message">${options.message}</div>`;
         // prompt
         h += '<div class="window-alert-prompt" style="margin-top: 20px;">';
-        h += `<input type="text" class="prompt-input" placeholder="${options.placeholder ?? ''}" value="${options.value ?? ''}">`;
+        h += `<input type="text" class="prompt-input" placeholder="${options.placeholder ?? ''}" value="${options.defaultValue ?? options.value ?? ''}">`;
         h += '</div>';
         // buttons
         if ( options.buttons && options.buttons.length > 0 ) {
