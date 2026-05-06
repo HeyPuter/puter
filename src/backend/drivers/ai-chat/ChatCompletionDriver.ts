@@ -464,7 +464,7 @@ export class ChatCompletionDriver extends PuterDriver {
         return { ...res, via_ai_chat_service: true };
     }
 
-    // Compute per-token cost in microcents (1 cent = 1_000_000 ucents).
+    // Compute per-token cost in microcents (1 cent = 1_000_000 microCents).
     // Shape-agnostic: multiplies every usage key by its matching rate in
     // `model.costs`. Returns `null` when cost data is unavailable.
     #computeCost(
@@ -475,9 +475,9 @@ export class ChatCompletionDriver extends PuterDriver {
         outputKey: string;
         inputTokens: number;
         outputTokens: number;
-        inputUcents: number;
-        outputUcents: number;
-        totalUcents: number;
+        inputMicroCents: number;
+        outputMicroCents: number;
+        totalMicroCents: number;
     } | null {
         const inputKey =
             (model.input_cost_key as string | undefined) ?? 'input_tokens';
@@ -499,8 +499,8 @@ export class ChatCompletionDriver extends PuterDriver {
             key === 'completion_tokens' ||
             key === 'thinking_tokens';
 
-        let inputUcents = 0;
-        let outputUcents = 0;
+        let inputMicroCents = 0;
+        let outputMicroCents = 0;
         let sawAnyRate = false;
 
         for (const [key, rawAmount] of Object.entries(usage)) {
@@ -524,16 +524,16 @@ export class ChatCompletionDriver extends PuterDriver {
             const sub = rawAmount * rate;
             sawAnyRate = true;
             if (isOutputKey(key)) {
-                outputUcents += sub;
+                outputMicroCents += sub;
             } else {
-                inputUcents += sub;
+                inputMicroCents += sub;
             }
         }
 
         if (!sawAnyRate) return null;
 
-        inputUcents = Math.max(0, Math.round(inputUcents));
-        outputUcents = Math.max(0, Math.round(outputUcents));
+        inputMicroCents = Math.max(0, Math.round(inputMicroCents));
+        outputMicroCents = Math.max(0, Math.round(outputMicroCents));
 
         const inputTokens = Number(
             usage[inputKey] ?? usage.prompt_tokens ?? usage.input_tokens ?? 0,
@@ -550,9 +550,9 @@ export class ChatCompletionDriver extends PuterDriver {
             outputKey,
             inputTokens,
             outputTokens,
-            inputUcents,
-            outputUcents,
-            totalUcents: inputUcents + outputUcents,
+            inputMicroCents,
+            outputMicroCents,
+            totalMicroCents: inputMicroCents + outputMicroCents,
         };
     }
 
@@ -571,7 +571,7 @@ export class ChatCompletionDriver extends PuterDriver {
             (usage as Record<string, number | null>).usd_cents = null;
             return;
         }
-        usage.usd_cents = cost.totalUcents / 1_000_000;
+        usage.usd_cents = cost.totalMicroCents / 1_000_000;
     }
 
     // Compute per-token cost in microcents using the model's cost map,
@@ -594,8 +594,8 @@ export class ChatCompletionDriver extends PuterDriver {
             (model.output_cost_key as string | undefined) ?? 'output_tokens';
         const inputTokens = cost?.inputTokens ?? 0;
         const outputTokens = cost?.outputTokens ?? 0;
-        const inputUcents = cost?.inputUcents ?? 0;
-        const outputUcents = cost?.outputUcents ?? 0;
+        const inputMicroCents = cost?.inputMicroCents ?? 0;
+        const outputMicroCents = cost?.outputMicroCents ?? 0;
 
         this.clients.event.emit(
             'ai.prompt.cost-calculated',
@@ -605,9 +605,9 @@ export class ChatCompletionDriver extends PuterDriver {
                 usage,
                 input_tokens: inputTokens,
                 output_tokens: outputTokens,
-                input_ucents: inputUcents,
-                output_ucents: outputUcents,
-                total_ucents: inputUcents + outputUcents,
+                input_ucents: inputMicroCents,
+                output_ucents: outputMicroCents,
+                total_ucents: inputMicroCents + outputMicroCents,
                 costs_currency: model.costs_currency,
                 model_used: model.id,
                 service_used: model.provider,
