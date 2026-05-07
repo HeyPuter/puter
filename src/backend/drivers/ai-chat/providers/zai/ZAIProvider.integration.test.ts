@@ -20,8 +20,12 @@
 /**
  * Integration test for the Z.AI (GLM) provider.
  *
- * Uses `glm-4.7-flashx` — the cheapest text variant on the price
- * sheet. Skipped when `PUTER_TEST_AI_ZAI_API_KEY` is unset.
+ * Uses `glm-4.6` with `thinking: disabled` passed through `custom`.
+ * GLM models default to reasoning mode and route their tokens to a
+ * `reasoning_content` field, leaving `content` empty under tight
+ * budgets. Disabling thinking forces a plain text response so the
+ * usual `message.content` assertion works. Skipped when
+ * `PUTER_TEST_AI_ZAI_API_KEY` is unset.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -37,7 +41,7 @@ import { ZAIProvider } from './ZAIProvider.js';
 const ENV_VAR = 'PUTER_TEST_AI_ZAI_API_KEY';
 
 describe.skipIf(skipUnlessEnv(ENV_VAR))('ZAIProvider (integration)', () => {
-    it('returns a non-empty completion from glm-4.7-flashx', { timeout: INTEGRATION_TEST_TIMEOUT_MS }, async () => {
+    it('returns a non-empty completion from glm-4.6', { timeout: INTEGRATION_TEST_TIMEOUT_MS }, async () => {
         const provider = new ZAIProvider(
             { apiKey: optionalEnv(ENV_VAR)! },
             makeMeteringStub(),
@@ -45,9 +49,10 @@ describe.skipIf(skipUnlessEnv(ENV_VAR))('ZAIProvider (integration)', () => {
 
         const result = await withTestActor(() =>
             provider.complete({
-                model: 'glm-4.7-flashx',
+                model: 'glm-4.6',
                 messages: [{ role: 'user', content: 'Say hi in one word.' }],
                 max_tokens: 16,
+                custom: { thinking: { type: 'disabled' } },
             }),
         );
 

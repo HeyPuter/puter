@@ -20,14 +20,12 @@
 /**
  * Integration test for the Together AI provider.
  *
- * Uses `Llama-3.3-70B-Instruct-Turbo-Free` — Together's free
- * serverless tier (rate-limited, $0/req). Together churns its
- * serverless model list aggressively; if this one disappears, the
- * provider's lookup will silently fall back to its default and the
- * upstream API will return `model_not_available`. When that happens,
- * pick a different live serverless model from
- * https://api.together.ai/models?type=serverless. Skipped when
- * `PUTER_TEST_AI_TOGETHER_API_KEY` is unset.
+ * Uses `Qwen/Qwen2.5-7B-Instruct-Turbo` — non-Llama, small, cheap, and
+ * stays on Together's serverless tier. Llama variants on Together get
+ * rotated to dedicated endpoints often enough that they're not safe
+ * defaults. If Qwen also disappears, pick another live serverless
+ * model from https://api.together.ai/models?type=serverless. Skipped
+ * when `PUTER_TEST_AI_TOGETHER_API_KEY` is unset.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -45,7 +43,7 @@ const ENV_VAR = 'PUTER_TEST_AI_TOGETHER_API_KEY';
 describe.skipIf(skipUnlessEnv(ENV_VAR))(
     'TogetherAIProvider (integration)',
     () => {
-        it('returns a non-empty completion from Llama 3.3 70B free', { timeout: INTEGRATION_TEST_TIMEOUT_MS }, async () => {
+        it('returns a non-empty completion from Qwen2.5 7B', { timeout: INTEGRATION_TEST_TIMEOUT_MS }, async () => {
             const provider = new TogetherAIProvider(
                 { apiKey: optionalEnv(ENV_VAR)! },
                 makeMeteringStub(),
@@ -53,7 +51,7 @@ describe.skipIf(skipUnlessEnv(ENV_VAR))(
 
             const result = await withTestActor(() =>
                 provider.complete({
-                    model: 'togetherai:meta-llama/Llama-3.3-70B-Instruct-Turbo-Free',
+                    model: 'togetherai:Qwen/Qwen2.5-7B-Instruct-Turbo',
                     messages: [
                         { role: 'user', content: 'Say hi in one word.' },
                     ],
