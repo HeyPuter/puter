@@ -231,6 +231,19 @@ body {
     transition: opacity 0.15s ease;
 }
 
+.dashboard-sidebar-logo .dashboard-sidebar-logo-dark {
+    display: none;
+}
+
+@media (prefers-color-scheme: dark) {
+    .dashboard-sidebar-logo .dashboard-sidebar-logo-light {
+        display: none;
+    }
+    .dashboard-sidebar-logo .dashboard-sidebar-logo-dark {
+        display: inline;
+    }
+}
+
 .dashboard-sidebar-collapse-toggle {
     display: flex;
     align-items: center;
@@ -673,7 +686,7 @@ body {
     }
 }
 
-.myapps-search {
+input.myapps-search {
     width: 100%;
     padding-right: 33px !important;
     font-size: 13px;
@@ -685,11 +698,11 @@ body {
     transition: border-color 0.15s;
 }
 
-.myapps-search:focus {
+input.myapps-search:focus {
     border-color: var(--select-color);
 }
 
-.myapps-search::placeholder {
+input.myapps-search::placeholder {
     color: var(--dashboard-text-muted);
 }
 
@@ -3206,7 +3219,7 @@ body {
 .dashboard-settings-card .button {
     flex-shrink: 0;
     color: var(--dashboard-text);
-    background: linear-gradient(var(--dashboard-sidebar-background), var(--dashboard-border));
+    background: var(--dashboard-sidebar-background);
 }
 
 .dashboard-settings-card-success {

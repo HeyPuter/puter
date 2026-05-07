@@ -17,7 +17,12 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-export const nativeImport = new Function(
-    'specifier',
-    'return import(specifier)',
-) as <TModule = unknown>(specifier: string) => Promise<TModule>;
+// `new Function('return import(s)')` would defeat any static bundler
+// analysis, but the resulting function inherits a vm context with no
+// HostImportModuleDynamically callback under vitest, which throws
+// ERR_VM_DYNAMIC_IMPORT_CALLBACK_MISSING. A direct `import()` with
+// `@vite-ignore` accomplishes the same thing — vite skips analysis,
+// node performs the import — and works in tests.
+export const nativeImport = <TModule = unknown>(
+    specifier: string,
+): Promise<TModule> => import(/* @vite-ignore */ specifier) as Promise<TModule>;

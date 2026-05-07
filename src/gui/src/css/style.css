@@ -210,11 +210,9 @@ input[type=text]:focus, input[type=password]:focus, input[type=email]:focus, sel
     border-color: #b9b9b9;
     border-style: solid;
     border-width: 1px;
-    line-height: 35px;
+    line-height: 34px;
     background: -webkit-gradient(linear, left top, left bottom, from(#f6f6f6), to(#e1e1e1));
     background: linear-gradient(#f6f6f6, #e1e1e1);
-    -webkit-box-shadow: inset 0px 1px 0px rgb(255 255 255 / 30%), 0 1px 2px rgb(0 0 0 / 15%);
-    box-shadow: inset 0px 1px 0px rgb(255 255 255 / 30%), 0 1px 2px rgb(0 0 0 / 15%);
     border-radius: 4px;
     outline: none;
 }
@@ -272,8 +270,7 @@ input[type=text]:focus, input[type=password]:focus, input[type=email]:focus, sel
 
 .button-danger {
     border-color: #f00808;
-    background: -webkit-gradient(linear, left top, left bottom, from(#f83434), to(#f00808));
-    background: linear-gradient(#ff4e4e, #ff4c4c);
+    background: #f00808;
     color: white;
 }
 
@@ -4310,8 +4307,7 @@ fieldset[name=number-code] {
 
 .puter-auth-dialog .button-danger {
     border-color: #f00808;
-    background: -webkit-gradient(linear, left top, left bottom, from(#f83434), to(#f00808));
-    background: linear-gradient(#f83434, #f00808);
+    background: #f00808;
     color: white;
 }
 

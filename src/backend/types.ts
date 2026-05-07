@@ -28,7 +28,19 @@ export interface IAWSCredentials {
 export interface IDynamoConfig {
     aws?: IAWSCredentials;
     endpoint?: string;
+    /**
+     * Filesystem path for the local dynalite store. Defaults to
+     * `./volatile/runtime/puter-ddb`. Pass `':memory:'` (or set
+     * `inMemory: true`) to run dynalite without persistence — the
+     * recommended setup for unit/integration tests.
+     */
     path?: string;
+    /**
+     * Run dynalite in-memory with no on-disk state. Equivalent to
+     * `path: ':memory:'`. Intended for tests so each suite gets a
+     * pristine in-process DynamoDB.
+     */
+    inMemory?: boolean;
     /**
      * Create required tables on startup if they don't exist. Off by
      * default because real-AWS deployments provision tables externally
@@ -48,6 +60,12 @@ export interface IRedisConfig {
      * ElastiCache). Set `false` for self-host plain-TCP Valkey/Redis.
      */
     tls?: boolean;
+    /**
+     * Use ioredis-mock instead of a real Redis cluster — fully
+     * in-process, no network. Defaults to `true` when `startupNodes`
+     * is empty (so tests with no redis config get a mock for free).
+     * Intended for unit/integration tests.
+     */
     useMock?: boolean;
 }
 
@@ -245,6 +263,11 @@ export interface IServerHealthConfig {
 }
 
 export interface IS3LocalConfig {
+    /**
+     * Run fauxqs entirely in-memory: random port on `127.0.0.1`, no
+     * `dataDir` / `s3StorageDir`. Intended for tests so each suite
+     * gets a pristine in-process S3.
+     */
     inMemory?: boolean;
     host?: string;
     port?: number;
@@ -283,7 +306,18 @@ export interface IS3Config {
 export interface IDatabaseConfig {
     engine: 'sqlite' | 'mysql';
     // sqlite
+    /**
+     * SQLite database file path. Defaults to `':memory:'` (the
+     * better-sqlite3 in-memory mode), which is also what tests should
+     * use. `inMemory: true` is an explicit alias for the same.
+     */
     path?: string;
+    /**
+     * Force in-memory SQLite (ignores `path`). Equivalent to
+     * `path: ':memory:'`. Intended for tests so each suite gets a
+     * pristine in-process database.
+     */
+    inMemory?: boolean;
     targetVersion?: number;
     // mysql
     host?: string;
@@ -432,6 +466,11 @@ interface IConfigOptional {
     no_browser_launch: boolean;
     /** Disable dev-time frontend webpack watchers. */
     no_devwatch: boolean;
+    /**
+     * Skip first-boot bootstrap of the `admin` user and the credentials
+     * banner that DefaultUserService prints. Intended for tests.
+     */
+    no_default_user: boolean;
     /** Optional dev-time frontend watcher overrides. */
     devwatch: IDevWatcherConfig;
 
