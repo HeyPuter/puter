@@ -622,12 +622,7 @@ export class PuterServer {
             res.setHeader('Access-Control-Allow-Methods', allowedMethods);
             res.setHeader('Access-Control-Allow-Headers', allowedHeaders);
 
-            // Private Network Access: grant public origins permission to
-            // reach loopback/private addresses (e.g. self-hosted Puter on
-            // localhost, or api.puter.com pointed at a local IP via hosts).
-            if (req.headers['access-control-request-private-network']) {
-                res.setHeader('Access-Control-Allow-Private-Network', 'true');
-            }
+            res.setHeader('Access-Control-Allow-Private-Network', 'true');
 
             // Disable iframes on the main domain
             if (req.hostname === config.domain) {
