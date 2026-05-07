@@ -2072,6 +2072,61 @@ label {
     text-align: left;
 }
 
+.signup-blocked-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: #f5f6f8;
+    z-index: 2147483647;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: #1a1a2e;
+}
+
+.signup-blocked-content {
+    padding: 48px 40px;
+    max-width: 460px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    background: #fff;
+    border-radius: 12px;
+    box-shadow: 0 2px 16px rgba(0, 0, 0, 0.08);
+}
+
+.signup-blocked-content h1 {
+    font-size: 22px;
+    font-weight: 600;
+    margin: 0 0 12px 0;
+    color: #1a1a2e;
+}
+
+.signup-blocked-content p {
+    font-size: 14px;
+    line-height: 1.6;
+    margin: 0 0 16px 0;
+    color: #555;
+}
+
+.signup-blocked-content p:last-child {
+    margin-bottom: 0;
+}
+
+.signup-blocked-content a {
+    color: #3a6ff7;
+    text-decoration: none;
+    font-weight: 500;
+}
+
+.signup-blocked-content a:hover {
+    text-decoration: underline;
+}
+
 .error {
     display: none;
     color: red;

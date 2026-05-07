@@ -386,6 +386,22 @@ function UIWindowSignup (options) {
                         // Try to parse error as JSON
                         const errorJson = JSON.parse(errorText);
 
+                        // Handle signup blocked with full-screen overlay
+                        if ( errorJson?.code === 'signup_blocked' ) {
+                            const overlay = document.createElement('div');
+                            overlay.classList.add('signup-blocked-overlay');
+                            const blockedMsg = errorJson.message || 'Signup Not Allowed';
+                            overlay.innerHTML = `
+                                <div class="signup-blocked-content">
+                                    <img src="${window.icons['logo.svg'] || window.icons['logo-white.svg'] || ''}" style="width:64px;margin-bottom:24px;" />
+                                    <p>${html_encode(blockedMsg)}</p>
+                                    <p>If you already have an account, try <a href="/action/login">logging in</a>. Otherwise, contact <a href="mailto:hi@puter.com">hi@puter.com</a> for assistance.</p>
+                                </div>
+                            `;
+                            document.body.appendChild(overlay);
+                            return;
+                        }
+
                         // Handle timeout specifically
                         if ( errorJson?.code === 'response_timeout' || errorText.includes('timeout') ) {
                             $(el_window).find('.signup-error-msg').html(i18n('server_timeout') || 'The server took too long to respond. Please try again.');
