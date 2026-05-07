@@ -99,29 +99,39 @@ async function decodeAndValidateThumbnail(
 // Intercept data-URL thumbnails before they hit the DB: upload to S3
 // and replace the URL with an s3:// pointer.
 
+export async function handleThumbnailCreated(
+    event: Record<string, unknown>,
+    deps: { s3: S3Client; bucketName: string },
+): Promise<void> {
+    const url = event.url;
+    if (typeof url !== 'string' || !url.startsWith('data:')) return;
+
+    const decoded = await decodeAndValidateThumbnail(url);
+    if (!decoded) {
+        event.url = null;
+        return;
+    }
+
+    const key = crypto.randomUUID();
+    event.url = `s3://${deps.bucketName}/${key}`;
+
+    await deps.s3.send(
+        new PutObjectCommand({
+            Bucket: deps.bucketName,
+            Key: key,
+            Body: decoded.data,
+            ContentType: decoded.mimeType,
+        }),
+    );
+}
+
 extension.on(
     'thumbnail.created',
     async (_key, event: Record<string, unknown>) => {
-        const url = event.url;
-        if (typeof url !== 'string' || !url.startsWith('data:')) return;
-
-        const decoded = await decodeAndValidateThumbnail(url);
-        if (!decoded) {
-            event.url = null;
-            return;
-        }
-
-        const key = crypto.randomUUID();
-        event.url = `s3://${thumbnailBucketName}/${key}`;
-
-        await getClient().send(
-            new PutObjectCommand({
-                Bucket: thumbnailBucketName,
-                Key: key,
-                Body: decoded.data,
-                ContentType: decoded.mimeType,
-            }),
-        );
+        await handleThumbnailCreated(event, {
+            s3: getClient(),
+            bucketName: thumbnailBucketName,
+        });
     },
 );
 

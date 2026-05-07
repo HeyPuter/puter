@@ -466,6 +466,11 @@ interface IConfigOptional {
     no_browser_launch: boolean;
     /** Disable dev-time frontend webpack watchers. */
     no_devwatch: boolean;
+    /**
+     * Skip first-boot bootstrap of the `admin` user and the credentials
+     * banner that DefaultUserService prints. Intended for tests.
+     */
+    no_default_user: boolean;
     /** Optional dev-time frontend watcher overrides. */
     devwatch: IDevWatcherConfig;
 

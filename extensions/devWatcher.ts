@@ -1,11 +1,11 @@
+import { extension } from '@heyputer/backend/src/extensions';
+import { PuterService } from '@heyputer/backend/src/services/types.js';
+import { nativeImport } from '@heyputer/backend/src/util/nativeImport.js';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { extension } from '@heyputer/backend/src/extensions';
-import { PuterService } from '@heyputer/backend/src/services/types.js';
-import { nativeImport } from '@heyputer/backend/src/util/nativeImport.js';
 
 const requireFromHere = createRequire(__filename);
 const webpack = requireFromHere('webpack') as typeof import('webpack');
@@ -121,9 +121,7 @@ const defaultWebpackEntries: WebpackEntry[] = [
 
 class DevWatcherService extends PuterService {
     #processes: Array<{ name: string; proc: ChildProcess }> = [];
-    #watchers: Array<{
-        close: (handler: (err?: Error | null) => void) => void;
-    }> = [];
+    #watchers: ReturnType<ReturnType<typeof webpack>['watch']>[] = [];
     #started = false;
     #packageRoot = findPackageRoot();
 
@@ -159,7 +157,7 @@ class DevWatcherService extends PuterService {
             this.#watchers.map(
                 (watcher) =>
                     new Promise<void>((resolve) => {
-                        watcher.close((err) => {
+                        watcher?.close((err) => {
                             if (err) {
                                 console.warn(
                                     '[devwatch] failed to close webpack watcher:',

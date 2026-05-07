@@ -18,6 +18,8 @@ export const setupTestServer = async (configOverrides?: IConfig) => {
             dynamo: { inMemory: true, bootstrapTables: true },
             redis: { useMock: true },
             s3: { localConfig: { inMemory: true } },
+            no_default_user: true,
+            no_devwatch: true,
         }),
         configOverrides ?? {},
     );

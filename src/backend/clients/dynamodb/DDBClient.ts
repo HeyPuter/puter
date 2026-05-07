@@ -36,6 +36,7 @@ import {
     UpdateCommand,
 } from '@aws-sdk/lib-dynamodb';
 import { NodeHttpHandler } from '@smithy/node-http-handler';
+//@ts-expect-error - no types available for dynalite
 import dynalite from 'dynalite';
 import { randomUUID } from 'node:crypto';
 import { once } from 'node:events';
@@ -405,13 +406,8 @@ export class DDBClient extends PuterClient {
             ReturnConsumedCapacity: 'TOTAL',
         });
 
-        try {
-            const client = await this.#getDocumentClient();
-            return await client.send(command);
-        } catch (error) {
-            console.error('DDB Update Error', error);
-            throw error;
-        }
+        const client = await this.#getDocumentClient();
+        return client.send(command);
     }
 
     async createTableIfNotExists(

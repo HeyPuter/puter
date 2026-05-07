@@ -25,6 +25,7 @@ import { defineConfig } from 'vitest/config';
 
 const isCi = process.env.CI === 'true';
 const backendDir = __dirname;
+const repoRoot = path.resolve(backendDir, '../..');
 
 // Vite 8's oxc transform leaves TC39 stage-3 decorators in place
 // (used by `@Controller`/`@Post`), so they reach Node verbatim and
@@ -77,9 +78,22 @@ export default defineConfig(({ mode }) => ({
                 ? ['json', 'json-summary', 'lcov']
                 : ['text', 'json', 'json-summary', 'html', 'lcov'],
             excludeAfterRemap: true,
+            // Listing both trees explicitly ensures untested files show
+            // as 0% instead of being silently dropped from the report.
+            include: [
+                'src/backend/**/*.{js,ts}',
+                'extensions/**/*.{js,ts}',
+            ],
+            reportsDirectory: path.join(backendDir, 'coverage'),
         },
         env: loadEnv(mode, '', 'PUTER_'),
-        include: ['./**/*.test.{js,ts}'],
-        root: __dirname, // Ensures paths are relative to backend/
+        include: [
+            'src/backend/**/*.test.{js,ts}',
+            'extensions/**/*.test.{js,ts}',
+        ],
+        // Root is the repo root so that the file transformer (which
+        // applies `lowerDecoratorsPlugin`) sees both src/backend and
+        // extensions/ — vitest skips transform for files outside root.
+        root: repoRoot,
     },
 }));
