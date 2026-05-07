@@ -408,6 +408,7 @@ export class OIDCService extends PuterService {
             no_temp_user: false,
             requires_email_confirmation: false,
             message: null as string | null,
+            code: null as string | null,
         };
         try {
             await this.clients.event?.emitAndWait(
@@ -422,6 +423,7 @@ export class OIDCService extends PuterService {
             return {
                 success: false,
                 error: validateEvent.message ?? 'Signup blocked',
+                ...(validateEvent.code ? { code: validateEvent.code } : {}),
             };
         }
 

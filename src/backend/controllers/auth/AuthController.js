@@ -404,6 +404,7 @@ export class AuthController extends PuterController {
                     no_temp_user: false,
                     requires_email_confirmation: false,
                     message: null,
+                    code: null,
                 };
                 try {
                     await this.clients.event?.emitAndWait(
@@ -418,6 +419,11 @@ export class AuthController extends PuterController {
                     throw new HttpError(
                         403,
                         validateEvent.message ?? 'Signup blocked',
+                        {
+                            ...(validateEvent.code
+                                ? { code: validateEvent.code }
+                                : {}),
+                        },
                     );
                 }
                 if (is_temp && validateEvent.no_temp_user) {
@@ -425,7 +431,12 @@ export class AuthController extends PuterController {
                         403,
                         validateEvent.message ??
                             'Temporary accounts are disabled',
-                        { legacyCode: 'must_login_or_signup' },
+                        {
+                            legacyCode: 'must_login_or_signup',
+                            ...(validateEvent.code
+                                ? { code: validateEvent.code }
+                                : {}),
+                        },
                     );
                 }
                 const force_email_confirmation = Boolean(

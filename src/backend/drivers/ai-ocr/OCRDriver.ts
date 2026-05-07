@@ -273,6 +273,7 @@ export class OCRDriver extends PuterDriver {
                     'MERGED_CELL',
                     'LAYOUT_FIGURE',
                     'LAYOUT_TEXT',
+                    'WORD',
                 ].includes(block.BlockType ?? '')
             )
                 continue;
