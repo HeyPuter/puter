@@ -26,6 +26,7 @@
 
 import { describe, expect, it } from 'vitest';
 import {
+    INTEGRATION_TEST_TIMEOUT_MS,
     makeMeteringStub,
     optionalEnv,
     skipUnlessEnv,
@@ -38,7 +39,7 @@ const ENV_VAR = 'PUTER_TEST_AI_MOONSHOT_API_KEY';
 describe.skipIf(skipUnlessEnv(ENV_VAR))(
     'MoonshotProvider (integration)',
     () => {
-        it('returns a non-empty completion from moonshot-v1-8k', async () => {
+        it('returns a non-empty completion from moonshot-v1-8k', { timeout: INTEGRATION_TEST_TIMEOUT_MS }, async () => {
             const provider = new MoonshotProvider(
                 { apiKey: optionalEnv(ENV_VAR)! },
                 makeMeteringStub(),

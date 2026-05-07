@@ -27,6 +27,7 @@
 
 import { describe, expect, it } from 'vitest';
 import {
+    INTEGRATION_TEST_TIMEOUT_MS,
     makeMeteringStub,
     optionalEnv,
     skipUnlessEnv,
@@ -39,7 +40,7 @@ const ENV_VAR = 'PUTER_TEST_AI_GEMINI_API_KEY';
 describe.skipIf(skipUnlessEnv(ENV_VAR))(
     'GeminiImageProvider (integration)',
     () => {
-        it('returns image data from imagen-4.0-fast', async () => {
+        it('returns image data from imagen-4.0-fast', { timeout: INTEGRATION_TEST_TIMEOUT_MS }, async () => {
             const provider = new GeminiImageProvider(
                 { apiKey: optionalEnv(ENV_VAR)! },
                 makeMeteringStub(),

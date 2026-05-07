@@ -27,6 +27,7 @@
 
 import { describe, expect, it } from 'vitest';
 import {
+    INTEGRATION_TEST_TIMEOUT_MS,
     makeMeteringStub,
     optionalEnv,
     skipUnlessEnv,
@@ -37,7 +38,7 @@ import { GroqAIProvider } from './GroqAIProvider.js';
 const ENV_VAR = 'PUTER_TEST_AI_GROQ_API_KEY';
 
 describe.skipIf(skipUnlessEnv(ENV_VAR))('GroqAIProvider (integration)', () => {
-    it('returns a non-empty completion from llama-3.1-8b-instant', async () => {
+    it('returns a non-empty completion from llama-3.1-8b-instant', { timeout: INTEGRATION_TEST_TIMEOUT_MS }, async () => {
         const provider = new GroqAIProvider(
             { apiKey: optionalEnv(ENV_VAR)! },
             makeMeteringStub(),

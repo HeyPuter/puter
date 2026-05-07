@@ -26,6 +26,7 @@
 
 import { describe, expect, it } from 'vitest';
 import {
+    INTEGRATION_TEST_TIMEOUT_MS,
     makeMeteringStub,
     optionalEnv,
     skipUnlessEnv,
@@ -38,7 +39,7 @@ const ENV_VAR = 'PUTER_TEST_AI_TOGETHER_API_KEY';
 describe.skipIf(skipUnlessEnv(ENV_VAR))(
     'TogetherAIProvider (integration)',
     () => {
-        it('returns a non-empty completion from Llama 3.1 8B', async () => {
+        it('returns a non-empty completion from Llama 3.1 8B', { timeout: INTEGRATION_TEST_TIMEOUT_MS }, async () => {
             const provider = new TogetherAIProvider(
                 { apiKey: optionalEnv(ENV_VAR)! },
                 makeMeteringStub(),

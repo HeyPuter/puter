@@ -26,6 +26,7 @@
 
 import { describe, expect, it } from 'vitest';
 import {
+    INTEGRATION_TEST_TIMEOUT_MS,
     makeMeteringStub,
     optionalEnv,
     skipUnlessEnv,
@@ -36,7 +37,7 @@ import { ZAIProvider } from './ZAIProvider.js';
 const ENV_VAR = 'PUTER_TEST_AI_ZAI_API_KEY';
 
 describe.skipIf(skipUnlessEnv(ENV_VAR))('ZAIProvider (integration)', () => {
-    it('returns a non-empty completion from glm-4.7-flashx', async () => {
+    it('returns a non-empty completion from glm-4.7-flashx', { timeout: INTEGRATION_TEST_TIMEOUT_MS }, async () => {
         const provider = new ZAIProvider(
             { apiKey: optionalEnv(ENV_VAR)! },
             makeMeteringStub(),

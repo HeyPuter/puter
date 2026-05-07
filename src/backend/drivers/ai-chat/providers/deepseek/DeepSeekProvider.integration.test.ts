@@ -26,6 +26,7 @@
 
 import { describe, expect, it } from 'vitest';
 import {
+    INTEGRATION_TEST_TIMEOUT_MS,
     makeMeteringStub,
     optionalEnv,
     skipUnlessEnv,
@@ -38,7 +39,7 @@ const ENV_VAR = 'PUTER_TEST_AI_DEEPSEEK_API_KEY';
 describe.skipIf(skipUnlessEnv(ENV_VAR))(
     'DeepSeekProvider (integration)',
     () => {
-        it('returns a non-empty completion from deepseek-chat', async () => {
+        it('returns a non-empty completion from deepseek-chat', { timeout: INTEGRATION_TEST_TIMEOUT_MS }, async () => {
             const provider = new DeepSeekProvider(
                 { apiKey: optionalEnv(ENV_VAR)! },
                 makeMeteringStub(),

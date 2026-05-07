@@ -27,6 +27,7 @@
 
 import { describe, expect, it } from 'vitest';
 import {
+    INTEGRATION_TEST_TIMEOUT_MS,
     makeMeteringStub,
     optionalEnv,
     skipUnlessEnv,
@@ -39,7 +40,7 @@ const ENV_VAR = 'PUTER_TEST_AI_OPENAI_API_KEY';
 describe.skipIf(skipUnlessEnv(ENV_VAR))(
     'OpenAiImageProvider (integration)',
     () => {
-        it('returns an image url/data from dall-e-2 at 256x256', async () => {
+        it('returns an image url/data from dall-e-2 at 256x256', { timeout: INTEGRATION_TEST_TIMEOUT_MS }, async () => {
             const provider = new OpenAiImageProvider(
                 { apiKey: optionalEnv(ENV_VAR)! },
                 makeMeteringStub(),

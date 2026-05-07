@@ -50,6 +50,14 @@ export const optionalEnv = (name: string): string | undefined => {
 export const skipUnlessEnv = (name: string): boolean => !optionalEnv(name);
 
 /**
+ * Per-test timeout for provider integration tests. The default 5s
+ * vitest timeout is way too short for real API calls — image
+ * generation in particular routinely takes 15–30s. Pass this as the
+ * third argument to `it(...)`.
+ */
+export const INTEGRATION_TEST_TIMEOUT_MS = 90_000;
+
+/**
  * Returns a no-op MeteringService stub. Real metering would write to
  * DynamoDB / Redis, which integration tests for AI providers don't
  * care about — we just need the provider's metering calls to not

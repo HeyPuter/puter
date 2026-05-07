@@ -27,6 +27,7 @@
 import { Readable } from 'node:stream';
 import { describe, expect, it } from 'vitest';
 import {
+    INTEGRATION_TEST_TIMEOUT_MS,
     makeMeteringStub,
     optionalEnv,
     skipUnlessEnv,
@@ -39,7 +40,7 @@ const ENV_VAR = 'PUTER_TEST_AI_ELEVENLABS_API_KEY';
 describe.skipIf(skipUnlessEnv(ENV_VAR))(
     'ElevenLabsTTSProvider (integration)',
     () => {
-        it('returns an audio stream from eleven_flash_v2_5', async () => {
+        it('returns an audio stream from eleven_flash_v2_5', { timeout: INTEGRATION_TEST_TIMEOUT_MS }, async () => {
             const provider = new ElevenLabsTTSProvider(makeMeteringStub(), {
                 apiKey: optionalEnv(ENV_VAR)!,
             });

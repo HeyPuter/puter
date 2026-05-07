@@ -27,6 +27,7 @@
 
 import { describe, expect, it } from 'vitest';
 import {
+    INTEGRATION_TEST_TIMEOUT_MS,
     makeMeteringStub,
     optionalEnv,
     skipUnlessEnv,
@@ -39,7 +40,7 @@ const ENV_VAR = 'PUTER_TEST_AI_GEMINI_API_KEY';
 describe.skipIf(skipUnlessEnv(ENV_VAR))(
     'GeminiChatProvider (integration)',
     () => {
-        it('returns a non-empty completion from gemini-2.0-flash-lite', async () => {
+        it('returns a non-empty completion from gemini-2.0-flash-lite', { timeout: INTEGRATION_TEST_TIMEOUT_MS }, async () => {
             const provider = new GeminiChatProvider(makeMeteringStub(), {
                 apiKey: optionalEnv(ENV_VAR)!,
             });

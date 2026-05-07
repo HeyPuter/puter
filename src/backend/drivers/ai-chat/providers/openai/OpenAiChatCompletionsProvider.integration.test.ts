@@ -29,6 +29,7 @@
 
 import { describe, expect, it } from 'vitest';
 import {
+    INTEGRATION_TEST_TIMEOUT_MS,
     makeMeteringStub,
     optionalEnv,
     skipUnlessEnv,
@@ -49,7 +50,7 @@ describe.skipIf(skipUnlessEnv(ENV_VAR))(
                 { apiKey: optionalEnv(ENV_VAR)! },
             );
 
-        it('returns a non-empty completion from gpt-4o-mini', async () => {
+        it('returns a non-empty completion from gpt-4o-mini', { timeout: INTEGRATION_TEST_TIMEOUT_MS }, async () => {
             const provider = buildProvider();
             const result = await withTestActor(() =>
                 provider.complete({

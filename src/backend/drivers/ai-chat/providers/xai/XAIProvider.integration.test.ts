@@ -26,6 +26,7 @@
 
 import { describe, expect, it } from 'vitest';
 import {
+    INTEGRATION_TEST_TIMEOUT_MS,
     makeMeteringStub,
     optionalEnv,
     skipUnlessEnv,
@@ -36,7 +37,7 @@ import { XAIProvider } from './XAIProvider.js';
 const ENV_VAR = 'PUTER_TEST_AI_XAI_API_KEY';
 
 describe.skipIf(skipUnlessEnv(ENV_VAR))('XAIProvider (integration)', () => {
-    it('returns a non-empty completion from grok-3-mini', async () => {
+    it('returns a non-empty completion from grok-3-mini', { timeout: INTEGRATION_TEST_TIMEOUT_MS }, async () => {
         const provider = new XAIProvider(
             { apiKey: optionalEnv(ENV_VAR)! },
             makeMeteringStub(),
