@@ -1323,6 +1323,21 @@ window.initgui = async function (options) {
                                 window.open('', '_self').close();
                             }
                         })();
+                    } else if ( err_obj.code === 'signup_blocked' ) {
+                        // Hide any captcha modal
+                        $('.captcha-modal').hide();
+
+                        const overlay = document.createElement('div');
+                        overlay.classList.add('signup-blocked-overlay');
+                        const blockedMsg = err_obj.message || 'Signup blocked';
+                        overlay.innerHTML = `
+                            <div class="signup-blocked-content">
+                                <img src="${window.icons['logo.svg'] || window.icons['logo-white.svg'] || ''}" style="width:64px;margin-bottom:24px;" />
+                                <p>${html_encode(blockedMsg)}</p>
+                                <p>If you already have an account, try <a href="/action/login">logging in</a>. Otherwise, contact <a href="mailto:hi@puter.com">hi@puter.com</a> for assistance.</p>
+                            </div>
+                        `;
+                        document.body.appendChild(overlay);
                     } else {
                         UIAlert({
                             message: err_obj.message ?? 'There was an error creating your account. Please try again.',

@@ -18,24 +18,49 @@
  */
 
 import type { puterClients } from '../clients';
+import type { IExtensionClientInstances } from '../clients/types';
 import type { PuterRouter } from '../core/http/PuterRouter';
 import type { puterDrivers } from '../drivers';
+import type { IExtensionDriverInstances } from '../drivers/types';
 import type { puterServices } from '../services';
+import type { IExtensionServiceInstances } from '../services/types';
 import type { puterStores } from '../stores';
+import type { IExtensionStoreInstances } from '../stores/types';
 import type {
     IConfig,
     LayerInstances,
     WithControllerRegistration,
 } from '../types';
 
+/**
+ * Extension-augmentable controller registry. Extensions add their own
+ * controller instance types via TypeScript declaration merging:
+ *
+ *     declare module '@heyputer/backend/controllers/types' {
+ *         interface IExtensionControllerInstances {
+ *             myController: MyController;
+ *         }
+ *     }
+ *
+ * Augmentations flow into the `extension.import('controller')` proxy.
+ */
+export interface IExtensionControllerInstances {
+    /**
+     * Open index signature so reads of extension-only controller keys return
+     * `unknown` instead of a type error. Concrete declaration-merged keys
+     * override this for that name.
+     */
+    [key: string]: unknown;
+}
+
 export type IPuterController<
     T extends WithControllerRegistration = WithControllerRegistration,
 > = new (
     config: IConfig,
-    clients: LayerInstances<typeof puterClients>,
-    stores: LayerInstances<typeof puterStores>,
-    services: LayerInstances<typeof puterServices>,
-    drivers: LayerInstances<typeof puterDrivers>,
+    clients: LayerInstances<typeof puterClients> & IExtensionClientInstances,
+    stores: LayerInstances<typeof puterStores> & IExtensionStoreInstances,
+    services: LayerInstances<typeof puterServices> & IExtensionServiceInstances,
+    drivers: LayerInstances<typeof puterDrivers> & IExtensionDriverInstances,
 ) => T;
 
 /**
@@ -49,10 +74,14 @@ export const PuterController =
     class PuterController implements WithControllerRegistration {
         constructor(
             protected config: IConfig,
-            protected clients: LayerInstances<typeof puterClients>,
-            protected stores: LayerInstances<typeof puterStores>,
-            protected services: LayerInstances<typeof puterServices>,
-            protected drivers: LayerInstances<typeof puterDrivers>,
+            protected clients: LayerInstances<typeof puterClients> &
+                IExtensionClientInstances,
+            protected stores: LayerInstances<typeof puterStores> &
+                IExtensionStoreInstances,
+            protected services: LayerInstances<typeof puterServices> &
+                IExtensionServiceInstances,
+            protected drivers: LayerInstances<typeof puterDrivers> &
+                IExtensionDriverInstances,
         ) {}
         public onServerStart() {
             return;

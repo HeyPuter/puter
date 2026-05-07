@@ -628,10 +628,33 @@ interface IConfigOptional {
     unlimitedMetering?: boolean;
 }
 
+/**
+ * Extension-augmentable config surface. Extensions add their own config keys
+ * via TypeScript declaration merging:
+ *
+ *     declare module '@heyputer/backend/types' {
+ *         interface IExtensionConfig {
+ *             myExtension?: { foo: string };
+ *         }
+ *     }
+ *
+ * Augmentations flow into `IConfig`, which is what `this.config` /
+ * `extension.config` are typed as everywhere.
+ */
+export interface IExtensionConfig {
+    /**
+     * Open index signature so config reads of extension-only keys return
+     * `unknown` (not a type error). Extensions that declare-merge concrete
+     * keys (`myExt?: { foo: string }`) override this for the named key —
+     * the concrete property type wins over the index signature.
+     */
+    [key: string]: unknown;
+}
+
 export type IConfig = Partial<IConfigOptional> & {
     extensions: string[];
     port: number;
-};
+} & IExtensionConfig;
 
 // eslint-disable-next-line @typescript-eslint/no-wrapper-object-types
 export interface WithLifecycle extends Object {

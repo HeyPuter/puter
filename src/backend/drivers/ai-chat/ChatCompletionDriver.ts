@@ -54,6 +54,7 @@ import {
     normalize_single_message,
 } from './utils/Messages.js';
 import { AIChatStream } from './utils/Streaming.js';
+import { EventMap } from '../../clients/event/types.js';
 
 const MAX_FALLBACKS = 4; // includes first attempt
 
@@ -163,7 +164,8 @@ export class ChatCompletionDriver extends PuterDriver {
             .replaceAll('-', '')
             .slice(0, 25);
 
-        const validateEvent: Record<string, unknown> = {
+        const validateEvent: EventMap['ai.prompt.validate'] = {
+            username: actor.user?.username || '',
             actor,
             completionId,
             allow: true,
@@ -308,10 +310,8 @@ export class ChatCompletionDriver extends PuterDriver {
                 // Credits can be exhausted mid-fallback by parallel requests;
                 // re-check before another upstream hit. Same bail as the
                 // pre-flight above.
-                const fallbackUsageAllowed = await metering.hasEnoughCredits(
-                    actor,
-                    1,
-                );
+                const fallbackUsageAllowed =
+                    await this.services.metering.hasEnoughCredits(actor, 1);
                 if (!fallbackUsageAllowed) {
                     throw new HttpError(402, 'No usage left for request.', {
                         legacyCode: 'insufficient_funds',
@@ -369,13 +369,13 @@ export class ChatCompletionDriver extends PuterDriver {
                 this.clients.event.emit(
                     'ai.prompt.complete',
                     {
-                        username,
+                        username: username!,
                         completionId,
                         intended_service: intendedProvider,
                         parameters: args,
                         result: { usage: enrichedUsage, stream: true },
                         model_used: model.id,
-                        service_used: model.provider,
+                        service_used: model.provider!,
                     },
                     {},
                 );
@@ -425,13 +425,13 @@ export class ChatCompletionDriver extends PuterDriver {
         this.clients.event.emit(
             'ai.prompt.complete',
             {
-                username,
+                username: username!,
                 completionId,
                 intended_service: intendedProvider,
                 parameters: args,
                 result: res,
                 model_used: model.id,
-                service_used: model.provider,
+                service_used: model.provider!,
             },
             {},
         );
@@ -601,7 +601,7 @@ export class ChatCompletionDriver extends PuterDriver {
             'ai.prompt.cost-calculated',
             {
                 completionId,
-                username,
+                username: username!,
                 usage,
                 input_tokens: inputTokens,
                 output_tokens: outputTokens,
@@ -610,11 +610,11 @@ export class ChatCompletionDriver extends PuterDriver {
                 total_ucents: inputMicroCents + outputMicroCents,
                 costs_currency: model.costs_currency,
                 model_used: model.id,
-                service_used: model.provider,
+                service_used: model.provider!,
                 intended_service: intendedProvider,
                 model_details: {
                     id: model.id,
-                    provider: model.provider,
+                    provider: model.provider!,
                     input_cost_key: inputKey,
                     output_cost_key: outputKey,
                     costs: model.costs,

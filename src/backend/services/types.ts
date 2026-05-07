@@ -18,27 +18,77 @@
  */
 
 import type { puterClients } from '../clients';
-import type { puterStores } from '../stores';
+import type { IExtensionClientInstances } from '../clients/types';
+import type {
+    IExtensionStoreInstances,
+    IPuterStoreInstances,
+} from '../stores/types';
 import type { IConfig, LayerInstances, WithLifecycle } from '../types';
 
 /**
- * Services may depend on clients, stores, and *prior* services (those declared
- * earlier in the registry). The `services` argument is the accumulating
- * registry — it only contains peers constructed before this one.
+ * Built-in service instance registry. Forward-declared here and populated
+ * via declaration merging from `services/index.ts` to avoid the circular
+ * `typeof puterServices` reference (services extend `PuterService`, whose
+ * `protected services` field references this type).
+ *
+ * Consumers see the merged `IPuterServiceInstances & IExtensionServiceInstances`
+ * type — built-in keys + extension-augmented keys.
+ */
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
+export interface IPuterServiceInstances {}
+
+/**
+ * Extension-augmentable service registry. Extensions add their own service
+ * instance types via TypeScript declaration merging:
+ *
+ *     declare module '@heyputer/backend/services/types' {
+ *         interface IExtensionServiceInstances {
+ *             myService: MyService;
+ *         }
+ *     }
+ *
+ * Augmentations flow into `this.services` (PuterController, PuterDriver) and
+ * into the `extension.import('service')` proxy. NOT applied to `PuterService`'s
+ * own `services` constructor argument — that view is the partial registry of
+ * peers declared earlier than this service.
+ */
+export interface IExtensionServiceInstances {
+    /**
+     * Open index signature so reads of extension-only service keys return
+     * `unknown` instead of a type error. Concrete declaration-merged keys
+     * override this for that name.
+     */
+    [key: string]: unknown;
+}
+
+/**
+ * Services may depend on clients, stores, and *prior* services (those
+ * declared earlier in the registry).
+ *
+ * Type contract caveat: `services` is typed as the FULLY-populated registry,
+ * even though at construction time only prior services exist. This is a
+ * deliberate trade-off — almost every `this.services.X` access happens in
+ * handler/lifecycle methods (which run after all services are wired up), so
+ * the convenience of typed access in those sites outweighs the construction-
+ * time inaccuracy. Don't read `this.services.X` from a service constructor
+ * unless you've verified `X` is registered earlier in the registry.
  */
 export type IPuterService<T extends WithLifecycle = WithLifecycle> = new (
     config: IConfig,
-    clients: LayerInstances<typeof puterClients>,
-    stores: LayerInstances<typeof puterStores>,
-    services: Partial<Record<string, WithLifecycle>>,
+    clients: LayerInstances<typeof puterClients> & IExtensionClientInstances,
+    stores: IPuterStoreInstances & IExtensionStoreInstances,
+    services: IPuterServiceInstances & IExtensionServiceInstances,
 ) => T;
 
 export const PuterService = class PuterService implements WithLifecycle {
     constructor(
         protected config: IConfig,
-        protected clients: LayerInstances<typeof puterClients>,
-        protected stores: LayerInstances<typeof puterStores>,
-        protected services: Partial<Record<string, WithLifecycle>> = {},
+        protected clients: LayerInstances<typeof puterClients> &
+            IExtensionClientInstances,
+        protected stores: IPuterStoreInstances & IExtensionStoreInstances,
+        protected services: IPuterServiceInstances &
+            IExtensionServiceInstances = {} as IPuterServiceInstances &
+            IExtensionServiceInstances,
     ) {}
     public onServerStart() {
         return;

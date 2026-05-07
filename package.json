@@ -78,9 +78,6 @@
     "javascript-time-ago": "^2.5.11",
     "open": "^10.1.0"
   },
-  "optionalDependencies": {
-    "sharp": "^0.34.4"
-  },
   "engines": {
     "node": ">=24.0.0"
   }

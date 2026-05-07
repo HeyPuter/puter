@@ -37,6 +37,36 @@ import { SocketService } from './socket/SocketService';
 import { SubdomainPermissionService } from './subdomain/SubdomainPermissionService';
 import type { IPuterServiceRegistry } from './types';
 
+/**
+ * Populate `IPuterServiceInstances` (declared in `./types`) with the concrete
+ * types of built-in services. Done via declaration merging instead of
+ * `LayerInstances<typeof puterServices>` because every concrete service
+ * extends `PuterService`, whose `protected services` field references this
+ * type — a direct `typeof puterServices` lookup would self-cycle.
+ */
+declare module './types' {
+    interface IPuterServiceInstances {
+        metering: MeteringService;
+        permission: PermissionService;
+        acl: ACLService;
+        token: TokenService;
+        auth: AuthService;
+        fs: FSService;
+        appPermission: AppPermissionService;
+        subdomainPermission: SubdomainPermissionService;
+        recommendedApps: RecommendedAppsService;
+        suggestedApps: SuggestedAppsService;
+        socket: SocketService;
+        notification: NotificationService;
+        broadcast: BroadcastService;
+        oidc: OIDCService;
+        appIcon: AppIconService;
+        defaultUser: DefaultUserService;
+        homepage: PuterHomepageService;
+        health: ServerHealthService;
+    }
+}
+
 // Ordering matters: services declared later see earlier ones as peers.
 // ACLService depends on PermissionService (for scan + grant/revoke), so
 // PermissionService must be constructed first.
