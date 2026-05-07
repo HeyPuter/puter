@@ -115,6 +115,7 @@ export interface IChatMessageResult {
     stream?: never;
     finally_fn?: never;
     normalized?: boolean;
+    via_ai_chat_service?: boolean;
 }
 
 export type IChatCompleteResult = IChatStreamResult | IChatMessageResult;
