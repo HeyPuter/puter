@@ -37,32 +37,41 @@ import {
 } from '@aws-sdk/lib-dynamodb';
 import { NodeHttpHandler } from '@smithy/node-http-handler';
 import dynalite from 'dynalite';
+import { randomUUID } from 'node:crypto';
 import { once } from 'node:events';
 import { Agent as httpsAgent } from 'node:https';
-import { PuterClient } from '../types';
-import type { IConfig, IDynamoConfig } from '../../types';
 import { HttpError } from '../../core/http';
+import type { IConfig, IDynamoConfig } from '../../types';
+import { PuterClient } from '../types';
 
-const LOCAL_DYNAMO_PATH_KEY = ':memory:';
+const LOCAL_DYNAMO_MEMORY_PREFIX = ':memory:';
 const localDynaliteEndpointPromises = new Map<string, Promise<string>>();
 const MAX_BATCH_WRITE_ITEMS = 25;
 const MAX_BATCH_WRITE_RETRIES = 8;
 const BATCH_WRITE_RETRY_BASE_MS = 25;
 
-const getDynalitePathKey = (path?: string) => {
-    if (path === ':memory:') return LOCAL_DYNAMO_PATH_KEY;
+// In-memory mode gives each DDBClient its own unique key, which keys
+// into a fresh dynalite server. This is what test parallelism needs:
+// two clients in the same Node process don't share state. Persistent
+// paths still share by `path`, so prod-like reuse keeps working.
+const getDynalitePathKey = (path?: string, inMemory?: boolean) => {
+    if (inMemory) return `${LOCAL_DYNAMO_MEMORY_PREFIX}#${randomUUID()}`;
+    if (path === ':memory:')
+        return `${LOCAL_DYNAMO_MEMORY_PREFIX}#${randomUUID()}`;
     return path || './volatile/runtime/puter-ddb';
 };
+
+const isMemoryPathKey = (pathKey: string) =>
+    pathKey.startsWith(LOCAL_DYNAMO_MEMORY_PREFIX);
 
 const getOrCreateLocalDynaliteEndpoint = async (pathKey: string) => {
     let endpointPromise = localDynaliteEndpointPromises.get(pathKey);
     if (endpointPromise) return endpointPromise;
 
     endpointPromise = (async () => {
-        const dynaliteOptions =
-            pathKey === LOCAL_DYNAMO_PATH_KEY
-                ? { createTableMs: 0 }
-                : { createTableMs: 0, path: pathKey };
+        const dynaliteOptions = isMemoryPathKey(pathKey)
+            ? { createTableMs: 0 }
+            : { createTableMs: 0, path: pathKey };
 
         const dynaliteInstance = dynalite(dynaliteOptions);
         const dynaliteServer = dynaliteInstance.listen(0, '127.0.0.1');
@@ -107,10 +116,18 @@ export class DDBClient extends PuterClient {
     #documentClient: DynamoDBDocumentClient | null = null;
     #localInitPromise: Promise<void> | null = null;
     #ddbConfig: IDynamoConfig;
+    // Resolved once at construction. In-memory mode generates a unique
+    // key per instance so parallel clients don't share state, but
+    // `recreateClient()` reuses this same key and so reuses the server.
+    #localPathKey: string;
 
     constructor(config: IConfig) {
         super(config);
         this.#ddbConfig = config.dynamo ?? {};
+        this.#localPathKey = getDynalitePathKey(
+            this.#ddbConfig.path,
+            this.#ddbConfig.inMemory,
+        );
 
         if (this.#ddbConfig.aws) {
             this.#bindAwsClient();
@@ -480,8 +497,9 @@ export class DDBClient extends PuterClient {
     }
 
     async #bindLocalClient() {
-        const pathKey = getDynalitePathKey(this.#ddbConfig.path);
-        const endpoint = await getOrCreateLocalDynaliteEndpoint(pathKey);
+        const endpoint = await getOrCreateLocalDynaliteEndpoint(
+            this.#localPathKey,
+        );
 
         const ddbClient = new DynamoDBClient({
             credentials: {

@@ -93,11 +93,11 @@ export class PuterServer {
 
     constructor(
         config: IConfig,
-        clients: typeof puterClients,
-        stores: typeof puterStores,
-        services: typeof puterServices,
-        controllers: typeof puterControllers,
-        drivers: typeof puterDrivers,
+        clients: typeof puterClients = puterClients,
+        stores: typeof puterStores = puterStores,
+        services: typeof puterServices = puterServices,
+        controllers: typeof puterControllers = puterControllers,
+        drivers: typeof puterDrivers = puterDrivers,
     ) {
         this.#config = config;
         // Expose config to the extension API (extension.config)
@@ -1053,41 +1053,7 @@ export class PuterServer {
                     '************************************************************\n',
                 );
 
-                for (const client of Object.values(
-                    this.clients,
-                ) as WithLifecycle[]) {
-                    if (client.onServerStart) {
-                        await client.onServerStart();
-                    }
-                }
-                for (const store of Object.values(
-                    this.stores,
-                ) as WithLifecycle[]) {
-                    if (store.onServerStart) {
-                        await store.onServerStart();
-                    }
-                }
-                for (const service of Object.values(
-                    this.services,
-                ) as WithLifecycle[]) {
-                    if (service.onServerStart) {
-                        await service.onServerStart();
-                    }
-                }
-                for (const controller of Object.values(
-                    this.controllers,
-                ) as WithLifecycle[]) {
-                    if (controller.onServerStart) {
-                        await controller.onServerStart();
-                    }
-                }
-                for (const driver of Object.values(
-                    this.drivers,
-                ) as WithLifecycle[]) {
-                    if (driver.onServerStart) {
-                        await driver.onServerStart();
-                    }
-                }
+                await this.#fireOnServerStart();
                 console.log('PuterServer has fully booted.');
                 // Auto-launch the browser on dev boot (matches v1 WebServerService).
                 // Opt out via `no_browser_launch: true` in config.
@@ -1115,6 +1081,29 @@ export class PuterServer {
                     );
                 },
             } as unknown as http.Server;
+            // Tests still need onServerStart to fire so stores can
+            // bootstrap (e.g. SystemKVStore creates its dynalite table).
+            await this.#fireOnServerStart();
+        }
+    }
+
+    async #fireOnServerStart() {
+        for (const client of Object.values(this.clients) as WithLifecycle[]) {
+            if (client.onServerStart) await client.onServerStart();
+        }
+        for (const store of Object.values(this.stores) as WithLifecycle[]) {
+            if (store.onServerStart) await store.onServerStart();
+        }
+        for (const service of Object.values(this.services) as WithLifecycle[]) {
+            if (service.onServerStart) await service.onServerStart();
+        }
+        for (const controller of Object.values(
+            this.controllers,
+        ) as WithLifecycle[]) {
+            if (controller.onServerStart) await controller.onServerStart();
+        }
+        for (const driver of Object.values(this.drivers) as WithLifecycle[]) {
+            if (driver.onServerStart) await driver.onServerStart();
         }
     }
 
