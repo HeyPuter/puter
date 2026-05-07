@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import type { EventClient } from '../clients/EventClient';
+import type { EventClient } from '../clients/event/EventClient';
 
 /**
  * Emits `app.privateAccess.resolveLaunch` so the marketplace extension can

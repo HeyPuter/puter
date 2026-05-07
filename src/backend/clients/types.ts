@@ -19,6 +19,29 @@
 
 import type { IConfig, WithLifecycle } from '../types';
 
+/**
+ * Extension-augmentable client registry. Extensions add their own client
+ * instance types via TypeScript declaration merging:
+ *
+ *     declare module '@heyputer/backend/clients/types' {
+ *         interface IExtensionClientInstances {
+ *             myClient: MyClient;
+ *         }
+ *     }
+ *
+ * Augmentations flow into `this.clients` everywhere it's typed (PuterStore,
+ * PuterService, PuterController, PuterDriver) and into the
+ * `extension.import('client')` proxy.
+ */
+export interface IExtensionClientInstances {
+    /**
+     * Open index signature so reads of extension-only client keys return
+     * `unknown` instead of a type error. Concrete declaration-merged keys
+     * override this for that name.
+     */
+    [key: string]: unknown;
+}
+
 export interface IPuterClient<T extends WithLifecycle = WithLifecycle> {
     new (config: IConfig): T;
 }

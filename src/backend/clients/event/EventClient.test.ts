@@ -1,6 +1,14 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { PuterServer } from '../server.ts';
-import { setupTestServer } from '../testUtil.ts';
+import {
+    afterAll,
+    beforeAll,
+    beforeEach,
+    describe,
+    expect,
+    it,
+    vi,
+} from 'vitest';
+import { PuterServer } from '../../server.ts';
+import { setupTestServer } from '../../testUtil.ts';
 import type { EventClient } from './EventClient.js';
 
 describe('EventClient', () => {
@@ -56,7 +64,9 @@ describe('EventClient', () => {
 
         it('does nothing when emitting a key with no listeners', () => {
             // Just asserts that no exception is thrown.
-            expect(() => target.emit(`${key}.nobody-home`, {}, {})).not.toThrow();
+            expect(() =>
+                target.emit(`${key}.nobody-home`, {}, {}),
+            ).not.toThrow();
         });
 
         it('continues firing later listeners after one throws', () => {

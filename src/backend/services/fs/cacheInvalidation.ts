@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import type { EventClient } from '../../clients/EventClient.js';
+import type { EventClient } from '../../clients/event/EventClient.js';
 import type { FSEntryStore } from '../../stores/fs/FSEntryStore.js';
 import type {
     FsRemoveNodeEventPayload,

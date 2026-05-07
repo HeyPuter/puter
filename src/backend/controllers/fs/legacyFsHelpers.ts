@@ -25,7 +25,7 @@ import type { FSService } from '../../services/fs/FSService.js';
 import type { ACLService, AclMode } from '../../services/acl/ACLService.js';
 import type { Actor } from '../../core/actor.js';
 import { Context } from '../../core/context.js';
-import type { EventClient } from '../../clients/EventClient.js';
+import type { EventClient } from '../../clients/event/EventClient.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import {
     resolveNode,

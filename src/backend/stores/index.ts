@@ -31,6 +31,30 @@ import { SystemKVStore } from './systemKv/SystemKVStore.js';
 import { UserStore } from './user/UserStore.js';
 import type { IPuterStoreRegistry } from './types.js';
 
+/**
+ * Populate `IPuterStoreInstances` (declared in `./types`) with the concrete
+ * types of built-in stores. Done via declaration merging instead of
+ * `LayerInstances<typeof puterStores>` because every concrete store extends
+ * `PuterStore`, whose `protected stores` field references this type — a
+ * direct `typeof puterStores` lookup would self-cycle.
+ */
+declare module './types.js' {
+    interface IPuterStoreInstances {
+        kv: SystemKVStore;
+        user: UserStore;
+        app: AppStore;
+        fsEntry: FSEntryStore;
+        s3Object: S3ObjectStore;
+        subdomain: SubdomainStore;
+        notification: NotificationStore;
+        share: ShareStore;
+        group: GroupStore;
+        permission: PermissionStore;
+        session: SessionStore;
+        oidc: OIDCStore;
+    }
+}
+
 // Ordering matters: stores declared later see earlier ones as peers.
 // PermissionStore depends on `kv`, so `kv` must come first.
 // UserStore / AppStore are leaves (db + redis only); sit early so other

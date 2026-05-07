@@ -18,16 +18,43 @@
  */
 
 import type { puterClients } from '../clients';
+import type { IExtensionClientInstances } from '../clients/types';
 import type { puterServices } from '../services';
+import type { IExtensionServiceInstances } from '../services/types';
 import type { puterStores } from '../stores';
+import type { IExtensionStoreInstances } from '../stores/types';
 import type { IConfig, LayerInstances, WithCostsReporting } from '../types';
+
+/**
+ * Extension-augmentable driver registry. Extensions add their own driver
+ * instance types via TypeScript declaration merging:
+ *
+ *     declare module '@heyputer/backend/drivers/types' {
+ *         interface IExtensionDriverInstances {
+ *             myDriver: MyDriver;
+ *         }
+ *     }
+ *
+ * Augmentations flow into `this.drivers` (PuterController) and into the
+ * `extension.import('driver')` proxy.
+ */
+export interface IExtensionDriverInstances {
+    /**
+     * Open index signature so reads of extension-only driver keys return
+     * `unknown` instead of a type error. Concrete declaration-merged keys
+     * override this for that name.
+     */
+    [key: string]: unknown;
+}
 
 export type IPuterDriver<T extends WithCostsReporting = WithCostsReporting> =
     new (
         config: IConfig,
-        clients: LayerInstances<typeof puterClients>,
-        stores: LayerInstances<typeof puterStores>,
-        services: LayerInstances<typeof puterServices>,
+        clients: LayerInstances<typeof puterClients> &
+            IExtensionClientInstances,
+        stores: LayerInstances<typeof puterStores> & IExtensionStoreInstances,
+        services: LayerInstances<typeof puterServices> &
+            IExtensionServiceInstances,
     ) => T;
 
 /**
@@ -65,9 +92,12 @@ export const PuterDriver = class PuterDriver implements WithCostsReporting {
 
     constructor(
         protected config: IConfig,
-        protected clients: LayerInstances<typeof puterClients>,
-        protected stores: LayerInstances<typeof puterStores>,
-        protected services: LayerInstances<typeof puterServices>,
+        protected clients: LayerInstances<typeof puterClients> &
+            IExtensionClientInstances,
+        protected stores: LayerInstances<typeof puterStores> &
+            IExtensionStoreInstances,
+        protected services: LayerInstances<typeof puterServices> &
+            IExtensionServiceInstances,
     ) {}
     public onServerStart() {
         return;
