@@ -146,6 +146,9 @@ const puterInit = (function () {
         // debug flag
         debugMode = false;
 
+        // Whether to suppress the developer CTA in the console
+        quiet = false;
+
         /**
          * Puter.js Modules
          *
@@ -499,6 +502,9 @@ const puterInit = (function () {
                     // Handle the error here
                     console.error('Error accessing localStorage:', error);
                 }
+
+                // Print a CTA for developers to publish their app on the Puter App Store
+                this.printDevCTA();
             } else if ( this.env === 'web-worker' || this.env === 'service-worker' || this.env === 'nodejs' ) {
                 this.initSubmodules();
             }
@@ -874,6 +880,35 @@ const puterInit = (function () {
                     setTimeout(handleNetworkChange, 100);
                 });
             }
+        };
+
+        /**
+         * Prints a styled CTA in the browser console encouraging developers
+         * to publish their app on the Puter App Store.
+         * @private
+         */
+        printDevCTA = function () {
+            if ( this.quiet || globalThis.PUTER_QUIET ) return;
+            console.log(
+                '%c' +
+                ' ____  _   _ _____ _____ ____     _ ____\n' +
+                '|  _ \\| | | |_   _| ____|  _ \\   | / ___|\n' +
+                '| |_) | | | | | | |  _| | |_) |  | \\___ \\\n' +
+                '|  __/| |_| | | | | |___|  _ < _ | |___) |\n' +
+                '|_|    \\___/  |_| |_____|_| \\_(_)_|____/',
+                'color: #000fd8; font-weight: bold; font-size: 14px; font-family: monospace;'
+            );
+            console.log(
+                '%cSubmit this app to the Puter App Store:\n' +
+                '%chttps://apps.puter.com/',
+                'color:rgb(0, 57, 137); font-size: 18px; font-weight: bold;',
+                'color: #3b82f6; font-size: 18px; font-weight: bold; text-decoration: underline;'
+            );
+            console.log(
+                '%cTo disable this message: %cputer.quiet = true',
+                'color: #94a3b8; font-size: 11px;',
+                'color: #94a3b8; font-size: 11px; font-style: italic;'
+            );
         };
 
         /**
