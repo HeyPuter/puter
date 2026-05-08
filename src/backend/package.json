@@ -73,6 +73,7 @@
     "validator": "^13.15.35"
   },
   "devDependencies": {
+    "@types/bcrypt": "^6.0.0",
     "@types/busboy": "^1.5.4",
     "@types/node": "^24.0.0",
     "chai": "^4.3.7",

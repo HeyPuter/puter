@@ -43,6 +43,7 @@ export interface UserRow {
     requires_email_confirmation?: boolean;
     /** Metadata JSON blob; decoded on read when the DB returns it as a string. */
     metadata?: Record<string, unknown>;
+    password?: string;
     [k: string]: unknown;
 }
 
