@@ -541,6 +541,9 @@ async function UIWindowLogin (options) {
                                 'background-color': '#f8fafc',
                                 padding: '32px 28px 24px',
                             },
+                            on_close: () => {
+                                $(el_window).find('.login-btn').prop('disabled', false);
+                            },
                         });
 
                         const $w = $(win);
