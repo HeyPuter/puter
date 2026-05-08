@@ -84,10 +84,6 @@ const zhtw = {
         credits: '製作群',
         current_password: '目前密碼',
         cut: '剪下',
-        clock: '時鐘',
-        clock_visible_hide: '隱藏 - 始終隱藏',
-        clock_visible_show: '顯示 - 始終可見',
-        clock_visible_auto: '自動 - 預設，僅在全螢幕模式下可見。',
         close_all: '全部關閉',
         created: '已建立',
         date_modified: '修改日期',
@@ -343,7 +339,6 @@ const zhtw = {
         login2fa_recovery_placeholder: 'XXXXXXXX',
 
         'change': '更改', // In English: "Change"
-        'clock_visibility': '時鐘可視性', // In English: "Clock Visibility"
         'reading': '正在讀取 %strong%', // In English: "Reading %strong%"
         'writing': '正在寫入 %strong%', // In English: "Writing %strong%"
         'unzipping': '正在解壓 %strong%', // In English: "Unzipping %strong%"

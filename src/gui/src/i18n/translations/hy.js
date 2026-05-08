@@ -92,10 +92,6 @@ const hy = {
         credits: 'Կրեդիտներ',
         current_password: 'Ընթացիկ գաղտնաբառ',
         cut: 'Կտրել',
-        clock: 'Ժամացույց',
-        clock_visible_hide: 'Թաքցնել - Միշտ թաքնված',
-        clock_visible_show: 'Ցուցադրել - Միշտ տեսանելի',
-        clock_visible_auto:
       'Ավտոմատ - լռելյայն, տեսանելի միայն ամբողջական էկրանային ռեժիմում:',
         close_all: 'Փակել բոլորը',
         created: 'Ստեղծված',
@@ -380,7 +376,6 @@ const hy = {
         login2fa_recovery_placeholder: 'XXXXXXXX',
 
         change: 'Փոփոխել',
-        clock_visibility: 'Ժամացույցի տեսանելիություն',
         reading: 'Ընթերցում',
         writing: 'Գրում',
         unzipping: 'Արխիվը բացել',

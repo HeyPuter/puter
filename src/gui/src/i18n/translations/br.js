@@ -84,10 +84,6 @@ const br = {
         credits: 'Créditos',
         current_password: 'Senha Atual',
         cut: 'Recortar',
-        clock: 'Relógio',
-        clock_visible_hide: 'Ocultar - Sempre oculto',
-        clock_visible_show: 'Mostrar - Sempre visível',
-        clock_visible_auto: 'Auto - Padrão, visível apenas no modo de tela cheia.',
         close_all: 'Fechar Tudo',
         created: 'Criado',
         date_modified: 'Data de modificação',
@@ -343,7 +339,6 @@ const br = {
         'login2fa_recovery_placeholder': 'XXXXXXXX',
 
         'change': 'Alterar', // In English: "Change"
-        'clock_visibility': 'Visibilidade do relógio', // In English: "Clock Visibility"
         'reading': 'Lendo %strong%', // In English: "Reading %strong%"
         'writing': 'Escrevendo %strong%', // In English: "Writing %strong%"
         'unzipping': 'Descompactando %strong%', // In English: "Unzipping %strong%"

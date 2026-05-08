@@ -84,10 +84,6 @@ const hu = {
         credits: 'Kreditek',
         current_password: 'Jelenlegi jelszó',
         cut: 'Kivágás',
-        clock: 'Óra',
-        clock_visible_hide: 'Elrejt - Mindig rejtett',
-        clock_visible_show: 'Megjelenít - Mindig látható',
-        clock_visible_auto: 'Automatikus - Alapértelmezett, csak teljes képernyős módban látható.',
         close_all: 'Összes bezárása',
         created: 'Létrehozva',
         date_modified: 'Módosítás dátuma',
@@ -335,7 +331,6 @@ const hu = {
         login2fa_recovery_placeholder: 'XXXXXXXX',
 
         'change': 'Módosítás', // In English: "Change"
-        'clock_visibility': 'Óra Megjelenítése', // In English: "Clock Visibility"
         'reading': 'Olvasás %strong%', // In English: "Reading %strong%"
         'writing': 'Írás %strong%', // In English: "Writing %strong%"
         'unzipping': 'Kibontás %strong%', // In English: "Unzipping %strong%"

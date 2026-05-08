@@ -93,10 +93,6 @@ const ru = {
         credits: 'Авторы',
         current_password: 'Текущий пароль',
         cut: 'Вырезать',
-        clock: 'Часы',
-        clock_visible_hide: 'Скрыть - Всегда скрыто',
-        clock_visible_show: 'Показать - Всегда на виду',
-        clock_visible_auto:
       'Авто - По Умолчанию, видно только в полноэкранном режиме.',
         close_all: 'Закрыть все',
         created: 'Создано',
@@ -380,7 +376,6 @@ const ru = {
         login2fa_recovery_back: 'Назад',
         login2fa_recovery_placeholder: 'XXXXXXXX',
         change: 'Изменить',
-        clock_visibility: 'Видимость часов',
         confirm_your_email_address: 'Подтвердить электронную почту',
         reading: 'Чтение %strong%',
         writing: 'Запись %strong%',

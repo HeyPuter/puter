@@ -91,10 +91,6 @@ const ku = {
         credits: 'بڕگەکان',
         current_password: 'وشەی تێپەڕی ئێستا',
         cut: 'برین',
-        clock: 'کاژێر',
-        clock_visible_hide: 'شاردنەوە - هەمیشە شاردراوە',
-        clock_visible_show: 'پیشان - هەمیشە پیشاندراوە',
-        clock_visible_auto:
       'ئۆتۆ - بنەڕەت، تەنها پیشاندراوە لە دۆخەکانی شاشەی تەواو.',
         close_all: 'داخستنەوەی هەموو',
         created: 'دروستکراو',
@@ -371,7 +367,6 @@ const ku = {
         login2fa_recovery_placeholder: 'XXXXXXXX',
 
         'change': 'بیگۆڕە', // In English: "Change"
-        'clock_visibility': 'بینینی کاتژمێر', // In English: "Clock Visibility"
         'reading': 'خوێندنەوە', // In English: "Reading %strong%"
         'writing': 'دەنوسێ', // In English: "Writing %strong%"
         'unzipping': 'كردنەوەی فایلی زیپ', // In English: "Unzipping %strong%"

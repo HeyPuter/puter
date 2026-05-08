@@ -101,10 +101,6 @@ const es = {
         credits: 'Creditos',
         current_password: 'Contraseña actual',
         cut: 'Cortar',
-        clock: 'Reloj',
-        clock_visible_hide: 'Ocultar - Siempre oculto',
-        clock_visible_show: 'Mostrar - Siempre visible',
-        clock_visible_auto:
       'Auto - Por defecto, visible solo en modo pantalla completa.',
         close_all: 'Cerrar todo',
         created: 'Creado',
@@ -385,7 +381,6 @@ const es = {
         login2fa_recovery_placeholder: 'XXXXXXXX',
 
         change: 'cambiar', // In English: "Change"
-        clock_visibility: 'visibilidadReloj', // In English: "Clock Visibility"
         reading: 'lectura %strong%', // In English: "Reading %strong%"
         writing: 'escribiendo %strong%', // In English: "Writing %strong%"
         unzipping: 'descomprimiendo %strong%', // In English: "Unzipping %strong%"

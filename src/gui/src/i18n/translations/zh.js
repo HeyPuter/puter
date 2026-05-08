@@ -84,10 +84,6 @@ const zh = {
         credits: '特别鸣谢',
         current_password: '当前密码',
         cut: '剪切',
-        clock: '时间',
-        clock_visible_hide: '隐藏 - 始终隐藏',
-        clock_visible_show: '显示 - 始终显示',
-        clock_visible_auto: '自动 - 默认值，全屏显示',
         close_all: '关闭全部',
         created: '已创建',
         date_modified: '修改日期',
@@ -343,7 +339,6 @@ const zh = {
         login2fa_recovery_placeholder: '********',
 
         'change': '更改', // In English: "Change"
-        'clock_visibility': '时钟可见性', // In English: "Clock Visibility"
         'plural_suffix': '单位后缀', // In English: "plural_suffix"
         'reading': '正在读取 %strong%', // In English: "Reading %strong%"
         'writing': '正在写入 %strong%', // In English: "Writing %strong%"

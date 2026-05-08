@@ -83,10 +83,6 @@ const th = {
         credits: 'Credits',
         current_password: 'รหัสผ่านปัจจุบัน',
         cut: 'ตัด',
-        clock: 'นาฬิกา',
-        clock_visible_hide: 'ซ่อน - ซ่อนตลอด',
-        clock_visible_show: 'แสดง - แสดงตลอด',
-        clock_visible_auto: 'อัตโนมัติ - ค่าเริ่มต้น, แสดงเฉพาะในโหมดเต็มจอ',
         close_all: 'ปิดหมด',
         created: 'สร้างเมื่อ',
         date_modified: 'วันที่แก้ไข',
@@ -340,7 +336,6 @@ const th = {
         login2fa_recovery_placeholder: 'XXXXXXXX',
 
         'change': 'เปลี่ยนแปลง', // In English: "Change"
-        'clock_visibility': 'การมองเห็นนาฬิกา', // In English: "Clock Visibility"
         'confirm': 'ยืนยัน', // In English: "Confirm"
         'path': 'ที่อยู่', // In English: "Path"
         'plural_suffix': 's', // In English: "s"

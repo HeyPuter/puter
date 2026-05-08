@@ -3101,26 +3101,6 @@ window.delete_desktop_item_positions = () => {
     puter.kv.del('desktop_item_positions');
 };
 
-window.change_clock_visible = (clock_visible) => {
-    let newValue = clock_visible || window.user_preferences.clock_visible;
-
-    newValue === 'auto' && window.is_fullscreen() ? $('#clock').show() : $('#clock').hide();
-
-    newValue === 'show' && $('#clock').show();
-    newValue === 'hide' && $('#clock').hide();
-
-    if ( clock_visible ) {
-        // save clock_visible to user preferences
-        window.mutate_user_preferences({
-            clock_visible: newValue,
-        });
-
-        return;
-    }
-
-    $('select.change-clock-visible').val(window.user_preferences.clock_visible);
-};
-
 // Finds the `.window` element for the given app instance ID
 window.window_for_app_instance = (instance_id) => {
     return $(`.window[data-element_uuid="${instance_id}"]`).get(0);

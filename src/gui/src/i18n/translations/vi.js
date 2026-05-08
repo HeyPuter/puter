@@ -84,10 +84,6 @@ const vi = {
         credits: 'Tín dụng',
         current_password: 'Mật khẩu hiện tại',
         cut: 'Cắt',
-        clock: 'Đồng hồ',
-        clock_visible_hide: 'Ẩn - Luôn ẩn',
-        clock_visible_show: 'Hiện - Luôn hiển thị',
-        clock_visible_auto: 'Tự động - Mặc định, chỉ hiển thị ở chế độ toàn màn hình.',
         close_all: 'Đóng tất cả',
         created: 'Đã tạo',
         date_modified: 'Ngày sửa đổi',
@@ -343,7 +339,6 @@ const vi = {
         login2fa_recovery_placeholder: 'XXXXXXXX',
 
         'change': 'Thay đổi', // In English: "Change"
-        'clock_visibility': 'ẩn/hiện đồng hồ', // In English: "Clock Visibility"
         'plural_suffix': 'các', // In English: "s"
         'reading': 'Đang đọc %strong%', // In English: "Reading %strong%"
         'writing': 'Đang ghi dữ liệu %strong%', // In English: "Writing %strong%"

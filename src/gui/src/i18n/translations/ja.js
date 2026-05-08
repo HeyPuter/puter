@@ -84,10 +84,6 @@ const ja = {
         credits: 'クレジット',
         current_password: '現在のパスワード',
         cut: 'カット',
-        clock: '時計',
-        clock_visible_hide: '非表示 - 常に非表示',
-        clock_visible_show: '表示 - 常に表示',
-        clock_visible_auto: '自動 - デフォルト、フルスクリーンモードでのみ表示',
         close_all: 'すべて閉じる',
         created: '作成日',
         date_modified: '更新日',
@@ -344,7 +340,6 @@ const ja = {
         login2fa_recovery_placeholder: 'XXXXXXXX',
 
         'change': '変更', // In English: "Change"
-        'clock_visibility': '時計の表示設定', // In English: "Clock Visibility"
         'plural_suffix': '', // In English: "s"
         'reading': '読み取り中 %strong%', // In English: "Reading %strong%"
         'writing': '書き込み中 %strong%', // In English: "Writing %strong%"

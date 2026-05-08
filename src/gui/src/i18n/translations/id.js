@@ -91,10 +91,6 @@ const id = {
         credits: 'Kredit',
         current_password: 'Kata Sandi Saat Ini',
         cut: 'Potong',
-        clock: 'Jam',
-        clock_visible_hide: 'Sembunyikan - Selalu tersembunyi',
-        clock_visible_show: 'Tampilkan - Selalu terlihat',
-        clock_visible_auto: 'Otomatis - Bawaan, terlihat hanya dalam mode layar penuh.',
         close_all: 'Tutup Semua',
         created: 'Dibuat',
         date_modified: 'Tanggal diubah',
@@ -365,7 +361,6 @@ const id = {
         login2fa_recovery_placeholder: 'XXXXXXXX',
 
         'change': 'Ubah', // In English: "Change"
-        'clock_visibility': 'Visibilitas Jam', // In English: "Clock Visibility"
         'reading': 'Membaca %strong%', // In English: "Reading %strong%"
         'writing': 'Menulis %strong%', // In English: "Writing %strong%"
         'unzipping': 'Mengekstrak %strong%', // In English: "Unzipping %strong%"

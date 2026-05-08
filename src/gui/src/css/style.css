@@ -2919,29 +2919,8 @@ label {
 }
 
 
-#clock {
-    display: none;
-    color: white;
-    font-size: 13px;
-    background-color: #00000056;
-    margin-left: 20px;
-    /* prevent clock from moving other taskbar items */
-    height: 22px;
-    line-height: 22px;
-
-    /* line-height above handles vertical padding */
-    padding: 0 5px;
-
-    border-radius: 5px;
-    opacity: 0.8;
-}
-
 .toolbar-spacer {
     margin-right: auto;
-}
-
-.device-phone #clock {
-    display: none !important;
 }
 
 .desktop-bg-settings-wrapper {

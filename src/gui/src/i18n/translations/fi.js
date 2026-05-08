@@ -111,10 +111,6 @@ const fi = {
         credits: 'Tekijät',
         current_password: 'Nykyinen salasana',
         cut: 'Leikkaa',
-        clock: 'Kello',
-        clock_visible_hide: 'Piilota - aina piilossa',
-        clock_visible_show: 'Näytä - aina näkyvissä',
-        clock_visible_auto:
       'Automaattinen - oletus, näkyy vain koko näytön tilassa.',
         close_all: 'Sulje kaikki',
         created: 'Luotu',
@@ -436,7 +432,6 @@ const fi = {
         login2fa_recovery_placeholder: 'XXXXXXXX',
 
         change: 'muutos', // In English: "Change"
-        clock_visibility: 'kellon näkyvyys', // In English: "Clock Visibility"
         reading: 'lukeminen', // In English: "Reading %strong%"
         writing: 'kirjoittaminen', // In English: "Writing %strong%"
         unzipping: 'purkaminen', // In English: "Unzipping %strong%"
