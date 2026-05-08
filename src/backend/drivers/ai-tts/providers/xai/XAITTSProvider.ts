@@ -120,6 +120,7 @@ export class XAITTSProvider extends TTSProvider {
             throw new HttpError(
                 400,
                 'Text exceeds maximum length of 15,000 characters',
+                { legacyCode: 'bad_request' },
             );
         }
 
@@ -167,6 +168,7 @@ export class XAITTSProvider extends TTSProvider {
             const msg = (e as Error).message ?? String(e);
             console.error('[XAITTSProvider] API error:', msg);
             throw new HttpError(502, `xAI TTS API error: ${msg}`, {
+                legacyCode: 'internal_error',
                 fields: { provider: 'xai' },
             });
         }
@@ -179,7 +181,7 @@ export class XAITTSProvider extends TTSProvider {
             throw new HttpError(
                 502,
                 `xAI TTS API error (${response.status}): ${errText}`,
-                { fields: { provider: 'xai' } },
+                { legacyCode: 'internal_error', fields: { provider: 'xai' } },
             );
         }
 

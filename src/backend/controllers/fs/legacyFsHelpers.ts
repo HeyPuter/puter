@@ -110,7 +110,10 @@ export async function resolveV1Selector(
             ? { path: expandTildePath(raw, username) }
             : { uid: raw };
         const entry = await resolveNode(fsEntryStore, ref, { required: true });
-        if (!entry) throw new HttpError(404, `Entry not found: ${raw}`);
+        if (!entry)
+            throw new HttpError(404, `Entry not found: ${raw}`, {
+                legacyCode: 'not_found',
+            });
         return entry;
     }
 
@@ -125,7 +128,10 @@ export async function resolveV1Selector(
             { path: childPath },
             { required: true },
         );
-        if (!child) throw new HttpError(404, `Entry not found: ${childPath}`);
+        if (!child)
+            throw new HttpError(404, `Entry not found: ${childPath}`, {
+                legacyCode: 'not_found',
+            });
         return child;
     }
 
@@ -147,7 +153,10 @@ export async function resolveV1Selector(
                 : undefined,
     };
     const entry = await resolveNode(fsEntryStore, ref, { required: true });
-    if (!entry) throw new HttpError(404, 'Entry not found');
+    if (!entry)
+        throw new HttpError(404, 'Entry not found', {
+            legacyCode: 'not_found',
+        });
     return entry;
 }
 
@@ -465,12 +474,14 @@ export function signingConfigFromAppConfig(config: IConfig): SigningConfig {
         throw new HttpError(
             500,
             'Server misconfiguration: url_signature_secret not set',
+            { legacyCode: 'internal_error' },
         );
     }
     if (typeof apiBaseUrl !== 'string' || apiBaseUrl.length === 0) {
         throw new HttpError(
             500,
             'Server misconfiguration: api_base_url not set',
+            { legacyCode: 'internal_error' },
         );
     }
     return { secret, apiBaseUrl };

@@ -67,16 +67,23 @@ export async function loadFileInput(
     options: { maxBytes?: number; acceptWebInput?: true } = {},
 ): Promise<LoadedFile> {
     if (!input) {
-        throw new HttpError(400, 'Missing file input');
+        throw new HttpError(400, 'Missing file input', {
+            legacyCode: 'bad_request',
+        });
     }
     if (!Number.isFinite(Number(actor?.user?.id ?? NaN))) {
-        throw new HttpError(401, 'Unauthorized');
+        throw new HttpError(401, 'Unauthorized', {
+            legacyCode: 'unauthorized',
+        });
     }
 
     // Data URL — decode base64/plain inline.
     if (typeof input === 'string' && input.startsWith('data:')) {
         const match = DATA_URL_PATTERN.exec(input);
-        if (!match) throw new HttpError(400, 'Invalid data URL');
+        if (!match)
+            throw new HttpError(400, 'Invalid data URL', {
+                legacyCode: 'bad_request',
+            });
         const mime = match[1] ?? 'application/octet-stream';
         const encoding = (match[2] ?? '').trim();
         const payload = match[3] ?? '';
@@ -104,6 +111,7 @@ export async function loadFileInput(
             throw new HttpError(
                 400,
                 `Failed to fetch URL (status ${response.status})`,
+                { legacyCode: 'bad_request' },
             );
         }
         const arrayBuf = await response.arrayBuffer();
@@ -149,13 +157,17 @@ export async function loadFileInput(
               })();
 
     const entry = await resolveNode(stores.fsEntry, ref, { required: true });
-    if (!entry) throw new HttpError(404, 'File not found');
+    if (!entry)
+        throw new HttpError(404, 'File not found', { legacyCode: 'not_found' });
     if (entry.isDir)
-        throw new HttpError(400, 'Expected a file, got a directory');
+        throw new HttpError(400, 'Expected a file, got a directory', {
+            legacyCode: 'bad_request',
+        });
     if (entry.isShortcut || entry.isSymlink) {
         throw new HttpError(
             400,
             'Cannot load content of a symlink or shortcut directly',
+            { legacyCode: 'shortcut_target_not_found' },
         );
     }
     // ACL gate: resolveNode does global UID/UUID/ID/path lookups, no

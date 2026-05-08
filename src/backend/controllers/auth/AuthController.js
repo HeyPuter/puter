@@ -93,20 +93,28 @@ export class AuthController extends PuterController {
                 const { username, email, password } = req.body;
 
                 if (!username && !email) {
-                    throw new HttpError(400, 'Username or email is required.');
+                    throw new HttpError(400, 'Username or email is required.', {
+                        legacyCode: 'bad_request',
+                    });
                 }
                 if (!password || typeof password !== 'string') {
-                    throw new HttpError(400, 'Password is required.');
+                    throw new HttpError(400, 'Password is required.', {
+                        legacyCode: 'password_required',
+                    });
                 }
                 if (password.length < (this.config.min_pass_length || 6)) {
-                    throw new HttpError(400, 'Invalid password.');
+                    throw new HttpError(400, 'Invalid password.', {
+                        legacyCode: 'bad_request',
+                    });
                 }
 
                 // Look up user
                 let user;
                 if (username) {
                     if (typeof username !== 'string')
-                        throw new HttpError(400, 'username must be a string.');
+                        throw new HttpError(400, 'username must be a string.', {
+                            legacyCode: 'bad_request',
+                        });
                     user = await this.stores.user.getByUsername(username);
                 } else {
                     user = await this.stores.user.getByEmail(email);
@@ -114,8 +122,9 @@ export class AuthController extends PuterController {
 
                 if (!user) {
                     throw new HttpError(
-                        400,
+                        404,
                         username ? 'Username not found.' : 'Email not found.',
+                        { legacyCode: 'not_found' },
                     );
                 }
                 if (
@@ -123,15 +132,20 @@ export class AuthController extends PuterController {
                     !this.config.allow_system_login
                 ) {
                     throw new HttpError(
-                        400,
+                        404,
                         username ? 'Username not found.' : 'Email not found.',
+                        { legacyCode: 'not_found' },
                     );
                 }
                 if (user.suspended) {
-                    throw new HttpError(401, 'This account is suspended.');
+                    throw new HttpError(401, 'This account is suspended.', {
+                        legacyCode: 'account_suspended',
+                    });
                 }
                 if (user.password === null) {
-                    throw new HttpError(400, 'Incorrect password.');
+                    throw new HttpError(401, 'Incorrect password.', {
+                        legacyCode: 'unauthorized',
+                    });
                 }
 
                 // Verify password
@@ -140,7 +154,9 @@ export class AuthController extends PuterController {
                     user.password,
                 );
                 if (!passwordMatch) {
-                    throw new HttpError(400, 'Incorrect password.');
+                    throw new HttpError(401, 'Incorrect password.', {
+                        legacyCode: 'password_mismatch',
+                    });
                 }
 
                 // OTP branching — if 2FA enabled, return a short-lived OTP JWT
@@ -180,23 +196,38 @@ export class AuthController extends PuterController {
             },
             async (req, res) => {
                 const { token, code } = req.body;
-                if (!token) throw new HttpError(400, 'token is required.');
-                if (!code) throw new HttpError(400, 'code is required.');
+                if (!token)
+                    throw new HttpError(400, 'token is required.', {
+                        legacyCode: 'bad_request',
+                    });
+                if (!code)
+                    throw new HttpError(400, 'code is required.', {
+                        legacyCode: 'bad_request',
+                    });
 
                 let decoded;
                 try {
                     decoded = this.services.token.verify('otp', token);
                 } catch {
-                    throw new HttpError(400, 'Invalid token.');
+                    throw new HttpError(400, 'Invalid token.', {
+                        legacyCode: 'bad_request',
+                    });
                 }
                 if (!decoded.user_uid || decoded.purpose !== 'otp-login') {
-                    throw new HttpError(400, 'Invalid token.');
+                    throw new HttpError(400, 'Invalid token.', {
+                        legacyCode: 'bad_request',
+                    });
                 }
 
                 const user = await this.stores.user.getByUuid(decoded.user_uid);
-                if (!user) throw new HttpError(400, 'User not found.');
+                if (!user)
+                    throw new HttpError(404, 'User not found.', {
+                        legacyCode: 'not_found',
+                    });
                 if (user.suspended) {
-                    throw new HttpError(401, 'This account is suspended.');
+                    throw new HttpError(401, 'This account is suspended.', {
+                        legacyCode: 'account_suspended',
+                    });
                 }
 
                 if (!verifyOtp(user.username, user.otp_secret, code)) {
@@ -222,23 +253,38 @@ export class AuthController extends PuterController {
             },
             async (req, res) => {
                 const { token, code } = req.body;
-                if (!token) throw new HttpError(400, 'token is required.');
-                if (!code) throw new HttpError(400, 'code is required.');
+                if (!token)
+                    throw new HttpError(400, 'token is required.', {
+                        legacyCode: 'bad_request',
+                    });
+                if (!code)
+                    throw new HttpError(400, 'code is required.', {
+                        legacyCode: 'bad_request',
+                    });
 
                 let decoded;
                 try {
                     decoded = this.services.token.verify('otp', token);
                 } catch {
-                    throw new HttpError(400, 'Invalid token.');
+                    throw new HttpError(400, 'Invalid token.', {
+                        legacyCode: 'bad_request',
+                    });
                 }
                 if (!decoded.user_uid || decoded.purpose !== 'otp-login') {
-                    throw new HttpError(400, 'Invalid token.');
+                    throw new HttpError(400, 'Invalid token.', {
+                        legacyCode: 'bad_request',
+                    });
                 }
 
                 const user = await this.stores.user.getByUuid(decoded.user_uid);
-                if (!user) throw new HttpError(400, 'User not found.');
+                if (!user)
+                    throw new HttpError(404, 'User not found.', {
+                        legacyCode: 'not_found',
+                    });
                 if (user.suspended) {
-                    throw new HttpError(401, 'This account is suspended.');
+                    throw new HttpError(401, 'This account is suspended.', {
+                        legacyCode: 'account_suspended',
+                    });
                 }
 
                 const hashed = hashRecoveryCode(code);
@@ -293,44 +339,64 @@ export class AuthController extends PuterController {
 
                 // Validation
                 if (!body.username)
-                    throw new HttpError(400, 'Username is required');
+                    throw new HttpError(400, 'Username is required', {
+                        legacyCode: 'bad_request',
+                    });
                 if (typeof body.username !== 'string')
-                    throw new HttpError(400, 'username must be a string.');
+                    throw new HttpError(400, 'username must be a string.', {
+                        legacyCode: 'bad_request',
+                    });
                 if (!USERNAME_REGEX.test(body.username)) {
                     throw new HttpError(
                         400,
                         'Username can only contain letters, numbers and underscore (_).',
+                        { legacyCode: 'bad_request' },
                     );
                 }
                 if (body.username.length > USERNAME_MAX_LENGTH) {
                     throw new HttpError(
                         400,
                         `Username cannot be longer than ${USERNAME_MAX_LENGTH} characters.`,
+                        { legacyCode: 'bad_request' },
                     );
                 }
                 if (RESERVED_USERNAMES.has(body.username.toLowerCase())) {
-                    throw new HttpError(400, 'This username is not available.');
+                    throw new HttpError(
+                        400,
+                        'This username is not available.',
+                        { legacyCode: 'username_already_in_use' },
+                    );
                 }
                 if (!is_temp) {
                     if (!body.email)
-                        throw new HttpError(400, 'Email is required');
+                        throw new HttpError(400, 'Email is required', {
+                            legacyCode: 'bad_request',
+                        });
                     if (typeof body.email !== 'string')
-                        throw new HttpError(400, 'email must be a string.');
+                        throw new HttpError(400, 'email must be a string.', {
+                            legacyCode: 'bad_request',
+                        });
                     if (!validator.isEmail(body.email))
                         throw new HttpError(
                             400,
                             'Please enter a valid email address.',
+                            { legacyCode: 'bad_request' },
                         );
                     await this.#validateEmail(body.email);
                     if (!body.password)
-                        throw new HttpError(400, 'Password is required');
+                        throw new HttpError(400, 'Password is required', {
+                            legacyCode: 'bad_request',
+                        });
                     if (typeof body.password !== 'string')
-                        throw new HttpError(400, 'password must be a string.');
+                        throw new HttpError(400, 'password must be a string.', {
+                            legacyCode: 'bad_request',
+                        });
                     const minLen = this.config.min_pass_length || 6;
                     if (body.password.length < minLen) {
                         throw new HttpError(
                             400,
                             `Password must be at least ${minLen} characters long.`,
+                            { legacyCode: 'bad_request' },
                         );
                     }
                 }
@@ -340,6 +406,7 @@ export class AuthController extends PuterController {
                     throw new HttpError(
                         400,
                         'This username already exists in our database. Please use another one.',
+                        { legacyCode: 'bad_request' },
                     );
                 }
 
@@ -376,6 +443,7 @@ export class AuthController extends PuterController {
                             throw new HttpError(
                                 400,
                                 'This email already exists in our database. Please use another one.',
+                                { legacyCode: 'bad_request' },
                             );
                         }
                         // Password-null AND unconfirmed → treat as pseudo.
@@ -421,7 +489,7 @@ export class AuthController extends PuterController {
                         validateEvent.message ?? 'Signup blocked',
                         {
                             ...(validateEvent.code
-                                ? { code: validateEvent.code }
+                                ? { legacyCode: validateEvent.code }
                                 : {}),
                         },
                     );
@@ -434,7 +502,7 @@ export class AuthController extends PuterController {
                         {
                             legacyCode: 'must_login_or_signup',
                             ...(validateEvent.code
-                                ? { code: validateEvent.code }
+                                ? { legacyCode: validateEvent.code }
                                 : {}),
                         },
                     );
@@ -706,7 +774,10 @@ export class AuthController extends PuterController {
                     throw new HttpError(403, 'Account suspended.', {
                         legacyCode: 'account_suspended',
                     });
-                if (!user.email) throw new HttpError(400, 'No email on file.');
+                if (!user.email)
+                    throw new HttpError(400, 'No email on file.', {
+                        legacyCode: 'bad_request',
+                    });
 
                 const code = String(crypto.randomInt(100000, 1000000));
                 await this.stores.user.update(user.id, {
@@ -743,12 +814,18 @@ export class AuthController extends PuterController {
             },
             async (req, res) => {
                 const { code, original_client_socket_id } = req.body ?? {};
-                if (!code) throw new HttpError(400, 'Missing `code`.');
+                if (!code)
+                    throw new HttpError(400, 'Missing `code`.', {
+                        legacyCode: 'bad_request',
+                    });
 
                 const user = await this.stores.user.getById(req.actor.user.id, {
                     force: true,
                 });
-                if (!user) throw new HttpError(404, 'User not found.');
+                if (!user)
+                    throw new HttpError(404, 'User not found.', {
+                        legacyCode: 'not_found',
+                    });
                 if (user.email_confirmed) {
                     return res.json({
                         email_confirmed: true,
@@ -813,7 +890,9 @@ export class AuthController extends PuterController {
             async (req, res) => {
                 const { username, email } = req.body ?? {};
                 if (!username && !email) {
-                    throw new HttpError(400, 'username or email is required.');
+                    throw new HttpError(400, 'username or email is required.', {
+                        legacyCode: 'bad_request',
+                    });
                 }
 
                 const genericMessage =
@@ -824,7 +903,9 @@ export class AuthController extends PuterController {
                     user = await this.stores.user.getByUsername(username);
                 } else {
                     if (!validator.isEmail(email))
-                        throw new HttpError(400, 'Invalid email.');
+                        throw new HttpError(400, 'Invalid email.', {
+                            legacyCode: 'bad_request',
+                        });
                     user = await this.stores.user.getByEmail(email);
                 }
 
@@ -880,24 +961,35 @@ export class AuthController extends PuterController {
             },
             async (req, res) => {
                 const { token } = req.body ?? {};
-                if (!token) throw new HttpError(400, 'Missing `token`.');
+                if (!token)
+                    throw new HttpError(400, 'Missing `token`.', {
+                        legacyCode: 'token_missing',
+                    });
 
                 let decoded;
                 try {
                     decoded = this.services.token.verify('otp', token);
                 } catch {
-                    throw new HttpError(400, 'Invalid or expired token.');
+                    throw new HttpError(400, 'Invalid or expired token.', {
+                        legacyCode: 'token_expired',
+                    });
                 }
                 if (decoded.purpose !== 'pass-recovery') {
-                    throw new HttpError(400, 'Invalid or expired token.');
+                    throw new HttpError(400, 'Invalid or expired token.', {
+                        legacyCode: 'token_expired',
+                    });
                 }
 
                 const user = await this.stores.user.getByUuid(decoded.user_uid);
                 if (!user || user.email !== decoded.email) {
-                    throw new HttpError(400, 'Token is no longer valid.');
+                    throw new HttpError(400, 'Token is no longer valid.', {
+                        legacyCode: 'bad_request',
+                    });
                 }
                 if (user.suspended) {
-                    throw new HttpError(401, 'This account is suspended.');
+                    throw new HttpError(401, 'This account is suspended.', {
+                        legacyCode: 'account_suspended',
+                    });
                 }
 
                 const exp = decoded.exp;
@@ -921,13 +1013,16 @@ export class AuthController extends PuterController {
             async (req, res) => {
                 const { token, password } = req.body ?? {};
                 if (!token || !password) {
-                    throw new HttpError(400, 'Missing `token` or `password`.');
+                    throw new HttpError(400, 'Missing `token` or `password`.', {
+                        legacyCode: 'token_missing',
+                    });
                 }
                 const minLen = this.config.min_pass_length || 6;
                 if (password.length < minLen) {
                     throw new HttpError(
                         400,
                         `Password must be at least ${minLen} characters long.`,
+                        { legacyCode: 'bad_request' },
                     );
                 }
 
@@ -935,18 +1030,26 @@ export class AuthController extends PuterController {
                 try {
                     decoded = this.services.token.verify('otp', token);
                 } catch {
-                    throw new HttpError(400, 'Invalid or expired token.');
+                    throw new HttpError(400, 'Invalid or expired token.', {
+                        legacyCode: 'token_expired',
+                    });
                 }
                 if (decoded.purpose !== 'pass-recovery') {
-                    throw new HttpError(400, 'Invalid or expired token.');
+                    throw new HttpError(400, 'Invalid or expired token.', {
+                        legacyCode: 'token_expired',
+                    });
                 }
 
                 const user = await this.stores.user.getByUuid(decoded.user_uid);
                 if (!user || user.email !== decoded.email) {
-                    throw new HttpError(400, 'Token is no longer valid.');
+                    throw new HttpError(400, 'Token is no longer valid.', {
+                        legacyCode: 'bad_request',
+                    });
                 }
                 if (user.suspended) {
-                    throw new HttpError(401, 'This account is suspended.');
+                    throw new HttpError(401, 'This account is suspended.', {
+                        legacyCode: 'account_suspended',
+                    });
                 }
 
                 // Atomic check: only update if the recovery token still matches
@@ -957,7 +1060,9 @@ export class AuthController extends PuterController {
                 );
                 const affected = result?.affectedRows ?? result?.changes ?? 0;
                 if (affected === 0) {
-                    throw new HttpError(400, 'Token has already been used.');
+                    throw new HttpError(400, 'Token has already been used.', {
+                        legacyCode: 'bad_request',
+                    });
                 }
                 await this.stores.user.invalidateById(user.id);
 
@@ -991,12 +1096,16 @@ export class AuthController extends PuterController {
             },
             async (req, res) => {
                 const { new_pass } = req.body ?? {};
-                if (!new_pass) throw new HttpError(400, 'Missing `new_pass`.');
+                if (!new_pass)
+                    throw new HttpError(400, 'Missing `new_pass`.', {
+                        legacyCode: 'bad_request',
+                    });
                 const minLen = this.config.min_pass_length || 6;
                 if (new_pass.length < minLen) {
                     throw new HttpError(
                         400,
                         `Password must be at least ${minLen} characters long.`,
+                        { legacyCode: 'bad_request' },
                     );
                 }
 
@@ -1049,25 +1158,37 @@ export class AuthController extends PuterController {
             async (req, res) => {
                 const { new_username } = req.body ?? {};
                 if (!new_username || typeof new_username !== 'string') {
-                    throw new HttpError(400, '`new_username` is required');
+                    throw new HttpError(400, '`new_username` is required', {
+                        legacyCode: 'bad_request',
+                    });
                 }
                 if (!USERNAME_REGEX.test(new_username)) {
                     throw new HttpError(
                         400,
                         'Username can only contain letters, numbers and underscore (_).',
+                        { legacyCode: 'bad_request' },
                     );
                 }
                 if (new_username.length > USERNAME_MAX_LENGTH) {
                     throw new HttpError(
                         400,
                         `Username cannot be longer than ${USERNAME_MAX_LENGTH} characters.`,
+                        { legacyCode: 'bad_request' },
                     );
                 }
                 if (RESERVED_USERNAMES.has(new_username.toLowerCase())) {
-                    throw new HttpError(400, 'This username is not available.');
+                    throw new HttpError(
+                        400,
+                        'This username is not available.',
+                        { legacyCode: 'username_already_in_use' },
+                    );
                 }
                 if (await this.stores.user.getByUsername(new_username)) {
-                    throw new HttpError(400, 'This username is already taken.');
+                    throw new HttpError(
+                        400,
+                        'This username is already taken.',
+                        { legacyCode: 'username_already_in_use' },
+                    );
                 }
 
                 await this.stores.user.update(req.actor.user.id, {
@@ -1123,12 +1244,15 @@ export class AuthController extends PuterController {
             async (req, res) => {
                 const { new_email } = req.body ?? {};
                 if (!new_email || typeof new_email !== 'string') {
-                    throw new HttpError(400, '`new_email` is required');
+                    throw new HttpError(400, '`new_email` is required', {
+                        legacyCode: 'bad_request',
+                    });
                 }
                 if (!validator.isEmail(new_email)) {
                     throw new HttpError(
                         400,
                         'Please enter a valid email address.',
+                        { legacyCode: 'bad_request' },
                     );
                 }
                 await this.#validateEmail(new_email);
@@ -1144,7 +1268,9 @@ export class AuthController extends PuterController {
                     existing &&
                     (existing.email_confirmed || existing.password !== null)
                 ) {
-                    throw new HttpError(400, 'This email is already in use.');
+                    throw new HttpError(400, 'This email is already in use.', {
+                        legacyCode: 'email_already_in_use',
+                    });
                 }
 
                 const confirm_token = uuidv4();
@@ -1217,17 +1343,23 @@ export class AuthController extends PuterController {
             async (req, res) => {
                 const jwtToken = req.query?.token;
                 if (!jwtToken || typeof jwtToken !== 'string') {
-                    throw new HttpError(400, 'Missing `token`');
+                    throw new HttpError(400, 'Missing `token`', {
+                        legacyCode: 'token_missing',
+                    });
                 }
 
                 let decoded;
                 try {
                     decoded = this.services.token.verify('otp', jwtToken);
                 } catch {
-                    throw new HttpError(400, 'Invalid or expired token.');
+                    throw new HttpError(400, 'Invalid or expired token.', {
+                        legacyCode: 'token_expired',
+                    });
                 }
                 if (decoded.purpose !== 'change-email' || !decoded.token) {
-                    throw new HttpError(400, 'Invalid or expired token.');
+                    throw new HttpError(400, 'Invalid or expired token.', {
+                        legacyCode: 'token_expired',
+                    });
                 }
 
                 const rows = await this.clients.db.read(
@@ -1236,7 +1368,9 @@ export class AuthController extends PuterController {
                 );
                 const user = rows[0];
                 if (!user || !user.unconfirmed_change_email) {
-                    throw new HttpError(400, 'Invalid or expired token.');
+                    throw new HttpError(400, 'Invalid or expired token.', {
+                        legacyCode: 'token_expired',
+                    });
                 }
 
                 const newEmail = user.unconfirmed_change_email;
@@ -1253,7 +1387,9 @@ export class AuthController extends PuterController {
                     owner.id !== user.id &&
                     (owner.email_confirmed || owner.password !== null)
                 ) {
-                    throw new HttpError(400, 'This email is already in use.');
+                    throw new HttpError(400, 'This email is already in use.', {
+                        legacyCode: 'email_already_in_use',
+                    });
                 }
 
                 await this.stores.user.update(user.id, {
@@ -1307,11 +1443,15 @@ export class AuthController extends PuterController {
                 const user = await this.stores.user.getById(req.actor.user.id, {
                     force: true,
                 });
-                if (!user) throw new HttpError(404, 'User not found');
+                if (!user)
+                    throw new HttpError(404, 'User not found', {
+                        legacyCode: 'not_found',
+                    });
                 if (user.password !== null || user.email !== null) {
                     throw new HttpError(
                         400,
                         'This is not a temporary account.',
+                        { legacyCode: 'temporary_accounts_not_allowed' },
                     );
                 }
 
@@ -1321,32 +1461,43 @@ export class AuthController extends PuterController {
                     typeof username !== 'string' ||
                     !USERNAME_REGEX.test(username)
                 ) {
-                    throw new HttpError(400, 'Invalid username.');
+                    throw new HttpError(400, 'Invalid username.', {
+                        legacyCode: 'bad_request',
+                    });
                 }
                 if (username.length > USERNAME_MAX_LENGTH) {
                     throw new HttpError(
                         400,
                         `Username cannot be longer than ${USERNAME_MAX_LENGTH} characters.`,
+                        { legacyCode: 'bad_request' },
                     );
                 }
                 if (RESERVED_USERNAMES.has(username.toLowerCase())) {
-                    throw new HttpError(400, 'This username is not available.');
+                    throw new HttpError(
+                        400,
+                        'This username is not available.',
+                        { legacyCode: 'username_already_in_use' },
+                    );
                 }
                 if (!email || !validator.isEmail(email)) {
                     throw new HttpError(
                         400,
                         'Please enter a valid email address.',
+                        { legacyCode: 'bad_request' },
                     );
                 }
                 await this.#validateEmail(email);
                 if (!password || typeof password !== 'string') {
-                    throw new HttpError(400, 'Password is required.');
+                    throw new HttpError(400, 'Password is required.', {
+                        legacyCode: 'password_required',
+                    });
                 }
                 const minLen = this.config.min_pass_length || 6;
                 if (password.length < minLen) {
                     throw new HttpError(
                         400,
                         `Password must be at least ${minLen} characters long.`,
+                        { legacyCode: 'bad_request' },
                     );
                 }
 
@@ -1354,7 +1505,11 @@ export class AuthController extends PuterController {
                 const existingUsername =
                     await this.stores.user.getByUsername(username);
                 if (existingUsername && existingUsername.id !== user.id) {
-                    throw new HttpError(400, 'This username is already taken.');
+                    throw new HttpError(
+                        400,
+                        'This username is already taken.',
+                        { legacyCode: 'username_already_in_use' },
+                    );
                 }
                 // Match raw + canonical to catch gmail-alias collisions, and
                 // reject on ANY confirmed account (OIDC accounts have
@@ -1369,7 +1524,9 @@ export class AuthController extends PuterController {
                     (existingEmail.email_confirmed ||
                         existingEmail.password !== null)
                 ) {
-                    throw new HttpError(400, 'This email is already in use.');
+                    throw new HttpError(400, 'This email is already in use.', {
+                        legacyCode: 'email_already_in_use',
+                    });
                 }
 
                 // Promote: set username/email/password on the existing row
@@ -1500,7 +1657,9 @@ export class AuthController extends PuterController {
             async (req, res) => {
                 const sessionId = req.actor?.user?.uuid;
                 if (!sessionId)
-                    throw new HttpError(401, 'Authentication required.');
+                    throw new HttpError(401, 'Authentication required.', {
+                        legacyCode: 'unauthorized',
+                    });
                 const token = await antiCsrf.createToken(sessionId);
                 res.json({ token });
             },
@@ -1517,6 +1676,7 @@ export class AuthController extends PuterController {
                     throw new HttpError(
                         400,
                         'Missing `target_username` or `permission`',
+                        { legacyCode: 'bad_request' },
                     );
                 }
                 await this.services.permission.grantUserUserPermission(
@@ -1539,6 +1699,7 @@ export class AuthController extends PuterController {
                     throw new HttpError(
                         400,
                         'Missing `app_uid` or `permission`',
+                        { legacyCode: 'bad_request' },
                     );
                 }
                 await this.services.permission.grantUserAppPermission(
@@ -1561,10 +1722,14 @@ export class AuthController extends PuterController {
                     throw new HttpError(
                         400,
                         'Missing `group_uid` or `permission`',
+                        { legacyCode: 'bad_request' },
                     );
                 }
                 const group = await this.stores.group.getByUid(group_uid);
-                if (!group) throw new HttpError(404, 'Group not found');
+                if (!group)
+                    throw new HttpError(404, 'Group not found', {
+                        legacyCode: 'not_found',
+                    });
                 await this.services.permission.grantUserGroupPermission(
                     req.actor,
                     group,
@@ -1587,6 +1752,7 @@ export class AuthController extends PuterController {
                     throw new HttpError(
                         400,
                         'Missing `target_username` or `permission`',
+                        { legacyCode: 'bad_request' },
                     );
                 }
                 await this.services.permission.revokeUserUserPermission(
@@ -1608,6 +1774,7 @@ export class AuthController extends PuterController {
                     throw new HttpError(
                         400,
                         'Missing `app_uid` or `permission`',
+                        { legacyCode: 'bad_request' },
                     );
                 }
                 if (permission === '*') {
@@ -1637,6 +1804,7 @@ export class AuthController extends PuterController {
                     throw new HttpError(
                         400,
                         'Missing `group_uid` or `permission`',
+                        { legacyCode: 'bad_request' },
                     );
                 }
                 await this.services.permission.revokeUserGroupPermission(
@@ -1660,6 +1828,7 @@ export class AuthController extends PuterController {
                     throw new HttpError(
                         400,
                         'Missing or invalid `permissions` array',
+                        { legacyCode: 'bad_request' },
                     );
                 }
 
@@ -1739,6 +1908,7 @@ export class AuthController extends PuterController {
                     throw new HttpError(
                         400,
                         'Missing `app_uid` or `permission`',
+                        { legacyCode: 'bad_request' },
                     );
                 }
                 await this.services.permission.grantDevAppPermission(
@@ -1764,6 +1934,7 @@ export class AuthController extends PuterController {
                     throw new HttpError(
                         400,
                         'Missing `app_uid` or `permission`',
+                        { legacyCode: 'bad_request' },
                     );
                 }
                 if (permission === '*') {
@@ -1847,7 +2018,10 @@ export class AuthController extends PuterController {
             { subdomain: 'api', requireAuth: true },
             async (req, res) => {
                 const origin = req.body?.origin || req.query?.origin;
-                if (!origin) throw new HttpError(400, 'Missing `origin`');
+                if (!origin)
+                    throw new HttpError(400, 'Missing `origin`', {
+                        legacyCode: 'bad_request',
+                    });
                 const uid = await this.services.auth.appUidFromOrigin(origin);
                 res.json({ uid });
             },
@@ -1865,7 +2039,9 @@ export class AuthController extends PuterController {
                     app_uid = await this.services.auth.appUidFromOrigin(origin);
                 }
                 if (!app_uid) {
-                    throw new HttpError(400, 'Missing `app_uid` or `origin`');
+                    throw new HttpError(400, 'Missing `app_uid` or `origin`', {
+                        legacyCode: 'bad_request',
+                    });
                 }
 
                 let app = await this.stores.app.getByUid(app_uid);
@@ -1876,7 +2052,9 @@ export class AuthController extends PuterController {
                     );
                 }
                 if (!app) {
-                    throw new HttpError(404, `App ${app_uid} does not exist`);
+                    throw new HttpError(404, `App ${app_uid} does not exist`, {
+                        legacyCode: 'not_found',
+                    });
                 }
                 // Grant the app-is-authenticated flag
                 const userPermGrantPromise =
@@ -1930,7 +2108,9 @@ export class AuthController extends PuterController {
                     app_uid = await this.services.auth.appUidFromOrigin(origin);
                 }
                 if (!app_uid)
-                    throw new HttpError(400, 'Missing `app_uid` or `origin`');
+                    throw new HttpError(400, 'Missing `app_uid` or `origin`', {
+                        legacyCode: 'bad_request',
+                    });
 
                 // Check if the app is authenticated for this user
                 const authenticated = await this.services.permission
@@ -1962,6 +2142,7 @@ export class AuthController extends PuterController {
                     throw new HttpError(
                         400,
                         'Missing or empty `permissions` array',
+                        { legacyCode: 'bad_request' },
                     );
                 }
 
@@ -1972,6 +2153,7 @@ export class AuthController extends PuterController {
                     throw new HttpError(
                         400,
                         'Each permission must be a string or [string, extra?]',
+                        { legacyCode: 'bad_request' },
                     );
                 });
 
@@ -1990,7 +2172,9 @@ export class AuthController extends PuterController {
             async (req, res) => {
                 let { tokenOrUuid } = req.body;
                 if (!tokenOrUuid || typeof tokenOrUuid !== 'string') {
-                    throw new HttpError(400, 'Missing `tokenOrUuid`');
+                    throw new HttpError(400, 'Missing `tokenOrUuid`', {
+                        legacyCode: 'bad_request',
+                    });
                 }
                 // Extract JWT from /token-read URLs if needed
                 if (tokenOrUuid.includes('/token-read')) {
@@ -2018,11 +2202,16 @@ export class AuthController extends PuterController {
                 const user = await this.stores.user.getById(req.actor.user.id, {
                     force: true,
                 });
-                if (!user) throw new HttpError(404, 'User not found');
+                if (!user)
+                    throw new HttpError(404, 'User not found', {
+                        legacyCode: 'not_found',
+                    });
 
                 if (action === 'setup') {
                     if (user.otp_enabled) {
-                        throw new HttpError(409, '2FA is already enabled.');
+                        throw new HttpError(409, '2FA is already enabled.', {
+                            legacyCode: 'conflict',
+                        });
                     }
 
                     const result = otpCreateSecret(user.username);
@@ -2049,7 +2238,10 @@ export class AuthController extends PuterController {
 
                 if (action === 'test') {
                     const { code } = req.body ?? {};
-                    if (!code) throw new HttpError(400, 'Missing `code`');
+                    if (!code)
+                        throw new HttpError(400, 'Missing `code`', {
+                            legacyCode: 'bad_request',
+                        });
                     const ok = verifyOtp(user.username, user.otp_secret, code);
                     return res.json({ ok });
                 }
@@ -2059,15 +2251,19 @@ export class AuthController extends PuterController {
                         throw new HttpError(
                             403,
                             'Email must be confirmed before enabling 2FA.',
+                            { legacyCode: 'forbidden' },
                         );
                     }
                     if (user.otp_enabled) {
-                        throw new HttpError(409, '2FA is already enabled.');
+                        throw new HttpError(409, '2FA is already enabled.', {
+                            legacyCode: 'conflict',
+                        });
                     }
                     if (!user.otp_secret) {
                         throw new HttpError(
                             409,
                             '2FA has not been configured. Call setup first.',
+                            { legacyCode: 'conflict' },
                         );
                     }
 
@@ -2097,7 +2293,9 @@ export class AuthController extends PuterController {
                     return res.json({});
                 }
 
-                throw new HttpError(400, `Invalid action: ${action}`);
+                throw new HttpError(400, `Invalid action: ${action}`, {
+                    legacyCode: 'bad_request',
+                });
             },
         );
 
@@ -2120,7 +2318,10 @@ export class AuthController extends PuterController {
                 const user = await this.stores.user.getById(req.actor.user.id, {
                     force: true,
                 });
-                if (!user) throw new HttpError(404, 'User not found');
+                if (!user)
+                    throw new HttpError(404, 'User not found', {
+                        legacyCode: 'not_found',
+                    });
 
                 await this.clients.db.write(
                     'UPDATE `user` SET `otp_enabled` = 0, `otp_recovery_codes` = NULL, `otp_secret` = NULL WHERE `uuid` = ?',
@@ -2158,7 +2359,10 @@ export class AuthController extends PuterController {
                 const user = await this.stores.user.getById(req.actor.user.id, {
                     force: true,
                 });
-                if (!user) throw new HttpError(404, 'User not found');
+                if (!user)
+                    throw new HttpError(404, 'User not found', {
+                        legacyCode: 'not_found',
+                    });
 
                 res.json({
                     first_name: user.first_name ?? null,
@@ -2183,9 +2387,13 @@ export class AuthController extends PuterController {
                 const extra = req.body.extra ?? {};
                 const metadata = req.body.metadata ?? {};
                 if (typeof extra !== 'object' || Array.isArray(extra))
-                    throw new HttpError(400, '`extra` must be an object');
+                    throw new HttpError(400, '`extra` must be an object', {
+                        legacyCode: 'bad_request',
+                    });
                 if (typeof metadata !== 'object' || Array.isArray(metadata))
-                    throw new HttpError(400, '`metadata` must be an object');
+                    throw new HttpError(400, '`metadata` must be an object', {
+                        legacyCode: 'bad_request',
+                    });
 
                 const uid = await this.stores.group.create({
                     ownerUserId: req.actor.user.id,
@@ -2201,14 +2409,24 @@ export class AuthController extends PuterController {
             { subdomain: 'api', requireUserActor: true },
             async (req, res) => {
                 const { uid, users } = req.body ?? {};
-                if (!uid) throw new HttpError(400, 'Missing `uid`');
+                if (!uid)
+                    throw new HttpError(400, 'Missing `uid`', {
+                        legacyCode: 'bad_request',
+                    });
                 if (!Array.isArray(users))
-                    throw new HttpError(400, '`users` must be an array');
+                    throw new HttpError(400, '`users` must be an array', {
+                        legacyCode: 'bad_request',
+                    });
 
                 const group = await this.stores.group.getByUid(uid);
-                if (!group) throw new HttpError(404, 'Group not found');
+                if (!group)
+                    throw new HttpError(404, 'Group not found', {
+                        legacyCode: 'not_found',
+                    });
                 if (group.owner_user_id !== req.actor.user.id)
-                    throw new HttpError(403, 'Forbidden');
+                    throw new HttpError(403, 'Forbidden', {
+                        legacyCode: 'forbidden',
+                    });
 
                 await this.stores.group.addUsers(uid, users);
                 res.json({});
@@ -2220,14 +2438,24 @@ export class AuthController extends PuterController {
             { subdomain: 'api', requireUserActor: true },
             async (req, res) => {
                 const { uid, users } = req.body ?? {};
-                if (!uid) throw new HttpError(400, 'Missing `uid`');
+                if (!uid)
+                    throw new HttpError(400, 'Missing `uid`', {
+                        legacyCode: 'bad_request',
+                    });
                 if (!Array.isArray(users))
-                    throw new HttpError(400, '`users` must be an array');
+                    throw new HttpError(400, '`users` must be an array', {
+                        legacyCode: 'bad_request',
+                    });
 
                 const group = await this.stores.group.getByUid(uid);
-                if (!group) throw new HttpError(404, 'Group not found');
+                if (!group)
+                    throw new HttpError(404, 'Group not found', {
+                        legacyCode: 'not_found',
+                    });
                 if (group.owner_user_id !== req.actor.user.id)
-                    throw new HttpError(403, 'Forbidden');
+                    throw new HttpError(403, 'Forbidden', {
+                        legacyCode: 'forbidden',
+                    });
 
                 await this.stores.group.removeUsers(uid, users);
                 res.json({});
@@ -2272,9 +2500,14 @@ export class AuthController extends PuterController {
             },
             async (req, res) => {
                 if (!req.actor?.session?.uid)
-                    throw new HttpError(400, 'No session bound to this actor');
+                    throw new HttpError(400, 'No session bound to this actor', {
+                        legacyCode: 'session_required',
+                    });
                 const user = await this.stores.user.getById(req.actor.user.id);
-                if (!user) throw new HttpError(404, 'User not found');
+                if (!user)
+                    throw new HttpError(404, 'User not found', {
+                        legacyCode: 'not_found',
+                    });
                 const guiToken = this.services.auth.createGuiToken(
                     user,
                     req.actor.session.uid,
@@ -2386,7 +2619,9 @@ export class AuthController extends PuterController {
      */
     async #validateEmail(email) {
         if (isBlockedEmail(email, this.config.blockedEmailDomains)) {
-            throw new HttpError(400, 'This email is not allowed.');
+            throw new HttpError(400, 'This email is not allowed.', {
+                legacyCode: 'email_not_allowed',
+            });
         }
 
         const validateEvent = {
@@ -2408,6 +2643,7 @@ export class AuthController extends PuterController {
                 400,
                 validateEvent.message ??
                     'This email cannot be used. Please try a different email address.',
+                { legacyCode: 'bad_request' },
             );
         }
     }

@@ -261,7 +261,11 @@ export function rateLimitGate(opts) {
         );
         try {
             if (!(await checkFn(key, limit, windowMs)))
-                return next(new HttpError(429, 'Too many requests.'));
+                return next(
+                    new HttpError(429, 'Too many requests.', {
+                        legacyCode: 'too_many_requests',
+                    }),
+                );
             next();
         } catch (err) {
             console.error(

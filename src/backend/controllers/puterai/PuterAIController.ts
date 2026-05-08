@@ -197,7 +197,9 @@ export class PuterAIController extends PuterController {
         return async (_req: Request, res: Response): Promise<void> => {
             const driver = this.drivers[driverKey];
             if (!driver?.list)
-                throw new HttpError(501, 'Model listing not available');
+                throw new HttpError(501, 'Model listing not available', {
+                    legacyCode: 'internal_error',
+                });
             const models = await driver.list();
             const HIDDEN = ['costly', 'fake', 'abuse', 'model-fallback-test-1'];
             res.json({
@@ -210,7 +212,9 @@ export class PuterAIController extends PuterController {
         return async (_req: Request, res: Response): Promise<void> => {
             const driver = this.drivers[driverKey];
             if (!driver?.models)
-                throw new HttpError(501, 'Model details not available');
+                throw new HttpError(501, 'Model details not available', {
+                    legacyCode: 'internal_error',
+                });
             const models = await driver.models();
             const HIDDEN = ['costly', 'fake', 'abuse', 'model-fallback-test-1'];
             res.json({
@@ -234,6 +238,7 @@ export class PuterAIController extends PuterController {
             throw new HttpError(
                 400,
                 '`messages` must be an array of chat messages',
+                { legacyCode: 'bad_request' },
             );
         }
 
@@ -532,6 +537,7 @@ export class PuterAIController extends PuterController {
             throw new HttpError(
                 400,
                 `\`provider\` must be '${DEFAULTS.openaiResponses}'`,
+                { legacyCode: 'bad_request' },
             );
         }
 
@@ -841,6 +847,7 @@ export class PuterAIController extends PuterController {
             throw new HttpError(
                 400,
                 '`messages` must be an array of chat messages',
+                { legacyCode: 'bad_request' },
             );
         }
 
@@ -1042,7 +1049,9 @@ export class PuterAIController extends PuterController {
             this.drivers as unknown as { aiChat: ChatCompletionDriver }
         ).aiChat;
         if (!driver)
-            throw new HttpError(500, 'Chat completion driver not registered');
+            throw new HttpError(500, 'Chat completion driver not registered', {
+                legacyCode: 'internal_error',
+            });
         return driver;
     }
 
@@ -1052,6 +1061,7 @@ export class PuterAIController extends PuterController {
             throw new HttpError(
                 403,
                 'App actors may not proxy to upstream AI APIs',
+                { legacyCode: 'forbidden' },
             );
         }
     }
@@ -1093,7 +1103,9 @@ const expectStream = (
     result: IChatCompleteResult,
 ): { stream: NodeJS.ReadableStream } => {
     if (!isDriverStreamResult(result as unknown)) {
-        throw new HttpError(500, 'expected streaming response');
+        throw new HttpError(500, 'expected streaming response', {
+            legacyCode: 'internal_error',
+        });
     }
     return result as unknown as { stream: NodeJS.ReadableStream };
 };
@@ -1250,10 +1262,13 @@ const getPromptText = (prompt: unknown): string => {
         throw new HttpError(
             400,
             '`prompt` must be a string or single-item string array',
+            { legacyCode: 'bad_request' },
         );
     }
     if (typeof prompt !== 'string')
-        throw new HttpError(400, '`prompt` must be a string');
+        throw new HttpError(400, '`prompt` must be a string', {
+            legacyCode: 'bad_request',
+        });
     return prompt;
 };
 
@@ -1308,7 +1323,9 @@ const responseInputToMessages = (input: unknown): unknown[] => {
     if (input === undefined || input === null) return [];
     if (typeof input === 'string') return [{ role: 'user', content: input }];
     if (!Array.isArray(input)) {
-        throw new HttpError(400, '`input` must be a string or array');
+        throw new HttpError(400, '`input` must be a string or array', {
+            legacyCode: 'bad_request',
+        });
     }
 
     const messages: unknown[] = [];

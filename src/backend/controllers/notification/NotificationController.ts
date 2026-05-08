@@ -42,10 +42,15 @@ export class NotificationController extends PuterController {
     async markAck(req: Request, res: Response): Promise<void> {
         const uid = req.body?.uid;
         if (typeof uid !== 'string' || uid.length === 0) {
-            throw new HttpError(400, '`uid` must be a non-empty string');
+            throw new HttpError(400, '`uid` must be a non-empty string', {
+                legacyCode: 'bad_request',
+            });
         }
         const userId = req.actor?.user?.id;
-        if (!userId) throw new HttpError(401, 'Unauthorized');
+        if (!userId)
+            throw new HttpError(401, 'Unauthorized', {
+                legacyCode: 'unauthorized',
+            });
 
         const notifService = this.services.notification as unknown as
             | NotificationService
@@ -76,10 +81,15 @@ export class NotificationController extends PuterController {
     async markRead(req: Request, res: Response): Promise<void> {
         const uid = req.body?.uid;
         if (typeof uid !== 'string' || uid.length === 0) {
-            throw new HttpError(400, '`uid` must be a non-empty string');
+            throw new HttpError(400, '`uid` must be a non-empty string', {
+                legacyCode: 'bad_request',
+            });
         }
         const userId = req.actor?.user?.id;
-        if (!userId) throw new HttpError(401, 'Unauthorized');
+        if (!userId)
+            throw new HttpError(401, 'Unauthorized', {
+                legacyCode: 'unauthorized',
+            });
 
         const notifService = this.services.notification as unknown as
             | NotificationService

@@ -188,10 +188,14 @@ export class DriverController extends PuterController {
         } = (req.body ?? {}) as Record<string, unknown>;
 
         if (!ifaceName || typeof ifaceName !== 'string') {
-            throw new HttpError(400, 'Missing or invalid `interface`');
+            throw new HttpError(400, 'Missing or invalid `interface`', {
+                legacyCode: 'bad_request',
+            });
         }
         if (!method || typeof method !== 'string') {
-            throw new HttpError(400, 'Missing or invalid `method`');
+            throw new HttpError(400, 'Missing or invalid `method`', {
+                legacyCode: 'bad_request',
+            });
         }
         const requestedDriver =
             typeof driverName === 'string' ? driverName : undefined;
@@ -202,6 +206,7 @@ export class DriverController extends PuterController {
             throw new HttpError(
                 404,
                 `Driver not found: ${ifaceName}:${resolvedName ?? '(no default)'}`,
+                { legacyCode: 'not_found' },
             );
         }
 
@@ -210,6 +215,7 @@ export class DriverController extends PuterController {
             throw new HttpError(
                 404,
                 `Method '${method}' not found on driver '${ifaceName}'`,
+                { legacyCode: 'not_found' },
             );
         }
 
@@ -245,7 +251,9 @@ export class DriverController extends PuterController {
         }
 
         if (!(await checkDriverRateLimit(req, ifaceName, method))) {
-            throw new HttpError(429, 'Too many requests.');
+            throw new HttpError(429, 'Too many requests.', {
+                legacyCode: 'too_many_requests',
+            });
         }
 
         // Stash the requested driver name in Context so multi-provider

@@ -129,20 +129,26 @@ export function verifySignature(
         typeof query.signature === 'string' ? query.signature : '';
     const expires = Number(query.expires);
     if (!uid)
-        throw new HttpError(403, '`uid` is required for signature-based auth');
+        throw new HttpError(403, '`uid` is required for signature-based auth', {
+            legacyCode: 'forbidden',
+        });
     if (!signature)
         throw new HttpError(
             403,
             '`signature` is required for signature-based auth',
+            { legacyCode: 'forbidden' },
         );
     if (!Number.isFinite(expires))
         throw new HttpError(
             403,
             '`expires` is required for signature-based auth',
+            { legacyCode: 'forbidden' },
         );
 
     if (expires < Date.now() / 1000) {
-        throw new HttpError(403, 'Authentication failed. Signature expired.');
+        throw new HttpError(403, 'Authentication failed. Signature expired.', {
+            legacyCode: 'forbidden',
+        });
     }
 
     // Write signature satisfies any action.
@@ -151,7 +157,9 @@ export function verifySignature(
     if (signature === computeSignature(uid, action, config.secret, expires))
         return;
 
-    throw new HttpError(403, 'Authentication failed');
+    throw new HttpError(403, 'Authentication failed', {
+        legacyCode: 'forbidden',
+    });
 }
 
 /**

@@ -183,14 +183,23 @@ export class SpeechToTextDriver extends PuterDriver {
             throw new HttpError(
                 400,
                 'Streaming transcription is not yet supported',
+                { legacyCode: 'bad_request' },
             );
         }
         if (!this.#openai)
-            throw new HttpError(500, 'OpenAI API key not configured');
-        if (!args.file) throw new HttpError(400, '`file` is required');
+            throw new HttpError(500, 'OpenAI API key not configured', {
+                legacyCode: 'internal_error',
+            });
+        if (!args.file)
+            throw new HttpError(400, '`file` is required', {
+                legacyCode: 'bad_request',
+            });
 
         const actor = Context.get('actor');
-        if (!actor) throw new HttpError(401, 'Authentication required');
+        if (!actor)
+            throw new HttpError(401, 'Authentication required', {
+                legacyCode: 'unauthorized',
+            });
 
         const loaded = await loadFileInput(
             this.stores,
@@ -205,7 +214,9 @@ export class SpeechToTextDriver extends PuterDriver {
             (translate ? DEFAULT_TRANSLATE_MODEL : DEFAULT_TRANSCRIBE_MODEL);
         const caps = MODEL_CAPS[selectedModel];
         if (!caps) {
-            throw new HttpError(400, `Unsupported model: ${selectedModel}`);
+            throw new HttpError(400, `Unsupported model: ${selectedModel}`, {
+                legacyCode: 'bad_request',
+            });
         }
 
         if (
@@ -215,18 +226,21 @@ export class SpeechToTextDriver extends PuterDriver {
             throw new HttpError(
                 400,
                 `response_format must be one of: ${caps.responseFormats.join(', ')}`,
+                { legacyCode: 'bad_request' },
             );
         }
         if (args.prompt && !caps.canPrompt) {
             throw new HttpError(
                 400,
                 `prompt is not supported for model ${selectedModel}`,
+                { legacyCode: 'bad_request' },
             );
         }
         if (args.logprobs && !caps.canLogprobs) {
             throw new HttpError(
                 400,
                 `logprobs is not supported for model ${selectedModel}`,
+                { legacyCode: 'bad_request' },
             );
         }
 
@@ -244,7 +258,10 @@ export class SpeechToTextDriver extends PuterDriver {
             actor,
             estimatedCost,
         );
-        if (!allowed) throw new HttpError(402, 'Insufficient credits');
+        if (!allowed)
+            throw new HttpError(402, 'Insufficient credits', {
+                legacyCode: 'insufficient_funds',
+            });
 
         const openaiFile = await toFile(
             loaded.buffer,

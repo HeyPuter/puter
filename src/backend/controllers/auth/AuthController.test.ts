@@ -75,9 +75,8 @@ describe('puter.signup.validate event', () => {
             403,
             validateEvent.message ?? 'Signup blocked',
             {
-                ...(validateEvent.code
-                    ? { code: validateEvent.code }
-                    : {}),
+                legacyCode: 'forbidden',
+                ...(validateEvent.code ? { code: validateEvent.code } : {}),
             },
         );
         expect(err.statusCode).toBe(403);
@@ -102,9 +101,8 @@ describe('puter.signup.validate event', () => {
             403,
             validateEvent.message ?? 'Signup blocked',
             {
-                ...(validateEvent.code
-                    ? { code: validateEvent.code }
-                    : {}),
+                legacyCode: 'forbidden',
+                ...(validateEvent.code ? { code: validateEvent.code } : {}),
             },
         );
         expect(err.statusCode).toBe(403);

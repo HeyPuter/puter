@@ -151,6 +151,7 @@ export class AppDriver extends PuterDriver {
                 throw new HttpError(
                     400,
                     'An app with this name already exists',
+                    { legacyCode: 'app_name_already_in_use' },
                 );
             }
         }

@@ -228,7 +228,7 @@ export class AuthService extends PuterService {
         if (!parsed) {
             console.error('[auth] failed to parse origin URL', { origin });
             throw new HttpError(400, 'Invalid origin URL', {
-                legacyCode: 'no_origin_for_app',
+                legacyCode: 'bad_request',
             });
         }
         // Aliased hosts collapse to a single canonical representative so the
@@ -778,7 +778,9 @@ export class AuthService extends PuterService {
                 tokenOrUuid,
             );
             if (decoded.type !== 'access-token' || !decoded.token_uid) {
-                throw new HttpError(400, 'Invalid access token');
+                throw new HttpError(400, 'Invalid access token', {
+                    legacyCode: 'token_invalid',
+                });
             }
             tokenUid = decoded.token_uid;
             issuerUuidFromJwt = decoded.user_uid;
@@ -791,7 +793,9 @@ export class AuthService extends PuterService {
         // For raw-uuid input we fall back to the persisted authorizer.
         if (issuerUuidFromJwt !== undefined) {
             if (issuerUuidFromJwt !== actor.user.uuid) {
-                throw new HttpError(404, 'Access token not found');
+                throw new HttpError(404, 'Access token not found', {
+                    legacyCode: 'not_found',
+                });
             }
         } else {
             const rows = (await this.clients.db.read(
@@ -800,7 +804,9 @@ export class AuthService extends PuterService {
             )) as Array<{ authorizer_user_id?: number | null }>;
             const ownerId = rows[0]?.authorizer_user_id ?? null;
             if (ownerId === null || ownerId !== actor.user.id) {
-                throw new HttpError(404, 'Access token not found');
+                throw new HttpError(404, 'Access token not found', {
+                    legacyCode: 'not_found',
+                });
             }
         }
 

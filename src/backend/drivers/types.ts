@@ -108,7 +108,9 @@ export const PuterDriver = class PuterDriver implements WithCostsReporting {
     public onServerShutdown() {
         return;
     }
-    public getReportedCosts(): Record<string, unknown>[] {
+    public getReportedCosts(): // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        | Record<string, any>[] // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        | Promise<Record<string, any>[]> {
         return [];
     }
 } satisfies IPuterDriver<WithCostsReporting>;

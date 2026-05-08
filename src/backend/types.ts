@@ -664,7 +664,10 @@ export interface WithLifecycle extends Object {
 }
 
 export interface WithCostsReporting extends WithLifecycle {
-    getReportedCosts?: () => Promise<Record<string, unknown>[]>;
+    getReportedCosts?: () => // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        | Promise<Record<string, any>[]>
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        | Record<string, any>[];
 }
 
 export interface WithControllerRegistration extends WithCostsReporting {

@@ -322,7 +322,9 @@ export class FSController extends PuterController {
     ) {
         const userId = this.#getActorUserId(req);
         if (!req.body?.uploadId) {
-            throw new HttpError(400, 'Missing uploadId');
+            throw new HttpError(400, 'Missing uploadId', {
+                legacyCode: 'bad_request',
+            });
         }
 
         await this.services.fs.abortUrlWrite(userId, req.body.uploadId);
@@ -423,6 +425,7 @@ export class FSController extends PuterController {
                         new HttpError(
                             400,
                             'Batch write manifest field is truncated',
+                            { legacyCode: 'bad_request' },
                         ),
                     );
                     return;
@@ -435,6 +438,7 @@ export class FSController extends PuterController {
                         new HttpError(
                             409,
                             'Batch write manifest was provided more than once',
+                            { legacyCode: 'conflict' },
                         ),
                     );
                     return;
@@ -471,6 +475,7 @@ export class FSController extends PuterController {
                                 throw new HttpError(
                                     400,
                                     'Batch write manifest is missing',
+                                    { legacyCode: 'bad_request' },
                                 );
                             }
                             parsedManifest = {
@@ -539,6 +544,7 @@ export class FSController extends PuterController {
                             throw new HttpError(
                                 400,
                                 'Batch write manifest must come before file content',
+                                { legacyCode: 'bad_request' },
                             );
                         }
 
@@ -550,6 +556,7 @@ export class FSController extends PuterController {
                             throw new HttpError(
                                 400,
                                 'Batch write manifest is missing',
+                                { legacyCode: 'bad_request' },
                             );
                         }
 
@@ -568,6 +575,7 @@ export class FSController extends PuterController {
                             throw new HttpError(
                                 409,
                                 `Duplicate file content for batch index ${itemIndex}`,
+                                { legacyCode: 'conflict' },
                             );
                         }
                         uploadedIndexes.add(itemIndex);
@@ -578,6 +586,7 @@ export class FSController extends PuterController {
                             throw new HttpError(
                                 400,
                                 `Batch write metadata was not found for index ${itemIndex}`,
+                                { legacyCode: 'bad_request' },
                             );
                         }
 
@@ -614,7 +623,9 @@ export class FSController extends PuterController {
             await parsingComplete;
             if (!manifestPreparationPromise) {
                 await Promise.allSettled(uploadPromises);
-                throw new HttpError(400, 'Batch write manifest is required');
+                throw new HttpError(400, 'Batch write manifest is required', {
+                    legacyCode: 'bad_request',
+                });
             }
             await manifestPreparationPromise;
             const uploadResults = await Promise.allSettled(uploadPromises);
@@ -643,6 +654,7 @@ export class FSController extends PuterController {
                 throw new HttpError(
                     500,
                     'Failed to prepare batch write operation',
+                    { legacyCode: 'internal_error' },
                 );
             }
             const failedUpload = uploadResults.find(
@@ -851,7 +863,9 @@ export class FSController extends PuterController {
 
         const parent = await this.#resolveEntryForRequest(body);
         if (!parent.isDir) {
-            throw new HttpError(400, 'Target is not a directory');
+            throw new HttpError(400, 'Target is not a directory', {
+                legacyCode: 'bad_request',
+            });
         }
         await this.#assertAccess(actor, parent.path, 'list');
 
@@ -905,7 +919,9 @@ export class FSController extends PuterController {
                   ? body.text
                   : '';
         if (query.trim().length === 0) {
-            throw new HttpError(400, 'Missing `query`');
+            throw new HttpError(400, 'Missing `query`', {
+                legacyCode: 'bad_request',
+            });
         }
         const limit = this.#toNumberOrUndefined(body.limit);
         const results = await this.services.fs.searchByName(
@@ -998,7 +1014,10 @@ export class FSController extends PuterController {
         const userId = this.#getActorUserId(req);
         const body = this.#toObjectRecord(req.body);
         const rawPath = typeof body.path === 'string' ? body.path : '';
-        if (!rawPath.trim()) throw new HttpError(400, 'Missing `path`');
+        if (!rawPath.trim())
+            throw new HttpError(400, 'Missing `path`', {
+                legacyCode: 'bad_request',
+            });
 
         // Normalize first: expands `~`, collapses `..`, ensures leading `/`
         // and no trailing `/`. Without this, parent-path derivation below
@@ -1006,7 +1025,10 @@ export class FSController extends PuterController {
         // `/~/Documents/foo` is `/~/Documents`, not `/<username>/Documents`).
         const username = this.#getActorUsername(req);
         const path = this.#normalizePath(rawPath, username);
-        if (path === '/') throw new HttpError(400, 'Cannot mkdir at root');
+        if (path === '/')
+            throw new HttpError(400, 'Cannot mkdir at root', {
+                legacyCode: 'bad_request',
+            });
 
         await this.#assertCanCreate(actor, path);
 
@@ -1031,11 +1053,17 @@ export class FSController extends PuterController {
         const userId = this.#getActorUserId(req);
         const body = this.#toObjectRecord(req.body);
         const rawPath = typeof body.path === 'string' ? body.path : '';
-        if (!rawPath.trim()) throw new HttpError(400, 'Missing `path`');
+        if (!rawPath.trim())
+            throw new HttpError(400, 'Missing `path`', {
+                legacyCode: 'bad_request',
+            });
 
         const username = this.#getActorUsername(req);
         const path = this.#normalizePath(rawPath, username);
-        if (path === '/') throw new HttpError(400, 'Cannot touch root');
+        if (path === '/')
+            throw new HttpError(400, 'Cannot touch root', {
+                legacyCode: 'bad_request',
+            });
 
         const parentPath = pathPosix.dirname(path);
         await this.#assertAccess(
@@ -1060,7 +1088,10 @@ export class FSController extends PuterController {
         const actor = this.#requireActor(req);
         const body = this.#toObjectRecord(req.body);
         const newName = typeof body.new_name === 'string' ? body.new_name : '';
-        if (!newName.trim()) throw new HttpError(400, 'Missing `new_name`');
+        if (!newName.trim())
+            throw new HttpError(400, 'Missing `new_name`', {
+                legacyCode: 'bad_request',
+            });
 
         const entry = await this.#resolveEntryForRequest(body);
         await this.#assertAccess(actor, entry.path, 'write');
@@ -1152,7 +1183,10 @@ export class FSController extends PuterController {
         const parentRef = this.#extractNodeRef(body.parent ?? body);
         const targetRef = this.#extractNodeRef(body.target);
         const name = typeof body.name === 'string' ? body.name : '';
-        if (!name.trim()) throw new HttpError(400, 'Missing `name`');
+        if (!name.trim())
+            throw new HttpError(400, 'Missing `name`', {
+                legacyCode: 'bad_request',
+            });
 
         const parent = await this.#resolveEntryForRequest(parentRef);
         const target = await this.#resolveEntryForRequest(targetRef);
@@ -1175,7 +1209,9 @@ export class FSController extends PuterController {
     #requireActor(req: Request): Actor {
         const actor = req.actor;
         if (!actor) {
-            throw new HttpError(401, 'Unauthorized');
+            throw new HttpError(401, 'Unauthorized', {
+                legacyCode: 'unauthorized',
+            });
         }
         return actor;
     }
@@ -1212,7 +1248,9 @@ export class FSController extends PuterController {
             required: true,
         });
         if (!entry) {
-            throw new HttpError(404, 'Entry not found');
+            throw new HttpError(404, 'Entry not found', {
+                legacyCode: 'not_found',
+            });
         }
         return entry;
     }
@@ -1405,12 +1443,16 @@ export class FSController extends PuterController {
         const actorUser = req.actor?.user;
         const candidateUserId = requestUser?.id ?? actorUser?.id;
         if (candidateUserId === undefined || candidateUserId === null) {
-            throw new HttpError(401, 'Unauthorized');
+            throw new HttpError(401, 'Unauthorized', {
+                legacyCode: 'unauthorized',
+            });
         }
 
         const userId = Number(candidateUserId);
         if (Number.isNaN(userId)) {
-            throw new HttpError(401, 'Unauthorized');
+            throw new HttpError(401, 'Unauthorized', {
+                legacyCode: 'unauthorized',
+            });
         }
 
         return userId;
@@ -1430,7 +1472,9 @@ export class FSController extends PuterController {
             typeof actorUsername !== 'string' ||
             actorUsername.trim().length === 0
         ) {
-            throw new HttpError(401, 'Unauthorized');
+            throw new HttpError(401, 'Unauthorized', {
+                legacyCode: 'unauthorized',
+            });
         }
         return actorUsername.trim();
     }
@@ -1727,13 +1771,17 @@ export class FSController extends PuterController {
     #normalizePath(path: string, username?: string): string {
         const trimmedPath = path.trim();
         if (trimmedPath.length === 0) {
-            throw new HttpError(400, 'Path cannot be empty');
+            throw new HttpError(400, 'Path cannot be empty', {
+                legacyCode: 'bad_request',
+            });
         }
 
         let pathToNormalize = trimmedPath;
         if (pathToNormalize === '~' || pathToNormalize.startsWith('~/')) {
             if (!username) {
-                throw new HttpError(400, 'Unable to resolve home path');
+                throw new HttpError(400, 'Unable to resolve home path', {
+                    legacyCode: 'bad_request',
+                });
             }
 
             pathToNormalize = `/${username}${pathToNormalize.slice(1)}`;
@@ -1759,7 +1807,9 @@ export class FSController extends PuterController {
             fallbackSource,
         );
         if (typeof resolvedFileMetadata.path !== 'string') {
-            throw new HttpError(400, 'Missing path');
+            throw new HttpError(400, 'Missing path', {
+                legacyCode: 'bad_request',
+            });
         }
 
         const username = this.#getActorUsername(req);
@@ -1841,22 +1891,30 @@ export class FSController extends PuterController {
     ): Promise<void> {
         const actor = req.actor;
         if (!actor) {
-            throw new HttpError(401, 'Unauthorized');
+            throw new HttpError(401, 'Unauthorized', {
+                legacyCode: 'unauthorized',
+            });
         }
         const normalizedFileMetadata = options?.pathAlreadyNormalized
             ? fileMetadata
             : this.#normalizeFileMetadataPath(req, fileMetadata);
         if (!normalizedFileMetadata) {
-            throw new HttpError(400, 'Missing path');
+            throw new HttpError(400, 'Missing path', {
+                legacyCode: 'bad_request',
+            });
         }
 
         const targetPath = normalizedFileMetadata.path;
         if (targetPath === '/') {
-            throw new HttpError(400, 'Cannot write to root path');
+            throw new HttpError(400, 'Cannot write to root path', {
+                legacyCode: 'cannot_write_to_root',
+            });
         }
         const parentPath = pathPosix.dirname(targetPath);
         if (parentPath === '/') {
-            throw new HttpError(400, 'Cannot write to root path');
+            throw new HttpError(400, 'Cannot write to root path', {
+                legacyCode: 'cannot_write_to_root',
+            });
         }
 
         let pathToCheck = parentPath;
@@ -2157,6 +2215,7 @@ export class FSController extends PuterController {
             throw new HttpError(
                 400,
                 'thumbnailMetadata.contentType is required for signed thumbnail upload',
+                { legacyCode: 'bad_request' },
             );
         }
 
@@ -2169,6 +2228,7 @@ export class FSController extends PuterController {
             throw new HttpError(
                 400,
                 'thumbnailMetadata.size must be a non-negative number',
+                { legacyCode: 'bad_request' },
             );
         }
         if (size > MAX_THUMBNAIL_BYTES) {
@@ -2217,6 +2277,7 @@ export class FSController extends PuterController {
                 throw new HttpError(
                     500,
                     'Failed to resolve signed thumbnail response target',
+                    { legacyCode: 'internal_error' },
                 );
             }
             if (
@@ -2247,6 +2308,7 @@ export class FSController extends PuterController {
             throw new HttpError(
                 400,
                 'Signed write completion does not accept inline thumbnail data. Upload thumbnail to signed URL and provide thumbnail URL.',
+                { legacyCode: 'bad_request' },
             );
         }
     }
@@ -2280,6 +2342,7 @@ export class FSController extends PuterController {
         throw new HttpError(
             415,
             'Unsupported content type for batchWrite. Use multipart/form-data or application/json.',
+            { legacyCode: 'bad_request' },
         );
     }
 
@@ -2396,7 +2459,9 @@ export class FSController extends PuterController {
         try {
             parsedManifest = JSON.parse(manifestRaw);
         } catch {
-            throw new HttpError(400, 'Batch write manifest is not valid JSON');
+            throw new HttpError(400, 'Batch write manifest is not valid JSON', {
+                legacyCode: 'bad_request',
+            });
         }
 
         const manifest: BatchWriteManifest = Array.isArray(parsedManifest)
@@ -2411,6 +2476,7 @@ export class FSController extends PuterController {
             throw new HttpError(
                 400,
                 'Batch write manifest must include a non-empty items array',
+                { legacyCode: 'bad_request' },
             );
         }
 
@@ -2423,6 +2489,7 @@ export class FSController extends PuterController {
                 throw new HttpError(
                     400,
                     `Batch write manifest item at position ${orderIndex} is invalid`,
+                    { legacyCode: 'bad_request' },
                 );
             }
 
@@ -2433,6 +2500,7 @@ export class FSController extends PuterController {
                 throw new HttpError(
                     400,
                     `Batch write manifest item index is invalid at position ${orderIndex}`,
+                    { legacyCode: 'bad_request' },
                 );
             }
 
@@ -2440,6 +2508,7 @@ export class FSController extends PuterController {
                 throw new HttpError(
                     400,
                     `Batch write manifest item ${index} is missing fileMetadata`,
+                    { legacyCode: 'bad_request' },
                 );
             }
 
@@ -2464,6 +2533,7 @@ export class FSController extends PuterController {
                 throw new HttpError(
                     409,
                     `Batch write manifest has duplicate index ${item.index}`,
+                    { legacyCode: 'conflict' },
                 );
             }
             seenIndexes.add(item.index);
@@ -2512,6 +2582,7 @@ export class FSController extends PuterController {
         throw new HttpError(
             400,
             `Batch write file part "${fieldName}" does not map to manifest metadata`,
+            { legacyCode: 'bad_request' },
         );
     }
 }

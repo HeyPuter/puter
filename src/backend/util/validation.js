@@ -29,23 +29,33 @@ export function validateString(
     { key, maxLen, regex, required = true, allowEmpty = false } = {},
 ) {
     if (value === undefined || value === null) {
-        if (required) throw new HttpError(400, `Missing \`${key}\``);
+        if (required)
+            throw new HttpError(400, `Missing \`${key}\``, {
+                legacyCode: 'bad_request',
+            });
         return value;
     }
     if (typeof value !== 'string') {
-        throw new HttpError(400, `\`${key}\` must be a string`);
+        throw new HttpError(400, `\`${key}\` must be a string`, {
+            legacyCode: 'bad_request',
+        });
     }
     if (!allowEmpty && value.length === 0) {
-        throw new HttpError(400, `\`${key}\` must not be empty`);
+        throw new HttpError(400, `\`${key}\` must not be empty`, {
+            legacyCode: 'bad_request',
+        });
     }
     if (maxLen && value.length > maxLen) {
         throw new HttpError(
             400,
             `\`${key}\` must be at most ${maxLen} characters`,
+            { legacyCode: 'bad_request' },
         );
     }
     if (regex && !regex.test(value)) {
-        throw new HttpError(400, `\`${key}\` has an invalid format`);
+        throw new HttpError(400, `\`${key}\` has an invalid format`, {
+            legacyCode: 'bad_request',
+        });
     }
     return value;
 }
@@ -66,7 +76,10 @@ export function validateUrl(
     } = {},
 ) {
     if (value === undefined || value === null) {
-        if (required) throw new HttpError(400, `Missing \`${key}\``);
+        if (required)
+            throw new HttpError(400, `Missing \`${key}\``, {
+                legacyCode: 'bad_request',
+            });
         return value;
     }
     validateString(value, { key, maxLen, required });
@@ -74,12 +87,15 @@ export function validateUrl(
     try {
         parsed = new URL(value);
     } catch {
-        throw new HttpError(400, `\`${key}\` must be a valid URL`);
+        throw new HttpError(400, `\`${key}\` must be a valid URL`, {
+            legacyCode: 'bad_request',
+        });
     }
     if (!protocols.includes(parsed.protocol)) {
         throw new HttpError(
             400,
             `\`${key}\` must use one of the following protocols: ${protocols.join(', ')}`,
+            { legacyCode: 'bad_request' },
         );
     }
     return value;
@@ -87,7 +103,10 @@ export function validateUrl(
 
 export function validateBool(value, { key, required = false } = {}) {
     if (value === undefined || value === null) {
-        if (required) throw new HttpError(400, `Missing \`${key}\``);
+        if (required)
+            throw new HttpError(400, `Missing \`${key}\``, {
+                legacyCode: 'bad_request',
+            });
         return value;
     }
     return Boolean(value);
@@ -95,33 +114,47 @@ export function validateBool(value, { key, required = false } = {}) {
 
 export function validateJsonObject(value, { key, required = false } = {}) {
     if (value === undefined || value === null) {
-        if (required) throw new HttpError(400, `Missing \`${key}\``);
+        if (required)
+            throw new HttpError(400, `Missing \`${key}\``, {
+                legacyCode: 'bad_request',
+            });
         return value;
     }
     if (typeof value === 'string') {
         try {
             value = JSON.parse(value);
         } catch {
-            throw new HttpError(400, `\`${key}\` must be valid JSON`);
+            throw new HttpError(400, `\`${key}\` must be valid JSON`, {
+                legacyCode: 'bad_request',
+            });
         }
     }
     if (typeof value !== 'object' || Array.isArray(value)) {
-        throw new HttpError(400, `\`${key}\` must be an object`);
+        throw new HttpError(400, `\`${key}\` must be an object`, {
+            legacyCode: 'bad_request',
+        });
     }
     return value;
 }
 
 export function validateArrayOfStrings(value, { key, required = false } = {}) {
     if (value === undefined || value === null) {
-        if (required) throw new HttpError(400, `Missing \`${key}\``);
+        if (required)
+            throw new HttpError(400, `Missing \`${key}\``, {
+                legacyCode: 'bad_request',
+            });
         return value;
     }
     if (!Array.isArray(value)) {
-        throw new HttpError(400, `\`${key}\` must be an array`);
+        throw new HttpError(400, `\`${key}\` must be an array`, {
+            legacyCode: 'bad_request',
+        });
     }
     for (let i = 0; i < value.length; i++) {
         if (typeof value[i] !== 'string') {
-            throw new HttpError(400, `\`${key}[${i}]\` must be a string`);
+            throw new HttpError(400, `\`${key}[${i}]\` must be a string`, {
+                legacyCode: 'bad_request',
+            });
         }
     }
     return value;

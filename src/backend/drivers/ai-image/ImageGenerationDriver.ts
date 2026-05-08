@@ -110,7 +110,10 @@ export class ImageGenerationDriver extends PuterDriver {
 
     async generate(args: IGenerateParams): Promise<string> {
         const actor = Context.get('actor');
-        if (!actor) throw new HttpError(401, 'Authentication required');
+        if (!actor)
+            throw new HttpError(401, 'Authentication required', {
+                legacyCode: 'unauthorized',
+            });
 
         let modelId = args.model?.trim().toLowerCase();
         let intendedProvider =
@@ -123,16 +126,25 @@ export class ImageGenerationDriver extends PuterDriver {
         if (!modelId && intendedProvider) {
             modelId = this.#providers[intendedProvider]?.getDefaultModel();
         }
-        if (!modelId) throw new HttpError(400, 'Missing `model`');
+        if (!modelId)
+            throw new HttpError(400, 'Missing `model`', {
+                legacyCode: 'bad_request',
+            });
 
         const model = this.#resolveModel(modelId, intendedProvider);
         if (!model) {
-            throw new HttpError(400, `Model not found: ${args.model}`);
+            throw new HttpError(400, `Model not found: ${args.model}`, {
+                legacyCode: 'bad_request',
+            });
         }
 
         const provider = this.#providers[model.provider!];
         if (!provider) {
-            throw new HttpError(500, `No provider found for model ${model.id}`);
+            throw new HttpError(
+                500,
+                `No provider found for model ${model.id}`,
+                { legacyCode: 'internal_error' },
+            );
         }
 
         // `width`/`height` or `aspect_ratio` -> `ratio: {w,h}`

@@ -133,7 +133,10 @@ export class ChatCompletionDriver extends PuterDriver {
 
     async complete(args: ICompleteArguments): Promise<IChatCompleteResult> {
         const actor = Context.get('actor');
-        if (!actor) throw new HttpError(401, 'Authentication required');
+        if (!actor)
+            throw new HttpError(401, 'Authentication required', {
+                legacyCode: 'unauthorized',
+            });
 
         let intendedProvider = args.provider || '';
         if (!args.model && !intendedProvider) {
@@ -149,7 +152,9 @@ export class ChatCompletionDriver extends PuterDriver {
 
         let model = this.#resolveModel(args.model, intendedProvider);
         if (!model) {
-            throw new HttpError(400, `Model not found: ${args.model}`);
+            throw new HttpError(400, `Model not found: ${args.model}`, {
+                legacyCode: 'bad_request',
+            });
         }
 
         if (args.messages) {
@@ -189,7 +194,9 @@ export class ChatCompletionDriver extends PuterDriver {
             const fakeModelId = validateEvent.abuse ? 'abuse' : 'fake';
             const fakeModel = this.#resolveModel(fakeModelId, 'fake-chat');
             if (!fakeModel) {
-                throw new HttpError(403, 'Prompt blocked by policy');
+                throw new HttpError(403, 'Prompt blocked by policy', {
+                    legacyCode: 'forbidden',
+                });
             }
             blocked = true;
             model = fakeModel;
@@ -270,7 +277,11 @@ export class ChatCompletionDriver extends PuterDriver {
         // First attempt
         const provider = this.#providers[model.provider!];
         if (!provider) {
-            throw new HttpError(500, `No provider found for model ${model.id}`);
+            throw new HttpError(
+                500,
+                `No provider found for model ${model.id}`,
+                { legacyCode: 'internal_error' },
+            );
         }
 
         const attempts: { model: string; provider: string; error: string }[] =
@@ -342,6 +353,7 @@ export class ChatCompletionDriver extends PuterDriver {
 
         if (!res) {
             throw new HttpError(500, 'All providers failed', {
+                legacyCode: 'internal_error',
                 fields: { attempts },
             });
         }

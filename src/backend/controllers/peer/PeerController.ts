@@ -121,7 +121,9 @@ export class PeerController extends PuterController {
             !cfg.turn.cloudflare_turn_api_token ||
             !cfg.turn.ttl
         ) {
-            throw new HttpError(503, 'TURN not configured');
+            throw new HttpError(503, 'TURN not configured', {
+                legacyCode: 'response_timeout',
+            });
         }
         const serviceId = cfg.turn.cloudflare_turn_service_id;
         const apiToken = cfg.turn.cloudflare_turn_api_token;
@@ -148,7 +150,9 @@ export class PeerController extends PuterController {
                 cfRes.status,
                 body,
             );
-            throw new HttpError(500, 'TURN credential generation failed');
+            throw new HttpError(500, 'TURN credential generation failed', {
+                legacyCode: 'internal_error',
+            });
         }
 
         const data = (await cfRes.json()) as { iceServers?: unknown };
@@ -162,17 +166,19 @@ export class PeerController extends PuterController {
     #ingestUsage = async (req: Request, res: Response): Promise<void> => {
         const cfg = this.config.peers;
         if (!cfg || !cfg.internal_auth_secret) {
-            throw new HttpError(403, 'Forbidden');
+            throw new HttpError(403, 'Forbidden', { legacyCode: 'forbidden' });
         }
         const expectedSecret = cfg.internal_auth_secret;
         const header = req.headers['x-puter-internal-auth'];
         if (!expectedSecret || header !== expectedSecret) {
-            throw new HttpError(403, 'Forbidden');
+            throw new HttpError(403, 'Forbidden', { legacyCode: 'forbidden' });
         }
 
         const { records } = req.body ?? {};
         if (!Array.isArray(records)) {
-            throw new HttpError(400, 'Missing `records` array');
+            throw new HttpError(400, 'Missing `records` array', {
+                legacyCode: 'bad_request',
+            });
         }
 
         for (const record of records) {

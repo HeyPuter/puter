@@ -132,14 +132,21 @@ export class XAISpeechToTextDriver extends PuterDriver {
         }
 
         if (!this.#apiKey) {
-            throw new HttpError(500, 'xAI API key not configured');
+            throw new HttpError(500, 'xAI API key not configured', {
+                legacyCode: 'internal_error',
+            });
         }
         if (!args.file) {
-            throw new HttpError(400, '`file` is required');
+            throw new HttpError(400, '`file` is required', {
+                legacyCode: 'bad_request',
+            });
         }
 
         const actor = Context.get('actor');
-        if (!actor) throw new HttpError(401, 'Authentication required');
+        if (!actor)
+            throw new HttpError(401, 'Authentication required', {
+                legacyCode: 'unauthorized',
+            });
 
         // Determine if the input is an HTTP URL or a filesystem/data-URL reference
         const isUrl = this.#isHttpUrl(args.file);
@@ -174,7 +181,10 @@ export class XAISpeechToTextDriver extends PuterDriver {
             actor,
             estimatedCost,
         );
-        if (!allowed) throw new HttpError(402, 'Insufficient credits');
+        if (!allowed)
+            throw new HttpError(402, 'Insufficient credits', {
+                legacyCode: 'insufficient_funds',
+            });
 
         // Build multipart form data
         const formData = new FormData();
@@ -211,7 +221,9 @@ export class XAISpeechToTextDriver extends PuterDriver {
         } catch (e: unknown) {
             const msg = (e as Error).message ?? String(e);
             console.error('[XAISpeechToTextDriver] API error:', msg);
-            throw new HttpError(502, `xAI STT API error: ${msg}`);
+            throw new HttpError(502, `xAI STT API error: ${msg}`, {
+                legacyCode: 'internal_error',
+            });
         }
 
         if (!response.ok) {
@@ -222,6 +234,7 @@ export class XAISpeechToTextDriver extends PuterDriver {
             throw new HttpError(
                 502,
                 `xAI STT API error (${response.status}): ${errText}`,
+                { legacyCode: 'internal_error' },
             );
         }
 

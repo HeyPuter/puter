@@ -104,6 +104,7 @@ export class ElevenLabsTTSProvider extends TTSProvider {
             502,
             `ElevenLabs request failed (status ${response.status})`,
             {
+                legacyCode: 'internal_error',
                 fields: { provider: 'elevenlabs', status: response.status },
             },
         );

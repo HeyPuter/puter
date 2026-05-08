@@ -81,10 +81,14 @@ export function validateUrlNoIP(url: string): void {
             ? hostname.slice(1, -1)
             : hostname;
     if (net.isIP(bare) !== 0) {
-        throw new HttpError(400, 'IP-addressed URLs are not allowed');
+        throw new HttpError(400, 'IP-addressed URLs are not allowed', {
+            legacyCode: 'bad_request',
+        });
     }
     if (bare === 'localhost') {
-        throw new HttpError(400, 'localhost URLs are not allowed');
+        throw new HttpError(400, 'localhost URLs are not allowed', {
+            legacyCode: 'bad_request',
+        });
     }
 }
 
@@ -156,6 +160,7 @@ export async function secureFetch(
         throw new HttpError(
             400,
             `redirects are not allowed (target: ${response.headers.get('location') ?? 'unknown'})`,
+            { legacyCode: 'bad_request' },
         );
     }
 

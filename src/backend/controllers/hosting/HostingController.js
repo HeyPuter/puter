@@ -49,7 +49,9 @@ export class HostingController extends PuterController {
             async (req, res) => {
                 const { site_uuid } = req.body ?? {};
                 if (!site_uuid || typeof site_uuid !== 'string') {
-                    throw new HttpError(400, 'Missing or invalid `site_uuid`');
+                    throw new HttpError(400, 'Missing or invalid `site_uuid`', {
+                        legacyCode: 'bad_request',
+                    });
                 }
 
                 const row = await this.subdomainStore.getByUuid(site_uuid, {
@@ -59,12 +61,14 @@ export class HostingController extends PuterController {
                     throw new HttpError(
                         404,
                         'Site not found or not owned by you',
+                        { legacyCode: 'not_found' },
                     );
                 }
                 if (row.protected) {
                     throw new HttpError(
                         403,
                         'Cannot delete a protected subdomain',
+                        { legacyCode: 'forbidden' },
                     );
                 }
 

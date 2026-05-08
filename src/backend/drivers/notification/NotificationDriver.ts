@@ -56,7 +56,9 @@ export class NotificationDriver extends PuterDriver {
     async create(args: Record<string, unknown>): Promise<unknown> {
         const object = args.object as Record<string, unknown> | undefined;
         if (!object || typeof object !== 'object') {
-            throw new HttpError(400, 'Missing or invalid `object`');
+            throw new HttpError(400, 'Missing or invalid `object`', {
+                legacyCode: 'bad_request',
+            });
         }
         const actor = this.#requireUserActor();
 
@@ -71,12 +73,18 @@ export class NotificationDriver extends PuterDriver {
     async read(args: Record<string, unknown>): Promise<unknown> {
         const actor = this.#requireUserActor();
         const uid = (args.uid ?? args.id) as string | undefined;
-        if (!uid) throw new HttpError(400, 'Missing `uid`');
+        if (!uid)
+            throw new HttpError(400, 'Missing `uid`', {
+                legacyCode: 'bad_request',
+            });
 
         const row = await this.stores.notification.getByUid(String(uid), {
             userId: actor.user.id,
         });
-        if (!row) throw new HttpError(404, 'Notification not found');
+        if (!row)
+            throw new HttpError(404, 'Notification not found', {
+                legacyCode: 'not_found',
+            });
         return this.#toClient(row);
     }
 
@@ -139,7 +147,10 @@ export class NotificationDriver extends PuterDriver {
     async mark_shown(args: Record<string, unknown>): Promise<unknown> {
         const actor = this.#requireUserActor();
         const uid = String(args.uid ?? '');
-        if (!uid) throw new HttpError(400, 'Missing `uid`');
+        if (!uid)
+            throw new HttpError(400, 'Missing `uid`', {
+                legacyCode: 'bad_request',
+            });
         const ok = await this.stores.notification.markShown(uid, actor.user.id);
         return { success: ok };
     }
@@ -148,7 +159,10 @@ export class NotificationDriver extends PuterDriver {
     async mark_acknowledged(args: Record<string, unknown>): Promise<unknown> {
         const actor = this.#requireUserActor();
         const uid = String(args.uid ?? '');
-        if (!uid) throw new HttpError(400, 'Missing `uid`');
+        if (!uid)
+            throw new HttpError(400, 'Missing `uid`', {
+                legacyCode: 'bad_request',
+            });
         const ok = await this.stores.notification.markAcknowledged(
             uid,
             actor.user.id,
@@ -162,11 +176,19 @@ export class NotificationDriver extends PuterDriver {
         user: { id: number; uuid: string; username: string };
     } {
         const actor = Context.get('actor') as Actor | undefined;
-        if (!actor) throw new HttpError(401, 'Authentication required');
-        if (!actor.user?.id) throw new HttpError(403, 'User actor required');
+        if (!actor)
+            throw new HttpError(401, 'Authentication required', {
+                legacyCode: 'unauthorized',
+            });
+        if (!actor.user?.id)
+            throw new HttpError(403, 'User actor required', {
+                legacyCode: 'forbidden',
+            });
         // App-under-user actors are not allowed for notifications.
         if (actor.app)
-            throw new HttpError(403, 'App actors cannot access notifications');
+            throw new HttpError(403, 'App actors cannot access notifications', {
+                legacyCode: 'forbidden',
+            });
         return actor as Actor & {
             user: { id: number; uuid: string; username: string };
         };

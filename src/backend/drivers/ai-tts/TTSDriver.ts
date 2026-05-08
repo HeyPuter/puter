@@ -160,14 +160,19 @@ export class TTSDriver extends PuterDriver {
         args: ISynthesizeArgs,
     ): Promise<DriverStreamResult | { url: string; content_type: string }> {
         const actor = Context.get('actor');
-        if (!actor) throw new HttpError(401, 'Authentication required');
+        if (!actor)
+            throw new HttpError(401, 'Authentication required', {
+                legacyCode: 'unauthorized',
+            });
 
         const providerName =
             args.provider ||
             this.#providerFromAlias() ||
             this.#getDefaultProviderName();
         if (!providerName) {
-            throw new HttpError(500, 'No TTS providers configured');
+            throw new HttpError(500, 'No TTS providers configured', {
+                legacyCode: 'internal_error',
+            });
         }
 
         const provider = this.#providers[providerName];
@@ -175,6 +180,7 @@ export class TTSDriver extends PuterDriver {
             throw new HttpError(
                 400,
                 `TTS provider not found: ${providerName}. Available: ${Object.keys(this.#providers).join(', ')}`,
+                { legacyCode: 'bad_request' },
             );
         }
 

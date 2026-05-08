@@ -19,7 +19,7 @@
 
 import { readFileSync } from 'node:fs';
 import { Context } from '../../core/context.js';
-import { HttpError } from '../../core/http/HttpError.js';
+import { HttpError, type LegacyErrorCodes } from '../../core/http/HttpError.js';
 import { PuterDriver } from '../types.js';
 import { loadFileInput } from '../util/fileInput.js';
 import type { Actor } from '../../core/actor.js';
@@ -84,17 +84,29 @@ export class WorkerDriver extends PuterDriver {
 
     // ── Driver methods ──────────────────────────────────────────────
 
-    async create(args: Record<string, unknown>): Promise<unknown> {
+    async create(args: {
+        appId: string;
+        workerName: string;
+        filePath: string;
+        authorization?: string;
+    }): Promise<unknown> {
         const actor = this.#requireActor();
         const workerName = String(args.workerName ?? '').toLowerCase();
         const filePath = String(args.filePath ?? '');
-        const appId = args.appId || (actor.app?.id as number | undefined);
-        if (!workerName) throw new HttpError(400, 'Missing `workerName`');
-        if (!filePath) throw new HttpError(400, 'Missing `filePath`');
+        const appId = args.appId || actor.app?.uid;
+        if (!workerName)
+            throw new HttpError(400, 'Missing `workerName`', {
+                legacyCode: 'bad_request',
+            });
+        if (!filePath)
+            throw new HttpError(400, 'Missing `filePath`', {
+                legacyCode: 'bad_request',
+            });
         if (!WORKER_NAME_REGEX.test(workerName)) {
             throw new HttpError(
                 400,
                 'Worker name must be alphanumeric (plus _ and -)',
+                { legacyCode: 'bad_request' },
             );
         }
         this.#rejectReserved(workerName);
@@ -111,17 +123,19 @@ export class WorkerDriver extends PuterDriver {
             throw new HttpError(
                 403,
                 `Worker limit reached (max ${MAX_WORKERS_PER_USER})`,
+                { legacyCode: 'forbidden' },
             );
         }
 
         // If tied to an app, verify ownership and get app-scoped token
         let authorization = String(args.authorization ?? '');
-        let appOwnerId = actor.app?.id ?? null;
+        let appOwnerId = actor.app?.id ?? undefined;
         if (appId) {
-            if (actor.app && actor.app.id !== appId) {
+            if (actor.app && actor.app.uid !== appId) {
                 throw new HttpError(
                     403,
                     'Cannot deploy worker for another app',
+                    { legacyCode: 'forbidden' },
                 );
             }
             appOwnerId = actor.app?.id;
@@ -142,12 +156,16 @@ export class WorkerDriver extends PuterDriver {
                 actor,
                 409,
                 'Worker name is already in use',
+                'conflict',
             );
         }
         if (!authorization) {
             // Fall back to a session token for the current user
             const userRow = await this.stores.user.getById(actor.user.id!);
-            if (!userRow) throw new HttpError(500, 'User not found');
+            if (!userRow)
+                throw new HttpError(500, 'User not found', {
+                    legacyCode: 'internal_error',
+                });
             const session =
                 await this.services.auth.createSessionToken(userRow);
             authorization = session.token;
@@ -175,11 +193,15 @@ export class WorkerDriver extends PuterDriver {
                 { userId: actor.user.id },
             );
             if (!updated) {
-                throw new HttpError(409, 'Worker name is already in use');
+                throw new HttpError(409, 'Worker name is already in use', {
+                    legacyCode: 'conflict',
+                });
             }
         } else {
             if (!loaded.fsEntry?.sqlId)
-                throw new HttpError(400, `Invalid file recieved!`);
+                throw new HttpError(400, `Invalid file recieved!`, {
+                    legacyCode: 'bad_request',
+                });
             await this.stores.subdomain.create({
                 userId: actor.user.id!,
                 subdomain: subdomainName,
@@ -200,17 +222,24 @@ export class WorkerDriver extends PuterDriver {
     async destroy(args: Record<string, unknown>): Promise<unknown> {
         const actor = this.#requireActor();
         const workerName = String(args.workerName ?? '').toLowerCase();
-        if (!workerName) throw new HttpError(400, 'Missing `workerName`');
+        if (!workerName)
+            throw new HttpError(400, 'Missing `workerName`', {
+                legacyCode: 'bad_request',
+            });
         this.#requireCfConfig();
 
         const subdomainName = `${WORKER_SUBDOMAIN_PREFIX}${workerName}`;
         const row = await this.stores.subdomain.getBySubdomain(subdomainName);
-        if (!row) throw new HttpError(404, 'Worker not found');
+        if (!row)
+            throw new HttpError(404, 'Worker not found', {
+                legacyCode: 'not_found',
+            });
         this.#checkWorkerWriteAccess(
             row,
             actor,
             403,
             'This is not your worker',
+            'forbidden',
         );
 
         const cfResult = await this.#cfDelete(workerName);
@@ -369,7 +398,9 @@ export class WorkerDriver extends PuterDriver {
     } {
         const actor = Context.get('actor') as Actor | undefined;
         if (!actor?.user?.id)
-            throw new HttpError(401, 'Authentication required');
+            throw new HttpError(401, 'Authentication required', {
+                legacyCode: 'unauthorized',
+            });
         return actor as Actor & {
             user: { id: number; uuid: string; username: string };
         };
@@ -378,14 +409,18 @@ export class WorkerDriver extends PuterDriver {
     #requireCfConfig(): void {
         const cfg = this.#workerConfig();
         if (!cfg.XAUTHKEY || !cfg.ACCOUNTID) {
-            throw new HttpError(503, 'Cloudflare Workers not configured');
+            throw new HttpError(503, 'Cloudflare Workers not configured', {
+                legacyCode: 'response_timeout',
+            });
         }
     }
 
     #rejectReserved(name: string): void {
         const reserved = this.config.reserved_words ?? [];
         if (reserved.includes(name)) {
-            throw new HttpError(400, `Worker name '${name}' is reserved`);
+            throw new HttpError(400, `Worker name '${name}' is reserved`, {
+                legacyCode: 'bad_request',
+            });
         }
     }
 
@@ -394,9 +429,12 @@ export class WorkerDriver extends PuterDriver {
         actor: Actor & { user: { id: number } },
         errorStatus: number,
         errorMessage: string,
+        errorLegacyCode: LegacyErrorCodes,
     ): void {
         if (Number(row.user_id) !== actor.user.id) {
-            throw new HttpError(errorStatus, errorMessage);
+            throw new HttpError(errorStatus, errorMessage, {
+                legacyCode: errorLegacyCode,
+            });
         }
 
         if (!actor.app) return;
@@ -407,7 +445,9 @@ export class WorkerDriver extends PuterDriver {
                 ? null
                 : Number(row.app_owner);
         if (!actorAppId || workerAppOwnerId !== actorAppId) {
-            throw new HttpError(errorStatus, errorMessage);
+            throw new HttpError(errorStatus, errorMessage, {
+                legacyCode: errorLegacyCode,
+            });
         }
     }
 
@@ -434,10 +474,10 @@ export class WorkerDriver extends PuterDriver {
         for (const eventName of [
             'outer.gui.item.added',
             'outer.gui.item.updated',
-        ]) {
+        ] as const) {
             this.clients.event.on(
                 eventName,
-                (key: string, data: unknown, meta: unknown) => {
+                (_key: string, data: unknown, meta: unknown) => {
                     void this.#handleFileWrite(data, meta).catch((err) => {
                         console.error('[workers] hot-reload error', err);
                     });

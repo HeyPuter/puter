@@ -119,7 +119,10 @@ export class OIDCController extends PuterController {
                 const provider = String(req.params.provider);
                 const cfg =
                     await this.services.oidc.getProviderConfig(provider);
-                if (!cfg) throw new HttpError(404, 'Provider not configured.');
+                if (!cfg)
+                    throw new HttpError(404, 'Provider not configured.', {
+                        legacyCode: 'not_found',
+                    });
 
                 const flow = String(
                     Array.isArray(req.query.flow)
@@ -180,6 +183,7 @@ export class OIDCController extends PuterController {
                         throw new HttpError(
                             400,
                             'user_uuid required for revalidate flow.',
+                            { legacyCode: 'bad_request' },
                         );
                     statePayload.user_uuid = rawUserUuid;
                     statePayload.flow = 'revalidate';
@@ -195,6 +199,7 @@ export class OIDCController extends PuterController {
                     throw new HttpError(
                         500,
                         'Could not build authorization URL.',
+                        { legacyCode: 'internal_error' },
                     );
 
                 res.redirect(302, url);
