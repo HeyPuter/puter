@@ -175,11 +175,6 @@ export class DriverController extends PuterController {
             { subdomain: 'api', requireAuth: true },
             this.#handleXd,
         );
-        router.get(
-            '/usage',
-            { subdomain: 'api', requireAuth: true },
-            this.#handleUsage,
-        );
     }
 
     // ── Handlers ────────────────────────────────────────────────────
@@ -313,52 +308,6 @@ export class DriverController extends PuterController {
     #handleXd = (_req: Request, res: Response): void => {
         res.type('text/html');
         res.send(XD_HTML);
-    };
-
-    /** GET /drivers/usage — monthly driver usage for the authenticated actor. */
-    #handleUsage = async (req: Request, res: Response): Promise<void> => {
-        const actor = req.actor;
-        if (!actor?.user?.id)
-            throw new HttpError(401, 'Authentication required');
-
-        const userId = actor.user.id;
-        const db = this.clients.db;
-
-        // Per-user usage: aggregate today's counts from monthly_usage_counts
-        const userRows = await db.read(
-            `SELECT \`year\`, \`month\`, \`service\`, SUM(\`count\`) AS count, MAX(\`max\`) AS max
-             FROM \`monthly_usage_counts\`
-             WHERE \`user_id\` = ? AND \`app_id\` IS NULL
-             GROUP BY \`year\`, \`month\`, \`service\`
-             ORDER BY \`year\` DESC, \`month\` DESC
-             LIMIT 100`,
-            [userId],
-        );
-
-        // Per-app usage: aggregate by app
-        const appRows = await db.read(
-            `SELECT a.\`uid\` AS app_uid, a.\`name\` AS app_name,
-                    m.\`year\`, m.\`month\`, m.\`service\`, SUM(m.\`count\`) AS count, MAX(m.\`max\`) AS max
-             FROM \`monthly_usage_counts\` m
-             LEFT JOIN \`apps\` a ON m.\`app_id\` = a.\`id\`
-             WHERE m.\`user_id\` = ? AND m.\`app_id\` IS NOT NULL
-             GROUP BY a.\`uid\`, a.\`name\`, m.\`year\`, m.\`month\`, m.\`service\`
-             ORDER BY m.\`year\` DESC, m.\`month\` DESC
-             LIMIT 500`,
-            [userId],
-        );
-
-        // Group app rows by app name
-        const apps: Record<string, Array<Record<string, unknown>>> = {};
-        for (const row of appRows) {
-            const name = String(
-                (row as Record<string, unknown>).app_name ?? 'unknown',
-            );
-            if (!apps[name]) apps[name] = [];
-            apps[name].push(row as Record<string, unknown>);
-        }
-
-        res.json({ user: userRows, apps });
     };
 
     // ── Internals ───────────────────────────────────────────────────
