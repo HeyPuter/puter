@@ -28,12 +28,12 @@
 Puter is an advanced, open-source, self-hostable internet computer designed to be feature-rich, fast, and highly extensible.
 
 ### For Users
-Puter's goal is to provide you with every app and feature you need to work, create, and play under one roof. From a simple [Notepad](https://online-notepad.com) and [Voice Recorder](https://voice-recorder.com) to [Spreadsheet](https://apps.puter.com/app/spreadsheet) and [Camera](https://online-camera.com), Puter wants to be your all-in-one solution for your digital life.
+Puter's goal is to provide you with every app and feature you need to work, create, and play under one roof. From a simple [Notepad](https://online-notepad.com) and [Voice Recorder](https://voice-recorder.com) to [Spreadsheet](https://apps.puter.com/app/spreadsheet) and [Camera](https://online-camera.com), Puter wants to be the all-in-one solution for your digital life.
 
 
 ### For Developers
 
-Puter provides everything you need to build and publish web apps and games. From [AI](https://developer.puter.com/ai/) to [Cloud Storage](https://developer.puter.com/object-storage/) and [Database](https://developer.puter.com/key-value-database/) to [Serverless Workers](https://developer.puter.com/serverless-workers/), Puter has you covered.
+Puter provides everything you need to build and publish web apps and games. From [AI](https://developer.puter.com/ai/) to [Cloud Storage](https://developer.puter.com/object-storage/) and [Database](https://developer.puter.com/key-value-database/) to [Serverless Workers](https://developer.puter.com/serverless-workers/), Puter has you covered. Additionally, we are the pioneers of the [User-Pays Model](https://developer.puter.com/user-pays-model/), which allows developers to incorporate all these capabilities into their applications while each user will cover their own usage costs. Making it practically free to run your application, no matter if you have 1 or 1 million users.
 
 <br/>
 
