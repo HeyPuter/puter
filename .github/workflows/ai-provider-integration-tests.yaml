@@ -1,22 +1,12 @@
 name: AI Provider Integration Tests
 
-# Hits real provider APIs with cheap models, so we only run when the
-# files exercised by these tests change. Each provider's test reads its
-# credential from PUTER_TEST_AI_<PROVIDER>_API_KEY and skips itself
-# silently if the secret is missing — fork PRs see green skips, the
-# main repo runs the tests it has secrets for.
+# Hits real provider APIs with cheap models, so this workflow is
+# manually triggered only. Each provider's test reads its credential
+# from PUTER_TEST_AI_<PROVIDER>_API_KEY and skips itself silently if
+# the secret is missing.
 
 on:
-  pull_request:
-    types: [opened, synchronize, reopened]
-    paths:
-      - 'src/backend/drivers/ai-chat/**'
-      - 'src/backend/drivers/ai-image/**'
-      - 'src/backend/drivers/ai-tts/**'
-      - 'src/backend/drivers/integrationTestUtil.ts'
-      - '.github/workflows/ai-provider-integration-tests.yaml'
-      - 'package.json'
-      - 'package-lock.json'
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -24,9 +14,6 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
-    # Skip on PRs from forks: secrets are not exposed there, so every
-    # test would skip anyway. Keeps the actions tab clean.
-    if: github.event.pull_request.head.repo.full_name == github.repository
 
     steps:
       - name: Checkout repository
