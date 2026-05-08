@@ -91,6 +91,7 @@ export class XAIProvider implements IChatProvider {
             } as ChatCompletionCreateParams);
         } catch (e) {
             console.log('XAI AI process_input_messages error: ', e);
+            throw e;
         }
 
         return OpenAIUtil.handle_completion_output({
@@ -98,7 +99,7 @@ export class XAIProvider implements IChatProvider {
                 const trackedUsage = OpenAIUtil.extractMeteredUsage(usage);
                 const costsOverride = Object.fromEntries(
                     Object.entries(trackedUsage).map(([key, value]) => {
-                        return [key, value * modelUsed.costs[key]];
+                        return [key, value * Number(modelUsed.costs[key] ?? 0)];
                     }),
                 );
                 this.#meteringService.utilRecordUsageObject(

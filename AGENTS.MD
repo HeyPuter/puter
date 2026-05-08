@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Guidance for AI coding agents working in this repository. Read this before making changes.
+Guidance for AI coding agents working in this repository. Read this before making changes. FOLLOW GUIDANCE AS CLOSELY AS POSSIBLE. If you think the guidance is wrong, raise an issue or flag a maintainer — don't just do what you think is right. This is the source of truth for how we write code, tests, and docs in this repo.
 
 ## Documentation Index
 
@@ -70,7 +70,9 @@ Don't restate what the code already says. Don't write comments that reference th
 
 When adding new behavior (function, endpoint, driver method, branch of logic), add a test for it.
 
+- Use Vitest for unit and integration tests. Test files go next to the code they test, named `*.test.ts` or `*.test.js`.
 - **Mock data, not methods.** Stub the inputs (fixtures, fake rows, sample payloads) rather than mocking the function under test or the layer beneath it. Over-mocking produces tests that pass while production breaks. If you must mock, mock at a real boundary (a client/external service), not within the same layer you're testing.
+- Prefer test server over mocking deps. We have existing test utilities for running full test server to boot deps based on config. (see [src/backend/testUtil.ts](src/backend/testUtil.ts)).
 - **Hit a real database / real client where reasonable.** Integration shapes catch the things unit tests with mocks miss.
 - **Regression tests for bug fixes.** A test that fails before your fix and passes after is the cheapest insurance against the bug coming back.
 - If something is genuinely hard to test (UI animation, third-party glue), skip it but say so in the PR.
