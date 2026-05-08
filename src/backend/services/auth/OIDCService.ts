@@ -360,6 +360,7 @@ export class OIDCService extends PuterService {
     async createUserFromOIDC(
         providerId: string,
         claims: OIDCUserInfo,
+        referrer?: string | null,
     ): Promise<{ success: boolean; user?: UserRow; error?: string }> {
         if (claims.email_verified === false) {
             return {
@@ -479,7 +480,7 @@ export class OIDCService extends PuterService {
             signup_user_agent: req?.headers?.['user-agent'] ?? null,
             signup_origin: req?.headers?.origin,
             signup_server: this.config.serverId,
-            referrer: req?.body?.referrer ?? null,
+            referrer: referrer ?? null,
         });
 
         if (!created) {

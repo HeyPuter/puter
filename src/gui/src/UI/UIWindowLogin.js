@@ -397,6 +397,10 @@ async function UIWindowLogin (options) {
                     $(el_window).find(btnClass).css('display', 'flex');
                     $(el_window).find(btnClass).on('click', function () {
                         let url = `${window.gui_origin}/auth/oidc/${provider}/start?flow=login`;
+                        const referrer = options.referrer ?? window.referrerStr;
+                        if ( referrer ) {
+                            url += `&referrer=${encodeURIComponent(referrer)}`;
+                        }
                         if ( window.embedded_in_popup && window.url_query_params?.get('msg_id') ) {
                             url += `&embedded_in_popup=true&msg_id=${encodeURIComponent(window.url_query_params.get('msg_id'))}`;
                             if ( window.openerOrigin ) {
