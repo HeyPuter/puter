@@ -494,3 +494,406 @@ describe('AppDriver.isNameAvailable', () => {
         );
     });
 });
+
+// ── create: additional validation branches ─────────────────────────
+
+describe('AppDriver.create additional branches', () => {
+    it('rejects with 400 when `object` is missing or not an object', async () => {
+        const { actor } = await makeUser();
+        await expect(
+            withActor(actor, () => driver.create({})),
+        ).rejects.toMatchObject({ statusCode: 400 });
+        await expect(
+            withActor(actor, () =>
+                driver.create({ object: 'not an object' as unknown as object }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('rejects a too-long name with 400', async () => {
+        const { actor } = await makeUser();
+        await expect(
+            withActor(actor, () =>
+                driver.create({
+                    object: {
+                        name: 'a'.repeat(101),
+                        title: 't',
+                        index_url: uniqueIndexUrl(),
+                    },
+                }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('rejects when title is missing on create', async () => {
+        const { actor } = await makeUser();
+        await expect(
+            withActor(actor, () =>
+                driver.create({
+                    object: {
+                        name: uniqueName('no-title'),
+                        index_url: uniqueIndexUrl(),
+                    },
+                }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('accepts a valid data:image/png base64 icon', async () => {
+        const { actor } = await makeUser();
+        // 1x1 transparent PNG
+        const png = `data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=`;
+        const created = await withActor(actor, () =>
+            driver.create({
+                object: {
+                    name: uniqueName('icon'),
+                    title: 't',
+                    index_url: uniqueIndexUrl(),
+                    icon: png,
+                },
+            }),
+        );
+        expect(created.icon).toBe(png);
+    });
+
+    it('normalizes a raw-base64 icon into a data: URL', async () => {
+        const { actor } = await makeUser();
+        // Raw base64 of a 1x1 PNG (no data: prefix)
+        const rawB64 =
+            'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
+        const created = await withActor(actor, () =>
+            driver.create({
+                object: {
+                    name: uniqueName('rawicon'),
+                    title: 't',
+                    index_url: uniqueIndexUrl(),
+                    icon: rawB64,
+                },
+            }),
+        );
+        expect(typeof created.icon).toBe('string');
+        expect(String(created.icon).startsWith('data:image/')).toBe(true);
+    });
+
+    it('rejects an icon URL that is neither base64, data:, nor an app-icon endpoint', async () => {
+        const { actor } = await makeUser();
+        await expect(
+            withActor(actor, () =>
+                driver.create({
+                    object: {
+                        name: uniqueName('bad-icon-url'),
+                        title: 't',
+                        index_url: uniqueIndexUrl(),
+                        icon: 'https://evil.example/icon.png',
+                    },
+                }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('persists metadata, maximize_on_start, and background flags', async () => {
+        const { actor } = await makeUser();
+        const created = await withActor(actor, () =>
+            driver.create({
+                object: {
+                    name: uniqueName('flags'),
+                    title: 't',
+                    index_url: uniqueIndexUrl(),
+                    maximize_on_start: true,
+                    background: true,
+                    metadata: { foo: 'bar' },
+                },
+            }),
+        );
+        expect(created.maximize_on_start).toBe(true);
+        expect(created.background).toBe(true);
+        // metadata round-trips as a JSON string in the wire shape.
+        const parsed =
+            typeof created.metadata === 'string'
+                ? JSON.parse(created.metadata)
+                : created.metadata;
+        expect(parsed).toEqual({ foo: 'bar' });
+    });
+
+    it('persists filetype_associations as an array', async () => {
+        const { actor } = await makeUser();
+        const created = await withActor(actor, () =>
+            driver.create({
+                object: {
+                    name: uniqueName('ft'),
+                    title: 't',
+                    index_url: uniqueIndexUrl(),
+                    filetype_associations: ['.txt', '.md'],
+                },
+            }),
+        );
+        expect(Array.isArray(created.filetype_associations)).toBe(true);
+        expect(created.filetype_associations).toEqual(
+            expect.arrayContaining(['.txt', '.md']),
+        );
+    });
+
+    it('rejects too-long title with 400', async () => {
+        const { actor } = await makeUser();
+        await expect(
+            withActor(actor, () =>
+                driver.create({
+                    object: {
+                        name: uniqueName('lt'),
+                        title: 'x'.repeat(101),
+                        index_url: uniqueIndexUrl(),
+                    },
+                }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('rejects too-long description with 400', async () => {
+        const { actor } = await makeUser();
+        await expect(
+            withActor(actor, () =>
+                driver.create({
+                    object: {
+                        name: uniqueName('ld'),
+                        title: 't',
+                        description: 'd'.repeat(7001),
+                        index_url: uniqueIndexUrl(),
+                    },
+                }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+});
+
+// ── update: additional branches ────────────────────────────────────
+
+describe('AppDriver.update additional branches', () => {
+    it('rejects with 400 when object is missing or invalid', async () => {
+        const { actor } = await makeUser();
+        const created = await withActor(actor, () =>
+            driver.create({
+                object: {
+                    name: uniqueName('u1'),
+                    title: 't',
+                    index_url: uniqueIndexUrl(),
+                },
+            }),
+        );
+        await expect(
+            withActor(actor, () => driver.update({ uid: created.uid })),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('returns 404 when neither uid/id matches anything', async () => {
+        const { actor } = await makeUser();
+        await expect(
+            withActor(actor, () =>
+                driver.update({
+                    uid: 'app-nonexistent',
+                    object: { title: 'x' },
+                }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 404 });
+    });
+
+    it('renames an app and persists the new name', async () => {
+        const { actor } = await makeUser();
+        const created = await withActor(actor, () =>
+            driver.create({
+                object: {
+                    name: uniqueName('old'),
+                    title: 't',
+                    index_url: uniqueIndexUrl(),
+                },
+            }),
+        );
+        const newName = uniqueName('renamed');
+        const updated = await withActor(actor, () =>
+            driver.update({
+                uid: created.uid,
+                object: { name: newName },
+            }),
+        );
+        expect(updated.name).toBe(newName);
+    });
+
+    it('rejects renaming to a name already taken with 409', async () => {
+        const a = await makeUser();
+        const b = await makeUser();
+        const claimed = uniqueName('claimed');
+        // a registers `claimed`.
+        await withActor(a.actor, () =>
+            driver.create({
+                object: {
+                    name: claimed,
+                    title: 't',
+                    index_url: uniqueIndexUrl(),
+                },
+            }),
+        );
+        // b creates a separate app, then tries to rename to `claimed`.
+        const bApp = await withActor(b.actor, () =>
+            driver.create({
+                object: {
+                    name: uniqueName('temp'),
+                    title: 't',
+                    index_url: uniqueIndexUrl(),
+                },
+            }),
+        );
+        await expect(
+            withActor(b.actor, () =>
+                driver.update({
+                    uid: bApp.uid,
+                    object: { name: claimed },
+                }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 409 });
+    });
+
+    it('updates metadata and filetype_associations on an owned app', async () => {
+        const { actor } = await makeUser();
+        const created = await withActor(actor, () =>
+            driver.create({
+                object: {
+                    name: uniqueName('upd-meta'),
+                    title: 't',
+                    index_url: uniqueIndexUrl(),
+                    filetype_associations: ['.txt'],
+                },
+            }),
+        );
+        const updated = await withActor(actor, () =>
+            driver.update({
+                uid: created.uid,
+                object: {
+                    metadata: { version: 2 },
+                    filetype_associations: ['.md', '.csv'],
+                },
+            }),
+        );
+        const meta =
+            typeof updated.metadata === 'string'
+                ? JSON.parse(updated.metadata)
+                : updated.metadata;
+        expect(meta).toEqual({ version: 2 });
+        expect(updated.filetype_associations).toEqual(
+            expect.arrayContaining(['.md', '.csv']),
+        );
+    });
+});
+
+// ── read: additional branches ──────────────────────────────────────
+
+describe('AppDriver.read additional branches', () => {
+    it('reads via id object with `{ uid }`', async () => {
+        const { actor } = await makeUser();
+        const created = await withActor(actor, () =>
+            driver.create({
+                object: {
+                    name: uniqueName('rid'),
+                    title: 't',
+                    index_url: uniqueIndexUrl(),
+                },
+            }),
+        );
+        const fetched = await withActor(actor, () =>
+            driver.read({ id: { uid: created.uid } }),
+        );
+        expect(fetched.uid).toBe(created.uid);
+    });
+
+    it('reads via numeric `id` (positional number)', async () => {
+        const { actor } = await makeUser();
+        const created = await withActor(actor, () =>
+            driver.create({
+                object: {
+                    name: uniqueName('rid-num'),
+                    title: 't',
+                    index_url: uniqueIndexUrl(),
+                },
+            }),
+        );
+        const row = await server.stores.app.getByUid(created.uid as string);
+        const fetched = await withActor(actor, () =>
+            driver.read({ id: row!.id }),
+        );
+        expect(fetched.uid).toBe(created.uid);
+    });
+
+    it('throws 401 when there is no actor in context', async () => {
+        await expect(driver.read({ uid: 'app-anything' })).rejects.toMatchObject(
+            { statusCode: 401 },
+        );
+    });
+});
+
+// ── delete: protected-app branch ───────────────────────────────────
+
+describe('AppDriver.delete additional branches', () => {
+    it('rejects deleting a protected app with 403', async () => {
+        const { actor } = await makeUser();
+        const created = await withActor(actor, () =>
+            driver.create({
+                object: {
+                    name: uniqueName('prot'),
+                    title: 't',
+                    index_url: uniqueIndexUrl(),
+                },
+            }),
+        );
+        const row = await server.stores.app.getByUid(created.uid as string);
+        // `protected` is in READ_ONLY_COLUMNS so AppStore.update filters it
+        // out — write directly, then invalidate so the next getByUid hits
+        // the fresh row.
+        await server.clients.db.write(
+            'UPDATE `apps` SET `protected` = 1 WHERE `id` = ?',
+            [row!.id],
+        );
+        await server.stores.app.invalidateByUid(created.uid as string);
+        await expect(
+            withActor(actor, () => driver.delete({ uid: created.uid })),
+        ).rejects.toMatchObject({ statusCode: 403 });
+    });
+});
+
+// ── select: predicate + visibility ─────────────────────────────────
+
+describe('AppDriver.select additional branches', () => {
+    it('returns [] for an unauthenticated caller (throws 401)', async () => {
+        await expect(driver.select({})).rejects.toMatchObject({
+            statusCode: 401,
+        });
+    });
+});
+
+// ── upsert ──────────────────────────────────────────────────────────
+
+describe('AppDriver.upsert additional branches', () => {
+    it('updates by resolved id when a row matches', async () => {
+        const { actor } = await makeUser();
+        const name = uniqueName('ups-by-id');
+        const created = await withActor(actor, () =>
+            driver.create({
+                object: { name, title: 't', index_url: uniqueIndexUrl() },
+            }),
+        );
+        const result = await withActor(actor, () =>
+            driver.upsert({
+                id: { uid: created.uid },
+                object: { title: 'replaced' },
+            }),
+        );
+        expect(result.title).toBe('replaced');
+    });
+});
+
+// ── isNameAvailable extra branch ───────────────────────────────────
+
+describe('AppDriver.isNameAvailable additional branches', () => {
+    it('rejects a too-long name with 400', async () => {
+        await expect(driver.isNameAvailable('a'.repeat(101))).rejects.toMatchObject(
+            { statusCode: 400 },
+        );
+    });
+});

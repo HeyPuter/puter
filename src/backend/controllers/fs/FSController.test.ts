@@ -478,3 +478,566 @@ describe('FSController.completeBatchWrites', () => {
         expect([403, 404]).toContain(status);
     });
 });
+
+// ── /stat (statEntry) ───────────────────────────────────────────────
+
+describe('FSController.statEntry', () => {
+    it('returns the v2-native entry shape with isDir/path', async () => {
+        const { actor } = await makeUser();
+        const username = actor.user!.username!;
+        // Seed via mkdirEntry so the entry surely exists.
+        const mkdirRes = makeRes();
+        await withActor(actor, () =>
+            controller.mkdirEntry(
+                makeReq({
+                    body: { path: `/${username}/Documents/stat-me` },
+                    actor,
+                }),
+                mkdirRes.res,
+            ),
+        );
+
+        const { res, captured } = makeRes();
+        await withActor(actor, () =>
+            controller.statEntry(
+                makeReq({
+                    body: { path: `/${username}/Documents/stat-me` },
+                    actor,
+                }),
+                res,
+            ),
+        );
+        const body = captured.body as {
+            path: string;
+            isDir: boolean;
+            name: string;
+        };
+        expect(body.path).toBe(`/${username}/Documents/stat-me`);
+        expect(body.isDir).toBe(true);
+        expect(body.name).toBe('stat-me');
+    });
+
+    it('includes the subtree size when return_size is set on a directory', async () => {
+        const { actor } = await makeUser();
+        const username = actor.user!.username!;
+        await withActor(actor, () =>
+            controller.mkdirEntry(
+                makeReq({
+                    body: { path: `/${username}/Documents/sized` },
+                    actor,
+                }),
+                makeRes().res,
+            ),
+        );
+
+        const { res, captured } = makeRes();
+        await withActor(actor, () =>
+            controller.statEntry(
+                makeReq({
+                    body: {
+                        path: `/${username}/Documents/sized`,
+                        return_size: true,
+                    },
+                    actor,
+                }),
+                res,
+            ),
+        );
+        const body = captured.body as { size: number };
+        expect(body.size).toBe(0);
+    });
+
+    it('throws 401 when no actor is on the request', async () => {
+        const { actor } = await makeUser();
+        const { res } = makeRes();
+        const req = {
+            ...makeReq({ body: { path: '/x' }, actor }),
+            actor: undefined,
+        } as unknown as Request;
+        await expect(
+            controller.statEntry(req, res),
+        ).rejects.toMatchObject({ statusCode: 401 });
+    });
+});
+
+// ── /readdir (readdirEntries) ───────────────────────────────────────
+
+describe('FSController.readdirEntries', () => {
+    it('lists children of a directory', async () => {
+        const { actor } = await makeUser();
+        const username = actor.user!.username!;
+        for (const name of ['alpha', 'beta']) {
+            await withActor(actor, () =>
+                controller.mkdirEntry(
+                    makeReq({
+                        body: { path: `/${username}/Documents/${name}` },
+                        actor,
+                    }),
+                    makeRes().res,
+                ),
+            );
+        }
+
+        const { res, captured } = makeRes();
+        await withActor(actor, () =>
+            controller.readdirEntries(
+                makeReq({
+                    body: { path: `/${username}/Documents` },
+                    actor,
+                }),
+                res,
+            ),
+        );
+        const entries = captured.body as Array<{ name: string }>;
+        expect(Array.isArray(entries)).toBe(true);
+        const names = entries.map((e) => e.name);
+        expect(names).toContain('alpha');
+        expect(names).toContain('beta');
+    });
+
+    it('returns root listing when path = "/"', async () => {
+        const { actor } = await makeUser();
+        const { res, captured } = makeRes();
+        await withActor(actor, () =>
+            controller.readdirEntries(
+                makeReq({ body: { path: '/' }, actor }),
+                res,
+            ),
+        );
+        expect(Array.isArray(captured.body)).toBe(true);
+    });
+
+    it('throws 400 when the target is not a directory', async () => {
+        const { actor } = await makeUser();
+        const username = actor.user!.username!;
+        // touch → non-directory entry
+        await withActor(actor, () =>
+            controller.touchEntry(
+                makeReq({
+                    body: {
+                        path: `/${username}/Documents/touched.txt`,
+                        set_modified_to_now: true,
+                    },
+                    actor,
+                }),
+                makeRes().res,
+            ),
+        );
+
+        await expect(
+            withActor(actor, () =>
+                controller.readdirEntries(
+                    makeReq({
+                        body: { path: `/${username}/Documents/touched.txt` },
+                        actor,
+                    }),
+                    makeRes().res,
+                ),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+});
+
+// ── /search (searchEntries) ─────────────────────────────────────────
+
+describe('FSController.searchEntries', () => {
+    it('rejects an empty query with 400', async () => {
+        const { actor } = await makeUser();
+        await expect(
+            withActor(actor, () =>
+                controller.searchEntries(
+                    makeReq({ body: { query: '   ' }, actor }),
+                    makeRes().res,
+                ),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('finds entries by name', async () => {
+        const { actor } = await makeUser();
+        const username = actor.user!.username!;
+        const needle = `sneedle-${Math.random().toString(36).slice(2, 8)}`;
+        await withActor(actor, () =>
+            controller.mkdirEntry(
+                makeReq({
+                    body: { path: `/${username}/Documents/${needle}` },
+                    actor,
+                }),
+                makeRes().res,
+            ),
+        );
+
+        const { res, captured } = makeRes();
+        await withActor(actor, () =>
+            controller.searchEntries(
+                makeReq({ body: { query: needle }, actor }),
+                res,
+            ),
+        );
+        const results = captured.body as Array<{ name: string }>;
+        expect(Array.isArray(results)).toBe(true);
+        expect(results.some((r) => r.name === needle)).toBe(true);
+    });
+});
+
+// ── /read (readEntry, validation paths) ─────────────────────────────
+
+describe('FSController.readEntry', () => {
+    it('throws 400 when reading a directory', async () => {
+        const { actor } = await makeUser();
+        const username = actor.user!.username!;
+        await expect(
+            withActor(actor, () =>
+                controller.readEntry(
+                    makeReq({
+                        query: { path: `/${username}/Documents` },
+                        actor,
+                    }),
+                    makeRes().res,
+                ),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('throws 401 when no actor', async () => {
+        const { actor } = await makeUser();
+        const req = {
+            ...makeReq({
+                query: { path: `/${actor.user!.username}/Documents` },
+                actor,
+            }),
+            actor: undefined,
+        } as unknown as Request;
+        await expect(
+            controller.readEntry(req, makeRes().res),
+        ).rejects.toMatchObject({ statusCode: 401 });
+    });
+});
+
+// ── /mkdir (mkdirEntry) ─────────────────────────────────────────────
+
+describe('FSController.mkdirEntry', () => {
+    it('throws 400 on missing path', async () => {
+        const { actor } = await makeUser();
+        await expect(
+            withActor(actor, () =>
+                controller.mkdirEntry(
+                    makeReq({ body: {}, actor }),
+                    makeRes().res,
+                ),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('throws 400 when path normalizes to "/"', async () => {
+        const { actor } = await makeUser();
+        await expect(
+            withActor(actor, () =>
+                controller.mkdirEntry(
+                    makeReq({ body: { path: '/' }, actor }),
+                    makeRes().res,
+                ),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('creates a directory and emits the GUI added event', async () => {
+        const { actor } = await makeUser();
+        const username = actor.user!.username!;
+        const { res, captured } = makeRes();
+        await withActor(actor, () =>
+            controller.mkdirEntry(
+                makeReq({
+                    body: { path: `/${username}/Documents/created` },
+                    actor,
+                }),
+                res,
+            ),
+        );
+        const body = captured.body as { path: string; isDir: boolean };
+        expect(body.path).toBe(`/${username}/Documents/created`);
+        expect(body.isDir).toBe(true);
+    });
+
+    it('expands ~/ in the path to the user home', async () => {
+        const { actor } = await makeUser();
+        const username = actor.user!.username!;
+        const { res, captured } = makeRes();
+        await withActor(actor, () =>
+            controller.mkdirEntry(
+                makeReq({
+                    body: { path: '~/Documents/tilde' },
+                    actor,
+                }),
+                res,
+            ),
+        );
+        const body = captured.body as { path: string };
+        expect(body.path).toBe(`/${username}/Documents/tilde`);
+    });
+});
+
+// ── /touch (touchEntry) ─────────────────────────────────────────────
+
+describe('FSController.touchEntry', () => {
+    it('throws 400 on missing path', async () => {
+        const { actor } = await makeUser();
+        await expect(
+            withActor(actor, () =>
+                controller.touchEntry(
+                    makeReq({ body: {}, actor }),
+                    makeRes().res,
+                ),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('throws 400 when path normalizes to "/"', async () => {
+        const { actor } = await makeUser();
+        await expect(
+            withActor(actor, () =>
+                controller.touchEntry(
+                    makeReq({ body: { path: '/' }, actor }),
+                    makeRes().res,
+                ),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('creates a non-directory placeholder entry', async () => {
+        const { actor } = await makeUser();
+        const username = actor.user!.username!;
+        const { res, captured } = makeRes();
+        await withActor(actor, () =>
+            controller.touchEntry(
+                makeReq({
+                    body: {
+                        path: `/${username}/Documents/note.txt`,
+                        set_modified_to_now: true,
+                    },
+                    actor,
+                }),
+                res,
+            ),
+        );
+        const body = captured.body as { isDir: boolean; name: string };
+        expect(body.isDir).toBe(false);
+        expect(body.name).toBe('note.txt');
+    });
+});
+
+// ── /rename (renameEntry) ───────────────────────────────────────────
+
+describe('FSController.renameEntry', () => {
+    it('throws 400 on missing new_name', async () => {
+        const { actor } = await makeUser();
+        const username = actor.user!.username!;
+        await expect(
+            withActor(actor, () =>
+                controller.renameEntry(
+                    makeReq({
+                        body: { path: `/${username}/Documents` },
+                        actor,
+                    }),
+                    makeRes().res,
+                ),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('renames an existing entry', async () => {
+        const { actor } = await makeUser();
+        const username = actor.user!.username!;
+        await withActor(actor, () =>
+            controller.mkdirEntry(
+                makeReq({
+                    body: { path: `/${username}/Documents/before` },
+                    actor,
+                }),
+                makeRes().res,
+            ),
+        );
+        const { res, captured } = makeRes();
+        await withActor(actor, () =>
+            controller.renameEntry(
+                makeReq({
+                    body: {
+                        path: `/${username}/Documents/before`,
+                        new_name: 'after',
+                    },
+                    actor,
+                }),
+                res,
+            ),
+        );
+        const body = captured.body as { path: string; name: string };
+        expect(body.name).toBe('after');
+        expect(body.path).toBe(`/${username}/Documents/after`);
+    });
+});
+
+// ── /delete (deleteEntry) ───────────────────────────────────────────
+
+describe('FSController.deleteEntry', () => {
+    it('removes an entry by path and responds {ok: true}', async () => {
+        const { actor } = await makeUser();
+        const username = actor.user!.username!;
+        const target = `/${username}/Documents/doomed`;
+        await withActor(actor, () =>
+            controller.mkdirEntry(
+                makeReq({ body: { path: target }, actor }),
+                makeRes().res,
+            ),
+        );
+
+        const { res, captured } = makeRes();
+        await withActor(actor, () =>
+            controller.deleteEntry(
+                makeReq({
+                    body: { path: target, recursive: true },
+                    actor,
+                }),
+                res,
+            ),
+        );
+        expect(captured.body).toEqual({ ok: true });
+    });
+
+    it('throws 404 when the entry does not exist', async () => {
+        const { actor } = await makeUser();
+        const username = actor.user!.username!;
+        await expect(
+            withActor(actor, () =>
+                controller.deleteEntry(
+                    makeReq({
+                        body: {
+                            path: `/${username}/Documents/does-not-exist-${uuidv4()}`,
+                        },
+                        actor,
+                    }),
+                    makeRes().res,
+                ),
+            ),
+        ).rejects.toMatchObject({ statusCode: 404 });
+    });
+});
+
+// ── /move (moveEntry) ───────────────────────────────────────────────
+
+describe('FSController.moveEntry', () => {
+    it('moves an entry to a new parent', async () => {
+        const { actor } = await makeUser();
+        const username = actor.user!.username!;
+        const src = `/${username}/Documents/movable`;
+        await withActor(actor, () =>
+            controller.mkdirEntry(
+                makeReq({ body: { path: src }, actor }),
+                makeRes().res,
+            ),
+        );
+
+        const { res, captured } = makeRes();
+        await withActor(actor, () =>
+            controller.moveEntry(
+                makeReq({
+                    body: {
+                        source: { path: src },
+                        destination: { path: `/${username}/Pictures` },
+                    },
+                    actor,
+                }),
+                res,
+            ),
+        );
+        const body = captured.body as { path: string };
+        expect(body.path).toBe(`/${username}/Pictures/movable`);
+    });
+});
+
+// ── /copy (copyEntry) ───────────────────────────────────────────────
+
+describe('FSController.copyEntry', () => {
+    it('copies an entry into another folder', async () => {
+        const { actor } = await makeUser();
+        const username = actor.user!.username!;
+        const src = `/${username}/Documents/c-orig`;
+        await withActor(actor, () =>
+            controller.mkdirEntry(
+                makeReq({ body: { path: src }, actor }),
+                makeRes().res,
+            ),
+        );
+
+        const { res, captured } = makeRes();
+        await withActor(actor, () =>
+            controller.copyEntry(
+                makeReq({
+                    body: {
+                        source: { path: src },
+                        destination: { path: `/${username}/Pictures` },
+                    },
+                    actor,
+                }),
+                res,
+            ),
+        );
+        const body = captured.body as { path: string };
+        expect(body.path).toBe(`/${username}/Pictures/c-orig`);
+    });
+});
+
+// ── /mkshortcut (mkshortcutEntry) ───────────────────────────────────
+
+describe('FSController.mkshortcutEntry', () => {
+    it('throws 400 on missing name', async () => {
+        const { actor } = await makeUser();
+        const username = actor.user!.username!;
+        await expect(
+            withActor(actor, () =>
+                controller.mkshortcutEntry(
+                    makeReq({
+                        body: {
+                            parent: { path: `/${username}/Documents` },
+                            target: { path: `/${username}/Pictures` },
+                        },
+                        actor,
+                    }),
+                    makeRes().res,
+                ),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('creates a shortcut entry pointing at the target', async () => {
+        const { actor } = await makeUser();
+        const username = actor.user!.username!;
+        const target = `/${username}/Documents/shortcut-target`;
+        await withActor(actor, () =>
+            controller.mkdirEntry(
+                makeReq({ body: { path: target }, actor }),
+                makeRes().res,
+            ),
+        );
+
+        const { res, captured } = makeRes();
+        await withActor(actor, () =>
+            controller.mkshortcutEntry(
+                makeReq({
+                    body: {
+                        parent: { path: `/${username}/Pictures` },
+                        target: { path: target },
+                        name: 'my-shortcut',
+                    },
+                    actor,
+                }),
+                res,
+            ),
+        );
+        const body = captured.body as {
+            name: string;
+            isShortcut: boolean;
+        };
+        expect(body.name).toBe('my-shortcut');
+        expect(body.isShortcut).toBe(true);
+    });
+});

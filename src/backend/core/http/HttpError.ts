@@ -83,7 +83,7 @@ export interface HttpErrorOptions {
      * `item_with_same_name_exists`, `forbidden`, `subject_does_not_exist`).
      * Serialized as `code` in the response body for back-compat.
      */
-    legacyCode?: LegacyErrorCodes & {};
+    legacyCode?: LegacyErrorCodes | (string & {});
     /**
      * Modern, structured error code. If both `legacyCode` and `code` are set,
      * the legacy one takes the `code` slot in the response body and `code`
@@ -112,7 +112,7 @@ export interface HttpErrorOptions {
  */
 export class HttpError extends Error {
     readonly statusCode: number;
-    readonly legacyCode?: LegacyErrorCodes & {};
+    readonly legacyCode?: LegacyErrorCodes | (string & {});
     readonly code?: string;
     readonly fields?: Record<string, unknown>;
 

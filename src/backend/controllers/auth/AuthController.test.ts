@@ -2529,10 +2529,7 @@ describe('AuthController.handleLogin additional branches', () => {
 describe('AuthController.handleLoginOtp additional branches', () => {
     it('rejects missing token with 400', async () => {
         await expect(
-            controller.handleLoginOtp(
-                makeReq({ code: '123456' }),
-                makeRes(),
-            ),
+            controller.handleLoginOtp(makeReq({ code: '123456' }), makeRes()),
         ).rejects.toMatchObject({ statusCode: 400 });
     });
 
@@ -3205,10 +3202,7 @@ describe('AuthController 2FA additional branches', () => {
 
         const res = makeRes();
         await controller.handleConfigure2fa(
-            makeReq(
-                { code: '000000' },
-                { actor, params: { action: 'test' } },
-            ),
+            makeReq({ code: '000000' }, { actor, params: { action: 'test' } }),
             res,
         );
         expect(res.body).toEqual({ ok: false });

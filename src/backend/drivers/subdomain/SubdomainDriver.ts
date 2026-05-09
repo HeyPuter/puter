@@ -424,7 +424,7 @@ export class SubdomainDriver extends PuterDriver {
      */
     #requireVerified(actor: Actor): void {
         if (!this.config.strict_email_verification_required) return;
-        const user = actor.user as Record<string, unknown> | undefined;
+        const user = actor.user;
         if (!user?.email_confirmed) {
             throw new HttpError(400, 'Account email is not verified', {
                 legacyCode: 'account_is_not_verified',
