@@ -397,7 +397,8 @@ async function UIWindowLogin (options) {
                     $(el_window).find(btnClass).css('display', 'flex');
                     $(el_window).find(btnClass).on('click', function () {
                         let url = `${window.gui_origin}/auth/oidc/${provider}/start?flow=login`;
-                        const referrer = options.referrer ?? window.referrerStr;
+
+                        const referrer = options.referrer ?? window.referrerStr ?? window.openerOrigin;
                         if ( referrer ) {
                             url += `&referrer=${encodeURIComponent(referrer)}`;
                         }
