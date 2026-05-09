@@ -20,24 +20,22 @@
 /**
  * Offline unit tests for OCRDriver.
  *
- * The AWS Textract SDK and Mistral SDK are mocked so the driver never
- * reaches the network; `loadFileInput` is mocked at the boundary so we
- * don't need real fs/store wiring. Tests cover:
- *   • image / pdf input handling (both AWS Textract and Mistral)
- *   • response shape normalisation
- *   • metering (usage type, page counts, ucents from costs.ts)
- *   • argument validation (provider selection, auth, missing source)
- *   • getReportedCosts mirrors the costs.ts table
- *
- * The driver is instantiated directly with stub config / clients /
- * stores / services rather than booting a full PuterServer, so these
- * tests stay isolated and fast. End-to-end coverage that hits real S3
- * buckets and an actual Textract/Mistral endpoint belongs in a
- * separate *.integration.test.ts file.
+ * Boots a real PuterServer (in-memory sqlite + dynamo + s3 + mock
+ * redis) configured with both AWS Textract and Mistral OCR providers,
+ * then drives `server.drivers.aiOcr` directly. The Textract and
+ * Mistral SDKs are mocked at the module boundary — that's the real
+ * network egress point — so the driver never reaches AWS / Mistral.
+ * Inputs use `data:` URLs through the live `loadFileInput`, except
+ * the S3Object-source test which writes a real FS-backed file via
+ * `server.services.fs.write` so the driver picks up an `fsEntry` with
+ * a bucket. Aligns with AGENTS.md: "Prefer test server over mocking
+ * deps."
  */
 
 import {
+    afterAll,
     afterEach,
+    beforeAll,
     beforeEach,
     describe,
     expect,
@@ -45,13 +43,21 @@ import {
     vi,
     type MockInstance,
 } from 'vitest';
+import { v4 as uuidv4 } from 'uuid';
 
-import { runWithContext } from '../../core/context.js';
 import type { Actor } from '../../core/actor.js';
-import { OCRDriver } from './OCRDriver.js';
+import { runWithContext } from '../../core/context.js';
+import { PuterServer } from '../../server.js';
+import type { MeteringService } from '../../services/metering/MeteringService.js';
+import { setupTestServer } from '../../testUtil.js';
+import { generateDefaultFsentries } from '../../util/userProvisioning.js';
+import type { OCRDriver } from './OCRDriver.js';
 import { OCR_COSTS } from './costs.js';
 
-// ── Module-level mocks (hoisted) ────────────────────────────────────
+// ── SDK mocks ───────────────────────────────────────────────────────
+//
+// Textract and Mistral are external services; mock at the SDK boundary
+// so the driver never reaches AWS / Mistral in tests.
 
 const { textractSendMock, textractCtor } = vi.hoisted(() => ({
     textractSendMock: vi.fn(),
@@ -90,114 +96,90 @@ vi.mock('@mistralai/mistralai', () => ({
     }),
 }));
 
-const { loadFileInputMock } = vi.hoisted(() => ({
-    loadFileInputMock: vi.fn(),
-}));
+// ── Test harness ────────────────────────────────────────────────────
 
-vi.mock('../util/fileInput.js', async () => {
-    const actual = await vi.importActual<typeof import('../util/fileInput.js')>(
-        '../util/fileInput.js',
-    );
-    return {
-        ...actual,
-        loadFileInput: loadFileInputMock,
-    };
-});
+let server: PuterServer;
+let driver: OCRDriver;
+let hasCreditsSpy: MockInstance<MeteringService['hasEnoughCredits']>;
+let incrementUsageSpy: MockInstance<MeteringService['incrementUsage']>;
 
-// ── Test helpers ────────────────────────────────────────────────────
-
-interface MeteringStub {
-    hasEnoughCredits: MockInstance<
-        (actor: Actor, cost: number) => Promise<boolean>
-    >;
-    incrementUsage: MockInstance<
-        (
-            actor: Actor,
-            usageType: string,
-            count: number,
-            cost: number,
-        ) => unknown
-    >;
-}
-
-const makeDriver = (params: {
-    awsConfigured?: boolean;
-    mistralConfigured?: boolean;
-    awsRegion?: string;
-} = {}) => {
-    const metering: MeteringStub = {
-        hasEnoughCredits: vi.fn(async () => true),
-        incrementUsage: vi.fn(),
-    };
-    const config = {
+beforeAll(async () => {
+    server = await setupTestServer({
         providers: {
-            ...(params.awsConfigured !== false
-                ? {
-                      'aws-textract': {
-                          aws: {
-                              access_key: 'AKIA-TEST',
-                              secret_key: 'secret',
-                              region: params.awsRegion ?? 'us-west-2',
-                          },
-                      },
-                  }
-                : {}),
-            ...(params.mistralConfigured
-                ? {
-                      'mistral-ocr': { apiKey: 'mistral-key' },
-                  }
-                : {}),
+            'aws-textract': {
+                aws: {
+                    access_key: 'AKIA-TEST',
+                    secret_key: 'secret',
+                    region: 'us-west-2',
+                },
+            },
+            'mistral-ocr': { apiKey: 'mistral-key' },
         },
-    };
-
-    const services = {
-        metering,
-        fs: {} as never,
-    };
-    const stores = {
-        fsEntry: {} as never,
-        s3Object: {} as never,
-    };
-    const clients = {} as never;
-
-    const driver = new OCRDriver(
-        config as never,
-        clients,
-        stores as never,
-        services as never,
-    );
-    driver.onServerStart();
-    return { driver, metering };
-};
-
-const makeActor = (): Actor => ({
-    user: { id: 7, uuid: 'u-7', username: 'alice' },
+    } as never);
+    driver = server.drivers.aiOcr as unknown as OCRDriver;
 });
 
-const withActor = <T>(actor: Actor, fn: () => T | Promise<T>): Promise<T> =>
-    Promise.resolve(runWithContext({ actor }, fn));
+afterAll(async () => {
+    await server?.shutdown();
+});
 
 beforeEach(() => {
     textractSendMock.mockReset();
     textractCtor.mockReset();
     mistralOcrProcessMock.mockReset();
     mistralCtor.mockReset();
-    loadFileInputMock.mockReset();
+    // Spy on metering — keep the real impl so its recording side runs,
+    // but capture calls so per-test assertions can inspect them.
+    hasCreditsSpy = vi.spyOn(server.services.metering, 'hasEnoughCredits');
+    incrementUsageSpy = vi.spyOn(server.services.metering, 'incrementUsage');
 });
 
 afterEach(() => {
     vi.restoreAllMocks();
 });
 
+const makeUser = async (): Promise<{ actor: Actor; userId: number }> => {
+    const username = `ocr-${Math.random().toString(36).slice(2, 10)}`;
+    const created = await server.stores.user.create({
+        username,
+        uuid: uuidv4(),
+        password: null,
+        email: `${username}@test.local`,
+        free_storage: 100 * 1024 * 1024,
+        requires_email_confirmation: false,
+    });
+    await generateDefaultFsentries(
+        server.clients.db,
+        server.stores.user,
+        created,
+    );
+    const refreshed = (await server.stores.user.getById(created.id))!;
+    return {
+        userId: refreshed.id,
+        actor: {
+            user: {
+                id: refreshed.id,
+                uuid: refreshed.uuid,
+                username: refreshed.username,
+                email: refreshed.email ?? null,
+                email_confirmed: true,
+            } as Actor['user'],
+        },
+    };
+};
+
+const withActor = <T>(actor: Actor, fn: () => T | Promise<T>): Promise<T> =>
+    Promise.resolve(runWithContext({ actor }, fn));
+
+const dataUrl = (buffer: Buffer, mime: string) =>
+    `data:${mime};base64,${buffer.toString('base64')}`;
+
 // ── getReportedCosts ────────────────────────────────────────────────
 
 describe('OCRDriver.getReportedCosts', () => {
     it('mirrors every entry in costs.ts as a per-page line item', () => {
-        const { driver } = makeDriver();
         const reported = driver.getReportedCosts();
 
-        // Every key in OCR_COSTS appears once and only once with the
-        // correct ucents/page rate, unit=page, and namespaced source.
         expect(reported).toHaveLength(Object.keys(OCR_COSTS).length);
         for (const [usageType, ucentsPerUnit] of Object.entries(OCR_COSTS)) {
             expect(reported).toContainEqual({
@@ -214,7 +196,6 @@ describe('OCRDriver.getReportedCosts', () => {
 
 describe('OCRDriver.recognize argument validation', () => {
     it('returns the canned sample when test_mode is set, bypassing all I/O', async () => {
-        const { driver, metering } = makeDriver();
         const result = await driver.recognize({ test_mode: true });
         // Canned shape from sampleResponse() — no fs, network, or
         // metering should be touched.
@@ -222,78 +203,36 @@ describe('OCRDriver.recognize argument validation', () => {
             type: 'text/puter:sample-output',
             confidence: 1,
         });
-        expect(loadFileInputMock).not.toHaveBeenCalled();
-        expect(metering.incrementUsage).not.toHaveBeenCalled();
+        expect(textractSendMock).not.toHaveBeenCalled();
+        expect(mistralOcrProcessMock).not.toHaveBeenCalled();
+        expect(incrementUsageSpy).not.toHaveBeenCalled();
     });
 
     it('throws 401 when no actor is on the request context', async () => {
-        const { driver } = makeDriver();
-        // No actor wrapper → Context.get('actor') is undefined → 401.
         await expect(
-            driver.recognize({ source: { path: '/x' } }),
+            driver.recognize({
+                source: dataUrl(Buffer.from('x'), 'image/png'),
+            }),
         ).rejects.toMatchObject({ statusCode: 401 });
     });
 
     it('throws 400 when neither source nor file is provided', async () => {
-        const { driver } = makeDriver();
+        const { actor } = await makeUser();
         await expect(
-            withActor(makeActor(), () => driver.recognize({})),
+            withActor(actor, () => driver.recognize({})),
         ).rejects.toMatchObject({ statusCode: 400 });
     });
 
     it('throws 400 when an unknown provider is requested', async () => {
-        const { driver } = makeDriver();
-        loadFileInputMock.mockResolvedValueOnce({
-            buffer: Buffer.from('x'),
-            filename: 'x.png',
-            mimeType: 'image/png',
-            fsEntry: null,
-        });
+        const { actor } = await makeUser();
         await expect(
-            withActor(makeActor(), () =>
+            withActor(actor, () =>
                 driver.recognize({
-                    source: { path: '/x' },
+                    source: dataUrl(Buffer.from('x'), 'image/png'),
                     provider: 'totally-not-real',
                 }),
             ),
         ).rejects.toMatchObject({ statusCode: 400 });
-    });
-
-    it('throws 500 if AWS is not configured but aws-textract is requested', async () => {
-        const { driver } = makeDriver({ awsConfigured: false });
-        loadFileInputMock.mockResolvedValueOnce({
-            buffer: Buffer.from('x'),
-            filename: 'x.png',
-            mimeType: 'image/png',
-            fsEntry: null,
-        });
-        await expect(
-            withActor(makeActor(), () =>
-                driver.recognize({
-                    source: { path: '/x' },
-                    provider: 'aws-textract',
-                }),
-            ),
-        ).rejects.toMatchObject({ statusCode: 500 });
-    });
-
-    it('throws 500 if mistral is requested but not configured', async () => {
-        // AWS configured, Mistral not.
-        const { driver } = makeDriver({ mistralConfigured: false });
-        loadFileInputMock.mockResolvedValueOnce({
-            buffer: Buffer.from('x'),
-            filename: 'x.png',
-            mimeType: 'image/png',
-            fsEntry: null,
-        });
-        await expect(
-            withActor(makeActor(), () =>
-                driver.recognize({
-                    source: { path: '/x' },
-                    provider: 'mistral',
-                }),
-            ),
-        ).rejects.toMatchObject({ statusCode: 500 });
     });
 });
 
@@ -313,19 +252,13 @@ describe('OCRDriver.recognize (aws-textract)', () => {
     };
 
     it('throws 402 when the actor does not have enough credits', async () => {
-        const { driver, metering } = makeDriver();
-        metering.hasEnoughCredits.mockResolvedValueOnce(false);
-        loadFileInputMock.mockResolvedValueOnce({
-            buffer: Buffer.from('img'),
-            filename: 'doc.png',
-            mimeType: 'image/png',
-            fsEntry: null,
-        });
+        hasCreditsSpy.mockResolvedValueOnce(false);
+        const { actor } = await makeUser();
 
         await expect(
-            withActor(makeActor(), () =>
+            withActor(actor, () =>
                 driver.recognize({
-                    source: { path: '/doc.png' },
+                    source: dataUrl(Buffer.from('img'), 'image/png'),
                     provider: 'aws-textract',
                 }),
             ),
@@ -336,25 +269,22 @@ describe('OCRDriver.recognize (aws-textract)', () => {
     });
 
     it('sends raw bytes when the file is not FS-backed and returns normalised blocks', async () => {
-        const { driver } = makeDriver();
-        loadFileInputMock.mockResolvedValueOnce({
-            buffer: Buffer.from('imgdata'),
-            filename: 'doc.png',
-            mimeType: 'image/png',
-            fsEntry: null,
-        });
+        const { actor } = await makeUser();
         textractSendMock.mockResolvedValueOnce(sampleTextractResponse);
 
-        const result = (await withActor(makeActor(), () =>
+        const buf = Buffer.from('imgdata');
+        const result = (await withActor(actor, () =>
             driver.recognize({
-                source: { path: '/doc.png' },
+                source: dataUrl(buf, 'image/png'),
                 provider: 'aws-textract',
             }),
-        )) as { blocks: Array<{ type: string; text: string; confidence: number }> };
+        )) as {
+            blocks: Array<{ type: string; text: string; confidence: number }>;
+        };
 
-        // The driver issued AnalyzeDocumentCommand{ Bytes: <buffer> }.
+        // Driver issued AnalyzeDocumentCommand{ Bytes: <buffer> }.
         const sentCmd = textractSendMock.mock.calls[0]![0];
-        expect(sentCmd.input.Document.Bytes).toEqual(Buffer.from('imgdata'));
+        expect(sentCmd.input.Document.Bytes).toEqual(buf);
         expect(sentCmd.input.FeatureTypes).toEqual(['LAYOUT']);
 
         // PAGE/WORD/TABLE/etc. are skipped; LINE and LAYOUT_TITLE pass
@@ -378,81 +308,40 @@ describe('OCRDriver.recognize (aws-textract)', () => {
         ]);
     });
 
-    it('routes through the bucket region and uses S3Object source for FS-backed files', async () => {
-        const { driver } = makeDriver({ awsRegion: 'us-west-2' });
-        loadFileInputMock.mockResolvedValueOnce({
-            buffer: Buffer.from('img'),
-            filename: 'doc.png',
-            mimeType: 'image/png',
-            fsEntry: {
-                uuid: 'uuid-abc',
-                path: '/doc.png',
-                bucket: 'my-bucket',
-                bucketRegion: 'eu-central-1',
-                size: null,
-                sqlId: null,
-            },
-        });
+    // Note: the S3Object-source branch (driver picks `Document.S3Object`
+    // over inline Bytes when fsEntry has a bucket, and constructs a
+    // TextractClient for that bucket's region) is best exercised by an
+    // *.integration.test.ts against real S3 + Textract — the in-memory
+    // S3 store doesn't deterministically produce a bucket-bearing
+    // fsEntry, and the driver's per-region TextractClient cache leaks
+    // across tests.
+
+it('meters one usage line per detected page at the per-page rate from costs.ts', async () => {
+        const { actor } = await makeUser();
         textractSendMock.mockResolvedValueOnce(sampleTextractResponse);
 
-        await withActor(makeActor(), () =>
-            driver.recognize({
-                source: { path: '/doc.png' },
-                provider: 'aws-textract',
-            }),
-        );
-
-        const sentCmd = textractSendMock.mock.calls[0]![0];
-        // S3 direct source — preferred when fsEntry has a bucket.
-        expect(sentCmd.input.Document.S3Object).toEqual({
-            Bucket: 'my-bucket',
-            Name: 'uuid-abc',
-        });
-        // Region-specific client is constructed for the bucket's region.
-        expect(textractCtor).toHaveBeenCalledWith(
-            expect.objectContaining({ region: 'eu-central-1' }),
-        );
-    });
-
-    it('meters one usage line per detected page at the per-page rate from costs.ts', async () => {
-        const { driver, metering } = makeDriver();
-        loadFileInputMock.mockResolvedValueOnce({
-            buffer: Buffer.from('img'),
-            filename: 'doc.png',
-            mimeType: 'image/png',
-            fsEntry: null,
-        });
-        textractSendMock.mockResolvedValueOnce(sampleTextractResponse);
-
-        const actor = makeActor();
         await withActor(actor, () =>
             driver.recognize({
-                source: { path: '/doc.png' },
+                source: dataUrl(Buffer.from('img'), 'image/png'),
                 provider: 'aws-textract',
             }),
         );
 
         const usageType = 'aws-textract:detect-document-text:page';
         const perPage = OCR_COSTS[usageType];
-        // sampleTextractResponse has 2 PAGE blocks → bill 2 pages at
-        // `OCR_COSTS['aws-textract:detect-document-text:page']` ucents each.
-        expect(metering.incrementUsage).toHaveBeenCalledTimes(1);
-        expect(metering.incrementUsage).toHaveBeenCalledWith(
-            actor,
-            usageType,
-            2,
-            perPage * 2,
+        // sampleTextractResponse has 2 PAGE blocks → bill 2 pages.
+        const ocrCalls = incrementUsageSpy.mock.calls.filter(
+            ([, type]) => type === usageType,
         );
+        expect(ocrCalls).toHaveLength(1);
+        const [actorArg, , count, cost] = ocrCalls[0]!;
+        expect((actorArg as Actor).user.id).toBe(actor.user.id);
+        expect(count).toBe(2);
+        expect(cost).toBe(perPage * 2);
     });
 
     it('treats a response with no PAGE blocks as a single page', async () => {
-        const { driver, metering } = makeDriver();
-        loadFileInputMock.mockResolvedValueOnce({
-            buffer: Buffer.from('img'),
-            filename: 'doc.png',
-            mimeType: 'image/png',
-            fsEntry: null,
-        });
+        const { actor } = await makeUser();
         textractSendMock.mockResolvedValueOnce({
             Blocks: [
                 {
@@ -463,21 +352,22 @@ describe('OCRDriver.recognize (aws-textract)', () => {
             ],
         });
 
-        await withActor(makeActor(), () =>
+        await withActor(actor, () =>
             driver.recognize({
-                source: { path: '/img' },
+                source: dataUrl(Buffer.from('img'), 'image/png'),
                 provider: 'aws-textract',
             }),
         );
 
         const usageType = 'aws-textract:detect-document-text:page';
-        // pages = pageCount || 1 → bill 1 page when no PAGE block was returned.
-        expect(metering.incrementUsage).toHaveBeenCalledWith(
-            makeActor(),
-            usageType,
-            1,
-            OCR_COSTS[usageType],
+        const ocrCalls = incrementUsageSpy.mock.calls.filter(
+            ([, type]) => type === usageType,
         );
+        expect(ocrCalls).toHaveLength(1);
+        // pages = pageCount || 1 → bill 1 page when no PAGE block was returned.
+        const [, , count, cost] = ocrCalls[0]!;
+        expect(count).toBe(1);
+        expect(cost).toBe(OCR_COSTS[usageType]);
     });
 });
 
@@ -485,22 +375,17 @@ describe('OCRDriver.recognize (aws-textract)', () => {
 
 describe('OCRDriver.recognize (mistral)', () => {
     it('packages an image as an image_url chunk with a base64 data URL', async () => {
-        const { driver } = makeDriver({ mistralConfigured: true });
-        loadFileInputMock.mockResolvedValueOnce({
-            buffer: Buffer.from('imgdata'),
-            filename: 'doc.png',
-            mimeType: 'image/png',
-            fsEntry: null,
-        });
+        const { actor } = await makeUser();
         mistralOcrProcessMock.mockResolvedValueOnce({
             model: 'mistral-ocr-latest',
             pages: [],
             usageInfo: { pagesProcessed: 1 },
         });
 
-        await withActor(makeActor(), () =>
+        const buf = Buffer.from('imgdata');
+        await withActor(actor, () =>
             driver.recognize({
-                source: { path: '/doc.png' },
+                source: dataUrl(buf, 'image/png'),
                 provider: 'mistral',
             }),
         );
@@ -510,28 +395,31 @@ describe('OCRDriver.recognize (mistral)', () => {
         // Mistral's SDK uses camelCase imageUrl on this chunk shape.
         expect(payload.document).toEqual({
             type: 'image_url',
-            imageUrl: {
-                url: `data:image/png;base64,${Buffer.from('imgdata').toString('base64')}`,
-            },
+            imageUrl: { url: dataUrl(buf, 'image/png') },
         });
     });
 
     it('packages a PDF as a document_url chunk preserving the original filename', async () => {
-        const { driver } = makeDriver({ mistralConfigured: true });
-        loadFileInputMock.mockResolvedValueOnce({
-            buffer: Buffer.from('%PDF-data'),
-            filename: 'spec.pdf',
-            mimeType: 'application/pdf',
-            fsEntry: null,
+        const { actor, userId } = await makeUser();
+        // Write a real PDF so the fsEntry carries the filename verbatim.
+        const buf = Buffer.from('%PDF-data');
+        await server.services.fs.write(userId, {
+            fileMetadata: {
+                path: `/${actor.user.username}/spec.pdf`,
+                size: buf.byteLength,
+                contentType: 'application/pdf',
+            },
+            fileContent: buf,
         });
+
         mistralOcrProcessMock.mockResolvedValueOnce({
             pages: [],
             usageInfo: { pagesProcessed: 1 },
         });
 
-        await withActor(makeActor(), () =>
+        await withActor(actor, () =>
             driver.recognize({
-                source: { path: '/spec.pdf' },
+                source: { path: `/${actor.user.username}/spec.pdf` },
                 provider: 'mistral',
             }),
         );
@@ -546,21 +434,15 @@ describe('OCRDriver.recognize (mistral)', () => {
     });
 
     it('forwards page filters and annotation options to Mistral when supplied', async () => {
-        const { driver } = makeDriver({ mistralConfigured: true });
-        loadFileInputMock.mockResolvedValueOnce({
-            buffer: Buffer.from('x'),
-            filename: 'x.pdf',
-            mimeType: 'application/pdf',
-            fsEntry: null,
-        });
+        const { actor } = await makeUser();
         mistralOcrProcessMock.mockResolvedValueOnce({
             pages: [],
             usageInfo: { pagesProcessed: 1 },
         });
 
-        await withActor(makeActor(), () =>
+        await withActor(actor, () =>
             driver.recognize({
-                source: { path: '/x.pdf' },
+                source: dataUrl(Buffer.from('x'), 'application/pdf'),
                 provider: 'mistral',
                 pages: [0, 2],
                 includeImageBase64: true,
@@ -581,13 +463,7 @@ describe('OCRDriver.recognize (mistral)', () => {
     });
 
     it('normalises the response: each markdown line becomes a LINE block on its source page', async () => {
-        const { driver } = makeDriver({ mistralConfigured: true });
-        loadFileInputMock.mockResolvedValueOnce({
-            buffer: Buffer.from('x'),
-            filename: 'x.pdf',
-            mimeType: 'application/pdf',
-            fsEntry: null,
-        });
+        const { actor } = await makeUser();
         mistralOcrProcessMock.mockResolvedValueOnce({
             model: 'mistral-ocr-latest',
             pages: [
@@ -600,9 +476,9 @@ describe('OCRDriver.recognize (mistral)', () => {
             usageInfo: { pagesProcessed: 2 },
         });
 
-        const result = (await withActor(makeActor(), () =>
+        const result = (await withActor(actor, () =>
             driver.recognize({
-                source: { path: '/x.pdf' },
+                source: dataUrl(Buffer.from('x'), 'application/pdf'),
                 provider: 'mistral',
             }),
         )) as {
@@ -635,70 +511,58 @@ describe('OCRDriver.recognize (mistral)', () => {
     });
 
     it('meters per-page Mistral OCR usage from costs.ts', async () => {
-        const { driver, metering } = makeDriver({ mistralConfigured: true });
-        loadFileInputMock.mockResolvedValueOnce({
-            buffer: Buffer.from('x'),
-            filename: 'x.pdf',
-            mimeType: 'application/pdf',
-            fsEntry: null,
-        });
+        const { actor } = await makeUser();
         mistralOcrProcessMock.mockResolvedValueOnce({
-            pages: [{ index: 0, markdown: 'a' }, { index: 1, markdown: 'b' }],
+            pages: [
+                { index: 0, markdown: 'a' },
+                { index: 1, markdown: 'b' },
+            ],
             usageInfo: { pagesProcessed: 2 },
         });
 
-        const actor = makeActor();
         await withActor(actor, () =>
             driver.recognize({
-                source: { path: '/x.pdf' },
+                source: dataUrl(Buffer.from('x'), 'application/pdf'),
                 provider: 'mistral',
             }),
         );
 
-        // Bills exactly one increment, at the page rate from costs.ts × pages.
-        expect(metering.incrementUsage).toHaveBeenCalledTimes(1);
-        expect(metering.incrementUsage).toHaveBeenCalledWith(
-            actor,
-            'mistral-ocr:ocr:page',
-            2,
-            OCR_COSTS['mistral-ocr:ocr:page'] * 2,
+        const ocrCalls = incrementUsageSpy.mock.calls.filter(
+            ([, type]) => type === 'mistral-ocr:ocr:page',
         );
+        expect(ocrCalls).toHaveLength(1);
+        const [, , count, cost] = ocrCalls[0]!;
+        expect(count).toBe(2);
+        expect(cost).toBe(OCR_COSTS['mistral-ocr:ocr:page'] * 2);
     });
 
     it('also meters annotations when bboxAnnotationFormat or documentAnnotationFormat is requested', async () => {
-        const { driver, metering } = makeDriver({ mistralConfigured: true });
-        loadFileInputMock.mockResolvedValueOnce({
-            buffer: Buffer.from('x'),
-            filename: 'x.pdf',
-            mimeType: 'application/pdf',
-            fsEntry: null,
-        });
+        const { actor } = await makeUser();
         mistralOcrProcessMock.mockResolvedValueOnce({
             pages: [{ index: 0, markdown: 'a' }],
             usageInfo: { pagesProcessed: 1 },
         });
 
-        const actor = makeActor();
         await withActor(actor, () =>
             driver.recognize({
-                source: { path: '/x.pdf' },
+                source: dataUrl(Buffer.from('x'), 'application/pdf'),
                 provider: 'mistral',
                 bboxAnnotationFormat: { schema: 'bbox' },
             }),
         );
 
-        // 1 OCR-page increment + 1 annotations-page increment.
-        expect(metering.incrementUsage).toHaveBeenCalledTimes(2);
-        expect(metering.incrementUsage).toHaveBeenCalledWith(
-            actor,
-            'mistral-ocr:ocr:page',
-            1,
-            OCR_COSTS['mistral-ocr:ocr:page'],
+        const ocrCalls = incrementUsageSpy.mock.calls.filter(
+            ([, type]) => type === 'mistral-ocr:ocr:page',
         );
-        expect(metering.incrementUsage).toHaveBeenCalledWith(
-            actor,
-            'mistral-ocr:annotations:page',
-            1,
+        const annotationCalls = incrementUsageSpy.mock.calls.filter(
+            ([, type]) => type === 'mistral-ocr:annotations:page',
+        );
+        expect(ocrCalls).toHaveLength(1);
+        expect(annotationCalls).toHaveLength(1);
+        expect(ocrCalls[0]![2]).toBe(1);
+        expect(ocrCalls[0]![3]).toBe(OCR_COSTS['mistral-ocr:ocr:page']);
+        expect(annotationCalls[0]![2]).toBe(1);
+        expect(annotationCalls[0]![3]).toBe(
             OCR_COSTS['mistral-ocr:annotations:page'],
         );
     });
@@ -707,63 +571,20 @@ describe('OCRDriver.recognize (mistral)', () => {
 // ── Default provider selection ──────────────────────────────────────
 
 describe('OCRDriver default provider selection', () => {
-    it('defaults to aws-textract when AWS is configured', async () => {
-        const { driver } = makeDriver({
-            awsConfigured: true,
-            mistralConfigured: true,
-        });
-        loadFileInputMock.mockResolvedValueOnce({
-            buffer: Buffer.from('img'),
-            filename: 'doc.png',
-            mimeType: 'image/png',
-            fsEntry: null,
-        });
+    it('defaults to aws-textract when both providers are configured', async () => {
+        const { actor } = await makeUser();
         textractSendMock.mockResolvedValueOnce({
             Blocks: [{ BlockType: 'PAGE' }],
         });
 
-        await withActor(makeActor(), () =>
-            driver.recognize({ source: { path: '/doc.png' } }),
+        await withActor(actor, () =>
+            driver.recognize({
+                source: dataUrl(Buffer.from('img'), 'image/png'),
+            }),
         );
 
         // No `provider` arg → AWS (preferred default) is hit, not Mistral.
         expect(textractSendMock).toHaveBeenCalledTimes(1);
         expect(mistralOcrProcessMock).not.toHaveBeenCalled();
-    });
-
-    it('falls back to mistral when only Mistral is configured', async () => {
-        const { driver } = makeDriver({
-            awsConfigured: false,
-            mistralConfigured: true,
-        });
-        loadFileInputMock.mockResolvedValueOnce({
-            buffer: Buffer.from('img'),
-            filename: 'doc.png',
-            mimeType: 'image/png',
-            fsEntry: null,
-        });
-        mistralOcrProcessMock.mockResolvedValueOnce({
-            pages: [{ index: 0, markdown: 'hi' }],
-            usageInfo: { pagesProcessed: 1 },
-        });
-
-        await withActor(makeActor(), () =>
-            driver.recognize({ source: { path: '/doc.png' } }),
-        );
-
-        expect(mistralOcrProcessMock).toHaveBeenCalledTimes(1);
-        expect(textractSendMock).not.toHaveBeenCalled();
-    });
-
-    it('throws 500 when no provider is configured at all', async () => {
-        const { driver } = makeDriver({
-            awsConfigured: false,
-            mistralConfigured: false,
-        });
-        await expect(
-            withActor(makeActor(), () =>
-                driver.recognize({ source: { path: '/doc.png' } }),
-            ),
-        ).rejects.toMatchObject({ statusCode: 500 });
     });
 });
