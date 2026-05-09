@@ -318,7 +318,11 @@ export class AppStore extends PuterStore {
      *
      * Returns the created app row.
      */
-    async create(fields, { ownerUserId, appOwner = null } = {}) {
+    async create(
+        fields,
+        /** @type {{ownerUserId?: number, appOwner?: number}} */
+        { ownerUserId, appOwner = null } = {},
+    ) {
         if (typeof ownerUserId !== 'number') {
             throw new Error('AppStore.create requires a numeric ownerUserId');
         }

@@ -47,8 +47,8 @@ let eventClient: EventClient;
 
 beforeAll(async () => {
     server = await setupTestServer();
-    controller = server.controllers.auth as unknown as any;
-    eventClient = server.clients.event as unknown as EventClient;
+    controller = server.controllers.auth;
+    eventClient = server.clients.event;
     installSharedListeners();
 });
 
@@ -903,12 +903,7 @@ describe('AuthController grant flows', () => {
     it('grant-user-app: persists a user→app permission grant', async () => {
         // Create an app row owned by the issuer so the grant has somewhere
         // to land.
-        const app = await (
-            server.stores.app.create as unknown as (
-                fields: Record<string, unknown>,
-                opts: { ownerUserId: number; appOwner?: unknown },
-            ) => Promise<{ uid: string; id: number }>
-        )(
+        const app = await server.stores.app.create(
             {
                 name: `tg-${uuidv4()}`,
                 title: 'TestGrantApp',
@@ -2461,5 +2456,959 @@ describe('AuthController.handleDeleteOwnUser', () => {
             force: true,
         });
         expect(after).toBeFalsy();
+    });
+});
+
+// ── Additional branch coverage ─────────────────────────────────────
+
+describe('AuthController.handleLogin additional branches', () => {
+    it('rejects non-string password with 400', async () => {
+        await expect(
+            controller.handleLogin(
+                makeReq({
+                    username: 'someone',
+                    password: 123 as unknown as string,
+                }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('rejects too-short password with 400', async () => {
+        await expect(
+            controller.handleLogin(
+                makeReq({ username: 'someone', password: '12' }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('rejects non-string username with 400', async () => {
+        await expect(
+            controller.handleLogin(
+                makeReq({
+                    username: 42 as unknown as string,
+                    password: 'correct-horse-battery',
+                }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('returns 404 for an unknown email address (parallel to unknown-username case)', async () => {
+        await expect(
+            controller.handleLogin(
+                makeReq({
+                    email: `unknown-${uuidv4()}@test.local`,
+                    password: 'correct-horse-battery',
+                }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 404 });
+    });
+
+    it('returns 401 when the stored password is null (e.g. OIDC-only account)', async () => {
+        const { user } = await makeUserAndActor();
+        // Mimic an OIDC account: confirmed email but no password.
+        await server.stores.user.update(user.id, {
+            password: null,
+            email_confirmed: 1,
+        });
+        await expect(
+            controller.handleLogin(
+                makeReq({
+                    username: user.username,
+                    password: 'correct-horse-battery',
+                }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 401 });
+    });
+});
+
+describe('AuthController.handleLoginOtp additional branches', () => {
+    it('rejects missing token with 400', async () => {
+        await expect(
+            controller.handleLoginOtp(
+                makeReq({ code: '123456' }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('rejects missing code with 400', async () => {
+        const otpJwt = server.services.token.sign(
+            'otp',
+            { user_uid: uuidv4(), purpose: 'otp-login' },
+            { expiresIn: '5m' },
+        );
+        await expect(
+            controller.handleLoginOtp(makeReq({ token: otpJwt }), makeRes()),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('returns 404 when the user_uid in the token has no matching user', async () => {
+        const otpJwt = server.services.token.sign(
+            'otp',
+            { user_uid: uuidv4(), purpose: 'otp-login' },
+            { expiresIn: '5m' },
+        );
+        await expect(
+            controller.handleLoginOtp(
+                makeReq({ token: otpJwt, code: '123456' }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 404 });
+    });
+
+    it('returns 401 when the user is suspended', async () => {
+        const { user } = await makeUserAndActor({ suspended: 1 });
+        const otpJwt = server.services.token.sign(
+            'otp',
+            { user_uid: user.uuid, purpose: 'otp-login' },
+            { expiresIn: '5m' },
+        );
+        await expect(
+            controller.handleLoginOtp(
+                makeReq({ token: otpJwt, code: '123456' }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 401 });
+    });
+});
+
+describe('AuthController.handleLoginRecoveryCode additional branches', () => {
+    it('rejects missing token with 400', async () => {
+        await expect(
+            controller.handleLoginRecoveryCode(
+                makeReq({ code: 'foo' }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('rejects missing code with 400', async () => {
+        const otpJwt = server.services.token.sign(
+            'otp',
+            { user_uid: uuidv4(), purpose: 'otp-login' },
+            { expiresIn: '5m' },
+        );
+        await expect(
+            controller.handleLoginRecoveryCode(
+                makeReq({ token: otpJwt }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('rejects an invalid (unverifiable) JWT with 400', async () => {
+        await expect(
+            controller.handleLoginRecoveryCode(
+                makeReq({ token: 'not-a-jwt', code: 'foo' }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('rejects a valid JWT with the wrong purpose', async () => {
+        const wrong = server.services.token.sign(
+            'otp',
+            { user_uid: uuidv4(), purpose: 'something-else' },
+            { expiresIn: '5m' },
+        );
+        await expect(
+            controller.handleLoginRecoveryCode(
+                makeReq({ token: wrong, code: 'foo' }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('returns 404 when the user_uid does not match any user', async () => {
+        const otpJwt = server.services.token.sign(
+            'otp',
+            { user_uid: uuidv4(), purpose: 'otp-login' },
+            { expiresIn: '5m' },
+        );
+        await expect(
+            controller.handleLoginRecoveryCode(
+                makeReq({ token: otpJwt, code: 'foo' }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 404 });
+    });
+
+    it('returns 401 when the user is suspended', async () => {
+        const { user } = await makeUserAndActor({ suspended: 1 });
+        const otpJwt = server.services.token.sign(
+            'otp',
+            { user_uid: user.uuid, purpose: 'otp-login' },
+            { expiresIn: '5m' },
+        );
+        await expect(
+            controller.handleLoginRecoveryCode(
+                makeReq({ token: otpJwt, code: 'foo' }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 401 });
+    });
+});
+
+describe('AuthController.handleSignup additional branches', () => {
+    it('rejects missing username with 400', async () => {
+        await expect(
+            controller.handleSignup(
+                makeReq({
+                    email: `${uniq()}@test.local`,
+                    password: 'correct-horse-battery',
+                }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('rejects non-string username with 400', async () => {
+        await expect(
+            controller.handleSignup(
+                makeReq({
+                    username: 123 as unknown as string,
+                    email: `${uniq()}@test.local`,
+                    password: 'correct-horse-battery',
+                }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('rejects username containing invalid characters with 400', async () => {
+        await expect(
+            controller.handleSignup(
+                makeReq({
+                    username: 'has space',
+                    email: `${uniq()}@test.local`,
+                    password: 'correct-horse-battery',
+                }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('rejects username longer than 45 characters with 400', async () => {
+        const longUsername = 'a'.repeat(46);
+        await expect(
+            controller.handleSignup(
+                makeReq({
+                    username: longUsername,
+                    email: `${uniq()}@test.local`,
+                    password: 'correct-horse-battery',
+                }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('rejects missing email with 400 for non-temp signups', async () => {
+        await expect(
+            controller.handleSignup(
+                makeReq({
+                    username: `s_${uniq()}`,
+                    password: 'correct-horse-battery',
+                }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('rejects non-string email with 400', async () => {
+        await expect(
+            controller.handleSignup(
+                makeReq({
+                    username: `s_${uniq()}`,
+                    email: 12345 as unknown as string,
+                    password: 'correct-horse-battery',
+                }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('rejects missing password with 400 for non-temp signups', async () => {
+        await expect(
+            controller.handleSignup(
+                makeReq({
+                    username: `s_${uniq()}`,
+                    email: `${uniq()}@test.local`,
+                }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('rejects non-string password with 400', async () => {
+        await expect(
+            controller.handleSignup(
+                makeReq({
+                    username: `s_${uniq()}`,
+                    email: `${uniq()}@test.local`,
+                    password: 12345 as unknown as string,
+                }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('claims a pseudo-user (password=null, email_confirmed=0) on email match', async () => {
+        // Seed a pseudo user (admin-style placeholder): email present,
+        // password null, unconfirmed.
+        const targetEmail = `pseudo_${uniq()}@test.local`;
+        const placeholder = await server.stores.user.create({
+            username: `placeholder_${uniq()}`,
+            uuid: uuidv4(),
+            password: null,
+            email: targetEmail,
+            clean_email: targetEmail,
+            email_confirmed: 0,
+        } as never);
+
+        // Now signup with the same email — should claim the pseudo row,
+        // not throw.
+        const newUsername = `claim_${uniq()}`;
+        const res = makeRes();
+        await controller.handleSignup(
+            makeReq({
+                username: newUsername,
+                email: targetEmail,
+                password: 'correct-horse-battery',
+            }),
+            res,
+        );
+        expect(isCompleteLoginResponse(res.body)).toBe(true);
+
+        // The placeholder row was repurposed (same id, new username).
+        const claimed = await server.stores.user.getById(placeholder.id, {
+            force: true,
+        });
+        expect(claimed!.username).toBe(newUsername);
+        expect(claimed!.password).not.toBeNull();
+    });
+
+    it('extension hook can require email confirmation via requires_email_confirmation=true', async () => {
+        await withSignupValidateOverride(
+            (event) => {
+                event.requires_email_confirmation = true;
+            },
+            async () => {
+                const username = `efce_${uniq()}`;
+                const res = makeRes();
+                await controller.handleSignup(
+                    makeReq({
+                        username,
+                        email: `${username}@test.local`,
+                        password: 'correct-horse-battery',
+                    }),
+                    res,
+                );
+                // Login still completes; the user row carries the flag.
+                const persisted =
+                    await server.stores.user.getByUsername(username);
+                expect(persisted!.requires_email_confirmation).toBeTruthy();
+            },
+        );
+    });
+});
+
+describe('AuthController.handleSendPassRecoveryEmail additional branches', () => {
+    it('rejects an invalid email format with 400 (when no username supplied)', async () => {
+        await expect(
+            controller.handleSendPassRecoveryEmail(
+                makeReq({ email: 'not-an-email' }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('returns the generic message for a suspended user (no leak)', async () => {
+        const { user } = await makeUserAndActor({ suspended: 1 });
+        const res = makeRes();
+        await controller.handleSendPassRecoveryEmail(
+            makeReq({ username: user.username }),
+            res,
+        );
+        // Generic message — does not reveal the suspension state.
+        expect((res.body as { message: string }).message).toMatch(
+            /If that account exists/i,
+        );
+        // No recovery token persisted on a suspended account.
+        const after = await server.stores.user.getById(user.id, {
+            force: true,
+        });
+        expect(after!.pass_recovery_token).toBeFalsy();
+    });
+});
+
+describe('AuthController.handleVerifyPassRecoveryToken additional branches', () => {
+    it('rejects an unverifiable JWT with 400', async () => {
+        await expect(
+            controller.handleVerifyPassRecoveryToken(
+                makeReq({ token: 'not-a-jwt' }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('rejects when the user does not exist (user_uid is bogus)', async () => {
+        const jwt = server.services.token.sign(
+            'otp',
+            {
+                token: uuidv4(),
+                user_uid: uuidv4(),
+                email: 'someone@test.local',
+                purpose: 'pass-recovery',
+            },
+            { expiresIn: '1h' },
+        );
+        await expect(
+            controller.handleVerifyPassRecoveryToken(
+                makeReq({ token: jwt }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('rejects when the email in the token no longer matches the user', async () => {
+        const { user } = await makeUserAndActor();
+        const jwt = server.services.token.sign(
+            'otp',
+            {
+                token: uuidv4(),
+                user_uid: user.uuid,
+                email: 'someone-else@test.local', // mismatch
+                purpose: 'pass-recovery',
+            },
+            { expiresIn: '1h' },
+        );
+        await expect(
+            controller.handleVerifyPassRecoveryToken(
+                makeReq({ token: jwt }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('returns 401 when the user is suspended', async () => {
+        const { user } = await makeUserAndActor({ suspended: 1 });
+        const jwt = server.services.token.sign(
+            'otp',
+            {
+                token: uuidv4(),
+                user_uid: user.uuid,
+                email: user.email,
+                purpose: 'pass-recovery',
+            },
+            { expiresIn: '1h' },
+        );
+        await expect(
+            controller.handleVerifyPassRecoveryToken(
+                makeReq({ token: jwt }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 401 });
+    });
+});
+
+describe('AuthController.handleSetPassUsingToken additional branches', () => {
+    it('rejects missing both token and password with 400', async () => {
+        await expect(
+            controller.handleSetPassUsingToken(makeReq({}), makeRes()),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('rejects an unverifiable JWT with 400', async () => {
+        await expect(
+            controller.handleSetPassUsingToken(
+                makeReq({
+                    token: 'not-a-jwt',
+                    password: 'a-brand-new-password',
+                }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('rejects a JWT with the wrong purpose', async () => {
+        const wrong = server.services.token.sign(
+            'otp',
+            { purpose: 'otp-login', user_uid: uuidv4() },
+            { expiresIn: '1h' },
+        );
+        await expect(
+            controller.handleSetPassUsingToken(
+                makeReq({
+                    token: wrong,
+                    password: 'a-brand-new-password',
+                }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('rejects when the user no longer exists', async () => {
+        const jwt = server.services.token.sign(
+            'otp',
+            {
+                token: uuidv4(),
+                user_uid: uuidv4(),
+                email: 'someone@test.local',
+                purpose: 'pass-recovery',
+            },
+            { expiresIn: '1h' },
+        );
+        await expect(
+            controller.handleSetPassUsingToken(
+                makeReq({
+                    token: jwt,
+                    password: 'a-brand-new-password',
+                }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('returns 401 when the user is suspended', async () => {
+        const { user } = await makeUserAndActor({ suspended: 1 });
+        const jwt = server.services.token.sign(
+            'otp',
+            {
+                token: uuidv4(),
+                user_uid: user.uuid,
+                email: user.email,
+                purpose: 'pass-recovery',
+            },
+            { expiresIn: '1h' },
+        );
+        await expect(
+            controller.handleSetPassUsingToken(
+                makeReq({
+                    token: jwt,
+                    password: 'a-brand-new-password',
+                }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 401 });
+    });
+});
+
+describe('AuthController user-protected mutations: additional branches', () => {
+    it('change-username: 400 on too-long new_username', async () => {
+        const { actor } = await makeUserAndActor();
+        await expect(
+            controller.handleChangeUsername(
+                makeReq({ new_username: 'a'.repeat(46) }, { actor }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('change-email: 400 when an unconfirmed-but-password-holding account already owns the email', async () => {
+        // Other user: password set, email NOT confirmed → still blocks
+        // (existing.password !== null branch).
+        const { user: other } = await makeUserAndActor();
+        const { actor } = await makeUserAndActor();
+        await expect(
+            controller.handleChangeEmail(
+                makeReq({ new_email: other.email! }, { actor }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('change_email/confirm: 400 on missing token', async () => {
+        const req = makeReq({});
+        (req as unknown as { query: Record<string, string> }).query = {};
+        await expect(
+            controller.handleChangeEmailConfirm(req, makeRes()),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('change_email/confirm: 400 on a bogus JWT', async () => {
+        const req = makeReq({});
+        (req as unknown as { query: Record<string, string> }).query = {
+            token: 'not-a-jwt',
+        };
+        await expect(
+            controller.handleChangeEmailConfirm(req, makeRes()),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('change_email/confirm: 400 when no row matches the staged token', async () => {
+        // Sign a properly-shaped JWT with a nonexistent change_email token.
+        const linkJwt = server.services.token.sign(
+            'otp',
+            {
+                token: uuidv4(),
+                user_id: 999_999,
+                purpose: 'change-email',
+            },
+            { expiresIn: '1h' },
+        );
+        const req = makeReq({});
+        (req as unknown as { query: Record<string, string> }).query = {
+            token: linkJwt,
+        };
+        await expect(
+            controller.handleChangeEmailConfirm(req, makeRes()),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+});
+
+describe('AuthController.handleSaveAccount additional branches', () => {
+    it('returns 404 when the actor has no matching user row (deleted)', async () => {
+        const { user, actor } = await makeUserAndActor();
+        // Delete the row out from under the actor.
+        await server.clients.db.write('DELETE FROM `user` WHERE `id` = ?', [
+            user.id,
+        ]);
+        await server.stores.user.invalidateById(user.id);
+        await expect(
+            controller.handleSaveAccount(
+                makeReq(
+                    {
+                        username: `s_${uniq()}`,
+                        email: `${uniq()}@test.local`,
+                        password: 'correct-horse-battery',
+                    },
+                    { actor },
+                ),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 404 });
+    });
+
+    it('rejects too-long username with 400', async () => {
+        // Need a temp actor for the username-validation path to be
+        // reachable (non-temp short-circuits at "not a temporary account").
+        const tempRes = makeRes();
+        await controller.handleSignup(makeReq({ is_temp: true }), tempRes);
+        const tempBody = tempRes.body as {
+            user: { username: string; uuid: string };
+        };
+        const tempUser = await server.stores.user.getByUsername(
+            tempBody.user.username,
+        );
+        const tempActor = {
+            user: {
+                id: tempUser!.id,
+                uuid: tempUser!.uuid,
+                username: tempUser!.username,
+                email: tempUser!.email ?? null,
+            },
+        } as Actor;
+
+        await expect(
+            controller.handleSaveAccount(
+                makeReq(
+                    {
+                        username: 'a'.repeat(46),
+                        email: `${uniq()}@test.local`,
+                        password: 'correct-horse-battery',
+                    },
+                    { actor: tempActor },
+                ),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+});
+
+describe('AuthController grant/revoke additional branches', () => {
+    it('grant-user-app: 400 on missing app_uid', async () => {
+        const { actor } = await makeUserAndActor();
+        await expect(
+            controller.handleGrantUserApp(
+                makeReq({ permission: 'fs:read' }, { actor }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('grant-user-group: 400 on missing group_uid', async () => {
+        const { actor } = await makeUserAndActor();
+        await expect(
+            controller.handleGrantUserGroup(
+                makeReq({ permission: 'fs:read' }, { actor }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('revoke-user-app: 400 when permission is "*" but app_uid is missing', async () => {
+        const { actor } = await makeUserAndActor();
+        await expect(
+            controller.handleRevokeUserApp(
+                makeReq({ permission: '*' }, { actor }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+});
+
+describe('AuthController.handleAppUidFromOrigin additional branches', () => {
+    it('reads origin from req.query as well as req.body', async () => {
+        const origin = `https://qparam-${uuidv4()}.example`;
+        const req = makeReq({});
+        (req as unknown as { query: Record<string, string> }).query = {
+            origin,
+        };
+        const res = makeRes();
+        await controller.handleAppUidFromOrigin(req, res);
+        expect((res.body as { uid: string }).uid).toMatch(/^app-/);
+    });
+});
+
+describe('AuthController.handleCheckApp additional branches', () => {
+    it('rejects missing app_uid AND origin with 400', async () => {
+        const { actor } = await makeUserAndActor();
+        await expect(
+            controller.handleCheckApp(makeReq({}, { actor }), makeRes()),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('resolves origin → app_uid when app_uid is omitted', async () => {
+        const { actor } = await makeUserAndActor();
+        const origin = `https://co-${uuidv4()}.example`;
+        const res = makeRes();
+        await inCtx(actor, () =>
+            controller.handleCheckApp(makeReq({ origin }, { actor }), res),
+        );
+        const body = res.body as {
+            app_uid: string;
+            authenticated: boolean;
+        };
+        expect(body.app_uid).toMatch(/^app-/);
+        expect(typeof body.authenticated).toBe('boolean');
+    });
+});
+
+describe('AuthController 2FA additional branches', () => {
+    it('configure-2fa test: returns ok:false on a mismatched code', async () => {
+        // Setup so otp_secret is populated.
+        const { user, actor } = await makeUserAndActor();
+        await controller.handleConfigure2fa(
+            makeReq({}, { actor, params: { action: 'setup' } }),
+            makeRes(),
+        );
+        const refreshed = await server.stores.user.getById(user.id, {
+            force: true,
+        });
+        // Re-build the actor so it sees the freshly stored secret if cached.
+        void refreshed;
+
+        const res = makeRes();
+        await controller.handleConfigure2fa(
+            makeReq(
+                { code: '000000' },
+                { actor, params: { action: 'test' } },
+            ),
+            res,
+        );
+        expect(res.body).toEqual({ ok: false });
+    });
+
+    it('configure-2fa enable: succeeds when email is confirmed and a secret exists', async () => {
+        const { user, actor } = await makeUserAndActor({ email_confirmed: 1 });
+        // Bootstrap a secret directly so we don't depend on the setup
+        // handler's side effects.
+        await server.clients.db.write(
+            'UPDATE `user` SET `otp_secret` = ? WHERE `uuid` = ?',
+            ['TESTSECRETBASE32', user.uuid],
+        );
+        await server.stores.user.invalidateById(user.id);
+
+        const res = makeRes();
+        await controller.handleConfigure2fa(
+            makeReq({}, { actor, params: { action: 'enable' } }),
+            res,
+        );
+        expect(res.body).toEqual({});
+        const after = await server.stores.user.getById(user.id, {
+            force: true,
+        });
+        expect(after!.otp_enabled).toBeTruthy();
+    });
+
+    it('disable-2fa: throws 404 when the user no longer exists', async () => {
+        const { user, actor } = await makeUserAndActor();
+        await server.clients.db.write('DELETE FROM `user` WHERE `id` = ?', [
+            user.id,
+        ]);
+        await server.stores.user.invalidateById(user.id);
+        await expect(
+            controller.handleDisable2fa(makeReq({}, { actor }), makeRes()),
+        ).rejects.toMatchObject({ statusCode: 404 });
+    });
+});
+
+describe('AuthController.handleGetDevProfile additional branches', () => {
+    it('throws 404 when the actor has no matching user row', async () => {
+        const { user, actor } = await makeUserAndActor();
+        await server.clients.db.write('DELETE FROM `user` WHERE `id` = ?', [
+            user.id,
+        ]);
+        await server.stores.user.invalidateById(user.id);
+        await expect(
+            controller.handleGetDevProfile(makeReq({}, { actor }), makeRes()),
+        ).rejects.toMatchObject({ statusCode: 404 });
+    });
+});
+
+describe('AuthController group endpoints: additional branches', () => {
+    it('group/remove-users: 400 on missing uid', async () => {
+        const { actor } = await makeUserAndActor();
+        await expect(
+            controller.handleGroupRemoveUsers(
+                makeReq({ users: ['x'] }, { actor }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('group/remove-users: 400 on non-array users', async () => {
+        const { actor } = await makeUserAndActor();
+        await expect(
+            controller.handleGroupRemoveUsers(
+                makeReq({ uid: 'g-1' }, { actor }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('group/remove-users: 404 on unknown uid', async () => {
+        const { actor } = await makeUserAndActor();
+        await expect(
+            controller.handleGroupRemoveUsers(
+                makeReq(
+                    { uid: `does-not-exist-${uuidv4()}`, users: [] },
+                    { actor },
+                ),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 404 });
+    });
+
+    it('group/remove-users: 403 when caller does not own the group', async () => {
+        const { actor: a1 } = await makeUserAndActor();
+        const { actor: a2 } = await makeUserAndActor();
+        const createRes = makeRes();
+        await controller.handleGroupCreate(
+            makeReq({}, { actor: a1 }),
+            createRes,
+        );
+        const { uid } = createRes.body as { uid: string };
+        await expect(
+            controller.handleGroupRemoveUsers(
+                makeReq({ uid, users: [] }, { actor: a2 }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 403 });
+    });
+});
+
+describe('AuthController.handleGetGuiToken / handleSessionSyncCookie additional branches', () => {
+    it('get-gui-token: 404 when actor has a session but the user row is gone', async () => {
+        const { user, actor } = await makeUserAndActor();
+        const sessionRes = await server.services.auth.createSessionToken(
+            user,
+            {},
+        );
+        const sessionUid = (sessionRes.session as { uuid: string }).uuid;
+        const sessionedActor = {
+            ...actor,
+            session: { uid: sessionUid },
+        } as Actor;
+        // Pull the user row out from under the session.
+        await server.clients.db.write('DELETE FROM `user` WHERE `id` = ?', [
+            user.id,
+        ]);
+        await server.stores.user.invalidateById(user.id);
+        await expect(
+            controller.handleGetGuiToken(
+                makeReq({}, { actor: sessionedActor }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 404 });
+    });
+
+    it('session/sync-cookie: 404 when actor has a session but the user row is gone', async () => {
+        const { user, actor } = await makeUserAndActor();
+        const sessionRes = await server.services.auth.createSessionToken(
+            user,
+            {},
+        );
+        const sessionUid = (sessionRes.session as { uuid: string }).uuid;
+        const sessionedActor = {
+            ...actor,
+            session: { uid: sessionUid },
+        } as Actor;
+        await server.clients.db.write('DELETE FROM `user` WHERE `id` = ?', [
+            user.id,
+        ]);
+        await server.stores.user.invalidateById(user.id);
+
+        const res = makeRes();
+        await controller.handleSessionSyncCookie(
+            makeReq({}, { actor: sessionedActor }),
+            res,
+        );
+        expect(res.statusCode).toBe(404);
+    });
+});
+
+describe('AuthController.handleSendConfirmEmail additional branches', () => {
+    it('throws 404 when the actor user row no longer exists', async () => {
+        const { user, actor } = await makeUserAndActor();
+        await server.clients.db.write('DELETE FROM `user` WHERE `id` = ?', [
+            user.id,
+        ]);
+        await server.stores.user.invalidateById(user.id);
+        await expect(
+            controller.handleSendConfirmEmail(
+                makeReq({}, { actor }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 404 });
+    });
+});
+
+describe('AuthController.handleConfirmEmail additional branches', () => {
+    it('throws 404 when the actor user row no longer exists', async () => {
+        const { user, actor } = await makeUserAndActor();
+        await server.clients.db.write('DELETE FROM `user` WHERE `id` = ?', [
+            user.id,
+        ]);
+        await server.stores.user.invalidateById(user.id);
+        await expect(
+            controller.handleConfirmEmail(
+                makeReq({ code: '000000' }, { actor }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 404 });
+    });
+});
+
+describe('AuthController.handleRevokeSession additional branches', () => {
+    it('successfully revokes the actor’s own session', async () => {
+        const { user, actor } = await makeUserAndActor();
+        const sessionRes = await server.services.auth.createSessionToken(
+            user,
+            {},
+        );
+        const sessionUid = (sessionRes.session as { uuid: string }).uuid;
+        const res = makeRes();
+        await controller.handleRevokeSession(
+            makeReq({ uuid: sessionUid }, { actor }),
+            res,
+        );
+        const body = res.body as { sessions: unknown[] };
+        expect(Array.isArray(body.sessions)).toBe(true);
     });
 });
