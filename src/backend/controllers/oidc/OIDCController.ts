@@ -178,7 +178,7 @@ export class OIDCController extends PuterController {
                     provider,
                     redirect_uri: appRedirectUri,
                 };
-                if (referrer) statePayload.referrer = referrer;
+                if (referrer) statePayload.referrer = referrer ?? openerOrigin;
                 if (embeddedInPopup && msgId) {
                     statePayload.embedded_in_popup = true;
                     statePayload.msg_id = msgId;
@@ -300,6 +300,7 @@ export class OIDCController extends PuterController {
             }
 
             const { provider, userinfo, stateDecoded } = result;
+            console.log('OIDC STATE: ', stateDecoded);
             const resolved = await this.#resolveOrCreateOIDCUser(
                 provider,
                 userinfo,
