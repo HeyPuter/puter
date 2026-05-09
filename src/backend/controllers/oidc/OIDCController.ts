@@ -239,7 +239,6 @@ export class OIDCController extends PuterController {
             }
 
             const { provider, userinfo, stateDecoded } = result;
-            console.log('OIDC STATE: ', stateDecoded);
 
             const resolved = await this.#resolveOrCreateOIDCUser(
                 provider,
@@ -302,7 +301,6 @@ export class OIDCController extends PuterController {
             }
 
             const { provider, userinfo, stateDecoded } = result;
-            console.log('OIDC STATE: ', stateDecoded);
 
             const resolved = await this.#resolveOrCreateOIDCUser(
                 provider,
