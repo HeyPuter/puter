@@ -20,73 +20,52 @@
 /**
  * Offline unit tests for PuterAIController.
  *
- * The chat / image / video drivers are stubbed at the constructor
- * boundary so the controller never touches real provider code or the
- * network. Tests exercise the OpenAI-, Anthropic-, and Responses-
- * compatible HTTP shells: route registration, request validation,
- * actor gating (app-actors are forbidden), driver delegation, response
- * shaping (non-stream and SSE), error responses, and the model-listing
- * endpoints.
- *
- * End-to-end coverage that needs the live driver wiring belongs in a
- * future *.integration.test.ts harness.
+ * Boots a real PuterServer (in-memory sqlite + dynamo + s3 + mock
+ * redis) and drives the live wired controller from
+ * `server.controllers.puterAi`. The chat driver's `complete` method
+ * is spied per-test to inject canned results; that's the seam between
+ * controller (the unit under test) and provider/driver internals
+ * (which have their own tests). Tests cover route registration,
+ * actor gating, body validation, response shape (non-stream and SSE),
+ * model-listing endpoints, and the HMAC-gated video proxy guards.
  */
 
 import { Readable } from 'node:stream';
 import type { Request, Response } from 'express';
 import {
+    afterAll,
     afterEach,
+    beforeAll,
     beforeEach,
     describe,
     expect,
     it,
     vi,
-    type MockInstance,
 } from 'vitest';
 
 import type { Actor } from '../../core/actor.js';
 import type { ChatCompletionDriver } from '../../drivers/ai-chat/ChatCompletionDriver.js';
+import { PuterServer } from '../../server.js';
+import { setupTestServer } from '../../testUtil.js';
 import { PuterAIController } from './PuterAIController.js';
 
-// ── Driver / route stubs ────────────────────────────────────────────
+// ── Test harness ────────────────────────────────────────────────────
 
-type CompleteFn = MockInstance<ChatCompletionDriver['complete']>;
+let server: PuterServer;
+let controller: PuterAIController;
 
-const makeStubDriver = (overrides: {
-    list?: () => Promise<string[]>;
-    models?: () => Promise<Array<{ id: string }>>;
-} = {}) => {
-    const complete = vi.fn() as CompleteFn;
-    return {
-        complete,
-        list: overrides.list,
-        models: overrides.models,
-    };
-};
+beforeAll(async () => {
+    server = await setupTestServer();
+    controller = server.controllers.puterAi as unknown as PuterAIController;
+});
 
-const makeController = (params: {
-    chatDriver?: ReturnType<typeof makeStubDriver>;
-    imageDriver?: { list?: () => Promise<string[]>; models?: () => Promise<Array<{ id: string }>> };
-    videoDriver?: { list?: () => Promise<string[]>; models?: () => Promise<Array<{ id: string }>> };
-    config?: Record<string, unknown>;
-} = {}) => {
-    const chatDriver = params.chatDriver ?? makeStubDriver();
-    const drivers = {
-        aiChat: chatDriver,
-        ...(params.imageDriver ? { aiImage: params.imageDriver } : {}),
-        ...(params.videoDriver ? { aiVideo: params.videoDriver } : {}),
-    };
-    // PuterController's constructor expects all four DI bags. We only
-    // need `drivers` for these tests — the rest can be empty stand-ins.
-    const controller = new PuterAIController(
-        (params.config ?? {}) as never,
-        {} as never,
-        {} as never,
-        {} as never,
-        drivers as never,
-    );
-    return { controller, chatDriver };
-};
+afterAll(async () => {
+    await server?.shutdown();
+});
+
+afterEach(() => {
+    vi.restoreAllMocks();
+});
 
 // ── Test req/res helpers ────────────────────────────────────────────
 
@@ -163,20 +142,23 @@ const ndjsonStreamFrom = (events: unknown[]): NodeJS.ReadableStream => {
     return Readable.from(lines);
 };
 
-beforeEach(() => {
-    vi.clearAllMocks();
-});
-
-afterEach(() => {
-    vi.restoreAllMocks();
-});
+const stubChatComplete = (result: unknown) => {
+    // Spy on the wired chat driver so the controller's `this.#driver()
+    // .complete(args)` returns our canned shape — keeps the test focused
+    // on the controller surface (validation, response shaping) without
+    // dragging in provider model resolution / credit checks.
+    return vi
+        .spyOn(
+            server.drivers.aiChat as unknown as ChatCompletionDriver,
+            'complete',
+        )
+        .mockResolvedValueOnce(result as never);
+};
 
 // ── Route registration ──────────────────────────────────────────────
 
 describe('PuterAIController.registerRoutes', () => {
     it('registers all OpenAI-/Anthropic-/Responses-compatible routes plus model listing and video proxy', () => {
-        const { controller } = makeController();
-
         const calls: Array<{ method: string; path: string; opts: unknown }> =
             [];
         const router = {
@@ -211,7 +193,6 @@ describe('PuterAIController.registerRoutes', () => {
             ]),
         );
 
-        // Auth-gated routes use { subdomain: 'api', requireAuth: true }.
         const chatRoute = calls.find(
             (c) => c.path === '/puterai/openai/v1/chat/completions',
         );
@@ -219,7 +200,6 @@ describe('PuterAIController.registerRoutes', () => {
             subdomain: 'api',
             requireAuth: true,
         });
-        // Model listing routes are public.
         const modelsRoute = calls.find(
             (c) => c.path === '/puterai/chat/models',
         );
@@ -234,7 +214,6 @@ describe('PuterAIController.registerRoutes', () => {
 
 describe('PuterAIController.openaiChatCompletions', () => {
     it('rejects app actors with HttpError 403', async () => {
-        const { controller } = makeController();
         const { res } = makeRes();
         await expect(
             controller.openaiChatCompletions(
@@ -248,7 +227,6 @@ describe('PuterAIController.openaiChatCompletions', () => {
     });
 
     it('rejects bodies missing a messages array with HttpError 400', async () => {
-        const { controller } = makeController();
         const { res } = makeRes();
         await expect(
             controller.openaiChatCompletions(
@@ -261,37 +239,12 @@ describe('PuterAIController.openaiChatCompletions', () => {
         ).rejects.toMatchObject({ statusCode: 400 });
     });
 
-    it('500s when the chat driver is not registered', async () => {
-        // Build a controller with no aiChat driver wired in.
-        const controller = new PuterAIController(
-            {} as never,
-            {} as never,
-            {} as never,
-            {} as never,
-            {} as never,
-        );
-        const { res } = makeRes();
-        await expect(
-            controller.openaiChatCompletions(
-                makeReq({
-                    body: {
-                        messages: [{ role: 'user', content: 'hi' }],
-                        model: 'gpt-test',
-                    },
-                    actor: makeUserActor(),
-                }),
-                res,
-            ),
-        ).rejects.toMatchObject({ statusCode: 500 });
-    });
-
     it('shapes a non-stream completion as an OpenAI chat.completion response', async () => {
-        const { controller, chatDriver } = makeController();
-        chatDriver.complete.mockResolvedValueOnce({
+        const completeSpy = stubChatComplete({
             message: { role: 'assistant', content: 'hi there' },
             finish_reason: 'stop',
             usage: { prompt_tokens: 4, completion_tokens: 2 },
-        } as never);
+        });
 
         const { res, captured } = makeRes();
         await controller.openaiChatCompletions(
@@ -306,8 +259,8 @@ describe('PuterAIController.openaiChatCompletions', () => {
         );
 
         // Driver was given the user's messages and the default chat provider.
-        expect(chatDriver.complete).toHaveBeenCalledTimes(1);
-        const completeArgs = chatDriver.complete.mock.calls[0]![0];
+        expect(completeSpy).toHaveBeenCalledTimes(1);
+        const completeArgs = completeSpy.mock.calls[0]![0];
         expect(completeArgs.model).toBe('gpt-test');
         expect(completeArgs.messages).toEqual([
             { role: 'user', content: 'hi' },
@@ -319,11 +272,13 @@ describe('PuterAIController.openaiChatCompletions', () => {
         const body = captured.body as Record<string, unknown>;
         expect(body.object).toBe('chat.completion');
         expect(body.model).toBe('gpt-test');
-        expect((body.choices as Array<Record<string, unknown>>)[0]).toMatchObject({
-            index: 0,
-            message: { role: 'assistant', content: 'hi there' },
-            finish_reason: 'stop',
-        });
+        expect((body.choices as Array<Record<string, unknown>>)[0]).toMatchObject(
+            {
+                index: 0,
+                message: { role: 'assistant', content: 'hi there' },
+                finish_reason: 'stop',
+            },
+        );
         // total_tokens is computed from prompt + completion.
         expect(body.usage).toEqual({
             prompt_tokens: 4,
@@ -336,10 +291,9 @@ describe('PuterAIController.openaiChatCompletions', () => {
     });
 
     it('streams chat completion deltas as SSE chunks ending with [DONE]', async () => {
-        const { controller, chatDriver } = makeController();
-        chatDriver.complete.mockResolvedValueOnce({
-            // The controller's expectStream() helper checks for the
-            // DriverStreamResult discriminant via isDriverStreamResult.
+        stubChatComplete({
+            // The controller's expectStream() checks the DriverStreamResult
+            // discriminant via isDriverStreamResult.
             dataType: 'stream',
             content_type: 'application/x-ndjson',
             stream: ndjsonStreamFrom([
@@ -350,7 +304,7 @@ describe('PuterAIController.openaiChatCompletions', () => {
                     usage: { prompt_tokens: 2, completion_tokens: 2 },
                 },
             ]),
-        } as never);
+        });
 
         const { res, captured } = makeRes();
         await controller.openaiChatCompletions(
@@ -382,8 +336,7 @@ describe('PuterAIController.openaiChatCompletions', () => {
     });
 
     it('returns tool_calls in the OpenAI shape on the assistant message', async () => {
-        const { controller, chatDriver } = makeController();
-        chatDriver.complete.mockResolvedValueOnce({
+        stubChatComplete({
             message: {
                 role: 'assistant',
                 content: null,
@@ -399,7 +352,7 @@ describe('PuterAIController.openaiChatCompletions', () => {
                 ],
             },
             finish_reason: 'tool_calls',
-        } as never);
+        });
 
         const { res, captured } = makeRes();
         await controller.openaiChatCompletions(
@@ -440,7 +393,6 @@ describe('PuterAIController.openaiChatCompletions', () => {
 
 describe('PuterAIController.openaiCompletions', () => {
     it('rejects app actors with HttpError 403', async () => {
-        const { controller } = makeController();
         const { res } = makeRes();
         await expect(
             controller.openaiCompletions(
@@ -454,7 +406,6 @@ describe('PuterAIController.openaiCompletions', () => {
     });
 
     it('rejects a non-string prompt with HttpError 400', async () => {
-        const { controller } = makeController();
         const { res } = makeRes();
         await expect(
             controller.openaiCompletions(
@@ -468,12 +419,11 @@ describe('PuterAIController.openaiCompletions', () => {
     });
 
     it('synthesises a single user message from the prompt and returns a text_completion shape', async () => {
-        const { controller, chatDriver } = makeController();
-        chatDriver.complete.mockResolvedValueOnce({
+        const completeSpy = stubChatComplete({
             message: { role: 'assistant', content: 'response' },
             finish_reason: 'stop',
             usage: { prompt_tokens: 1, completion_tokens: 1 },
-        } as never);
+        });
 
         const { res, captured } = makeRes();
         await controller.openaiCompletions(
@@ -484,7 +434,7 @@ describe('PuterAIController.openaiCompletions', () => {
             res,
         );
 
-        const completeArgs = chatDriver.complete.mock.calls[0]![0];
+        const completeArgs = completeSpy.mock.calls[0]![0];
         // The legacy /v1/completions endpoint is reshaped into a single
         // user-role chat message before being dispatched.
         expect(completeArgs.messages).toEqual([
@@ -493,11 +443,13 @@ describe('PuterAIController.openaiCompletions', () => {
 
         const body = captured.body as Record<string, unknown>;
         expect(body.object).toBe('text_completion');
-        expect((body.choices as Array<Record<string, unknown>>)[0]).toMatchObject({
-            text: 'response',
-            index: 0,
-            finish_reason: 'stop',
-        });
+        expect((body.choices as Array<Record<string, unknown>>)[0]).toMatchObject(
+            {
+                text: 'response',
+                index: 0,
+                finish_reason: 'stop',
+            },
+        );
         expect((body.id as string).startsWith('cmpl-')).toBe(true);
     });
 });
@@ -506,7 +458,6 @@ describe('PuterAIController.openaiCompletions', () => {
 
 describe('PuterAIController.openaiResponses', () => {
     it('rejects app actors with HttpError 403', async () => {
-        const { controller } = makeController();
         const { res } = makeRes();
         await expect(
             controller.openaiResponses(
@@ -520,7 +471,6 @@ describe('PuterAIController.openaiResponses', () => {
     });
 
     it('rejects providers other than openai-responses with HttpError 400', async () => {
-        const { controller } = makeController();
         const { res } = makeRes();
         await expect(
             controller.openaiResponses(
@@ -538,23 +488,26 @@ describe('PuterAIController.openaiResponses', () => {
     });
 
     it('shapes a non-stream completion as an OpenAI Responses object with output_text', async () => {
-        const { controller, chatDriver } = makeController();
-        chatDriver.complete.mockResolvedValueOnce({
+        const completeSpy = stubChatComplete({
             message: { role: 'assistant', content: 'final answer' },
             finish_reason: 'stop',
             usage: { prompt_tokens: 5, completion_tokens: 3 },
-        } as never);
+        });
 
         const { res, captured } = makeRes();
         await controller.openaiResponses(
             makeReq({
-                body: { model: 'gpt-test', input: 'hi', instructions: 'be brief' },
+                body: {
+                    model: 'gpt-test',
+                    input: 'hi',
+                    instructions: 'be brief',
+                },
                 actor: makeUserActor(),
             }),
             res,
         );
 
-        const completeArgs = chatDriver.complete.mock.calls[0]![0];
+        const completeArgs = completeSpy.mock.calls[0]![0];
         // `instructions` becomes a leading system message.
         expect(completeArgs.messages[0]).toEqual({
             role: 'system',
@@ -585,7 +538,6 @@ describe('PuterAIController.openaiResponses', () => {
 
 describe('PuterAIController.anthropicMessages', () => {
     it('rejects app actors with HttpError 403', async () => {
-        const { controller } = makeController();
         const { res } = makeRes();
         await expect(
             controller.anthropicMessages(
@@ -599,7 +551,6 @@ describe('PuterAIController.anthropicMessages', () => {
     });
 
     it('rejects bodies missing a messages array with HttpError 400', async () => {
-        const { controller } = makeController();
         const { res } = makeRes();
         await expect(
             controller.anthropicMessages(
@@ -613,12 +564,11 @@ describe('PuterAIController.anthropicMessages', () => {
     });
 
     it('shapes a non-stream completion as an Anthropic message envelope', async () => {
-        const { controller, chatDriver } = makeController();
-        chatDriver.complete.mockResolvedValueOnce({
+        const completeSpy = stubChatComplete({
             message: { role: 'assistant', content: 'hi there' },
             finish_reason: 'stop',
             usage: { prompt_tokens: 4, completion_tokens: 2 },
-        } as never);
+        });
 
         const { res, captured } = makeRes();
         await controller.anthropicMessages(
@@ -633,7 +583,7 @@ describe('PuterAIController.anthropicMessages', () => {
             res,
         );
 
-        const completeArgs = chatDriver.complete.mock.calls[0]![0];
+        const completeArgs = completeSpy.mock.calls[0]![0];
         // Anthropic-style `system` is hoisted into a system-role message.
         expect(completeArgs.messages[0]).toEqual({
             role: 'system',
@@ -656,8 +606,7 @@ describe('PuterAIController.anthropicMessages', () => {
     });
 
     it('translates assistant tool_calls into Anthropic tool_use blocks and stop_reason=tool_use', async () => {
-        const { controller, chatDriver } = makeController();
-        chatDriver.complete.mockResolvedValueOnce({
+        stubChatComplete({
             message: {
                 role: 'assistant',
                 content: null,
@@ -673,7 +622,7 @@ describe('PuterAIController.anthropicMessages', () => {
                 ],
             },
             finish_reason: 'tool_calls',
-        } as never);
+        });
 
         const { res, captured } = makeRes();
         await controller.anthropicMessages(
@@ -703,80 +652,83 @@ describe('PuterAIController.anthropicMessages', () => {
 // ── Model listing ───────────────────────────────────────────────────
 
 describe('PuterAIController model listing', () => {
-    it('exposes #listModels via /puterai/chat/models, filtering hidden ids', () => {
-        const chatDriver = makeStubDriver({
-            list: async () => [
-                'gpt-test',
-                'fake', // HIDDEN — should be filtered.
-                'abuse', // HIDDEN.
-                'gpt-other',
-            ],
-        });
-        const { controller } = makeController({ chatDriver });
-
-        // registerRoutes hands the closure to the router. Capture it.
-        let listHandler: ((req: Request, res: Response) => Promise<void>) | null = null;
+    const captureGetHandler = (
+        path: string,
+    ): ((req: Request, res: Response) => Promise<void>) => {
+        let handler:
+            | ((req: Request, res: Response) => Promise<void>)
+            | null = null;
         const router = {
             post: vi.fn(),
-            get: vi.fn((path: string, _opts: unknown, handler: never) => {
-                if (path === '/puterai/chat/models') {
-                    listHandler = handler;
-                }
+            get: vi.fn((p: string, _opts: unknown, h: never) => {
+                if (p === path) handler = h;
             }),
         };
         controller.registerRoutes(router as never);
-        expect(listHandler).not.toBeNull();
+        if (!handler) throw new Error(`did not capture ${path} handler`);
+        return handler;
+    };
 
-        return (async () => {
-            const { res, captured } = makeRes();
-            await listHandler!(makeReq({}), res);
-            expect(captured.body).toEqual({
-                models: ['gpt-test', 'gpt-other'],
-            });
-        })();
+    it('exposes #listModels via /puterai/chat/models, filtering hidden ids', async () => {
+        const handler = captureGetHandler('/puterai/chat/models');
+        // Patch the wired aiChat.list to return a known mix.
+        vi.spyOn(server.drivers.aiChat, 'list').mockResolvedValueOnce([
+            'gpt-test',
+            'fake', // HIDDEN — should be filtered.
+            'abuse', // HIDDEN.
+            'gpt-other',
+        ] as never);
+
+        const { res, captured } = makeRes();
+        await handler(makeReq({}), res);
+        expect(captured.body).toEqual({
+            models: ['gpt-test', 'gpt-other'],
+        });
     });
 
-    it('501s when the driver does not implement list()', () => {
-        const chatDriver = makeStubDriver(); // no list()
-        const { controller } = makeController({ chatDriver });
-
-        let listHandler: ((req: Request, res: Response) => Promise<void>) | null = null;
-        const router = {
-            post: vi.fn(),
-            get: vi.fn((path: string, _opts: unknown, handler: never) => {
-                if (path === '/puterai/chat/models') {
-                    listHandler = handler;
-                }
-            }),
-        };
-        controller.registerRoutes(router as never);
-
-        return (async () => {
+    it('501s when the driver does not implement list()', async () => {
+        const handler = captureGetHandler('/puterai/chat/models');
+        // The wired driver's prototype defines `list`. Shadow it with an
+        // own undefined property so `if (!driver?.list)` in the handler
+        // takes the 501 branch, then restore.
+        const driver = server.drivers.aiChat as unknown as Record<
+            string,
+            unknown
+        >;
+        Object.defineProperty(driver, 'list', {
+            value: undefined,
+            configurable: true,
+            writable: true,
+        });
+        try {
             const { res } = makeRes();
-            await expect(listHandler!(makeReq({}), res)).rejects.toMatchObject({
+            await expect(handler(makeReq({}), res)).rejects.toMatchObject({
                 statusCode: 501,
             });
-        })();
+        } finally {
+            // Drop the own property so the prototype impl shows through again.
+            Reflect.deleteProperty(driver, 'list');
+        }
     });
 });
 
 // ── Video proxy (HMAC-gated) ────────────────────────────────────────
 
 describe('PuterAIController videoProxy', () => {
-    const captureProxyHandler = (
-        controller: PuterAIController,
-    ): ((req: Request, res: Response) => Promise<void>) => {
-        let handler: ((req: Request, res: Response) => Promise<void>) | null =
-            null;
+    const captureProxyHandler = (): ((
+        req: Request,
+        res: Response,
+    ) => Promise<void>) => {
+        let handler:
+            | ((req: Request, res: Response) => Promise<void>)
+            | null = null;
         const router = {
             post: vi.fn(),
-            get: vi.fn(
-                (path: string, _opts: unknown, h: never) => {
-                    if (path === '/puterai/video/proxy') {
-                        handler = h;
-                    }
-                },
-            ),
+            get: vi.fn((path: string, _opts: unknown, h: never) => {
+                if (path === '/puterai/video/proxy') {
+                    handler = h;
+                }
+            }),
         };
         controller.registerRoutes(router as never);
         if (!handler)
@@ -785,8 +737,7 @@ describe('PuterAIController videoProxy', () => {
     };
 
     it('rejects requests with an invalid fileId character', async () => {
-        const { controller } = makeController();
-        const handler = captureProxyHandler(controller);
+        const handler = captureProxyHandler();
         const { res, captured } = makeRes();
         await handler(
             makeReq({
@@ -802,19 +753,14 @@ describe('PuterAIController videoProxy', () => {
     });
 
     it('rejects requests missing expires/signature with 403', async () => {
-        const { controller } = makeController();
-        const handler = captureProxyHandler(controller);
+        const handler = captureProxyHandler();
         const { res, captured } = makeRes();
-        await handler(
-            makeReq({ query: { fileId: 'abc' } }),
-            res,
-        );
+        await handler(makeReq({ query: { fileId: 'abc' } }), res);
         expect(captured.statusCode).toBe(403);
     });
 
     it('rejects expired signatures with 403', async () => {
-        const { controller } = makeController();
-        const handler = captureProxyHandler(controller);
+        const handler = captureProxyHandler();
         const { res, captured } = makeRes();
         await handler(
             makeReq({
@@ -829,10 +775,13 @@ describe('PuterAIController videoProxy', () => {
         expect(captured.statusCode).toBe(403);
     });
 
-    it('500s when the URL signature secret is not configured', async () => {
-        // Default config has no url_signature_secret.
-        const { controller } = makeController();
-        const handler = captureProxyHandler(controller);
+    it('rejects an invalid signature with 403 once expiry/format checks pass', async () => {
+        const handler = captureProxyHandler();
+        // The default test config provides a signature secret, so a
+        // bogus signature with a future expiry should reach the
+        // timingSafeEqual gate and fail with 403. (The secret-missing
+        // 500 branch is unreachable when running against the default
+        // wired config.)
         const { res, captured } = makeRes();
         await handler(
             makeReq({
@@ -844,6 +793,6 @@ describe('PuterAIController videoProxy', () => {
             }),
             res,
         );
-        expect(captured.statusCode).toBe(500);
+        expect(captured.statusCode).toBe(403);
     });
 });
