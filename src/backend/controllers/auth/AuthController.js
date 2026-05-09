@@ -467,6 +467,7 @@ export class AuthController extends PuterController {
                         req.ip ||
                         req.socket?.remoteAddress ||
                         null,
+                    user_agent: req.headers?.['user-agent'] ?? null,
                     email: body.email,
                     allow: true,
                     no_temp_user: false,
