@@ -6,80 +6,96 @@ name: Docker Image CI
 #     picks in the Actions UI. Used to fast-forward :latest/:main when the
 #     branch has moved ahead of the most recent release tag.
 on:
-  push:
-    tags:
-      - '[0-9][0-9].[0-9][0-9]'
-      - '[0-9][0-9].[0-9][0-9].[0-9]*'
-  workflow_dispatch:
-    inputs:
-      push_latest:
-        description: 'Push :latest tag'
-        type: boolean
-        default: true
-      push_main:
-        description: 'Push :main tag'
-        type: boolean
-        default: true
+    push:
+        tags:
+            - '[0-9][0-9].[0-9][0-9]'
+            - '[0-9][0-9].[0-9][0-9].[0-9]*'
+    workflow_dispatch:
+        inputs:
+            push_latest:
+                description: 'Push :latest tag'
+                type: boolean
+                default: true
+            push_main:
+                description: 'Push :main tag'
+                type: boolean
+                default: true
 
 env:
-  REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
+    REGISTRY: ghcr.io
+    IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-  build-and-push-image:
-    runs-on: ubuntu-latest
+    build-and-push-image:
+        runs-on: ubuntu-latest
 
-    permissions:
-      contents: read
-      packages: write
+        permissions:
+            contents: read
+            packages: write
 
-    steps:
-      - name: Validate calver tag
-        if: github.event_name == 'push'
-        env:
-          REF_NAME: ${{ github.ref_name }}
-        run: |
-          if ! [[ "$REF_NAME" =~ ^[0-9]{2}\.[0-9]{2}(\.[0-9]+)?$ ]]; then
-            echo "Tag '$REF_NAME' does not match YY.MM or YY.MM.p calver format."
-            exit 1
-          fi
+        steps:
+            - name: Validate calver tag
+              if: github.event_name == 'push'
+              env:
+                  REF_NAME: ${{ github.ref_name }}
+              run: |
+                  if ! [[ "$REF_NAME" =~ ^[0-9]{2}\.[0-9]{2}(\.[0-9]+)?$ ]]; then
+                    echo "Tag '$REF_NAME' does not match YY.MM or YY.MM.p calver format."
+                    exit 1
+                  fi
 
-      - name: Checkout repository
-        uses: actions/checkout@v4
+            - name: Checkout repository
+              uses: actions/checkout@v4
 
-      - name: Log in to GitHub Package Container registry
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+            - name: Log in to GitHub Package Container registry
+              uses: docker/login-action@v3
+              with:
+                  registry: ${{ env.REGISTRY }}
+                  username: ${{ github.actor }}
+                  password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+            - name: Log in to Docker Hub
+              uses: docker/login-action@v3
+              with:
+                  username: ${{ secrets.DOCKERHUB_USERNAME }}
+                  password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+            - name: Set up QEMU
+              uses: docker/setup-qemu-action@v3
 
-      - name: Extract metadata (tags, labels) for Docker
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
-          # type=ref,event=tag only emits on tag pushes, so manual runs skip
-          # the calver tag and just publish whichever of latest / main the
-          # dispatch inputs asked for. On a tag push, both default to true.
-          tags: |
-            type=ref,event=tag
-            type=raw,value=latest,enable=${{ github.event_name == 'push' || inputs.push_latest }}
-            type=raw,value=main,enable=${{ github.event_name == 'push' || inputs.push_main }}
+            - name: Set up Docker Buildx
+              uses: docker/setup-buildx-action@v3
 
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v5
-        with:
-          platforms: linux/amd64,linux/arm64
-          context: .
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+            - name: Extract metadata (tags, labels) for Docker
+              id: meta
+              uses: docker/metadata-action@v5
+              with:
+                  images: |
+                      ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+                      heyputer/puter
+                  # type=ref,event=tag only emits on tag pushes, so manual runs skip
+                  # the calver tag and just publish whichever of latest / main the
+                  # dispatch inputs asked for. On a tag push, both default to true.
+                  tags: |
+                      type=ref,event=tag
+                      type=raw,value=latest,enable=${{ github.event_name == 'push' || inputs.push_latest }}
+                      type=raw,value=main,enable=${{ github.event_name == 'push' || inputs.push_main }}
+
+            - name: Build and push Docker image
+              uses: docker/build-push-action@v5
+              with:
+                  platforms: linux/amd64,linux/arm64
+                  context: .
+                  push: true
+                  tags: ${{ steps.meta.outputs.tags }}
+                  labels: ${{ steps.meta.outputs.labels }}
+                  cache-from: type=gha
+                  cache-to: type=gha,mode=max
+
+            - name: Sync README to Docker Hub
+              uses: peter-evans/dockerhub-description@v4
+              with:
+                  username: ${{ secrets.DOCKERHUB_USERNAME }}
+                  password: ${{ secrets.DOCKERHUB_TOKEN }}
+                  repository: heyputer/puter
+                  readme-filepath: ./README.md
