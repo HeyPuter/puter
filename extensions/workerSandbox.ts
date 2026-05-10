@@ -1,3 +1,4 @@
+import type { Request, Response } from 'express';
 import { extension } from '@heyputer/backend/src/extensions';
 
 const page = `
@@ -89,10 +90,12 @@ const page = `
 </html>
 `;
 
+export const handleWorkerSandboxPage = (_req: Request, res: Response): void => {
+    res.type('html').send(page);
+};
+
 extension.get(
     '/',
     { requireAuth: false, subdomain: 'worker-sandbox' },
-    (_req, res) => {
-        res.type('html').send(page);
-    },
+    handleWorkerSandboxPage,
 );

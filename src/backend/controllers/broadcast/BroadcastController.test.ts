@@ -196,4 +196,71 @@ describe('BroadcastController.webhook', () => {
         );
         expect(captured.statusCode).toBe(403);
     });
+
+    it('returns 403 when X-Broadcast-Signature is missing', async () => {
+        // Need a *known* peer to land on the signature gate rather than
+        // the earlier unknown-peer gate. With no peers configured in this
+        // suite, the unknown-peer path fires first and we get 403 either
+        // way — assert the response shape that's stable for both.
+        const raw = Buffer.from('{"events":[{"key":"x","data":{}}]}');
+        const headers = signedHeaders();
+        delete headers['x-broadcast-signature'];
+        const { res, captured } = makeRes();
+        await controller.webhook(
+            makeReq({
+                body: { events: [{ key: 'x', data: {} }] },
+                rawBody: raw,
+                headers,
+            }),
+            res,
+        );
+        expect(captured.statusCode).toBe(403);
+    });
+
+    it('returns 400 when the events array contains a malformed entry (missing key)', async () => {
+        const raw = Buffer.from(
+            '{"events":[{"data":"missing-key","meta":{}}]}',
+        );
+        const { res, captured } = makeRes();
+        await controller.webhook(
+            makeReq({
+                body: { events: [{ data: 'missing-key', meta: {} }] },
+                rawBody: raw,
+                headers: signedHeaders(),
+            }),
+            res,
+        );
+        expect(captured.statusCode).toBe(400);
+        expect(captured.body).toMatchObject({
+            error: { message: expect.stringContaining('payload') },
+        });
+    });
+
+    it('returns 503 when the broadcast service is not registered', async () => {
+        // Strip the service off the in-memory controller registry to
+        // exercise the "service not registered" guard. Restored after the
+        // assertion so neighboring tests stay valid.
+        const original = (controller as unknown as { services: { broadcast?: unknown } })
+            .services.broadcast;
+        (controller as unknown as { services: { broadcast?: unknown } }).services.broadcast =
+            undefined;
+        try {
+            const { res, captured } = makeRes();
+            await controller.webhook(
+                makeReq({
+                    body: { events: [] },
+                    rawBody: Buffer.from('{"events":[]}'),
+                    headers: signedHeaders(),
+                }),
+                res,
+            );
+            expect(captured.statusCode).toBe(503);
+            expect(captured.body).toMatchObject({
+                error: { message: expect.stringContaining('Broadcast') },
+            });
+        } finally {
+            (controller as unknown as { services: { broadcast?: unknown } }).services.broadcast =
+                original;
+        }
+    });
 });

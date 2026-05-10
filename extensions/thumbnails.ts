@@ -125,6 +125,124 @@ export async function handleThumbnailCreated(
     );
 }
 
+export const handleThumbnailUploadPrepare = async (
+    event: Record<string, unknown>,
+    deps: { s3Presign: S3Client; bucketName: string },
+): Promise<void> => {
+    if (!event || !Array.isArray(event.items)) return;
+    const presignClient = deps.s3Presign;
+
+    for (const item of event.items as Array<Record<string, unknown>>) {
+        if (!item || typeof item !== 'object') {
+            throw new Error('thumbnail.upload.prepare item is invalid');
+        }
+
+        const contentType =
+            typeof item.contentType === 'string' ? item.contentType.trim() : '';
+        if (!contentType) continue;
+
+        if (item.size !== undefined) {
+            const size = Number(item.size);
+            if (
+                !Number.isFinite(size) ||
+                size < 0 ||
+                size > MAX_THUMBNAIL_BYTES
+            )
+                continue;
+        }
+
+        const key = crypto.randomUUID();
+        const command = new PutObjectCommand({
+            Bucket: deps.bucketName,
+            Key: key,
+            ContentType: contentType,
+        });
+        item.uploadUrl = await getSignedUrl(presignClient, command, {
+            expiresIn: 900,
+        });
+        item.thumbnailUrl = `s3://${deps.bucketName}/${key}`;
+    }
+};
+
+export const handleThumbnailRead = async (
+    entry: Record<string, unknown>,
+    deps: {
+        s3: S3Client;
+        s3Presign: S3Client;
+        bucketName: string;
+        bucketEndpoint: string;
+        db: { write: (sql: string, params: unknown[]) => Promise<unknown> };
+    },
+): Promise<void> => {
+    const thumb = entry.thumbnail;
+    if (typeof thumb !== 'string' || !thumb) return;
+    const presignClient = deps.s3Presign;
+
+    if (thumb.startsWith('s3://')) {
+        const [bucket, key] = thumb.slice(5).split('/');
+        entry.thumbnail = await getSignedUrl(
+            presignClient,
+            new GetObjectCommand({ Bucket: bucket, Key: key }),
+            { expiresIn: 604800 },
+        );
+    } else if (
+        thumb.startsWith('https') &&
+        thumb.includes(new URL(deps.bucketEndpoint).hostname)
+    ) {
+        // Legacy format — remove after full migration
+        const [bucket, key] = new URL(thumb).pathname.slice(1).split('/');
+        entry.thumbnail = await getSignedUrl(
+            presignClient,
+            new GetObjectCommand({ Bucket: bucket, Key: key }),
+            { expiresIn: 604800 },
+        );
+    } else if (thumb.startsWith('data')) {
+        // Inline data-URL migration: upload to S3 and update the DB entry.
+        const key = crypto.randomUUID();
+        const { mimeType, data } = base64ParseDataUrl(thumb);
+        const newUrl = `s3://${deps.bucketName}/${key}`;
+
+        await deps.s3.send(
+            new PutObjectCommand({
+                Bucket: deps.bucketName,
+                Key: key,
+                Body: data,
+                ContentType: mimeType,
+            }),
+        );
+
+        // Best-effort async DB update
+        const uuid = entry.uuid ?? entry.uid;
+        if (uuid) {
+            deps.db
+                .write(
+                    'UPDATE `fsentries` SET `thumbnail` = ? WHERE `uuid` = ?',
+                    [newUrl, uuid],
+                )
+                .catch((err: unknown) =>
+                    console.warn('[thumbnails] inline migration failed', err),
+                );
+        }
+
+        entry.thumbnail = await getSignedUrl(
+            presignClient,
+            new GetObjectCommand({ Bucket: deps.bucketName, Key: key }),
+            { expiresIn: 604800 },
+        );
+    }
+};
+
+export const handleFsRemoveNodeThumbnail = async (
+    payload: { target: Record<string, unknown> },
+    deps: { s3: S3Client },
+): Promise<void> => {
+    const thumbnailUrl = payload.target.thumbnail as string | undefined;
+    if (!thumbnailUrl || !thumbnailUrl.startsWith('s3://')) return;
+
+    const [bucket, key] = thumbnailUrl.slice(5).split('/');
+    await deps.s3.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
+};
+
 extension.on(
     'thumbnail.created',
     async (_key, event: Record<string, unknown>) => {
@@ -141,41 +259,10 @@ extension.on(
 extension.on(
     'thumbnail.upload.prepare',
     async (_key, event: Record<string, unknown>) => {
-        if (!event || !Array.isArray(event.items)) return;
-        const presignClient = getPresignClient();
-
-        for (const item of event.items as Array<Record<string, unknown>>) {
-            if (!item || typeof item !== 'object') {
-                throw new Error('thumbnail.upload.prepare item is invalid');
-            }
-
-            const contentType =
-                typeof item.contentType === 'string'
-                    ? item.contentType.trim()
-                    : '';
-            if (!contentType) continue;
-
-            if (item.size !== undefined) {
-                const size = Number(item.size);
-                if (
-                    !Number.isFinite(size) ||
-                    size < 0 ||
-                    size > MAX_THUMBNAIL_BYTES
-                )
-                    continue;
-            }
-
-            const key = crypto.randomUUID();
-            const command = new PutObjectCommand({
-                Bucket: thumbnailBucketName,
-                Key: key,
-                ContentType: contentType,
-            });
-            item.uploadUrl = await getSignedUrl(presignClient, command, {
-                expiresIn: 900,
-            });
-            item.thumbnailUrl = `s3://${thumbnailBucketName}/${key}`;
-        }
+        await handleThumbnailUploadPrepare(event, {
+            s3Presign: getPresignClient(),
+            bucketName: thumbnailBucketName,
+        });
     },
 );
 
@@ -183,62 +270,13 @@ extension.on(
 // Convert s3:// or legacy https:// thumbnails to signed URLs.
 
 extension.on('thumbnail.read', async (_key, entry: Record<string, unknown>) => {
-    const thumb = entry.thumbnail;
-    if (typeof thumb !== 'string' || !thumb) return;
-    const presignClient = getPresignClient();
-
-    if (thumb.startsWith('s3://')) {
-        const [bucket, key] = thumb.slice(5).split('/');
-        entry.thumbnail = await getSignedUrl(
-            presignClient,
-            new GetObjectCommand({ Bucket: bucket, Key: key }),
-            { expiresIn: 604800 },
-        );
-    } else if (
-        thumb.startsWith('https') &&
-        thumb.includes(new URL(extensionBucketEndpoint).hostname)
-    ) {
-        // Legacy format — remove after full migration
-        const [bucket, key] = new URL(thumb).pathname.slice(1).split('/');
-        entry.thumbnail = await getSignedUrl(
-            presignClient,
-            new GetObjectCommand({ Bucket: bucket, Key: key }),
-            { expiresIn: 604800 },
-        );
-    } else if (thumb.startsWith('data')) {
-        // Inline data-URL migration: upload to S3 and update the DB entry.
-        const key = crypto.randomUUID();
-        const { mimeType, data } = base64ParseDataUrl(thumb);
-        const newUrl = `s3://${thumbnailBucketName}/${key}`;
-
-        await getClient().send(
-            new PutObjectCommand({
-                Bucket: thumbnailBucketName,
-                Key: key,
-                Body: data,
-                ContentType: mimeType,
-            }),
-        );
-
-        // Best-effort async DB update
-        const uuid = entry.uuid ?? entry.uid;
-        if (uuid) {
-            clients.db
-                .write(
-                    'UPDATE `fsentries` SET `thumbnail` = ? WHERE `uuid` = ?',
-                    [newUrl, uuid],
-                )
-                .catch((err: unknown) =>
-                    console.warn('[thumbnails] inline migration failed', err),
-                );
-        }
-
-        entry.thumbnail = await getSignedUrl(
-            presignClient,
-            new GetObjectCommand({ Bucket: thumbnailBucketName, Key: key }),
-            { expiresIn: 604800 },
-        );
-    }
+    await handleThumbnailRead(entry, {
+        s3: getClient(),
+        s3Presign: getPresignClient(),
+        bucketName: thumbnailBucketName,
+        bucketEndpoint: extensionBucketEndpoint,
+        db: clients.db,
+    });
 });
 
 // ── fs.remove.node ──────────────────────────────────────────────────
@@ -246,13 +284,7 @@ extension.on('thumbnail.read', async (_key, entry: Record<string, unknown>) => {
 
 extension.on(
     'fs.remove.node',
-    async (_key, { target }: { target: Record<string, unknown> }) => {
-        const thumbnailUrl = target.thumbnail as string | undefined;
-        if (!thumbnailUrl || !thumbnailUrl.startsWith('s3://')) return;
-
-        const [bucket, key] = thumbnailUrl.slice(5).split('/');
-        await getClient().send(
-            new DeleteObjectCommand({ Bucket: bucket, Key: key }),
-        );
+    async (_key, payload: { target: Record<string, unknown> }) => {
+        await handleFsRemoveNodeThumbnail(payload, { s3: getClient() });
     },
 );
