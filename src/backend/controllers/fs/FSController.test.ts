@@ -986,6 +986,469 @@ describe('FSController.copyEntry', () => {
     });
 });
 
+// ── /read (readEntry, full read) ────────────────────────────────────
+
+describe('FSController.readEntry (file streaming)', () => {
+    // makeRes here adds a real Writable surface so that
+    // `pipeline(download.body, res)` inside the controller can pipe
+    // the in-memory S3 stream into the test's response and capture
+    // bytes for assertions.
+    const makeStreamingRes = () => {
+        const captured = {
+            statusCode: 200,
+            headers: {} as Record<string, string>,
+            bodyChunks: [] as Buffer[],
+        };
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { Writable } = require('node:stream') as typeof import('node:stream');
+        const writable = new Writable({
+            write(chunk: Buffer, _enc, cb) {
+                captured.bodyChunks.push(chunk);
+                cb();
+            },
+        });
+        // Decorate with the Express helpers the controller calls.
+        const res = writable as unknown as Response & {
+            status: (code: number) => unknown;
+            setHeader: (k: string, v: string) => unknown;
+            json: (v: unknown) => unknown;
+            send: (v: unknown) => unknown;
+        };
+        res.status = (code: number) => {
+            captured.statusCode = code;
+            return res;
+        };
+        res.setHeader = (k: string, v: string) => {
+            captured.headers[k] = v;
+            return res;
+        };
+        res.json = vi.fn(() => res);
+        res.send = vi.fn(() => res);
+        return { res, captured };
+    };
+
+    const writeFile = async (
+        userId: number,
+        path: string,
+        body: Buffer,
+        contentType = 'application/octet-stream',
+    ) => {
+        await server.services.fs.write(userId, {
+            fileMetadata: {
+                path,
+                size: body.byteLength,
+                contentType,
+            },
+            fileContent: body,
+        });
+    };
+
+    it('streams the file body with 200 and Content-Type/Length/Disposition headers', async () => {
+        const { actor, userId } = await makeUser();
+        const username = actor.user!.username!;
+        const body = Buffer.from('hello world');
+        const target = `/${username}/Documents/read.txt`;
+        await writeFile(userId, target, body, 'text/plain');
+
+        const { res, captured } = makeStreamingRes();
+        await withActor(actor, () =>
+            controller.readEntry(
+                makeReq({ query: { path: target }, actor }),
+                res,
+            ),
+        );
+        // Pipeline awaits the stream-end on success.
+        expect(captured.statusCode).toBe(200);
+        expect(captured.headers['Content-Type']).toMatch(/text\/plain/);
+        expect(captured.headers['Content-Length']).toBe(String(body.byteLength));
+        expect(captured.headers['Content-Disposition']).toMatch(
+            /inline; filename=/,
+        );
+        expect(Buffer.concat(captured.bodyChunks).equals(body)).toBe(true);
+    });
+
+    it('returns 206 with Range honored when a Range header is supplied', async () => {
+        const { actor, userId } = await makeUser();
+        const username = actor.user!.username!;
+        const body = Buffer.from('abcdefghij');
+        const target = `/${username}/Documents/ranged.bin`;
+        await writeFile(userId, target, body, 'application/octet-stream');
+
+        const { res, captured } = makeStreamingRes();
+        await withActor(actor, () =>
+            controller.readEntry(
+                makeReq({
+                    query: { path: target },
+                    actor,
+                    headers: { range: 'bytes=0-3' },
+                }),
+                res,
+            ),
+        );
+        // Range presence flips the status to 206 — Content-Range may or
+        // may not be set depending on the underlying S3 mock; the status
+        // transition is the wire-level promise this code holds.
+        expect(captured.statusCode).toBe(206);
+    });
+
+    it('throws 404 when the path does not exist', async () => {
+        const { actor } = await makeUser();
+        const username = actor.user!.username!;
+        await expect(
+            withActor(actor, () =>
+                controller.readEntry(
+                    makeReq({
+                        query: {
+                            path: `/${username}/Documents/missing-${uuidv4()}.txt`,
+                        },
+                        actor,
+                    }),
+                    makeStreamingRes().res,
+                ),
+            ),
+        ).rejects.toMatchObject({ statusCode: 404 });
+    });
+});
+
+// ── /readdir extras: sort + limit/offset ────────────────────────────
+
+describe('FSController.readdirEntries sort + limit', () => {
+    it('accepts sort_by + sort_order and passes them through to listDirectory', async () => {
+        const { actor } = await makeUser();
+        const username = actor.user!.username!;
+        // Spy on the service so we can verify the controller-side
+        // parsing of sort_by/sort_order/limit/offset.
+        const listSpy = vi
+            .spyOn(server.services.fs, 'listDirectory')
+            .mockResolvedValueOnce([] as never);
+        try {
+            await withActor(actor, () =>
+                controller.readdirEntries(
+                    makeReq({
+                        body: {
+                            path: `/${username}/Documents`,
+                            sort_by: 'name',
+                            sort_order: 'desc',
+                            limit: 10,
+                            offset: 5,
+                        },
+                        actor,
+                    }),
+                    makeRes().res,
+                ),
+            );
+            expect(listSpy).toHaveBeenCalledTimes(1);
+            const opts = listSpy.mock.calls[0]![1]!;
+            expect(opts.sortBy).toBe('name');
+            expect(opts.sortOrder).toBe('desc');
+            expect(opts.limit).toBe(10);
+            expect(opts.offset).toBe(5);
+        } finally {
+            listSpy.mockRestore();
+        }
+    });
+
+    it('defaults invalid sort_by/sort_order to null', async () => {
+        const { actor } = await makeUser();
+        const username = actor.user!.username!;
+        const listSpy = vi
+            .spyOn(server.services.fs, 'listDirectory')
+            .mockResolvedValueOnce([] as never);
+        try {
+            await withActor(actor, () =>
+                controller.readdirEntries(
+                    makeReq({
+                        body: {
+                            path: `/${username}/Documents`,
+                            sort_by: 'totally-fake',
+                            sort_order: 'sideways',
+                        },
+                        actor,
+                    }),
+                    makeRes().res,
+                ),
+            );
+            const opts = listSpy.mock.calls[0]![1]!;
+            expect(opts.sortBy).toBeNull();
+            expect(opts.sortOrder).toBeNull();
+        } finally {
+            listSpy.mockRestore();
+        }
+    });
+});
+
+// ── /touch additional branches ──────────────────────────────────────
+
+describe('FSController.touchEntry additional branches', () => {
+    it('forwards set_accessed_to_now / set_created_to_now / create_missing_parents flags', async () => {
+        const { actor } = await makeUser();
+        const username = actor.user!.username!;
+        const touchSpy = vi
+            .spyOn(server.services.fs, 'touch')
+            .mockResolvedValueOnce({
+                path: `/${username}/Documents/spy.txt`,
+                name: 'spy.txt',
+                isDir: false,
+            } as never);
+        try {
+            await withActor(actor, () =>
+                controller.touchEntry(
+                    makeReq({
+                        body: {
+                            path: `/${username}/Documents/spy.txt`,
+                            set_accessed_to_now: true,
+                            set_modified_to_now: 'yes', // string coercion
+                            set_created_to_now: 1, // numeric coercion
+                            create_missing_parents: 'true',
+                        },
+                        actor,
+                    }),
+                    makeRes().res,
+                ),
+            );
+            const opts = touchSpy.mock.calls[0]![1]!;
+            expect(opts.setAccessed).toBe(true);
+            expect(opts.setModified).toBe(true);
+            expect(opts.setCreated).toBe(true);
+            expect(opts.createMissingParents).toBe(true);
+        } finally {
+            touchSpy.mockRestore();
+        }
+    });
+});
+
+// ── /delete additional branches ─────────────────────────────────────
+
+describe('FSController.deleteEntry additional branches', () => {
+    it('forwards descendants_only + recursive flags', async () => {
+        const { actor } = await makeUser();
+        const username = actor.user!.username!;
+        const target = `/${username}/Documents/dscnd`;
+        await withActor(actor, () =>
+            controller.mkdirEntry(
+                makeReq({ body: { path: target }, actor }),
+                makeRes().res,
+            ),
+        );
+        const removeSpy = vi
+            .spyOn(server.services.fs, 'remove')
+            .mockResolvedValueOnce(undefined as never);
+        try {
+            await withActor(actor, () =>
+                controller.deleteEntry(
+                    makeReq({
+                        body: {
+                            path: target,
+                            recursive: 'yes',
+                            descendants_only: '1',
+                        },
+                        actor,
+                    }),
+                    makeRes().res,
+                ),
+            );
+            const opts = removeSpy.mock.calls[0]![1]!;
+            expect(opts.recursive).toBe(true);
+            expect(opts.descendantsOnly).toBe(true);
+        } finally {
+            removeSpy.mockRestore();
+        }
+    });
+});
+
+// ── /move additional branches ───────────────────────────────────────
+
+describe('FSController.moveEntry additional branches', () => {
+    it('forwards new_name, overwrite, and dedupe_name (via change_name alias)', async () => {
+        const { actor } = await makeUser();
+        const username = actor.user!.username!;
+        const src = `/${username}/Documents/mv-orig`;
+        await withActor(actor, () =>
+            controller.mkdirEntry(
+                makeReq({ body: { path: src }, actor }),
+                makeRes().res,
+            ),
+        );
+        const moveSpy = vi
+            .spyOn(server.services.fs, 'move')
+            .mockResolvedValueOnce({
+                path: `/${username}/Pictures/renamed`,
+            } as never);
+        try {
+            await withActor(actor, () =>
+                controller.moveEntry(
+                    makeReq({
+                        body: {
+                            source: { path: src },
+                            destination: { path: `/${username}/Pictures` },
+                            new_name: 'renamed',
+                            overwrite: 'true',
+                            change_name: 'true', // alias for dedupe_name
+                        },
+                        actor,
+                    }),
+                    makeRes().res,
+                ),
+            );
+            const opts = moveSpy.mock.calls[0]![1]!;
+            expect(opts.newName).toBe('renamed');
+            expect(opts.overwrite).toBe(true);
+            expect(opts.dedupeName).toBe(true);
+        } finally {
+            moveSpy.mockRestore();
+        }
+    });
+});
+
+// ── /copy additional branches ───────────────────────────────────────
+
+describe('FSController.copyEntry additional branches', () => {
+    it('forwards new_name with dedupe_name defaulting to true', async () => {
+        const { actor } = await makeUser();
+        const username = actor.user!.username!;
+        const src = `/${username}/Documents/cp-orig`;
+        await withActor(actor, () =>
+            controller.mkdirEntry(
+                makeReq({ body: { path: src }, actor }),
+                makeRes().res,
+            ),
+        );
+        const copySpy = vi
+            .spyOn(server.services.fs, 'copy')
+            .mockResolvedValueOnce({
+                path: `/${username}/Pictures/cp-orig`,
+            } as never);
+        try {
+            await withActor(actor, () =>
+                controller.copyEntry(
+                    makeReq({
+                        body: {
+                            source: { path: src },
+                            destination: { path: `/${username}/Pictures` },
+                            new_name: 'cp-renamed',
+                        },
+                        actor,
+                    }),
+                    makeRes().res,
+                ),
+            );
+            const opts = copySpy.mock.calls[0]![1]!;
+            expect(opts.newName).toBe('cp-renamed');
+            // Default for copy is dedupeName=true (unlike move which is false).
+            expect(opts.dedupeName).toBe(true);
+        } finally {
+            copySpy.mockRestore();
+        }
+    });
+});
+
+// ── /search additional ──────────────────────────────────────────────
+
+describe('FSController.searchEntries fallback fields', () => {
+    it('falls back to body.text when body.query is missing', async () => {
+        const { actor } = await makeUser();
+        const username = actor.user!.username!;
+        const needle = `txtfb-${Math.random().toString(36).slice(2, 8)}`;
+        await withActor(actor, () =>
+            controller.mkdirEntry(
+                makeReq({
+                    body: { path: `/${username}/Documents/${needle}` },
+                    actor,
+                }),
+                makeRes().res,
+            ),
+        );
+
+        const { res, captured } = makeRes();
+        await withActor(actor, () =>
+            controller.searchEntries(
+                // No `query` key — only `text`.
+                makeReq({ body: { text: needle }, actor }),
+                res,
+            ),
+        );
+        const results = captured.body as Array<{ name: string }>;
+        expect(results.some((r) => r.name === needle)).toBe(true);
+    });
+
+    it('forwards `limit` to searchByName when provided', async () => {
+        const { actor } = await makeUser();
+        const searchSpy = vi
+            .spyOn(server.services.fs, 'searchByName')
+            .mockResolvedValueOnce([] as never);
+        try {
+            await withActor(actor, () =>
+                controller.searchEntries(
+                    makeReq({
+                        body: { query: 'anything', limit: 50 },
+                        actor,
+                    }),
+                    makeRes().res,
+                ),
+            );
+            expect(searchSpy.mock.calls[0]![2]).toBe(50);
+        } finally {
+            searchSpy.mockRestore();
+        }
+    });
+});
+
+// ── /stat additional ────────────────────────────────────────────────
+
+describe('FSController.statEntry additional branches', () => {
+    it('returns return_size for a directory containing files', async () => {
+        const { actor, userId } = await makeUser();
+        const username = actor.user!.username!;
+        const dir = `/${username}/Documents/sized-with-file`;
+        await withActor(actor, () =>
+            controller.mkdirEntry(
+                makeReq({ body: { path: dir }, actor }),
+                makeRes().res,
+            ),
+        );
+        const fileBody = Buffer.from('123');
+        await server.services.fs.write(userId, {
+            fileMetadata: {
+                path: `${dir}/a.txt`,
+                size: fileBody.byteLength,
+                contentType: 'text/plain',
+            },
+            fileContent: fileBody,
+        });
+
+        const { res, captured } = makeRes();
+        await withActor(actor, () =>
+            controller.statEntry(
+                makeReq({
+                    body: { path: dir, return_size: true },
+                    actor,
+                }),
+                res,
+            ),
+        );
+        const body = captured.body as { size: number };
+        expect(body.size).toBeGreaterThanOrEqual(fileBody.byteLength);
+    });
+});
+
+// ── #getReportedCosts ───────────────────────────────────────────────
+
+describe('FSController.getReportedCosts', () => {
+    it('mirrors every FS_COSTS entry as a per-byte line item', async () => {
+        const { FS_COSTS } = await import('./costs.js');
+        const reported = controller.getReportedCosts();
+        expect(reported.length).toBe(Object.keys(FS_COSTS).length);
+        for (const [usageType, ucentsPerUnit] of Object.entries(FS_COSTS)) {
+            expect(reported).toContainEqual({
+                usageType,
+                ucentsPerUnit,
+                unit: 'byte',
+                source: 'controller:fs',
+            });
+        }
+    });
+});
+
 // ── /mkshortcut (mkshortcutEntry) ───────────────────────────────────
 
 describe('FSController.mkshortcutEntry', () => {

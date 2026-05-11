@@ -77,6 +77,7 @@ const AVAILABLE_MIGRATIONS: [number, string[]][] = [
     [42, ['0046_is-private-apps.sql']],
     [43, ['0047_app-url-updates.sql']],
     [44, ['0048_old-app-names-unique-tuple.sql']],
+    [45, ['0049_music-player-pdf-player-updates.sql']],
 ];
 
 export class SqliteDatabaseClient extends AbstractDatabaseClient {

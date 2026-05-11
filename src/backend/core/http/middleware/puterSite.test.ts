@@ -17,12 +17,14 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { Writable } from 'node:stream';
 import type { Request, Response } from 'express';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 import { PuterServer } from '../../../server';
 import { setupTestServer } from '../../../testUtil';
 import type { IConfig } from '../../../types';
+import { generateDefaultFsentries } from '../../../util/userProvisioning';
 import { createPuterSiteMiddleware } from './puterSite';
 
 // ── Harness ─────────────────────────────────────────────────────────
@@ -47,42 +49,65 @@ interface CapturedRes {
 
 const makeRes = () => {
     const out: CapturedRes = { headers: {} };
-    const res = {
-        status(code: number) {
-            out.statusCode = code;
-            return this;
+    // The file-serving branch ends with `download.body.pipe(res)`, so
+    // `res` has to satisfy the WritableStream contract Node's `pipe()`
+    // expects — write/end/on/emit/etc. Use a real Writable so Node's
+    // pipe internals don't trip on missing prototype methods. Bytes
+    // piped in are captured into `out.body`.
+    const pipedChunks: Buffer[] = [];
+    const writable = new Writable({
+        write(chunk: Buffer, _enc, cb) {
+            pipedChunks.push(chunk);
+            cb();
         },
-        type(ct: string) {
-            out.contentType = ct;
-            return this;
-        },
-        send(payload: unknown) {
-            out.body = payload;
-            return this;
-        },
-        redirect(...args: unknown[]) {
-            if (typeof args[0] === 'number') {
-                out.redirected = {
-                    status: args[0] as number,
-                    url: String(args[1]),
-                };
-            } else {
-                out.redirected = { url: String(args[0]) };
+        final(cb) {
+            if (pipedChunks.length > 0) {
+                out.body = Buffer.concat(pipedChunks);
             }
-            return this;
+            cb();
         },
-        cookie() {
-            return this;
-        },
-        set(name: string, value: string) {
-            out.headers[name] = value;
-            return this;
-        },
-        setHeader(name: string, value: string) {
-            out.headers[name] = value;
-            return this;
-        },
-    } as unknown as Response;
+    });
+    const res = writable as unknown as Response & {
+        status: (code: number) => Response;
+        type: (ct: string) => Response;
+        send: (payload: unknown) => Response;
+        redirect: (...args: unknown[]) => Response;
+        cookie: () => Response;
+        set: (name: string, value: string) => Response;
+        setHeader: (name: string, value: string) => Response;
+    };
+    res.status = (code: number) => {
+        out.statusCode = code;
+        return res;
+    };
+    res.type = (ct: string) => {
+        out.contentType = ct;
+        return res;
+    };
+    res.send = (payload: unknown) => {
+        out.body = payload;
+        return res;
+    };
+    res.redirect = (...args: unknown[]) => {
+        if (typeof args[0] === 'number') {
+            out.redirected = {
+                status: args[0] as number,
+                url: String(args[1]),
+            };
+        } else {
+            out.redirected = { url: String(args[0]) };
+        }
+        return res;
+    };
+    res.cookie = () => res;
+    res.set = (name: string, value: string) => {
+        out.headers[name] = value;
+        return res;
+    };
+    res.setHeader = (name: string, value: string) => {
+        out.headers[name] = value;
+        return res;
+    };
     return { res, out };
 };
 
@@ -100,6 +125,10 @@ const makeReq = (init: {
         headers: init.headers ?? {},
         cookies: init.cookies ?? {},
         query: {},
+        // The file-serve branch wires `req.on('close', ...)` to destroy
+        // the stream on client disconnect — a no-op event surface is
+        // enough for the offline tests.
+        on: () => undefined,
     }) as unknown as Request;
 
 const runMiddleware = async (
@@ -351,5 +380,381 @@ describe('createPuterSiteMiddleware — private hosting domain', () => {
         );
         expect(out.statusCode).toBe(404);
         expect(out.body).toBe('Subdomain not found');
+    });
+
+    it('uses the alt private hosting domain when configured', async () => {
+        // Coverage for the `private_app_hosting_domain_alt` slot — same
+        // refusal logic, but via the alternate host that the deployment
+        // can use for legacy traffic.
+        const owner = await makeUser();
+        const sub = `altleak-${Math.random().toString(36).slice(2, 8)}`;
+        await server.stores.subdomain.create({
+            userId: owner.id,
+            subdomain: sub,
+        });
+        const mw = buildMiddleware({
+            private_app_hosting_domain_alt: 'apps.alt.localhost',
+        } as Partial<IConfig>);
+        const { out } = await runMiddleware(
+            mw,
+            makeReq({ hostname: `${sub}.apps.alt.localhost` }),
+        );
+        expect(out.statusCode).toBe(404);
+        expect(out.body).toBe('Subdomain not found');
+    });
+});
+
+// ── File serving ────────────────────────────────────────────────────
+//
+// Wires a subdomain → user home dir so the FS path resolution + read
+// stream branches actually run. Uses the live FSService to write real
+// files, which goes through the in-memory S3 mock; the readContent
+// piping path then yields a real readable stream.
+
+// Variant of `makeUser` that ALSO provisions /<username> + the default
+// folder tree. The base `makeUser` doesn't, since the existing tests
+// only need a user row; the file-serving tests need a real home dir
+// to use as `root_dir_id`.
+const makeUserWithHome = async () => {
+    const username = `ps-${Math.random().toString(36).slice(2, 10)}`;
+    const created = await server.stores.user.create({
+        username,
+        uuid: uuidv4(),
+        password: null,
+        email: `${username}@test.local`,
+        free_storage: 100 * 1024 * 1024,
+        requires_email_confirmation: false,
+    } as Parameters<typeof server.stores.user.create>[0]);
+    await generateDefaultFsentries(
+        server.clients.db,
+        server.stores.user,
+        created,
+    );
+    return (await server.stores.user.getById(created.id))!;
+};
+
+const writeFile = async (
+    userId: number,
+    path: string,
+    body: Buffer,
+    contentType = 'application/octet-stream',
+) => {
+    await server.services.fs.write(userId, {
+        fileMetadata: {
+            path,
+            size: body.byteLength,
+            contentType,
+        },
+        fileContent: body,
+    });
+    return server.stores.fsEntry.getEntryByPath(path);
+};
+
+describe('createPuterSiteMiddleware — file serving', () => {
+    it('serves an existing file with the right Content-Type, ETag/length headers, and 200', async () => {
+        // Build a real subdomain pointing at the user's home dir, write
+        // a real index.html under it, then hit the middleware. Exercises
+        // the full path-resolution + readContent + header pipeline.
+        const owner = await makeUserWithHome();
+        const homePath = `/${owner.username}`;
+        const homeEntry = await server.stores.fsEntry.getEntryByPath(homePath);
+        expect(homeEntry).not.toBeNull();
+        const sub = `serve-${Math.random().toString(36).slice(2, 8)}`;
+        await server.stores.subdomain.create({
+            userId: owner.id,
+            subdomain: sub,
+            rootDirId: homeEntry!.id,
+        });
+        const body = Buffer.from('<html>hi</html>');
+        await writeFile(
+            owner.id,
+            `${homePath}/index.html`,
+            body,
+            'text/html',
+        );
+
+        const mw = buildMiddleware();
+        const { res, out } = makeRes();
+        await mw(
+            makeReq({
+                hostname: `${sub}.site.puter.localhost`,
+                path: '/index.html',
+            }),
+            res,
+            vi.fn(),
+        );
+        // Allow the piped stream to flush.
+        await new Promise<void>((resolve) => setImmediate(resolve));
+
+        expect(out.statusCode).toBe(200);
+        expect(out.headers['Content-Type']).toMatch(/text\/html/);
+        expect(out.headers['Content-Length']).toBe(String(body.byteLength));
+        expect(out.headers['Access-Control-Allow-Origin']).toBe('*');
+        expect(out.headers['Accept-Ranges']).toBe('bytes');
+        // makeRes captures the piped stream bytes into `out.body`.
+        const piped = out.body as Buffer | undefined;
+        expect(Buffer.isBuffer(piped)).toBe(true);
+        expect(piped!.equals(body)).toBe(true);
+    });
+
+    it('returns 206 status when a Range header is supplied', async () => {
+        const owner = await makeUserWithHome();
+        const homePath = `/${owner.username}`;
+        const homeEntry = await server.stores.fsEntry.getEntryByPath(homePath);
+        const sub = `range-${Math.random().toString(36).slice(2, 8)}`;
+        await server.stores.subdomain.create({
+            userId: owner.id,
+            subdomain: sub,
+            rootDirId: homeEntry!.id,
+        });
+        const body = Buffer.from('abcdefghij');
+        await writeFile(
+            owner.id,
+            `${homePath}/clip.bin`,
+            body,
+            'application/octet-stream',
+        );
+
+        const mw = buildMiddleware();
+        const { res, out } = makeRes();
+        await mw(
+            makeReq({
+                hostname: `${sub}.site.puter.localhost`,
+                path: '/clip.bin',
+                headers: { range: 'bytes=0-3' },
+            }),
+            res,
+            vi.fn(),
+        );
+
+        // Range request → 206 even if the underlying mock S3 returns the
+        // full payload (Content-Range header may not appear in the in-
+        // memory mock, but the status code transition is what we care
+        // about here).
+        expect(out.statusCode).toBe(206);
+        expect(out.headers['Accept-Ranges']).toBe('bytes');
+    });
+
+    it("rewrites a trailing slash request to /index.html under the site's root", async () => {
+        const owner = await makeUserWithHome();
+        const homePath = `/${owner.username}`;
+        const homeEntry = await server.stores.fsEntry.getEntryByPath(homePath);
+        const sub = `idx-${Math.random().toString(36).slice(2, 8)}`;
+        await server.stores.subdomain.create({
+            userId: owner.id,
+            subdomain: sub,
+            rootDirId: homeEntry!.id,
+        });
+        const body = Buffer.from('default doc');
+        await writeFile(
+            owner.id,
+            `${homePath}/index.html`,
+            body,
+            'text/html',
+        );
+
+        const mw = buildMiddleware();
+        const { res, out } = makeRes();
+        await mw(
+            makeReq({
+                hostname: `${sub}.site.puter.localhost`,
+                // Trailing slash → driver appends `index.html`.
+                path: '/',
+            }),
+            res,
+            vi.fn(),
+        );
+
+        expect(out.statusCode).toBe(200);
+        expect(out.headers['Content-Type']).toMatch(/text\/html/);
+    });
+
+    it("returns the HTML 404 'Not Found' page when the file does not exist", async () => {
+        const owner = await makeUserWithHome();
+        const homePath = `/${owner.username}`;
+        const homeEntry = await server.stores.fsEntry.getEntryByPath(homePath);
+        const sub = `miss-${Math.random().toString(36).slice(2, 8)}`;
+        await server.stores.subdomain.create({
+            userId: owner.id,
+            subdomain: sub,
+            rootDirId: homeEntry!.id,
+        });
+        // No file is written — the path doesn't exist.
+
+        const mw = buildMiddleware();
+        const { res, out } = makeRes();
+        await mw(
+            makeReq({
+                hostname: `${sub}.site.puter.localhost`,
+                path: '/does-not-exist.html',
+            }),
+            res,
+            vi.fn(),
+        );
+
+        expect(out.statusCode).toBe(404);
+        expect(out.contentType).toBe('text/html; charset=UTF-8');
+        expect(String(out.body)).toContain('Not Found');
+    });
+
+    it('returns 404 when the resolved URL points at a directory rather than a file', async () => {
+        const owner = await makeUserWithHome();
+        const homePath = `/${owner.username}`;
+        const homeEntry = await server.stores.fsEntry.getEntryByPath(homePath);
+        const sub = `dirreq-${Math.random().toString(36).slice(2, 8)}`;
+        await server.stores.subdomain.create({
+            userId: owner.id,
+            subdomain: sub,
+            rootDirId: homeEntry!.id,
+        });
+
+        const mw = buildMiddleware();
+        const { res, out } = makeRes();
+        await mw(
+            makeReq({
+                hostname: `${sub}.site.puter.localhost`,
+                // Documents/ exists from generateDefaultFsentries — a
+                // directory entry, which the file branch must refuse.
+                path: '/Documents',
+            }),
+            res,
+            vi.fn(),
+        );
+
+        expect(out.statusCode).toBe(404);
+        expect(out.contentType).toBe('text/html; charset=UTF-8');
+    });
+
+    it("serves the HTML SUBDOMAIN_404 when the subdomain's root_dir_id points to a missing entry", async () => {
+        // Subdomain row references a fsentry id that doesn't exist —
+        // earlier path resolution must catch this with the HTML 404 page.
+        const owner = await makeUserWithHome();
+        const sub = `missroot-${Math.random().toString(36).slice(2, 8)}`;
+        await server.stores.subdomain.create({
+            userId: owner.id,
+            subdomain: sub,
+            rootDirId: 999999, // never inserted
+        });
+
+        const mw = buildMiddleware();
+        const { res, out } = makeRes();
+        await mw(
+            makeReq({
+                hostname: `${sub}.site.puter.localhost`,
+                path: '/',
+            }),
+            res,
+            vi.fn(),
+        );
+
+        expect(out.statusCode).toBe(404);
+        expect(out.contentType).toBe('text/html; charset=UTF-8');
+    });
+
+    it('returns 404 when root_dir_id points to a file (not a directory)', async () => {
+        const owner = await makeUserWithHome();
+        const homePath = `/${owner.username}`;
+        const body = Buffer.from('not a directory');
+        // Write a file and use ITS id as the subdomain's root_dir_id —
+        // the middleware must reject because root must be a directory.
+        await writeFile(
+            owner.id,
+            `${homePath}/Documents/somefile.txt`,
+            body,
+        );
+        const fileEntry = await server.stores.fsEntry.getEntryByPath(
+            `${homePath}/Documents/somefile.txt`,
+        );
+        expect(fileEntry?.isDir).toBe(false);
+        const sub = `fileroot-${Math.random().toString(36).slice(2, 8)}`;
+        await server.stores.subdomain.create({
+            userId: owner.id,
+            subdomain: sub,
+            rootDirId: fileEntry!.id,
+        });
+
+        const mw = buildMiddleware();
+        const { res, out } = makeRes();
+        await mw(
+            makeReq({
+                hostname: `${sub}.site.puter.localhost`,
+                path: '/',
+            }),
+            res,
+            vi.fn(),
+        );
+        expect(out.statusCode).toBe(404);
+    });
+
+    it('decodes URL-encoded paths before resolving', async () => {
+        // %20 in the URL must decode to a space and match the on-disk
+        // filename — proves decodeURIComponent runs before path lookup.
+        const owner = await makeUserWithHome();
+        const homePath = `/${owner.username}`;
+        const homeEntry = await server.stores.fsEntry.getEntryByPath(homePath);
+        const sub = `enc-${Math.random().toString(36).slice(2, 8)}`;
+        await server.stores.subdomain.create({
+            userId: owner.id,
+            subdomain: sub,
+            rootDirId: homeEntry!.id,
+        });
+        const body = Buffer.from('encoded');
+        await writeFile(
+            owner.id,
+            `${homePath}/hello world.txt`,
+            body,
+            'text/plain',
+        );
+
+        const mw = buildMiddleware();
+        const { res, out } = makeRes();
+        await mw(
+            makeReq({
+                hostname: `${sub}.site.puter.localhost`,
+                path: '/hello%20world.txt',
+            }),
+            res,
+            vi.fn(),
+        );
+        expect(out.statusCode).toBe(200);
+        expect(out.headers['Content-Type']).toMatch(/text\/plain/);
+    });
+
+    it('normalizes traversal-style paths so `..` cannot escape the site root', async () => {
+        // `/foo/../bar` collapses to `/bar` under the site root; without
+        // normalization an attacker could climb out and hit the FS root.
+        const owner = await makeUserWithHome();
+        const homePath = `/${owner.username}`;
+        const homeEntry = await server.stores.fsEntry.getEntryByPath(homePath);
+        const sub = `trav-${Math.random().toString(36).slice(2, 8)}`;
+        await server.stores.subdomain.create({
+            userId: owner.id,
+            subdomain: sub,
+            rootDirId: homeEntry!.id,
+        });
+        const body = Buffer.from('inside');
+        await writeFile(
+            owner.id,
+            `${homePath}/safe.txt`,
+            body,
+            'text/plain',
+        );
+
+        const mw = buildMiddleware();
+        const { res, out } = makeRes();
+        await mw(
+            makeReq({
+                hostname: `${sub}.site.puter.localhost`,
+                // ../../etc/passwd — must normalize to /etc/passwd under
+                // the SITE ROOT, not the FS root; lookup will 404.
+                path: '/../../etc/passwd',
+            }),
+            res,
+            vi.fn(),
+        );
+        // Whatever the file branch decides, the response must NOT be
+        // a 200 with the file from /etc/passwd — it should 404 because
+        // <home>/etc/passwd doesn't exist.
+        expect(out.statusCode).toBe(404);
     });
 });
