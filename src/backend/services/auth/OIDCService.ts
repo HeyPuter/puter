@@ -31,8 +31,11 @@ const GOOGLE_DISCOVERY_URL =
     'https://accounts.google.com/.well-known/openid-configuration';
 const APPLE_DISCOVERY_URL =
     'https://appleid.apple.com/.well-known/openid-configuration';
+const MICROSOFT_DISCOVERY_URL_TEMPLATE =
+    'https://login.microsoftonline.com/{tenant}/v2.0/.well-known/openid-configuration';
 const GOOGLE_SCOPES = 'openid email profile';
 const APPLE_SCOPES = 'openid email';
+const MICROSOFT_SCOPES = 'openid email profile';
 const STATE_EXPIRY_SEC = 600; // 10 minutes
 const VALID_OIDC_FLOWS = ['login', 'signup', 'revalidate'] as const;
 const REVALIDATION_EXPIRY_SEC = 300; // 5 minutes
@@ -109,8 +112,29 @@ export class OIDCService extends PuterService {
             };
         }
 
-        // Google and custom providers require a static client_secret.
+        // Google, Microsoft, and custom providers require a static client_secret.
         if (!raw.client_secret) return null;
+
+        if (providerId === 'microsoft') {
+            const tenant = raw.tenant_id || 'common';
+            const discoveryUrl = MICROSOFT_DISCOVERY_URL_TEMPLATE.replace(
+                '{tenant}',
+                tenant,
+            );
+            const discovery = await this.#fetchDiscovery(
+                discoveryUrl,
+                'Microsoft',
+            );
+            if (!discovery) return null;
+            return {
+                client_id: raw.client_id,
+                client_secret: raw.client_secret,
+                authorization_endpoint: discovery.authorization_endpoint,
+                token_endpoint: discovery.token_endpoint,
+                userinfo_endpoint: discovery.userinfo_endpoint,
+                scopes: raw.scopes ?? MICROSOFT_SCOPES,
+            };
+        }
 
         if (providerId === 'google') {
             const discovery = await this.#fetchDiscovery(

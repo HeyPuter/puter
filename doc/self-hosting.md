@@ -277,6 +277,22 @@ Add `https://puter.<your-domain>/auth/oidc/callback/login` to the OAuth client's
 
 The `client_id` is your Apple Services ID. `team_id`, `key_id`, and `private_key` come from the Apple Developer Portal (Keys section — create a key with "Sign in with Apple" enabled). The `private_key` is the contents of the `.p8` file Apple provides. Add `https://puter.<your-domain>/auth/oidc/callback/login` and `https://puter.<your-domain>/auth/oidc/callback/signup` as return URLs in the Apple Services ID configuration.
 
+### Sign in with Microsoft
+
+```json
+"oidc": {
+    "providers": {
+        "microsoft": {
+            "client_id": "YOUR_APPLICATION_CLIENT_ID",
+            "client_secret": "YOUR_CLIENT_SECRET_VALUE",
+            "tenant_id": "YOUR_TENANT_ID"
+        }
+    }
+}
+```
+
+Register an app in the Azure Portal (Microsoft Entra ID → App registrations). The `client_id` is the Application (client) ID, `client_secret` is a client secret value, and `tenant_id` is the Directory (tenant) ID. Use `common` as `tenant_id` to allow any Microsoft account (personal and organizational); omit it to default to `common`. Add `https://puter.<your-domain>/auth/oidc/callback/login` and `https://puter.<your-domain>/auth/oidc/callback/signup` as redirect URIs under Authentication in the app registration.
+
 ### AI providers
 
 Any provider with a key set is auto-enabled. Same shape as `ollama` above:

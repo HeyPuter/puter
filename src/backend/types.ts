@@ -173,6 +173,8 @@ export interface IOIDCProviderConfig {
     key_id?: string;
     /** PKCS#8 PEM private key content from Apple (apple provider only). */
     private_key?: string;
+    /** Azure AD tenant ID (microsoft provider only). Defaults to "common". */
+    tenant_id?: string;
     [key: string]: unknown;
 }
 
