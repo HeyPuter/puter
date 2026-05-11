@@ -38,6 +38,7 @@ const WORKER_SUBDOMAIN_PREFIX = 'workers.puter.';
 // If the file hasn't been built, workers run without puter.js access.
 
 let preamble = '';
+let preambleError = false;
 let preambleLineCount = 0;
 try {
     const preamblePath = path.join(
@@ -51,6 +52,7 @@ try {
     console.warn(
         '[workers] preamble not built — workers will not have puter.js injected.',
     );
+    preambleError = true;
 }
 
 /**
@@ -77,6 +79,11 @@ export class WorkerDriver extends PuterDriver {
             this.#cfBaseUrl = `${CF_BASE_URL}/${cfg.ACCOUNTID}/workers`;
             if (cfg.namespace) {
                 this.#cfBaseUrl += `/dispatch/namespaces/${cfg.namespace}`;
+            }
+            if (preambleError) {
+                throw new Error(
+                    '[workers] preamble not build but workers configured to be enabled. Halting start',
+                );
             }
         }
         this.#subscribeHotReload();
