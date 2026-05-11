@@ -216,7 +216,7 @@ export const requireEmailConfirmedGate = (): RequestHandler => {
         if (user?.requires_email_confirmation && !user?.email_confirmed) {
             next(
                 new HttpError(403, 'Please confirm your email to continue', {
-                    legacyCode: 'email_confirmation_required',
+                    legacyCode: 'temporary_accounts_not_allowed',
                 }),
             );
             return;
