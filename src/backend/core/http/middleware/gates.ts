@@ -190,7 +190,7 @@ export const requireVerifiedGate = (strictFlag: boolean): RequestHandler => {
         if (!user?.email_confirmed) {
             next(
                 new HttpError(403, 'Account email is not verified', {
-                    legacyCode: 'temporary_accounts_not_allowed',
+                    legacyCode: 'account_is_not_verified',
                 }),
             );
             return;
@@ -216,7 +216,7 @@ export const requireEmailConfirmedGate = (): RequestHandler => {
         if (user?.requires_email_confirmation && !user?.email_confirmed) {
             next(
                 new HttpError(403, 'Please confirm your email to continue', {
-                    legacyCode: 'temporary_accounts_not_allowed',
+                    legacyCode: 'email_confirmation_required',
                 }),
             );
             return;

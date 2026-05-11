@@ -51,7 +51,8 @@ export type LegacyErrorCodes =
     | 'temporary_accounts_not_allowed'
     | 'password_required'
     | 'password_mismatch'
-    | 'field_not_allowed_for_create';
+    | 'field_not_allowed_for_create'
+    | 'account_is_not_verified';
 
 /**
  * Copyright (C) 2024-present Puter Technologies Inc.

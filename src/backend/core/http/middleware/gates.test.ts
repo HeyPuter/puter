@@ -40,7 +40,11 @@ import {
 type NextArg = undefined | 'route' | HttpError | unknown;
 
 const runGate = (
-    gate: (req: Request, res: Response, next: (arg?: unknown) => void) => unknown,
+    gate: (
+        req: Request,
+        res: Response,
+        next: (arg?: unknown) => void,
+    ) => unknown,
     req: Partial<Request>,
 ): NextArg => {
     let captured: NextArg = undefined;
@@ -65,7 +69,7 @@ const expectHttpError = (got: NextArg, status: number, legacyCode?: string) => {
 // ── subdomainGate ───────────────────────────────────────────────────
 
 describe('subdomainGate', () => {
-    it("passes through (next()) when the active subdomain matches", () => {
+    it('passes through (next()) when the active subdomain matches', () => {
         const got = runGate(subdomainGate('api'), {
             // express stores subdomains right-to-left → active is the last entry
             subdomains: ['com', 'puter', 'api'] as unknown as string[],
@@ -158,7 +162,10 @@ describe('requireUserActorGate', () => {
         const got = runGate(requireUserActorGate(), {
             actor: {
                 user: { uuid: 'u-1' },
-                accessToken: { uid: 'tok-1', issuer: { user: { uuid: 'u-1' } } },
+                accessToken: {
+                    uid: 'tok-1',
+                    issuer: { user: { uuid: 'u-1' } },
+                },
             },
         });
         expectHttpError(got, 403, 'forbidden');
@@ -243,12 +250,12 @@ describe('requireVerifiedGate', () => {
         const got = runGate(requireVerifiedGate(true), {
             actor: { user: { uuid: 'u-1', email_confirmed: false } },
         });
-        expectHttpError(got, 400, 'account_is_not_verified');
+        expectHttpError(got, 403, 'account_is_not_verified');
     });
 
     it('treats missing actor as unverified under strict mode', () => {
         const got = runGate(requireVerifiedGate(true), {});
-        expectHttpError(got, 400, 'account_is_not_verified');
+        expectHttpError(got, 403, 'account_is_not_verified');
     });
 });
 
