@@ -77,6 +77,7 @@ export interface Txt2ImgOptions {
     disable_safety_checker?: boolean;
     response_format?: string;
     test_mode?: boolean;
+    puter_output_path?: string;
 }
 
 export interface Txt2VidOptions {
@@ -106,6 +107,7 @@ export interface Txt2VidOptions {
     reference_images?: string[];
     frame_images?: Array<{ input_image: string; frame: number }>;
     metadata?: Record<string, unknown>;
+    puter_output_path?: string;
 }
 
 export interface Txt2SpeechOptions {

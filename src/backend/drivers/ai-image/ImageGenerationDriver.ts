@@ -18,8 +18,11 @@
  */
 
 import crypto from 'node:crypto';
+import { posix as pathPosix } from 'node:path';
+import { Readable } from 'node:stream';
 import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
+import type { Actor } from '../../core/actor.js';
 import { PuterDriver } from '../types.js';
 import { CloudflareImageProvider } from './providers/cloudflare/CloudflareImageProvider.js';
 import { GeminiImageProvider } from './providers/gemini/GeminiImageProvider.js';
@@ -109,11 +112,14 @@ export class ImageGenerationDriver extends PuterDriver {
     }
 
     async generate(args: IGenerateParams): Promise<string> {
-        const actor = Context.get('actor');
+        const actor = Context.get('actor') as Actor | undefined;
         if (!actor)
             throw new HttpError(401, 'Authentication required', {
                 legacyCode: 'unauthorized',
             });
+
+        const puterOutputPath = args.puter_output_path;
+        delete args.puter_output_path;
 
         let modelId = args.model?.trim().toLowerCase();
         let intendedProvider =
@@ -167,11 +173,17 @@ export class ImageGenerationDriver extends PuterDriver {
             {},
         );
 
-        return provider.generate({
+        const result = await provider.generate({
             ...args,
             model: model.id,
             provider: model.provider,
         });
+
+        if (puterOutputPath) {
+            await this.#saveToFS(actor, result, puterOutputPath);
+        }
+
+        return result;
     }
 
     #normalizeRatio(parameters: IGenerateParams) {
@@ -332,6 +344,115 @@ export class ImageGenerationDriver extends PuterDriver {
                     }
                 }
             }
+        }
+    }
+
+    async #saveToFS(
+        actor: Actor,
+        result: string,
+        outputPath: string,
+    ): Promise<void> {
+        const userId = actor.user?.id;
+        const username = actor.user?.username;
+        if (!userId || !username) {
+            throw new HttpError(400, 'User ID required for puter_output_path', {
+                legacyCode: 'bad_request',
+            });
+        }
+
+        const resolvedPath = this.#resolveOutputPath(outputPath, username);
+        await this.#assertWriteAccess(actor, resolvedPath);
+
+        let buffer: Buffer;
+        let contentType: string;
+
+        if (result.startsWith('data:')) {
+            const commaIdx = result.indexOf(',');
+            const header = result.substring(0, commaIdx);
+            contentType =
+                header.match(/data:(.*?);/)?.[1] ?? 'application/octet-stream';
+            buffer = Buffer.from(result.substring(commaIdx + 1), 'base64');
+        } else {
+            const response = await fetch(result);
+            if (!response.ok) {
+                throw new HttpError(
+                    502,
+                    `Failed to fetch generated image for FS write: ${response.status}`,
+                    { legacyCode: 'internal_error' },
+                );
+            }
+            contentType =
+                response.headers.get('content-type') ??
+                'application/octet-stream';
+            buffer = Buffer.from(await response.arrayBuffer());
+        }
+
+        await this.services.fs.write(userId, {
+            fileMetadata: {
+                path: resolvedPath,
+                size: buffer.length,
+                contentType,
+                overwrite: true,
+                createMissingParents: true,
+            },
+            fileContent: Readable.from(buffer),
+        });
+    }
+
+    #resolveOutputPath(outputPath: string, username: string): string {
+        let resolved = outputPath.trim();
+        if (resolved === '~' || resolved.startsWith('~/')) {
+            resolved = `/${username}${resolved.slice(1)}`;
+        }
+        resolved = pathPosix.normalize(resolved);
+        if (!resolved.startsWith('/')) {
+            resolved = `/${resolved}`;
+        }
+        if (resolved.length > 1 && resolved.endsWith('/')) {
+            resolved = resolved.slice(0, -1);
+        }
+        return resolved;
+    }
+
+    async #assertWriteAccess(
+        actor: Actor,
+        resolvedPath: string,
+    ): Promise<void> {
+        if (resolvedPath === '/') {
+            throw new HttpError(400, 'Cannot write to root path', {
+                legacyCode: 'cannot_write_to_root',
+            });
+        }
+        const parentPath = pathPosix.dirname(resolvedPath);
+        if (parentPath === '/') {
+            throw new HttpError(400, 'Cannot write to root path', {
+                legacyCode: 'cannot_write_to_root',
+            });
+        }
+
+        const pathToCheck = parentPath;
+        const fsService = this.services.fs;
+        let ancestorsCache: Promise<
+            Array<{ uid: string; path: string }>
+        > | null = null;
+        const canWrite = await this.services.acl.check(
+            actor,
+            {
+                path: pathToCheck,
+                resolveAncestors() {
+                    if (!ancestorsCache) {
+                        ancestorsCache =
+                            fsService.getAncestorChain(pathToCheck);
+                    }
+                    return ancestorsCache;
+                },
+            },
+            'write',
+        );
+        if (!canWrite) {
+            throw new HttpError(403, 'Write access denied for destination', {
+                legacyCode: 'access_denied',
+            });
         }
     }
 

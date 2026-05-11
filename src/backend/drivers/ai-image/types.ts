@@ -63,6 +63,7 @@ export interface IGenerateParams {
     input_image?: string;
     input_image_mime_type?: string;
     input_images?: string[];
+    puter_output_path?: string;
     [key: string]: unknown;
 }
 

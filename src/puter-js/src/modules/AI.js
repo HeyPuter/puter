@@ -1,4 +1,5 @@
 import * as utils from '../lib/utils.js';
+import getAbsolutePathForApp from './FileSystem/utils/getAbsolutePathForApp.js';
 
 const normalizeTTSProvider = (value) => {
     if ( typeof value !== 'string' ) {
@@ -910,6 +911,11 @@ class AI {
         } else {
             AIService = 'ai-image';
         }
+
+        if ( options.puter_output_path ) {
+            options.puter_output_path = getAbsolutePathForApp(options.puter_output_path);
+        }
+
         // Call the original chat.complete method
         return await utils.make_driver_method(['prompt'], 'puter-image-generation', AIService, 'generate', {
             responseType: 'blob',
@@ -981,6 +987,10 @@ class AI {
 
         if ( driverHint ) {
             videoService = driverHint;
+        }
+
+        if ( options.puter_output_path ) {
+            options.puter_output_path = getAbsolutePathForApp(options.puter_output_path);
         }
 
         return await utils.make_driver_method(['prompt'], 'puter-video-generation', videoService, 'generate', {

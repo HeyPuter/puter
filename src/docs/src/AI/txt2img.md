@@ -34,6 +34,7 @@ Additional settings for the generation request. Available options depend on the 
 | `provider` | `String` | The AI provider to use. `'openai-image-generation' (default) \| 'gemini' \| 'together' \| 'xai' \| 'replicate-image-generation'` |
 | `model` | `String` | Image model to use (provider-specific). Defaults to `'gpt-image-1-mini'` (OpenAI) or `'grok-2-image'` when `provider: 'xai'` |
 | `test_mode` | `Boolean` | When `true`, returns a sample image without using credits |
+| `puter_output_path` | `String` | When set, the generated image is automatically saved to this path on the Puter filesystem. Relative paths are resolved against the app's data directory (or `~/` outside an app). The caller must have write permission to the destination |
 
 #### OpenAI Options
 
@@ -128,6 +129,18 @@ These keys are only forwarded for models that whitelist them (see per-model `all
 For more details, see the [Replicate API reference](https://replicate.com/docs) and each model's schema page on Replicate.
 
 Any properties not set fall back to provider defaults.
+
+#### Saving to Puter filesystem
+
+Pass `puter_output_path` to persist the generated image directly on the Puter filesystem. Relative paths are resolved against `~/AppData/<appID>/` when called from an app, or `~/` otherwise:
+
+```js
+puter.ai.txt2img("A sunset over the mountains", {
+    puter_output_path: "images/sunset.png"  // saved to ~/AppData/<appID>/images/sunset.png
+});
+```
+
+Absolute paths (`/username/Pictures/sunset.png`) and home-relative paths (`~/Pictures/sunset.png`) are sent as-is. Write permission to the destination is enforced server-side.
 
 ## Return value
 
