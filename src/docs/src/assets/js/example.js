@@ -25,10 +25,18 @@ $(document).ready(function () {
         $(this).find('.icon').html(icons[$(this).data('icon-active')]);
     });
 
+    // For collapsible code blocks, always use the full code; otherwise the first code block.
+    function getFullCodeBlock ($codeWrapper) {
+        if ( $codeWrapper.hasClass('code-collapsible') ) {
+            return $codeWrapper.find('.code-full code').first();
+        }
+        return $codeWrapper.find('code').first();
+    }
+
     // "Copy code" buttons
     $(document).on('click', '.copy-code-button', function (e) {
         const $codeWrapper = $(this).closest('.code-wrapper');
-        const $codeBlock = $codeWrapper.find('code').first();
+        const $codeBlock = getFullCodeBlock($codeWrapper);
 
         navigator.clipboard.writeText($codeBlock.text());
         // show check mark for 1 second after copying
@@ -41,7 +49,7 @@ $(document).ready(function () {
     // "Download code" buttons
     $(document).on('click', '.download-code-button', function (e) {
         const $codeWrapper = $(this).closest('.code-wrapper');
-        const $codeBlock = $codeWrapper.find('code').first();
+        const $codeBlock = getFullCodeBlock($codeWrapper);
         const $filename = 'puter-example.html';
         const $code = $codeBlock.text();
 
@@ -54,6 +62,13 @@ $(document).ready(function () {
         document.body.appendChild(a);
         a.click();
         window.URL.revokeObjectURL(url);
+    });
+
+    // "Collapse code" hint inside expanded collapsible blocks
+    $(document).on('click', '.code-collapse-hint', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        $(this).closest('.code-details').removeAttr('open');
     });
 });
 
