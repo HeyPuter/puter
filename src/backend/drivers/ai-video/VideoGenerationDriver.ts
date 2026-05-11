@@ -121,6 +121,25 @@ export class VideoGenerationDriver extends PuterDriver {
         const puterOutputPath = args.puter_output_path;
         delete args.puter_output_path;
 
+        // Validate the output path early — before spending credits.
+        let resolvedOutputPath: string | undefined;
+        if (puterOutputPath) {
+            const username = actor.user?.username;
+            const userId = actor.user?.id;
+            if (!userId || !username) {
+                throw new HttpError(
+                    400,
+                    'User ID required for puter_output_path',
+                    { legacyCode: 'bad_request' },
+                );
+            }
+            resolvedOutputPath = this.#resolveOutputPath(
+                puterOutputPath,
+                username,
+            );
+            await this.#assertWriteAccess(actor, resolvedOutputPath);
+        }
+
         if (args.model) {
             args.model = args.model.trim().toLowerCase();
         }
@@ -209,8 +228,8 @@ export class VideoGenerationDriver extends PuterDriver {
             provider: model.provider,
         });
 
-        if (puterOutputPath) {
-            return await this.#saveToFS(actor, result, puterOutputPath);
+        if (resolvedOutputPath) {
+            return await this.#saveToFS(actor, result, resolvedOutputPath);
         }
 
         return result;
@@ -360,18 +379,9 @@ export class VideoGenerationDriver extends PuterDriver {
     async #saveToFS(
         actor: Actor,
         result: unknown,
-        outputPath: string,
+        resolvedPath: string,
     ): Promise<unknown> {
-        const userId = actor.user?.id;
-        const username = actor.user?.username;
-        if (!userId || !username) {
-            throw new HttpError(400, 'User ID required for puter_output_path', {
-                legacyCode: 'bad_request',
-            });
-        }
-
-        const resolvedPath = this.#resolveOutputPath(outputPath, username);
-        await this.#assertWriteAccess(actor, resolvedPath);
+        const userId = actor.user!.id!;
 
         let buffer: Buffer;
         let contentType: string;
