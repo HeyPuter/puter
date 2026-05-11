@@ -20,9 +20,14 @@
 import { posix as pathPosix } from 'node:path';
 import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
+import {
+    DEFAULT_FREE_SUBSCRIPTION,
+    DEFAULT_TEMP_SUBSCRIPTION,
+} from '../../services/metering/consts.js';
 import { PuterDriver } from '../types.js';
 import type { Actor } from '../../core/actor.js';
 import type { AclMode } from '../../services/acl/ACLService.js';
+import type { DriverRateLimitConfig } from '../meta.js';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
 import type { UserRow } from '../../stores/user/UserStore.js';
 import { expandTildePath } from '../../services/fs/resolveNode.js';
@@ -69,6 +74,20 @@ export class SubdomainDriver extends PuterDriver {
     // hardcoded `service:es\Csubdomain:…` permission keys.
     readonly driverName = 'es:subdomain';
     readonly isDefault = true;
+
+    // Mirrors the pre-v2 `temp.es` / `user.es` policies that used to ride
+    // on permission grants. See AppDriver / NotificationDriver for the
+    // same shape — the three crud-q drivers share one envelope.
+    readonly rateLimit: DriverRateLimitConfig = {
+        default: {
+            limit: 3_000,
+            window: 30_000,
+            bySubscription: {
+                [DEFAULT_FREE_SUBSCRIPTION]: 3_000,
+                [DEFAULT_TEMP_SUBSCRIPTION]: 1_000,
+            },
+        },
+    };
 
     // ── Driver methods ──────────────────────────────────────────────
 

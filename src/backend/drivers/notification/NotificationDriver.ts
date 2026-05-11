@@ -19,8 +19,13 @@
 
 import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
+import {
+    DEFAULT_FREE_SUBSCRIPTION,
+    DEFAULT_TEMP_SUBSCRIPTION,
+} from '../../services/metering/consts.js';
 import { PuterDriver } from '../types.js';
 import type { Actor } from '../../core/actor.js';
+import type { DriverRateLimitConfig } from '../meta.js';
 
 const MAX_SELECT_LIMIT = 200;
 
@@ -50,6 +55,19 @@ export class NotificationDriver extends PuterDriver {
     // hardcoded `service:es\Cnotification:…` permission keys.
     readonly driverName = 'es:notification';
     readonly isDefault = true;
+
+    // Same crud-q envelope as AppDriver / SubdomainDriver — these three
+    // shared the pre-v2 `temp.es` / `user.es` policy on permission grants.
+    readonly rateLimit: DriverRateLimitConfig = {
+        default: {
+            limit: 3_000,
+            window: 30_000,
+            bySubscription: {
+                [DEFAULT_FREE_SUBSCRIPTION]: 3_000,
+                [DEFAULT_TEMP_SUBSCRIPTION]: 1_000,
+            },
+        },
+    };
 
     // ── Driver methods ──────────────────────────────────────────────
 

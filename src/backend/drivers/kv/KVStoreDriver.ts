@@ -19,8 +19,13 @@
 
 import { HttpError } from '../../core/http/HttpError.js';
 import { Context } from '../../core/context.js';
+import {
+    DEFAULT_FREE_SUBSCRIPTION,
+    DEFAULT_TEMP_SUBSCRIPTION,
+} from '../../services/metering/consts.js';
 import { PuterDriver } from '../types.js';
 import type { Actor } from '../../core/actor.js';
+import type { DriverRateLimitConfig } from '../meta.js';
 import type { KVUsage } from '../../stores/systemKv/SystemKVStore.js';
 import { KV_COSTS } from './costs.js';
 
@@ -36,6 +41,24 @@ export class KVStoreDriver extends PuterDriver {
     readonly driverInterface = 'puter-kvstore';
     readonly driverName = 'puter-kvstore';
     readonly isDefault = true;
+
+    // Pre-v2 these limits lived on the kv permission policy in
+    // `hardcoded-permissions.js` and were keyed by user-group membership
+    // (registered vs anonymous). The v2 metering service expresses the
+    // same distinction as subscription tier (`user_free` vs `temp_free`),
+    // so the policy moves to the driver and keys off `getActorSubscription`.
+    // The base `limit` matches the registered tier so anonymous traffic
+    // (no subscription resolution) is not given the tighter cap.
+    readonly rateLimit: DriverRateLimitConfig = {
+        default: {
+            limit: 20,
+            window: 1_000,
+            bySubscription: {
+                [DEFAULT_FREE_SUBSCRIPTION]: 20,
+                [DEFAULT_TEMP_SUBSCRIPTION]: 10,
+            },
+        },
+    };
 
     override getReportedCosts(): Record<string, unknown>[] {
         return Object.entries(KV_COSTS).map(([usageType, ucentsPerUnit]) => ({
