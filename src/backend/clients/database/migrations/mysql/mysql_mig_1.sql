@@ -60,7 +60,7 @@ CREATE TABLE IF NOT EXISTS `access_token_permissions` (
   `extra` json DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=43870 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 CALL _puter_add_col('access_token_permissions', 'id', '`id` int unsigned NOT NULL AUTO_INCREMENT');
@@ -100,7 +100,7 @@ CREATE TABLE IF NOT EXISTS `ai_usage` (
   KEY `idx_ai_usage_user_timestamp` (`user_id`,`created_at`),
   CONSTRAINT `ai_usage_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `user` (`id`) ON DELETE CASCADE ON UPDATE CASCADE,
   CONSTRAINT `ai_usage_ibfk_2` FOREIGN KEY (`app_id`) REFERENCES `apps` (`id`) ON DELETE SET NULL ON UPDATE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=935038 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 CALL _puter_add_col('ai_usage', 'id', '`id` int NOT NULL AUTO_INCREMENT');
@@ -131,7 +131,7 @@ CREATE TABLE IF NOT EXISTS `app_filetype_association` (
   KEY `app_id` (`app_id`),
   KEY `type` (`type`),
   CONSTRAINT `app_filetype_association_ibfk_1` FOREIGN KEY (`app_id`) REFERENCES `apps` (`id`) ON DELETE CASCADE ON UPDATE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=28897 DEFAULT CHARSET=utf8mb3;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 CALL _puter_add_col('app_filetype_association', 'id', '`id` int unsigned NOT NULL AUTO_INCREMENT');
@@ -157,7 +157,7 @@ CREATE TABLE IF NOT EXISTS `app_opens` (
   KEY `idx_app_opens_app_user` (`app_uid`,`user_id`),
   CONSTRAINT `app_opens_ibfk_2` FOREIGN KEY (`user_id`) REFERENCES `user` (`id`) ON DELETE CASCADE ON UPDATE CASCADE,
   CONSTRAINT `app_opens_ibfk_3` FOREIGN KEY (`app_uid`) REFERENCES `apps` (`uid`) ON DELETE CASCADE ON UPDATE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=14510891 DEFAULT CHARSET=utf8mb3;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 CALL _puter_add_col('app_opens', '_id', '`_id` bigint unsigned NOT NULL AUTO_INCREMENT');
@@ -231,7 +231,7 @@ CREATE TABLE IF NOT EXISTS `apps` (
   KEY `idx_apps_listing_timestamp` (`approved_for_listing`,`timestamp` DESC),
   CONSTRAINT `apps_ibfk_1` FOREIGN KEY (`owner_user_id`) REFERENCES `user` (`id`) ON DELETE CASCADE ON UPDATE CASCADE,
   CONSTRAINT `fk_apps_app_owner` FOREIGN KEY (`app_owner`) REFERENCES `apps` (`id`) ON DELETE SET NULL ON UPDATE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=169455 DEFAULT CHARSET=utf8mb3;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 CALL _puter_add_col('apps', 'id', '`id` int unsigned NOT NULL AUTO_INCREMENT');
@@ -278,7 +278,7 @@ CREATE TABLE IF NOT EXISTS `audit_dev_to_app_permissions` (
   KEY `fk_audit_dev_to_app_permissions_app_id` (`app_id`),
   CONSTRAINT `fk_audit_dev_to_app_permissions_app_id` FOREIGN KEY (`app_id`) REFERENCES `apps` (`id`) ON DELETE SET NULL ON UPDATE CASCADE,
   CONSTRAINT `fk_audit_dev_to_app_permissions_user_id` FOREIGN KEY (`user_id`) REFERENCES `user` (`id`) ON DELETE SET NULL ON UPDATE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=34 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 CALL _puter_add_col('audit_dev_to_app_permissions', 'id', '`id` int unsigned NOT NULL AUTO_INCREMENT');
@@ -314,7 +314,7 @@ CREATE TABLE IF NOT EXISTS `audit_user_to_app_permissions` (
   KEY `fk_audit_user_to_app_permissions_app_id` (`app_id`),
   CONSTRAINT `fk_audit_user_to_app_permissions_app_id` FOREIGN KEY (`app_id`) REFERENCES `apps` (`id`) ON DELETE SET NULL ON UPDATE CASCADE,
   CONSTRAINT `fk_audit_user_to_app_permissions_user_id` FOREIGN KEY (`user_id`) REFERENCES `user` (`id`) ON DELETE SET NULL ON UPDATE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=7352860 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 CALL _puter_add_col('audit_user_to_app_permissions', 'id', '`id` int unsigned NOT NULL AUTO_INCREMENT');
@@ -350,7 +350,7 @@ CREATE TABLE IF NOT EXISTS `audit_user_to_group_permissions` (
   KEY `group_id` (`group_id`),
   CONSTRAINT `audit_user_to_group_permissions_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `user` (`id`) ON DELETE SET NULL ON UPDATE CASCADE,
   CONSTRAINT `audit_user_to_group_permissions_ibfk_2` FOREIGN KEY (`group_id`) REFERENCES `group` (`id`) ON DELETE SET NULL ON UPDATE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=17 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 CALL _puter_add_col('audit_user_to_group_permissions', 'id', '`id` int unsigned NOT NULL AUTO_INCREMENT');
@@ -384,7 +384,7 @@ CREATE TABLE IF NOT EXISTS `audit_user_to_user_permissions` (
   PRIMARY KEY (`id`),
   KEY `fk_audit_user_to_user_permissions_issuer_user_id` (`issuer_user_id`),
   KEY `fk_audit_user_to_user_permissions_holder_user_id` (`holder_user_id`)
-) ENGINE=InnoDB AUTO_INCREMENT=981 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 CALL _puter_add_col('audit_user_to_user_permissions', 'id', '`id` int unsigned NOT NULL AUTO_INCREMENT');
@@ -437,7 +437,7 @@ CREATE TABLE IF NOT EXISTS `feedback` (
   PRIMARY KEY (`id`),
   KEY `user_id` (`user_id`),
   CONSTRAINT `feedback_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `user` (`id`) ON DELETE CASCADE ON UPDATE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=815 DEFAULT CHARSET=utf8mb3;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 CALL _puter_add_col('feedback', 'id', '`id` int unsigned NOT NULL AUTO_INCREMENT');
@@ -503,7 +503,7 @@ CREATE TABLE IF NOT EXISTS `fsentries` (
   CONSTRAINT `fsentries_ibfk_2` FOREIGN KEY (`parent_id`) REFERENCES `fsentries` (`id`) ON DELETE CASCADE ON UPDATE CASCADE,
   CONSTRAINT `fsentries_ibfk_3` FOREIGN KEY (`shortcut_to`) REFERENCES `fsentries` (`id`) ON DELETE SET NULL ON UPDATE CASCADE,
   CONSTRAINT `fsentries_ibfk_4` FOREIGN KEY (`associated_app_id`) REFERENCES `apps` (`id`) ON DELETE SET NULL ON UPDATE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=37893498 DEFAULT CHARSET=latin1;
+) ENGINE=InnoDB DEFAULT CHARSET=latin1;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 CALL _puter_add_col('fsentries', 'id', '`id` int unsigned NOT NULL AUTO_INCREMENT');
@@ -555,7 +555,7 @@ CREATE TABLE IF NOT EXISTS `fsentry_versions` (
   KEY `user_id` (`user_id`),
   CONSTRAINT `fsentry_versions_ibfk_1` FOREIGN KEY (`fsentry_id`) REFERENCES `fsentries` (`id`) ON DELETE CASCADE ON UPDATE CASCADE,
   CONSTRAINT `fsentry_versions_ibfk_2` FOREIGN KEY (`user_id`) REFERENCES `user` (`id`) ON DELETE CASCADE ON UPDATE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=24662498 DEFAULT CHARSET=utf8mb3;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 CALL _puter_add_col('fsentry_versions', 'id', '`id` bigint NOT NULL AUTO_INCREMENT');
@@ -623,7 +623,7 @@ CREATE TABLE IF NOT EXISTS `group` (
   UNIQUE KEY `uid` (`uid`),
   KEY `owner_user_id` (`owner_user_id`),
   CONSTRAINT `group_ibfk_1` FOREIGN KEY (`owner_user_id`) REFERENCES `user` (`id`) ON DELETE SET NULL ON UPDATE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=27 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 CALL _puter_add_col('group', 'id', '`id` int unsigned NOT NULL AUTO_INCREMENT');
@@ -651,7 +651,7 @@ CREATE TABLE IF NOT EXISTS `jct_user_group` (
   KEY `group_id` (`group_id`),
   CONSTRAINT `jct_user_group_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `user` (`id`) ON DELETE CASCADE ON UPDATE CASCADE,
   CONSTRAINT `jct_user_group_ibfk_2` FOREIGN KEY (`group_id`) REFERENCES `group` (`id`) ON DELETE CASCADE ON UPDATE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=3513197 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 CALL _puter_add_col('jct_user_group', 'id', '`id` int unsigned NOT NULL AUTO_INCREMENT');
@@ -681,7 +681,7 @@ CREATE TABLE IF NOT EXISTS `kv` (
   KEY `user_id` (`user_id`),
   KEY `kkey_hash` (`kkey_hash`),
   CONSTRAINT `kv_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `user` (`id`) ON DELETE CASCADE ON UPDATE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=101649 DEFAULT CHARSET=utf8mb3;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 CALL _puter_add_col('kv', 'id', '`id` int unsigned NOT NULL AUTO_INCREMENT');
@@ -744,7 +744,7 @@ CREATE TABLE IF NOT EXISTS `notification` (
   UNIQUE KEY `uid` (`uid`),
   KEY `user_id` (`user_id`),
   CONSTRAINT `notification_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `user` (`id`) ON DELETE CASCADE ON UPDATE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=164238 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 CALL _puter_add_col('notification', 'id', '`id` int unsigned NOT NULL AUTO_INCREMENT');
@@ -770,7 +770,7 @@ CREATE TABLE IF NOT EXISTS `old_app_names` (
   KEY `app_uid` (`app_uid`),
   KEY `old_app_names_app_name` (`name`),
   CONSTRAINT `old_app_names_ibfk_1` FOREIGN KEY (`app_uid`) REFERENCES `apps` (`uid`) ON DELETE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=45405 DEFAULT CHARSET=utf8mb3;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 CALL _puter_add_col('old_app_names', 'id', '`id` int unsigned NOT NULL AUTO_INCREMENT');
@@ -792,7 +792,7 @@ CREATE TABLE IF NOT EXISTS `per_user_credit` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `user_id` (`user_id`),
   CONSTRAINT `per_user_credit_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `user` (`id`) ON DELETE CASCADE ON UPDATE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=388003 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 CALL _puter_add_col('per_user_credit', 'id', '`id` int unsigned NOT NULL AUTO_INCREMENT');
@@ -847,7 +847,7 @@ CREATE TABLE IF NOT EXISTS `sessions` (
   KEY `fk_sessions_user_id` (`user_id`),
   KEY `uuid` (`uuid`),
   CONSTRAINT `fk_sessions_user_id` FOREIGN KEY (`user_id`) REFERENCES `user` (`id`) ON DELETE CASCADE ON UPDATE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=2293466 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 CALL _puter_add_col('sessions', 'id', '`id` int unsigned NOT NULL AUTO_INCREMENT');
@@ -875,7 +875,7 @@ CREATE TABLE IF NOT EXISTS `share` (
   KEY `issuer_user_id` (`issuer_user_id`),
   KEY `recipient_email` (`recipient_email`),
   CONSTRAINT `share_ibfk_1` FOREIGN KEY (`issuer_user_id`) REFERENCES `user` (`id`) ON DELETE CASCADE ON UPDATE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=40 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 CALL _puter_add_col('share', 'id', '`id` int unsigned NOT NULL AUTO_INCREMENT');
@@ -904,7 +904,7 @@ CREATE TABLE IF NOT EXISTS `storage_audit` (
   PRIMARY KEY (`id`),
   KEY `fk_storage_audit_user_id` (`user_id`),
   CONSTRAINT `fk_storage_audit_user_id` FOREIGN KEY (`user_id`) REFERENCES `user` (`id`) ON DELETE SET NULL ON UPDATE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=22080 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 CALL _puter_add_col('storage_audit', 'id', '`id` int unsigned NOT NULL AUTO_INCREMENT');
@@ -948,7 +948,7 @@ CREATE TABLE IF NOT EXISTS `subdomains` (
   CONSTRAINT `subdomains_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `user` (`id`) ON DELETE CASCADE ON UPDATE CASCADE,
   CONSTRAINT `subdomains_ibfk_2` FOREIGN KEY (`root_dir_id`) REFERENCES `fsentries` (`id`) ON DELETE SET NULL ON UPDATE CASCADE,
   CONSTRAINT `subdomains_ibfk_3` FOREIGN KEY (`associated_app_id`) REFERENCES `apps` (`id`) ON DELETE CASCADE ON UPDATE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=171443 DEFAULT CHARSET=utf8mb3;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 CALL _puter_add_col('subdomains', 'id', '`id` int unsigned NOT NULL AUTO_INCREMENT');
@@ -983,7 +983,7 @@ CREATE TABLE IF NOT EXISTS `thread` (
   KEY `idx_thread_uid` (`uid`),
   CONSTRAINT `thread_ibfk_1` FOREIGN KEY (`parent_uid`) REFERENCES `thread` (`uid`) ON DELETE CASCADE ON UPDATE CASCADE,
   CONSTRAINT `thread_ibfk_2` FOREIGN KEY (`owner_user_id`) REFERENCES `user` (`id`) ON DELETE CASCADE ON UPDATE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=1987 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 CALL _puter_add_col('thread', 'id', '`id` int unsigned NOT NULL AUTO_INCREMENT');
@@ -1090,7 +1090,7 @@ CREATE TABLE IF NOT EXISTS `user` (
   KEY `idx_user_signup_origin` (`signup_origin`),
   KEY `idx_user_signup_server` (`signup_server`),
   CONSTRAINT `fk_user_referred_by` FOREIGN KEY (`referred_by`) REFERENCES `user` (`id`) ON DELETE SET NULL ON UPDATE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=2987224 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 CALL _puter_add_col('user', 'id', '`id` int unsigned NOT NULL AUTO_INCREMENT');
@@ -1218,7 +1218,7 @@ CREATE TABLE IF NOT EXISTS `user_oidc_providers` (
   KEY `user_id` (`user_id`),
   KEY `idx_user_oidc_providers_provider` (`provider`),
   CONSTRAINT `user_oidc_providers_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `user` (`id`) ON DELETE CASCADE ON UPDATE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=51584 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 CALL _puter_add_col('user_oidc_providers', 'id', '`id` int unsigned NOT NULL AUTO_INCREMENT');
@@ -1319,7 +1319,7 @@ CREATE TABLE IF NOT EXISTS `user_update_audit` (
   PRIMARY KEY (`id`),
   KEY `fk_user_update_audit_user_id` (`user_id`),
   CONSTRAINT `fk_user_update_audit_user_id` FOREIGN KEY (`user_id`) REFERENCES `user` (`id`) ON DELETE SET NULL ON UPDATE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=8078 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 CALL _puter_add_col('user_update_audit', 'id', '`id` int unsigned NOT NULL AUTO_INCREMENT');
