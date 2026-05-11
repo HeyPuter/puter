@@ -48,8 +48,9 @@ import {
 } from './core/http/middleware/antiCsrf';
 import { captchaGate, setCaptchaRedis } from './core/http/middleware/captcha';
 import {
-    rateLimitGate,
+    concurrencyGate,
     configureRateLimit,
+    rateLimitGate,
 } from './core/http/middleware/rateLimit';
 import {
     createWwwRedirect,
@@ -319,30 +320,40 @@ export class PuterServer {
     }
 
     /**
-     * Point the shared rate-limiter at its configured backend. Reads
-     * `config.rate_limit.backend` (defaults to `redis`) and resolves the
-     * required dependency from `this.clients` / `this.stores`. Unknown
-     * or misconfigured backends fall back to memory with a warning so a
-     * typo doesn't take the server down.
+     * Register every rate-limit backend whose dependency is available, so
+     * routes / drivers can mix and match per call. `config.rate_limit.backend`
+     * selects the *default* applied when a caller doesn't specify a
+     * backend; it's no longer an exclusive choice. A typo or missing
+     * dependency for the chosen default falls back to memory with a
+     * warning so boot doesn't break.
      */
     #configureRateLimiter() {
         // Default to `redis` — the redis client is always present (falls
         // back to ioredis-mock in dev when no nodes are configured), and
         // sorted-set rate limiting scales across nodes for free. Set
         // `rate_limit.backend` in config to switch to `memory` or `kv`.
-        const backend = this.#config.rate_limit?.backend ?? 'redis';
+        const defaultBackend = this.#config.rate_limit?.backend ?? 'redis';
+        // Metering is wired so the concurrency gate can resolve
+        // `bySubscription` overrides per actor. Optional — without it,
+        // the base `limit` applies uniformly.
+        const metering = this.services?.metering as unknown;
         try {
             configureRateLimit({
-                backend,
+                default: defaultBackend,
                 redis: this.clients.redis,
                 kv: this.stores.kv,
+                metering,
             });
         } catch (e) {
             console.warn(
-                `[rate-limit] ${backend} backend unavailable, falling back to memory:`,
+                `[rate-limit] default backend '${defaultBackend}' unavailable, falling back to memory:`,
                 (e as Error).message,
             );
-            configureRateLimit();
+            configureRateLimit({
+                redis: this.clients.redis,
+                kv: this.stores.kv,
+                metering,
+            });
         }
     }
 
@@ -643,7 +654,7 @@ export class PuterServer {
             // client forge the value when traffic isn't behind the expected
             // proxy.
             const ip = req.ip;
-            const event = { allow: true, ip };
+            const event = { allow: true, ip: ip! };
             // emitAndWait so listeners that do async work (IP-reputation
             // lookups, Redis checks) can complete before we read
             // `event.allow` and decide the gate.
@@ -832,6 +843,16 @@ export class PuterServer {
         if (opts.rateLimit) {
             mwChain.push(
                 rateLimitGate(opts.rateLimit) as unknown as RequestHandler,
+            );
+        }
+
+        // 2b'. Concurrent in-flight limiting. Same auth-ordering reason
+        // (user key + bySubscription resolution needs req.actor); installed
+        // after rateLimitGate so a rate-rejection short-circuits before
+        // we acquire a concurrency slot. Slot is released on res finish/close.
+        if (opts.concurrent) {
+            mwChain.push(
+                concurrencyGate(opts.concurrent) as unknown as RequestHandler,
             );
         }
 

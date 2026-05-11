@@ -21,12 +21,20 @@ import type { Request, Response } from 'express';
 import { Context } from '../../core/context.js';
 import { Controller } from '../../core/http/decorators.js';
 import { HttpError } from '../../core/http/HttpError.js';
-import { checkDriverRateLimit } from '../../core/http/middleware/rateLimit.js';
+import {
+    acquireDriverConcurrent,
+    checkDriverRateLimit,
+} from '../../core/http/middleware/rateLimit.js';
 import type { PuterRouter } from '../../core/http/PuterRouter.js';
 import type { PermissionService } from '../../services/permission/PermissionService.js';
 import type { WithLifecycle } from '../../types';
 import type { DriverMeta } from '../../drivers/meta.js';
-import { isDriverStreamResult, resolveDriverMeta } from '../../drivers/meta.js';
+import {
+    isDriverStreamResult,
+    resolveDriverMeta,
+    resolveDriverMethodConcurrent,
+    resolveDriverMethodRateLimit,
+} from '../../drivers/meta.js';
 import { PuterController } from '../types.js';
 
 type DriverInstance = WithLifecycle & Record<string, unknown>;
@@ -127,6 +135,11 @@ export class DriverController extends PuterController {
     #drivers = new Map<string, Map<string, DriverInstance>>();
     /** iface → default driver name */
     #defaults = new Map<string, string>();
+    /**
+     * driver instance → resolved meta. Cached so the per-call rate-limit
+     * lookup doesn't have to walk prototype chains on every request.
+     */
+    #meta = new WeakMap<DriverInstance, DriverMeta>();
 
     constructor(...args: ConstructorParameters<typeof PuterController>) {
         super(...args);
@@ -250,10 +263,58 @@ export class DriverController extends PuterController {
             }
         }
 
-        if (!(await checkDriverRateLimit(req, ifaceName, method))) {
+        // Per-method rate-limit and concurrent specs both live on the
+        // driver's resolved meta (set by `@Driver({ rateLimit, concurrent })`
+        // or imperative fields). Rate-limit is single-shot; concurrent
+        // acquires a slot that must be released when the response is done
+        // — we hook `res.finish` / `res.close` for that so streamed
+        // responses hold their slot until the stream drains, and aborted
+        // requests still give the slot back.
+        const driverMeta = this.#meta.get(driver);
+        const rateLimitSpec = resolveDriverMethodRateLimit(
+            driverMeta?.rateLimit,
+            method,
+        );
+        if (
+            !(await checkDriverRateLimit(req, ifaceName, method, rateLimitSpec))
+        ) {
             throw new HttpError(429, 'Too many requests.', {
                 legacyCode: 'too_many_requests',
             });
+        }
+
+        const concurrentSpec = resolveDriverMethodConcurrent(
+            driverMeta?.concurrent,
+            method,
+        );
+        // Only acquire (and attach release listeners) when the driver
+        // actually declared a concurrency cap. Skipping in the unbounded
+        // case keeps the hot path free of needless event-listener churn
+        // and avoids requiring `res.once` on test stubs that mock only
+        // the response surface they care about.
+        if (concurrentSpec) {
+            const handle = await acquireDriverConcurrent(
+                req,
+                ifaceName,
+                method,
+                concurrentSpec,
+            );
+            if (!handle.ok) {
+                throw new HttpError(429, 'Too many concurrent requests.', {
+                    legacyCode: 'too_many_requests',
+                });
+            }
+            let released = false;
+            const release = () => {
+                if (released) return;
+                released = true;
+                void handle.release();
+            };
+            // If the handler throws before responding, the express error
+            // handler will eventually send a response — `finish` fires then,
+            // so we still release. `close` covers client aborts.
+            res.once('finish', release);
+            res.once('close', release);
         }
 
         // Stash the requested driver name in Context so multi-provider
@@ -340,6 +401,9 @@ export class DriverController extends PuterController {
             );
         }
         ifaceMap.set(meta.driverName, instance);
+        // Cache the resolved meta so the request hot-path can read the
+        // per-method rate-limit spec without re-walking the prototype.
+        this.#meta.set(instance, meta);
         // Register each alias pointing at the same instance. Legacy puter-js
         // calls that pass a provider id in the `driver` slot (e.g. the TTS
         // module sends `aws-polly` / `openai-tts` / `elevenlabs-tts` instead

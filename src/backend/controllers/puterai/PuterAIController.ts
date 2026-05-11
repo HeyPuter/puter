@@ -1045,9 +1045,7 @@ export class PuterAIController extends PuterController {
     // ── Internals ───────────────────────────────────────────────────
 
     #driver(): ChatCompletionDriver {
-        const driver = (
-            this.drivers as unknown as { aiChat: ChatCompletionDriver }
-        ).aiChat;
+        const driver = this.drivers.aiChat;
         if (!driver)
             throw new HttpError(500, 'Chat completion driver not registered', {
                 legacyCode: 'internal_error',

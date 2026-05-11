@@ -23,6 +23,7 @@ import type { puterServices } from '../services';
 import type { IExtensionServiceInstances } from '../services/types';
 import type { puterStores } from '../stores';
 import type { IExtensionStoreInstances } from '../stores/types';
+import type { DriverConcurrentConfig, DriverRateLimitConfig } from './meta';
 import type { IConfig, LayerInstances, WithCostsReporting } from '../types';
 
 /**
@@ -89,6 +90,18 @@ export const PuterDriver = class PuterDriver implements WithCostsReporting {
     declare readonly driverName?: string;
     /** When true, this is the default driver for its interface. */
     declare readonly isDefault?: boolean;
+    /**
+     * Rate-limit policy applied to RPC calls into this driver. Set by
+     * `@Driver({ rateLimit: ... })` or declared imperatively. See
+     * `DriverRateLimitConfig` in `./meta` for the shape.
+     */
+    declare readonly rateLimit?: DriverRateLimitConfig;
+    /**
+     * Concurrent in-flight policy applied to RPC calls into this driver.
+     * Set by `@Driver({ concurrent: ... })` or declared imperatively.
+     * See `DriverConcurrentConfig` in `./meta` for the shape.
+     */
+    declare readonly concurrent?: DriverConcurrentConfig;
 
     constructor(
         protected config: IConfig,

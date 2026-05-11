@@ -190,12 +190,52 @@ export interface RouteOptions {
      * `scope` is an optional namespace prefix to isolate counters
      * between routes that share the same key strategy. Defaults to
      * the route path.
+     *
+     * `backend` selects the storage backend ('memory' / 'redis' / 'kv').
+     * All registered backends stay co-resident at runtime, so different
+     * routes can pick whichever fits their access pattern. Omitting
+     * `backend` uses the server-wide default (`config.rate_limit.backend`).
      */
     rateLimit?: {
         limit: number;
         window: number;
+        /**
+         * Per-subscription overrides for `limit` (`SubscriptionPolicy.id`
+         * → cap). Same mechanic as `concurrent.bySubscription`: resolved
+         * via the metering service per request; falls back to the base
+         * `limit` when there's no actor / no metering / no match.
+         */
+        bySubscription?: Record<string, number>;
         key?: 'fingerprint' | 'ip' | 'user' | ((req: Request) => string);
         scope?: string;
+        backend?: 'memory' | 'redis' | 'kv';
+    };
+
+    /**
+     * Concurrent in-flight limiting. Caps how many requests for this
+     * key are simultaneously in flight, rather than how many fire per
+     * window. A slot is acquired before the handler runs and released
+     * on `res.finish` / `res.close` — aborted requests still give their
+     * slot back.
+     *
+     *   { concurrent: { limit: 5, key: 'user' } }
+     *   { concurrent: { limit: 5, bySubscription: { user_free: 2 } } }
+     *
+     * `bySubscription` overrides the base `limit` per subscription tier
+     * (`SubscriptionPolicy.id`) — `user_free`, `temp_free`, `unlimited`
+     * out of the box. Requires the metering service to be wired into
+     * the rate-limit module (`configureRateLimit({ metering: ... })`)
+     * and an authenticated actor; otherwise the base `limit` applies.
+     *
+     * `key`, `scope`, `backend` parallel the `rateLimit` option exactly;
+     * there's no `window` — that's the whole point of the second gate.
+     */
+    concurrent?: {
+        limit: number;
+        bySubscription?: Record<string, number>;
+        key?: 'fingerprint' | 'ip' | 'user' | ((req: Request) => string);
+        scope?: string;
+        backend?: 'memory' | 'redis' | 'kv';
     };
 
     // Reserved — wire as the corresponding features/services land:
