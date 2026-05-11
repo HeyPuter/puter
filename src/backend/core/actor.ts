@@ -17,26 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-/**
- * Minimal actor shape used by stores and services.
- *
- * Stores/services that key data on "who's acting" need the user/app identity,
- * plus a `system` flag for internal operations that should bypass quotas
- * and metering.
- */
-
-export interface ActorUser {
-    uuid: string;
-    id?: number;
-    username?: string;
-    email?: string | null;
-    /** True when the account has been suspended by an admin. */
-    suspended?: boolean;
-    /** True when the user has confirmed the email on file. */
-    email_confirmed?: boolean;
-    /** True for accounts that must confirm email before most actions (non-temp users). */
-    requires_email_confirmation?: boolean;
-}
+import { UserRow } from '../stores/user/UserStore';
 
 export interface ActorApp {
     uid: string;
@@ -55,7 +36,7 @@ export interface ActorAccessToken {
 }
 
 export interface Actor {
-    user: ActorUser;
+    user: Partial<UserRow>;
     app?: ActorApp | null;
     /** True for the system actor; skips metering / quota tracking. */
     system?: boolean;
