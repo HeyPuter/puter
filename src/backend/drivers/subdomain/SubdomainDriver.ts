@@ -20,6 +20,7 @@
 import { posix as pathPosix } from 'node:path';
 import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
+import { assertVerifiedEmail } from '../../core/http/verifiedEmail.js';
 import {
     DEFAULT_FREE_SUBSCRIPTION,
     DEFAULT_TEMP_SUBSCRIPTION,
@@ -80,11 +81,11 @@ export class SubdomainDriver extends PuterDriver {
     // same shape — the three crud-q drivers share one envelope.
     readonly rateLimit: DriverRateLimitConfig = {
         default: {
-            limit: 3_000,
-            window: 30_000,
+            limit: 100,
+            window: 10_000,
             bySubscription: {
-                [DEFAULT_FREE_SUBSCRIPTION]: 3_000,
-                [DEFAULT_TEMP_SUBSCRIPTION]: 1_000,
+                [DEFAULT_FREE_SUBSCRIPTION]: 100,
+                [DEFAULT_TEMP_SUBSCRIPTION]: 50,
             },
         },
     };
@@ -442,13 +443,11 @@ export class SubdomainDriver extends PuterDriver {
      * level so /drivers/call can't bypass the gate the HTTP route enforces.
      */
     #requireVerified(actor: Actor): void {
-        if (!this.config.strict_email_verification_required) return;
-        const user = actor.user;
-        if (!user?.email_confirmed) {
-            throw new HttpError(400, 'Account email is not verified', {
-                legacyCode: 'account_is_not_verified',
-            });
-        }
+        assertVerifiedEmail(
+            Boolean(this.config.strict_email_verification_required),
+            actor.user,
+            400,
+        );
     }
 
     async #hasPermission(actor: Actor, permission: string): Promise<boolean> {

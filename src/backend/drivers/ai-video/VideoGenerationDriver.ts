@@ -20,6 +20,7 @@
 import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { PuterDriver } from '../types.js';
+import { AI_CONCURRENT, AI_RATE_LIMIT } from '../util/aiLimits.js';
 import { GeminiVideoProvider } from './providers/gemini/GeminiVideoProvider.js';
 import { OpenAIVideoProvider } from './providers/openai/OpenAIVideoProvider.js';
 import { TogetherVideoProvider } from './providers/together/TogetherVideoProvider.js';
@@ -53,6 +54,10 @@ export class VideoGenerationDriver extends PuterDriver {
         'gemini-video-generation',
     ];
     readonly isDefault = true;
+
+    // Shared AI policy — see `drivers/util/aiLimits.ts` for the tier table.
+    readonly rateLimit = AI_RATE_LIMIT;
+    readonly concurrent = AI_CONCURRENT;
 
     #providers: Record<string, IVideoProvider> = {};
     #modelIdMap: Record<string, IVideoModel[]> = {};

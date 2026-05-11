@@ -21,6 +21,7 @@ import OpenAI, { toFile } from 'openai';
 import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { PuterDriver } from '../types.js';
+import { AI_CONCURRENT, AI_RATE_LIMIT } from '../util/aiLimits.js';
 import { loadFileInput } from '../util/fileInput.js';
 import { SPEECH_TO_TEXT_COSTS } from './costs.js';
 
@@ -101,6 +102,12 @@ export class SpeechToTextDriver extends PuterDriver {
     readonly driverInterface = 'puter-speech2txt';
     readonly driverName = 'openai-speech2txt';
     readonly isDefault = true;
+
+    // Shared AI policy — see `drivers/util/aiLimits.ts` for the tier table.
+    // The XAI sibling driver implements the same interface so both share
+    // the per-user bucket (keyed by interface+method+user).
+    readonly rateLimit = AI_RATE_LIMIT;
+    readonly concurrent = AI_CONCURRENT;
 
     override getReportedCosts(): Record<string, unknown>[] {
         return Object.entries(SPEECH_TO_TEXT_COSTS).map(

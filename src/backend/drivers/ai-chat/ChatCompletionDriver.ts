@@ -27,6 +27,7 @@ import {
 } from '../../services/metering/consts.js';
 import type { DriverStreamResult } from '../meta.js';
 import { PuterDriver } from '../types.js';
+import { AI_CONCURRENT, AI_RATE_LIMIT } from '../util/aiLimits.js';
 import { ClaudeProvider } from './providers/claude/ClaudeProvider.js';
 import { DeepSeekProvider } from './providers/deepseek/DeepSeekProvider.js';
 import { FakeChatProvider } from './providers/FakeChatProvider.js';
@@ -72,6 +73,10 @@ export class ChatCompletionDriver extends PuterDriver {
     readonly driverInterface = 'puter-chat-completion';
     readonly driverName = 'ai-chat';
     readonly isDefault = true;
+
+    // Shared AI policy — see `drivers/util/aiLimits.ts` for the tier table.
+    readonly rateLimit = AI_RATE_LIMIT;
+    readonly concurrent = AI_CONCURRENT;
 
     #providers: Record<string, IChatProvider> = {};
     #modelIdMap: Record<string, IChatModel[]> = {};

@@ -102,11 +102,11 @@ export class AppDriver extends PuterDriver {
     // anonymous users to `temp_free` and registered users to `user_free`.
     rateLimit = {
         default: {
-            limit: 3_000,
-            window: 30_000,
+            limit: 100,
+            window: 10_000,
             bySubscription: {
-                [DEFAULT_FREE_SUBSCRIPTION]: 3_000,
-                [DEFAULT_TEMP_SUBSCRIPTION]: 1_000,
+                [DEFAULT_FREE_SUBSCRIPTION]: 100,
+                [DEFAULT_TEMP_SUBSCRIPTION]: 50,
             },
         },
     };

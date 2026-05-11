@@ -20,6 +20,7 @@
 import { readFileSync } from 'node:fs';
 import { Context } from '../../core/context.js';
 import { HttpError, type LegacyErrorCodes } from '../../core/http/HttpError.js';
+import { assertVerifiedEmail } from '../../core/http/verifiedEmail.js';
 import { PuterDriver } from '../types.js';
 import { loadFileInput } from '../util/fileInput.js';
 import type { Actor } from '../../core/actor.js';
@@ -98,6 +99,7 @@ export class WorkerDriver extends PuterDriver {
         authorization?: string;
     }): Promise<unknown> {
         const actor = this.#requireActor();
+        this.#requireVerified(actor);
         const workerName = String(args.workerName ?? '').toLowerCase();
         const filePath = String(args.filePath ?? '');
         const appId = args.appId || actor.app?.uid;
@@ -228,6 +230,7 @@ export class WorkerDriver extends PuterDriver {
 
     async destroy(args: Record<string, unknown>): Promise<unknown> {
         const actor = this.#requireActor();
+        this.#requireVerified(actor);
         const workerName = String(args.workerName ?? '').toLowerCase();
         if (!workerName)
             throw new HttpError(400, 'Missing `workerName`', {
@@ -460,6 +463,20 @@ export class WorkerDriver extends PuterDriver {
 
     #workerConfig(): NonNullable<typeof this.config.workers> {
         return this.config.workers ?? {};
+    }
+
+    /**
+     * Mirror of the HTTP-layer `requireVerifiedGate` on /delete-site — only
+     * active when `strict_email_verification_required` is truthy, so self-
+     * hosted installs without SMTP aren't bricked. Applied at the driver
+     * level so /drivers/call can't bypass the gate the HTTP route enforces.
+     */
+    #requireVerified(actor: Actor): void {
+        assertVerifiedEmail(
+            Boolean(this.config.strict_email_verification_required),
+            actor.user,
+            400,
+        );
     }
 
     // ── Hot-reload: auto-redeploy on file write ─────────────────────

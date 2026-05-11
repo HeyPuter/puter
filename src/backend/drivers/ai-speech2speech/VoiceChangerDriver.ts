@@ -22,6 +22,7 @@ import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import type { DriverStreamResult } from '../meta.js';
 import { PuterDriver } from '../types.js';
+import { AI_CONCURRENT, AI_RATE_LIMIT } from '../util/aiLimits.js';
 import { loadFileInput } from '../util/fileInput.js';
 import { VOICE_CHANGER_COSTS } from './costs.js';
 
@@ -58,6 +59,10 @@ export class VoiceChangerDriver extends PuterDriver {
     readonly driverInterface = 'puter-speech2speech';
     readonly driverName = 'elevenlabs-voice-changer';
     readonly isDefault = true;
+
+    // Shared AI policy — see `drivers/util/aiLimits.ts` for the tier table.
+    readonly rateLimit = AI_RATE_LIMIT;
+    readonly concurrent = AI_CONCURRENT;
 
     override getReportedCosts(): Record<string, unknown>[] {
         return Object.entries(VOICE_CHANGER_COSTS).map(
@@ -159,7 +164,7 @@ export class VoiceChangerDriver extends PuterDriver {
         }
 
         const formData = new FormData();
-        const blob = new Blob([loaded.buffer], {
+        const blob = new Blob([loaded.buffer as BlobPart], {
             type: loaded.mimeType ?? 'application/octet-stream',
         });
         formData.append('audio', blob, loaded.filename);

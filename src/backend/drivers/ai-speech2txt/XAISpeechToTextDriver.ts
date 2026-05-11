@@ -20,6 +20,7 @@
 import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { PuterDriver } from '../types.js';
+import { AI_CONCURRENT, AI_RATE_LIMIT } from '../util/aiLimits.js';
 import { loadFileInput } from '../util/fileInput.js';
 
 /**
@@ -66,6 +67,11 @@ interface TranscribeArgs {
 export class XAISpeechToTextDriver extends PuterDriver {
     readonly driverInterface = 'puter-speech2txt';
     readonly driverName = 'xai-speech2txt';
+
+    // Shared AI policy — see `drivers/util/aiLimits.ts` for the tier table.
+    // Shares the `puter-speech2txt` per-user bucket with SpeechToTextDriver.
+    readonly rateLimit = AI_RATE_LIMIT;
+    readonly concurrent = AI_CONCURRENT;
 
     #apiKey: string | null = null;
 

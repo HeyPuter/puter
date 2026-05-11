@@ -51,11 +51,11 @@ export class KVStoreDriver extends PuterDriver {
     // (no subscription resolution) is not given the tighter cap.
     readonly rateLimit: DriverRateLimitConfig = {
         default: {
-            limit: 20,
-            window: 1_000,
+            limit: 200,
+            window: 10_000,
             bySubscription: {
-                [DEFAULT_FREE_SUBSCRIPTION]: 20,
-                [DEFAULT_TEMP_SUBSCRIPTION]: 10,
+                [DEFAULT_FREE_SUBSCRIPTION]: 200,
+                [DEFAULT_TEMP_SUBSCRIPTION]: 100,
             },
         },
     };

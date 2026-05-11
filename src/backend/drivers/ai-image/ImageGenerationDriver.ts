@@ -21,6 +21,7 @@ import crypto from 'node:crypto';
 import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { PuterDriver } from '../types.js';
+import { AI_CONCURRENT, AI_RATE_LIMIT } from '../util/aiLimits.js';
 import { CloudflareImageProvider } from './providers/cloudflare/CloudflareImageProvider.js';
 import { GeminiImageProvider } from './providers/gemini/GeminiImageProvider.js';
 import { OpenAiImageProvider } from './providers/openai/OpenAiImageProvider.js';
@@ -56,6 +57,10 @@ export class ImageGenerationDriver extends PuterDriver {
         'replicate-image-generation',
     ];
     readonly isDefault = true;
+
+    // Shared AI policy — see `drivers/util/aiLimits.ts` for the tier table.
+    readonly rateLimit = AI_RATE_LIMIT;
+    readonly concurrent = AI_CONCURRENT;
 
     #providers: Record<string, IImageProvider> = {};
     #modelIdMap: Record<string, IImageModel[]> = {};
@@ -162,7 +167,7 @@ export class ImageGenerationDriver extends PuterDriver {
                 parameters: args,
                 intended_service: model.id,
                 model_used: model.id,
-                service_used: model.provider,
+                service_used: model.provider!,
             },
             {},
         );

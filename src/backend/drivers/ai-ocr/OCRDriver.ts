@@ -28,6 +28,7 @@ import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { mimeFromName } from '../../util/fileSigning.js';
 import { PuterDriver } from '../types.js';
+import { AI_CONCURRENT, AI_RATE_LIMIT } from '../util/aiLimits.js';
 import { loadFileInput, type LoadedFile } from '../util/fileInput.js';
 import { OCR_COSTS } from './costs.js';
 
@@ -79,6 +80,10 @@ interface MistralOcrClient {
 export class OCRDriver extends PuterDriver {
     readonly driverInterface = 'puter-ocr';
     readonly driverName = 'ai-ocr';
+
+    // Shared AI policy — see `drivers/util/aiLimits.ts` for the tier table.
+    readonly rateLimit = AI_RATE_LIMIT;
+    readonly concurrent = AI_CONCURRENT;
 
     override getReportedCosts() {
         return Object.entries(OCR_COSTS).map(([usageType, ucentsPerUnit]) => ({

@@ -21,6 +21,7 @@ import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import type { DriverStreamResult } from '../meta.js';
 import { PuterDriver } from '../types.js';
+import { AI_CONCURRENT, AI_RATE_LIMIT } from '../util/aiLimits.js';
 import { AWSPollyTTSProvider } from './providers/awsPolly/AWSPollyTTSProvider.js';
 import { ElevenLabsTTSProvider } from './providers/elevenlabs/ElevenLabsTTSProvider.js';
 import { GeminiTTSProvider } from './providers/gemini/GeminiTTSProvider.js';
@@ -66,6 +67,10 @@ export class TTSDriver extends PuterDriver {
     readonly driverName = 'ai-tts';
     readonly driverAliases = [...TTS_ALIASES];
     readonly isDefault = true;
+
+    // Shared AI policy — see `drivers/util/aiLimits.ts` for the tier table.
+    readonly rateLimit = AI_RATE_LIMIT;
+    readonly concurrent = AI_CONCURRENT;
 
     #providers: Record<string, ITTSProvider> = {};
 
