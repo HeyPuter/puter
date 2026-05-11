@@ -64,6 +64,41 @@ const CACHE_TTL_SECONDS = 15 * 60;
 // backends without splitting the cap by driver.
 const BULK_QUERY_CHUNK_SIZE = 200;
 
+// The `email`, `clean_email`, and `username` columns are latin1_swedish_ci.
+// MySQL throws ER_CANT_AGGREGATE_2COLLATIONS on `=` when a utf8mb4 param
+// contains any character > U+00FF, since the implicit conversion to latin1
+// would lose data. No stored row can match such a value anyway, so we
+// short-circuit these lookups at the boundary instead of letting the driver
+// surface the collation error.
+const isStorableAsLatin1 = (value: string): boolean => {
+    for (let i = 0; i < value.length; i++) {
+        if (value.charCodeAt(i) > 0xff) return false;
+    }
+    return true;
+};
+
+// Columns on the `user` table that are stored as latin1_swedish_ci. Used by
+// both the read path (skip the DB on un-storable lookups) and the write path
+// (reject inserts/updates before MySQL throws on conversion).
+const LATIN1_USER_COLUMNS: ReadonlySet<string> = new Set([
+    'email',
+    'username',
+    'clean_email',
+]);
+
+const assertLatin1Writable = (fields: Record<string, unknown>): void => {
+    for (const [key, value] of Object.entries(fields)) {
+        if (!LATIN1_USER_COLUMNS.has(key)) continue;
+        if (typeof value !== 'string') continue;
+        if (isStorableAsLatin1(value)) continue;
+        const err = new Error(
+            `User field '${key}' contains characters outside latin1`,
+        );
+        (err as { code?: string }).code = 'userFieldNotLatin1';
+        throw err;
+    }
+};
+
 // ── UserStore ────────────────────────────────────────────────────────
 
 /**
@@ -190,6 +225,7 @@ export class UserStore extends PuterStore {
      */
     async getByCleanEmail(cleanEmailValue: string): Promise<UserRow | null> {
         if (!cleanEmailValue) return null;
+        if (!isStorableAsLatin1(cleanEmailValue)) return null;
         const rows = (await this.clients.db.tryHardRead(
             'SELECT `id` FROM `user` WHERE `clean_email` = ? LIMIT 1',
             [cleanEmailValue],
@@ -217,6 +253,16 @@ export class UserStore extends PuterStore {
         if (cached && !force) {
             const hit = await this.#readCache(prop, value);
             if (hit) return hit;
+        }
+
+        // Reject lookup values that can't exist in a latin1 column before
+        // the driver turns them into a collation-mix error at MySQL.
+        if (
+            LATIN1_USER_COLUMNS.has(prop) &&
+            typeof value === 'string' &&
+            !isStorableAsLatin1(value)
+        ) {
+            return null;
         }
 
         // Replication-aware read: on `force`, go straight to the primary
@@ -270,6 +316,7 @@ export class UserStore extends PuterStore {
         referrer?: string | null;
         last_activity_ts?: string | null;
     }): Promise<UserRow> {
+        assertLatin1Writable(fields as Record<string, unknown>);
         const result = await this.clients.db.write(
             `INSERT INTO \`user\`
             (username,
@@ -335,6 +382,8 @@ export class UserStore extends PuterStore {
     ): Promise<void> {
         const keys = Object.keys(patch);
         if (keys.length === 0) return;
+
+        assertLatin1Writable(patch);
 
         const setClause = keys.map((k) => `\`${k}\` = ?`).join(', ');
         const values = keys.map((k) => patch[k]);
