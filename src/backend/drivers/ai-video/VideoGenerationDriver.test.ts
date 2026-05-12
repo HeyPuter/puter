@@ -453,7 +453,7 @@ describe('VideoGenerationDriver metering propagation', () => {
 
 describe('VideoGenerationDriver.generate puter_output_path', () => {
     const TEST_ACTOR: import('../../core/actor.js').Actor = {
-        user: { uuid: 'test-user-uuid', id: 42, username: 'testuser' },
+        user: { uuid: 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d', id: 42, username: 'testuser' },
     };
 
     const withTestUser = <T>(fn: () => T | Promise<T>): Promise<T> =>
@@ -614,7 +614,7 @@ describe('VideoGenerationDriver.generate puter_output_path', () => {
 
     it('throws 400 when actor has no user ID but puter_output_path is set', async () => {
         const noIdActor: import('../../core/actor.js').Actor = {
-            user: { uuid: 'no-id-uuid', username: 'noone' },
+            user: { uuid: 'f0e1d2c3-b4a5-4968-8777-0a1b2c3d4e5f', username: 'noone' },
         };
         await expect(
             Promise.resolve(
