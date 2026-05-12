@@ -1,7 +1,7 @@
-import type { Request, Response } from 'express';
 import { Context } from '@heyputer/backend/src/core';
 import { extension } from '@heyputer/backend/src/extensions';
 import { getTaskbarItems } from '@heyputer/backend/src/util/taskbarItems.js';
+import type { Request, Response } from 'express';
 import TimeAgo from 'javascript-time-ago';
 import localeEn from 'javascript-time-ago/locale/en';
 
@@ -94,6 +94,7 @@ export const handleWhoami = async (
         human_readable_age: user.timestamp
             ? timeago.format(new Date(user.timestamp as string))
             : null,
+        metadata: user.metadata,
     };
 
     // OIDC revalidate URL for password-less accounts
@@ -169,6 +170,15 @@ export const handleWhoami = async (
         );
     } catch {
         /* best-effort */
+    }
+
+    const subscription = details.subscription as
+        | { offering?: Record<string, unknown> }
+        | undefined;
+    if (subscription?.offering) {
+        delete subscription.offering.group;
+        delete subscription.offering.benefits;
+        delete subscription.offering.price_id;
     }
 
     res.json(details);
