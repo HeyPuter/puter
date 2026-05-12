@@ -451,17 +451,7 @@ export class AuthController extends PuterController {
         //   - skip temp-user creation via `event.no_temp_user = true`
         // Listeners run sequentially so multi-signal checks (rate limit +
         // IP reputation + domain reputation) can short-circuit cleanly.
-        const validateEvent: {
-            req: Request;
-            data: Record<string, unknown>;
-            ip: string | null;
-            email: string | undefined;
-            allow: boolean;
-            no_temp_user: boolean;
-            requires_email_confirmation: boolean;
-            message: string | null;
-            code: string | null;
-        } = {
+        const validateEvent = {
             req,
             data: body,
             ip: ((req.headers?.['x-forwarded-for'] as string | undefined) ||
@@ -476,6 +466,7 @@ export class AuthController extends PuterController {
             requires_email_confirmation: false,
             message: null,
             code: null,
+            user_agent: req?.headers?.['user-agent'] ?? null,
         };
         try {
             await this.clients.event?.emitAndWait(
