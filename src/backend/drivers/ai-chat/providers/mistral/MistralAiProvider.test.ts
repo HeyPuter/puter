@@ -149,9 +149,9 @@ describe('MistralAIProvider construction', () => {
 // ── Model catalog ───────────────────────────────────────────────────
 
 describe('MistralAIProvider model catalog', () => {
-    it('returns mistral-small-2506 as the default', () => {
+    it('returns the configured small model as the default', () => {
         const { provider } = makeProvider();
-        expect(provider.getDefaultModel()).toBe('mistral-small-2506');
+        expect(provider.getDefaultModel()).toBe('mistral-small-2603');
     });
 
     it('exposes the static MISTRAL_MODELS list verbatim from models()', async () => {
@@ -171,7 +171,7 @@ describe('MistralAIProvider model catalog', () => {
         }
         // Sanity: a known alias is present alongside its canonical id.
         expect(ids).toContain('mistral-small-latest');
-        expect(ids).toContain('mistral-small-2506');
+        expect(ids).toContain('mistral-small-2603');
     });
 });
 
@@ -194,7 +194,7 @@ describe('MistralAIProvider.complete request shape', () => {
 
         await withTestActor(() =>
             provider.complete({
-                model: 'mistral-small-2506',
+                model: 'mistral-small-2603',
                 messages: [{ role: 'user', content: 'hello' }],
                 max_tokens: 256,
                 temperature: 0.4,
@@ -202,7 +202,7 @@ describe('MistralAIProvider.complete request shape', () => {
         );
 
         const [args] = completeMock.mock.calls[0]!;
-        expect(args.model).toBe('mistral-small-2506');
+        expect(args.model).toBe('mistral-small-2603');
         expect(args.messages).toEqual([{ role: 'user', content: 'hello' }]);
         // Mistral's SDK uses maxTokens (camelCase). The provider should
         // adapt our snake_case input.
@@ -216,7 +216,7 @@ describe('MistralAIProvider.complete request shape', () => {
 
         await withTestActor(() =>
             provider.complete({
-                model: 'mistral-small-2506',
+                model: 'mistral-small-2603',
                 messages: [{ role: 'user', content: 'hi' }],
             }),
         );
@@ -240,7 +240,7 @@ describe('MistralAIProvider.complete request shape', () => {
         ];
         await withTestActor(() =>
             provider.complete({
-                model: 'mistral-small-2506',
+                model: 'mistral-small-2603',
                 messages: [{ role: 'user', content: 'hi' }],
                 tools,
             }),
@@ -257,7 +257,7 @@ describe('MistralAIProvider.complete request shape', () => {
 
         await withTestActor(() =>
             provider.complete({
-                model: 'mistral-small-2506',
+                model: 'mistral-small-2603',
                 messages: [
                     {
                         role: 'assistant',
@@ -308,7 +308,7 @@ describe('MistralAIProvider.complete request shape', () => {
         completeMock.mockResolvedValueOnce(baseCompletion);
         await withTestActor(() =>
             provider.complete({
-                model: 'mistral-small-2506',
+                model: 'mistral-small-2603',
                 messages: [{ role: 'user', content: 'hi' }],
                 stream: false,
             }),
@@ -320,7 +320,7 @@ describe('MistralAIProvider.complete request shape', () => {
         streamMock.mockReturnValueOnce(asAsyncIterable([]));
         await withTestActor(() =>
             provider.complete({
-                model: 'mistral-small-2506',
+                model: 'mistral-small-2603',
                 messages: [{ role: 'user', content: 'hi' }],
                 stream: true,
             }),
@@ -370,17 +370,17 @@ describe('MistralAIProvider model resolution', () => {
 
         await withTestActor(() =>
             provider.complete({
-                // `mistral-small-latest` is an alias of `mistral-small-2506`.
+                // `mistral-small-latest` is an alias of `mistral-small-2603`.
                 model: 'mistral-small-latest',
                 messages: [{ role: 'user', content: 'hi' }],
             }),
         );
 
-        expect(completeMock.mock.calls[0]![0].model).toBe('mistral-small-2506');
+        expect(completeMock.mock.calls[0]![0].model).toBe('mistral-small-2603');
         expect(recordSpy).toHaveBeenCalledWith(
             expect.any(Object),
             expect.anything(),
-            'mistral:mistral-small-2506',
+            'mistral:mistral-small-2603',
             expect.any(Object),
         );
     });
@@ -396,11 +396,11 @@ describe('MistralAIProvider model resolution', () => {
             }),
         );
 
-        expect(completeMock.mock.calls[0]![0].model).toBe('mistral-small-2506');
+        expect(completeMock.mock.calls[0]![0].model).toBe('mistral-small-2603');
         expect(recordSpy).toHaveBeenCalledWith(
             expect.any(Object),
             expect.anything(),
-            'mistral:mistral-small-2506',
+            'mistral:mistral-small-2603',
             expect.any(Object),
         );
     });
@@ -424,7 +424,7 @@ describe('MistralAIProvider.complete non-stream output', () => {
 
         const result = await withTestActor(() =>
             provider.complete({
-                model: 'mistral-small-2506',
+                model: 'mistral-small-2603',
                 messages: [{ role: 'user', content: 'hi' }],
             }),
         );
@@ -450,12 +450,12 @@ describe('MistralAIProvider.complete non-stream output', () => {
             cached_tokens: 0,
         });
         expect(actor).toBe(SYSTEM_ACTOR);
-        expect(prefix).toBe('mistral:mistral-small-2506');
-        // mistral-small-2506 costs: prompt=10, completion=30. cached_tokens
+        expect(prefix).toBe('mistral:mistral-small-2603');
+        // mistral-small-2603 costs: prompt=15, completion=60. cached_tokens
         // is undefined in the model row → multiplied by 0 → NaN-safe 0.
         expect(overrides).toMatchObject({
-            prompt_tokens: 100 * 10,
-            completion_tokens: 50 * 30,
+            prompt_tokens: 100 * 15,
+            completion_tokens: 50 * 60,
         });
     });
 
@@ -486,7 +486,7 @@ describe('MistralAIProvider.complete non-stream output', () => {
 
         const result = (await withTestActor(() =>
             provider.complete({
-                model: 'mistral-small-2506',
+                model: 'mistral-small-2603',
                 messages: [{ role: 'user', content: 'do a tool call' }],
                 tools: [
                     {
@@ -535,7 +535,7 @@ describe('MistralAIProvider.complete streaming', () => {
 
         const result = await withTestActor(() =>
             provider.complete({
-                model: 'mistral-small-2506',
+                model: 'mistral-small-2603',
                 messages: [{ role: 'user', content: 'say hi' }],
                 stream: true,
             }),
@@ -560,14 +560,14 @@ describe('MistralAIProvider.complete streaming', () => {
             cached_tokens: 0,
         });
 
-        // mistral-small-2506: prompt=10, completion=30.
+        // mistral-small-2603: prompt=15, completion=60.
         expect(recordSpy).toHaveBeenCalledTimes(1);
         const [, , prefix, overrides] =
             recordSpy.mock.calls[0]!;
-        expect(prefix).toBe('mistral:mistral-small-2506');
+        expect(prefix).toBe('mistral:mistral-small-2603');
         expect(overrides).toMatchObject({
-            prompt_tokens: 4 * 10,
-            completion_tokens: 2 * 30,
+            prompt_tokens: 4 * 15,
+            completion_tokens: 2 * 60,
         });
     });
 
@@ -626,7 +626,7 @@ describe('MistralAIProvider.complete streaming', () => {
 
         const result = await withTestActor(() =>
             provider.complete({
-                model: 'mistral-small-2506',
+                model: 'mistral-small-2603',
                 messages: [{ role: 'user', content: 'do tool call' }],
                 tools: [
                     {
@@ -666,7 +666,7 @@ describe('MistralAIProvider.complete error mapping', () => {
         await expect(
             withTestActor(() =>
                 provider.complete({
-                    model: 'mistral-small-2506',
+                    model: 'mistral-small-2603',
                     messages: [{ role: 'user', content: 'boom' }],
                 }),
             ),

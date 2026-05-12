@@ -20,7 +20,7 @@
 /**
  * Integration test for the Mistral provider.
  *
- * Uses `mistral-small-2506` (provider default, cheapest tier). Skipped
+ * Uses `mistral-small-2603` (provider default, cheapest tier). Skipped
  * when `PUTER_TEST_AI_MISTRAL_API_KEY` is unset.
  */
 
@@ -47,7 +47,7 @@ describe.skipIf(skipUnlessEnv(ENV_VAR))(
 
             const result = await withTestActor(() =>
                 provider.complete({
-                    model: 'mistral-small-2506',
+                    model: 'mistral-small-2603',
                     messages: [
                         { role: 'user', content: 'Say hi in one word.' },
                     ],
