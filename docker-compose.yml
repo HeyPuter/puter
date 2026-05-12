@@ -58,7 +58,10 @@ services:
         fi
         wait $$SERVER_PID
     volumes:
-      - ./puter/data/valkey:/data
+      # `:z` is an SELinux relabel hint for Fedora/RHEL hosts (no-op
+      # everywhere else) — without it those distros deny container
+      # access to the bind mount and the service loops on EACCES.
+      - ./puter/data/valkey:/data:z
     healthcheck:
       test:
         ["CMD-SHELL", "valkey-cli -p 6379 cluster info | grep -q cluster_state:ok"]
@@ -77,7 +80,7 @@ services:
       MARIADB_USER: ${MARIADB_USER:-puter}
       MARIADB_PASSWORD: ${MARIADB_PASSWORD:-puter-change-me}
     volumes:
-      - ./puter/data/mariadb:/var/lib/mysql
+      - ./puter/data/mariadb:/var/lib/mysql:z
     healthcheck:
       # `healthcheck.sh` ships with the mariadb image; --connect verifies
       # the server is accepting auth, not just listening on the socket.
@@ -102,7 +105,7 @@ services:
       - "-dbPath"
       - "/home/dynamodblocal/data"
     volumes:
-      - ./puter/data/dynamo:/home/dynamodblocal/data
+      - ./puter/data/dynamo:/home/dynamodblocal/data:z
 
   s3:
     # RustFS — S3-compatible object storage. Drop-in alternative:
@@ -114,7 +117,7 @@ services:
       RUSTFS_ACCESS_KEY: ${S3_ACCESS_KEY:-puter}
       RUSTFS_SECRET_KEY: ${S3_SECRET_KEY:-puter-secret-change-me}
     volumes:
-      - ./puter/data/s3:/data
+      - ./puter/data/s3:/data:z
     # Internal-only — browsers reach RustFS via nginx (`s3.<domain>`),
     # which preserves the Host header for S3 signature validation and
     # rides the same TLS termination as Puter. Uncomment to also expose
@@ -180,7 +183,7 @@ services:
     container_name: puter-ollama
     restart: unless-stopped
     volumes:
-      - ./puter/data/ollama:/root/.ollama
+      - ./puter/data/ollama:/root/.ollama:z
     # Uncomment to expose Ollama directly on the host (`localhost:11434`)
     # for `ollama` CLI / OpenAI-API compatible tools. Internal-only by default.
     # ports:
@@ -257,9 +260,9 @@ services:
       PGID: 1000
     volumes:
       # Drop your config.json here — see selfhosted/full-stack.md.
-      - ./puter/config:/etc/puter
+      - ./puter/config:/etc/puter:z
       # Persistent runtime data (anything your config points at /var/puter).
-      - ./puter/data/puter:/var/puter
+      - ./puter/data/puter:/var/puter:z
     healthcheck:
       test: wget --no-verbose --tries=1 --spider http://puter.localhost:4100/test || exit 1
       interval: 30s
@@ -279,9 +282,9 @@ services:
       # Uncomment when you enable TLS in nginx/nginx.conf:
       # - "${HTTPS_PORT:-443}:443"
     volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro,z
       # TLS certs (fullchain.pem + privkey.pem). Read-only inside.
-      - ./puter/tls:/etc/nginx/tls:ro
+      - ./puter/tls:/etc/nginx/tls:ro,z
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- --tries=1 --timeout=2 http://localhost/ || exit 1"]
       interval: 10s

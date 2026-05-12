@@ -50,6 +50,18 @@ docker compose version >/dev/null 2>&1 \
 mkdir -p "$PUTER_DIR"
 cd "$PUTER_DIR"
 mkdir -p puter/config puter/data puter/tls
+# Pre-create per-service data dirs and make them writable by any UID.
+# Several upstream images run as non-root inside the container (rustfs
+# uses UID 10001; dynamo is pinned to 1000 in compose), and rustfs's
+# entrypoint runs as that same non-root user so it can't chown an
+# already-existing bind-mounted dir. On hosts where the user that ran
+# this script has a UID that doesn't match — or where docker is running
+# rootless — those containers loop on EACCES at startup. 0777 on the
+# bind-mount roots sidesteps the mismatch without guessing each image's
+# internal UID. (Docker Desktop on macOS/Windows papers over this with
+# its VM layer; native Linux docker on Debian/Alpine doesn't.)
+mkdir -p puter/data/valkey puter/data/mariadb puter/data/dynamo puter/data/s3 puter/data/puter
+chmod 0777 puter/data/valkey puter/data/mariadb puter/data/dynamo puter/data/s3 puter/data/puter
 log "install dir: $(pwd)"
 
 # ── Step 3: docker-compose.yml + nginx config ──────────────────────
