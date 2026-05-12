@@ -95,6 +95,7 @@ export const handleWhoami = async (
             ? timeago.format(new Date(user.timestamp as string))
             : null,
         metadata: user.metadata,
+        hasDevAccountAccess: !!user.metadata?.hasDevAccountAccess,
     };
 
     // OIDC revalidate URL for password-less accounts
