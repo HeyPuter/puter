@@ -79,7 +79,7 @@ export class XAITTSProvider extends TTSProvider {
                 id: 'xai-tts',
                 name: 'xAI TTS',
                 provider: 'xai',
-                pricing_per_million_chars: 420,
+                pricing_per_million_chars: 1500,
             },
         ];
     }

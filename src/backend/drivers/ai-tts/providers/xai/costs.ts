@@ -17,18 +17,10 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-// xAI TTS pricing: $4.20 per 1M characters
-// = 420 cents per 1M characters
-// = 0.00042 cents per character
-// = 0.42 microcents per character
-// We store microcents per character (cents * 1_000_000 / 1_000_000 chars).
-// $4.20 / 1M chars = 420 cents / 1M chars = 0.00042 cents/char = 0.42 ucents/char
-// But metering uses integer microcents, so we round up to 1 microcent per char
-// to avoid undercharging. More precisely: 420 * 1_000_000 / 1_000_000 = 420 ucents per char? No.
-// Let's be precise:
-// $4.20 per 1M chars = 420 cents per 1M chars
-// In microcents: 420 * 1_000_000 = 420_000_000 microcents per 1M chars
-// Per character: 420_000_000 / 1_000_000 = 420 microcents per character
+// xAI TTS pricing (per xAI docs, Voice pricing table): $15.00 per 1M characters
+// $15.00 per 1M chars = 1500 cents per 1M chars
+// In microcents: 1500 * 1_000_000 = 1_500_000_000 microcents per 1M chars
+// Per character: 1_500_000_000 / 1_000_000 = 1500 microcents per character
 export const XAI_TTS_COSTS: Record<string, number> = {
-    'xai-tts': 420,
+    'xai-tts': 1500,
 };

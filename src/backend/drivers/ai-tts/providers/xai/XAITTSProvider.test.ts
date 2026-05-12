@@ -113,7 +113,7 @@ describe('XAITTSProvider catalog', () => {
         expect(engines[0]).toMatchObject({
             id: 'xai-tts',
             provider: 'xai',
-            pricing_per_million_chars: 420,
+            pricing_per_million_chars: 1500,
         });
     });
 });
