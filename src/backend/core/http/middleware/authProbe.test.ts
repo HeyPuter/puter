@@ -319,6 +319,69 @@ describe('createAuthProbe — cookie reading', () => {
         );
         expect(stub.seenTokens).toEqual([]);
     });
+
+    it('ignores session cookies on cross-origin browser requests', async () => {
+        const stub = makeStubAuth();
+        const probe = createAuthProbe({
+            authService: stub.service,
+            cookieName: 'puter_token',
+        });
+        const { req } = await runProbe(
+            probe,
+            makeReq({
+                headers: {
+                    host: 'api.puter.test',
+                    origin: 'https://attacker.example',
+                },
+                cookieHeader: 'puter_token=session-abc',
+            }),
+        );
+
+        expect(stub.seenTokens).toEqual([]);
+        expect(req.actor).toBeUndefined();
+        expect(req.tokenAuthFailed).toBeUndefined();
+    });
+
+    it('still accepts bearer tokens on cross-origin browser requests', async () => {
+        const stub = makeStubAuth();
+        const probe = createAuthProbe({
+            authService: stub.service,
+            cookieName: 'puter_token',
+        });
+        await runProbe(
+            probe,
+            makeReq({
+                headers: {
+                    authorization: 'Bearer header-tok',
+                    host: 'api.puter.test',
+                    origin: 'https://app.example',
+                },
+                cookieHeader: 'puter_token=session-abc',
+            }),
+        );
+
+        expect(stub.seenTokens).toEqual(['header-tok']);
+    });
+
+    it('keeps session cookies for same-origin browser requests', async () => {
+        const stub = makeStubAuth();
+        const probe = createAuthProbe({
+            authService: stub.service,
+            cookieName: 'puter_token',
+        });
+        await runProbe(
+            probe,
+            makeReq({
+                headers: {
+                    host: 'api.puter.test',
+                    origin: 'https://api.puter.test',
+                },
+                cookieHeader: 'puter_token=session-abc',
+            }),
+        );
+
+        expect(stub.seenTokens).toEqual(['session-abc']);
+    });
 });
 
 // ── Behavior when AuthService responds ──────────────────────────────
