@@ -1,6 +1,6 @@
 // NOT ALL OF THEM, ADD OLD ONES AS NEEDED, IF NEEDED. DO NOT ADD NEW ONES THOUGH.
 export type LegacyErrorCodes =
-    | 'payment_account_not_setup'
+    | 'payment_account_not_set_up'
     | 'unknown_error'
     | 'disallowed_value'
     | 'invalid_token'
