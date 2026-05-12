@@ -6,6 +6,8 @@
     <script src="./fs.test.js"></script>
     <script src="./ai.test.js"></script>
     <script src="./txt2speech.test.js"></script>
+    <script src="./txt2img.test.js"></script>
+    <script src="./txt2vid.test.js"></script>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -701,6 +703,36 @@
             </div>`);
         }
 
+        $('#tests').append('<h2><label><input type="checkbox" id="txt2imgTests-group"> Text-to-Image</label></h2>');
+        for (let i = 0; i < txt2imgTests.length; i++) {
+            const testInfo = getTestInfo(txt2imgTests[i]);
+            $('#tests').append(`<div class="test-container" id="txt2imgTests-container-${i}">
+                <div class="test-checkbox-container">
+                    <input type="checkbox" class="test-checkbox txt2imgTests-checkbox" id="txt2imgTests${i}">
+                    <label for="txt2imgTests${i}">
+                        <div class="test-name">${testInfo.name}</div>
+                        <div class="test-description">${testInfo.description}</div>
+                    </label><br>
+                    <button class="test-run-button" onclick="runSingleTest('txt2img', ${i})">Run Test</button>
+                </div>
+            </div>`);
+        }
+
+        $('#tests').append('<h2><label><input type="checkbox" id="txt2vidTests-group"> Text-to-Video</label></h2>');
+        for (let i = 0; i < txt2vidTests.length; i++) {
+            const testInfo = getTestInfo(txt2vidTests[i]);
+            $('#tests').append(`<div class="test-container" id="txt2vidTests-container-${i}">
+                <div class="test-checkbox-container">
+                    <input type="checkbox" class="test-checkbox txt2vidTests-checkbox" id="txt2vidTests${i}">
+                    <label for="txt2vidTests${i}">
+                        <div class="test-name">${testInfo.name}</div>
+                        <div class="test-description">${testInfo.description}</div>
+                    </label><br>
+                    <button class="test-run-button" onclick="runSingleTest('txt2vid', ${i})">Run Test</button>
+                </div>
+            </div>`);
+        }
+
         // Add event listeners for group checkboxes
         $('#fsTests-group').change(function() {
             const isChecked = $(this).prop('checked');
@@ -720,6 +752,16 @@
         $('#txt2speechTests-group').change(function() {
             const isChecked = $(this).prop('checked');
             $('.txt2speechTests-checkbox').prop('checked', isChecked);
+        });
+
+        $('#txt2imgTests-group').change(function() {
+            const isChecked = $(this).prop('checked');
+            $('.txt2imgTests-checkbox').prop('checked', isChecked);
+        });
+
+        $('#txt2vidTests-group').change(function() {
+            const isChecked = $(this).prop('checked');
+            $('.txt2vidTests-checkbox').prop('checked', isChecked);
         });
 
         // Add event listeners for individual checkboxes to update group checkbox state
@@ -765,13 +807,39 @@
         $(document).on('change', '.txt2speechTests-checkbox', function() {
             const totalTxt2speechTests = $('.txt2speechTests-checkbox').length;
             const checkedTxt2speechTests = $('.txt2speechTests-checkbox:checked').length;
-            
+
             if (checkedTxt2speechTests === 0) {
                 $('#txt2speechTests-group').prop('checked', false).prop('indeterminate', false);
             } else if (checkedTxt2speechTests === totalTxt2speechTests) {
                 $('#txt2speechTests-group').prop('checked', true).prop('indeterminate', false);
             } else {
                 $('#txt2speechTests-group').prop('checked', false).prop('indeterminate', true);
+            }
+        });
+
+        $(document).on('change', '.txt2imgTests-checkbox', function() {
+            const totalTxt2imgTests = $('.txt2imgTests-checkbox').length;
+            const checkedTxt2imgTests = $('.txt2imgTests-checkbox:checked').length;
+
+            if (checkedTxt2imgTests === 0) {
+                $('#txt2imgTests-group').prop('checked', false).prop('indeterminate', false);
+            } else if (checkedTxt2imgTests === totalTxt2imgTests) {
+                $('#txt2imgTests-group').prop('checked', true).prop('indeterminate', false);
+            } else {
+                $('#txt2imgTests-group').prop('checked', false).prop('indeterminate', true);
+            }
+        });
+
+        $(document).on('change', '.txt2vidTests-checkbox', function() {
+            const totalTxt2vidTests = $('.txt2vidTests-checkbox').length;
+            const checkedTxt2vidTests = $('.txt2vidTests-checkbox:checked').length;
+
+            if (checkedTxt2vidTests === 0) {
+                $('#txt2vidTests-group').prop('checked', false).prop('indeterminate', false);
+            } else if (checkedTxt2vidTests === totalTxt2vidTests) {
+                $('#txt2vidTests-group').prop('checked', true).prop('indeterminate', false);
+            } else {
+                $('#txt2vidTests-group').prop('checked', false).prop('indeterminate', true);
             }
         });
 
@@ -786,7 +854,9 @@
                 'fs': fsTests,
                 'kv': kvTests,
                 'ai': aiTests,
-                'txt2speech': txt2speechTests
+                'txt2speech': txt2speechTests,
+                'txt2img': txt2imgTests,
+                'txt2vid': txt2vidTests
             };
             
             const tests = testSuites[testType];
@@ -956,15 +1026,71 @@
                         $(`#txt2speechTests-container-${i}`).append(`<pre style="color:red; white-space: pre-wrap; font-size: 12px; margin: 5px 0; padding: 10px; background-color: #f8f8f8; border-radius: 3px;">${errorMessage}</pre>`);
                         testProgress.failed++;
                     }
-                    
+
                     testProgress.completed++;
                     updateProgressPanel();
-                    
+
                     // Small delay to make progress visible
                     await delay(100);
                 }
             }
-            
+
+            for (let i = 0; i < txt2imgTests.length; i++) {
+                if (document.getElementById(`txt2imgTests${i}`).checked) {
+                    const testInfo = getTestInfo(txt2imgTests[i]);
+                    testProgress.currentTest = `Text-to-Image: ${testInfo.name}`;
+                    updateProgressPanel();
+
+                    try{
+                        await executeTest(txt2imgTests[i]);
+                        $(`#txt2imgTests-container-${i}`).css('background-color', '#85e085');
+                        testProgress.passed++;
+                    } catch (e) {
+                        console.error('Txt2Img Test failed:', testInfo.name, e);
+                        $(`#txt2imgTests-container-${i}`).css('background-color', '#ff8484');
+                        let errorMessage = e.message || e.toString();
+                        if (e.originalError) {
+                            errorMessage += '\n\nOriginal Error:\n' + JSON.stringify(e.originalError, null, 2);
+                        }
+                        $(`#txt2imgTests-container-${i}`).append(`<pre style="color:red; white-space: pre-wrap; font-size: 12px; margin: 5px 0; padding: 10px; background-color: #f8f8f8; border-radius: 3px;">${errorMessage}</pre>`);
+                        testProgress.failed++;
+                    }
+
+                    testProgress.completed++;
+                    updateProgressPanel();
+
+                    await delay(100);
+                }
+            }
+
+            for (let i = 0; i < txt2vidTests.length; i++) {
+                if (document.getElementById(`txt2vidTests${i}`).checked) {
+                    const testInfo = getTestInfo(txt2vidTests[i]);
+                    testProgress.currentTest = `Text-to-Video: ${testInfo.name}`;
+                    updateProgressPanel();
+
+                    try{
+                        await executeTest(txt2vidTests[i]);
+                        $(`#txt2vidTests-container-${i}`).css('background-color', '#85e085');
+                        testProgress.passed++;
+                    } catch (e) {
+                        console.error('Txt2Vid Test failed:', testInfo.name, e);
+                        $(`#txt2vidTests-container-${i}`).css('background-color', '#ff8484');
+                        let errorMessage = e.message || e.toString();
+                        if (e.originalError) {
+                            errorMessage += '\n\nOriginal Error:\n' + JSON.stringify(e.originalError, null, 2);
+                        }
+                        $(`#txt2vidTests-container-${i}`).append(`<pre style="color:red; white-space: pre-wrap; font-size: 12px; margin: 5px 0; padding: 10px; background-color: #f8f8f8; border-radius: 3px;">${errorMessage}</pre>`);
+                        testProgress.failed++;
+                    }
+
+                    testProgress.completed++;
+                    updateProgressPanel();
+
+                    await delay(100);
+                }
+            }
+
             // Show completion message
             testProgress.currentTest = `Complete! ${testProgress.passed} passed, ${testProgress.failed} failed`;
             updateProgressPanel();
@@ -996,7 +1122,7 @@
         $('#master-checkbox').change(function() {
             const isChecked = $(this).prop('checked');
             $('.test-checkbox').prop('checked', isChecked);
-            $('#fsTests-group, #kvTests-group, #aiTests-group, #txt2speechTests-group').prop('checked', isChecked);
+            $('#fsTests-group, #kvTests-group, #aiTests-group, #txt2speechTests-group, #txt2imgTests-group, #txt2vidTests-group').prop('checked', isChecked);
             // Update the counter display
             updateMasterCheckboxState();
         });
@@ -1024,7 +1150,7 @@
         });
 
         // Update master checkbox state when group checkboxes change
-        $('#fsTests-group, #kvTests-group, #aiTests-group, #txt2speechTests-group').change(function() {
+        $('#fsTests-group, #kvTests-group, #aiTests-group, #txt2speechTests-group, #txt2imgTests-group, #txt2vidTests-group').change(function() {
             updateMasterCheckboxState();
         });
 
