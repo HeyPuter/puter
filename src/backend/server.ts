@@ -368,13 +368,10 @@ export class PuterServer {
      *     `#materializeRoute` as those options ship.
      */
     #installGlobalMiddleware() {
-        // ── Cookie parsing ──────────────────────────────────────────
         this.#app.use(cookieParser());
 
-        // ── Compression ─────────────────────────────────────────────
         this.#app.use(compression());
 
-        // ── Security headers (helmet) ───────────────────────────────
         this.#app.use(helmet.noSniff());
         this.#app.use(helmet.hsts());
         this.#app.use(helmet.ieNoOpen());
@@ -615,7 +612,6 @@ export class PuterServer {
         this.#app.use((req, res, next) => {
             const origin = req.headers.origin;
             const subdomain = req.subdomains?.[req.subdomains.length - 1];
-            const isApiOrDav = subdomain === 'api' || subdomain === 'dav';
 
             // Allow any origin. puter.js is meant to be consumed from
             // arbitrary third-party sites, so reflect the caller's origin
@@ -623,11 +619,11 @@ export class PuterServer {
             res.setHeader('Access-Control-Allow-Origin', origin ?? '*');
             if (origin) res.vary('Origin');
 
-            // Credentials require a specific (non-`*`) Allow-Origin, which
-            // we just set when an origin was present. Enable on API/DAV
-            // so cookie-auth works cross-origin.
-            if (isApiOrDav && origin) {
+            // Sticky cookies require api to allow credentials, but only for the API subdomain, and be careful not to set any other credentials on it
+            if (subdomain === 'api' && origin) {
                 res.setHeader('Access-Control-Allow-Credentials', 'true');
+            } else if (subdomain === 'dav') {
+                res.setHeader('Access-Control-Allow-Credentials', 'false');
             }
 
             res.setHeader('Access-Control-Allow-Methods', allowedMethods);

@@ -18,8 +18,8 @@
  */
 
 import bcrypt from 'bcrypt';
-import crypto from 'node:crypto';
 import type { Request, RequestHandler, Response } from 'express';
+import crypto from 'node:crypto';
 import { v4 as uuidv4 } from 'uuid';
 import validator from 'validator';
 import { Controller, Get, Post } from '../../core/http/decorators.js';
@@ -41,8 +41,8 @@ import {
     createSecret as otpCreateSecret,
     verify as verifyOtp,
 } from '../../services/auth/OTPUtil.js';
-import { cleanEmail, isBlockedEmail } from '../../util/email.js';
 import { sessionCookieFlags } from '../../util/cookieFlags.js';
+import { cleanEmail, isBlockedEmail } from '../../util/email.js';
 import { generate_identifier } from '../../util/identifier.js';
 import { getTaskbarItems } from '../../util/taskbarItems.js';
 import {
@@ -94,7 +94,6 @@ export class AuthController extends PuterController {
     // ── Login ───────────────────────────────────────────────────────
 
     @Post('/login', {
-        subdomain: ['api', ''],
         captcha: true,
         rateLimit: { scope: 'login', limit: 10, window: 15 * 60_000 },
     })
@@ -191,7 +190,6 @@ export class AuthController extends PuterController {
     // ── Login: OTP verification ─────────────────────────────────────
 
     @Post('/login/otp', {
-        subdomain: ['api', ''],
         captcha: true,
         rateLimit: {
             scope: 'login-otp',
@@ -246,7 +244,6 @@ export class AuthController extends PuterController {
     // ── Login: recovery code ────────────────────────────────────────
 
     @Post('/login/recovery-code', {
-        subdomain: ['api', ''],
         captcha: true,
         rateLimit: {
             scope: 'login-recovery',
@@ -314,7 +311,6 @@ export class AuthController extends PuterController {
     // ── Signup ──────────────────────────────────────────────────────
 
     @Post('/signup', {
-        subdomain: ['api', ''],
         captcha: true,
         rateLimit: { scope: 'signup', limit: 10, window: 15 * 60_000 },
     })
@@ -707,14 +703,13 @@ export class AuthController extends PuterController {
     // ── Logout ──────────────────────────────────────────────────────
 
     @Post('/logout', {
-        subdomain: ['api', ''],
         requireAuth: true,
         allowUnconfirmed: true,
         antiCsrf: true,
     })
     async handleLogout(req: Request, res: Response): Promise<void> {
         // Clear the session cookie
-        res.clearCookie(this.config.cookie_name);
+        res.clearCookie(this.config.cookie_name!);
 
         // Remove the session (fire-and-forget)
         if (req.token) {
@@ -1552,7 +1547,6 @@ export class AuthController extends PuterController {
     // ── Anti-CSRF token generation ──────────────────────────────────
 
     @Get('/get-anticsrf-token', {
-        subdomain: '',
         requireAuth: true,
         allowUnconfirmed: true,
     })
@@ -2326,7 +2320,6 @@ export class AuthController extends PuterController {
     // ── Session helpers ─────────────────────────────────────────────
 
     @Get('/get-gui-token', {
-        subdomain: ['api', ''],
         requireUserActor: true,
         allowUnconfirmed: true,
     })
@@ -2348,7 +2341,6 @@ export class AuthController extends PuterController {
     }
 
     @Get('/session/sync-cookie', {
-        subdomain: ['api', ''],
         requireUserActor: true,
         allowUnconfirmed: true,
     })
@@ -2382,7 +2374,7 @@ export class AuthController extends PuterController {
 
     async handleDeleteOwnUser(req: Request, res: Response): Promise<void> {
         const userId = req.actor!.user.id!;
-        res.clearCookie(this.config.cookie_name);
+        res.clearCookie(this.config.cookie_name!);
         res.clearCookie('puter_revalidation');
         await this.#cascadeDeleteUser(userId);
         res.json({ success: true });
@@ -2442,7 +2434,6 @@ export class AuthController extends PuterController {
         router.post(
             '/user-protected/change-password',
             {
-                subdomain: ['api', ''],
                 requireUserActor: true,
                 rateLimit: {
                     scope: 'passwd',
@@ -2462,7 +2453,6 @@ export class AuthController extends PuterController {
         router.post(
             '/user-protected/change-username',
             {
-                subdomain: ['api', ''],
                 requireUserActor: true,
                 requireVerified: true,
                 rateLimit: {
@@ -2483,7 +2473,6 @@ export class AuthController extends PuterController {
         router.post(
             '/user-protected/change-email',
             {
-                subdomain: ['api', ''],
                 requireUserActor: true,
                 rateLimit: {
                     scope: 'change-email-start',
@@ -2503,7 +2492,6 @@ export class AuthController extends PuterController {
         router.post(
             '/user-protected/disable-2fa',
             {
-                subdomain: ['api', ''],
                 requireUserActor: true,
                 rateLimit: {
                     scope: 'disable-2fa',
@@ -2523,7 +2511,6 @@ export class AuthController extends PuterController {
         router.post(
             '/user-protected/delete-own-user',
             {
-                subdomain: ['api', ''],
                 requireUserActor: true,
                 allowUnconfirmed: true,
                 middleware: [
