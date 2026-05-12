@@ -448,3 +448,186 @@ describe('VideoGenerationDriver metering propagation', () => {
         expect(usageType).toMatch(/^openai:sora-2:/);
     });
 });
+
+// ── puter_output_path ─────────────────────────────────────────────
+
+describe('VideoGenerationDriver.generate puter_output_path', () => {
+    const TEST_ACTOR: import('../../core/actor.js').Actor = {
+        user: { uuid: 'test-user-uuid', id: 42, username: 'testuser' },
+    };
+
+    const withTestUser = <T>(fn: () => T | Promise<T>): Promise<T> =>
+        Promise.resolve(runWithContext({ actor: TEST_ACTOR }, fn));
+
+    it('throws 400 when puter_output_path is root', async () => {
+        await expect(
+            withTestUser(() =>
+                driver.generate({
+                    prompt: 'hi',
+                    model: 'sora-2',
+                    puter_output_path: '/',
+                } as never),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+
+        expect(openaiVideosCreateMock).not.toHaveBeenCalled();
+    });
+
+    it('throws 400 when puter_output_path parent is root (e.g. /video.mp4)', async () => {
+        await expect(
+            withTestUser(() =>
+                driver.generate({
+                    prompt: 'hi',
+                    model: 'sora-2',
+                    puter_output_path: '/video.mp4',
+                } as never),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+
+        expect(openaiVideosCreateMock).not.toHaveBeenCalled();
+    });
+
+    it('throws 403 when ACL denies write access', async () => {
+        const aclCheckSpy = vi.spyOn(server.services.acl, 'check');
+        aclCheckSpy.mockResolvedValueOnce(false);
+
+        await expect(
+            withTestUser(() =>
+                driver.generate({
+                    prompt: 'hi',
+                    model: 'sora-2',
+                    puter_output_path: '/testuser/videos/clip.mp4',
+                } as never),
+            ),
+        ).rejects.toMatchObject({ statusCode: 403 });
+
+        expect(openaiVideosCreateMock).not.toHaveBeenCalled();
+    });
+
+    it('ACL check runs BEFORE provider.generate so credits are not wasted', async () => {
+        const callOrder: string[] = [];
+        const aclCheckSpy = vi.spyOn(server.services.acl, 'check');
+        aclCheckSpy.mockImplementation(async () => {
+            callOrder.push('acl');
+            return false;
+        });
+        openaiVideosCreateMock.mockImplementation(async () => {
+            callOrder.push('provider');
+            return openaiCompletedJob();
+        });
+
+        await expect(
+            withTestUser(() =>
+                driver.generate({
+                    prompt: 'hi',
+                    model: 'sora-2',
+                    puter_output_path: '/testuser/dir/clip.mp4',
+                } as never),
+            ),
+        ).rejects.toMatchObject({ statusCode: 403 });
+
+        expect(callOrder).toEqual(['acl']);
+    });
+
+    it('resolves ~ in puter_output_path to /<username>/', async () => {
+        const aclCheckSpy = vi.spyOn(server.services.acl, 'check');
+        aclCheckSpy.mockResolvedValueOnce(true);
+
+        const fsWriteSpy = vi.spyOn(server.services.fs, 'write');
+        fsWriteSpy.mockResolvedValueOnce(undefined as never);
+
+        openaiVideosCreateMock.mockResolvedValueOnce(openaiCompletedJob());
+        openaiVideosDownloadMock.mockResolvedValueOnce(openaiDownload());
+
+        await withTestUser(() =>
+            driver.generate({
+                prompt: 'hi',
+                model: 'sora-2',
+                puter_output_path: '~/videos/clip.mp4',
+            } as never),
+        );
+
+        expect(fsWriteSpy).toHaveBeenCalledTimes(1);
+        const [, writeArg] = fsWriteSpy.mock.calls[0]!;
+        expect(
+            (writeArg as { fileMetadata: { path: string } }).fileMetadata.path,
+        ).toBe('/testuser/videos/clip.mp4');
+    });
+
+    it('writes stream result to FS and returns a new stream to caller', async () => {
+        const aclCheckSpy = vi.spyOn(server.services.acl, 'check');
+        aclCheckSpy.mockResolvedValueOnce(true);
+
+        const fsWriteSpy = vi.spyOn(server.services.fs, 'write');
+        fsWriteSpy.mockResolvedValueOnce(undefined as never);
+
+        openaiVideosCreateMock.mockResolvedValueOnce(openaiCompletedJob());
+        openaiVideosDownloadMock.mockResolvedValueOnce(openaiDownload());
+
+        const result = await withTestUser(() =>
+            driver.generate({
+                prompt: 'hi',
+                model: 'sora-2',
+                puter_output_path: '/testuser/videos/clip.mp4',
+            } as never),
+        );
+
+        expect(fsWriteSpy).toHaveBeenCalledTimes(1);
+        const [userId, writeArg] = fsWriteSpy.mock.calls[0]!;
+        expect(userId).toBe(42);
+        const meta = (
+            writeArg as {
+                fileMetadata: {
+                    path: string;
+                    contentType: string;
+                    overwrite: boolean;
+                };
+            }
+        ).fileMetadata;
+        expect(meta.path).toBe('/testuser/videos/clip.mp4');
+        expect(meta.overwrite).toBe(true);
+
+        expect(result).toBeDefined();
+    });
+
+    it('does not forward puter_output_path to the upstream provider call', async () => {
+        const aclCheckSpy = vi.spyOn(server.services.acl, 'check');
+        aclCheckSpy.mockResolvedValueOnce(true);
+
+        const fsWriteSpy = vi.spyOn(server.services.fs, 'write');
+        fsWriteSpy.mockResolvedValueOnce(undefined as never);
+
+        openaiVideosCreateMock.mockResolvedValueOnce(openaiCompletedJob());
+        openaiVideosDownloadMock.mockResolvedValueOnce(openaiDownload());
+
+        await withTestUser(() =>
+            driver.generate({
+                prompt: 'hi',
+                model: 'sora-2',
+                puter_output_path: '/testuser/dir/clip.mp4',
+            } as never),
+        );
+
+        const sent = openaiVideosCreateMock.mock.calls[0]![0];
+        expect(sent.puter_output_path).toBeUndefined();
+    });
+
+    it('throws 400 when actor has no user ID but puter_output_path is set', async () => {
+        const noIdActor: import('../../core/actor.js').Actor = {
+            user: { uuid: 'no-id-uuid', username: 'noone' },
+        };
+        await expect(
+            Promise.resolve(
+                runWithContext({ actor: noIdActor }, () =>
+                    driver.generate({
+                        prompt: 'hi',
+                        model: 'sora-2',
+                        puter_output_path: '/noone/dir/clip.mp4',
+                    } as never),
+                ),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+
+        expect(openaiVideosCreateMock).not.toHaveBeenCalled();
+    });
+});

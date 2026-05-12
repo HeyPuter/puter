@@ -410,6 +410,210 @@ describe('ImageGenerationDriver.generate audit log', () => {
     });
 });
 
+// ── puter_output_path ─────────────────────────────────────────────
+
+describe('ImageGenerationDriver.generate puter_output_path', () => {
+    const TEST_ACTOR: import('../../core/actor.js').Actor = {
+        user: { uuid: 'test-user-uuid', id: 42, username: 'testuser' },
+    };
+
+    const withTestUser = <T>(fn: () => T | Promise<T>): Promise<T> =>
+        Promise.resolve(runWithContext({ actor: TEST_ACTOR }, fn));
+
+    it('throws 400 when puter_output_path resolves to root', async () => {
+        await expect(
+            withTestUser(() =>
+                driver.generate({
+                    model: 'dall-e-2',
+                    prompt: 'hi',
+                    puter_output_path: '/',
+                } as never),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+
+        expect(openaiImagesGenerateMock).not.toHaveBeenCalled();
+    });
+
+    it('throws 400 when puter_output_path parent is root (e.g. /image.png)', async () => {
+        await expect(
+            withTestUser(() =>
+                driver.generate({
+                    model: 'dall-e-2',
+                    prompt: 'hi',
+                    puter_output_path: '/image.png',
+                } as never),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+
+        expect(openaiImagesGenerateMock).not.toHaveBeenCalled();
+    });
+
+    it('throws 403 when ACL denies write access to the destination', async () => {
+        const aclCheckSpy = vi.spyOn(server.services.acl, 'check');
+        aclCheckSpy.mockResolvedValueOnce(false);
+
+        await expect(
+            withTestUser(() =>
+                driver.generate({
+                    model: 'dall-e-2',
+                    prompt: 'hi',
+                    puter_output_path: '/testuser/somedir/image.png',
+                } as never),
+            ),
+        ).rejects.toMatchObject({ statusCode: 403 });
+
+        expect(openaiImagesGenerateMock).not.toHaveBeenCalled();
+    });
+
+    it('ACL check runs BEFORE provider.generate so credits are not wasted on a denied path', async () => {
+        const callOrder: string[] = [];
+        const aclCheckSpy = vi.spyOn(server.services.acl, 'check');
+        aclCheckSpy.mockImplementation(async () => {
+            callOrder.push('acl');
+            return false;
+        });
+        openaiImagesGenerateMock.mockImplementation(async () => {
+            callOrder.push('provider');
+            return { data: [{ url: 'https://oai/img.png' }] };
+        });
+
+        await expect(
+            withTestUser(() =>
+                driver.generate({
+                    model: 'dall-e-2',
+                    prompt: 'hi',
+                    puter_output_path: '/testuser/dir/img.png',
+                } as never),
+            ),
+        ).rejects.toMatchObject({ statusCode: 403 });
+
+        expect(callOrder).toEqual(['acl']);
+    });
+
+    it('resolves ~ in puter_output_path to /<username>/', async () => {
+        const aclCheckSpy = vi.spyOn(server.services.acl, 'check');
+        aclCheckSpy.mockResolvedValueOnce(true);
+
+        const fsWriteSpy = vi.spyOn(server.services.fs, 'write');
+        fsWriteSpy.mockResolvedValueOnce(undefined as never);
+
+        openaiImagesGenerateMock.mockResolvedValueOnce({
+            data: [{ url: 'https://oai/img.png' }],
+        });
+        fetchSpy.mockResolvedValueOnce(
+            new Response(Buffer.from('fake-png'), {
+                status: 200,
+                headers: { 'content-type': 'image/png' },
+            }),
+        );
+
+        await withTestUser(() =>
+            driver.generate({
+                model: 'dall-e-2',
+                prompt: 'hi',
+                puter_output_path: '~/images/out.png',
+            } as never),
+        );
+
+        expect(fsWriteSpy).toHaveBeenCalledTimes(1);
+        const [, writeArg] = fsWriteSpy.mock.calls[0]!;
+        expect(
+            (writeArg as { fileMetadata: { path: string } }).fileMetadata.path,
+        ).toBe('/testuser/images/out.png');
+    });
+
+    it('writes the generated image to FS and still returns the result URL', async () => {
+        const aclCheckSpy = vi.spyOn(server.services.acl, 'check');
+        aclCheckSpy.mockResolvedValueOnce(true);
+
+        const fsWriteSpy = vi.spyOn(server.services.fs, 'write');
+        fsWriteSpy.mockResolvedValueOnce(undefined as never);
+
+        openaiImagesGenerateMock.mockResolvedValueOnce({
+            data: [{ url: 'https://oai/img.png' }],
+        });
+        fetchSpy.mockResolvedValueOnce(
+            new Response(Buffer.from('fake-png'), {
+                status: 200,
+                headers: { 'content-type': 'image/png' },
+            }),
+        );
+
+        const result = await withTestUser(() =>
+            driver.generate({
+                model: 'dall-e-2',
+                prompt: 'hi',
+                puter_output_path: '/testuser/photos/out.png',
+            } as never),
+        );
+
+        expect(result).toBe('https://oai/img.png');
+        expect(fsWriteSpy).toHaveBeenCalledTimes(1);
+        const [userId, writeArg] = fsWriteSpy.mock.calls[0]!;
+        expect(userId).toBe(42);
+        const meta = (
+            writeArg as {
+                fileMetadata: {
+                    path: string;
+                    contentType: string;
+                    overwrite: boolean;
+                };
+            }
+        ).fileMetadata;
+        expect(meta.path).toBe('/testuser/photos/out.png');
+        expect(meta.contentType).toBe('image/png');
+        expect(meta.overwrite).toBe(true);
+    });
+
+    it('does not forward puter_output_path to the upstream provider call', async () => {
+        const aclCheckSpy = vi.spyOn(server.services.acl, 'check');
+        aclCheckSpy.mockResolvedValueOnce(true);
+
+        const fsWriteSpy = vi.spyOn(server.services.fs, 'write');
+        fsWriteSpy.mockResolvedValueOnce(undefined as never);
+
+        openaiImagesGenerateMock.mockResolvedValueOnce({
+            data: [{ url: 'https://oai/img.png' }],
+        });
+        fetchSpy.mockResolvedValueOnce(
+            new Response(Buffer.from('fake-png'), {
+                status: 200,
+                headers: { 'content-type': 'image/png' },
+            }),
+        );
+
+        await withTestUser(() =>
+            driver.generate({
+                model: 'dall-e-2',
+                prompt: 'hi',
+                puter_output_path: '/testuser/dir/img.png',
+            } as never),
+        );
+
+        const sent = openaiImagesGenerateMock.mock.calls[0]![0];
+        expect(sent.puter_output_path).toBeUndefined();
+    });
+
+    it('throws 400 when actor has no user ID but puter_output_path is set', async () => {
+        const noIdActor: import('../../core/actor.js').Actor = {
+            user: { uuid: 'no-id-uuid', username: 'noone' },
+        };
+        await expect(
+            Promise.resolve(
+                runWithContext({ actor: noIdActor }, () =>
+                    driver.generate({
+                        model: 'dall-e-2',
+                        prompt: 'hi',
+                        puter_output_path: '/noone/dir/img.png',
+                    } as never),
+                ),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+
+        expect(openaiImagesGenerateMock).not.toHaveBeenCalled();
+    });
+});
+
 // Avoid coupling the 'unused' XAI export to lint. The catalog reference
 // is also used implicitly by the routing tests above.
 void XAI_IMAGE_GENERATION_MODELS;
