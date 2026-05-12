@@ -40,7 +40,7 @@ export class DeepSeekProvider implements IChatProvider {
     }
 
     getDefaultModel() {
-        return 'deepseek-chat';
+        return 'deepseek-v4-flash';
     }
 
     models() {
@@ -137,20 +137,18 @@ export class DeepSeekProvider implements IChatProvider {
                 );
                 this.#meteringService.utilRecordUsageObject(
                     trackedUsage,
-                    actor,
+                    actor!,
                     `deepseek:${modelUsed.id}`,
                     costsOverrideFromModel,
                 );
                 return trackedUsage;
             },
-            stream,
+            stream: stream,
             completion,
         });
     }
 
-    checkModeration(
-        _text: string,
-    ): ReturnType<IChatProvider['checkModeration']> {
+    checkModeration(_text: string) {
         throw new Error('Method not implemented.');
     }
 }

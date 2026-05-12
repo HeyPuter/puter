@@ -145,9 +145,9 @@ describe('DeepSeekProvider construction', () => {
 // ── Model catalog ───────────────────────────────────────────────────
 
 describe('DeepSeekProvider model catalog', () => {
-    it('returns deepseek-chat as the default', () => {
+    it('returns deepseek-v4-flash as the default', () => {
         const { provider } = makeProvider();
-        expect(provider.getDefaultModel()).toBe('deepseek-chat');
+        expect(provider.getDefaultModel()).toBe('deepseek-v4-flash');
     });
 
     it('exposes the static DEEPSEEK_MODELS list verbatim from models()', () => {
@@ -164,8 +164,10 @@ describe('DeepSeekProvider model catalog', () => {
                 expect(ids).toContain(a);
             }
         }
+        expect(ids).toContain('deepseek-v4-flash');
+        expect(ids).toContain('deepseek-v4-pro');
         expect(ids).toContain('deepseek-chat');
-        expect(ids).toContain('deepseek/deepseek-chat');
+        expect(ids).toContain('deepseek/deepseek-v4-pro');
     });
 });
 
@@ -188,13 +190,13 @@ describe('DeepSeekProvider.complete request shape', () => {
 
         await withTestActor(() =>
             provider.complete({
-                model: 'deepseek-chat',
+                model: 'deepseek-v4-flash',
                 messages: [{ role: 'user', content: 'hello' }],
             }),
         );
 
         const [args] = createMock.mock.calls[0]!;
-        expect(args.model).toBe('deepseek-chat');
+        expect(args.model).toBe('deepseek-v4-flash');
         expect(args.messages).toEqual([{ role: 'user', content: 'hello' }]);
         expect(args.max_tokens).toBe(1000);
     });
@@ -205,7 +207,7 @@ describe('DeepSeekProvider.complete request shape', () => {
 
         await withTestActor(() =>
             provider.complete({
-                model: 'deepseek-chat',
+                model: 'deepseek-v4-flash',
                 messages: [{ role: 'user', content: 'hi' }],
                 max_tokens: 256,
             }),
@@ -220,7 +222,7 @@ describe('DeepSeekProvider.complete request shape', () => {
 
         await withTestActor(() =>
             provider.complete({
-                model: 'deepseek-chat',
+                model: 'deepseek-v4-flash',
                 messages: [{ role: 'user', content: 'hi' }],
             }),
         );
@@ -244,7 +246,7 @@ describe('DeepSeekProvider.complete request shape', () => {
         ];
         await withTestActor(() =>
             provider.complete({
-                model: 'deepseek-chat',
+                model: 'deepseek-v4-flash',
                 messages: [{ role: 'user', content: 'hi' }],
                 tools,
             }),
@@ -258,7 +260,7 @@ describe('DeepSeekProvider.complete request shape', () => {
         createMock.mockResolvedValueOnce(baseCompletion);
         await withTestActor(() =>
             provider.complete({
-                model: 'deepseek-chat',
+                model: 'deepseek-v4-flash',
                 messages: [{ role: 'user', content: 'hi' }],
                 stream: false,
             }),
@@ -270,7 +272,7 @@ describe('DeepSeekProvider.complete request shape', () => {
         createMock.mockReturnValueOnce(asAsyncIterable([]));
         await withTestActor(() =>
             provider.complete({
-                model: 'deepseek-chat',
+                model: 'deepseek-v4-flash',
                 messages: [{ role: 'user', content: 'hi' }],
                 stream: true,
             }),
@@ -286,7 +288,7 @@ describe('DeepSeekProvider.complete request shape', () => {
 
         await withTestActor(() =>
             provider.complete({
-                model: 'deepseek-chat',
+                model: 'deepseek-v4-flash',
                 messages: [
                     {
                         role: 'assistant',
@@ -327,7 +329,7 @@ describe('DeepSeekProvider.complete request shape', () => {
 
         await withTestActor(() =>
             provider.complete({
-                model: 'deepseek-chat',
+                model: 'deepseek-v4-flash',
                 messages: [
                     {
                         role: 'assistant',
@@ -364,7 +366,7 @@ describe('DeepSeekProvider.complete request shape', () => {
 
         await withTestActor(() =>
             provider.complete({
-                model: 'deepseek-chat',
+                model: 'deepseek-v4-flash',
                 messages: [
                     { role: 'user', content: 'do tool call' },
                     {
@@ -412,16 +414,16 @@ describe('DeepSeekProvider model resolution', () => {
 
         await withTestActor(() =>
             provider.complete({
-                model: 'deepseek-reasoner',
+                model: 'deepseek-v4-flash',
                 messages: [{ role: 'user', content: 'hi' }],
             }),
         );
 
-        expect(createMock.mock.calls[0]![0].model).toBe('deepseek-reasoner');
+        expect(createMock.mock.calls[0]![0].model).toBe('deepseek-v4-flash');
         expect(recordSpy).toHaveBeenCalledWith(
             expect.any(Object),
             expect.anything(),
-            'deepseek:deepseek-reasoner',
+            'deepseek:deepseek-v4-flash',
             expect.any(Object),
         );
     });
@@ -432,17 +434,17 @@ describe('DeepSeekProvider model resolution', () => {
 
         await withTestActor(() =>
             provider.complete({
-                // `deepseek/deepseek-chat` is an alias of `deepseek-chat`.
-                model: 'deepseek/deepseek-chat',
+                // `deepseek/deepseek-v4-flash` is an alias of `deepseek-v4-flash`.
+                model: 'deepseek/deepseek-v4-flash',
                 messages: [{ role: 'user', content: 'hi' }],
             }),
         );
 
-        expect(createMock.mock.calls[0]![0].model).toBe('deepseek-chat');
+        expect(createMock.mock.calls[0]![0].model).toBe('deepseek-v4-flash');
         expect(recordSpy).toHaveBeenCalledWith(
             expect.any(Object),
             expect.anything(),
-            'deepseek:deepseek-chat',
+            'deepseek:deepseek-v4-flash',
             expect.any(Object),
         );
     });
@@ -458,11 +460,41 @@ describe('DeepSeekProvider model resolution', () => {
             }),
         );
 
-        expect(createMock.mock.calls[0]![0].model).toBe('deepseek-chat');
+        expect(createMock.mock.calls[0]![0].model).toBe('deepseek-v4-flash');
         expect(recordSpy).toHaveBeenCalledWith(
             expect.any(Object),
             expect.anything(),
-            'deepseek:deepseek-chat',
+            'deepseek:deepseek-v4-flash',
+            expect.any(Object),
+        );
+    });
+
+    // The legacy DeepSeek chat/reasoner ids (and their `deepseek/…` and
+    // `deepseek:deepseek/…` variants) are aliased onto deepseek-v4-flash
+    // so callers using the old names get transparently upgraded — and
+    // metered against the v4-flash canonical prefix.
+    it.each([
+        'deepseek-chat',
+        'deepseek/deepseek-chat',
+        'deepseek:deepseek/deepseek-chat',
+        'deepseek/deepseek-reasoner',
+        'deepseek:deepseek/deepseek-reasoner',
+    ])('maps legacy alias %s onto deepseek-v4-flash', async (alias) => {
+        const { provider } = makeProvider();
+        createMock.mockResolvedValueOnce(baseCompletion);
+
+        await withTestActor(() =>
+            provider.complete({
+                model: alias,
+                messages: [{ role: 'user', content: 'hi' }],
+            }),
+        );
+
+        expect(createMock.mock.calls[0]![0].model).toBe('deepseek-v4-flash');
+        expect(recordSpy).toHaveBeenCalledWith(
+            expect.any(Object),
+            expect.anything(),
+            'deepseek:deepseek-v4-flash',
             expect.any(Object),
         );
     });
@@ -489,7 +521,7 @@ describe('DeepSeekProvider.complete non-stream output', () => {
 
         const result = await withTestActor(() =>
             provider.complete({
-                model: 'deepseek-chat',
+                model: 'deepseek-v4-flash',
                 messages: [{ role: 'user', content: 'hi' }],
             }),
         );
@@ -504,8 +536,8 @@ describe('DeepSeekProvider.complete non-stream output', () => {
             cached_tokens: 10,
         });
 
-        // deepseek-chat costs: prompt=56, completion=168, cached=0.
-        const chat = DEEPSEEK_MODELS.find((m) => m.id === 'deepseek-chat')!;
+        // deepseek-v4-flash costs: prompt=14, completion=28, cached=0.28
+        const chat = DEEPSEEK_MODELS.find((m) => m.id === 'deepseek-v4-flash')!;
         expect(recordSpy).toHaveBeenCalledTimes(1);
         const [usage, actor, prefix, overrides] = recordSpy.mock.calls[0]!;
         expect(usage).toEqual({
@@ -514,7 +546,7 @@ describe('DeepSeekProvider.complete non-stream output', () => {
             cached_tokens: 10,
         });
         expect(actor).toBe(SYSTEM_ACTOR);
-        expect(prefix).toBe('deepseek:deepseek-chat');
+        expect(prefix).toBe('deepseek:deepseek-v4-flash');
         expect(overrides).toEqual({
             prompt_tokens: 100 * Number(chat.costs.prompt_tokens),
             completion_tokens: 50 * Number(chat.costs.completion_tokens),
@@ -549,7 +581,7 @@ describe('DeepSeekProvider.complete non-stream output', () => {
 
         const result = (await withTestActor(() =>
             provider.complete({
-                model: 'deepseek-chat',
+                model: 'deepseek-v4-flash',
                 messages: [{ role: 'user', content: 'do a tool call' }],
                 tools: [
                     {
@@ -584,7 +616,7 @@ describe('DeepSeekProvider.complete non-stream output', () => {
 
         await withTestActor(() =>
             provider.complete({
-                model: 'deepseek-chat',
+                model: 'deepseek-v4-flash',
                 messages: [{ role: 'user', content: 'hi' }],
             }),
         );
@@ -617,7 +649,7 @@ describe('DeepSeekProvider.complete streaming', () => {
 
         const result = await withTestActor(() =>
             provider.complete({
-                model: 'deepseek-chat',
+                model: 'deepseek-v4-flash',
                 messages: [{ role: 'user', content: 'say hi' }],
                 stream: true,
             }),
@@ -642,10 +674,10 @@ describe('DeepSeekProvider.complete streaming', () => {
             cached_tokens: 1,
         });
 
-        const chat = DEEPSEEK_MODELS.find((m) => m.id === 'deepseek-chat')!;
+        const chat = DEEPSEEK_MODELS.find((m) => m.id === 'deepseek-v4-flash')!;
         expect(recordSpy).toHaveBeenCalledTimes(1);
         const [, , prefix, overrides] = recordSpy.mock.calls[0]!;
-        expect(prefix).toBe('deepseek:deepseek-chat');
+        expect(prefix).toBe('deepseek:deepseek-v4-flash');
         expect(overrides).toEqual({
             prompt_tokens: 4 * Number(chat.costs.prompt_tokens),
             completion_tokens: 2 * Number(chat.costs.completion_tokens),
@@ -698,7 +730,7 @@ describe('DeepSeekProvider.complete streaming', () => {
 
         const result = await withTestActor(() =>
             provider.complete({
-                model: 'deepseek-chat',
+                model: 'deepseek-v4-flash',
                 messages: [{ role: 'user', content: 'do tool call' }],
                 tools: [
                     {
@@ -737,7 +769,7 @@ describe('DeepSeekProvider.complete error mapping', () => {
         await expect(
             withTestActor(() =>
                 provider.complete({
-                    model: 'deepseek-chat',
+                    model: 'deepseek-v4-flash',
                     messages: [{ role: 'user', content: 'boom' }],
                 }),
             ),
