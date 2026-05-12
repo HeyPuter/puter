@@ -73,6 +73,7 @@ interface ReqInit {
     query?: Record<string, unknown>;
     handshakeQuery?: Record<string, unknown>;
     actor?: Actor;
+    protocol?: string;
 }
 
 const makeReq = (init: ReqInit = {}): Request => {
@@ -82,6 +83,7 @@ const makeReq = (init: ReqInit = {}): Request => {
         body: init.body,
         query: (init.query ?? {}) as Request['query'],
         headers: headers as unknown as Request['headers'],
+        protocol: init.protocol,
         header(name: string) {
             // Express's `req.header()` is case-insensitive; mirror that.
             return headers[name.toLowerCase()];
@@ -329,6 +331,7 @@ describe('createAuthProbe — cookie reading', () => {
         const { req } = await runProbe(
             probe,
             makeReq({
+                protocol: 'https',
                 headers: {
                     host: 'api.puter.test',
                     origin: 'https://attacker.example',
@@ -351,6 +354,7 @@ describe('createAuthProbe — cookie reading', () => {
         await runProbe(
             probe,
             makeReq({
+                protocol: 'https',
                 headers: {
                     authorization: 'Bearer header-tok',
                     host: 'api.puter.test',
@@ -372,6 +376,7 @@ describe('createAuthProbe — cookie reading', () => {
         await runProbe(
             probe,
             makeReq({
+                protocol: 'https',
                 headers: {
                     host: 'api.puter.test',
                     origin: 'https://api.puter.test',
@@ -381,6 +386,48 @@ describe('createAuthProbe — cookie reading', () => {
         );
 
         expect(stub.seenTokens).toEqual(['session-abc']);
+    });
+
+    it('normalizes default ports when comparing browser origins', async () => {
+        const stub = makeStubAuth();
+        const probe = createAuthProbe({
+            authService: stub.service,
+            cookieName: 'puter_token',
+        });
+        await runProbe(
+            probe,
+            makeReq({
+                protocol: 'https',
+                headers: {
+                    host: 'api.puter.test:443',
+                    origin: 'https://api.puter.test',
+                },
+                cookieHeader: 'puter_token=session-abc',
+            }),
+        );
+
+        expect(stub.seenTokens).toEqual(['session-abc']);
+    });
+
+    it('treats protocol mismatches as cross-origin for session cookies', async () => {
+        const stub = makeStubAuth();
+        const probe = createAuthProbe({
+            authService: stub.service,
+            cookieName: 'puter_token',
+        });
+        await runProbe(
+            probe,
+            makeReq({
+                protocol: 'https',
+                headers: {
+                    host: 'api.puter.test',
+                    origin: 'http://api.puter.test',
+                },
+                cookieHeader: 'puter_token=session-abc',
+            }),
+        );
+
+        expect(stub.seenTokens).toEqual([]);
     });
 });
 

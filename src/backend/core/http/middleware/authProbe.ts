@@ -167,8 +167,15 @@ const isCrossOriginBrowserRequest = (req: Request): boolean => {
         typeof req.header === 'function' ? req.header('host') : undefined;
     if (!host) return true;
 
+    const protocol =
+        typeof req.protocol === 'string' && req.protocol.length > 0
+            ? req.protocol
+            : undefined;
+    if (!protocol) return true;
+
     try {
-        return new URL(origin).host.toLowerCase() !== host.toLowerCase();
+        const requestOrigin = new URL(`${protocol}://${host.trim()}`).origin;
+        return new URL(origin).origin !== requestOrigin;
     } catch {
         return true;
     }
