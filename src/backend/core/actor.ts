@@ -64,7 +64,7 @@ export const isSystemActor = (actor: Actor | undefined | null): boolean => {
 };
 
 export const isAppActor = (actor: Actor | undefined | null): boolean => {
-    return !!actor?.app && !actor?.accessToken;
+    return !!actor?.app && !isAccessTokenActor(actor);
 };
 
 export const isAccessTokenActor = (

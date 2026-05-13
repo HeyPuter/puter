@@ -38,7 +38,7 @@ export class NotificationController extends PuterController {
      * POST /notif/mark-ack — user dismissed a notification.
      * Sets `acknowledged` timestamp; pushes ack event to sockets.
      */
-    @Post('/mark-ack', { subdomain: 'api', requireAuth: true })
+    @Post('/mark-ack', { subdomain: 'api', requireUserActor: true })
     async markAck(req: Request, res: Response): Promise<void> {
         const uid = req.body?.uid;
         if (typeof uid !== 'string' || uid.length === 0) {
@@ -77,7 +77,7 @@ export class NotificationController extends PuterController {
      * POST /notif/mark-read — user saw a notification.
      * Sets `shown` timestamp; pushes ack event to sockets.
      */
-    @Post('/mark-read', { subdomain: 'api', requireAuth: true })
+    @Post('/mark-read', { subdomain: 'api', requireUserActor: true })
     async markRead(req: Request, res: Response): Promise<void> {
         const uid = req.body?.uid;
         if (typeof uid !== 'string' || uid.length === 0) {

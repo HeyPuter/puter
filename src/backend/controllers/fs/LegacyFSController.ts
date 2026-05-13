@@ -43,6 +43,7 @@ import {
     signingConfigFromAppConfig,
     toLegacyEntry,
 } from './legacyFsHelpers.js';
+import { RouteOptions } from '../../core/http/index.js';
 
 /**
  * Legacy FS routes, implemented as thin shims over `FSService`.
@@ -79,11 +80,16 @@ export class LegacyFSController extends PuterController {
     #additionalCache: RouterCache = new Map();
 
     registerRoutes(router: PuterRouter): void {
-        const apiOptions = { subdomain: 'api', requireVerified: true } as const;
+        const apiOptions = {
+            subdomain: 'api',
+            requireVerified: true,
+        } as RouteOptions;
         // Signed-URL routes: the handler validates the URL signature itself,
         // so no auth gate is applied (matches v1, which mounted these routers
         // with no middleware).
-        const signedOptions = { subdomain: 'api' } as const;
+        const signedOptions = {
+            subdomain: 'api',
+        } as RouteOptions;
 
         // Core filesystem_api routes — direct handlers over the FS service.
         router.post('/stat', apiOptions, this.stat);
@@ -98,7 +104,11 @@ export class LegacyFSController extends PuterController {
         router.get('/read', apiOptions, this.read);
         router.get(
             '/token-read',
-            { subdomain: 'api', requireVerified: false },
+            {
+                subdomain: 'api',
+                requireVerified: false,
+                allowAccessToken: true,
+            },
             this.tokenRead,
         );
 

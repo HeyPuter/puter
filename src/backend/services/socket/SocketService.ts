@@ -17,13 +17,13 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import type { Server as HttpServer } from 'node:http';
 import { createAdapter } from '@socket.io/redis-streams-adapter';
+import type { Server as HttpServer } from 'node:http';
 import { Server as SocketIOServer, type Socket } from 'socket.io';
 import type { Actor } from '../../core/actor.js';
-import { isAppActor, isAccessTokenActor } from '../../core/actor.js';
-import { PuterService } from '../types.js';
+import { isAccessTokenActor, isAppActor } from '../../core/actor.js';
 import type { AuthService } from '../auth/AuthService.js';
+import { PuterService } from '../types.js';
 
 /**
  * Socket push target. A `room` fans to every socket in that room; a

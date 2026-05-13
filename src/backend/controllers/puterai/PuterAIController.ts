@@ -17,19 +17,19 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import type { Request, Response } from 'express';
 import crypto from 'node:crypto';
 import { Readable } from 'node:stream';
-import type { Request, Response } from 'express';
 import { HttpError } from '../../core/http/HttpError.js';
-import { isAppActor } from '../../core/actor.js';
+import { RouteOptions } from '../../core/http/index.js';
 import type { PuterRouter } from '../../core/http/PuterRouter.js';
-import { PuterController } from '../types.js';
-import { isDriverStreamResult } from '../../drivers/meta.js';
 import type { ChatCompletionDriver } from '../../drivers/ai-chat/ChatCompletionDriver.js';
 import type {
-    ICompleteArguments,
     IChatCompleteResult,
+    ICompleteArguments,
 } from '../../drivers/ai-chat/types.js';
+import { isDriverStreamResult } from '../../drivers/meta.js';
+import { PuterController } from '../types.js';
 
 const GEMINI_DOWNLOAD_BASE =
     'https://generativelanguage.googleapis.com/download/v1beta/files';
@@ -49,7 +49,10 @@ const GEMINI_DOWNLOAD_BASE =
  */
 export class PuterAIController extends PuterController {
     registerRoutes(router: PuterRouter): void {
-        const apiAuthOpts = { subdomain: 'api', requireAuth: true } as const;
+        const apiAuthOpts = {
+            subdomain: 'api',
+            requireUserActor: true,
+        } as RouteOptions;
         const publicOpts = { subdomain: 'api', requireAuth: false } as const;
 
         // Every route below carries the `/puterai` prefix for wire
@@ -229,8 +232,6 @@ export class PuterAIController extends PuterController {
         req: Request,
         res: Response,
     ): Promise<void> => {
-        this.#rejectAppActor(req);
-
         const body = asRecord(req.body);
         const stream = !!body.stream;
 
@@ -396,8 +397,6 @@ export class PuterAIController extends PuterController {
     // ── /openai/v1/completions ──────────────────────────────────────
 
     openaiCompletions = async (req: Request, res: Response): Promise<void> => {
-        this.#rejectAppActor(req);
-
         const body = asRecord(req.body);
         const stream = !!body.stream;
 
@@ -526,8 +525,6 @@ export class PuterAIController extends PuterController {
     // ── /openai/v1/responses ────────────────────────────────────────
 
     openaiResponses = async (req: Request, res: Response): Promise<void> => {
-        this.#rejectAppActor(req);
-
         const body = asRecord(req.body);
         const stream = !!body.stream;
 
@@ -838,8 +835,6 @@ export class PuterAIController extends PuterController {
     // ── /anthropic/v1/messages ──────────────────────────────────────
 
     anthropicMessages = async (req: Request, res: Response): Promise<void> => {
-        this.#rejectAppActor(req);
-
         const body = asRecord(req.body);
         const stream = !!body.stream;
 
@@ -1051,17 +1046,6 @@ export class PuterAIController extends PuterController {
                 legacyCode: 'internal_error',
             });
         return driver;
-    }
-
-    #rejectAppActor(req: Request): void {
-        // Proxy routes are user-only; apps must call puter-chat-completion directly.
-        if (isAppActor(req.actor)) {
-            throw new HttpError(
-                403,
-                'App actors may not proxy to upstream AI APIs',
-                { legacyCode: 'forbidden' },
-            );
-        }
     }
 }
 

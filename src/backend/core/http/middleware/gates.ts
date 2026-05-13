@@ -114,6 +114,27 @@ export const requireUserActorGate = (): RequestHandler => {
     };
 };
 
+export const requireNonAccessTokenGate = (): RequestHandler => {
+    return (req, _res, next) => {
+        const actor = req.actor;
+        if (!actor) {
+            next(rejectAuth(req));
+            return;
+        }
+        if (actor.accessToken) {
+            next(
+                new HttpError(
+                    403,
+                    'Access tokens are not allowed to access this resource',
+                    { legacyCode: 'forbidden' },
+                ),
+            );
+            return;
+        }
+        next();
+    };
+};
+
 /** Built-in admin usernames that always pass `adminOnly`. */
 export const DEFAULT_ADMIN_USERNAMES = ['admin', 'system'] as const;
 

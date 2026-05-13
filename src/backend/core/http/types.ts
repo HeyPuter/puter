@@ -80,11 +80,14 @@ export interface RouteOptions {
      */
     subdomain?: string | string[];
 
-    /** Reject anonymous + suspended-user requests with 401/403. */
+    /** Reject anonymous + suspended-user requests with 401/403. Only allows user and app actors */
     requireAuth?: boolean;
 
     /** Reject app/access-token actors. Implies `requireAuth`. */
     requireUserActor?: boolean;
+
+    /** Allows access-tokens */
+    allowAccessToken?: boolean;
 
     /**
      * Reject unless the actor's username is `admin`, `system`, or one of the

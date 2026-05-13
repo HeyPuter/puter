@@ -37,6 +37,7 @@ import {
     allowedAppIdsGate,
     requireAuthGate,
     requireEmailConfirmedGate,
+    requireNonAccessTokenGate,
     requireUserActorGate,
     requireVerifiedGate,
     subdomainGate,
@@ -791,7 +792,9 @@ export class PuterServer {
             opts.allowedAppIds ||
             opts.requireVerified,
         );
-        if (needsAuth) mwChain.push(requireAuthGate());
+        if (needsAuth) {
+            mwChain.push(requireAuthGate());
+        }
 
         // Default-on email confirmation gate. Every authenticated route
         // rejects users pending confirmation unless `allowUnconfirmed`
@@ -800,6 +803,11 @@ export class PuterServer {
         // flows (logout, confirm-email, whoami, save-account, …).
         if (needsAuth && !opts.allowUnconfirmed) {
             mwChain.push(requireEmailConfirmedGate());
+        }
+
+        // block access tokens by default
+        if (needsAuth && !opts.allowAccessToken) {
+            mwChain.push(requireNonAccessTokenGate());
         }
 
         // `requireVerified` intentionally does NOT imply `requireUserActor`:
@@ -813,7 +821,9 @@ export class PuterServer {
         // token, not only from browser sessions. `adminOnlyGate` gates on
         // `actor.user.username`, which is populated for access-token and
         // app-under-user actors alike.
-        if (opts.requireUserActor) mwChain.push(requireUserActorGate());
+        if (opts.requireUserActor) {
+            mwChain.push(requireUserActorGate());
+        }
 
         if (opts.adminOnly) {
             const extras = Array.isArray(opts.adminOnly) ? opts.adminOnly : [];

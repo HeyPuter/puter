@@ -90,7 +90,7 @@ const DEFAULT_BATCH_WRITE_SIDE_EFFECT_CONCURRENCY = 8;
 
 @Controller('/fs')
 export class FSController extends PuterController {
-    override getReportedCosts(): Record<string, unknown>[] {
+    override getReportedCosts() {
         return Object.entries(FS_COSTS).map(([usageType, ucentsPerUnit]) => ({
             usageType,
             ucentsPerUnit,

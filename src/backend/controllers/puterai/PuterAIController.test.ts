@@ -198,7 +198,7 @@ describe('PuterAIController.registerRoutes', () => {
         );
         expect(chatRoute?.opts).toEqual({
             subdomain: 'api',
-            requireAuth: true,
+            requireUserActor: true,
         });
         const modelsRoute = calls.find(
             (c) => c.path === '/puterai/chat/models',
@@ -272,13 +272,13 @@ describe('PuterAIController.openaiChatCompletions', () => {
         const body = captured.body as Record<string, unknown>;
         expect(body.object).toBe('chat.completion');
         expect(body.model).toBe('gpt-test');
-        expect((body.choices as Array<Record<string, unknown>>)[0]).toMatchObject(
-            {
-                index: 0,
-                message: { role: 'assistant', content: 'hi there' },
-                finish_reason: 'stop',
-            },
-        );
+        expect(
+            (body.choices as Array<Record<string, unknown>>)[0],
+        ).toMatchObject({
+            index: 0,
+            message: { role: 'assistant', content: 'hi there' },
+            finish_reason: 'stop',
+        });
         // total_tokens is computed from prompt + completion.
         expect(body.usage).toEqual({
             prompt_tokens: 4,
@@ -443,13 +443,13 @@ describe('PuterAIController.openaiCompletions', () => {
 
         const body = captured.body as Record<string, unknown>;
         expect(body.object).toBe('text_completion');
-        expect((body.choices as Array<Record<string, unknown>>)[0]).toMatchObject(
-            {
-                text: 'response',
-                index: 0,
-                finish_reason: 'stop',
-            },
-        );
+        expect(
+            (body.choices as Array<Record<string, unknown>>)[0],
+        ).toMatchObject({
+            text: 'response',
+            index: 0,
+            finish_reason: 'stop',
+        });
         expect((body.id as string).startsWith('cmpl-')).toBe(true);
     });
 });
@@ -655,9 +655,8 @@ describe('PuterAIController model listing', () => {
     const captureGetHandler = (
         path: string,
     ): ((req: Request, res: Response) => Promise<void>) => {
-        let handler:
-            | ((req: Request, res: Response) => Promise<void>)
-            | null = null;
+        let handler: ((req: Request, res: Response) => Promise<void>) | null =
+            null;
         const router = {
             post: vi.fn(),
             get: vi.fn((p: string, _opts: unknown, h: never) => {
@@ -719,9 +718,8 @@ describe('PuterAIController videoProxy', () => {
         req: Request,
         res: Response,
     ) => Promise<void>) => {
-        let handler:
-            | ((req: Request, res: Response) => Promise<void>)
-            | null = null;
+        let handler: ((req: Request, res: Response) => Promise<void>) | null =
+            null;
         const router = {
             post: vi.fn(),
             get: vi.fn((path: string, _opts: unknown, h: never) => {
@@ -799,8 +797,9 @@ describe('PuterAIController videoProxy', () => {
     it('500s when url_signature_secret is not configured', async () => {
         // Temporarily blank the secret so the controller hits the
         // 500 branch instead of the constant-time-compare gate.
-        const cfg = (controller as unknown as { config: Record<string, unknown> })
-            .config;
+        const cfg = (
+            controller as unknown as { config: Record<string, unknown> }
+        ).config;
         const orig = cfg.url_signature_secret;
         cfg.url_signature_secret = undefined;
         try {
@@ -826,8 +825,9 @@ describe('PuterAIController videoProxy', () => {
         // Hit the post-signature `provider !== 'gemini'` branch by
         // computing a valid signature for a known fileId/expires combo
         // and then sending a different provider in the query.
-        const cfg = (controller as unknown as { config: Record<string, unknown> })
-            .config;
+        const cfg = (
+            controller as unknown as { config: Record<string, unknown> }
+        ).config;
         const secret = cfg.url_signature_secret as string;
         const fileId = 'abc-123';
         const expires = String(Math.floor(Date.now() / 1000) + 60);
@@ -854,11 +854,16 @@ describe('PuterAIController videoProxy', () => {
     });
 
     it('500s when provider=gemini but no Gemini API key is configured', async () => {
-        const cfg = (controller as unknown as {
-            config: Record<string, unknown> & {
-                providers?: Record<string, Record<string, unknown> | undefined>;
-            };
-        }).config;
+        const cfg = (
+            controller as unknown as {
+                config: Record<string, unknown> & {
+                    providers?: Record<
+                        string,
+                        Record<string, unknown> | undefined
+                    >;
+                };
+            }
+        ).config;
         const secret = cfg.url_signature_secret as string;
         const fileId = 'gemini-no-key';
         const expires = String(Math.floor(Date.now() / 1000) + 60);
@@ -1425,7 +1430,11 @@ describe('PuterAIController.anthropicMessages streaming + helpers', () => {
         );
         const tools = completeSpy.mock.calls[0]![0].tools as Array<{
             type: string;
-            function: { name: string; description: string; parameters: unknown };
+            function: {
+                name: string;
+                description: string;
+                parameters: unknown;
+            };
         }>;
         expect(tools[0]?.type).toBe('function');
         expect(tools[0]?.function.name).toBe('lookup');
@@ -1483,9 +1492,7 @@ describe('PuterAIController.anthropicMessages streaming + helpers', () => {
             res,
         );
         const body = captured.body as { content: Array<{ text: string }> };
-        expect(body.content).toEqual([
-            { type: 'text', text: 'hello world' },
-        ]);
+        expect(body.content).toEqual([{ type: 'text', text: 'hello world' }]);
     });
 
     it('reads tool_use blocks from message.content (not just message.tool_calls)', async () => {
@@ -1536,9 +1543,8 @@ describe('PuterAIController model details', () => {
     const captureGetHandler = (
         path: string,
     ): ((req: Request, res: Response) => Promise<void>) => {
-        let handler:
-            | ((req: Request, res: Response) => Promise<void>)
-            | null = null;
+        let handler: ((req: Request, res: Response) => Promise<void>) | null =
+            null;
         const router = {
             post: vi.fn(),
             get: vi.fn((p: string, _opts: unknown, h: never) => {
