@@ -28,6 +28,7 @@ import {
     buildAppCenterFallback,
     buildHostingConfig,
     buildPrivateHostRedirect,
+    buildPublicHostRedirect,
     getBootstrapToken,
     hostMatchesPrivateDomain,
     normalizeHost,
@@ -350,6 +351,73 @@ describe('buildPrivateHostRedirect', () => {
             buildPrivateHostRedirect(
                 reqOf({ hostname: 'site.puter.localhost' }),
                 { name: 'beans' },
+                cfg,
+            ),
+        ).toBeNull();
+    });
+});
+
+describe('buildPublicHostRedirect', () => {
+    // Mirror of buildPrivateHostRedirect — swaps the private hosting
+    // domain for the public one. Used when a non-private app (or no app
+    // at all) hits the private host, so a paid-→-free app's old
+    // `puter.app` URL still resolves on `puter.site`.
+    const cfg = buildHostingConfig({
+        domain: 'puter.localhost',
+        static_hosting_domain: 'site.puter.localhost:4100',
+        static_hosting_domain_alt: null,
+        private_app_hosting_domain: 'app.puter.localhost',
+        private_app_hosting_domain_alt: null,
+        protocol: 'http',
+    } as unknown as IConfig);
+
+    const reqOf = (init: Partial<Request>): Request =>
+        ({
+            hostname: init.hostname,
+            originalUrl: init.originalUrl,
+            protocol: init.protocol ?? 'http',
+            headers: init.headers ?? {},
+        }) as unknown as Request;
+
+    it('swaps the private hosting domain for the public one (preserving port + path + query)', () => {
+        const url = buildPublicHostRedirect(
+            reqOf({
+                hostname: 'beans.app.puter.localhost',
+                originalUrl: '/some/path?x=1',
+            }),
+            cfg,
+        );
+        expect(url).toBe(
+            'http://beans.site.puter.localhost:4100/some/path?x=1',
+        );
+    });
+
+    it("defaults the path to '/' when originalUrl is empty", () => {
+        const url = buildPublicHostRedirect(
+            reqOf({ hostname: 'beans.app.puter.localhost' }),
+            cfg,
+        );
+        expect(url).toBe('http://beans.site.puter.localhost:4100/');
+    });
+
+    it('returns null when no public hosting domain is configured', () => {
+        const noPublic = {
+            ...cfg,
+            staticDomains: [],
+            staticDomainsRaw: [],
+        };
+        expect(
+            buildPublicHostRedirect(
+                reqOf({ hostname: 'beans.app.puter.localhost' }),
+                noPublic,
+            ),
+        ).toBeNull();
+    });
+
+    it('returns null for the bare private host (no subdomain to forward)', () => {
+        expect(
+            buildPublicHostRedirect(
+                reqOf({ hostname: 'app.puter.localhost' }),
                 cfg,
             ),
         ).toBeNull();

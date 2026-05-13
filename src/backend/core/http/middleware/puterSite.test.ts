@@ -114,6 +114,7 @@ const makeRes = () => {
 const makeReq = (init: {
     hostname: string;
     path?: string;
+    originalUrl?: string;
     protocol?: string;
     headers?: Record<string, string>;
     cookies?: Record<string, string>;
@@ -121,6 +122,9 @@ const makeReq = (init: {
     ({
         hostname: init.hostname,
         path: init.path ?? '/',
+        // Redirect helpers use originalUrl (preserves query string).
+        // Default to `path` when caller doesn't care to distinguish.
+        originalUrl: init.originalUrl ?? init.path ?? '/',
         protocol: init.protocol ?? 'http',
         headers: init.headers ?? {},
         cookies: init.cookies ?? {},
@@ -358,12 +362,15 @@ describe('createPuterSiteMiddleware — subdomain lookup', () => {
     });
 });
 
-// ── Private hosting domain refusal ──────────────────────────────────
+// ── Private hosting domain → public-host redirect ───────────────────
 
 describe('createPuterSiteMiddleware — private hosting domain', () => {
-    it('404s a subdomain on the private host that has no private app (prevents public-site leak via private host)', async () => {
+    it('302s a subdomain on the private host with no private app to the equivalent puter.site URL (covers freed-paid-app bookmarks + plain hosted sites)', async () => {
         // Owner exists, subdomain exists, but it has no associated
-        // private app. On the *private* host this must refuse, not serve.
+        // private app. On the *private* host this used to 404; now it
+        // mirrors the public→private redirect so a paid app whose price
+        // dropped to 0 still resolves on `puter.site` when accessed via
+        // its old `puter.app` URL.
         const owner = await makeUser();
         const sub = `leak-${Math.random().toString(36).slice(2, 8)}`;
         await server.stores.subdomain.create({
@@ -376,15 +383,18 @@ describe('createPuterSiteMiddleware — private hosting domain', () => {
             makeReq({
                 // Note: app.puter.localhost is the *private* hosting domain.
                 hostname: `${sub}.app.puter.localhost`,
+                path: '/some/deep/path.html',
             }),
         );
-        expect(out.statusCode).toBe(404);
-        expect(out.body).toBe('Subdomain not found');
+        expect(out.redirected).toEqual({
+            status: 302,
+            url: `http://${sub}.site.puter.localhost/some/deep/path.html`,
+        });
     });
 
-    it('uses the alt private hosting domain when configured', async () => {
+    it('uses the alt private hosting domain when configured (same redirect to the public host)', async () => {
         // Coverage for the `private_app_hosting_domain_alt` slot — same
-        // refusal logic, but via the alternate host that the deployment
+        // redirect logic, but via the alternate host that the deployment
         // can use for legacy traffic.
         const owner = await makeUser();
         const sub = `altleak-${Math.random().toString(36).slice(2, 8)}`;
@@ -399,8 +409,40 @@ describe('createPuterSiteMiddleware — private hosting domain', () => {
             mw,
             makeReq({ hostname: `${sub}.apps.alt.localhost` }),
         );
+        expect(out.redirected).toEqual({
+            status: 302,
+            url: `http://${sub}.site.puter.localhost/`,
+        });
+    });
+
+    it('falls back to 404 when no public hosting domain is configured (no leak)', async () => {
+        // Without a static_hosting_domain to redirect to we have no safe
+        // target; the original refusal must still apply so a public-app
+        // subdomain doesn't accidentally serve via the private host.
+        const owner = await makeUser();
+        const sub = `nopub-${Math.random().toString(36).slice(2, 8)}`;
+        await server.stores.subdomain.create({
+            userId: owner.id,
+            subdomain: sub,
+        });
+        const mw = createPuterSiteMiddleware(
+            {
+                ...hostingConfig,
+                static_hosting_domain: null,
+            } as unknown as IConfig,
+            {
+                clients: server.clients,
+                stores: server.stores,
+                services: server.services,
+            },
+        );
+        const { out } = await runMiddleware(
+            mw,
+            makeReq({ hostname: `${sub}.app.puter.localhost` }),
+        );
         expect(out.statusCode).toBe(404);
         expect(out.body).toBe('Subdomain not found');
+        expect(out.redirected).toBeUndefined();
     });
 });
 
@@ -466,12 +508,7 @@ describe('createPuterSiteMiddleware — file serving', () => {
             rootDirId: homeEntry!.id,
         });
         const body = Buffer.from('<html>hi</html>');
-        await writeFile(
-            owner.id,
-            `${homePath}/index.html`,
-            body,
-            'text/html',
-        );
+        await writeFile(owner.id, `${homePath}/index.html`, body, 'text/html');
 
         const mw = buildMiddleware();
         const { res, out } = makeRes();
@@ -546,12 +583,7 @@ describe('createPuterSiteMiddleware — file serving', () => {
             rootDirId: homeEntry!.id,
         });
         const body = Buffer.from('default doc');
-        await writeFile(
-            owner.id,
-            `${homePath}/index.html`,
-            body,
-            'text/html',
-        );
+        await writeFile(owner.id, `${homePath}/index.html`, body, 'text/html');
 
         const mw = buildMiddleware();
         const { res, out } = makeRes();
@@ -657,11 +689,7 @@ describe('createPuterSiteMiddleware — file serving', () => {
         const body = Buffer.from('not a directory');
         // Write a file and use ITS id as the subdomain's root_dir_id —
         // the middleware must reject because root must be a directory.
-        await writeFile(
-            owner.id,
-            `${homePath}/Documents/somefile.txt`,
-            body,
-        );
+        await writeFile(owner.id, `${homePath}/Documents/somefile.txt`, body);
         const fileEntry = await server.stores.fsEntry.getEntryByPath(
             `${homePath}/Documents/somefile.txt`,
         );
@@ -733,12 +761,7 @@ describe('createPuterSiteMiddleware — file serving', () => {
             rootDirId: homeEntry!.id,
         });
         const body = Buffer.from('inside');
-        await writeFile(
-            owner.id,
-            `${homePath}/safe.txt`,
-            body,
-            'text/plain',
-        );
+        await writeFile(owner.id, `${homePath}/safe.txt`, body, 'text/plain');
 
         const mw = buildMiddleware();
         const { res, out } = makeRes();
