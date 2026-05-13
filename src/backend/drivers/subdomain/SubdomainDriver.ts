@@ -81,11 +81,11 @@ export class SubdomainDriver extends PuterDriver {
     // same shape — the three crud-q drivers share one envelope.
     readonly rateLimit: DriverRateLimitConfig = {
         default: {
-            limit: 100,
+            limit: 200,
             window: 10_000,
             bySubscription: {
-                [DEFAULT_FREE_SUBSCRIPTION]: 100,
-                [DEFAULT_TEMP_SUBSCRIPTION]: 50,
+                [DEFAULT_FREE_SUBSCRIPTION]: 200,
+                [DEFAULT_TEMP_SUBSCRIPTION]: 100,
             },
         },
     };

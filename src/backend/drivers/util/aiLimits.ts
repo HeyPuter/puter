@@ -42,21 +42,21 @@ import type { DriverConcurrentConfig, DriverRateLimitConfig } from '../meta.js';
 
 export const AI_RATE_LIMIT: DriverRateLimitConfig = {
     default: {
-        limit: 100, // subscribed / paid tier
+        limit: 200, // subscribed / paid tier
         window: 10_000,
         bySubscription: {
-            [DEFAULT_FREE_SUBSCRIPTION]: 30, // verified registered user
-            [DEFAULT_TEMP_SUBSCRIPTION]: 20, // temp / anonymous-email user
+            [DEFAULT_FREE_SUBSCRIPTION]: 60, // verified registered user
+            [DEFAULT_TEMP_SUBSCRIPTION]: 40, // temp / anonymous-email user
         },
     },
 };
 
 export const AI_CONCURRENT: DriverConcurrentConfig = {
     default: {
-        limit: 10, // subscribed / paid tier
+        limit: 20, // subscribed / paid tier
         bySubscription: {
-            [DEFAULT_FREE_SUBSCRIPTION]: 3, // verified registered user
-            [DEFAULT_TEMP_SUBSCRIPTION]: 2, // temp / anonymous-email user
+            [DEFAULT_FREE_SUBSCRIPTION]: 6, // verified registered user
+            [DEFAULT_TEMP_SUBSCRIPTION]: 4, // temp / anonymous-email user
         },
     },
 };
