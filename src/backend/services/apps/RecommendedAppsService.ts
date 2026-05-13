@@ -30,6 +30,7 @@ const RECOMMENDED_APP_NAMES = [
     'editor',
     'code',
     'camera',
+    'jspaint',
     'music-player',
     'recorder',
     'memos',
