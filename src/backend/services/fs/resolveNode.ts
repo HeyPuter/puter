@@ -72,7 +72,9 @@ export async function resolveNode(
     if (ref.id !== undefined && ref.id !== null && String(ref.id).length > 0) {
         const numericId = Number(ref.id);
         if (!Number.isFinite(numericId)) {
-            throw new HttpError(400, 'Invalid id');
+            throw new HttpError(400, 'Invalid id', {
+                legacyCode: 'bad_request',
+            });
         }
         const entry = await fsEntryStore.getEntryById(numericId);
         if (entry) return entry;
@@ -94,6 +96,7 @@ export async function resolveNode(
     throw new HttpError(
         400,
         'Missing entry reference (expected one of: path, uid, id)',
+        { legacyCode: 'bad_request' },
     );
 }
 
@@ -118,7 +121,9 @@ export function splitParentAndName(absolutePath: string): {
 } {
     const normalized = normalizeAbsolutePath(absolutePath);
     if (normalized === '/') {
-        throw new HttpError(400, 'Cannot derive parent of root');
+        throw new HttpError(400, 'Cannot derive parent of root', {
+            legacyCode: 'bad_request',
+        });
     }
     const parentPath = pathPosix.dirname(normalized);
     const name = pathPosix.basename(normalized);
@@ -128,7 +133,9 @@ export function splitParentAndName(absolutePath: string): {
 export function normalizeAbsolutePath(path: string): string {
     const trimmed = typeof path === 'string' ? path.trim() : '';
     if (trimmed.length === 0) {
-        throw new HttpError(400, 'Path cannot be empty');
+        throw new HttpError(400, 'Path cannot be empty', {
+            legacyCode: 'bad_request',
+        });
     }
     let normalized = pathPosix.normalize(trimmed);
     if (!normalized.startsWith('/')) {
@@ -151,7 +158,9 @@ export function expandTildePath(path: string, username?: string): string {
     const trimmed = path.trim();
     if (trimmed !== '~' && !trimmed.startsWith('~/')) return path;
     if (!username) {
-        throw new HttpError(400, 'Unable to resolve home path');
+        throw new HttpError(400, 'Unable to resolve home path', {
+            legacyCode: 'bad_request',
+        });
     }
     return `/${username}${trimmed.slice(1)}`;
 }
@@ -162,10 +171,14 @@ export function expandTildePath(path: string, username?: string): string {
  */
 export function joinChildPath(parentPath: string, name: string): string {
     if (typeof name !== 'string' || name.length === 0) {
-        throw new HttpError(400, 'Name cannot be empty');
+        throw new HttpError(400, 'Name cannot be empty', {
+            legacyCode: 'bad_request',
+        });
     }
     if (name.includes('/')) {
-        throw new HttpError(400, 'Name cannot contain a slash');
+        throw new HttpError(400, 'Name cannot contain a slash', {
+            legacyCode: 'bad_request',
+        });
     }
     const parent = normalizeAbsolutePath(parentPath);
     return parent === '/' ? `/${name}` : `${parent}/${name}`;

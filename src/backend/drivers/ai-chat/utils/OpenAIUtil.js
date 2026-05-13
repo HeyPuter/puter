@@ -384,20 +384,10 @@ export const create_chat_stream_handler_responses_api =
         chatStream.end(usage);
     };
 
-/**
- *
- * @param {object} params
- * @param {(args: {usage: import("openai/resources/completions.mjs").CompletionUsage})=> unknown } params.usage_calculator
- * @returns
- */
-export const handle_completion_output = async ({
-    deviations,
-    stream,
-    completion,
-    moderate,
-    usage_calculator,
-    finally_fn,
-}) => {
+export const handle_completion_output = async (
+    /** @type {Record<string,unknown> & {usage_calculator:(args: {usage: import("openai/resources/completions.mjs").CompletionUsage})=> unknown }}*/
+    { deviations, stream, completion, moderate, usage_calculator, finally_fn },
+) => {
     deviations = Object.assign(
         {
             // affected by: Mistral

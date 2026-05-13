@@ -91,10 +91,6 @@ const ar = {
         credits: 'الاعتمادات',
         current_password: 'كلمة المرور الحالية',
         cut: 'قص',
-        clock: 'ساعة',
-        clock_visible_hide: 'إخفاء - مخفية دائمًا',
-        clock_visible_show: 'إظهار - مرئية دائمًا',
-        clock_visible_auto: '.تلقائي - الافتراضي، مرئي فقط في وضع الشاشة الكاملة',
         close_all: 'إغلاق الكل',
         created: 'تم الإنشاء',
         date_modified: 'تاريخ التعديل',
@@ -363,7 +359,6 @@ const ar = {
         login2fa_recovery_placeholder: 'XXXXXXXX',
 
         change: 'تغيير', // In English: "Change"
-        clock_visibility: 'ظهور الساعة', // In English: "Clock Visibility"
         reading: '%strong% قراءة', // In English: "Reading %strong%"
         writing: '%strong% كتابة', // In English: "Writing %strong%"
         unzipping: '%strong% فك الضغط', // In English: "Unzipping %strong%"

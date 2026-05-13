@@ -114,11 +114,17 @@ export function captchaGate(enabled) {
             const { captchaToken, captchaAnswer } = req.body ?? {};
             if (!captchaToken || !captchaAnswer) {
                 return next(
-                    new HttpError(400, 'Captcha verification required.'),
+                    new HttpError(400, 'Captcha verification required.', {
+                        legacyCode: 'bad_request',
+                    }),
                 );
             }
             if (!(await verifyCaptcha(captchaToken, captchaAnswer))) {
-                return next(new HttpError(400, 'Invalid captcha response.'));
+                return next(
+                    new HttpError(400, 'Invalid captcha response.', {
+                        legacyCode: 'bad_request',
+                    }),
+                );
             }
             next();
         } catch (err) {

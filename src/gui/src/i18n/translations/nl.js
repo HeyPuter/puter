@@ -84,10 +84,6 @@ const nl = {
         credits: 'Credits',
         current_password: 'Huidig Wachtwoord',
         cut: 'Knippen',
-        clock: 'Klok',
-        clock_visible_hide: 'Verbergen - Altijd verborgen',
-        clock_visible_show: 'Weergeven - Altijd zichtbaar',
-        clock_visible_auto: 'Auto - Standaard, alleen zichtbaar in de volledige schermmodus.',
         close_all: 'Alles Sluiten',
         created: 'Gemaakt',
         date_modified: 'Datum Gewijzigd',
@@ -344,7 +340,6 @@ const nl = {
         login2fa_recovery_placeholder: 'XXXXXXXX',
 
         'change': 'Wijzig',
-        'clock_visibility': 'Klok zichtbaarheid',
         'reading': 'Lezen %strong%',
         'writing': 'Schrijven %strong%',
         'unzipping': 'Decomprimeren %strong%',

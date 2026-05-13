@@ -21,12 +21,12 @@ import { Mistral } from '@mistralai/mistralai';
 import { ChatCompletionResponse } from '@mistralai/mistralai/models/components/chatcompletionresponse.js';
 import { Context } from '../../../../core/context.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
-import * as OpenAIUtil from '../../utils/OpenAIUtil.js';
 import type {
+    IChatCompleteResult,
     IChatProvider,
     ICompleteArguments,
-    IChatCompleteResult,
 } from '../../types.js';
+import * as OpenAIUtil from '../../utils/OpenAIUtil.js';
 import { MISTRAL_MODELS } from './models.js';
 
 export class MistralAIProvider implements IChatProvider {
@@ -42,7 +42,7 @@ export class MistralAIProvider implements IChatProvider {
     }
 
     getDefaultModel() {
-        return 'mistral-small-2506';
+        return 'mistral-small-2603';
     }
 
     async models() {

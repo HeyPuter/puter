@@ -19,9 +19,15 @@
 
 import type { RequestHandler } from 'express';
 import type { puterClients } from './clients';
-import type { IPuterClientRegistry } from './clients/types';
+import type {
+    IExtensionClientInstances,
+    IPuterClientRegistry,
+} from './clients/types';
 import type { puterControllers } from './controllers';
-import type { IPuterControllerRegistry } from './controllers/types';
+import type {
+    IExtensionControllerInstances,
+    IPuterControllerRegistry,
+} from './controllers/types';
 import type {
     RouteDescriptor,
     RouteMethod,
@@ -29,7 +35,10 @@ import type {
     RoutePath,
 } from './core/http/types';
 import type { puterDrivers } from './drivers';
-import type { IPuterDriverRegistry } from './drivers/types';
+import type {
+    IExtensionDriverInstances,
+    IPuterDriverRegistry,
+} from './drivers/types';
 import {
     clientsContainers,
     configContainer,
@@ -39,9 +48,15 @@ import {
     storesContainers,
 } from './exports';
 import type { puterServices } from './services';
-import type { IPuterServiceRegistry } from './services/types';
+import type {
+    IExtensionServiceInstances,
+    IPuterServiceRegistry,
+} from './services/types';
 import type { puterStores } from './stores';
-import type { IPuterStoreRegistry } from './stores/types';
+import type {
+    IExtensionStoreInstances,
+    IPuterStoreRegistry,
+} from './stores/types';
 import type { IConfig, LayerInstances } from './types';
 
 /**
@@ -267,15 +282,17 @@ export const extension = {
     import: <S extends string>(
         name: S,
     ): S extends 'client'
-        ? LayerInstances<typeof puterClients>
+        ? LayerInstances<typeof puterClients> & IExtensionClientInstances
         : S extends 'store'
-          ? LayerInstances<typeof puterStores>
+          ? LayerInstances<typeof puterStores> & IExtensionStoreInstances
           : S extends 'service'
-            ? LayerInstances<typeof puterServices>
+            ? LayerInstances<typeof puterServices> & IExtensionServiceInstances
             : S extends 'controller'
-              ? LayerInstances<typeof puterControllers>
+              ? LayerInstances<typeof puterControllers> &
+                    IExtensionControllerInstances
               : S extends 'driver'
-                ? LayerInstances<typeof puterDrivers>
+                ? LayerInstances<typeof puterDrivers> &
+                      IExtensionDriverInstances
                 : never => {
         switch (name) {
             case 'client': {

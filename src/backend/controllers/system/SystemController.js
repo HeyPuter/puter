@@ -87,12 +87,15 @@ export class SystemController extends PuterController {
             async (req, res) => {
                 const { message } = req.body ?? {};
                 if (!message || typeof message !== 'string') {
-                    throw new HttpError(400, '`message` is required');
+                    throw new HttpError(400, '`message` is required', {
+                        legacyCode: 'bad_request',
+                    });
                 }
                 if (message.length > 100_000) {
                     throw new HttpError(
                         400,
                         '`message` is too long (max 100,000 characters)',
+                        { legacyCode: 'bad_request' },
                     );
                 }
 

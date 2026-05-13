@@ -77,6 +77,7 @@ export class AppController extends PuterController {
                     throw new HttpError(
                         400,
                         'Missing or invalid `name` query param',
+                        { legacyCode: 'bad_request' },
                     );
                 }
                 const available = await this.appDriver.isNameAvailable(name);
@@ -102,11 +103,16 @@ export class AppController extends PuterController {
                         ? bodyAppUid
                         : actorAppUid;
                 if (!app_uid || typeof app_uid !== 'string') {
-                    throw new HttpError(400, 'Missing or invalid `app_uid`');
+                    throw new HttpError(400, 'Missing or invalid `app_uid`', {
+                        legacyCode: 'bad_request',
+                    });
                 }
 
                 const app = await this.appStore.getByUid(app_uid);
-                if (!app) throw new HttpError(404, 'App not found');
+                if (!app)
+                    throw new HttpError(404, 'App not found', {
+                        legacyCode: 'not_found',
+                    });
 
                 // Persist open record
                 try {
@@ -180,7 +186,10 @@ export class AppController extends PuterController {
                 // Single-name requests return the app directly; batch returns an array
                 if (names.length === 1) {
                     const single = results[0];
-                    if (!single) throw new HttpError(404, 'App not found');
+                    if (!single)
+                        throw new HttpError(404, 'App not found', {
+                            legacyCode: 'not_found',
+                        });
                     return res.json(single);
                 }
                 res.json(results);
@@ -218,6 +227,7 @@ export class AppController extends PuterController {
                     throw new HttpError(
                         400,
                         `request body must contain at most ${QUERY_APP_MAX_ENTRIES} selectors`,
+                        { legacyCode: 'bad_request' },
                     );
                 }
 

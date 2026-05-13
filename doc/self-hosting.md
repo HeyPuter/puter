@@ -14,7 +14,7 @@ Generates secrets, writes `.env` + `puter/config/config.json`, downloads `docker
 
 - **Docker** with the `compose` plugin.
 - A **domain** with DNS access — you need a wildcard record (`*.your-domain.com` → server IP). Puter routes by subdomain (`api.<domain>`, `site.<domain>`, `app.<domain>`).
-- Optional: **TLS certs** (or `certbot` to grab them — see Step 4).
+- Optional: **TLS certs** (or `certbot` to grab them — see Step 3).
 
 ## What's running
 
@@ -259,6 +259,39 @@ To require email confirmation before login, also set `"strict_email_verification
 ```
 
 Add `https://puter.<your-domain>/auth/oidc/callback/login` to the OAuth client's authorized redirect URIs in the Google Cloud Console. For non-Google providers, replace `google` with a custom id and supply `authorization_endpoint` / `token_endpoint` / `userinfo_endpoint` explicitly.
+
+### Sign in with Apple
+
+```json
+"oidc": {
+    "providers": {
+        "apple": {
+            "client_id": "com.example.your-service-id",
+            "team_id": "YOUR_TEAM_ID",
+            "key_id": "YOUR_KEY_ID",
+            "private_key": "-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----"
+        }
+    }
+}
+```
+
+The `client_id` is your Apple Services ID. `team_id`, `key_id`, and `private_key` come from the Apple Developer Portal (Keys section — create a key with "Sign in with Apple" enabled). The `private_key` is the contents of the `.p8` file Apple provides. Add `https://puter.<your-domain>/auth/oidc/callback/login` and `https://puter.<your-domain>/auth/oidc/callback/signup` as return URLs in the Apple Services ID configuration.
+
+### Sign in with Microsoft
+
+```json
+"oidc": {
+    "providers": {
+        "microsoft": {
+            "client_id": "YOUR_APPLICATION_CLIENT_ID",
+            "client_secret": "YOUR_CLIENT_SECRET_VALUE",
+            "tenant_id": "YOUR_TENANT_ID"
+        }
+    }
+}
+```
+
+Register an app in the Azure Portal (Microsoft Entra ID → App registrations). The `client_id` is the Application (client) ID, `client_secret` is a client secret value, and `tenant_id` is the Directory (tenant) ID. Use `common` as `tenant_id` to allow any Microsoft account (personal and organizational); omit it to default to `common`. Add `https://puter.<your-domain>/auth/oidc/callback/login` and `https://puter.<your-domain>/auth/oidc/callback/signup` as redirect URIs under Authentication in the app registration.
 
 ### AI providers
 

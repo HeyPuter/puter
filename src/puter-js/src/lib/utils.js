@@ -521,7 +521,7 @@ async function driverCall_ (
         }
 
         // HTTP Error - unauthorized
-        if ( response.status === 401 || resp?.code === 'token_auth_failed' ) {
+        if ( response.target.status === 401 || resp?.code === 'token_auth_failed' ) {
             if ( resp?.code === 'token_auth_failed' && puter.env === 'web' ) {
                 try {
                     puter.resetAuthToken();
@@ -543,7 +543,7 @@ async function driverCall_ (
             return reject_func({ status: 401, message: 'Unauthorized' });
         }
         // HTTP Error - other
-        else if ( response.status && response.status !== 200 ) {
+        else if ( response.target.status && response.target.status !== 200 ) {
             // if error callback is provided, call it
             error_cb(resp);
             // reject promise

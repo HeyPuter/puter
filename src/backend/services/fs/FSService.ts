@@ -256,10 +256,16 @@ export class FSService extends PuterService {
     #normalizePath(path: string): string {
         const trimmedPath = path.trim();
         if (trimmedPath.length === 0) {
-            throw new HttpError(400, 'Path cannot be empty');
+            throw new HttpError(400, 'Path cannot be empty', {
+                legacyCode: 'bad_request',
+            });
         }
         if (trimmedPath === '~' || trimmedPath.startsWith('~/')) {
-            throw new HttpError(400, 'Home path must be resolved before write');
+            throw new HttpError(
+                400,
+                'Home path must be resolved before write',
+                { legacyCode: 'bad_request' },
+            );
         }
 
         let normalizedPath = pathPosix.normalize(trimmedPath);
@@ -276,7 +282,9 @@ export class FSService extends PuterService {
         const bucket =
             metadata.bucket ?? this.config.s3_bucket ?? 'puter-local';
         if (typeof bucket !== 'string' || bucket.length === 0) {
-            throw new HttpError(500, 'Missing S3 bucket configuration');
+            throw new HttpError(500, 'Missing S3 bucket configuration', {
+                legacyCode: 'internal_error',
+            });
         }
         return bucket;
     }
@@ -289,7 +297,9 @@ export class FSService extends PuterService {
             'us-west-2';
 
         if (typeof bucketRegion !== 'string' || bucketRegion.length === 0) {
-            throw new HttpError(500, 'Missing S3 region configuration');
+            throw new HttpError(500, 'Missing S3 region configuration', {
+                legacyCode: 'internal_error',
+            });
         }
 
         return bucketRegion;
@@ -301,12 +311,16 @@ export class FSService extends PuterService {
     ): NormalizedWriteInput {
         const normalizedPath = this.#normalizePath(metadata.path);
         if (normalizedPath === '/') {
-            throw new HttpError(400, 'Cannot write to root path');
+            throw new HttpError(400, 'Cannot write to root path', {
+                legacyCode: 'cannot_write_to_root',
+            });
         }
 
         const size = Number(metadata.size);
         if (Number.isNaN(size) || size < 0) {
-            throw new HttpError(400, 'Invalid file size');
+            throw new HttpError(400, 'Invalid file size', {
+                legacyCode: 'bad_request',
+            });
         }
 
         const metadataRecord = metadata as unknown as Record<string, unknown>;
@@ -357,7 +371,9 @@ export class FSService extends PuterService {
             }
         }
 
-        throw new HttpError(409, 'Unable to resolve deduped file path');
+        throw new HttpError(409, 'Unable to resolve deduped file path', {
+            legacyCode: 'conflict',
+        });
     }
 
     async #resolveWriteTargets(
@@ -422,6 +438,7 @@ export class FSService extends PuterService {
                         throw new HttpError(
                             409,
                             `Batch contains duplicate target path: ${normalizedInput.path}`,
+                            { legacyCode: 'conflict' },
                         );
                     }
                 } else if (normalizedInput.dedupeName) {
@@ -439,6 +456,7 @@ export class FSService extends PuterService {
                     throw new HttpError(
                         409,
                         `Batch contains duplicate target path: ${normalizedInput.path}`,
+                        { legacyCode: 'conflict' },
                     );
                 }
             }
@@ -447,12 +465,14 @@ export class FSService extends PuterService {
                 throw new HttpError(
                     409,
                     'Cannot overwrite an existing directory',
+                    { legacyCode: 'cannot_overwrite_a_directory' },
                 );
             }
             if (existingEntry && !normalizedInput.overwrite) {
                 throw new HttpError(
                     409,
                     'A file already exists at this path and overwrite was not requested',
+                    { legacyCode: 'conflict' },
                 );
             }
 
@@ -612,7 +632,9 @@ export class FSService extends PuterService {
 
     #parseSessionMetadata(session: PendingUploadSession): FSEntryCreateInput {
         if (!session.metadataJson) {
-            throw new HttpError(500, 'Upload session metadata is missing');
+            throw new HttpError(500, 'Upload session metadata is missing', {
+                legacyCode: 'internal_error',
+            });
         }
 
         const parsedMetadata = JSON.parse(
@@ -849,7 +871,9 @@ export class FSService extends PuterService {
             };
         }
 
-        throw new HttpError(400, 'Unsupported file content payload');
+        throw new HttpError(400, 'Unsupported file content payload', {
+            legacyCode: 'bad_request',
+        });
     }
 
     async #cleanupPreparedBatchUploads(
@@ -1186,6 +1210,7 @@ export class FSService extends PuterService {
             throw new HttpError(
                 400,
                 `Batch metadata was not found for index ${input.itemIndex}`,
+                { legacyCode: 'bad_request' },
             );
         }
 
@@ -1240,6 +1265,7 @@ export class FSService extends PuterService {
                 throw new HttpError(
                     400,
                     'Some batch files were missing upload content',
+                    { legacyCode: 'bad_request' },
                 );
             }
 
@@ -1259,6 +1285,7 @@ export class FSService extends PuterService {
                     throw new HttpError(
                         400,
                         `Missing uploaded file content for index ${item.index}`,
+                        { legacyCode: 'bad_request' },
                     );
                 }
                 item.normalizedInput.size = uploadedItem.uploadedSize;
@@ -1513,6 +1540,7 @@ export class FSService extends PuterService {
                 throw new HttpError(
                     409,
                     `Batch contains duplicate target path: ${targetPath}`,
+                    { legacyCode: 'conflict' },
                 );
             }
             directoryPathSet.add(targetPath);
@@ -1862,13 +1890,17 @@ export class FSService extends PuterService {
         request: SignMultipartPartsRequest,
     ): Promise<SignMultipartPartsResponse> {
         if (!request?.uploadId) {
-            throw new HttpError(400, 'Missing uploadId');
+            throw new HttpError(400, 'Missing uploadId', {
+                legacyCode: 'bad_request',
+            });
         }
         if (
             !Array.isArray(request.partNumbers) ||
             request.partNumbers.length === 0
         ) {
-            throw new HttpError(400, 'Missing partNumbers');
+            throw new HttpError(400, 'Missing partNumbers', {
+                legacyCode: 'bad_request',
+            });
         }
 
         const uniquePartNumbers = Array.from(
@@ -1880,22 +1912,29 @@ export class FSService extends PuterService {
                     !Number.isInteger(partNumber) || partNumber <= 0,
             )
         ) {
-            throw new HttpError(400, 'Invalid partNumbers');
+            throw new HttpError(400, 'Invalid partNumbers', {
+                legacyCode: 'bad_request',
+            });
         }
 
         const session = await this.stores.fsEntry.getPendingEntryBySessionId(
             request.uploadId,
         );
         if (!session) {
-            throw new HttpError(404, 'Upload session was not found');
+            throw new HttpError(404, 'Upload session was not found', {
+                legacyCode: 'not_found',
+            });
         }
         if (session.userId !== userId) {
-            throw new HttpError(403, 'Upload session access denied');
+            throw new HttpError(403, 'Upload session access denied', {
+                legacyCode: 'forbidden',
+            });
         }
         if (session.status !== 'pending') {
             throw new HttpError(
                 409,
                 `Upload session is not pending (status=${session.status})`,
+                { legacyCode: 'conflict' },
             );
         }
         if (session.expiresAt < Date.now()) {
@@ -1903,15 +1942,20 @@ export class FSService extends PuterService {
                 session.sessionId,
                 'Upload session expired',
             );
-            throw new HttpError(400, 'Upload session expired');
+            throw new HttpError(400, 'Upload session expired', {
+                legacyCode: 'session_required',
+            });
         }
         if (session.uploadMode !== 'multipart') {
-            throw new HttpError(400, 'Upload session is not multipart');
+            throw new HttpError(400, 'Upload session is not multipart', {
+                legacyCode: 'bad_request',
+            });
         }
         if (!session.multipartUploadId) {
             throw new HttpError(
                 400,
                 'Multipart upload id missing from session',
+                { legacyCode: 'bad_request' },
             );
         }
         const multipartPartCount = session.multipartPartCount;
@@ -1924,12 +1968,14 @@ export class FSService extends PuterService {
             throw new HttpError(
                 400,
                 'Part number exceeds multipart part count',
+                { legacyCode: 'bad_request' },
             );
         }
         if (!session.bucket || !session.bucketRegion) {
             throw new HttpError(
                 500,
                 'Upload session storage metadata is missing',
+                { legacyCode: 'internal_error' },
             );
         }
 
@@ -1970,15 +2016,20 @@ export class FSService extends PuterService {
             completeWriteRequest.uploadId,
         );
         if (!session) {
-            throw new HttpError(404, 'Upload session was not found');
+            throw new HttpError(404, 'Upload session was not found', {
+                legacyCode: 'not_found',
+            });
         }
         if (session.userId !== userId) {
-            throw new HttpError(403, 'Upload session access denied');
+            throw new HttpError(403, 'Upload session access denied', {
+                legacyCode: 'forbidden',
+            });
         }
         if (session.status !== 'pending') {
             throw new HttpError(
                 409,
                 `Upload session is not pending (status=${session.status})`,
+                { legacyCode: 'conflict' },
             );
         }
         if (session.expiresAt < Date.now()) {
@@ -1986,7 +2037,9 @@ export class FSService extends PuterService {
                 session.sessionId,
                 'Upload session expired',
             );
-            throw new HttpError(400, 'Upload session expired');
+            throw new HttpError(400, 'Upload session expired', {
+                legacyCode: 'session_required',
+            });
         }
 
         const createInput = this.#parseSessionMetadata(session);
@@ -2000,6 +2053,7 @@ export class FSService extends PuterService {
                     throw new HttpError(
                         400,
                         'Multipart upload id missing from session',
+                        { legacyCode: 'bad_request' },
                     );
                 }
 
@@ -2010,6 +2064,7 @@ export class FSService extends PuterService {
                     throw new HttpError(
                         400,
                         'Multipart upload completion requires parts',
+                        { legacyCode: 'bad_request' },
                     );
                 }
 
@@ -2070,6 +2125,7 @@ export class FSService extends PuterService {
             throw new HttpError(
                 409,
                 'Batch contains duplicate upload session ids',
+                { legacyCode: 'conflict' },
             );
         }
 
@@ -2088,15 +2144,20 @@ export class FSService extends PuterService {
             const request = completeWriteRequests[index];
             const session = sessions[index];
             if (!request || !session) {
-                throw new HttpError(404, 'Upload session was not found');
+                throw new HttpError(404, 'Upload session was not found', {
+                    legacyCode: 'not_found',
+                });
             }
             if (session.userId !== userId) {
-                throw new HttpError(403, 'Upload session access denied');
+                throw new HttpError(403, 'Upload session access denied', {
+                    legacyCode: 'forbidden',
+                });
             }
             if (session.status !== 'pending') {
                 throw new HttpError(
                     409,
                     `Upload session is not pending (status=${session.status})`,
+                    { legacyCode: 'conflict' },
                 );
             }
             if (session.expiresAt < Date.now()) {
@@ -2122,7 +2183,9 @@ export class FSService extends PuterService {
                 expiredSessionIds,
                 'Upload session expired',
             );
-            throw new HttpError(400, 'Upload session expired');
+            throw new HttpError(400, 'Upload session expired', {
+                legacyCode: 'session_required',
+            });
         }
 
         const multipartItems = completionItems.filter(
@@ -2134,6 +2197,7 @@ export class FSService extends PuterService {
                     throw new HttpError(
                         400,
                         'Multipart upload id missing from session',
+                        { legacyCode: 'bad_request' },
                     );
                 }
 
@@ -2144,6 +2208,7 @@ export class FSService extends PuterService {
                     throw new HttpError(
                         400,
                         'Multipart upload completion requires parts',
+                        { legacyCode: 'bad_request' },
                     );
                 }
 
@@ -2253,7 +2318,9 @@ export class FSService extends PuterService {
             return;
         }
         if (session.userId !== userId) {
-            throw new HttpError(403, 'Upload session access denied');
+            throw new HttpError(403, 'Upload session access denied', {
+                legacyCode: 'forbidden',
+            });
         }
 
         try {
@@ -2456,6 +2523,7 @@ export class FSService extends PuterService {
             throw new HttpError(
                 400,
                 'Invalid file entry identifier for thumbnail update',
+                { legacyCode: 'bad_request' },
             );
         }
 
@@ -2472,7 +2540,9 @@ export class FSService extends PuterService {
         const numericUserId =
             typeof userId === 'string' ? Number(userId) : userId;
         if (Number.isNaN(numericUserId)) {
-            throw new HttpError(400, 'Invalid user id');
+            throw new HttpError(400, 'Invalid user id', {
+                legacyCode: 'bad_request',
+            });
         }
         return this.stores.fsEntry.getUserStorageAllowance(numericUserId);
     }
@@ -2538,13 +2608,16 @@ export class FSService extends PuterService {
         lastModified: Date | null;
     }> {
         if (entry.isDir) {
-            throw new HttpError(400, 'Cannot read content of a directory');
+            throw new HttpError(400, 'Cannot read content of a directory', {
+                legacyCode: 'bad_request',
+            });
         }
         if (entry.isSymlink || entry.isShortcut) {
             // Caller should resolve the link target before calling readContent.
             throw new HttpError(
                 400,
                 'Cannot read content of a symlink or shortcut directly',
+                { legacyCode: 'shortcut_target_not_found' },
             );
         }
         // Derive the S3 object key from entry metadata if present, else fall
@@ -2648,6 +2721,7 @@ export class FSService extends PuterService {
         throw new HttpError(
             500,
             'Could not dedupe name within 100000 attempts',
+            { legacyCode: 'internal_error' },
         );
     }
 
@@ -2663,10 +2737,14 @@ export class FSService extends PuterService {
     ): Promise<FSEntry> {
         const normalized = targetPath.trim();
         if (normalized === '/')
-            throw new HttpError(400, 'Cannot operate on root');
+            throw new HttpError(400, 'Cannot operate on root', {
+                legacyCode: 'bad_request',
+            });
         const parentPath = pathPosix.dirname(normalized);
         if (parentPath === '/')
-            throw new HttpError(400, 'Cannot operate at root');
+            throw new HttpError(400, 'Cannot operate at root', {
+                legacyCode: 'bad_request',
+            });
         return this.stores.fsEntry.resolveParentDirectory(
             userId,
             parentPath,
@@ -2718,6 +2796,7 @@ export class FSService extends PuterService {
                 throw new HttpError(
                     409,
                     `An entry already exists at ${targetPath}`,
+                    { legacyCode: 'conflict' },
                 );
             }
         }
@@ -2752,6 +2831,7 @@ export class FSService extends PuterService {
                 throw new HttpError(
                     409,
                     `An entry already exists at ${insertedPath}`,
+                    { legacyCode: 'conflict' },
                 );
             }
             throw err;
@@ -2811,9 +2891,13 @@ export class FSService extends PuterService {
      */
     async rename(entry: FSEntry, newName: string): Promise<FSEntry> {
         if (newName.includes('/'))
-            throw new HttpError(400, 'Name cannot contain a slash');
+            throw new HttpError(400, 'Name cannot contain a slash', {
+                legacyCode: 'bad_request',
+            });
         if (newName.trim().length === 0)
-            throw new HttpError(400, 'Name cannot be empty');
+            throw new HttpError(400, 'Name cannot be empty', {
+                legacyCode: 'bad_request',
+            });
         if (entry.name === newName) return entry;
 
         const parentPath = pathPosix.dirname(entry.path);
@@ -2823,7 +2907,9 @@ export class FSService extends PuterService {
         // Reject if another entry already owns the target path.
         const collision = await this.stores.fsEntry.getEntryByPath(newPath);
         if (collision && collision.uuid !== entry.uuid) {
-            throw new HttpError(409, `An entry already exists at ${newPath}`);
+            throw new HttpError(409, `An entry already exists at ${newPath}`, {
+                legacyCode: 'conflict',
+            });
         }
 
         const updated = await this.stores.fsEntry.updateEntry(entry.uuid, {
@@ -2873,6 +2959,7 @@ export class FSService extends PuterService {
                 throw new HttpError(
                     409,
                     `An entry already exists at ${childPath}`,
+                    { legacyCode: 'conflict' },
                 );
             }
         }
@@ -2912,6 +2999,7 @@ export class FSService extends PuterService {
             throw new HttpError(
                 403,
                 'Cannot remove an entry owned by another user',
+                { legacyCode: 'forbidden' },
             );
         }
 
@@ -2921,7 +3009,9 @@ export class FSService extends PuterService {
                 entry.path,
             );
             if (descendants.length > 0 && !input.recursive) {
-                throw new HttpError(409, 'Directory is not empty');
+                throw new HttpError(409, 'Directory is not empty', {
+                    legacyCode: 'conflict',
+                });
             }
 
             // Delete descendants first (depth-descending). S3 objects are
@@ -3135,16 +3225,21 @@ export class FSService extends PuterService {
             throw new HttpError(
                 403,
                 'Cannot move an entry owned by another user',
+                { legacyCode: 'forbidden' },
             );
         }
         if (!destinationParent.isDir) {
-            throw new HttpError(400, 'Destination parent is not a directory');
+            throw new HttpError(400, 'Destination parent is not a directory', {
+                legacyCode: 'dest_is_not_a_directory',
+            });
         }
         if (
             source.isDir &&
             destinationParent.path.startsWith(`${source.path}/`)
         ) {
-            throw new HttpError(400, 'Cannot move a directory into itself');
+            throw new HttpError(400, 'Cannot move a directory into itself', {
+                legacyCode: 'cannot_move_directory_into_itself',
+            });
         }
 
         let name = input.newName ?? source.name;
@@ -3166,6 +3261,7 @@ export class FSService extends PuterService {
                 throw new HttpError(
                     409,
                     `An entry already exists at ${targetPath}`,
+                    { legacyCode: 'conflict' },
                 );
             }
         }
@@ -3234,7 +3330,9 @@ export class FSService extends PuterService {
     ): Promise<FSEntry> {
         const { source, destinationParent } = input;
         if (!destinationParent.isDir) {
-            throw new HttpError(400, 'Destination parent is not a directory');
+            throw new HttpError(400, 'Destination parent is not a directory', {
+                legacyCode: 'dest_is_not_a_directory',
+            });
         }
         if (
             source.isDir &&
@@ -3244,6 +3342,7 @@ export class FSService extends PuterService {
             throw new HttpError(
                 400,
                 'Cannot copy a directory into itself or a descendant',
+                { legacyCode: 'cannot_copy_directory_into_itself' },
             );
         }
 
@@ -3266,6 +3365,7 @@ export class FSService extends PuterService {
                 throw new HttpError(
                     409,
                     `An entry already exists at ${targetPath}`,
+                    { legacyCode: 'conflict' },
                 );
             }
         }
@@ -3426,7 +3526,9 @@ export class FSService extends PuterService {
             false,
         );
         if (!created) {
-            throw new HttpError(500, 'Failed to copy file entry');
+            throw new HttpError(500, 'Failed to copy file entry', {
+                legacyCode: 'internal_error',
+            });
         }
 
         try {
@@ -3476,7 +3578,9 @@ export class FSService extends PuterService {
         mode: AclMode = 'write',
     ): Promise<void> {
         if (!entry) {
-            throw new HttpError(400, 'Invalid FS Entry provided');
+            throw new HttpError(400, 'Invalid FS Entry provided', {
+                legacyCode: 'bad_request',
+            });
         }
 
         let ancestorsCache: Promise<

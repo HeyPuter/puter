@@ -27,6 +27,7 @@ import type {
     ICompleteArguments,
     IChatCompleteResult,
 } from '../../types.js';
+import { inlineHttpImageUrls } from './imageHandling.js';
 import { MOONSHOT_MODELS } from './models.js';
 
 export class MoonshotProvider implements IChatProvider {
@@ -74,6 +75,13 @@ export class MoonshotProvider implements IChatProvider {
             availableModels.find((m) =>
                 [m.id, ...(m.aliases || [])].includes(model),
             ) || availableModels.find((m) => m.id === this.getDefaultModel())!;
+
+        // Moonshot's vision API doesn't fetch http(s) URLs; inline them
+        // so callers can pass plain links like other vision providers.
+        if (modelUsed.modalities?.input?.includes('image')) {
+            await inlineHttpImageUrls(messages);
+        }
+
         messages = await OpenAIUtil.process_input_messages(messages);
         let completion;
         try {

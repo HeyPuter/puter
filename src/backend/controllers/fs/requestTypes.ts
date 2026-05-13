@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { FSEntry, FSEntryWriteInput } from '../../stores/fs/FSEntry.js';
+import type { FSEntry, FSEntryWriteInput } from '../../stores/fs/FSEntry.js';
 import type { Readable } from 'node:stream';
 
 export type UploadMode = 'single' | 'multipart';

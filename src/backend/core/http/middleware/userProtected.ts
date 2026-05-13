@@ -82,9 +82,9 @@ async function buildRevalidateFields(
     user: UserRow,
 ): Promise<Record<string, string> | undefined> {
     const origin = (config.origin ?? '').replace(/\/$/, '');
-    const providers = await oidcService.getEnabledProviderIds();
-    const provider = providers && providers[0];
-    if (!provider || !origin) return undefined;
+    if (!origin) return undefined;
+    const provider = await oidcService.getLinkedProviderForUser(user.id);
+    if (!provider) return undefined;
     return {
         revalidate_url: `${origin}/auth/oidc/${provider}/start?flow=revalidate&user_uuid=${encodeURIComponent(user.uuid)}`,
     };
@@ -118,11 +118,17 @@ export const createUserProtectedGate = (
         next: NextFunction,
     ) => {
         const actor = req.actor;
-        if (!actor?.user?.id) throw new HttpError(401, 'User required');
+        if (!actor?.user?.id)
+            throw new HttpError(401, 'User required', {
+                legacyCode: 'unauthorized',
+            });
         const user = await userStore.getByProperty('id', actor.user.id, {
             force: true,
         });
-        if (!user) throw new HttpError(404, 'User not found');
+        if (!user)
+            throw new HttpError(404, 'User not found', {
+                legacyCode: 'not_found',
+            });
         if (user.suspended)
             throw new HttpError(403, 'Account is suspended', {
                 legacyCode: 'account_suspended',
@@ -147,7 +153,10 @@ export const createUserProtectedGate = (
         next: NextFunction,
     ) => {
         const user = req.userProtected?.user;
-        if (!user) throw new HttpError(500, 'user-protected state missing');
+        if (!user)
+            throw new HttpError(500, 'user-protected state missing', {
+                legacyCode: 'internal_error',
+            });
 
         const isTemp = user.password === null && user.email === null;
         if (isTemp) {

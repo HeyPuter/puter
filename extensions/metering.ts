@@ -1,3 +1,4 @@
+import type { Request, Response } from 'express';
 import { Context } from '@heyputer/backend/src/core';
 import { HttpError } from '@heyputer/backend/src/core/http';
 import {
@@ -45,70 +46,90 @@ function collectAllCosts(): Record<string, unknown>[] {
     return all;
 }
 
+export const handleMeteringUsage = async (
+    _req: Request,
+    res: Response,
+): Promise<void> => {
+    const actor = Context.get('actor');
+    if (!actor?.user) throw new HttpError(401, 'Authentication required');
+
+    const [actorUsage, allowanceInfo] = await Promise.all([
+        services.metering.getActorCurrentMonthUsageDetails(actor),
+        services.metering.getAllowedUsage(actor),
+    ]);
+    res.json({ ...actorUsage, allowanceInfo });
+};
+
+export const handleMeteringUsageForApp = async (
+    req: Request,
+    res: Response,
+): Promise<void> => {
+    const actor = Context.get('actor');
+    if (!actor?.user) throw new HttpError(401, 'Authentication required');
+
+    let appId = String(req.params.appIdOrName ?? '');
+    if (!appId) throw new HttpError(400, 'appId parameter is required');
+
+    // If not a UUID-shaped app UID, look up by name
+    if (!appId.startsWith('app-')) {
+        const appRows = (await clients.db.read(
+            'SELECT `uid` FROM `apps` WHERE `name` = ? LIMIT 1',
+            [appId],
+        )) as Array<{ uid: string }>;
+        if (appRows.length > 0) {
+            appId = appRows[0].uid;
+        } else {
+            throw new HttpError(404, 'App not found');
+        }
+    }
+
+    const appUsage =
+        await services.metering.getActorCurrentMonthAppUsageDetails(
+            actor,
+            appId,
+        );
+    res.json(appUsage);
+};
+
+export const handleMeteringGlobalUsage = async (
+    _req: Request,
+    res: Response,
+): Promise<void> => {
+    const globalUsage = await services.metering.getGlobalUsage();
+    res.json(globalUsage);
+};
+
+// First hit walks the registries; subsequent hits serve the in-memory cache.
+export const handleMeteringAllCosts = async (
+    _req: Request,
+    res: Response,
+): Promise<void> => {
+    if (!cachedAllCosts) {
+        cachedAllCosts = collectAllCosts();
+    }
+    res.json({ costs: cachedAllCosts });
+};
+
 extension.get(
     '/metering/usage',
     { subdomain: 'api', requireAuth: true },
-    async (req, res) => {
-        const actor = Context.get('actor');
-        if (!actor?.user) throw new HttpError(401, 'Authentication required');
-
-        const [actorUsage, allowanceInfo] = await Promise.all([
-            services.metering.getActorCurrentMonthUsageDetails(actor),
-            services.metering.getAllowedUsage(actor),
-        ]);
-        res.json({ ...actorUsage, allowanceInfo });
-    },
+    handleMeteringUsage,
 );
 
 extension.get(
     '/metering/usage/:appIdOrName',
     { subdomain: 'api', requireAuth: true },
-    async (req, res) => {
-        const actor = Context.get('actor');
-        if (!actor?.user) throw new HttpError(401, 'Authentication required');
-
-        let appId = String(req.params.appIdOrName ?? '');
-        if (!appId) throw new HttpError(400, 'appId parameter is required');
-
-        // If not a UUID-shaped app UID, look up by name
-        if (!appId.startsWith('app-')) {
-            const appRows = (await clients.db.read(
-                'SELECT `uid` FROM `apps` WHERE `name` = ? LIMIT 1',
-                [appId],
-            )) as Array<{ uid: string }>;
-            if (appRows.length > 0) {
-                appId = appRows[0].uid;
-            } else {
-                throw new HttpError(404, 'App not found');
-            }
-        }
-
-        const appUsage =
-            await services.metering.getActorCurrentMonthAppUsageDetails(
-                actor,
-                appId,
-            );
-        res.json(appUsage);
-    },
+    handleMeteringUsageForApp,
 );
 
 extension.get(
     '/metering/globalUsage',
     { subdomain: 'api', adminOnly: true },
-    async (_req, res) => {
-        const globalUsage = await services.metering.getGlobalUsage();
-        res.json(globalUsage);
-    },
+    handleMeteringGlobalUsage,
 );
 
-// First hit walks the registries; subsequent hits serve the in-memory cache.
 extension.get(
     '/metering/allCosts',
     { subdomain: 'api', requireAuth: true },
-    async (_req, res) => {
-        if (!cachedAllCosts) {
-            cachedAllCosts = collectAllCosts();
-        }
-        res.json({ costs: cachedAllCosts });
-    },
+    handleMeteringAllCosts,
 );

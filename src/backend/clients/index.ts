@@ -20,7 +20,7 @@
 import { AlarmClient } from './alarm/AlarmClient';
 import { DatabaseClientFactory } from './database';
 import { EmailClient } from './email/EmailClient';
-import { EventClient } from './EventClient';
+import { EventClient } from './event/EventClient';
 import { DDBClient } from './dynamodb/DDBClient';
 import { RedisClient } from './redis/RedisClient';
 import { S3Client } from './s3/S3Client';

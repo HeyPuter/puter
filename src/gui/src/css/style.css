@@ -210,11 +210,9 @@ input[type=text]:focus, input[type=password]:focus, input[type=email]:focus, sel
     border-color: #b9b9b9;
     border-style: solid;
     border-width: 1px;
-    line-height: 35px;
+    line-height: 34px;
     background: -webkit-gradient(linear, left top, left bottom, from(#f6f6f6), to(#e1e1e1));
     background: linear-gradient(#f6f6f6, #e1e1e1);
-    -webkit-box-shadow: inset 0px 1px 0px rgb(255 255 255 / 30%), 0 1px 2px rgb(0 0 0 / 15%);
-    box-shadow: inset 0px 1px 0px rgb(255 255 255 / 30%), 0 1px 2px rgb(0 0 0 / 15%);
     border-radius: 4px;
     outline: none;
 }
@@ -272,8 +270,7 @@ input[type=text]:focus, input[type=password]:focus, input[type=email]:focus, sel
 
 .button-danger {
     border-color: #f00808;
-    background: -webkit-gradient(linear, left top, left bottom, from(#f83434), to(#f00808));
-    background: linear-gradient(#ff4e4e, #ff4c4c);
+    background: #f00808;
     color: white;
 }
 
@@ -1975,20 +1972,6 @@ label {
     box-shadow: rgb(255 255 255 / 44%) 0px 0px 0px 0.5px inset, rgba(0, 0, 0, 0.2) 0px 0px 0px 0.5px, rgba(0, 0, 0, 0.2) 0px 2px 14px;
 }
 
-.show-desktop-btn {
-    color: white;
-    font-size: 11px !important;
-    padding: 2px 5px 2px !important;
-    border: 1px solid;
-    border-radius: 4px;
-    height: 18px !important;
-    width: 110px !important;
-    margin-top: 2px;
-    text-decoration: none;
-    margin-left: 10px !important;
-    font-weight: 500;
-}
-
 .device-phone .toolbar {
     z-index: 1;
 }
@@ -2073,6 +2056,61 @@ label {
 
 .publish-worker-error-msg{
     text-align: left;
+}
+
+.signup-blocked-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: #f5f6f8;
+    z-index: 2147483647;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: #1a1a2e;
+}
+
+.signup-blocked-content {
+    padding: 48px 40px;
+    max-width: 460px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    background: #fff;
+    border-radius: 12px;
+    box-shadow: 0 2px 16px rgba(0, 0, 0, 0.08);
+}
+
+.signup-blocked-content h1 {
+    font-size: 22px;
+    font-weight: 600;
+    margin: 0 0 12px 0;
+    color: #1a1a2e;
+}
+
+.signup-blocked-content p {
+    font-size: 14px;
+    line-height: 1.6;
+    margin: 0 0 16px 0;
+    color: #555;
+}
+
+.signup-blocked-content p:last-child {
+    margin-bottom: 0;
+}
+
+.signup-blocked-content a {
+    color: #3a6ff7;
+    text-decoration: none;
+    font-weight: 500;
+}
+
+.signup-blocked-content a:hover {
+    text-decoration: underline;
 }
 
 .error {
@@ -2881,29 +2919,8 @@ label {
 }
 
 
-#clock {
-    display: none;
-    color: white;
-    font-size: 13px;
-    background-color: #00000056;
-    margin-left: 20px;
-    /* prevent clock from moving other taskbar items */
-    height: 22px;
-    line-height: 22px;
-
-    /* line-height above handles vertical padding */
-    padding: 0 5px;
-
-    border-radius: 5px;
-    opacity: 0.8;
-}
-
 .toolbar-spacer {
     margin-right: auto;
-}
-
-.device-phone #clock {
-    display: none !important;
 }
 
 .desktop-bg-settings-wrapper {
@@ -2988,89 +3005,6 @@ label {
         /* Firefox */
     }
 
-}
-
-/*****************************************************
- * System Information
- *****************************************************/
-
-.systeminfo-container {
-    padding: 20px;
-    display: flex;
-    flex-direction: column;
-    gap: 20px;
-    background-color: #f9f9f9;
-}
-
-.serverinfo-container,
-.clientinfo-container {
-    padding: 20px;
-    background-color: #ffffff;
-    border: 1px solid #cccccc8f;
-    border-radius: 4px;
-}
-
-.serverinfo-container h1,
-.clientinfo-container h1 {
-    font-size: 24px;
-    margin-bottom: 20px;
-    border-bottom: 1px solid #e0e0e0;
-    padding-bottom: 10px;
-    padding-left: 5px;
-    font-weight: 500;
-}
-
-.update-usage-details-icon {
-  transform-origin: center;
-  transform-box: fill-box;
-}
-
-/* For refresh button animation */
-.spin-once { animation: spin-once 1s linear; } 
-
-@keyframes spin-once {
-    from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
-}
-
-.clientinfo-content,
-.serverinfo-content {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 16px;
-}
-
-.systeminfo-item {
-    flex: 1 1 45%; /* Grow, shrink, min width 45% */
-    min-width: 150px; /* Prevents items from getting too small */
-    box-sizing: border-box;
-    display: flex;
-    flex-direction: column;
-    gap: 5px
-}
-
-.systeminfo-value {
-    display: flex;
-    justify-content: flex-start;
-    align-items: center;
-    gap: 10px;
-}
-
-.systeminfo-title {
-    font-weight: 500;
-    font-size: 14px;
-    color: #3C4963;
-    margin: 0;
-}
-
-.systeminfo-value {
-    color: #3C4963;
-    font-size: 13px;
-}
-
-.systeminfo-icon {
-    width: 20px;
-    height: 20px;
 }
 
 /*****************************************************
@@ -4310,8 +4244,7 @@ fieldset[name=number-code] {
 
 .puter-auth-dialog .button-danger {
     border-color: #f00808;
-    background: -webkit-gradient(linear, left top, left bottom, from(#f83434), to(#f00808));
-    background: linear-gradient(#f83434, #f00808);
+    background: #f00808;
     color: white;
 }
 

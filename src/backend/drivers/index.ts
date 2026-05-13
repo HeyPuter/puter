@@ -17,23 +17,23 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import type { IPuterDriverRegistry } from './types';
 import { ChatCompletionDriver } from './ai-chat/ChatCompletionDriver';
 import { ImageGenerationDriver } from './ai-image/ImageGenerationDriver';
-import { TTSDriver } from './ai-tts/TTSDriver';
-import { VideoGenerationDriver } from './ai-video/VideoGenerationDriver';
+import { OCRDriver } from './ai-ocr/OCRDriver';
 import { VoiceChangerDriver } from './ai-speech2speech/VoiceChangerDriver';
 import { SpeechToTextDriver } from './ai-speech2txt/SpeechToTextDriver';
 import { XAISpeechToTextDriver } from './ai-speech2txt/XAISpeechToTextDriver';
-import { OCRDriver } from './ai-ocr/OCRDriver';
+import { TTSDriver } from './ai-tts/TTSDriver';
+import { VideoGenerationDriver } from './ai-video/VideoGenerationDriver';
 import { AppDriver } from './apps/AppDriver.js';
 import { KVStoreDriver } from './kv/KVStoreDriver';
 import { NotificationDriver } from './notification/NotificationDriver';
 import { SubdomainDriver } from './subdomain/SubdomainDriver';
+import type { IPuterDriverRegistry } from './types';
 import { WorkerDriver } from './workers/WorkerDriver';
 
-export { resolveDriverMeta } from './meta';
 export { Driver } from './decorators';
+export { resolveDriverMeta } from './meta';
 
 export const puterDrivers = {
     kvStore: KVStoreDriver,

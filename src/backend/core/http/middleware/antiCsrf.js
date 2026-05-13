@@ -79,13 +79,18 @@ export function requireAntiCsrf() {
                     new HttpError(
                         401,
                         'Authentication required for CSRF protection.',
+                        { legacyCode: 'unauthorized' },
                     ),
                 );
             }
             if (
                 !(await antiCsrf.consumeToken(sessionId, req.body?.anti_csrf))
             ) {
-                return next(new HttpError(400, 'Incorrect anti-CSRF token.'));
+                return next(
+                    new HttpError(400, 'Incorrect anti-CSRF token.', {
+                        legacyCode: 'bad_request',
+                    }),
+                );
             }
             next();
         } catch (err) {

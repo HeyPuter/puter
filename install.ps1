@@ -200,4 +200,4 @@ Write-Log "    cd $PuterDir; docker compose logs -f puter"
 Write-Log ''
 Write-Log "open http://${PuterDomain}:${PuterPort} once the puter container is healthy."
 Write-Log 'first-boot admin password is logged once — grab it with:'
-Write-Log "    cd $PuterDir; docker compose logs puter | Select-String tmp_password"
+Write-Log "    cd $PuterDir; docker compose logs puter | Select-String password"

@@ -48,8 +48,9 @@ import {
 } from './core/http/middleware/antiCsrf';
 import { captchaGate, setCaptchaRedis } from './core/http/middleware/captcha';
 import {
-    rateLimitGate,
+    concurrencyGate,
     configureRateLimit,
+    rateLimitGate,
 } from './core/http/middleware/rateLimit';
 import {
     createWwwRedirect,
@@ -93,11 +94,11 @@ export class PuterServer {
 
     constructor(
         config: IConfig,
-        clients: typeof puterClients,
-        stores: typeof puterStores,
-        services: typeof puterServices,
-        controllers: typeof puterControllers,
-        drivers: typeof puterDrivers,
+        clients: typeof puterClients = puterClients,
+        stores: typeof puterStores = puterStores,
+        services: typeof puterServices = puterServices,
+        controllers: typeof puterControllers = puterControllers,
+        drivers: typeof puterDrivers = puterDrivers,
     ) {
         this.#config = config;
         // Expose config to the extension API (extension.config)
@@ -319,30 +320,40 @@ export class PuterServer {
     }
 
     /**
-     * Point the shared rate-limiter at its configured backend. Reads
-     * `config.rate_limit.backend` (defaults to `redis`) and resolves the
-     * required dependency from `this.clients` / `this.stores`. Unknown
-     * or misconfigured backends fall back to memory with a warning so a
-     * typo doesn't take the server down.
+     * Register every rate-limit backend whose dependency is available, so
+     * routes / drivers can mix and match per call. `config.rate_limit.backend`
+     * selects the *default* applied when a caller doesn't specify a
+     * backend; it's no longer an exclusive choice. A typo or missing
+     * dependency for the chosen default falls back to memory with a
+     * warning so boot doesn't break.
      */
     #configureRateLimiter() {
         // Default to `redis` — the redis client is always present (falls
         // back to ioredis-mock in dev when no nodes are configured), and
         // sorted-set rate limiting scales across nodes for free. Set
         // `rate_limit.backend` in config to switch to `memory` or `kv`.
-        const backend = this.#config.rate_limit?.backend ?? 'redis';
+        const defaultBackend = this.#config.rate_limit?.backend ?? 'redis';
+        // Metering is wired so the concurrency gate can resolve
+        // `bySubscription` overrides per actor. Optional — without it,
+        // the base `limit` applies uniformly.
+        const metering = this.services?.metering as unknown;
         try {
             configureRateLimit({
-                backend,
+                default: defaultBackend,
                 redis: this.clients.redis,
                 kv: this.stores.kv,
+                metering,
             });
         } catch (e) {
             console.warn(
-                `[rate-limit] ${backend} backend unavailable, falling back to memory:`,
+                `[rate-limit] default backend '${defaultBackend}' unavailable, falling back to memory:`,
                 (e as Error).message,
             );
-            configureRateLimit();
+            configureRateLimit({
+                redis: this.clients.redis,
+                kv: this.stores.kv,
+                metering,
+            });
         }
     }
 
@@ -357,13 +368,10 @@ export class PuterServer {
      *     `#materializeRoute` as those options ship.
      */
     #installGlobalMiddleware() {
-        // ── Cookie parsing ──────────────────────────────────────────
         this.#app.use(cookieParser());
 
-        // ── Compression ─────────────────────────────────────────────
         this.#app.use(compression());
 
-        // ── Security headers (helmet) ───────────────────────────────
         this.#app.use(helmet.noSniff());
         this.#app.use(helmet.hsts());
         this.#app.use(helmet.ieNoOpen());
@@ -604,7 +612,6 @@ export class PuterServer {
         this.#app.use((req, res, next) => {
             const origin = req.headers.origin;
             const subdomain = req.subdomains?.[req.subdomains.length - 1];
-            const isApiOrDav = subdomain === 'api' || subdomain === 'dav';
 
             // Allow any origin. puter.js is meant to be consumed from
             // arbitrary third-party sites, so reflect the caller's origin
@@ -612,22 +619,17 @@ export class PuterServer {
             res.setHeader('Access-Control-Allow-Origin', origin ?? '*');
             if (origin) res.vary('Origin');
 
-            // Credentials require a specific (non-`*`) Allow-Origin, which
-            // we just set when an origin was present. Enable on API/DAV
-            // so cookie-auth works cross-origin.
-            if (isApiOrDav && origin) {
+            // Sticky cookies require api to allow credentials, but only for the API subdomain, and be careful not to set any other credentials on it
+            if (subdomain === 'api' && origin) {
                 res.setHeader('Access-Control-Allow-Credentials', 'true');
+            } else if (subdomain === 'dav') {
+                res.setHeader('Access-Control-Allow-Credentials', 'false');
             }
 
             res.setHeader('Access-Control-Allow-Methods', allowedMethods);
             res.setHeader('Access-Control-Allow-Headers', allowedHeaders);
 
-            // Private Network Access: grant public origins permission to
-            // reach loopback/private addresses (e.g. self-hosted Puter on
-            // localhost, or api.puter.com pointed at a local IP via hosts).
-            if (req.headers['access-control-request-private-network']) {
-                res.setHeader('Access-Control-Allow-Private-Network', 'true');
-            }
+            res.setHeader('Access-Control-Allow-Private-Network', 'true');
 
             // Disable iframes on the main domain
             if (req.hostname === config.domain) {
@@ -648,7 +650,7 @@ export class PuterServer {
             // client forge the value when traffic isn't behind the expected
             // proxy.
             const ip = req.ip;
-            const event = { allow: true, ip };
+            const event = { allow: true, ip: ip! };
             // emitAndWait so listeners that do async work (IP-reputation
             // lookups, Redis checks) can complete before we read
             // `event.allow` and decide the gate.
@@ -837,6 +839,16 @@ export class PuterServer {
         if (opts.rateLimit) {
             mwChain.push(
                 rateLimitGate(opts.rateLimit) as unknown as RequestHandler,
+            );
+        }
+
+        // 2b'. Concurrent in-flight limiting. Same auth-ordering reason
+        // (user key + bySubscription resolution needs req.actor); installed
+        // after rateLimitGate so a rate-rejection short-circuits before
+        // we acquire a concurrency slot. Slot is released on res finish/close.
+        if (opts.concurrent) {
+            mwChain.push(
+                concurrencyGate(opts.concurrent) as unknown as RequestHandler,
             );
         }
 
@@ -1053,41 +1065,7 @@ export class PuterServer {
                     '************************************************************\n',
                 );
 
-                for (const client of Object.values(
-                    this.clients,
-                ) as WithLifecycle[]) {
-                    if (client.onServerStart) {
-                        await client.onServerStart();
-                    }
-                }
-                for (const store of Object.values(
-                    this.stores,
-                ) as WithLifecycle[]) {
-                    if (store.onServerStart) {
-                        await store.onServerStart();
-                    }
-                }
-                for (const service of Object.values(
-                    this.services,
-                ) as WithLifecycle[]) {
-                    if (service.onServerStart) {
-                        await service.onServerStart();
-                    }
-                }
-                for (const controller of Object.values(
-                    this.controllers,
-                ) as WithLifecycle[]) {
-                    if (controller.onServerStart) {
-                        await controller.onServerStart();
-                    }
-                }
-                for (const driver of Object.values(
-                    this.drivers,
-                ) as WithLifecycle[]) {
-                    if (driver.onServerStart) {
-                        await driver.onServerStart();
-                    }
-                }
+                await this.#fireOnServerStart();
                 console.log('PuterServer has fully booted.');
                 // Auto-launch the browser on dev boot (matches v1 WebServerService).
                 // Opt out via `no_browser_launch: true` in config.
@@ -1115,6 +1093,29 @@ export class PuterServer {
                     );
                 },
             } as unknown as http.Server;
+            // Tests still need onServerStart to fire so stores can
+            // bootstrap (e.g. SystemKVStore creates its dynalite table).
+            await this.#fireOnServerStart();
+        }
+    }
+
+    async #fireOnServerStart() {
+        for (const client of Object.values(this.clients) as WithLifecycle[]) {
+            if (client.onServerStart) await client.onServerStart();
+        }
+        for (const store of Object.values(this.stores) as WithLifecycle[]) {
+            if (store.onServerStart) await store.onServerStart();
+        }
+        for (const service of Object.values(this.services) as WithLifecycle[]) {
+            if (service.onServerStart) await service.onServerStart();
+        }
+        for (const controller of Object.values(
+            this.controllers,
+        ) as WithLifecycle[]) {
+            if (controller.onServerStart) await controller.onServerStart();
+        }
+        for (const driver of Object.values(this.drivers) as WithLifecycle[]) {
+            if (driver.onServerStart) await driver.onServerStart();
         }
     }
 

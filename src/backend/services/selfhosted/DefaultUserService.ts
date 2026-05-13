@@ -43,6 +43,7 @@ const ADMIN_STORAGE_BYTES = 10 * 1024 * 1024 * 1024;
  */
 export class DefaultUserService extends PuterService {
     override async onServerStart(): Promise<void> {
+        if (this.config.no_default_user) return;
         let user = await this.stores.user.getByUsername(USERNAME);
         let tmpPassword: string;
 

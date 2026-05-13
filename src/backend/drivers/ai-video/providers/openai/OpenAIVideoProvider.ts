@@ -65,7 +65,9 @@ export class OpenAIVideoProvider extends VideoProvider {
         } = params ?? {};
 
         if (typeof prompt !== 'string' || !prompt.trim()) {
-            throw new HttpError(400, 'prompt must be a non-empty string');
+            throw new HttpError(400, 'prompt must be a non-empty string', {
+                legacyCode: 'bad_request',
+            });
         }
 
         const selectedModel = await this.#selectModel(requestedModel);
@@ -109,7 +111,9 @@ export class OpenAIVideoProvider extends VideoProvider {
             costInMicroCents * estimatedUnits,
         );
         if (!usageAllowed) {
-            throw new HttpError(402, 'Insufficient funds');
+            throw new HttpError(402, 'Insufficient funds', {
+                legacyCode: 'insufficient_funds',
+            });
         }
 
         const createParams: OpenAI.VideoCreateParams = {

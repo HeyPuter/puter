@@ -45,7 +45,6 @@ const bg = {
         change_password: 'Промяна на паролата',
         change_ui_colors: 'Промяна на цветовете на интерфейса',
         change_username: 'Промяна на потребителското име',
-        clock_visibility: 'Видимост на часовника',
         close: 'Затвори',
         close_all_windows: 'Затвори всички прозорци',
         close_all_windows_confirm:
@@ -99,11 +98,6 @@ const bg = {
         credits: 'Благодарности',
         current_password: 'Текуща парола',
         cut: 'Изрежи',
-        clock: 'Часовник',
-        clock_visible_hide: 'Скрий – Винаги скрит',
-        clock_visible_show: 'Покажи – Винаги видим',
-        clock_visible_auto:
-      'Автоматично – По подразбиране, видим само в режим на цял екран.',
         close_all: 'Затвори всички',
         created: 'Създадено',
         date_modified: 'Дата на промяна',

@@ -20,9 +20,15 @@
 import { posix as pathPosix } from 'node:path';
 import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
+import { assertVerifiedEmail } from '../../core/http/verifiedEmail.js';
+import {
+    DEFAULT_FREE_SUBSCRIPTION,
+    DEFAULT_TEMP_SUBSCRIPTION,
+} from '../../services/metering/consts.js';
 import { PuterDriver } from '../types.js';
 import type { Actor } from '../../core/actor.js';
 import type { AclMode } from '../../services/acl/ACLService.js';
+import type { DriverRateLimitConfig } from '../meta.js';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
 import type { UserRow } from '../../stores/user/UserStore.js';
 import { expandTildePath } from '../../services/fs/resolveNode.js';
@@ -70,13 +76,29 @@ export class SubdomainDriver extends PuterDriver {
     readonly driverName = 'es:subdomain';
     readonly isDefault = true;
 
+    // Mirrors the pre-v2 `temp.es` / `user.es` policies that used to ride
+    // on permission grants. See AppDriver / NotificationDriver for the
+    // same shape — the three crud-q drivers share one envelope.
+    readonly rateLimit: DriverRateLimitConfig = {
+        default: {
+            limit: 100,
+            window: 10_000,
+            bySubscription: {
+                [DEFAULT_FREE_SUBSCRIPTION]: 100,
+                [DEFAULT_TEMP_SUBSCRIPTION]: 50,
+            },
+        },
+    };
+
     // ── Driver methods ──────────────────────────────────────────────
 
     async create(args: Record<string, unknown>): Promise<unknown> {
         const object = args.object as Record<string, unknown> | undefined;
 
         if (!object || typeof object !== 'object') {
-            throw new HttpError(400, 'Missing or invalid `object`');
+            throw new HttpError(400, 'Missing or invalid `object`', {
+                legacyCode: 'bad_request',
+            });
         }
         const actor = this.#requireActor();
         this.#requireUser(actor);
@@ -89,6 +111,7 @@ export class SubdomainDriver extends PuterDriver {
             throw new HttpError(
                 409,
                 'A site with this subdomain already exists',
+                { legacyCode: 'conflict' },
             );
         }
 
@@ -101,7 +124,9 @@ export class SubdomainDriver extends PuterDriver {
             actor.user.id,
         )) as number;
         if (currentCount >= maxSubdomains) {
-            throw new HttpError(403, 'Subdomain limit reached');
+            throw new HttpError(403, 'Subdomain limit reached', {
+                legacyCode: 'subdomain_limit_reached',
+            });
         }
 
         const rootDirPath = expandTildePath(
@@ -133,7 +158,10 @@ export class SubdomainDriver extends PuterDriver {
     async read(args: Record<string, unknown>): Promise<unknown> {
         const actor = this.#requireActor();
         const row = await this.#resolve(args);
-        if (!row) throw new HttpError(404, 'Subdomain not found');
+        if (!row)
+            throw new HttpError(404, 'Subdomain not found', {
+                legacyCode: 'not_found',
+            });
         await this.#checkReadAccess(row, actor);
         const [shaped] = await this.#hydrateRows([row]);
         return shaped ?? null;
@@ -172,14 +200,19 @@ export class SubdomainDriver extends PuterDriver {
     async update(args: Record<string, unknown>): Promise<unknown> {
         const object = args.object as Record<string, unknown> | undefined;
         if (!object || typeof object !== 'object') {
-            throw new HttpError(400, 'Missing or invalid `object`');
+            throw new HttpError(400, 'Missing or invalid `object`', {
+                legacyCode: 'bad_request',
+            });
         }
         const actor = this.#requireActor();
         this.#requireUser(actor);
         this.#requireVerified(actor);
 
         const row = await this.#resolve(args);
-        if (!row) throw new HttpError(404, 'Subdomain not found');
+        if (!row)
+            throw new HttpError(404, 'Subdomain not found', {
+                legacyCode: 'not_found',
+            });
         await this.#checkWriteAccess(row, actor);
 
         // Subdomain name is immutable — strip if provided
@@ -236,7 +269,9 @@ export class SubdomainDriver extends PuterDriver {
 
         const entry = await this.stores.fsEntry.getEntryById(rootDirId);
         if (!entry) {
-            throw new HttpError(400, 'root_dir_id does not exist');
+            throw new HttpError(400, 'root_dir_id does not exist', {
+                legacyCode: 'bad_request',
+            });
         }
 
         const fsService = this.services.fs;
@@ -300,10 +335,15 @@ export class SubdomainDriver extends PuterDriver {
         this.#requireVerified(actor);
 
         const row = await this.#resolve(args);
-        if (!row) throw new HttpError(404, 'Subdomain not found');
+        if (!row)
+            throw new HttpError(404, 'Subdomain not found', {
+                legacyCode: 'not_found',
+            });
 
         if (row.protected) {
-            throw new HttpError(403, 'Cannot delete a protected subdomain');
+            throw new HttpError(403, 'Cannot delete a protected subdomain', {
+                legacyCode: 'forbidden',
+            });
         }
 
         await this.#checkWriteAccess(row, actor);
@@ -346,12 +386,15 @@ export class SubdomainDriver extends PuterDriver {
 
     #validateSubdomain(raw: unknown): string {
         if (typeof raw !== 'string' || raw.trim().length === 0) {
-            throw new HttpError(400, 'Missing or empty `subdomain`');
+            throw new HttpError(400, 'Missing or empty `subdomain`', {
+                legacyCode: 'bad_request',
+            });
         }
         if (raw.length > SUBDOMAIN_MAX_LEN) {
             throw new HttpError(
                 400,
                 `Subdomain exceeds max length (${SUBDOMAIN_MAX_LEN})`,
+                { legacyCode: 'bad_request' },
             );
         }
         const s = raw.trim().toLowerCase();
@@ -360,10 +403,13 @@ export class SubdomainDriver extends PuterDriver {
             throw new HttpError(
                 400,
                 'Invalid subdomain format (lowercase alphanumeric + hyphens, must not start/end with hyphen)',
+                { legacyCode: 'bad_request' },
             );
         }
         if (RESERVED_SUBDOMAINS.has(s)) {
-            throw new HttpError(400, `Subdomain '${s}' is reserved`);
+            throw new HttpError(400, `Subdomain '${s}' is reserved`, {
+                legacyCode: 'subdomain_reserved',
+            });
         }
         return s;
     }
@@ -375,14 +421,19 @@ export class SubdomainDriver extends PuterDriver {
     } {
         const actor = Context.get('actor') as Actor | undefined;
         if (!actor?.user?.id)
-            throw new HttpError(401, 'Authentication required');
+            throw new HttpError(401, 'Authentication required', {
+                legacyCode: 'unauthorized',
+            });
         return actor as Actor & {
             user: { id: number; uuid: string; username: string };
         };
     }
 
     #requireUser(actor: Actor): void {
-        if (!actor.user?.id) throw new HttpError(403, 'User actor required');
+        if (!actor.user?.id)
+            throw new HttpError(403, 'User actor required', {
+                legacyCode: 'forbidden',
+            });
     }
 
     /**
@@ -392,13 +443,11 @@ export class SubdomainDriver extends PuterDriver {
      * level so /drivers/call can't bypass the gate the HTTP route enforces.
      */
     #requireVerified(actor: Actor): void {
-        if (!this.config.strict_email_verification_required) return;
-        const user = actor.user as Record<string, unknown> | undefined;
-        if (!user?.email_confirmed) {
-            throw new HttpError(400, 'Account email is not verified', {
-                legacyCode: 'account_is_not_verified',
-            });
-        }
+        assertVerifiedEmail(
+            Boolean(this.config.strict_email_verification_required),
+            actor.user,
+            400,
+        );
     }
 
     async #hasPermission(actor: Actor, permission: string): Promise<boolean> {
@@ -419,7 +468,7 @@ export class SubdomainDriver extends PuterDriver {
         if (actor.app?.id && actor.app.id === row.app_owner) return;
         // Cross-user read permission
         if (await this.#hasPermission(actor, 'read-all-subdomains')) return;
-        throw new HttpError(403, 'Access denied');
+        throw new HttpError(403, 'Access denied', { legacyCode: 'forbidden' });
     }
 
     async #checkWriteAccess(
@@ -441,7 +490,9 @@ export class SubdomainDriver extends PuterDriver {
             );
         }
         if (!hasAccess) {
-            throw new HttpError(403, 'Access denied');
+            throw new HttpError(403, 'Access denied', {
+                legacyCode: 'forbidden',
+            });
         }
     }
 
@@ -456,13 +507,17 @@ export class SubdomainDriver extends PuterDriver {
         const uid = object.associated_app_uid;
         if (uid == null) return null;
         if (typeof uid !== 'string' || uid.length === 0) {
-            throw new HttpError(400, '`associated_app_uid` must be a string');
+            throw new HttpError(400, '`associated_app_uid` must be a string', {
+                legacyCode: 'bad_request',
+            });
         }
         const app = (await this.stores.app.getByUid(uid)) as {
             id: number;
         } | null;
         if (!app) {
-            throw new HttpError(400, '`associated_app_uid` does not exist');
+            throw new HttpError(400, '`associated_app_uid` does not exist', {
+                legacyCode: 'bad_request',
+            });
         }
         return app.id;
     }

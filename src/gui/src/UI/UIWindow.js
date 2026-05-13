@@ -407,7 +407,7 @@ async function UIWindow (options) {
                 style="${!options.has_head ? ' height: 100%;' : ''}">`;
     // iframe, for apps
     if ( options.iframe_url || options.iframe_srcdoc ) {
-        let allow_str = 'screen-wake-lock; picture-in-picture; document-picture-in-picture; camera; encrypted-media; gamepad; display-capture; geolocation; gyroscope; microphone; midi; clipboard-read; clipboard-write; fullscreen; web-share; file-system-handle; local-storage; downloads; autoplay;';
+        let allow_str = 'screen-wake-lock; picture-in-picture; document-picture-in-picture; camera; encrypted-media; gamepad; display-capture; geolocation; gyroscope; microphone; midi; clipboard-read; clipboard-write; fullscreen; web-share; file-system-handle; local-storage; downloads; autoplay; local-network-access;';
         if ( window.co_isolation_enabled )
         {
             allow_str += ' cross-origin-isolated;';

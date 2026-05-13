@@ -119,7 +119,10 @@ export class OIDCController extends PuterController {
                 const provider = String(req.params.provider);
                 const cfg =
                     await this.services.oidc.getProviderConfig(provider);
-                if (!cfg) throw new HttpError(404, 'Provider not configured.');
+                if (!cfg)
+                    throw new HttpError(404, 'Provider not configured.', {
+                        legacyCode: 'not_found',
+                    });
 
                 const flow = String(
                     Array.isArray(req.query.flow)
@@ -163,10 +166,19 @@ export class OIDCController extends PuterController {
                     }
                 }
 
+                const rawReferrer = Array.isArray(req.query.referrer)
+                    ? req.query.referrer[0]
+                    : req.query.referrer;
+                const referrer =
+                    rawReferrer != null && rawReferrer !== ''
+                        ? String(rawReferrer)
+                        : null;
+
                 const statePayload: Record<string, unknown> = {
                     provider,
                     redirect_uri: appRedirectUri,
                 };
+                if (referrer) statePayload.referrer = referrer ?? openerOrigin;
                 if (embeddedInPopup && msgId) {
                     statePayload.embedded_in_popup = true;
                     statePayload.msg_id = msgId;
@@ -180,6 +192,7 @@ export class OIDCController extends PuterController {
                         throw new HttpError(
                             400,
                             'user_uuid required for revalidate flow.',
+                            { legacyCode: 'bad_request' },
                         );
                     statePayload.user_uuid = rawUserUuid;
                     statePayload.flow = 'revalidate';
@@ -195,203 +208,201 @@ export class OIDCController extends PuterController {
                     throw new HttpError(
                         500,
                         'Could not build authorization URL.',
+                        { legacyCode: 'internal_error' },
                     );
 
                 res.redirect(302, url);
             },
         );
 
-        // ── GET /auth/oidc/callback/login ───────────────────────────
+        // ── /auth/oidc/callback/login (GET + POST) ────────────────
 
-        router.get(
-            '/auth/oidc/callback/login',
-            {
-                subdomain: '',
-                rateLimit: { scope: 'oidc-general', limit: 30, window: 60_000 },
-            },
-            async (req: Request, res: Response) => {
-                const origin = this.config.origin ?? '';
-                const result = await this.#processCallback(req, 'login');
-                if ('error' in result) {
-                    console.warn(`OIDC login callback error: ${result.error}`);
-                    return res.redirect(
-                        302,
-                        buildErrorRedirectUrl(
-                            origin,
-                            'login',
-                            'other',
-                            result.error,
-                        ),
-                    );
-                }
+        const cbOpts = {
+            subdomain: '',
+            rateLimit: { scope: 'oidc-general', limit: 30, window: 60_000 },
+        };
 
-                const { provider, userinfo, stateDecoded } = result;
-                const resolved = await this.#resolveOrCreateOIDCUser(
-                    provider,
-                    userinfo,
+        const loginCb = async (req: Request, res: Response) => {
+            const origin = this.config.origin ?? '';
+            const result = await this.#processCallback(req, 'login');
+            if ('error' in result) {
+                console.warn(`OIDC login callback error: ${result.error}`);
+                return res.redirect(
+                    302,
+                    buildErrorRedirectUrl(
+                        origin,
+                        'login',
+                        'other',
+                        result.error,
+                    ),
                 );
-                if ('error' in resolved) {
-                    console.warn(
-                        `OIDC login user resolution error: ${resolved.error}`,
-                    );
-                    return res.redirect(
-                        302,
-                        buildErrorRedirectUrl(
-                            origin,
-                            'login',
-                            'other',
-                            resolved.error,
-                            stateDecoded,
-                        ),
-                    );
-                }
-                const user = resolved.user;
+            }
 
-                if (user.suspended) {
-                    console.warn(
-                        `Suspended user tried to login via oidc: ${user.username}`,
-                    );
-                    return res.redirect(
-                        302,
-                        buildErrorRedirectUrl(
-                            origin,
-                            'login',
-                            'other',
-                            'This account is suspended.',
-                            stateDecoded,
-                        ),
-                    );
-                }
+            const { provider, userinfo, stateDecoded } = result;
 
-                await this.#finishLogin(res, user, stateDecoded);
-            },
-        );
-
-        // ── GET /auth/oidc/callback/signup ──────────────────────────
-
-        router.get(
-            '/auth/oidc/callback/signup',
-            {
-                subdomain: '',
-                rateLimit: { scope: 'oidc-general', limit: 30, window: 60_000 },
-            },
-            async (req: Request, res: Response) => {
-                const origin = this.config.origin ?? '';
-                const result = await this.#processCallback(req, 'signup');
-                if ('error' in result) {
-                    return res.redirect(
-                        302,
-                        buildErrorRedirectUrl(
-                            origin,
-                            'signup',
-                            'other',
-                            'unauthorized',
-                        ),
-                    );
-                }
-
-                const { provider, userinfo, stateDecoded } = result;
-                const resolved = await this.#resolveOrCreateOIDCUser(
-                    provider,
-                    userinfo,
+            const resolved = await this.#resolveOrCreateOIDCUser(
+                provider,
+                userinfo,
+                (stateDecoded.referrer as string) ?? null,
+            );
+            if ('error' in resolved) {
+                console.warn(
+                    `OIDC login user resolution error: ${resolved.error}`,
                 );
-                if ('error' in resolved) {
-                    return res.redirect(
-                        302,
-                        buildErrorRedirectUrl(
-                            origin,
-                            'signup',
-                            'other',
-                            'unauthorized',
-                            stateDecoded,
-                        ),
-                    );
-                }
-                const user = resolved.user;
-
-                if (user.suspended) {
-                    return res.redirect(
-                        302,
-                        buildErrorRedirectUrl(
-                            origin,
-                            'signup',
-                            'other',
-                            'account_suspended',
-                            stateDecoded,
-                        ),
-                    );
-                }
-
-                // If we landed on an existing account (either via the
-                // provider_sub or via email match), signal the GUI so it can
-                // render a "signed in" flow rather than "account created".
-                const extra =
-                    resolved.origin === 'created'
-                        ? undefined
-                        : { oidc_switched: 'login' };
-                await this.#finishLogin(res, user, stateDecoded, extra);
-            },
-        );
-
-        // ── GET /auth/oidc/callback/revalidate ──────────────────────
-
-        router.get(
-            '/auth/oidc/callback/revalidate',
-            {
-                subdomain: '',
-                rateLimit: { scope: 'oidc-general', limit: 30, window: 60_000 },
-            },
-            async (req: Request, res: Response): Promise<void> => {
-                const result = await this.#processCallback(req, 'revalidate');
-                if ('error' in result) {
-                    res.status(400).send(result.error);
-                    return;
-                }
-
-                const { provider, userinfo, stateDecoded } = result;
-                if (
-                    stateDecoded.flow !== 'revalidate' ||
-                    typeof stateDecoded.user_uuid !== 'string' ||
-                    stateDecoded.user_uuid.length === 0
-                ) {
-                    res.status(400).send('Invalid revalidate state.');
-                    return;
-                }
-
-                const user = await this.services.oidc.findUserByProviderSub(
-                    provider,
-                    userinfo.sub,
+                return res.redirect(
+                    302,
+                    buildErrorRedirectUrl(
+                        origin,
+                        'login',
+                        'other',
+                        resolved.error,
+                        stateDecoded,
+                    ),
                 );
-                if (!user) {
-                    res.status(400).send('No account found.');
-                    return;
-                }
-                if (user.uuid !== stateDecoded.user_uuid) {
-                    res.status(403).send(
-                        'Wrong account. Sign in with the account linked to this session.',
-                    );
-                    return;
-                }
+            }
+            const user = resolved.user;
 
-                const token = this.services.oidc.signRevalidation(user.uuid);
-                res.cookie(REVALIDATION_COOKIE_NAME, token, {
-                    // Revalidation flow is same-site only — `lax` even on HTTPS.
-                    ...sessionCookieFlags(this.config, { crossSite: false }),
-                    httpOnly: true,
-                    maxAge: REVALIDATION_EXPIRY_SEC * 1000,
-                    path: '/',
-                });
+            if (user.suspended) {
+                console.warn(
+                    `Suspended user tried to login via oidc: ${user.username}`,
+                );
+                return res.redirect(
+                    302,
+                    buildErrorRedirectUrl(
+                        origin,
+                        'login',
+                        'other',
+                        'This account is suspended.',
+                        stateDecoded,
+                    ),
+                );
+            }
 
-                const origin = (this.config.origin ?? '').replace(/\/$/, '');
-                const requested =
-                    (stateDecoded.redirect_uri as string) ||
-                    `${origin}/auth/revalidate-done`;
-                const target = isSameOrigin(requested, origin)
-                    ? requested
-                    : `${origin}/auth/revalidate-done`;
-                res.redirect(302, target);
-            },
-        );
+            await this.#finishLogin(res, user, stateDecoded);
+        };
+        router.get('/auth/oidc/callback/login', cbOpts, loginCb);
+        router.post('/auth/oidc/callback/login', cbOpts, loginCb);
+
+        // ── /auth/oidc/callback/signup (GET + POST) ────────────────
+
+        const signupCb = async (req: Request, res: Response) => {
+            const origin = this.config.origin ?? '';
+            const result = await this.#processCallback(req, 'signup');
+            if ('error' in result) {
+                return res.redirect(
+                    302,
+                    buildErrorRedirectUrl(
+                        origin,
+                        'signup',
+                        'other',
+                        'unauthorized',
+                    ),
+                );
+            }
+
+            const { provider, userinfo, stateDecoded } = result;
+
+            const resolved = await this.#resolveOrCreateOIDCUser(
+                provider,
+                userinfo,
+                (stateDecoded.referrer as string) ?? null,
+            );
+            if ('error' in resolved) {
+                return res.redirect(
+                    302,
+                    buildErrorRedirectUrl(
+                        origin,
+                        'signup',
+                        'other',
+                        'unauthorized',
+                        stateDecoded,
+                    ),
+                );
+            }
+            const user = resolved.user;
+
+            if (user.suspended) {
+                return res.redirect(
+                    302,
+                    buildErrorRedirectUrl(
+                        origin,
+                        'signup',
+                        'other',
+                        'account_suspended',
+                        stateDecoded,
+                    ),
+                );
+            }
+
+            // If we landed on an existing account (either via the
+            // provider_sub or via email match), signal the GUI so it can
+            // render a "signed in" flow rather than "account created".
+            const extra =
+                resolved.origin === 'created'
+                    ? undefined
+                    : { oidc_switched: 'login' };
+            await this.#finishLogin(res, user, stateDecoded, extra);
+        };
+        router.get('/auth/oidc/callback/signup', cbOpts, signupCb);
+        router.post('/auth/oidc/callback/signup', cbOpts, signupCb);
+
+        // ── /auth/oidc/callback/revalidate (GET + POST) ────────────
+
+        const revalidateCb = async (
+            req: Request,
+            res: Response,
+        ): Promise<void> => {
+            const result = await this.#processCallback(req, 'revalidate');
+            if ('error' in result) {
+                res.status(400).send(result.error);
+                return;
+            }
+
+            const { provider, userinfo, stateDecoded } = result;
+            if (
+                stateDecoded.flow !== 'revalidate' ||
+                typeof stateDecoded.user_uuid !== 'string' ||
+                stateDecoded.user_uuid.length === 0
+            ) {
+                res.status(400).send('Invalid revalidate state.');
+                return;
+            }
+
+            const user = await this.services.oidc.findUserByProviderSub(
+                provider,
+                userinfo.sub,
+            );
+            if (!user) {
+                res.status(400).send('No account found.');
+                return;
+            }
+            if (user.uuid !== stateDecoded.user_uuid) {
+                res.status(403).send(
+                    'Wrong account. Sign in with the account linked to this session.',
+                );
+                return;
+            }
+
+            const token = this.services.oidc.signRevalidation(user.uuid);
+            res.cookie(REVALIDATION_COOKIE_NAME, token, {
+                // Revalidation flow is same-site only — `lax` even on HTTPS.
+                ...sessionCookieFlags(this.config, { crossSite: false }),
+                httpOnly: true,
+                maxAge: REVALIDATION_EXPIRY_SEC * 1000,
+                path: '/',
+            });
+
+            const origin = (this.config.origin ?? '').replace(/\/$/, '');
+            const requested =
+                (stateDecoded.redirect_uri as string) ||
+                `${origin}/auth/revalidate-done`;
+            const target = isSameOrigin(requested, origin)
+                ? requested
+                : `${origin}/auth/revalidate-done`;
+            res.redirect(302, target);
+        };
+        router.get('/auth/oidc/callback/revalidate', cbOpts, revalidateCb);
+        router.post('/auth/oidc/callback/revalidate', cbOpts, revalidateCb);
 
         // ── GET /auth/revalidate-done ───────────────────────────────
         // Landing page after revalidation; posts to opener for popup flow.
@@ -438,6 +449,7 @@ if (window.opener) {
     async #resolveOrCreateOIDCUser(
         provider: string,
         userinfo: { sub: string; email?: unknown; [k: string]: unknown },
+        referrer?: string | null,
     ): Promise<
         | { error: string }
         | {
@@ -482,6 +494,7 @@ if (window.opener) {
         const outcome = await this.services.oidc.createUserFromOIDC(
             provider,
             userinfo as { sub: string; email?: string },
+            referrer,
         );
         if (!outcome.success || !outcome.user) {
             return { error: outcome.error ?? 'Account creation failed.' };
@@ -500,15 +513,13 @@ if (window.opener) {
               stateDecoded: Record<string, unknown>;
           }
     > {
+        // Apple uses response_mode=form_post, so params arrive in the body.
+        const src = req.method === 'POST' && req.body ? req.body : req.query;
         const code = String(
-            Array.isArray(req.query.code)
-                ? req.query.code[0]
-                : (req.query.code ?? ''),
+            Array.isArray(src.code) ? src.code[0] : (src.code ?? ''),
         );
         const state = String(
-            Array.isArray(req.query.state)
-                ? req.query.state[0]
-                : (req.query.state ?? ''),
+            Array.isArray(src.state) ? src.state[0] : (src.state ?? ''),
         );
         if (!code || !state) return { error: 'Missing code or state.' };
 
@@ -531,6 +542,7 @@ if (window.opener) {
         const userinfo = await this.services.oidc.getUserInfo(
             provider,
             tokens.access_token,
+            typeof tokens.id_token === 'string' ? tokens.id_token : undefined,
         );
         if (!userinfo || !userinfo.sub)
             return { error: 'Could not get user info.' };

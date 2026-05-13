@@ -92,11 +92,6 @@ const ig = {
         credits: 'Ebe e si nweta',
         current_password: 'paswọọdụ Ugbu a',
         cut: 'Bee',
-        clock: 'Elekere',
-        clock_visible_hide: 'Ezo - ezoro ezo mgbe niile',
-        clock_visible_show: 'Gosi - A na-ahụ ya mgbe niile',
-        clock_visible_auto:
-      'Nchekwa onwe - Emepụtara, a na-ahụ ya naanị na ọnọdụ ihuenyo zuru oke.',
         close_all: 'Mechie ha niile',
         created: 'kere',
         date_modified: 'Ụbọchị ịgbanwe',
@@ -368,7 +363,6 @@ const ig = {
         login2fa_recovery_placeholder: 'XXXXXXXX',
 
         change: 'gbanwee',
-        clock_visibility: 'Ihe ngosi elekere',
         reading: 'ogụgụ %strong%',
         writing: 'Na-ede %strong%',
         unzipping: 'na mkpọpu ya %strong%',

@@ -44,7 +44,7 @@ interface AuthProbeOptions {
  *   1. `req.body.auth_token`
  *   2. `Authorization: Bearer <token>` header
  *   3. `x-api-key` header — third-party SDK convention (Anthropic etc.)
- *   4. Session cookie
+ *   4. Session cookie, only when the browser request is same-origin
  *   5. `?auth_token=...` query param
  *   6. Socket handshake query (for ws upgrades that pass through HTTP first)
  */
@@ -126,10 +126,11 @@ const extractToken = (req: Request, cookieName?: string): string | null => {
         return stripBearer(xApiKey);
     }
 
-    // 4. Cookie (set by login flow for session tokens). We parse the
-    // Cookie header directly rather than depending on `cookie-parser`
-    // middleware — the probe only needs one named value.
-    if (cookieName) {
+    // 4. Cookie (set by login flow for session tokens). Do not let an
+    // arbitrary browser Origin spend an ambient session cookie against the
+    // credentialed API CORS surface; bearer/body/x-api-key tokens remain
+    // available for cross-origin SDK requests.
+    if (cookieName && !isCrossOriginBrowserRequest(req)) {
         const cookieToken = readCookie(req, cookieName);
         if (cookieToken) {
             return stripBearer(cookieToken);
@@ -156,6 +157,29 @@ const extractToken = (req: Request, cookieName?: string): string | null => {
 };
 
 const stripBearer = (t: string): string => t.replace(/^Bearer\s+/i, '').trim();
+
+const isCrossOriginBrowserRequest = (req: Request): boolean => {
+    const origin =
+        typeof req.header === 'function' ? req.header('origin') : undefined;
+    if (!origin) return false;
+
+    const host =
+        typeof req.header === 'function' ? req.header('host') : undefined;
+    if (!host) return true;
+
+    const protocol =
+        typeof req.protocol === 'string' && req.protocol.length > 0
+            ? req.protocol
+            : undefined;
+    if (!protocol) return true;
+
+    try {
+        const requestOrigin = new URL(`${protocol}://${host.trim()}`).origin;
+        return new URL(origin).origin !== requestOrigin;
+    } catch {
+        return true;
+    }
+};
 
 /**
  * Minimal cookie reader. Avoids pulling in `cookie-parser` for the one

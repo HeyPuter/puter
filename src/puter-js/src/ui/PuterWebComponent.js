@@ -12,7 +12,62 @@ class PuterWebComponent extends (globalThis.HTMLElement || Object) {
     }
 
     connectedCallback () {
+        this._setupThemeWatchers();
+        this._applyTheme();
         this._rerender();
+    }
+
+    disconnectedCallback () {
+        this._teardownThemeWatchers();
+    }
+
+    _setupThemeWatchers () {
+        if ( typeof globalThis.MutationObserver !== 'undefined' && ! this._themeObserver ) {
+            this._themeObserver = new globalThis.MutationObserver(() => this._applyTheme());
+            this._themeObserver.observe(this, { attributes: true, attributeFilter: ['theme'] });
+        }
+        if ( typeof globalThis.matchMedia === 'function' && ! this._themeMediaQuery ) {
+            this._themeMediaQuery = globalThis.matchMedia('(prefers-color-scheme: dark)');
+            this._themeMediaListener = () => this._applyTheme();
+            if ( this._themeMediaQuery.addEventListener ) {
+                this._themeMediaQuery.addEventListener('change', this._themeMediaListener);
+            }
+        }
+    }
+
+    _teardownThemeWatchers () {
+        if ( this._themeObserver ) {
+            this._themeObserver.disconnect();
+            this._themeObserver = null;
+        }
+        if ( this._themeMediaQuery && this._themeMediaListener && this._themeMediaQuery.removeEventListener ) {
+            this._themeMediaQuery.removeEventListener('change', this._themeMediaListener);
+        }
+        this._themeMediaQuery = null;
+        this._themeMediaListener = null;
+    }
+
+    /**
+     * Resolves the effective theme from the `theme` attribute and the system
+     * preference, then toggles a `.puter-theme-dark` class on the host so
+     * components can style with `:host(.puter-theme-dark) ...`.
+     *   theme="dark"   → always dark
+     *   theme="light"  → always light
+     *   unset / other  → follow system (prefers-color-scheme)
+     */
+    _applyTheme () {
+        if ( typeof this.getAttribute !== 'function' ) return;
+        const themeAttr = this.getAttribute('theme');
+        let isDark;
+        if ( themeAttr === 'dark' ) {
+            isDark = true;
+        } else if ( themeAttr === 'light' ) {
+            isDark = false;
+        } else {
+            isDark = typeof globalThis.matchMedia === 'function'
+                && globalThis.matchMedia('(prefers-color-scheme: dark)').matches;
+        }
+        this.classList.toggle('puter-theme-dark', isDark);
     }
 
     _rerender () {

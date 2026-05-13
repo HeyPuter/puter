@@ -84,7 +84,9 @@ export class TogetherVideoProvider extends VideoProvider {
         } = params ?? {};
 
         if (typeof prompt !== 'string' || !prompt.trim()) {
-            throw new HttpError(400, 'prompt must be a non-empty string');
+            throw new HttpError(400, 'prompt must be a non-empty string', {
+                legacyCode: 'bad_request',
+            });
         }
 
         const selectedModel = await this.#getModel(requestedModel);
@@ -112,7 +114,9 @@ export class TogetherVideoProvider extends VideoProvider {
 
         const actor = Context.get('actor');
         if (!actor) {
-            throw new HttpError(401, 'Authentication required');
+            throw new HttpError(401, 'Authentication required', {
+                legacyCode: 'unauthorized',
+            });
         }
 
         const usageAllowed = await this.#meteringService.hasEnoughCredits(
@@ -120,7 +124,9 @@ export class TogetherVideoProvider extends VideoProvider {
             costInMicroCents,
         );
         if (!usageAllowed) {
-            throw new HttpError(402, 'Insufficient funds');
+            throw new HttpError(402, 'Insufficient funds', {
+                legacyCode: 'insufficient_funds',
+            });
         }
 
         const createPayload: Together.VideoCreateParams & {
@@ -189,7 +195,9 @@ export class TogetherVideoProvider extends VideoProvider {
                 finalJob?.info?.errors?.message ??
                 finalJob?.info?.errors ??
                 'Video generation failed';
-            throw new HttpError(500, errorMessage);
+            throw new HttpError(500, errorMessage, {
+                legacyCode: 'internal_error',
+            });
         }
 
         if (finalJob.status === 'cancelled') {

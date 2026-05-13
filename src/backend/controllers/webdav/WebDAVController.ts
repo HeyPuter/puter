@@ -20,6 +20,7 @@
 import { compare as bcryptCompare } from 'bcrypt';
 import type { Request, Response } from 'express';
 import { posix as pathPosix } from 'node:path';
+import { EventMap } from '../../clients/event/types.js';
 import type { Actor } from '../../core/actor.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import type { PuterRouter } from '../../core/http/PuterRouter.js';
@@ -259,8 +260,12 @@ export class WebDAVController extends PuterController {
         headOnly: boolean,
     ): Promise<void> {
         const entry = await this.stores.fsEntry.getEntryByPath(davPath);
-        if (!entry) throw new HttpError(404, 'Not Found');
-        if (entry.isDir) throw new HttpError(400, 'Cannot GET a directory');
+        if (!entry)
+            throw new HttpError(404, 'Not Found', { legacyCode: 'not_found' });
+        if (entry.isDir)
+            throw new HttpError(400, 'Cannot GET a directory', {
+                legacyCode: 'bad_request',
+            });
 
         await this.#assertRead(actor, davPath);
 
@@ -309,7 +314,8 @@ export class WebDAVController extends PuterController {
             davPath === '/'
                 ? null // root always exists
                 : await this.stores.fsEntry.getEntryByPath(davPath);
-        if (davPath !== '/' && !entry) throw new HttpError(404, 'Not Found');
+        if (davPath !== '/' && !entry)
+            throw new HttpError(404, 'Not Found', { legacyCode: 'not_found' });
 
         await this.#assertRead(actor, davPath);
 
@@ -356,7 +362,7 @@ export class WebDAVController extends PuterController {
                 lockToken,
             ))
         ) {
-            throw new HttpError(423, 'Locked');
+            throw new HttpError(423, 'Locked', { legacyCode: 'conflict' });
         }
         res.status(207)
             .set({ 'Content-Type': 'application/xml; charset=utf-8' })
@@ -375,12 +381,17 @@ export class WebDAVController extends PuterController {
         redis: unknown,
         lockToken: string | null,
     ): Promise<void> {
-        if (davPath === '/') throw new HttpError(403, 'Cannot create at root');
+        if (davPath === '/')
+            throw new HttpError(403, 'Cannot create at root', {
+                legacyCode: 'forbidden',
+            });
         if (
             req.headers['content-length'] &&
             Number(req.headers['content-length']) > 0
         ) {
-            throw new HttpError(415, 'MKCOL must not have a body');
+            throw new HttpError(415, 'MKCOL must not have a body', {
+                legacyCode: 'bad_request',
+            });
         }
         if (
             !(await hasWritePermission(
@@ -389,14 +400,17 @@ export class WebDAVController extends PuterController {
                 lockToken,
             ))
         ) {
-            throw new HttpError(423, 'Locked');
+            throw new HttpError(423, 'Locked', { legacyCode: 'conflict' });
         }
         const userId = actor.user!.id as number;
         const parentPath = pathPosix.dirname(davPath);
         await this.#assertWrite(actor, parentPath);
 
         const existing = await this.stores.fsEntry.getEntryByPath(davPath);
-        if (existing) throw new HttpError(405, 'Already exists');
+        if (existing)
+            throw new HttpError(405, 'Already exists', {
+                legacyCode: 'bad_request',
+            });
 
         const entry = await this.services.fs.mkdir(userId, {
             path: davPath,
@@ -429,7 +443,7 @@ export class WebDAVController extends PuterController {
                 lockToken,
             ))
         ) {
-            throw new HttpError(423, 'Locked');
+            throw new HttpError(423, 'Locked', { legacyCode: 'conflict' });
         }
 
         const userId = actor.user!.id as number;
@@ -442,7 +456,9 @@ export class WebDAVController extends PuterController {
                 0,
         );
         if (!contentLength && contentLength !== 0)
-            throw new HttpError(400, 'Missing Content-Length');
+            throw new HttpError(400, 'Missing Content-Length', {
+                legacyCode: 'bad_request',
+            });
 
         // Check if overwrite
         const existing = await this.stores.fsEntry.getEntryByPath(davPath);
@@ -497,13 +513,14 @@ export class WebDAVController extends PuterController {
                 lockToken,
             ))
         ) {
-            throw new HttpError(423, 'Locked');
+            throw new HttpError(423, 'Locked', { legacyCode: 'conflict' });
         }
         const userId = actor.user!.id as number;
         await this.#assertWrite(actor, davPath);
 
         const entry = await this.stores.fsEntry.getEntryByPath(davPath);
-        if (!entry) throw new HttpError(404, 'Not Found');
+        if (!entry)
+            throw new HttpError(404, 'Not Found', { legacyCode: 'not_found' });
 
         await this.services.fs.remove(userId, { entry, recursive: true });
         this.#emitGuiEvent('outer.gui.item.removed', entry);
@@ -528,7 +545,7 @@ export class WebDAVController extends PuterController {
                 lockToken,
             ))
         ) {
-            throw new HttpError(423, 'Locked');
+            throw new HttpError(423, 'Locked', { legacyCode: 'conflict' });
         }
 
         const userId = actor.user!.id as number;
@@ -536,12 +553,17 @@ export class WebDAVController extends PuterController {
         await this.#assertWrite(actor, pathPosix.dirname(destPath));
 
         const source = await this.stores.fsEntry.getEntryByPath(davPath);
-        if (!source) throw new HttpError(404, 'Source not found');
+        if (!source)
+            throw new HttpError(404, 'Source not found', {
+                legacyCode: 'not_found',
+            });
 
         const overwrite = req.headers.overwrite !== 'F';
         const destExists = await this.stores.fsEntry.getEntryByPath(destPath);
         if (destExists && !overwrite)
-            throw new HttpError(412, 'Destination exists and Overwrite=F');
+            throw new HttpError(412, 'Destination exists and Overwrite=F', {
+                legacyCode: 'conflict',
+            });
 
         const destParent = await this.stores.fsEntry.getEntryByPath(
             pathPosix.dirname(destPath),
@@ -550,6 +572,7 @@ export class WebDAVController extends PuterController {
             throw new HttpError(
                 409,
                 'Destination parent missing or not a directory',
+                { legacyCode: 'dest_is_not_a_directory' },
             );
 
         const copy = await this.services.fs.copy(userId, {
@@ -575,21 +598,26 @@ export class WebDAVController extends PuterController {
         const destPath = this.#parseDestination(req);
         const r = redis as import('ioredis').Cluster;
         if (!(await hasWritePermission(r, davPath, lockToken)))
-            throw new HttpError(423, 'Locked');
+            throw new HttpError(423, 'Locked', { legacyCode: 'conflict' });
         if (!(await hasWritePermission(r, destPath, lockToken)))
-            throw new HttpError(423, 'Locked');
+            throw new HttpError(423, 'Locked', { legacyCode: 'conflict' });
 
         const userId = actor.user!.id as number;
         await this.#assertWrite(actor, davPath);
         await this.#assertWrite(actor, pathPosix.dirname(destPath));
 
         const source = await this.stores.fsEntry.getEntryByPath(davPath);
-        if (!source) throw new HttpError(404, 'Source not found');
+        if (!source)
+            throw new HttpError(404, 'Source not found', {
+                legacyCode: 'not_found',
+            });
 
         const overwrite = req.headers.overwrite !== 'F';
         const destExists = await this.stores.fsEntry.getEntryByPath(destPath);
         if (destExists && !overwrite)
-            throw new HttpError(412, 'Destination exists and Overwrite=F');
+            throw new HttpError(412, 'Destination exists and Overwrite=F', {
+                legacyCode: 'conflict',
+            });
 
         const destParent = await this.stores.fsEntry.getEntryByPath(
             pathPosix.dirname(destPath),
@@ -598,6 +626,7 @@ export class WebDAVController extends PuterController {
             throw new HttpError(
                 409,
                 'Destination parent missing or not a directory',
+                { legacyCode: 'dest_is_not_a_directory' },
             );
 
         const moved = await this.services.fs.move(userId, {
@@ -626,7 +655,10 @@ export class WebDAVController extends PuterController {
         // Refresh existing lock
         if (headerToken) {
             const existing = await getLockIfValid(r, headerToken);
-            if (!existing) throw new HttpError(412, 'Lock token not found');
+            if (!existing)
+                throw new HttpError(412, 'Lock token not found', {
+                    legacyCode: 'conflict',
+                });
             await refreshLock(r, headerToken);
             res.status(200)
                 .set({
@@ -652,7 +684,9 @@ export class WebDAVController extends PuterController {
         const existingLocks = await getFileLocks(r, davPath);
         for (const lock of existingLocks) {
             if (lockScope === 'exclusive' || lock.lockScope === 'exclusive') {
-                throw new HttpError(423, 'Locked — conflicting lock exists');
+                throw new HttpError(423, 'Locked — conflicting lock exists', {
+                    legacyCode: 'conflict',
+                });
             }
         }
 
@@ -679,7 +713,10 @@ export class WebDAVController extends PuterController {
         const r = redis as import('ioredis').Cluster;
         const tokenHeader = req.headers['lock-token'] as string | undefined;
         const token = extractLockToken(tokenHeader);
-        if (!token) throw new HttpError(400, 'Missing Lock-Token header');
+        if (!token)
+            throw new HttpError(400, 'Missing Lock-Token header', {
+                legacyCode: 'token_missing',
+            });
 
         const lock = await getLockIfValid(r, token);
         if (!lock) {
@@ -688,7 +725,9 @@ export class WebDAVController extends PuterController {
             return;
         }
         if (lock.path !== davPath)
-            throw new HttpError(403, 'Lock token does not match this path');
+            throw new HttpError(403, 'Lock token does not match this path', {
+                legacyCode: 'forbidden',
+            });
 
         await deleteLock(r, token);
         res.status(204).end();
@@ -702,7 +741,10 @@ export class WebDAVController extends PuterController {
             resolveAncestors: () => this.services.fs.getAncestorChain(path),
         };
         const ok = await this.services.acl.check(actor, descriptor, 'read');
-        if (!ok) throw new HttpError(403, 'Permission denied');
+        if (!ok)
+            throw new HttpError(403, 'Permission denied', {
+                legacyCode: 'permission_denied',
+            });
     }
 
     async #assertWrite(actor: Actor, path: string): Promise<void> {
@@ -711,13 +753,16 @@ export class WebDAVController extends PuterController {
             resolveAncestors: () => this.services.fs.getAncestorChain(path),
         };
         const ok = await this.services.acl.check(actor, descriptor, 'write');
-        if (!ok) throw new HttpError(403, 'Permission denied');
+        if (!ok)
+            throw new HttpError(403, 'Permission denied', {
+                legacyCode: 'permission_denied',
+            });
     }
 
     // ── Event emission ──────────────────────────────────────────────
 
-    #emitGuiEvent(
-        eventName: string,
+    #emitGuiEvent<T extends keyof EventMap>(
+        eventName: T,
         entry: FSEntry,
         extra?: Record<string, unknown>,
     ): void {
@@ -727,7 +772,13 @@ export class WebDAVController extends PuterController {
         };
         const meta = {};
         void Promise.resolve()
-            .then(() => this.clients.event.emit(eventName, payload, meta))
+            .then(() =>
+                this.clients.event.emit(
+                    eventName,
+                    payload as unknown as EventMap[T],
+                    meta,
+                ),
+            )
             .catch(() => {
                 // non-critical
             });
@@ -737,7 +788,10 @@ export class WebDAVController extends PuterController {
 
     #parseDestination(req: Request): string {
         const dest = req.headers.destination as string | undefined;
-        if (!dest) throw new HttpError(400, 'Missing Destination header');
+        if (!dest)
+            throw new HttpError(400, 'Missing Destination header', {
+                legacyCode: 'bad_request',
+            });
         try {
             const url = new URL(dest, `http://${req.headers.host}`);
             return decodeURIComponent(url.pathname);

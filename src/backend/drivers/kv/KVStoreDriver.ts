@@ -19,8 +19,13 @@
 
 import { HttpError } from '../../core/http/HttpError.js';
 import { Context } from '../../core/context.js';
+import {
+    DEFAULT_FREE_SUBSCRIPTION,
+    DEFAULT_TEMP_SUBSCRIPTION,
+} from '../../services/metering/consts.js';
 import { PuterDriver } from '../types.js';
 import type { Actor } from '../../core/actor.js';
+import type { DriverRateLimitConfig } from '../meta.js';
 import type { KVUsage } from '../../stores/systemKv/SystemKVStore.js';
 import { KV_COSTS } from './costs.js';
 
@@ -37,6 +42,24 @@ export class KVStoreDriver extends PuterDriver {
     readonly driverName = 'puter-kvstore';
     readonly isDefault = true;
 
+    // Pre-v2 these limits lived on the kv permission policy in
+    // `hardcoded-permissions.js` and were keyed by user-group membership
+    // (registered vs anonymous). The v2 metering service expresses the
+    // same distinction as subscription tier (`user_free` vs `temp_free`),
+    // so the policy moves to the driver and keys off `getActorSubscription`.
+    // The base `limit` matches the registered tier so anonymous traffic
+    // (no subscription resolution) is not given the tighter cap.
+    readonly rateLimit: DriverRateLimitConfig = {
+        default: {
+            limit: 200,
+            window: 10_000,
+            bySubscription: {
+                [DEFAULT_FREE_SUBSCRIPTION]: 200,
+                [DEFAULT_TEMP_SUBSCRIPTION]: 100,
+            },
+        },
+    };
+
     override getReportedCosts(): Record<string, unknown>[] {
         return Object.entries(KV_COSTS).map(([usageType, ucentsPerUnit]) => ({
             usageType,
@@ -48,10 +71,15 @@ export class KVStoreDriver extends PuterDriver {
 
     #coerceKey(key: unknown): string {
         if (key === null || key === undefined) {
-            throw new HttpError(400, 'Missing `key`');
+            throw new HttpError(400, 'Missing `key`', {
+                legacyCode: 'bad_request',
+            }); // legacyCode for backward compatibility with old error handling in controllers
         }
         const str = typeof key === 'string' ? key : String(key);
-        if (str === '') throw new HttpError(400, 'Missing `key`');
+        if (str === '')
+            throw new HttpError(400, 'Missing `key`', {
+                legacyCode: 'bad_request',
+            }); // legacyCode for backward compatibility with old error handling in controllers
         return str;
     }
 
@@ -105,7 +133,9 @@ export class KVStoreDriver extends PuterDriver {
     }): Promise<unknown> {
         const { key, optConfig } = args;
         if (key === undefined || key === null) {
-            throw new HttpError(400, 'Missing `key`');
+            throw new HttpError(400, 'Missing `key`', {
+                legacyCode: 'bad_request',
+            }); // legacyCode for backward compatibility with old error handling in controllers
         }
 
         const opts = this.#opts(optConfig?.appUuid);
@@ -137,7 +167,10 @@ export class KVStoreDriver extends PuterDriver {
     }): Promise<boolean> {
         const { key, value, expireAt, optConfig } = args;
         const coerced = this.#coerceKey(key);
-        if (value === undefined) throw new HttpError(400, 'Missing `value`');
+        if (value === undefined)
+            throw new HttpError(400, 'Missing `value`', {
+                legacyCode: 'bad_request',
+            }); // legacyCode for backward compatibility with old error handling in controllers
 
         const opts = this.#opts(optConfig?.appUuid);
         const { res, usage } = await this.stores.kv.set(
@@ -154,7 +187,9 @@ export class KVStoreDriver extends PuterDriver {
     }): Promise<boolean> {
         const { items, optConfig } = args;
         if (!Array.isArray(items) || items.length === 0) {
-            throw new HttpError(400, 'Missing or empty `items`');
+            throw new HttpError(400, 'Missing or empty `items`', {
+                legacyCode: 'bad_request',
+            }); // legacyCode for backward compatibility with old error handling in controllers
         }
 
         const coerced = items.map((item) => ({
@@ -221,7 +256,9 @@ export class KVStoreDriver extends PuterDriver {
             !args.pathAndAmountMap ||
             typeof args.pathAndAmountMap !== 'object'
         ) {
-            throw new HttpError(400, 'Missing or invalid `pathAndAmountMap`');
+            throw new HttpError(400, 'Missing or invalid `pathAndAmountMap`', {
+                legacyCode: 'bad_request',
+            });
         }
         const opts = this.#opts(args.optConfig?.appUuid);
         const { res, usage } = await this.stores.kv.incr(
@@ -242,7 +279,9 @@ export class KVStoreDriver extends PuterDriver {
             !args.pathAndAmountMap ||
             typeof args.pathAndAmountMap !== 'object'
         ) {
-            throw new HttpError(400, 'Missing or invalid `pathAndAmountMap`');
+            throw new HttpError(400, 'Missing or invalid `pathAndAmountMap`', {
+                legacyCode: 'bad_request',
+            });
         }
         const opts = this.#opts(args.optConfig?.appUuid);
         const { res, usage } = await this.stores.kv.decr(
@@ -260,7 +299,9 @@ export class KVStoreDriver extends PuterDriver {
     }): Promise<void> {
         const coerced = this.#coerceKey(args.key);
         if (typeof args.timestamp !== 'number') {
-            throw new HttpError(400, '`timestamp` must be a number');
+            throw new HttpError(400, '`timestamp` must be a number', {
+                legacyCode: 'bad_request',
+            });
         }
         const opts = this.#opts(args.optConfig?.appUuid);
         const { usage } = await this.stores.kv.expireAt(
@@ -277,7 +318,9 @@ export class KVStoreDriver extends PuterDriver {
     }): Promise<void> {
         const coerced = this.#coerceKey(args.key);
         if (typeof args.ttl !== 'number') {
-            throw new HttpError(400, '`ttl` must be a number (seconds)');
+            throw new HttpError(400, '`ttl` must be a number (seconds)', {
+                legacyCode: 'bad_request',
+            });
         }
         const opts = this.#opts(args.optConfig?.appUuid);
         const { usage } = await this.stores.kv.expire(
@@ -295,7 +338,9 @@ export class KVStoreDriver extends PuterDriver {
     }): Promise<unknown> {
         const coerced = this.#coerceKey(args.key);
         if (!args.pathAndValueMap || typeof args.pathAndValueMap !== 'object') {
-            throw new HttpError(400, 'Missing or invalid `pathAndValueMap`');
+            throw new HttpError(400, 'Missing or invalid `pathAndValueMap`', {
+                legacyCode: 'bad_request',
+            });
         }
         const opts = this.#opts(args.optConfig?.appUuid);
         const { res, usage } = await this.stores.kv.update(
@@ -317,7 +362,9 @@ export class KVStoreDriver extends PuterDriver {
     }): Promise<unknown> {
         const coerced = this.#coerceKey(args.key);
         if (!args.pathAndValueMap || typeof args.pathAndValueMap !== 'object') {
-            throw new HttpError(400, 'Missing or invalid `pathAndValueMap`');
+            throw new HttpError(400, 'Missing or invalid `pathAndValueMap`', {
+                legacyCode: 'bad_request',
+            });
         }
         const opts = this.#opts(args.optConfig?.appUuid);
         const { res, usage } = await this.stores.kv.add(
@@ -335,7 +382,9 @@ export class KVStoreDriver extends PuterDriver {
     }): Promise<unknown> {
         const coerced = this.#coerceKey(args.key);
         if (!Array.isArray(args.paths) || args.paths.length === 0) {
-            throw new HttpError(400, 'Missing or invalid `paths`');
+            throw new HttpError(400, 'Missing or invalid `paths`', {
+                legacyCode: 'bad_request',
+            });
         }
         const opts = this.#opts(args.optConfig?.appUuid);
         const { res, usage } = await this.stores.kv.remove(

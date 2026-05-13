@@ -192,7 +192,9 @@ export class GeminiTTSProvider extends TTSProvider {
         const actor = Context.get('actor')!;
         const costs = GEMINI_TTS_COSTS[model];
         if (!costs) {
-            throw new HttpError(500, `No cost data for model: ${model}`);
+            throw new HttpError(500, `No cost data for model: ${model}`, {
+                legacyCode: 'internal_error',
+            });
         }
 
         // Estimate input tokens (~4 chars per token) and a rough output
@@ -246,6 +248,7 @@ export class GeminiTTSProvider extends TTSProvider {
             const msg = (e as Error).message ?? String(e);
             console.error('[GeminiTTSProvider] API error:', msg);
             throw new HttpError(502, `Gemini TTS API error: ${msg}`, {
+                legacyCode: 'internal_error',
                 fields: { provider: 'gemini' },
             });
         }
@@ -254,6 +257,7 @@ export class GeminiTTSProvider extends TTSProvider {
         const part = response?.candidates?.[0]?.content?.parts?.[0];
         if (!part?.inlineData?.data) {
             throw new HttpError(502, 'Gemini TTS did not return audio data', {
+                legacyCode: 'internal_error',
                 fields: { provider: 'gemini' },
             });
         }

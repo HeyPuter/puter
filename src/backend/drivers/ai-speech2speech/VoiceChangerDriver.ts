@@ -22,6 +22,7 @@ import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import type { DriverStreamResult } from '../meta.js';
 import { PuterDriver } from '../types.js';
+import { AI_CONCURRENT, AI_RATE_LIMIT } from '../util/aiLimits.js';
 import { loadFileInput } from '../util/fileInput.js';
 import { VOICE_CHANGER_COSTS } from './costs.js';
 
@@ -58,6 +59,10 @@ export class VoiceChangerDriver extends PuterDriver {
     readonly driverInterface = 'puter-speech2speech';
     readonly driverName = 'elevenlabs-voice-changer';
     readonly isDefault = true;
+
+    // Shared AI policy — see `drivers/util/aiLimits.ts` for the tier table.
+    readonly rateLimit = AI_RATE_LIMIT;
+    readonly concurrent = AI_CONCURRENT;
 
     override getReportedCosts(): Record<string, unknown>[] {
         return Object.entries(VOICE_CHANGER_COSTS).map(
@@ -103,14 +108,21 @@ export class VoiceChangerDriver extends PuterDriver {
         }
 
         if (!this.#apiKey) {
-            throw new HttpError(500, 'ElevenLabs API key not configured');
+            throw new HttpError(500, 'ElevenLabs API key not configured', {
+                legacyCode: 'internal_error',
+            });
         }
 
         const actor = Context.get('actor');
-        if (!actor) throw new HttpError(401, 'Authentication required');
+        if (!actor)
+            throw new HttpError(401, 'Authentication required', {
+                legacyCode: 'unauthorized',
+            });
 
         if (!args.audio) {
-            throw new HttpError(400, '`audio` is required');
+            throw new HttpError(400, '`audio` is required', {
+                legacyCode: 'bad_request',
+            });
         }
 
         const loaded = await loadFileInput(
@@ -124,7 +136,10 @@ export class VoiceChangerDriver extends PuterDriver {
         const modelId = args.model_id || args.model || this.#defaultModelId;
         const voiceId =
             args.voice_id || args.voiceId || args.voice || this.#defaultVoiceId;
-        if (!voiceId) throw new HttpError(400, '`voice` is required');
+        if (!voiceId)
+            throw new HttpError(400, '`voice` is required', {
+                legacyCode: 'bad_request',
+            });
 
         // Metering: estimate duration from file size if we don't parse metadata.
         // 16 kbit/s is a safe lower bound for speech audio; pre-check credits
@@ -143,11 +158,13 @@ export class VoiceChangerDriver extends PuterDriver {
             estimatedCost,
         );
         if (!hasCredits) {
-            throw new HttpError(402, 'Insufficient credits');
+            throw new HttpError(402, 'Insufficient credits', {
+                legacyCode: 'insufficient_funds',
+            });
         }
 
         const formData = new FormData();
-        const blob = new Blob([loaded.buffer], {
+        const blob = new Blob([loaded.buffer as BlobPart], {
             type: loaded.mimeType ?? 'application/octet-stream',
         });
         formData.append('audio', blob, loaded.filename);
@@ -212,7 +229,9 @@ export class VoiceChangerDriver extends PuterDriver {
                 detail && typeof detail === 'object' && 'detail' in detail
                     ? String((detail as { detail: unknown }).detail)
                     : `ElevenLabs returned ${response.status}`;
-            throw new HttpError(response.status, message);
+            throw new HttpError(response.status, message, {
+                legacyCode: 'internal_error',
+            });
         }
 
         const arrayBuffer = await response.arrayBuffer();

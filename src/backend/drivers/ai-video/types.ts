@@ -68,6 +68,7 @@ export interface IGenerateVideoParams {
     metadata?: object;
     input_reference?: unknown;
     no_extra_params?: boolean;
+    puter_output_path?: string;
 }
 
 export interface IVideoProvider {

@@ -133,10 +133,14 @@ export class AppPermissionService extends PuterService {
                 }
                 const actor = Context.get('actor');
                 if (!actor || actor.app || actor.accessToken) {
-                    throw new HttpError(403, 'Forbidden');
+                    throw new HttpError(403, 'Forbidden', {
+                        legacyCode: 'forbidden',
+                    });
                 }
                 if (!actor.user?.id) {
-                    throw new HttpError(403, 'Forbidden');
+                    throw new HttpError(403, 'Forbidden', {
+                        legacyCode: 'forbidden',
+                    });
                 }
 
                 const parts = PermissionUtil.split(permission);
@@ -144,11 +148,14 @@ export class AppPermissionService extends PuterService {
                     throw new HttpError(
                         400,
                         'Invalid `app-root-dir` permission',
+                        { legacyCode: 'bad_request' },
                     );
                 }
                 const [, targetAppUid, access, ...rest] = parts;
                 if (!targetAppUid) {
-                    throw new HttpError(400, 'Missing target_app_uid');
+                    throw new HttpError(400, 'Missing target_app_uid', {
+                        legacyCode: 'bad_request',
+                    });
                 }
 
                 const targetApp = await appStore.getByUid(targetAppUid);
@@ -163,7 +170,9 @@ export class AppPermissionService extends PuterService {
                     (targetApp as { owner_user_id?: number }).owner_user_id !==
                     actor.user.id
                 ) {
-                    throw new HttpError(403, 'Forbidden');
+                    throw new HttpError(403, 'Forbidden', {
+                        legacyCode: 'forbidden',
+                    });
                 }
 
                 const rootDirId = await this.#resolveAppRootDirId(

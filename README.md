@@ -25,7 +25,15 @@
 
 ## Puter
 
-Puter is an advanced, open-source, self-hostable internet computer designed to be feature-rich, fast, and highly extensible. Puter's goal is to provide you with every app and feature you need to work, create, and play under one roof.
+Puter is an advanced, open-source, self-hostable internet computer designed to be feature-rich, fast, and highly extensible.
+
+### For Users
+Puter's goal is to provide you with every app and feature you need to work, create, and play under one roof. From a simple [Notepad](https://online-notepad.com) and [Voice Recorder](https://voice-recorder.com) to [Spreadsheet](https://apps.puter.com/app/spreadsheet) and [Camera](https://online-camera.com), Puter wants to be the all-in-one solution for your digital life.
+
+
+### For Developers
+
+Puter provides everything you need to build and publish web apps and games. From [AI](https://developer.puter.com/ai/) to [Cloud Storage](https://developer.puter.com/object-storage/) and [Database](https://developer.puter.com/key-value-database/) to [Serverless Workers](https://developer.puter.com/serverless-workers/), Puter has you covered. Puter also helps you get users! Once you build your app, you can publish it on our [App Store](https://apps.puter.com/) to reach and monetize users.
 
 <br/>
 

@@ -83,10 +83,6 @@ const tr = {
         credits: 'Katkıda Bulunanlar',
         current_password: 'Mevcut Parola',
         cut: 'Kes',
-        clock: 'Saat',
-        clock_visible_hide: 'Gizle - Daima gizli',
-        clock_visible_show: 'Göster - Daima görünür',
-        clock_visible_auto: 'Otomatik - Varsayılan, yalnızca tam ekran modunda görünür.',
         close_all: 'Tümünü Kapat',
         created: 'Oluşturuldu',
         date_modified: 'Değiştirilme tarihi',
@@ -345,7 +341,6 @@ const tr = {
         login2fa_recovery_placeholder: 'XXXXXXXX',
 
         'change': 'Değiştir', // In English: "Change"
-        'clock_visibility': 'Saat Görünürlüğü', // In English: "Clock Visibility"
         'confirm': 'Onayla', // In English: "Confirm"
         'plural_suffix': 'lar', // I used "lar", but if the preceding syllable contains a vowel like e, i, ü, ö, it should actually be "ler". In English: "s"
         'reading': '%strong% okunuyor', // In English: "Reading %strong%"

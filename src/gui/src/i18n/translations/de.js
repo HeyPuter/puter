@@ -83,10 +83,6 @@ const de = {
         credits: 'Mitwirkende',
         current_password: 'Aktuelles Passwort',
         cut: 'Ausschneiden',
-        clock: 'Uhr',
-        clock_visible_hide: 'Ausblenden - Immer ausgeblendet',
-        clock_visible_show: 'Sichtbar - Immer sichtbar',
-        clock_visible_auto: 'Automatisch - Standard, nur im Vollbildmodus sichtbar.',
         close_all: 'Alle schließen',
         created: 'Erstellt',
         date_modified: 'Datum geändert',
@@ -342,7 +338,6 @@ const de = {
         login2fa_recovery_placeholder: 'XXXXXXXX',
 
         'change': 'Ändern', // In English: "Change"
-        'clock_visibility': 'Uhrensichtbarkeit', // In English: "Clock Visibility"
         'confirm': 'Bestätigen', // In English: "Confirm"
         'reading': 'Lesen %strong%', // In English: "Reading %strong%"
         'writing': 'Schreiben %strong%', // In English: "Writing %strong%"

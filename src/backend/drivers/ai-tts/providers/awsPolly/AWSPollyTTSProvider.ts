@@ -164,6 +164,7 @@ export class AWSPollyTTSProvider extends TTSProvider {
                     400,
                     `Invalid engine: ${engine}. Valid engines: ${VALID_ENGINES.join(', ')}`,
                     {
+                        legacyCode: 'bad_request',
                         fields: { engine, valid_engines: VALID_ENGINES },
                     },
                 );
@@ -224,6 +225,7 @@ export class AWSPollyTTSProvider extends TTSProvider {
                 400,
                 `Invalid engine: ${engine}. Valid engines: ${VALID_ENGINES.join(', ')}`,
                 {
+                    legacyCode: 'bad_request',
                     fields: { engine, valid_engines: VALID_ENGINES },
                 },
             );

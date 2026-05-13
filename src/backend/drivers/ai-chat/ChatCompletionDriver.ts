@@ -27,6 +27,7 @@ import {
 } from '../../services/metering/consts.js';
 import type { DriverStreamResult } from '../meta.js';
 import { PuterDriver } from '../types.js';
+import { AI_CONCURRENT, AI_RATE_LIMIT } from '../util/aiLimits.js';
 import { ClaudeProvider } from './providers/claude/ClaudeProvider.js';
 import { DeepSeekProvider } from './providers/deepseek/DeepSeekProvider.js';
 import { FakeChatProvider } from './providers/FakeChatProvider.js';
@@ -40,6 +41,7 @@ import { OpenRouterProvider } from './providers/openrouter/OpenRouterProvider.js
 import { TogetherAIProvider } from './providers/together/TogetherAIProvider.js';
 import { XAIProvider } from './providers/xai/XAIProvider.js';
 import { ZAIProvider } from './providers/zai/ZAIProvider.js';
+import { AlibabaProvider } from './providers/alibaba/AlibabaProvider.js';
 import { MoonshotProvider } from './providers/moonshot/MoonshotProvider.js';
 import type {
     IChatCompleteResult,
@@ -54,6 +56,7 @@ import {
     normalize_single_message,
 } from './utils/Messages.js';
 import { AIChatStream } from './utils/Streaming.js';
+import { EventMap } from '../../clients/event/types.js';
 
 const MAX_FALLBACKS = 4; // includes first attempt
 
@@ -71,6 +74,10 @@ export class ChatCompletionDriver extends PuterDriver {
     readonly driverInterface = 'puter-chat-completion';
     readonly driverName = 'ai-chat';
     readonly isDefault = true;
+
+    // Shared AI policy — see `drivers/util/aiLimits.ts` for the tier table.
+    readonly rateLimit = AI_RATE_LIMIT;
+    readonly concurrent = AI_CONCURRENT;
 
     #providers: Record<string, IChatProvider> = {};
     #modelIdMap: Record<string, IChatModel[]> = {};
@@ -132,7 +139,10 @@ export class ChatCompletionDriver extends PuterDriver {
 
     async complete(args: ICompleteArguments): Promise<IChatCompleteResult> {
         const actor = Context.get('actor');
-        if (!actor) throw new HttpError(401, 'Authentication required');
+        if (!actor)
+            throw new HttpError(401, 'Authentication required', {
+                legacyCode: 'unauthorized',
+            });
 
         let intendedProvider = args.provider || '';
         if (!args.model && !intendedProvider) {
@@ -148,7 +158,9 @@ export class ChatCompletionDriver extends PuterDriver {
 
         let model = this.#resolveModel(args.model, intendedProvider);
         if (!model) {
-            throw new HttpError(400, `Model not found: ${args.model}`);
+            throw new HttpError(400, `Model not found: ${args.model}`, {
+                legacyCode: 'bad_request',
+            });
         }
 
         if (args.messages) {
@@ -163,7 +175,8 @@ export class ChatCompletionDriver extends PuterDriver {
             .replaceAll('-', '')
             .slice(0, 25);
 
-        const validateEvent: Record<string, unknown> = {
+        const validateEvent: EventMap['ai.prompt.validate'] = {
+            username: actor.user?.username || '',
             actor,
             completionId,
             allow: true,
@@ -187,7 +200,9 @@ export class ChatCompletionDriver extends PuterDriver {
             const fakeModelId = validateEvent.abuse ? 'abuse' : 'fake';
             const fakeModel = this.#resolveModel(fakeModelId, 'fake-chat');
             if (!fakeModel) {
-                throw new HttpError(403, 'Prompt blocked by policy');
+                throw new HttpError(403, 'Prompt blocked by policy', {
+                    legacyCode: 'forbidden',
+                });
             }
             blocked = true;
             model = fakeModel;
@@ -268,7 +283,11 @@ export class ChatCompletionDriver extends PuterDriver {
         // First attempt
         const provider = this.#providers[model.provider!];
         if (!provider) {
-            throw new HttpError(500, `No provider found for model ${model.id}`);
+            throw new HttpError(
+                500,
+                `No provider found for model ${model.id}`,
+                { legacyCode: 'internal_error' },
+            );
         }
 
         const attempts: { model: string; provider: string; error: string }[] =
@@ -308,10 +327,8 @@ export class ChatCompletionDriver extends PuterDriver {
                 // Credits can be exhausted mid-fallback by parallel requests;
                 // re-check before another upstream hit. Same bail as the
                 // pre-flight above.
-                const fallbackUsageAllowed = await metering.hasEnoughCredits(
-                    actor,
-                    1,
-                );
+                const fallbackUsageAllowed =
+                    await this.services.metering.hasEnoughCredits(actor, 1);
                 if (!fallbackUsageAllowed) {
                     throw new HttpError(402, 'No usage left for request.', {
                         legacyCode: 'insufficient_funds',
@@ -342,6 +359,7 @@ export class ChatCompletionDriver extends PuterDriver {
 
         if (!res) {
             throw new HttpError(500, 'All providers failed', {
+                legacyCode: 'internal_error',
                 fields: { attempts },
             });
         }
@@ -357,23 +375,25 @@ export class ChatCompletionDriver extends PuterDriver {
             const init = res.init_chat_stream;
             const cleanup = res.finally_fn;
 
-            // Intercept `chatStream.end(usage)` so we can fire the same
-            // complete + cost-calculated events the non-streaming branch
-            // emits. Providers always terminate streams via `.end(usage)`;
-            // if they skip it, we just lose the cost event (no worse than
-            // not emitting).
+            // Intercept `chatStream.end(usage)` to fire complete + cost events
+            // (mirrors the non-streaming branch). Clone usage so providers that
+            // meter after this call (e.g. Claude) don't pick up `usd_cents`.
             const originalEnd = chatStream.end.bind(chatStream);
             chatStream.end = (usage?: Record<string, number>) => {
+                const enrichedUsage = usage ? { ...usage } : usage;
+                if (enrichedUsage) {
+                    this.#injectUsdCents(enrichedUsage, model);
+                }
                 this.clients.event.emit(
                     'ai.prompt.complete',
                     {
-                        username,
+                        username: username!,
                         completionId,
                         intended_service: intendedProvider,
                         parameters: args,
-                        result: { usage, stream: true },
+                        result: { usage: enrichedUsage, stream: true },
                         model_used: model.id,
-                        service_used: model.provider,
+                        service_used: model.provider!,
                     },
                     {},
                 );
@@ -386,7 +406,7 @@ export class ChatCompletionDriver extends PuterDriver {
                         intendedProvider,
                     });
                 }
-                return originalEnd(usage!);
+                return originalEnd(enrichedUsage!);
             };
 
             // Fire-and-forget — the stream writes happen async while the
@@ -423,18 +443,19 @@ export class ChatCompletionDriver extends PuterDriver {
         this.clients.event.emit(
             'ai.prompt.complete',
             {
-                username,
+                username: username!,
                 completionId,
                 intended_service: intendedProvider,
                 parameters: args,
                 result: res,
                 model_used: model.id,
-                service_used: model.provider,
+                service_used: model.provider!,
             },
             {},
         );
 
         if ('usage' in res && res.usage) {
+            this.#injectUsdCents(res.usage, model);
             this.#emitCostCalculated({
                 completionId,
                 username,
@@ -461,6 +482,116 @@ export class ChatCompletionDriver extends PuterDriver {
         return { ...res, via_ai_chat_service: true };
     }
 
+    // Compute per-token cost in microcents (1 cent = 1_000_000 microCents).
+    // Shape-agnostic: multiplies every usage key by its matching rate in
+    // `model.costs`. Returns `null` when cost data is unavailable.
+    #computeCost(
+        usage: Record<string, number>,
+        model: IChatModel,
+    ): {
+        inputKey: string;
+        outputKey: string;
+        inputTokens: number;
+        outputTokens: number;
+        inputMicroCents: number;
+        outputMicroCents: number;
+        totalMicroCents: number;
+    } | null {
+        const inputKey =
+            (model.input_cost_key as string | undefined) ?? 'input_tokens';
+        const outputKey =
+            (model.output_cost_key as string | undefined) ?? 'output_tokens';
+
+        const costs = model.costs;
+        if (!costs) return null;
+
+        const outputRateRaw = costs[outputKey];
+        const outputRate =
+            typeof outputRateRaw === 'number' && Number.isFinite(outputRateRaw)
+                ? outputRateRaw
+                : undefined;
+
+        const isOutputKey = (key: string) =>
+            key === outputKey ||
+            key === 'output_tokens' ||
+            key === 'completion_tokens' ||
+            key === 'thinking_tokens';
+
+        let inputMicroCents = 0;
+        let outputMicroCents = 0;
+        let sawAnyRate = false;
+
+        for (const [key, rawAmount] of Object.entries(usage)) {
+            if (typeof rawAmount !== 'number' || !Number.isFinite(rawAmount)) {
+                continue;
+            }
+
+            if (key === 'usd_cents') continue;
+            if (key === 'tokens') continue;
+
+            // thinking_tokens → output rate fallback
+            let rate = costs[key];
+            if (typeof rate !== 'number' || !Number.isFinite(rate)) {
+                if (key === 'thinking_tokens' && outputRate !== undefined) {
+                    rate = outputRate;
+                } else {
+                    continue;
+                }
+            }
+
+            const sub = rawAmount * rate;
+            sawAnyRate = true;
+            if (isOutputKey(key)) {
+                outputMicroCents += sub;
+            } else {
+                inputMicroCents += sub;
+            }
+        }
+
+        if (!sawAnyRate) return null;
+
+        inputMicroCents = Math.max(0, Math.round(inputMicroCents));
+        outputMicroCents = Math.max(0, Math.round(outputMicroCents));
+
+        const inputTokens = Number(
+            usage[inputKey] ?? usage.prompt_tokens ?? usage.input_tokens ?? 0,
+        );
+        const outputTokens = Number(
+            usage[outputKey] ??
+                usage.completion_tokens ??
+                usage.output_tokens ??
+                0,
+        );
+
+        return {
+            inputKey,
+            outputKey,
+            inputTokens,
+            outputTokens,
+            inputMicroCents,
+            outputMicroCents,
+            totalMicroCents: inputMicroCents + outputMicroCents,
+        };
+    }
+
+    // Add `usd_cents` to the usage object. Skips if the provider already
+    // set an authoritative value (e.g. OpenRouter's `usage.cost`).
+    // Sets `null` when cost data is unavailable for the model.
+    #injectUsdCents(usage: Record<string, number>, model: IChatModel): void {
+        if (
+            typeof usage.usd_cents === 'number' &&
+            Number.isFinite(usage.usd_cents)
+        ) {
+            return;
+        }
+        const cost = this.#computeCost(usage, model);
+        if (!cost) {
+            (usage as Record<string, number | null>).usd_cents = null;
+            return;
+        }
+        usage.usd_cents = cost.totalMicroCents / 1_000_000;
+    }
+
     // Compute per-token cost in microcents using the model's cost map,
     // then emit `ai.prompt.cost-calculated` for listeners that persist
     // billing/abuse rows keyed on the completion id.
@@ -474,42 +605,34 @@ export class ChatCompletionDriver extends PuterDriver {
         const { completionId, username, usage, model, intendedProvider } =
             params;
 
+        const cost = this.#computeCost(usage, model);
         const inputKey =
             (model.input_cost_key as string | undefined) ?? 'input_tokens';
         const outputKey =
             (model.output_cost_key as string | undefined) ?? 'output_tokens';
-        const inputCostPer = Number(model.costs?.[inputKey] ?? 0);
-        const outputCostPer = Number(model.costs?.[outputKey] ?? 0);
-        const inputTokens = Number(
-            usage[inputKey] ?? usage.prompt_tokens ?? usage.input_tokens ?? 0,
-        );
-        const outputTokens = Number(
-            usage[outputKey] ??
-                usage.completion_tokens ??
-                usage.output_tokens ??
-                0,
-        );
-        const inputUcents = Math.round(inputTokens * inputCostPer);
-        const outputUcents = Math.round(outputTokens * outputCostPer);
+        const inputTokens = cost?.inputTokens ?? 0;
+        const outputTokens = cost?.outputTokens ?? 0;
+        const inputMicroCents = cost?.inputMicroCents ?? 0;
+        const outputMicroCents = cost?.outputMicroCents ?? 0;
 
         this.clients.event.emit(
             'ai.prompt.cost-calculated',
             {
                 completionId,
-                username,
+                username: username!,
                 usage,
                 input_tokens: inputTokens,
                 output_tokens: outputTokens,
-                input_ucents: inputUcents,
-                output_ucents: outputUcents,
-                total_ucents: inputUcents + outputUcents,
+                input_ucents: inputMicroCents,
+                output_ucents: outputMicroCents,
+                total_ucents: inputMicroCents + outputMicroCents,
                 costs_currency: model.costs_currency,
                 model_used: model.id,
-                service_used: model.provider,
+                service_used: model.provider!,
                 intended_service: intendedProvider,
                 model_details: {
                     id: model.id,
-                    provider: model.provider,
+                    provider: model.provider!,
                     input_cost_key: inputKey,
                     output_cost_key: outputKey,
                     costs: model.costs,
@@ -629,13 +752,13 @@ export class ChatCompletionDriver extends PuterDriver {
             );
         }
 
-        const openrouter = providers['openrouter'];
-        const openrouterKey = readKey(openrouter);
-        if (openrouterKey) {
-            this.#providers['openrouter'] = new OpenRouterProvider(
+        const alibaba = providers['alibaba'];
+        const alibabaKey = readKey(alibaba);
+        if (alibabaKey) {
+            this.#providers['alibaba'] = new AlibabaProvider(
                 {
-                    apiKey: openrouterKey,
-                    apiBaseUrl: openrouter?.apiBaseUrl as string | undefined,
+                    apiKey: alibabaKey,
+                    apiBaseUrl: alibaba?.apiBaseUrl as string | undefined,
                 },
                 metering,
             );
@@ -655,6 +778,18 @@ export class ChatCompletionDriver extends PuterDriver {
             this.#providers['ollama'] = new OllamaChatProvider(
                 {
                     apiBaseUrl: ollama?.apiBaseUrl,
+                },
+                metering,
+            );
+        }
+
+        const openrouter = providers['openrouter'];
+        const openrouterKey = readKey(openrouter);
+        if (openrouterKey) {
+            this.#providers['openrouter'] = new OpenRouterProvider(
+                {
+                    apiKey: openrouterKey,
+                    apiBaseUrl: openrouter?.apiBaseUrl as string | undefined,
                 },
                 metering,
             );

@@ -1,5 +1,6 @@
 // NOT ALL OF THEM, ADD OLD ONES AS NEEDED, IF NEEDED. DO NOT ADD NEW ONES THOUGH.
 export type LegacyErrorCodes =
+    | 'payment_account_not_set_up'
     | 'unknown_error'
     | 'disallowed_value'
     | 'invalid_token'
@@ -51,7 +52,8 @@ export type LegacyErrorCodes =
     | 'temporary_accounts_not_allowed'
     | 'password_required'
     | 'password_mismatch'
-    | 'field_not_allowed_for_create';
+    | 'field_not_allowed_for_create'
+    | 'account_is_not_verified';
 
 /**
  * Copyright (C) 2024-present Puter Technologies Inc.
@@ -83,7 +85,7 @@ export interface HttpErrorOptions {
      * `item_with_same_name_exists`, `forbidden`, `subject_does_not_exist`).
      * Serialized as `code` in the response body for back-compat.
      */
-    legacyCode?: LegacyErrorCodes & {};
+    legacyCode?: LegacyErrorCodes | (string & {});
     /**
      * Modern, structured error code. If both `legacyCode` and `code` are set,
      * the legacy one takes the `code` slot in the response body and `code`
@@ -112,7 +114,7 @@ export interface HttpErrorOptions {
  */
 export class HttpError extends Error {
     readonly statusCode: number;
-    readonly legacyCode?: LegacyErrorCodes & {};
+    readonly legacyCode?: LegacyErrorCodes | (string & {});
     readonly code?: string;
     readonly fields?: Record<string, unknown>;
 

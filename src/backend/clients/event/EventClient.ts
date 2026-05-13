@@ -17,12 +17,12 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { extensionStore } from '../extensions';
-import { PuterClient } from './types';
+import { extensionStore } from '../../extensions';
+import { PuterClient } from '../types';
+import { EventListener, EventMap, ListenKey, MatchingEvents } from './types';
 
 export class EventClient extends PuterClient {
-    /** @type {Record<string,(()=>void)[]>} */
-    #eventListeners = {};
+    #eventListeners: Partial<Record<ListenKey, EventListener[]>> = {};
 
     onServerStart() {
         this.emit('serverStart', {}, {});
@@ -51,17 +51,15 @@ export class EventClient extends PuterClient {
      * under their literal `<prefix>.*` string. No regex, no per-emit
      * scan of every listener.
      *
-     * @param {string} key
-     * @param {unknown} data
-     * @param {object} meta
      */
-    emit(key, data, meta) {
+    emit<T extends keyof EventMap>(key: T, data: EventMap[T], meta: unknown) {
         const parts = key.split('.');
         for (let i = 0; i < parts.length; i++) {
-            const matchKey =
+            const matchKey = (
                 i === parts.length - 1
                     ? key
-                    : `${parts.slice(0, i + 1).join('.')}.*`;
+                    : `${parts.slice(0, i + 1).join('.')}.*`
+            ) as ListenKey;
             const extensionListeners = extensionStore.events[matchKey];
             const listeners = (this.#eventListeners[matchKey] || []).concat(
                 extensionListeners || [],
@@ -85,19 +83,19 @@ export class EventClient extends PuterClient {
      * Listeners run sequentially in the order they're registered so an
      * earlier handler's mutation is visible to later ones. A listener that
      * throws is logged (same as `emit`) and the chain continues.
-     *
-     * @param {string} key
-     * @param {unknown} data
-     * @param {object} meta
-     * @returns {Promise<void>}
      */
-    async emitAndWait(key, data, meta) {
+    async emitAndWait<T extends keyof EventMap>(
+        key: T,
+        data: EventMap[T],
+        meta: unknown,
+    ) {
         const parts = key.split('.');
         for (let i = 0; i < parts.length; i++) {
-            const matchKey =
+            const matchKey = (
                 i === parts.length - 1
                     ? key
-                    : `${parts.slice(0, i + 1).join('.')}.*`;
+                    : `${parts.slice(0, i + 1).join('.')}.*`
+            ) as ListenKey;
             const extensionListeners = extensionStore.events[matchKey];
             const listeners = (this.#eventListeners[matchKey] || []).concat(
                 extensionListeners || [],
@@ -125,17 +123,25 @@ export class EventClient extends PuterClient {
      * to `emit()` — wildcard subscribers can branch on the triggering
      * event name.
      *
-     * @param {string} key
-     * @param {(key: string, data: unknown, meta: object) => void} callback
      */
-    on(key, callback) {
-        if (!this.#eventListeners[key]) {
-            this.#eventListeners[key] = [];
-        }
-        this.#eventListeners[key].push(callback);
+    on<P extends ListenKey>(
+        key: P,
+        callback: (
+            key: MatchingEvents<P>,
+            data: EventMap[MatchingEvents<P>],
+            meta: unknown,
+        ) => Promise<void> | void,
+    ) {
+        const listeners: EventListener[] =
+            this.#eventListeners[key] ?? (this.#eventListeners[key] = []);
+        listeners.push(callback as EventListener);
     }
-
-    async #emitEvent(listener, key, data, meta) {
+    async #emitEvent<T extends keyof EventMap>(
+        listener: EventListener,
+        key: T,
+        data: EventMap[T],
+        meta: unknown,
+    ) {
         try {
             await listener(key, data, meta);
         } catch (e) {

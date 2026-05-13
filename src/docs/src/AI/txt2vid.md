@@ -34,6 +34,7 @@ Additional settings for the generation request. Available options depend on the 
 | `model` | `String` | Video model to use (provider-specific). Defaults to `'sora-2'` |
 | `seconds` | `Number` | Target clip length in seconds |
 | `test_mode` | `Boolean` | When `true`, returns a sample video without using credits |
+| `puter_output_path` | `String` | When set, the generated video is automatically saved to this path on the Puter filesystem. Relative paths are resolved against the app's data directory (or `~/` outside an app). The caller must have write permission to the destination |
 
 #### OpenAI Options
 
@@ -86,6 +87,18 @@ Available when using a TogetherAI model:
 For more details about each option, see the [TogetherAI API reference](https://docs.together.ai/reference/create-videos).
 
 Any properties not set fall back to provider defaults.
+
+#### Saving to Puter filesystem
+
+Pass `puter_output_path` to persist the generated video directly on the Puter filesystem. Relative paths are resolved against `~/AppData/<appID>/` when called from an app, or `~/` otherwise:
+
+```js
+puter.ai.txt2vid("A drone shot over a forest", {
+    puter_output_path: "videos/forest.mp4"  // saved to ~/AppData/<appID>/videos/forest.mp4
+});
+```
+
+Absolute paths (`/username/Videos/forest.mp4`) and home-relative paths (`~/Videos/forest.mp4`) are sent as-is. Write permission to the destination is enforced server-side.
 
 ## Return value
 

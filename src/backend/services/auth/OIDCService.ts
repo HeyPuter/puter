@@ -25,10 +25,17 @@ import { cleanEmail, isBlockedEmail } from '../../util/email.js';
 import { generate_identifier } from '../../util/identifier.js';
 import { generateDefaultFsentries } from '../../util/userProvisioning.js';
 import { Context } from '../../core';
+import crypto from 'node:crypto';
 
 const GOOGLE_DISCOVERY_URL =
     'https://accounts.google.com/.well-known/openid-configuration';
+const APPLE_DISCOVERY_URL =
+    'https://appleid.apple.com/.well-known/openid-configuration';
+const MICROSOFT_DISCOVERY_URL_TEMPLATE =
+    'https://login.microsoftonline.com/{tenant}/v2.0/.well-known/openid-configuration';
 const GOOGLE_SCOPES = 'openid email profile';
+const APPLE_SCOPES = 'openid email';
+const MICROSOFT_SCOPES = 'openid email profile';
 const STATE_EXPIRY_SEC = 600; // 10 minutes
 const VALID_OIDC_FLOWS = ['login', 'signup', 'revalidate'] as const;
 const REVALIDATION_EXPIRY_SEC = 300; // 5 minutes
@@ -40,6 +47,7 @@ interface ProviderConfig {
     token_endpoint: string;
     userinfo_endpoint: string;
     scopes: string;
+    response_mode?: string;
 }
 
 interface OIDCUserInfo {
@@ -62,7 +70,7 @@ interface OIDCUserInfo {
 export class OIDCService extends PuterService {
     declare protected services: LayerInstances<typeof puterServices>;
 
-    #googleDiscovery: Record<string, string> | null = null;
+    #discoveryCache: Map<string, Record<string, string>> = new Map();
     #providers: Record<string, Record<string, string>> = {};
 
     override onServerStart(): void {
@@ -79,10 +87,60 @@ export class OIDCService extends PuterService {
         providerId: string,
     ): Promise<ProviderConfig | null> {
         const raw = this.#providers[providerId];
-        if (!raw || !raw.client_id || !raw.client_secret) return null;
+        if (!raw?.client_id) return null;
+
+        if (providerId === 'apple') {
+            if (!raw.team_id || !raw.key_id || !raw.private_key) return null;
+            const discovery = await this.#fetchDiscovery(
+                APPLE_DISCOVERY_URL,
+                'Apple',
+            );
+            if (!discovery) return null;
+            return {
+                client_id: raw.client_id,
+                client_secret: this.#generateAppleClientSecret(
+                    raw.team_id,
+                    raw.client_id,
+                    raw.key_id,
+                    raw.private_key,
+                ),
+                authorization_endpoint: discovery.authorization_endpoint,
+                token_endpoint: discovery.token_endpoint,
+                userinfo_endpoint: '',
+                scopes: raw.scopes ?? APPLE_SCOPES,
+                response_mode: 'form_post',
+            };
+        }
+
+        // Google, Microsoft, and custom providers require a static client_secret.
+        if (!raw.client_secret) return null;
+
+        if (providerId === 'microsoft') {
+            const tenant = raw.tenant_id || 'common';
+            const discoveryUrl = MICROSOFT_DISCOVERY_URL_TEMPLATE.replace(
+                '{tenant}',
+                tenant,
+            );
+            const discovery = await this.#fetchDiscovery(
+                discoveryUrl,
+                'Microsoft',
+            );
+            if (!discovery) return null;
+            return {
+                client_id: raw.client_id,
+                client_secret: raw.client_secret,
+                authorization_endpoint: discovery.authorization_endpoint,
+                token_endpoint: discovery.token_endpoint,
+                userinfo_endpoint: discovery.userinfo_endpoint,
+                scopes: raw.scopes ?? MICROSOFT_SCOPES,
+            };
+        }
 
         if (providerId === 'google') {
-            const discovery = await this.#fetchGoogleDiscovery();
+            const discovery = await this.#fetchDiscovery(
+                GOOGLE_DISCOVERY_URL,
+                'Google',
+            );
             if (!discovery) return null;
             return {
                 client_id: raw.client_id,
@@ -148,6 +206,9 @@ export class OIDCService extends PuterService {
             scope: config.scopes,
             state,
         });
+        if (config.response_mode) {
+            params.set('response_mode', config.response_mode);
+        }
         return `${config.authorization_endpoint}?${params.toString()}`;
     }
 
@@ -223,15 +284,24 @@ export class OIDCService extends PuterService {
     async getUserInfo(
         providerId: string,
         accessToken: string,
+        idToken?: string,
     ): Promise<OIDCUserInfo | null> {
         const config = await this.getProviderConfig(providerId);
-        if (!config?.userinfo_endpoint) return null;
 
-        const res = await fetch(config.userinfo_endpoint, {
-            headers: { Authorization: `Bearer ${accessToken}` },
-        });
-        if (!res.ok) return null;
-        return (await res.json()) as OIDCUserInfo;
+        if (config?.userinfo_endpoint) {
+            const res = await fetch(config.userinfo_endpoint, {
+                headers: { Authorization: `Bearer ${accessToken}` },
+            });
+            if (!res.ok) return null;
+            return (await res.json()) as OIDCUserInfo;
+        }
+
+        // No userinfo endpoint — decode claims from the id_token (e.g. Apple).
+        if (idToken) {
+            return this.#decodeIdToken(idToken);
+        }
+
+        return null;
     }
 
     // ── User lookup / creation ──────────────────────────────────────
@@ -246,6 +316,12 @@ export class OIDCService extends PuterService {
         );
         if (!link) return null;
         return this.stores.user.getById(link.user_id as number);
+    }
+
+    async getLinkedProviderForUser(userId: number): Promise<string | null> {
+        const links = await this.stores.oidc.listByUserId(userId);
+        if (!links || links.length === 0) return null;
+        return links[0].provider as string;
     }
 
     /**
@@ -308,6 +384,7 @@ export class OIDCService extends PuterService {
     async createUserFromOIDC(
         providerId: string,
         claims: OIDCUserInfo,
+        referrer?: string | null,
     ): Promise<{ success: boolean; user?: UserRow; error?: string }> {
         if (claims.email_verified === false) {
             return {
@@ -350,11 +427,13 @@ export class OIDCService extends PuterService {
                 req?.ip ||
                 req?.socket?.remoteAddress ||
                 null,
+            user_agent: req?.headers?.['user-agent'] ?? null,
             email: claims.email ?? '',
             allow: true,
             no_temp_user: false,
             requires_email_confirmation: false,
             message: null as string | null,
+            code: null as string | null,
         };
         try {
             await this.clients.event?.emitAndWait(
@@ -369,6 +448,7 @@ export class OIDCService extends PuterService {
             return {
                 success: false,
                 error: validateEvent.message ?? 'Signup blocked',
+                ...(validateEvent.code ? { code: validateEvent.code } : {}),
             };
         }
 
@@ -425,7 +505,7 @@ export class OIDCService extends PuterService {
             signup_user_agent: req?.headers?.['user-agent'] ?? null,
             signup_origin: req?.headers?.origin,
             signup_server: this.config.serverId,
-            referrer: req?.body?.referrer ?? null,
+            referrer: referrer ?? null,
         });
 
         if (!created) {
@@ -511,18 +591,70 @@ export class OIDCService extends PuterService {
 
     // ── Internals ───────────────────────────────────────────────────
 
-    async #fetchGoogleDiscovery(): Promise<Record<string, string> | null> {
-        if (this.#googleDiscovery) return this.#googleDiscovery;
+    async #fetchDiscovery(
+        url: string,
+        label: string,
+    ): Promise<Record<string, string> | null> {
+        const cached = this.#discoveryCache.get(url);
+        if (cached) return cached;
         try {
-            const res = await fetch(GOOGLE_DISCOVERY_URL);
+            const res = await fetch(url);
             if (!res.ok) return null;
-            this.#googleDiscovery = (await res.json()) as Record<
-                string,
-                string
-            >;
-            return this.#googleDiscovery;
+            const data = (await res.json()) as Record<string, string>;
+            this.#discoveryCache.set(url, data);
+            return data;
         } catch (e) {
-            console.warn('[oidc] Google discovery fetch failed', e);
+            console.warn(`[oidc] ${label} discovery fetch failed`, e);
+            return null;
+        }
+    }
+
+    #generateAppleClientSecret(
+        teamId: string,
+        clientId: string,
+        keyId: string,
+        privateKey: string,
+    ): string {
+        const header = { alg: 'ES256', kid: keyId, typ: 'JWT' };
+        const now = Math.floor(Date.now() / 1000);
+        const payload = {
+            iss: teamId,
+            sub: clientId,
+            aud: 'https://appleid.apple.com',
+            iat: now,
+            exp: now + 15777000, // ~6 months
+        };
+
+        const headerB64 = Buffer.from(JSON.stringify(header)).toString(
+            'base64url',
+        );
+        const payloadB64 = Buffer.from(JSON.stringify(payload)).toString(
+            'base64url',
+        );
+        const signingInput = `${headerB64}.${payloadB64}`;
+
+        const key = crypto.createPrivateKey(privateKey);
+        const signature = crypto.sign('sha256', Buffer.from(signingInput), {
+            key,
+            dsaEncoding: 'ieee-p1363',
+        });
+
+        return `${signingInput}.${signature.toString('base64url')}`;
+    }
+
+    #decodeIdToken(idToken: string): OIDCUserInfo | null {
+        try {
+            const parts = idToken.split('.');
+            if (parts.length !== 3) return null;
+            const payload = JSON.parse(
+                Buffer.from(parts[1], 'base64url').toString(),
+            );
+            return {
+                sub: payload.sub,
+                email: payload.email,
+                email_verified: payload.email_verified,
+            };
+        } catch {
             return null;
         }
     }

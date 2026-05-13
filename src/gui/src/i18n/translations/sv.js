@@ -84,10 +84,6 @@ const sv = {
         credits: 'Tack',
         current_password: 'Nuvarande lösenord',
         cut: 'Klipp ut',
-        clock: 'Klocka',
-        clock_visible_hide: 'Dölj - Alltid dold',
-        clock_visible_show: 'Visa - Alltid synlig',
-        clock_visible_auto: 'Auto - Förval, bara synlig i helskärm.',
         close_all: 'Stäng alla',
         created: 'Skapad',
         date_modified: 'Ändringsdatum',
@@ -343,7 +339,6 @@ const sv = {
         login2fa_recovery_placeholder: 'XXXXXXXX',
 
         'change': 'Ändra', // In English: "Change"
-        'clock_visibility': 'Klocksynlighet', // In English: "Clock Visibility"
         'plural_suffix': '', // In English: "s" (Plural suffix is context dependent in Swedish, it can be "or", "ar", "er", "en" or just no suffix)
         'reading': 'Läser %strong%', // In English: "Reading %strong%"
         'writing': 'Skriver %strong%', // In English: "Writing %strong%"

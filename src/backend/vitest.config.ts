@@ -18,12 +18,58 @@
  */
 
 // vite.config.ts - Vite configuration for Puter API tests (TypeScript)
+import path from 'node:path';
+import { transform } from 'esbuild';
 import { loadEnv } from 'vite';
 import { defineConfig } from 'vitest/config';
 
 const isCi = process.env.CI === 'true';
+const backendDir = __dirname;
+const repoRoot = path.resolve(backendDir, '../..');
+
+// Vite 8's oxc transform leaves TC39 stage-3 decorators in place
+// (used by `@Controller`/`@Post`), so they reach Node verbatim and
+// crash with "SyntaxError: Invalid or unexpected token". Pre-transform
+// `.ts`/`.mts` source through esbuild — which DOES lower stage-3
+// decorators — locked to `es2024` to match `tsconfig.json`'s target.
+const lowerDecoratorsPlugin = {
+    name: 'puter:lower-decorators',
+    enforce: 'pre' as const,
+    async transform(code: string, id: string) {
+        if (id.includes('/node_modules/')) return null;
+        if (!/\.(m?ts)$/.test(id)) return null;
+        if (!code.includes('@')) return null;
+        const result = await transform(code, {
+            loader: 'ts',
+            target: 'es2024',
+            sourcefile: id,
+            sourcemap: 'inline',
+        });
+        return { code: result.code, map: null };
+    },
+};
 
 export default defineConfig(({ mode }) => ({
+    plugins: [lowerDecoratorsPlugin],
+    resolve: {
+        // Mirror the `@heyputer/backend` path aliases declared in
+        // tsconfig.json so backend code under test can use the same
+        // imports it does in production.
+        alias: [
+            {
+                find: /^@heyputer\/backend\/src\/(.*)$/,
+                replacement: path.join(backendDir, '$1'),
+            },
+            {
+                find: /^@heyputer\/backend\/(.*)$/,
+                replacement: path.join(backendDir, '$1'),
+            },
+            {
+                find: /^@heyputer\/backend$/,
+                replacement: path.join(backendDir, 'exports.ts'),
+            },
+        ],
+    },
     test: {
         globals: true,
         coverage: {
@@ -32,24 +78,22 @@ export default defineConfig(({ mode }) => ({
                 ? ['json', 'json-summary', 'lcov']
                 : ['text', 'json', 'json-summary', 'html', 'lcov'],
             excludeAfterRemap: true,
-            // Keep coverage focused on executed files to avoid high-memory
-            // uncovered-file remapping in CI.
-            exclude: [
-                'src/**/types/**',
-                'src/**/constants/**',
-                'src/**/*.d.ts',
-                'src/**/*.d.mts',
-                'src/**/*.d.cts',
-                'src/**/dist/**',
-                'src/**/*.min.*',
-                'src/**/*.bench.{js,mjs,ts,mts}',
-                'src/**/*.{test,spec}.{js,mjs,ts,mts}',
-                'src/public/**',
-                'src/services/worker/template/**',
+            // Listing both trees explicitly ensures untested files show
+            // as 0% instead of being silently dropped from the report.
+            include: [
+                'src/backend/**/*.{js,ts}',
+                'extensions/**/*.{js,ts}',
             ],
+            reportsDirectory: path.join(backendDir, 'coverage'),
         },
         env: loadEnv(mode, '', 'PUTER_'),
-        include: ['**/*.{test,spec}.{ts,js}'],
-        root: __dirname, // Ensures paths are relative to backend/
+        include: [
+            'src/backend/**/*.test.{js,ts}',
+            'extensions/**/*.test.{js,ts}',
+        ],
+        // Root is the repo root so that the file transformer (which
+        // applies `lowerDecoratorsPlugin`) sees both src/backend and
+        // extensions/ — vitest skips transform for files outside root.
+        root: repoRoot,
     },
 }));

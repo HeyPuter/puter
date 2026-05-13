@@ -17,9 +17,13 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { posix as pathPosix } from 'node:path';
+import { Readable } from 'node:stream';
 import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
+import type { Actor } from '../../core/actor.js';
 import { PuterDriver } from '../types.js';
+import { AI_CONCURRENT, AI_RATE_LIMIT } from '../util/aiLimits.js';
 import { GeminiVideoProvider } from './providers/gemini/GeminiVideoProvider.js';
 import { OpenAIVideoProvider } from './providers/openai/OpenAIVideoProvider.js';
 import { TogetherVideoProvider } from './providers/together/TogetherVideoProvider.js';
@@ -53,6 +57,10 @@ export class VideoGenerationDriver extends PuterDriver {
         'gemini-video-generation',
     ];
     readonly isDefault = true;
+
+    // Shared AI policy — see `drivers/util/aiLimits.ts` for the tier table.
+    readonly rateLimit = AI_RATE_LIMIT;
+    readonly concurrent = AI_CONCURRENT;
 
     #providers: Record<string, IVideoProvider> = {};
     #modelIdMap: Record<string, IVideoModel[]> = {};
@@ -109,8 +117,33 @@ export class VideoGenerationDriver extends PuterDriver {
     }
 
     async generate(args: IGenerateVideoParams) {
-        const actor = Context.get('actor');
-        if (!actor) throw new HttpError(401, 'Authentication required');
+        const actor = Context.get('actor') as Actor | undefined;
+        if (!actor)
+            throw new HttpError(401, 'Authentication required', {
+                legacyCode: 'unauthorized',
+            });
+
+        const puterOutputPath = args.puter_output_path;
+        delete args.puter_output_path;
+
+        // Validate the output path early — before spending credits.
+        let resolvedOutputPath: string | undefined;
+        if (puterOutputPath) {
+            const username = actor.user?.username;
+            const userId = actor.user?.id;
+            if (!userId || !username) {
+                throw new HttpError(
+                    400,
+                    'User ID required for puter_output_path',
+                    { legacyCode: 'bad_request' },
+                );
+            }
+            resolvedOutputPath = this.#resolveOutputPath(
+                puterOutputPath,
+                username,
+            );
+            await this.#assertWriteAccess(actor, resolvedOutputPath);
+        }
 
         if (args.model) {
             args.model = args.model.trim().toLowerCase();
@@ -145,12 +178,18 @@ export class VideoGenerationDriver extends PuterDriver {
             : undefined;
 
         if (!model) {
-            throw new HttpError(400, `Model not found: ${args.model}`);
+            throw new HttpError(400, `Model not found: ${args.model}`, {
+                legacyCode: 'bad_request',
+            });
         }
 
         const provider = this.#providers[model.provider!];
         if (!provider) {
-            throw new HttpError(500, `No provider found for model ${model.id}`);
+            throw new HttpError(
+                500,
+                `No provider found for model ${model.id}`,
+                { legacyCode: 'internal_error' },
+            );
         }
 
         // Validate / normalise duration
@@ -188,11 +227,17 @@ export class VideoGenerationDriver extends PuterDriver {
             args.resolution = normalizedResolution;
         }
 
-        return await provider.generate({
+        const result = await provider.generate({
             ...args,
             model: model.id,
             provider: model.provider,
         });
+
+        if (resolvedOutputPath) {
+            return await this.#saveToFS(actor, result, resolvedOutputPath);
+        }
+
+        return result;
     }
 
     // -- Provider registration -----------------------------------------------
@@ -333,6 +378,135 @@ export class VideoGenerationDriver extends PuterDriver {
                     return aCost - bCost;
                 });
             }
+        }
+    }
+
+    async #saveToFS(
+        actor: Actor,
+        result: unknown,
+        resolvedPath: string,
+    ): Promise<unknown> {
+        const userId = actor.user!.id!;
+
+        let buffer: Buffer;
+        let contentType: string;
+
+        if (typeof result === 'string') {
+            if (result.startsWith('data:')) {
+                const commaIdx = result.indexOf(',');
+                const header = result.substring(0, commaIdx);
+                contentType = header.match(/data:(.*?);/)?.[1] ?? 'video/mp4';
+                buffer = Buffer.from(result.substring(commaIdx + 1), 'base64');
+            } else {
+                const response = await fetch(result);
+                if (!response.ok) {
+                    throw new HttpError(
+                        502,
+                        `Failed to fetch generated video for FS write: ${response.status}`,
+                        { legacyCode: 'internal_error' },
+                    );
+                }
+                contentType =
+                    response.headers.get('content-type') ?? 'video/mp4';
+                buffer = Buffer.from(await response.arrayBuffer());
+            }
+        } else if (result && typeof result === 'object' && 'stream' in result) {
+            const streamResult = result as {
+                stream: Readable;
+                content_type: string;
+            };
+            contentType = streamResult.content_type || 'video/mp4';
+            const chunks: Buffer[] = [];
+            for await (const chunk of streamResult.stream) {
+                chunks.push(
+                    Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk),
+                );
+            }
+            buffer = Buffer.concat(chunks);
+        } else {
+            throw new HttpError(
+                500,
+                'Unsupported video result format for puter_output_path',
+                { legacyCode: 'internal_error' },
+            );
+        }
+
+        await this.services.fs.write(userId, {
+            fileMetadata: {
+                path: resolvedPath,
+                size: buffer.length,
+                contentType,
+                overwrite: true,
+                createMissingParents: true,
+            },
+            fileContent: Readable.from(buffer),
+        });
+
+        // For stream results, reconstruct a new stream from the buffered data
+        if (typeof result !== 'string') {
+            return {
+                stream: Readable.from(buffer),
+                content_type: contentType,
+            };
+        }
+
+        return result;
+    }
+
+    #resolveOutputPath(outputPath: string, username: string): string {
+        let resolved = outputPath.trim();
+        if (resolved === '~' || resolved.startsWith('~/')) {
+            resolved = `/${username}${resolved.slice(1)}`;
+        }
+        resolved = pathPosix.normalize(resolved);
+        if (!resolved.startsWith('/')) {
+            resolved = `/${resolved}`;
+        }
+        if (resolved.length > 1 && resolved.endsWith('/')) {
+            resolved = resolved.slice(0, -1);
+        }
+        return resolved;
+    }
+
+    async #assertWriteAccess(
+        actor: Actor,
+        resolvedPath: string,
+    ): Promise<void> {
+        if (resolvedPath === '/') {
+            throw new HttpError(400, 'Cannot write to root path', {
+                legacyCode: 'cannot_write_to_root',
+            });
+        }
+        const parentPath = pathPosix.dirname(resolvedPath);
+        if (parentPath === '/') {
+            throw new HttpError(400, 'Cannot write to root path', {
+                legacyCode: 'cannot_write_to_root',
+            });
+        }
+
+        const pathToCheck = parentPath;
+        const fsService = this.services.fs;
+        let ancestorsCache: Promise<
+            Array<{ uid: string; path: string }>
+        > | null = null;
+        const canWrite = await this.services.acl.check(
+            actor,
+            {
+                path: pathToCheck,
+                resolveAncestors() {
+                    if (!ancestorsCache) {
+                        ancestorsCache =
+                            fsService.getAncestorChain(pathToCheck);
+                    }
+                    return ancestorsCache;
+                },
+            },
+            'write',
+        );
+        if (!canWrite) {
+            throw new HttpError(403, 'Write access denied for destination', {
+                legacyCode: 'access_denied',
+            });
         }
     }
 

@@ -83,10 +83,6 @@ const hi = {
         credits: 'क्रेडिट',
         current_password: 'वर्तमान पासवर्ड',
         cut: 'काटना',
-        clock: 'घड़ी',
-        clock_visible_hide: 'छुपना - हमेशा छिपा रहना',
-        clock_visible_show: 'दिखाएँ - सदैव दृश्यमान',
-        clock_visible_auto: 'स्वतः - डिफ़ॉल्ट, केवल पूर्ण-स्क्रीन मोड में दृश्यमान।',
         close_all: 'सब बंद करें',
         created: 'बनाया',
         date_modified: 'तारीख संशोधित',
@@ -334,7 +330,6 @@ const hi = {
         login2fa_recovery_placeholder: 'XXXXXXXX',
 
         'change': 'बदलें', // In English: "Change"
-        'clock_visibility': 'घड़ी की दृश्यता', // In English: "Clock Visibility"
         'confirm': 'पुष्टि करें', // In English: "Confirm"
         'reading': 'पढ़ना %strong%', // In English: "Reading %strong%"
         'writing': 'लिखना %strong%', // In English: "Writing %strong%"

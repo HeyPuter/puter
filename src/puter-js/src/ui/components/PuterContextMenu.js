@@ -47,15 +47,16 @@ class PuterContextMenu extends PuterWebComponent {
                 font-family: sans-serif;
                 background: #FFF;
                 color: #333;
-                border-radius: 2px;
+                border-radius: 4px;
                 padding: 3px 0;
                 min-width: 200px;
                 background-color: rgb(255 255 255 / 92%);
                 backdrop-filter: blur(3px);
                 border: 1px solid #e6e4e466;
-                box-shadow: 0px 0px 15px #00000066;
-                padding-left: 6px;
-                padding-right: 6px;
+                box-shadow: 0px 3px 10px #00000044;
+                margin-top: 5px;
+                padding-left: 4px;
+                padding-right: 4px;
                 padding-top: 4px;
                 padding-bottom: 4px;
                 user-select: none;
@@ -88,33 +89,66 @@ class PuterContextMenu extends PuterWebComponent {
                 border-radius: 4px;
             }
 
-            /* Active item turns all children white */
+            /* Active item turns all children white.
+               For .has-open-submenu the :hover branch above already covers
+               the hovered case; in the non-hovered grey state we want the
+               children to keep their default colors, so we don't include
+               .has-open-submenu here. */
             .menu-item:hover:not(.disabled):not(.divider) .icon,
             .menu-item:hover:not(.disabled):not(.divider) .check,
             .menu-item:hover:not(.disabled):not(.divider) .submenu-arrow,
-            .menu-item:hover:not(.disabled):not(.divider) .shortcut,
             .menu-item:hover:not(.disabled):not(.divider) .label,
+            .menu-item:hover:not(.disabled):not(.divider) .shortcut,
             .menu-item.focused:not(.disabled):not(.divider) .icon,
             .menu-item.focused:not(.disabled):not(.divider) .check,
             .menu-item.focused:not(.disabled):not(.divider) .submenu-arrow,
-            .menu-item.focused:not(.disabled):not(.divider) .shortcut,
             .menu-item.focused:not(.disabled):not(.divider) .label,
-            .menu-item.has-open-submenu .icon,
-            .menu-item.has-open-submenu .check,
-            .menu-item.has-open-submenu .submenu-arrow,
-            .menu-item.has-open-submenu .shortcut,
-            .menu-item.has-open-submenu .label {
+            .menu-item.focused:not(.disabled):not(.divider) .shortcut {
                 color: white;
             }
             .menu-item:hover:not(.disabled):not(.divider) .icon svg,
-            .menu-item.focused:not(.disabled):not(.divider) .icon svg,
-            .menu-item.has-open-submenu .icon svg {
+            .menu-item.focused:not(.disabled):not(.divider) .icon svg {
                 filter: brightness(0) invert(1);
             }
             .menu-item:hover:not(.disabled):not(.divider) .icon img,
-            .menu-item.focused:not(.disabled):not(.divider) .icon img,
-            .menu-item.has-open-submenu .icon img {
+            .menu-item.focused:not(.disabled):not(.divider) .icon img {
                 filter: brightness(0) invert(1);
+            }
+
+            /* Safe-triangle: while the cursor traces a diagonal path toward
+               an open submenu, suppress :hover highlight on intermediate
+               items so they don't flash blue.
+               Keyboard-nav: after a keyboard navigation, suppress :hover on
+               the (now stale) item the mouse is still resting on so only
+               the keyboard-focused item highlights. Cleared on next
+               mousemove. .focused and .has-open-submenu (managed by JS)
+               still highlight normally. */
+            .context-menu.safe-traverse .menu-item:hover:not(.has-open-submenu):not(.focused):not(.disabled):not(.divider),
+            .context-menu.keyboard-nav .menu-item:hover:not(.has-open-submenu):not(.focused):not(.disabled):not(.divider) {
+                background-color: transparent;
+                color: #333;
+            }
+            .context-menu.safe-traverse .menu-item:hover:not(.has-open-submenu):not(.focused):not(.disabled):not(.divider) .icon,
+            .context-menu.safe-traverse .menu-item:hover:not(.has-open-submenu):not(.focused):not(.disabled):not(.divider) .check,
+            .context-menu.safe-traverse .menu-item:hover:not(.has-open-submenu):not(.focused):not(.disabled):not(.divider) .submenu-arrow,
+            .context-menu.safe-traverse .menu-item:hover:not(.has-open-submenu):not(.focused):not(.disabled):not(.divider) .label,
+            .context-menu.keyboard-nav .menu-item:hover:not(.has-open-submenu):not(.focused):not(.disabled):not(.divider) .icon,
+            .context-menu.keyboard-nav .menu-item:hover:not(.has-open-submenu):not(.focused):not(.disabled):not(.divider) .check,
+            .context-menu.keyboard-nav .menu-item:hover:not(.has-open-submenu):not(.focused):not(.disabled):not(.divider) .submenu-arrow,
+            .context-menu.keyboard-nav .menu-item:hover:not(.has-open-submenu):not(.focused):not(.disabled):not(.divider) .label {
+                color: #333;
+            }
+            .context-menu.safe-traverse .menu-item:hover:not(.has-open-submenu):not(.focused):not(.disabled):not(.divider) .shortcut,
+            .context-menu.keyboard-nav .menu-item:hover:not(.has-open-submenu):not(.focused):not(.disabled):not(.divider) .shortcut {
+                color: #999;
+            }
+            .context-menu.safe-traverse .menu-item:hover:not(.has-open-submenu):not(.focused):not(.disabled):not(.divider) .icon svg,
+            .context-menu.keyboard-nav .menu-item:hover:not(.has-open-submenu):not(.focused):not(.disabled):not(.divider) .icon svg {
+                filter: none;
+            }
+            .context-menu.safe-traverse .menu-item:hover:not(.has-open-submenu):not(.focused):not(.disabled):not(.divider) .icon img,
+            .context-menu.keyboard-nav .menu-item:hover:not(.has-open-submenu):not(.focused):not(.disabled):not(.divider) .icon img {
+                filter: drop-shadow(0px 0px 0.3px rgb(51, 51, 51));
             }
 
             /* .has-open-context-menu-submenu — line 1738-1739 */
@@ -151,7 +185,6 @@ class PuterContextMenu extends PuterWebComponent {
                 padding-bottom: 5px;
                 cursor: default;
                 height: auto;
-                pointer-events: none;
             }
             .divider hr {
                 border: none;
@@ -213,6 +246,8 @@ class PuterContextMenu extends PuterWebComponent {
                 margin-left: 16px;
                 font-size: 11px;
                 color: #999;
+                flex-shrink: 0;
+                letter-spacing: 0.5px;
             }
 
             /* === iOS-style action sheet (mobile) ========================= */
@@ -261,6 +296,14 @@ class PuterContextMenu extends PuterWebComponent {
                 border-radius: 0;
             }
 
+            /* Keyboard shortcuts have no meaning on touch / small-screen
+               devices — hide them so labels can use the full width. */
+            @media (max-width: 480px), (pointer: coarse) {
+                .shortcut {
+                    display: none;
+                }
+            }
+
             :host(.sheet-mode) .menu-item:hover:not(.disabled):not(.divider) {
                 background-color: rgba(0, 122, 255, 0.1);
                 color: inherit;
@@ -294,12 +337,108 @@ class PuterContextMenu extends PuterWebComponent {
 
             :host(.sheet-mode) .icon {
                 width: 24px;
-                margin-right: 12px;
+                margin-right: 0px;
             }
             :host(.sheet-mode) .icon svg,
             :host(.sheet-mode) .icon img {
                 width: 20px;
                 height: 20px;
+            }
+
+            /* Dark theme — applied when system prefers dark and no light
+               override is set, or when theme="dark" is forced. The base
+               class toggles .puter-theme-dark on the host accordingly. */
+            :host(.puter-theme-dark) .context-menu {
+                background: #2d2d2d;
+                background-color: rgb(45 45 45 / 94%);
+                color: #e6e6e6;
+                border-color: #00000080;
+                box-shadow: 0px 0px 15px #000000aa;
+            }
+            :host(.puter-theme-dark) .menu-item {
+                color: #e6e6e6;
+            }
+            /* Inactive items: icon/check/shortcut/arrow tones */
+            :host(.puter-theme-dark) .icon,
+            :host(.puter-theme-dark) .check {
+                color: #e6e6e6;
+            }
+            :host(.puter-theme-dark) .submenu-arrow {
+                color: #b0b0b0;
+            }
+            :host(.puter-theme-dark) .shortcut {
+                color: #888;
+            }
+            :host(.puter-theme-dark) .icon img {
+                filter: drop-shadow(0px 0px 0.3px rgb(230, 230, 230));
+            }
+            /* Inactive icon SVGs use currentColor already; nothing to invert */
+
+            /* Safe-triangle / keyboard-nav: non-active hover restored colors should match dark */
+            :host(.puter-theme-dark) .context-menu.safe-traverse .menu-item:hover:not(.has-open-submenu):not(.focused):not(.disabled):not(.divider),
+            :host(.puter-theme-dark) .context-menu.keyboard-nav .menu-item:hover:not(.has-open-submenu):not(.focused):not(.disabled):not(.divider) {
+                color: #e6e6e6;
+            }
+            :host(.puter-theme-dark) .context-menu.safe-traverse .menu-item:hover:not(.has-open-submenu):not(.focused):not(.disabled):not(.divider) .icon,
+            :host(.puter-theme-dark) .context-menu.safe-traverse .menu-item:hover:not(.has-open-submenu):not(.focused):not(.disabled):not(.divider) .check,
+            :host(.puter-theme-dark) .context-menu.safe-traverse .menu-item:hover:not(.has-open-submenu):not(.focused):not(.disabled):not(.divider) .submenu-arrow,
+            :host(.puter-theme-dark) .context-menu.safe-traverse .menu-item:hover:not(.has-open-submenu):not(.focused):not(.disabled):not(.divider) .label,
+            :host(.puter-theme-dark) .context-menu.keyboard-nav .menu-item:hover:not(.has-open-submenu):not(.focused):not(.disabled):not(.divider) .icon,
+            :host(.puter-theme-dark) .context-menu.keyboard-nav .menu-item:hover:not(.has-open-submenu):not(.focused):not(.disabled):not(.divider) .check,
+            :host(.puter-theme-dark) .context-menu.keyboard-nav .menu-item:hover:not(.has-open-submenu):not(.focused):not(.disabled):not(.divider) .submenu-arrow,
+            :host(.puter-theme-dark) .context-menu.keyboard-nav .menu-item:hover:not(.has-open-submenu):not(.focused):not(.disabled):not(.divider) .label {
+                color: #e6e6e6;
+            }
+            :host(.puter-theme-dark) .context-menu.safe-traverse .menu-item:hover:not(.has-open-submenu):not(.focused):not(.disabled):not(.divider) .shortcut,
+            :host(.puter-theme-dark) .context-menu.keyboard-nav .menu-item:hover:not(.has-open-submenu):not(.focused):not(.disabled):not(.divider) .shortcut {
+                color: #888;
+            }
+            :host(.puter-theme-dark) .context-menu.safe-traverse .menu-item:hover:not(.has-open-submenu):not(.focused):not(.disabled):not(.divider) .icon img,
+            :host(.puter-theme-dark) .context-menu.keyboard-nav .menu-item:hover:not(.has-open-submenu):not(.focused):not(.disabled):not(.divider) .icon img {
+                filter: drop-shadow(0px 0px 0.3px rgb(230, 230, 230));
+            }
+
+            /* Submenu-open parent (no hover): subtle dark highlight */
+            :host(.puter-theme-dark) .menu-item.has-open-submenu:not(:hover) {
+                background-color: #3f3f3f;
+                color: #e6e6e6;
+            }
+            :host(.puter-theme-dark) .menu-item.has-open-submenu:not(:hover) .icon,
+            :host(.puter-theme-dark) .menu-item.has-open-submenu:not(:hover) .icon svg,
+            :host(.puter-theme-dark) .menu-item.has-open-submenu:not(:hover) .icon img {
+                color: #e6e6e6;
+            }
+
+            /* Danger items */
+            :host(.puter-theme-dark) .menu-item.danger,
+            :host(.puter-theme-dark) .menu-item.danger .icon {
+                color: #ff7b72;
+            }
+
+            /* Divider */
+            :host(.puter-theme-dark) .divider hr {
+                background: #444;
+            }
+
+            /* Sheet mode (mobile) */
+            :host(.puter-theme-dark.sheet-mode) .context-menu {
+                background-color: rgb(40 40 40 / 96%);
+                box-shadow: 0 -6px 24px rgba(0, 0, 0, 0.45);
+            }
+            :host(.puter-theme-dark.sheet-mode) .menu-item:hover:not(.disabled):not(.divider) {
+                background-color: rgba(0, 122, 255, 0.22);
+            }
+            :host(.puter-theme-dark.sheet-mode) .menu-item:active:not(.disabled):not(.divider) {
+                background-color: rgba(0, 122, 255, 0.35);
+            }
+            :host(.puter-theme-dark.sheet-mode) .menu-item:hover:not(.disabled):not(.divider) .label,
+            :host(.puter-theme-dark.sheet-mode) .menu-item:hover:not(.disabled):not(.divider) .icon,
+            :host(.puter-theme-dark.sheet-mode) .menu-item:active:not(.disabled):not(.divider) .label,
+            :host(.puter-theme-dark.sheet-mode) .menu-item:active:not(.disabled):not(.divider) .icon {
+                color: #e6e6e6;
+            }
+            :host(.puter-theme-dark.sheet-mode) .divider hr {
+                background: rgba(255, 255, 255, 0.15);
             }
         `;
     }
@@ -342,7 +481,7 @@ class PuterContextMenu extends PuterWebComponent {
                 : '';
 
             const shortcutHTML = item.shortcut
-                ? `<span class="shortcut">${this._escapeHTML(item.shortcut)}</span>`
+                ? `<span class="shortcut">${this._escapeHTML(this._formatShortcut(item.shortcut))}</span>`
                 : '';
 
             return `
@@ -431,7 +570,7 @@ class PuterContextMenu extends PuterWebComponent {
     _bindEvents () {
         // Remove any stale document listeners from a prior render
         if ( this._outsideClickHandler ) {
-            document.removeEventListener('click', this._outsideClickHandler, true);
+            document.removeEventListener('pointerdown', this._outsideClickHandler, true);
         }
         if ( this._keyHandler ) {
             document.removeEventListener('keydown', this._keyHandler, true);
@@ -440,6 +579,32 @@ class PuterContextMenu extends PuterWebComponent {
             document.removeEventListener('mousemove', this.#mouseTracker);
             this.#mouseTracker = null;
         }
+
+        // Hovering a separator should drop the focus highlight from the
+        // previously-focused item — the cursor has clearly moved past it.
+        // It should also close any submenu opened from an item above, so
+        // the parent's .has-open-submenu highlight goes away too.
+        // Exception: if the cursor is on a diagonal path toward the open
+        // submenu, treat the divider like any other safe-traverse cell so
+        // we don't tear down the submenu mid-drag.
+        this.$$('.menu-item.divider').forEach((el) => {
+            el.addEventListener('mouseenter', () => {
+                if ( this.#activeSubmenu && this._isMouseHeadingToSubmenu(this.#activeSubmenu.element) ) {
+                    this._setSafeTraverse(true);
+                    if ( this.#submenuCloseTimer ) {
+                        clearTimeout(this.#submenuCloseTimer);
+                        this.#submenuCloseTimer = null;
+                    }
+                    this.#submenuCloseTimer = setTimeout(() => this._submenuCloseCheck(), 100);
+                    return;
+                }
+                this._setSafeTraverse(false);
+                this._clearFocus();
+                clearTimeout(this.#submenuTimeout);
+                this._cancelSubmenuClose();
+                this._hideActiveSubmenu();
+            });
+        });
 
         const menuItems = this.$$('.menu-item:not(.divider):not(.disabled)');
 
@@ -472,6 +637,7 @@ class PuterContextMenu extends PuterWebComponent {
             el.addEventListener('mouseenter', () => {
                 if ( el.dataset.hasSubmenu === 'true' ) {
                     this.#pendingFocusIndex = null;
+                    this._setSafeTraverse(false);
                     this._setFocusIndex(index);
                     this._cancelSubmenuClose();
                     clearTimeout(this.#submenuTimeout);
@@ -485,16 +651,25 @@ class PuterContextMenu extends PuterWebComponent {
                     }
                 } else if ( this.#activeSubmenu ) {
                     // Safe-triangle: if cursor is heading toward the submenu,
-                    // defer focus change so intermediate items don't highlight
+                    // defer focus change AND suppress :hover styling on this
+                    // item so it doesn't flash blue mid-traversal.
                     if ( this._isMouseHeadingToSubmenu(this.#activeSubmenu.element) ) {
                         this.#pendingFocusIndex = index;
-                        this._cancelSubmenuClose();
+                        this._setSafeTraverse(true);
+                        // Don't call _cancelSubmenuClose — it clears
+                        // pendingFocusIndex. Just clear the close timer.
+                        if ( this.#submenuCloseTimer ) {
+                            clearTimeout(this.#submenuCloseTimer);
+                            this.#submenuCloseTimer = null;
+                        }
                         this.#submenuCloseTimer = setTimeout(() => this._submenuCloseCheck(), 100);
                         return;
                     }
+                    this._setSafeTraverse(false);
                     this._setFocusIndex(index);
                     this._scheduleSubmenuClose();
                 } else {
+                    this._setSafeTraverse(false);
                     this._setFocusIndex(index);
                 }
             });
@@ -507,20 +682,26 @@ class PuterContextMenu extends PuterWebComponent {
             });
         });
 
-        // Close on outside click
+        // Close on outside pointerdown — fires the instant the press starts,
+        // before mouseup/click, so the menu doesn't linger during a drag.
+        // Submenus are sibling elements appended to <body>, so we explicitly
+        // walk the submenu chain — a click in a descendant submenu must not
+        // tear us (and therefore that submenu) down.
         this._outsideClickHandler = (e) => {
-            if ( ! this.contains(e.target) ) {
+            if ( ! this._isEventInChain(e) ) {
                 this._closeAll();
             }
         };
         setTimeout(() => {
-            document.addEventListener('click', this._outsideClickHandler, true);
+            document.addEventListener('pointerdown', this._outsideClickHandler, true);
         }, 0);
 
-        // Track mouse for safe-triangle submenu hover
+        // Track mouse for safe-triangle submenu hover. Also exits
+        // keyboard-nav mode: once the cursor moves, :hover should win again.
         this.#mouseTracker = (e) => {
             this.#mouseLocs.push({ x: e.clientX, y: e.clientY });
             if ( this.#mouseLocs.length > 3 ) this.#mouseLocs.shift();
+            this._setKeyboardNav(false);
         };
         document.addEventListener('mousemove', this.#mouseTracker);
 
@@ -529,6 +710,10 @@ class PuterContextMenu extends PuterWebComponent {
             if ( this.#activeSubmenu ) return; // let the deeper submenu handle
             const consumed = this._handleKey(e);
             if ( consumed ) {
+                // A handled key (nav, typeahead, etc.) means the user is
+                // driving by keyboard — suppress any stale :hover until the
+                // mouse next moves.
+                this._setKeyboardNav(true);
                 e.preventDefault();
                 e.stopImmediatePropagation();
             }
@@ -547,9 +732,24 @@ class PuterContextMenu extends PuterWebComponent {
             case 'ArrowDown':
                 this._moveFocus(+1);
                 return true;
-            case 'ArrowUp':
+            case 'ArrowUp': {
+                // Root dropdown: ArrowUp on the first focusable item bubbles
+                // to the menubar, which closes the dropdown and re-focuses
+                // the parent menubar button.
+                if ( ! this._parentMenu ) {
+                    const f = this._focusableIndices();
+                    if ( f.length && this.#focusedIndex === f[0] ) {
+                        this.dispatchEvent(new CustomEvent('puter-menu-navigate', {
+                            detail: { direction: 'up' },
+                            bubbles: true,
+                            composed: true,
+                        }));
+                        return true;
+                    }
+                }
                 this._moveFocus(-1);
                 return true;
+            }
             case 'Home': {
                 const f = this._focusableIndices();
                 if ( f.length ) this._setFocusIndex(f[0]);
@@ -660,13 +860,22 @@ class PuterContextMenu extends PuterWebComponent {
         if ( ! el ) return false;
         clearTimeout(this.#submenuTimeout);
         this._cancelSubmenuClose();
-        this._showSubmenu(el, item.items);
-        // Focus first item in submenu
+        // Don't re-open an already-open submenu for this parent — it would
+        // wipe the user's focused item inside it. We only auto-focus the
+        // first sub-item when the submenu is freshly opened by this call.
+        const wasNewlyOpened = !this.#activeSubmenu || this.#activeSubmenu.parentEl !== el;
+        if ( wasNewlyOpened ) {
+            this._showSubmenu(el, item.items);
+        }
         requestAnimationFrame(() => {
             const sub = this.#activeSubmenu && this.#activeSubmenu.element;
-            if ( sub ) {
+            if ( ! sub ) return;
+            if ( wasNewlyOpened ) {
                 const f = sub._focusableIndices();
                 if ( f.length ) sub._setFocusIndex(f[0]);
+            }
+            if ( typeof sub._setKeyboardNav === 'function' ) {
+                sub._setKeyboardNav(true);
             }
         });
         return true;
@@ -713,10 +922,18 @@ class PuterContextMenu extends PuterWebComponent {
         this._cancelSubmenuClose();
 
         parentEl.classList.add('has-open-submenu');
+        // The parent now "owns" an open submenu; drop the .focused class so
+        // it paints in the dim has-open-submenu state instead of the bright
+        // focused/hover blue. :hover still keeps it blue when the cursor is
+        // directly over it. #focusedIndex is preserved for ArrowLeft restore.
+        parentEl.classList.remove('focused');
 
         const submenu = document.createElement('puter-context-menu');
         submenu.setAttribute('data-submenu', '');
         submenu.setAttribute('data-parent-managed', '');
+        // Forward any forced theme so the submenu paints in the same theme.
+        const themeAttr = this.getAttribute('theme');
+        if ( themeAttr ) submenu.setAttribute('theme', themeAttr);
         submenu.items = items;
         submenu._parentMenu = this;
         submenu._parentItemEl = parentEl;
@@ -809,13 +1026,17 @@ class PuterContextMenu extends PuterWebComponent {
             clearTimeout(this.#submenuCloseTimer);
             this.#submenuCloseTimer = null;
         }
-        // User reached the submenu — discard deferred focus
+        // User reached the submenu — discard deferred focus and end traversal
         this.#pendingFocusIndex = null;
+        this._setSafeTraverse(false);
     }
 
     _submenuCloseCheck () {
         this.#submenuCloseTimer = null;
-        if ( ! this.#activeSubmenu ) return;
+        if ( ! this.#activeSubmenu ) {
+            this._setSafeTraverse(false);
+            return;
+        }
 
         // If cursor is currently over the submenu or the parent item, keep open
         const submenu = this.#activeSubmenu.element;
@@ -823,6 +1044,8 @@ class PuterContextMenu extends PuterWebComponent {
         const latest = this.#mouseLocs[this.#mouseLocs.length - 1];
         if ( latest ) {
             if ( this._pointInElement(latest, submenu) || this._pointInRect(latest, parentEl.getBoundingClientRect()) ) {
+                // Cursor arrived at submenu / parent — end safe-triangle mode
+                this._setSafeTraverse(false);
                 return;
             }
         }
@@ -834,7 +1057,19 @@ class PuterContextMenu extends PuterWebComponent {
             return;
         }
 
+        // Trajectory no longer heading to submenu — end traversal mode
+        this._setSafeTraverse(false);
         this._hideActiveSubmenu();
+    }
+
+    _setSafeTraverse (on) {
+        const menu = this.$('.context-menu');
+        if ( menu ) menu.classList.toggle('safe-traverse', on);
+    }
+
+    _setKeyboardNav (on) {
+        const menu = this.$('.context-menu');
+        if ( menu ) menu.classList.toggle('keyboard-nav', on);
     }
 
     _pointInRect (p, r) {
@@ -911,6 +1146,7 @@ class PuterContextMenu extends PuterWebComponent {
             this._setFocusIndex(this.#pendingFocusIndex);
             this.#pendingFocusIndex = null;
         }
+        this._setSafeTraverse(false);
     }
 
     _closeAll () {
@@ -924,7 +1160,7 @@ class PuterContextMenu extends PuterWebComponent {
         const wasHidden = this._sheetHidden;
         this._hideActiveSubmenu(false);
         if ( this._outsideClickHandler ) {
-            document.removeEventListener('click', this._outsideClickHandler, true);
+            document.removeEventListener('pointerdown', this._outsideClickHandler, true);
         }
         if ( this._keyHandler ) {
             document.removeEventListener('keydown', this._keyHandler, true);
@@ -952,8 +1188,9 @@ class PuterContextMenu extends PuterWebComponent {
     }
 
     disconnectedCallback () {
+        super.disconnectedCallback();
         if ( this._outsideClickHandler ) {
-            document.removeEventListener('click', this._outsideClickHandler, true);
+            document.removeEventListener('pointerdown', this._outsideClickHandler, true);
         }
         if ( this._keyHandler ) {
             document.removeEventListener('keydown', this._keyHandler, true);
@@ -979,6 +1216,89 @@ class PuterContextMenu extends PuterWebComponent {
     _escapeAttr (str) {
         if ( ! str ) return '';
         return str.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
+    /**
+     * Render a keyboard-shortcut string in OS-appropriate form.
+     *
+     *   Mac:  modifiers as glyphs, concatenated  →  ⇧⌘D
+     *   Win/Linux:  text labels joined with '+'   →  Ctrl+Shift+D
+     *
+     * Accepts portable tokens (Mod, Cmd, Ctrl, Alt, Option, Shift, Meta) and
+     * the literal Mac glyphs (⌘ ⌃ ⌥ ⇧). 'Mod' is the recommended portable
+     * name — it maps to Cmd on Mac and Ctrl elsewhere.
+     */
+    _formatShortcut (str) {
+        if ( ! str ) return '';
+        const isMac = PuterContextMenu._isMac();
+
+        // Inflate any glyphs into named tokens so we can re-emit per OS.
+        const normalized = String(str)
+            .replace(/⌘/g, 'Mod+')   // ⌘
+            .replace(/⌃/g, 'Ctrl+')  // ⌃
+            .replace(/⌥/g, 'Alt+')   // ⌥
+            .replace(/⇧/g, 'Shift+'); // ⇧
+
+        const tokens = normalized.split('+').map(t => t.trim()).filter(Boolean);
+
+        const out = tokens.map(t => {
+            switch ( t.toLowerCase() ) {
+                case 'mod':
+                case 'cmd':
+                case 'command':
+                    return isMac ? '⌘' : 'Ctrl';
+                case 'ctrl':
+                case 'control':
+                    return isMac ? '⌃' : 'Ctrl';
+                case 'alt':
+                case 'option':
+                case 'opt':
+                    return isMac ? '⌥' : 'Alt';
+                case 'shift':
+                    return isMac ? '⇧' : 'Shift';
+                case 'meta':
+                case 'super':
+                case 'win':
+                    return isMac ? '⌘' : 'Win';
+                default:
+                    return t;
+            }
+        });
+
+        return isMac ? out.join('') : out.join('+');
+    }
+
+    _getActiveSubmenu () {
+        return this.#activeSubmenu;
+    }
+
+    /**
+     * Returns true if a document-level event targets this menu or any
+     * submenu nested below it. e.target on shadow-DOM-crossing events is
+     * the submenu's host element, so we use contains() on each host in the
+     * chain.
+     */
+    _isEventInChain (e) {
+        const target = e.target;
+        if ( ! target ) return false;
+        if ( this.contains(target) ) return true;
+        let cur = this.#activeSubmenu;
+        while ( cur && cur.element ) {
+            if ( cur.element.contains(target) ) return true;
+            cur = cur.element._getActiveSubmenu
+                ? cur.element._getActiveSubmenu()
+                : null;
+        }
+        return false;
+    }
+
+    static _isMac () {
+        if ( typeof navigator === 'undefined' ) return false;
+        const uaData = navigator.userAgentData;
+        if ( uaData && typeof uaData.platform === 'string' ) {
+            return /mac/i.test(uaData.platform);
+        }
+        return /Mac|iPhone|iPad|iPod/i.test(navigator.platform || navigator.userAgent || '');
     }
 }
 

@@ -74,7 +74,7 @@ async function UIWindowColorPicker (options) {
             },
             onAppend: function (window) {
                 colorPickerWidget = UIColorPickerWidget($(window).find('.picker'), {
-                    default: options.default ?? '#f00',
+                    default: options.defaultValue ?? options.defaultColor ?? options.default ?? '#f00',
                 });
             },
             window_class: 'window-login',

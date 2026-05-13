@@ -28,7 +28,19 @@ export interface IAWSCredentials {
 export interface IDynamoConfig {
     aws?: IAWSCredentials;
     endpoint?: string;
+    /**
+     * Filesystem path for the local dynalite store. Defaults to
+     * `./volatile/runtime/puter-ddb`. Pass `':memory:'` (or set
+     * `inMemory: true`) to run dynalite without persistence — the
+     * recommended setup for unit/integration tests.
+     */
     path?: string;
+    /**
+     * Run dynalite in-memory with no on-disk state. Equivalent to
+     * `path: ':memory:'`. Intended for tests so each suite gets a
+     * pristine in-process DynamoDB.
+     */
+    inMemory?: boolean;
     /**
      * Create required tables on startup if they don't exist. Off by
      * default because real-AWS deployments provision tables externally
@@ -48,6 +60,12 @@ export interface IRedisConfig {
      * ElastiCache). Set `false` for self-host plain-TCP Valkey/Redis.
      */
     tls?: boolean;
+    /**
+     * Use ioredis-mock instead of a real Redis cluster — fully
+     * in-process, no network. Defaults to `true` when `startupNodes`
+     * is empty (so tests with no redis config get a mock for free).
+     * Intended for unit/integration tests.
+     */
     useMock?: boolean;
 }
 
@@ -149,6 +167,14 @@ export interface IOIDCProviderConfig {
     userinfo_endpoint?: string;
     /** Space-separated OAuth scopes. Default depends on provider. */
     scopes?: string;
+    /** Apple Developer Team ID (apple provider only). */
+    team_id?: string;
+    /** Key ID for the Sign in with Apple private key (apple provider only). */
+    key_id?: string;
+    /** PKCS#8 PEM private key content from Apple (apple provider only). */
+    private_key?: string;
+    /** Azure AD tenant ID (microsoft provider only). Defaults to "common". */
+    tenant_id?: string;
     [key: string]: unknown;
 }
 
@@ -239,6 +265,11 @@ export interface IServerHealthConfig {
 }
 
 export interface IS3LocalConfig {
+    /**
+     * Run fauxqs entirely in-memory: random port on `127.0.0.1`, no
+     * `dataDir` / `s3StorageDir`. Intended for tests so each suite
+     * gets a pristine in-process S3.
+     */
     inMemory?: boolean;
     host?: string;
     port?: number;
@@ -277,7 +308,18 @@ export interface IS3Config {
 export interface IDatabaseConfig {
     engine: 'sqlite' | 'mysql';
     // sqlite
+    /**
+     * SQLite database file path. Defaults to `':memory:'` (the
+     * better-sqlite3 in-memory mode), which is also what tests should
+     * use. `inMemory: true` is an explicit alias for the same.
+     */
     path?: string;
+    /**
+     * Force in-memory SQLite (ignores `path`). Equivalent to
+     * `path: ':memory:'`. Intended for tests so each suite gets a
+     * pristine in-process database.
+     */
+    inMemory?: boolean;
     targetVersion?: number;
     // mysql
     host?: string;
@@ -426,6 +468,11 @@ interface IConfigOptional {
     no_browser_launch: boolean;
     /** Disable dev-time frontend webpack watchers. */
     no_devwatch: boolean;
+    /**
+     * Skip first-boot bootstrap of the `admin` user and the credentials
+     * banner that DefaultUserService prints. Intended for tests.
+     */
+    no_default_user: boolean;
     /** Optional dev-time frontend watcher overrides. */
     devwatch: IDevWatcherConfig;
 
@@ -583,10 +630,33 @@ interface IConfigOptional {
     unlimitedMetering?: boolean;
 }
 
+/**
+ * Extension-augmentable config surface. Extensions add their own config keys
+ * via TypeScript declaration merging:
+ *
+ *     declare module '@heyputer/backend/types' {
+ *         interface IExtensionConfig {
+ *             myExtension?: { foo: string };
+ *         }
+ *     }
+ *
+ * Augmentations flow into `IConfig`, which is what `this.config` /
+ * `extension.config` are typed as everywhere.
+ */
+export interface IExtensionConfig {
+    /**
+     * Open index signature so config reads of extension-only keys return
+     * `unknown` (not a type error). Extensions that declare-merge concrete
+     * keys (`myExt?: { foo: string }`) override this for the named key —
+     * the concrete property type wins over the index signature.
+     */
+    [key: string]: unknown;
+}
+
 export type IConfig = Partial<IConfigOptional> & {
     extensions: string[];
     port: number;
-};
+} & IExtensionConfig;
 
 // eslint-disable-next-line @typescript-eslint/no-wrapper-object-types
 export interface WithLifecycle extends Object {
@@ -596,7 +666,10 @@ export interface WithLifecycle extends Object {
 }
 
 export interface WithCostsReporting extends WithLifecycle {
-    getReportedCosts?: () => Promise<Record<string, unknown>[]>;
+    getReportedCosts?: () => // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        | Promise<Record<string, any>[]>
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        | Record<string, any>[];
 }
 
 export interface WithControllerRegistration extends WithCostsReporting {

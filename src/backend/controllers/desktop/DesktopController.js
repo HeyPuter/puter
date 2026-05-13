@@ -61,6 +61,7 @@ export class DesktopController extends PuterController {
                         throw new HttpError(
                             400,
                             '`url` must be a string or null',
+                            { legacyCode: 'bad_request' },
                         );
                     }
                     patch.desktop_bg_url = url;
@@ -70,6 +71,7 @@ export class DesktopController extends PuterController {
                         throw new HttpError(
                             400,
                             '`color` must be a string or null',
+                            { legacyCode: 'bad_request' },
                         );
                     }
                     patch.desktop_bg_color = color;
@@ -79,13 +81,16 @@ export class DesktopController extends PuterController {
                         throw new HttpError(
                             400,
                             '`fit` must be a string or null',
+                            { legacyCode: 'bad_request' },
                         );
                     }
                     patch.desktop_bg_fit = fit;
                 }
 
                 if (Object.keys(patch).length === 0) {
-                    throw new HttpError(400, 'No fields provided');
+                    throw new HttpError(400, 'No fields provided', {
+                        legacyCode: 'bad_request',
+                    });
                 }
 
                 await this.userStore.update(req.actor.user.id, patch);
@@ -107,6 +112,7 @@ export class DesktopController extends PuterController {
                     throw new HttpError(
                         400,
                         'Missing or invalid `items` array',
+                        { legacyCode: 'bad_request' },
                     );
                 }
 
@@ -131,6 +137,7 @@ export class DesktopController extends PuterController {
                     throw new HttpError(
                         400,
                         `\`layout\` must be one of: ${ALLOWED_LAYOUTS.join(', ')}`,
+                        { legacyCode: 'bad_request' },
                     );
                 }
                 await this.#updateFSEntry(
@@ -157,6 +164,7 @@ export class DesktopController extends PuterController {
                     throw new HttpError(
                         400,
                         `\`sort_by\` must be one of: ${ALLOWED_SORT_BY.join(', ')}`,
+                        { legacyCode: 'bad_request' },
                     );
                 }
                 const resolvedOrder = sort_order ?? 'asc';
@@ -164,6 +172,7 @@ export class DesktopController extends PuterController {
                     throw new HttpError(
                         400,
                         `\`sort_order\` must be one of: ${ALLOWED_SORT_ORDER.join(', ')}`,
+                        { legacyCode: 'bad_request' },
                     );
                 }
                 await this.#updateFSEntry(
@@ -195,19 +204,25 @@ export class DesktopController extends PuterController {
      */
     async #updateFSEntry(actor, { item_uid, item_path }, patch) {
         if (!item_uid && !item_path) {
-            throw new HttpError(400, 'Missing `item_uid` or `item_path`');
+            throw new HttpError(400, 'Missing `item_uid` or `item_path`', {
+                legacyCode: 'bad_request',
+            });
         }
 
         const entry = item_uid
             ? await this.stores.fsEntry.getEntryByUuid(item_uid)
             : await this.stores.fsEntry.getEntryByPath(item_path);
         if (!entry) {
-            throw new HttpError(404, 'Item not found');
+            throw new HttpError(404, 'Item not found', {
+                legacyCode: 'not_found',
+            });
         }
 
         const actorUserId = actor?.user?.id;
         if (typeof actorUserId !== 'number' || entry.userId !== actorUserId) {
-            throw new HttpError(403, 'Not allowed to update this item');
+            throw new HttpError(403, 'Not allowed to update this item', {
+                legacyCode: 'forbidden',
+            });
         }
 
         const keys = Object.keys(patch);

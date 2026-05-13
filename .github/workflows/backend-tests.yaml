@@ -1,0 +1,77 @@
+name: Backend Tests
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - ref: ${{ github.base_ref }}
+            artifact: base
+          - ref: ${{ github.head_ref }}
+            artifact: pr
+
+    steps:
+      - name: Checkout ${{ matrix.ref }}
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ matrix.ref }}
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run backend tests with coverage
+        run: npm run test:backend -- --coverage
+        env:
+          CI: 'true'
+
+      - name: Upload coverage artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-coverage-${{ matrix.artifact }}
+          path: src/backend/coverage/
+          retention-days: 14
+
+  report-coverage:
+    needs: test
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download PR coverage
+        uses: actions/download-artifact@v4
+        with:
+          name: backend-coverage-pr
+          path: src/backend/coverage
+
+      - name: Download base coverage
+        uses: actions/download-artifact@v4
+        with:
+          name: backend-coverage-base
+          path: coverage-base
+
+      - name: Report coverage on PR
+        uses: davelosert/vitest-coverage-report-action@v2
+        with:
+          json-summary-path: src/backend/coverage/coverage-summary.json
+          json-final-path: src/backend/coverage/coverage-final.json
+          json-summary-compare-path: coverage-base/coverage-summary.json

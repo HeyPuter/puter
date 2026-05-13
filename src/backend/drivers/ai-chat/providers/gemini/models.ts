@@ -196,8 +196,8 @@ export const GEMINI_MODELS: IChatModel[] = [
         max_tokens: 65536,
     },
     {
-        puterId: 'google:google/gemini-3.1-flash-lite-preview',
-        id: 'gemini-3.1-flash-lite-preview',
+        puterId: 'google:google/gemini-3.1-flash-lite',
+        id: 'gemini-3.1-flash-lite',
         modalities: {
             input: ['text', 'image', 'video', 'audio', 'pdf'],
             output: ['text'],
@@ -207,7 +207,11 @@ export const GEMINI_MODELS: IChatModel[] = [
         knowledge: '2025-01',
         release_date: '2026-03-18',
         name: 'Gemini 3.1 Flash-Lite',
-        aliases: ['google/gemini-3.1-flash-lite-preview'],
+        aliases: [
+            'google/gemini-3.1-flash-lite',
+            'gemini-3.1-flash-lite-preview',
+            'google/gemini-3.1-flash-lite-preview',
+        ],
         context: 1_048_576,
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',

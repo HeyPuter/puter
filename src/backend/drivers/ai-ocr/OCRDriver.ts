@@ -28,6 +28,7 @@ import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { mimeFromName } from '../../util/fileSigning.js';
 import { PuterDriver } from '../types.js';
+import { AI_CONCURRENT, AI_RATE_LIMIT } from '../util/aiLimits.js';
 import { loadFileInput, type LoadedFile } from '../util/fileInput.js';
 import { OCR_COSTS } from './costs.js';
 
@@ -80,7 +81,11 @@ export class OCRDriver extends PuterDriver {
     readonly driverInterface = 'puter-ocr';
     readonly driverName = 'ai-ocr';
 
-    override getReportedCosts(): Record<string, unknown>[] {
+    // Shared AI policy — see `drivers/util/aiLimits.ts` for the tier table.
+    readonly rateLimit = AI_RATE_LIMIT;
+    readonly concurrent = AI_CONCURRENT;
+
+    override getReportedCosts() {
         return Object.entries(OCR_COSTS).map(([usageType, ucentsPerUnit]) => ({
             usageType,
             ucentsPerUnit,
@@ -154,13 +159,22 @@ export class OCRDriver extends PuterDriver {
             args.provider ??
             (Context.get('driverName') as string | undefined) ??
             this.#defaultProvider();
-        if (!provider) throw new HttpError(500, 'No OCR provider configured');
+        if (!provider)
+            throw new HttpError(500, 'No OCR provider configured', {
+                legacyCode: 'internal_error',
+            });
 
         const actor = Context.get('actor');
-        if (!actor) throw new HttpError(401, 'Authentication required');
+        if (!actor)
+            throw new HttpError(401, 'Authentication required', {
+                legacyCode: 'unauthorized',
+            });
 
         const input = args.source ?? args.file;
-        if (!input) throw new HttpError(400, '`source` is required');
+        if (!input)
+            throw new HttpError(400, '`source` is required', {
+                legacyCode: 'bad_request',
+            });
 
         const loaded = await loadFileInput(
             this.stores,
@@ -172,15 +186,21 @@ export class OCRDriver extends PuterDriver {
 
         if (provider === 'aws-textract') {
             if (!this.#awsConfig)
-                throw new HttpError(500, 'AWS credentials not configured');
+                throw new HttpError(500, 'AWS credentials not configured', {
+                    legacyCode: 'internal_error',
+                });
             return this.#textractRecognize(loaded, actor);
         }
         if (provider === 'mistral') {
             if (!this.#mistral)
-                throw new HttpError(500, 'Mistral OCR not configured');
+                throw new HttpError(500, 'Mistral OCR not configured', {
+                    legacyCode: 'internal_error',
+                });
             return this.#mistralRecognize(loaded, args, actor);
         }
-        throw new HttpError(400, `Unknown OCR provider: ${provider}`);
+        throw new HttpError(400, `Unknown OCR provider: ${provider}`, {
+            legacyCode: 'bad_request',
+        });
     }
 
     #defaultProvider(): 'aws-textract' | 'mistral' | null {
@@ -212,7 +232,10 @@ export class OCRDriver extends PuterDriver {
             actor!,
             costPerPage,
         );
-        if (!hasCredits) throw new HttpError(402, 'Insufficient credits');
+        if (!hasCredits)
+            throw new HttpError(402, 'Insufficient credits', {
+                legacyCode: 'insufficient_funds',
+            });
 
         // Prefer S3 direct source if the file is FS-backed; fall back to raw bytes.
         const s3Info =
@@ -273,6 +296,7 @@ export class OCRDriver extends PuterDriver {
                     'MERGED_CELL',
                     'LAYOUT_FIGURE',
                     'LAYOUT_TEXT',
+                    'WORD',
                 ].includes(block.BlockType ?? '')
             )
                 continue;

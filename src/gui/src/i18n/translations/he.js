@@ -90,10 +90,6 @@ const he = {
         credits: 'הערכה',
         current_password: 'סיסמה נוכחית',
         cut: 'גזירה',
-        clock: 'שעון',
-        clock_visible_hide: 'הסתר - תמיד מוסתר',
-        clock_visible_show: 'הצג - תמיד מוצג',
-        clock_visible_auto: 'אוטומטי - ברירת מחדל, מוצג רק במצב מסך מלא.',
         close_all: 'סגירת הכל',
         created: 'נוצר',
         date_modified: 'תאריך שינוי',
@@ -361,7 +357,6 @@ const he = {
         login2fa_recovery_placeholder: 'XXXXXXXX',
 
         'change': 'שנה', // In English: "Change"
-        'clock_visibility': 'נראות שעון', // In English: "Clock Visibility"
         'reading': 'קורא %strong%', // In English: "Reading %strong%"
         'writing': 'כותב %strong%', // In English: "Writing %strong%"
         'unzipping': 'מחלץ %strong%', // In English: "Unzipping %strong%"

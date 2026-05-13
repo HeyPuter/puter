@@ -185,6 +185,8 @@ export class OpenRouterProvider implements IChatProvider {
                         modelUsed.id,
                         costOverwrites,
                     );
+                    (trackedUsage as Record<string, number>).usd_cents =
+                        usage.cost * 100;
                     return trackedUsage;
                 } else {
                     // custom open router logic because they're pricing are weird

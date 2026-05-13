@@ -76,7 +76,9 @@ export class WispController extends PuterController {
     #verify = async (req: Request, res: Response): Promise<void> => {
         const bodyToken = req.body?.token;
         if (!bodyToken || typeof bodyToken !== 'string') {
-            throw new HttpError(400, 'Missing `token`');
+            throw new HttpError(400, 'Missing `token`', {
+                legacyCode: 'token_missing',
+            });
         }
 
         let decoded: Record<string, unknown>;
@@ -114,7 +116,7 @@ export class WispController extends PuterController {
         await this.clients.event.emitAndWait('wisp.get-policy', event, {});
 
         if (!event.allow) {
-            throw new HttpError(403, 'Forbidden');
+            throw new HttpError(403, 'Forbidden', { legacyCode: 'forbidden' });
         }
 
         res.json(event.policy);

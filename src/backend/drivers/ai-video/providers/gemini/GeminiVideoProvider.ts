@@ -85,7 +85,9 @@ export class GeminiVideoProvider extends VideoProvider {
         } = params ?? {};
 
         if (typeof prompt !== 'string' || !prompt.trim()) {
-            throw new HttpError(400, 'prompt must be a non-empty string');
+            throw new HttpError(400, 'prompt must be a non-empty string', {
+                legacyCode: 'bad_request',
+            });
         }
 
         const selectedModel = this.#getModel(requestedModel);
@@ -136,7 +138,9 @@ export class GeminiVideoProvider extends VideoProvider {
 
         const actor = Context.get('actor');
         if (!actor) {
-            throw new HttpError(401, 'Authentication required');
+            throw new HttpError(401, 'Authentication required', {
+                legacyCode: 'unauthorized',
+            });
         }
 
         const usageAllowed = await this.#meteringService.hasEnoughCredits(
@@ -144,7 +148,9 @@ export class GeminiVideoProvider extends VideoProvider {
             costInMicroCents,
         );
         if (!usageAllowed) {
-            throw new HttpError(402, 'Insufficient funds');
+            throw new HttpError(402, 'Insufficient funds', {
+                legacyCode: 'insufficient_funds',
+            });
         }
 
         const config: Record<string, unknown> = {

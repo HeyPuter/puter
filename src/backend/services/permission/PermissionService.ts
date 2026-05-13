@@ -17,31 +17,32 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { PuterService } from '../types';
-import type { Actor, ActorUser } from '../../core/actor';
+import type { Actor } from '../../core/actor';
 import { actorUid, isSystemActor, userRelatedActor } from '../../core/actor';
 import { Context } from '../../core/context';
 import { HttpError } from '../../core/http/HttpError.js';
-import {
-    PermissionUtil,
-    readingHasTerminal,
-    type ReadingNode,
-    type PermissionRewriter,
-    type PermissionImplicator,
-    type PermissionExploder,
-} from './permissionUtil';
+import { PuterService } from '../types';
 import {
     MANAGE_PERM_PREFIX,
     PERMISSION_SCAN_CACHE_TTL_SECONDS,
 } from './consts';
+import {
+    PermissionUtil,
+    readingHasTerminal,
+    type PermissionExploder,
+    type PermissionImplicator,
+    type PermissionRewriter,
+    type ReadingNode,
+} from './permissionUtil';
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore — hardcoded-permissions.js is plain JS
 import {
     default_implicit_user_app_permissions,
-    implicit_user_app_permissions,
     hardcoded_user_group_permissions,
+    implicit_user_app_permissions,
 } from '../../data/hardcoded-permissions.js';
+import { UserRow } from '../../stores/user/UserStore';
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -980,7 +981,7 @@ export class PermissionService extends PuterService {
 
         // Invalidate app-under-user scan cache so the grant takes effect immediately
         await this.invalidatePermissionScanCacheForAppUnderUser(
-            actor.user.uuid,
+            actor.user.uuid!,
             app.uid,
             permission,
         );
@@ -1331,7 +1332,7 @@ export class PermissionService extends PuterService {
         username: string;
         email?: string | null;
     }): Actor {
-        const actorUser: ActorUser = {
+        const actorUser: Partial<UserRow> = {
             uuid: user.uuid,
             id: user.id,
             username: user.username,
