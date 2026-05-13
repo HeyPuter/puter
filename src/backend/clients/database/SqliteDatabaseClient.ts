@@ -17,8 +17,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { existsSync, readFileSync } from 'fs';
-import { basename, extname, join, resolve } from 'path';
+import { existsSync, mkdirSync, readFileSync } from 'fs';
+import { basename, dirname, extname, join, resolve } from 'path';
 import { createContext, runInContext } from 'vm';
 import type { IConfig } from '../../types';
 import { AbstractDatabaseClient, type WriteResult } from './DatabaseClient';
@@ -101,6 +101,10 @@ export class SqliteDatabaseClient extends AbstractDatabaseClient {
             ? ':memory:'
             : (this.config.database?.path ?? ':memory:');
         const isNew = dbPath === ':memory:' || !existsSync(dbPath);
+
+        if (dbPath !== ':memory:') {
+            mkdirSync(dirname(dbPath), { recursive: true });
+        }
 
         this.db = new Database(dbPath);
 
