@@ -564,6 +564,38 @@ export function buildPrivateHostRedirect(
     void app; // reserved for future use (logging)
 }
 
+/**
+ * Mirror of {@link buildPrivateHostRedirect} — produces the public-host
+ * equivalent URL for a request that landed on the private hosting domain
+ * but doesn't belong there (non-private app, or no app at all). Used so a
+ * formerly-paid app that's now free (or a plain hosted site) resolves on
+ * `puter.site` instead of 404ing on `puter.app`.
+ */
+export function buildPublicHostRedirect(
+    req: Request,
+    config: PrivateHostingConfig,
+): string | null {
+    const publicDomain = config.staticDomainsRaw[0] ?? config.staticDomains[0];
+    if (!publicDomain) return null;
+    const host = normalizeHost(req.hostname);
+    if (!host) return null;
+    const subdomain = subdomainFromHost(host, [
+        ...config.staticDomains,
+        ...config.privateDomains,
+    ]);
+    if (!subdomain) return null;
+    try {
+        const protocol = config.protocol || req.protocol || 'https';
+        const base = `${protocol}://${subdomain}.${publicDomain}`;
+        const reqPath = (req.originalUrl || '/').startsWith('/')
+            ? req.originalUrl || '/'
+            : `/${req.originalUrl}`;
+        return new URL(reqPath, base).toString();
+    } catch {
+        return null;
+    }
+}
+
 /** Redirect URL when private access is denied — lands on the app-center listing. */
 export function buildAppCenterFallback(
     app: AppLike,

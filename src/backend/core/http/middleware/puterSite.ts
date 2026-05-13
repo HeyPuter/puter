@@ -29,6 +29,7 @@ import {
     buildAppCenterFallback,
     buildHostingConfig,
     buildPrivateHostRedirect,
+    buildPublicHostRedirect,
     hostMatchesPrivateDomain,
     renderLoginBootstrapHtml,
     resolvePrivateAppForHostedSite,
@@ -344,8 +345,20 @@ export const createPuterSiteMiddleware = (
             // third-party resources loaded from the app.
             res.setHeader('Referrer-Policy', 'no-referrer');
         } else if (privateHostingDomains.has(matched)) {
-            // Private host with no private app → refuse. Prevents a
-            // public-app subdomain from leaking via the private host.
+            // Non-private content landed on the private hosting domain —
+            // mirror of the private redirect above. Covers two cases:
+            //   - a paid app that just flipped to free (is_private 1→0)
+            //     whose old `puter.app` URL is still bookmarked/shared;
+            //   - a plain hosted site that has no associated app.
+            // Redirect to the equivalent `puter.site` URL so the content
+            // resolves on the correct origin instead of 404ing.
+            const redirectUrl = buildPublicHostRedirect(req, hostingCfg);
+            if (redirectUrl) {
+                res.redirect(302, redirectUrl);
+                return;
+            }
+            // No public hosting domain configured — fall back to refusing
+            // rather than leaking via the private host.
             res.status(404).type('text/plain').send('Subdomain not found');
             return;
         } else {
