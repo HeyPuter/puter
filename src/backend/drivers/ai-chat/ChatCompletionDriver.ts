@@ -41,6 +41,7 @@ import { OpenRouterProvider } from './providers/openrouter/OpenRouterProvider.js
 import { TogetherAIProvider } from './providers/together/TogetherAIProvider.js';
 import { XAIProvider } from './providers/xai/XAIProvider.js';
 import { ZAIProvider } from './providers/zai/ZAIProvider.js';
+import { AlibabaProvider } from './providers/alibaba/AlibabaProvider.js';
 import { MoonshotProvider } from './providers/moonshot/MoonshotProvider.js';
 import type {
     IChatCompleteResult,
@@ -751,13 +752,13 @@ export class ChatCompletionDriver extends PuterDriver {
             );
         }
 
-        const openrouter = providers['openrouter'];
-        const openrouterKey = readKey(openrouter);
-        if (openrouterKey) {
-            this.#providers['openrouter'] = new OpenRouterProvider(
+        const alibaba = providers['alibaba'];
+        const alibabaKey = readKey(alibaba);
+        if (alibabaKey) {
+            this.#providers['alibaba'] = new AlibabaProvider(
                 {
-                    apiKey: openrouterKey,
-                    apiBaseUrl: openrouter?.apiBaseUrl as string | undefined,
+                    apiKey: alibabaKey,
+                    apiBaseUrl: alibaba?.apiBaseUrl as string | undefined,
                 },
                 metering,
             );
@@ -777,6 +778,18 @@ export class ChatCompletionDriver extends PuterDriver {
             this.#providers['ollama'] = new OllamaChatProvider(
                 {
                     apiBaseUrl: ollama?.apiBaseUrl,
+                },
+                metering,
+            );
+        }
+
+        const openrouter = providers['openrouter'];
+        const openrouterKey = readKey(openrouter);
+        if (openrouterKey) {
+            this.#providers['openrouter'] = new OpenRouterProvider(
+                {
+                    apiKey: openrouterKey,
+                    apiBaseUrl: openrouter?.apiBaseUrl as string | undefined,
                 },
                 metering,
             );
