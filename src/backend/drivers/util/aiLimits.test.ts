@@ -37,11 +37,11 @@ import { AI_CONCURRENT, AI_RATE_LIMIT } from './aiLimits.js';
 describe('AI_RATE_LIMIT', () => {
     it('pins the documented tier values', () => {
         expect(AI_RATE_LIMIT.default).toEqual({
-            limit: 100,
+            limit: 200,
             window: 10_000,
             bySubscription: {
-                [DEFAULT_FREE_SUBSCRIPTION]: 30,
-                [DEFAULT_TEMP_SUBSCRIPTION]: 20,
+                [DEFAULT_FREE_SUBSCRIPTION]: 60,
+                [DEFAULT_TEMP_SUBSCRIPTION]: 40,
             },
         });
     });
@@ -75,10 +75,10 @@ describe('AI_RATE_LIMIT', () => {
 describe('AI_CONCURRENT', () => {
     it('pins the documented tier values', () => {
         expect(AI_CONCURRENT.default).toEqual({
-            limit: 10,
+            limit: 20,
             bySubscription: {
-                [DEFAULT_FREE_SUBSCRIPTION]: 3,
-                [DEFAULT_TEMP_SUBSCRIPTION]: 2,
+                [DEFAULT_FREE_SUBSCRIPTION]: 6,
+                [DEFAULT_TEMP_SUBSCRIPTION]: 4,
             },
         });
     });

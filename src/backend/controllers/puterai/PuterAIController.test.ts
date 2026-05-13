@@ -73,11 +73,6 @@ const makeUserActor = (): Actor => ({
     user: { id: 7, uuid: 'u-7', username: 'alice' },
 });
 
-const makeAppActor = (): Actor => ({
-    user: { id: 7, uuid: 'u-7', username: 'alice' },
-    app: { id: 1, uid: 'app-uid' },
-});
-
 interface CapturedResponse {
     statusCode: number;
     body: unknown;
@@ -193,13 +188,23 @@ describe('PuterAIController.registerRoutes', () => {
             ]),
         );
 
-        const chatRoute = calls.find(
-            (c) => c.path === '/puterai/openai/v1/chat/completions',
-        );
-        expect(chatRoute?.opts).toEqual({
-            subdomain: 'api',
-            requireUserActor: true,
-        });
+        // The four upstream-proxy routes are user-only: app actors must
+        // call puter-chat-completion directly. The `requireUserActor`
+        // route option wires up the gate that enforces this, so each
+        // proxy route gets the assertion (not just chat/completions).
+        const userOnlyPaths = [
+            '/puterai/openai/v1/chat/completions',
+            '/puterai/openai/v1/completions',
+            '/puterai/openai/v1/responses',
+            '/puterai/anthropic/v1/messages',
+        ];
+        for (const path of userOnlyPaths) {
+            const route = calls.find((c) => c.path === path);
+            expect(route?.opts).toEqual({
+                subdomain: 'api',
+                requireUserActor: true,
+            });
+        }
         const modelsRoute = calls.find(
             (c) => c.path === '/puterai/chat/models',
         );
@@ -213,18 +218,10 @@ describe('PuterAIController.registerRoutes', () => {
 // ── /openai/v1/chat/completions ─────────────────────────────────────
 
 describe('PuterAIController.openaiChatCompletions', () => {
-    it('rejects app actors with HttpError 403', async () => {
-        const { res } = makeRes();
-        await expect(
-            controller.openaiChatCompletions(
-                makeReq({
-                    body: { messages: [], model: 'gpt-test' },
-                    actor: makeAppActor(),
-                }),
-                res,
-            ),
-        ).rejects.toMatchObject({ statusCode: 403 });
-    });
+    // Note: app-actor rejection (403) is enforced by the `requireUserActor`
+    // route gate and is asserted in the registerRoutes test above. The
+    // handler itself no longer does that check, so unit-testing it here
+    // would require invoking the gate stack.
 
     it('rejects bodies missing a messages array with HttpError 400', async () => {
         const { res } = makeRes();
@@ -392,18 +389,8 @@ describe('PuterAIController.openaiChatCompletions', () => {
 // ── /openai/v1/completions ──────────────────────────────────────────
 
 describe('PuterAIController.openaiCompletions', () => {
-    it('rejects app actors with HttpError 403', async () => {
-        const { res } = makeRes();
-        await expect(
-            controller.openaiCompletions(
-                makeReq({
-                    body: { prompt: 'hi', model: 'gpt-test' },
-                    actor: makeAppActor(),
-                }),
-                res,
-            ),
-        ).rejects.toMatchObject({ statusCode: 403 });
-    });
+    // App-actor rejection lives in the `requireUserActor` gate now;
+    // see the registerRoutes assertion.
 
     it('rejects a non-string prompt with HttpError 400', async () => {
         const { res } = makeRes();
@@ -457,18 +444,8 @@ describe('PuterAIController.openaiCompletions', () => {
 // ── /openai/v1/responses ────────────────────────────────────────────
 
 describe('PuterAIController.openaiResponses', () => {
-    it('rejects app actors with HttpError 403', async () => {
-        const { res } = makeRes();
-        await expect(
-            controller.openaiResponses(
-                makeReq({
-                    body: { input: 'hi', model: 'gpt-test' },
-                    actor: makeAppActor(),
-                }),
-                res,
-            ),
-        ).rejects.toMatchObject({ statusCode: 403 });
-    });
+    // App-actor rejection lives in the `requireUserActor` gate now;
+    // see the registerRoutes assertion.
 
     it('rejects providers other than openai-responses with HttpError 400', async () => {
         const { res } = makeRes();
@@ -537,18 +514,8 @@ describe('PuterAIController.openaiResponses', () => {
 // ── /anthropic/v1/messages ──────────────────────────────────────────
 
 describe('PuterAIController.anthropicMessages', () => {
-    it('rejects app actors with HttpError 403', async () => {
-        const { res } = makeRes();
-        await expect(
-            controller.anthropicMessages(
-                makeReq({
-                    body: { messages: [], model: 'claude-test' },
-                    actor: makeAppActor(),
-                }),
-                res,
-            ),
-        ).rejects.toMatchObject({ statusCode: 403 });
-    });
+    // App-actor rejection lives in the `requireUserActor` gate now;
+    // see the registerRoutes assertion.
 
     it('rejects bodies missing a messages array with HttpError 400', async () => {
         const { res } = makeRes();
