@@ -229,7 +229,7 @@ export class PuterAIController extends PuterController {
         req: Request,
         res: Response,
     ): Promise<void> => {
-        this.#rejectAppActor(req);
+        await this.#assertProxyActorAllowed(req);
 
         const body = asRecord(req.body);
         const stream = !!body.stream;
@@ -396,7 +396,7 @@ export class PuterAIController extends PuterController {
     // ── /openai/v1/completions ──────────────────────────────────────
 
     openaiCompletions = async (req: Request, res: Response): Promise<void> => {
-        this.#rejectAppActor(req);
+        await this.#assertProxyActorAllowed(req);
 
         const body = asRecord(req.body);
         const stream = !!body.stream;
@@ -526,7 +526,7 @@ export class PuterAIController extends PuterController {
     // ── /openai/v1/responses ────────────────────────────────────────
 
     openaiResponses = async (req: Request, res: Response): Promise<void> => {
-        this.#rejectAppActor(req);
+        await this.#assertProxyActorAllowed(req);
 
         const body = asRecord(req.body);
         const stream = !!body.stream;
@@ -838,7 +838,7 @@ export class PuterAIController extends PuterController {
     // ── /anthropic/v1/messages ──────────────────────────────────────
 
     anthropicMessages = async (req: Request, res: Response): Promise<void> => {
-        this.#rejectAppActor(req);
+        await this.#assertProxyActorAllowed(req);
 
         const body = asRecord(req.body);
         const stream = !!body.stream;
@@ -1053,13 +1053,38 @@ export class PuterAIController extends PuterController {
         return driver;
     }
 
-    #rejectAppActor(req: Request): void {
+    async #assertProxyActorAllowed(req: Request): Promise<void> {
         // Proxy routes are user-only; apps must call puter-chat-completion directly.
         if (isAppActor(req.actor)) {
             throw new HttpError(
                 403,
                 'App actors may not proxy to upstream AI APIs',
                 { legacyCode: 'forbidden' },
+            );
+        }
+
+        // Access tokens are narrower than sessions. A token minted for an
+        // unrelated purpose, such as a file read URL, must not become an AI
+        // API key just because these routes are `requireAuth`.
+        const accessToken = req.actor?.accessToken;
+        if (!accessToken) return;
+
+        if (accessToken.issuer.app) {
+            throw new HttpError(
+                403,
+                'App access tokens may not proxy to upstream AI APIs',
+                { legacyCode: 'forbidden' },
+            );
+        }
+
+        const hasProxyPermission = await this.services.permission
+            .check(req.actor!, 'service:ai-chat:ii:puter-chat-completion')
+            .catch(() => false);
+        if (!hasProxyPermission) {
+            throw new HttpError(
+                403,
+                'Access token is not scoped for upstream AI API proxying',
+                { legacyCode: 'permission_denied' },
             );
         }
     }

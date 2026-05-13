@@ -42,6 +42,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import { v4 as uuidv4 } from 'uuid';
 
 import type { Actor } from '../../core/actor.js';
 import type { ChatCompletionDriver } from '../../drivers/ai-chat/ChatCompletionDriver.js';
@@ -77,6 +78,38 @@ const makeAppActor = (): Actor => ({
     user: { id: 7, uuid: 'u-7', username: 'alice' },
     app: { id: 1, uid: 'app-uid' },
 });
+
+const makeAppIssuedAccessTokenActor = (): Actor => ({
+    user: { id: 7, uuid: 'u-7', username: 'alice' },
+    accessToken: {
+        uid: 'token-uid',
+        issuer: makeAppActor(),
+        authorized: null,
+    },
+});
+
+const makePersistedUserActor = async (): Promise<Actor> => {
+    const username = `pai-${Math.random().toString(36).slice(2, 10)}`;
+    const created = await server.stores.user.create({
+        username,
+        uuid: uuidv4(),
+        password: null,
+        email: `${username}@test.local`,
+        free_storage: 100 * 1024 * 1024,
+        requires_email_confirmation: false,
+    });
+    const user = (await server.stores.user.getById(created.id))!;
+    return {
+        user: {
+            id: user.id,
+            uuid: user.uuid,
+            username: user.username,
+            email: user.email ?? null,
+            email_confirmed: true,
+            requires_email_confirmation: false,
+        },
+    };
+};
 
 interface CapturedResponse {
     statusCode: number;
@@ -224,6 +257,100 @@ describe('PuterAIController.openaiChatCompletions', () => {
                 res,
             ),
         ).rejects.toMatchObject({ statusCode: 403 });
+    });
+
+    it('rejects app-issued access token actors so apps cannot bypass the proxy ban', async () => {
+        stubChatComplete({
+            message: { role: 'assistant', content: 'hi there' },
+            finish_reason: 'stop',
+        });
+
+        const { res } = makeRes();
+        await expect(
+            controller.openaiChatCompletions(
+                makeReq({
+                    body: {
+                        model: 'gpt-test',
+                        messages: [{ role: 'user', content: 'hi' }],
+                    },
+                    actor: makeAppIssuedAccessTokenActor(),
+                }),
+                res,
+            ),
+        ).rejects.toMatchObject({ statusCode: 403 });
+    });
+
+    it('rejects a file-read access token for the AI proxy', async () => {
+        const issuer = await makePersistedUserActor();
+        const fileReadOnlyToken = await server.services.auth.createAccessToken(
+            issuer,
+            [['fs:file-uid:read', {}]],
+            { expiresIn: '24h' },
+        );
+        const tokenActor =
+            await server.services.auth.authenticateFromToken(fileReadOnlyToken);
+        expect(tokenActor?.accessToken).toBeTruthy();
+
+        stubChatComplete({
+            message: { role: 'assistant', content: 'hi there' },
+            finish_reason: 'stop',
+        });
+
+        const { res } = makeRes();
+        await expect(
+            controller.openaiChatCompletions(
+                makeReq({
+                    body: {
+                        model: 'gpt-test',
+                        messages: [{ role: 'user', content: 'hi' }],
+                    },
+                    actor: tokenActor!,
+                }),
+                res,
+            ),
+        ).rejects.toMatchObject({
+            statusCode: 403,
+            legacyCode: 'permission_denied',
+        });
+    });
+
+    it('allows access tokens explicitly scoped for the AI proxy', async () => {
+        const issuer = await makePersistedUserActor();
+        await server.stores.permission.setFlatUserPerm(
+            issuer.user.id!,
+            'service:ai-chat:ii:puter-chat-completion',
+            {
+                permission: 'service:ai-chat:ii:puter-chat-completion',
+                deleted: false,
+            },
+        );
+        const aiProxyToken = await server.services.auth.createAccessToken(
+            issuer,
+            [['service:ai-chat:ii:puter-chat-completion', {}]],
+            { expiresIn: '24h' },
+        );
+        const tokenActor =
+            await server.services.auth.authenticateFromToken(aiProxyToken);
+        expect(tokenActor?.accessToken).toBeTruthy();
+
+        const completeSpy = stubChatComplete({
+            message: { role: 'assistant', content: 'hi there' },
+            finish_reason: 'stop',
+        });
+
+        const { res } = makeRes();
+        await controller.openaiChatCompletions(
+            makeReq({
+                body: {
+                    model: 'gpt-test',
+                    messages: [{ role: 'user', content: 'hi' }],
+                },
+                actor: tokenActor!,
+            }),
+            res,
+        );
+
+        expect(completeSpy).toHaveBeenCalledTimes(1);
     });
 
     it('rejects bodies missing a messages array with HttpError 400', async () => {
