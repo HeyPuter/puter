@@ -80,6 +80,9 @@ declare global {
 
             /** True when the request's Host is a custom domain (not one of the configured Puter domains). */
             is_custom_domain?: boolean;
+
+            /** Parsed cookies, populated by the global `cookie-parser` middleware. */
+            cookies?: Record<string, string>;
         }
     }
 }

@@ -126,7 +126,6 @@ async function UIWindowFinalizeUserDeletion (options) {
                 credentials: 'include',
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${puter.authToken}`,
                 },
                 body: JSON.stringify(body),
             });

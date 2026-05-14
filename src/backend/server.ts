@@ -948,9 +948,9 @@ export class PuterServer {
                 };
             }
             if (fullPath !== undefined) {
-                app.use(fullPath as any, ...mwChain, handler);
+                app.use(fullPath as any, ...mwChain.flat(), handler);
             } else {
-                app.use(...mwChain, handler);
+                app.use(...mwChain.flat(), handler);
             }
             return;
         }

@@ -131,8 +131,8 @@ const extractToken = (req: Request, cookieName?: string): string | null => {
     // credentialed API CORS surface; bearer/body/x-api-key tokens remain
     // available for cross-origin SDK requests.
     if (cookieName && !isCrossOriginBrowserRequest(req)) {
-        const cookieToken = readCookie(req, cookieName);
-        if (cookieToken) {
+        const cookieToken = req.cookies?.[cookieName];
+        if (typeof cookieToken === 'string' && cookieToken.length > 0) {
             return stripBearer(cookieToken);
         }
     }
@@ -179,29 +179,4 @@ const isCrossOriginBrowserRequest = (req: Request): boolean => {
     } catch {
         return true;
     }
-};
-
-/**
- * Minimal cookie reader. Avoids pulling in `cookie-parser` for the one
- * lookup the probe needs. Handles quoted values and URL-decodes the result.
- */
-const readCookie = (req: Request, name: string): string | null => {
-    const header =
-        typeof req.header === 'function' ? req.header('cookie') : undefined;
-    if (!header || typeof header !== 'string') return null;
-    const target = `${name}=`;
-    for (const rawPair of header.split(';')) {
-        const pair = rawPair.trim();
-        if (!pair.startsWith(target)) continue;
-        let value = pair.slice(target.length);
-        if (value.startsWith('"') && value.endsWith('"')) {
-            value = value.slice(1, -1);
-        }
-        try {
-            return decodeURIComponent(value);
-        } catch {
-            return value;
-        }
-    }
-    return null;
 };
