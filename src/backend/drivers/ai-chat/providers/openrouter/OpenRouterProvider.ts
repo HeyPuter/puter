@@ -230,7 +230,7 @@ export class OpenRouterProvider implements IChatProvider {
                 });
 
                 models = resp.data.data;
-                kv.set('openrouterChat:models', models);
+                kv.set('openrouterChat:models', models, { EX: 15 * 60 }); // cache for 15 minutes
             } catch (e) {
                 console.log(e);
             }

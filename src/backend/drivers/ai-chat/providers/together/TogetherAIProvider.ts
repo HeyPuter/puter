@@ -96,7 +96,7 @@ export class TogetherAIProvider implements IChatProvider {
             },
             max_tokens: 1000,
         });
-        kv.set(this.#kvKey, models, { EX: 5 * 60 });
+        kv.set(this.#kvKey, models, { EX: 15 * 60 });
         return models;
     }
 
