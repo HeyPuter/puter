@@ -130,6 +130,15 @@ export function splitParentAndName(absolutePath: string): {
     return { parentPath: parentPath === '.' ? '/' : parentPath, name };
 }
 
+export function assertNormalized(input: string): string {
+    if (pathPosix.normalize(input) !== input) {
+        throw new HttpError(400, 'Invalid path', {
+            legacyCode: 'bad_request',
+        });
+    }
+    return input;
+}
+
 export function normalizeAbsolutePath(path: string): string {
     const trimmed = typeof path === 'string' ? path.trim() : '';
     if (trimmed.length === 0) {
@@ -137,7 +146,8 @@ export function normalizeAbsolutePath(path: string): string {
             legacyCode: 'bad_request',
         });
     }
-    let normalized = pathPosix.normalize(trimmed);
+    assertNormalized(trimmed);
+    let normalized = trimmed;
     if (!normalized.startsWith('/')) {
         normalized = `/${normalized}`;
     }

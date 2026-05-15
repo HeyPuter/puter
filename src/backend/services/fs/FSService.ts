@@ -18,6 +18,7 @@
  */
 
 import { posix as pathPosix } from 'node:path';
+import { assertNormalized } from './resolveNode.js';
 import { createHash } from 'node:crypto';
 import { Readable, Transform } from 'node:stream';
 import type { TransformCallback } from 'node:stream';
@@ -268,7 +269,8 @@ export class FSService extends PuterService {
             );
         }
 
-        let normalizedPath = pathPosix.normalize(trimmedPath);
+        assertNormalized(trimmedPath);
+        let normalizedPath = trimmedPath;
         if (!normalizedPath.startsWith('/')) {
             normalizedPath = `/${normalizedPath}`;
         }

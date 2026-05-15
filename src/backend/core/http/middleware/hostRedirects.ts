@@ -21,6 +21,7 @@ import type { RequestHandler } from 'express';
 import { stat } from 'node:fs/promises';
 import path from 'node:path';
 import type { IConfig } from '../../../types';
+import { assertNormalized } from '../../../services/fs/resolveNode.js';
 
 /** Native-app subdomains served via `nativeAppStatic`. */
 const NATIVE_APP_SUBDOMAINS = [
@@ -130,10 +131,8 @@ export const createNativeAppStatic = (config: IConfig): RequestHandler => {
             ? path.join(root, active, 'dist')
             : path.join(root, active);
 
-        // req.path is already url-decoded by express; normalize strips any
-        // `..` segments before sendFile's `root` option enforces its own
-        // traversal guard.
-        const requested = path.normalize(req.path);
+        const requested = req.path;
+        assertNormalized(requested);
         const absolute = path.join(appRoot, requested);
 
         try {
