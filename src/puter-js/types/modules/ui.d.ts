@@ -92,6 +92,7 @@ export interface ColorPickerOptions {
 
 export interface FontPickerOptions {
     defaultFont?: string;
+    defaultValue?: string;
 }
 
 export interface DirectoryPickerOptions {
