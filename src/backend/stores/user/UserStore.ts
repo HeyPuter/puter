@@ -419,6 +419,25 @@ export class UserStore extends PuterStore {
         }
     }
 
+    async unconfirmOthersByEmail(
+        userId: number,
+        email: string,
+        cleanEmailValue: string,
+    ): Promise<void> {
+        await this.clients.db.write(
+            `UPDATE \`user\`
+                SET \`email\` = NULL,
+                    \`clean_email\` = NULL,
+                    \`email_confirmed\` = 0,
+                    \`requires_email_confirmation\` = 0,
+                    \`email_confirm_code\` = NULL,
+                    \`email_confirm_token\` = NULL
+              WHERE \`id\` != ?
+                AND (\`email\` = ? OR \`clean_email\` = ?)`,
+            [userId, email, cleanEmailValue],
+        );
+    }
+
     async invalidate(user: UserRow): Promise<void> {
         const keys = this.#cacheKeysForUser(user);
         await this.publishCacheKeys({ keys, broadcast: true });

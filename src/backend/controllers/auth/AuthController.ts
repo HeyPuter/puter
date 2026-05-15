@@ -823,6 +823,16 @@ export class AuthController extends PuterController {
             email_confirm_token: null,
         });
 
+        // Revoke confirmation from any other accounts sharing this
+        // email so only the account whose owner just proved inbox
+        // access retains verified status.
+        const canonical = cleanEmail(user.email!);
+        await this.stores.user.unconfirmOthersByEmail(
+            user.id,
+            user.email!,
+            canonical,
+        );
+
         await promoteToVerifiedGroup(this.stores.group, this.config, user);
 
         try {
