@@ -259,7 +259,7 @@ const id = {
         save_session: 'Simpan sesi',
         save_session_c2a:
       'Buat akun untuk menyimpan sesi Anda saat ini agar yang Anda kerjakan tidak hilang.',
-        scan_qr_c2a: 'Pindai kode di bawah ini\untuk masuk ke sesi ini dari perangkat lain',
+        scan_qr_c2a: 'Pindai kode di bawah ini\nuntuk masuk ke sesi ini dari perangkat lain',
         scan_qr_2fa: 'Pindai kode QR dengan aplikasi autentikator Anda',
         scan_qr_generic: 'Pindai kode QR ini menggunakan ponsel atau perangkat lain Anda',
         search: 'Pencarian',
