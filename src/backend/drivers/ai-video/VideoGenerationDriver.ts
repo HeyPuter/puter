@@ -18,6 +18,7 @@
  */
 
 import { posix as pathPosix } from 'node:path';
+import { assertNormalized } from '../../services/fs/resolveNode.js';
 import { Readable } from 'node:stream';
 import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
@@ -458,7 +459,7 @@ export class VideoGenerationDriver extends PuterDriver {
         if (resolved === '~' || resolved.startsWith('~/')) {
             resolved = `/${username}${resolved.slice(1)}`;
         }
-        resolved = pathPosix.normalize(resolved);
+        assertNormalized(resolved);
         if (!resolved.startsWith('/')) {
             resolved = `/${resolved}`;
         }

@@ -76,6 +76,30 @@ interface ReqInit {
     protocol?: string;
 }
 
+// Minimal stand-in for `cookie-parser` — splits on `;`, URL-decodes the
+// value, and strips a pair of surrounding double quotes (matches the
+// `cookie` package's behavior, which `cookie-parser` uses internally).
+const parseCookieHeader = (header: string): Record<string, string> => {
+    const out: Record<string, string> = {};
+    for (const piece of header.split(';')) {
+        const eq = piece.indexOf('=');
+        if (eq < 0) continue;
+        const name = piece.slice(0, eq).trim();
+        if (!name) continue;
+        let value = piece.slice(eq + 1).trim();
+        if (value.startsWith('"') && value.endsWith('"')) {
+            value = value.slice(1, -1);
+        }
+        try {
+            value = decodeURIComponent(value);
+        } catch {
+            /* leave as-is */
+        }
+        out[name] = value;
+    }
+    return out;
+};
+
 const makeReq = (init: ReqInit = {}): Request => {
     const headers: Record<string, string> = { ...(init.headers ?? {}) };
     if (init.cookieHeader) headers.cookie = init.cookieHeader;
@@ -86,9 +110,12 @@ const makeReq = (init: ReqInit = {}): Request => {
         protocol: init.protocol,
         header(name: string) {
             // Express's `req.header()` is case-insensitive; mirror that.
-            return headers[name.toLowerCase()];
+            return headers[name.toLowerCase()] as unknown as string[] & string;
         },
     };
+    if (init.cookieHeader) {
+        req.cookies = parseCookieHeader(init.cookieHeader);
+    }
     if (init.actor) req.actor = init.actor;
     if (init.handshakeQuery) {
         req.handshake = { query: init.handshakeQuery };
@@ -305,10 +332,7 @@ describe('createAuthProbe — cookie reading', () => {
             cookieName: 'puter_token',
         });
         // Quoted + percent-encoded value: `"a b"` → `a b`
-        await runProbe(
-            probe,
-            makeReq({ cookieHeader: 'puter_token="a%20b"' }),
-        );
+        await runProbe(probe, makeReq({ cookieHeader: 'puter_token="a%20b"' }));
         expect(stub.seenTokens).toEqual(['a b']);
     });
 
@@ -458,7 +482,7 @@ describe('createAuthProbe — actor attachment + failure tracking', () => {
         expect(req.tokenAuthFailed).toBe(true);
     });
 
-    it("never rejects — sets tokenAuthFailed even when AuthService throws", async () => {
+    it('never rejects — sets tokenAuthFailed even when AuthService throws', async () => {
         const stub = makeStubAuth();
         stub.setNext('throw');
         const probe = createAuthProbe({ authService: stub.service });

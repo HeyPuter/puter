@@ -20,6 +20,7 @@
 import Busboy from 'busboy';
 import type { Request, Response } from 'express';
 import { posix as pathPosix } from 'node:path';
+import { assertNormalized } from '../../services/fs/resolveNode.js';
 import { pipeline } from 'node:stream/promises';
 import type { Actor } from '../../core/actor.js';
 import { Context } from '../../core/context.js';
@@ -1787,7 +1788,8 @@ export class FSController extends PuterController {
             pathToNormalize = `/${username}${pathToNormalize.slice(1)}`;
         }
 
-        let normalizedPath = pathPosix.normalize(pathToNormalize);
+        assertNormalized(pathToNormalize);
+        let normalizedPath = pathToNormalize;
         if (!normalizedPath.startsWith('/')) {
             normalizedPath = `/${normalizedPath}`;
         }

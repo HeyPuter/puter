@@ -19,6 +19,7 @@
 
 import { statfs } from 'node:fs/promises';
 import { posix as pathPosix } from 'node:path';
+import { assertNormalized } from '../../services/fs/resolveNode.js';
 import { v4 as uuidv4 } from 'uuid';
 import { HttpError } from '../../core/http/HttpError.js';
 import type { LayerInstances } from '../../types.js';
@@ -175,7 +176,8 @@ export class FSEntryStore extends PuterStore {
             });
         }
 
-        let normalized = pathPosix.normalize(trimmed);
+        assertNormalized(trimmed);
+        let normalized = trimmed;
         if (!normalized.startsWith('/')) {
             normalized = `/${normalized}`;
         }

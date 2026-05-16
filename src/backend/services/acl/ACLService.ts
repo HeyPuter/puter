@@ -112,6 +112,7 @@ export class ACLService extends PuterService {
         if (resource.path === '/') {
             return (PUBLIC_READ_MODES as AclMode[]).includes(mode);
         }
+        const ancestors = await resource.resolveAncestors();
 
         const components = resource.path.slice(1).split('/');
 
@@ -171,7 +172,6 @@ export class ACLService extends PuterService {
             const authorizer = actor.accessToken.issuer;
             if (!(await this.check(authorizer, resource, mode))) return false;
 
-            const ancestors = await resource.resolveAncestors();
             for (const ancestor of ancestors) {
                 const permissions =
                     mode === MANAGE_PERM_PREFIX
@@ -219,7 +219,6 @@ export class ACLService extends PuterService {
         // Fall back to the permission scan: walk ancestors, any hit wins.
         // Widen the scan to all "higher" modes (`write` covers `read`/`list`/
         // `see`, etc.) so granting a stronger mode implies the weaker ones.
-        const ancestors = await resource.resolveAncestors();
         for (const ancestor of ancestors) {
             const permissions =
                 mode === MANAGE_PERM_PREFIX
