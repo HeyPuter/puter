@@ -363,7 +363,7 @@ const id = {
         'change': 'Ubah', // In English: "Change"
         'reading': 'Membaca %strong%', // In English: "Reading %strong%"
         'writing': 'Menulis %strong%', // In English: "Writing %strong%"
-        'unzipping': 'Mengekstrak Zip %strong%', // In English: "Unzipping %strong%"
+        'unzipping': 'Mengekstrak %strong%', // In English: "Unzipping %strong%"
         'sequencing': 'Mengurutkan %strong%', // In English: "Sequencing %strong%"
         'zipping': 'Mengarsipkan %strong%', // In English: "Zipping %strong%"
         'Editor': 'Editor', // In English: "Editor"
