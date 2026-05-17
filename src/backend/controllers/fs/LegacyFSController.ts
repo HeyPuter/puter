@@ -1054,6 +1054,18 @@ export class LegacyFSController extends PuterController {
         const operation =
             typeof query.operation === 'string' ? query.operation : 'write';
 
+        // A valid write signature authorises overwriting the file's bytes,
+        // not structural changes. Restrict copy/move/mkdir/rename/delete/trash
+        // to a caller authenticated as the owner — otherwise a recipient of a
+        // write-share could relocate or destroy the source via this endpoint.
+        if (operation !== 'write' && req.actor?.user?.id !== userId) {
+            throw new HttpError(
+                403,
+                `'${operation}' via signed URL requires owner authentication`,
+                { legacyCode: 'forbidden' },
+            );
+        }
+
         // `write` — multipart upload, streamed directly to the v2 write path.
         if (operation === 'write') {
             const body = asRecord(req.body);
@@ -1087,8 +1099,19 @@ export class LegacyFSController extends PuterController {
         }
 
         // Non-write operations: route to existing service methods and sign the result.
+        // The signature alone authorises only byte writes to `targetEntry`. Structural
+        // ops (mkdir/rename/copy/move/delete) require a caller actor with explicit
+        // ACL on the affected paths — mirroring the unsigned counterparts above.
         const record = asRecord(req.body);
+        const callerActor = this.#requireActor(req);
         if (operation === 'mkdir') {
+            await assertAccess(
+                this.services.acl,
+                this.services.fs,
+                callerActor,
+                targetEntry.path,
+                'write',
+            );
             const folderName =
                 typeof record.name === 'string'
                     ? record.name
@@ -1110,12 +1133,26 @@ export class LegacyFSController extends PuterController {
                 throw new HttpError(400, '`new_name` required', {
                     legacyCode: 'bad_request',
                 });
+            await assertAccess(
+                this.services.acl,
+                this.services.fs,
+                callerActor,
+                targetEntry.path,
+                'write',
+            );
             const renamed = await this.services.fs.rename(targetEntry, newName);
             await this.#emitGuiEvent('outer.gui.item.updated', renamed);
             res.json({ ...signEntry(renamed, signingCfg), path: renamed.path });
             return;
         }
         if (operation === 'delete' || operation === 'trash') {
+            await assertAccess(
+                this.services.acl,
+                this.services.fs,
+                callerActor,
+                targetEntry.path,
+                'write',
+            );
             // Treat trash == delete (recursive). Most clients just call delete
             // directly; if a trash folder becomes important we can revisit.
             await this.services.fs.remove(userId, {
@@ -1138,6 +1175,20 @@ export class LegacyFSController extends PuterController {
             const destinationParent = await resolveV1Selector(
                 this.stores.fsEntry,
                 destRef,
+            );
+            await assertAccess(
+                this.services.acl,
+                this.services.fs,
+                callerActor,
+                targetEntry.path,
+                operation === 'copy' ? 'read' : 'write',
+            );
+            await assertAccess(
+                this.services.acl,
+                this.services.fs,
+                callerActor,
+                destinationParent.path,
+                'write',
             );
             const method = operation === 'copy' ? 'copy' : 'move';
             const result = await this.services.fs[method](userId, {
