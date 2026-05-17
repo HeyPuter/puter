@@ -20,7 +20,7 @@
 import type { Request, Response } from 'express';
 import { Context } from '../../core/context.js';
 import { Controller } from '../../core/http/decorators.js';
-import { HttpError } from '../../core/http/HttpError.js';
+import { HttpError, isHttpError } from '../../core/http/HttpError.js';
 import {
     acquireDriverConcurrent,
     checkDriverRateLimit,
@@ -129,6 +129,63 @@ const XD_HTML = `<!DOCTYPE html>
  * additional drivers end up in that bag before this controller is
  * instantiated, so they show up here automatically.
  */
+/**
+ * Catch-all upstream-error translator for the driver boundary.
+ *
+ * Drivers that wrap a third-party SDK (OpenAI, Anthropic, etc.) often
+ * let the SDK's own error class bubble — those carry an HTTP `.status`
+ * but are plain `Error` subclasses, not `HttpError`s, so they would
+ * otherwise hit the global error handler as unexpected 500s and page
+ * PagerDuty. Repackage them with `upstream_*` legacy codes so the
+ * alarm gate (server.ts) treats them as upstream failures and only
+ * pages on the two we actually care about (rate-limit / auth).
+ *
+ * `HttpError`s thrown by drivers pass through untouched.
+ */
+const translateProviderError = (err: unknown): unknown => {
+    if (isHttpError(err)) return err;
+    if (!err || typeof err !== 'object') return err;
+    const e = err as {
+        status?: number;
+        statusCode?: number;
+        message?: string;
+        error?: { code?: string; type?: string; message?: string };
+        code?: string;
+    };
+    const status = e.status ?? e.statusCode;
+    if (typeof status !== 'number') return err;
+
+    const msg = e.error?.message ?? e.message ?? 'Upstream provider error';
+    const upstreamCode = e.error?.code ?? e.code;
+    const fields = { upstreamStatus: status, upstreamCode };
+
+    if (status === 429) {
+        return new HttpError(429, msg, {
+            legacyCode: 'upstream_rate_limited',
+            fields,
+        });
+    }
+    if (status === 401 || status === 403) {
+        return new HttpError(500, msg, {
+            legacyCode: 'upstream_auth_failed',
+            fields,
+        });
+    }
+    if (status >= 500) {
+        return new HttpError(400, 'AI provider unavailable', {
+            legacyCode: 'upstream_provider_unavailable',
+            fields,
+        });
+    }
+    if (status >= 400) {
+        return new HttpError(400, msg, {
+            legacyCode: 'upstream_bad_request',
+            fields,
+        });
+    }
+    return err;
+};
+
 @Controller('/drivers')
 export class DriverController extends PuterController {
     /** iface → Map<driverName, driverInstance> */
@@ -327,11 +384,13 @@ export class DriverController extends PuterController {
         Context.set('driverName', requestedDriver);
 
         // Drivers read actor/context via the Context API — no drilled args.
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const result = await (fn as (...x: unknown[]) => any).call(
-            driver,
-            args,
-        );
+        let result;
+        try {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            result = await (fn as (...x: unknown[]) => any).call(driver, args);
+        } catch (e) {
+            throw translateProviderError(e);
+        }
 
         if (isDriverStreamResult(result)) {
             res.setHeader('Content-Type', result.content_type);

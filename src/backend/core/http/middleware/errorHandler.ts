@@ -80,6 +80,11 @@ export const createErrorHandler = (
             return;
         }
 
+        const translated = translateKnownClientError(err);
+        if (translated) {
+            err = translated;
+        }
+
         if (isHttpError(err)) {
             opts.onError?.(err, req);
             if (err.statusCode === 402 || err.statusCode === 413) {
@@ -100,6 +105,70 @@ export const createErrorHandler = (
             code: 'internal_error',
         });
     };
+};
+
+/**
+ * Recognise framework-level errors that are caused by the client and
+ * re-shape them as `HttpError`s with `client_*` legacy codes so the
+ * alarm gate (server.ts) treats them as user-caused 4xx and does not
+ * page on them.
+ *
+ * Sources covered:
+ *  - `URIError` from `decodeURIComponent` in the express router (raised
+ *    by path-traversal scanners hitting `%c0%ae` etc.)
+ *  - body-parser `entity.parse.failed` (malformed JSON in request body)
+ *  - body-parser `request.aborted` / `ECONNABORTED` (client closed
+ *    socket mid-upload)
+ *  - Anything else that already opted into `expose: true` with a
+ *    numeric `statusCode` is mapped to `client_bad_request` so it
+ *    surfaces with the declared status instead of becoming a 500.
+ */
+const translateKnownClientError = (err: unknown): HttpError | null => {
+    if (err instanceof URIError) {
+        return new HttpError(400, 'Bad request URL', {
+            legacyCode: 'client_bad_url',
+        });
+    }
+
+    if (!err || typeof err !== 'object') return null;
+    const e = err as {
+        type?: string;
+        code?: string;
+        statusCode?: number;
+        status?: number;
+        expose?: boolean;
+        message?: string;
+    };
+
+    if (e.type === 'request.aborted' || e.code === 'ECONNABORTED') {
+        return new HttpError(400, 'Request aborted', {
+            legacyCode: 'client_aborted',
+        });
+    }
+
+    if (e.type === 'entity.parse.failed') {
+        return new HttpError(400, 'Malformed JSON in request body', {
+            legacyCode: 'client_bad_json',
+        });
+    }
+
+    // Generic body-parser / http-errors convention: anything tagged
+    // `expose: true` with a real 4xx statusCode is by definition meant
+    // to be returned to the client, not paged on. Honour the declared
+    // status; tag with a known code so the alarm gate skips it.
+    const declaredStatus = e.statusCode ?? e.status;
+    if (
+        e.expose === true &&
+        typeof declaredStatus === 'number' &&
+        declaredStatus >= 400 &&
+        declaredStatus < 500
+    ) {
+        return new HttpError(declaredStatus, e.message ?? 'Bad request', {
+            legacyCode: 'client_bad_request',
+        });
+    }
+
+    return null;
 };
 
 const serializeHttpError = (err: HttpError): Record<string, unknown> => {

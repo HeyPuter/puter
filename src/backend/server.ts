@@ -684,9 +684,30 @@ export class PuterServer {
                     // route + error signature so a hot loop of the same
                     // crash lands as a single alarm with N occurrences
                     // instead of N pages.
+                    //
+                    // FORCED_ALERT_CODES override the 5xx-only rule: a
+                    // status < 500 still pages if its legacyCode is in
+                    // the set. Use this for things we want to know about
+                    // even though we expose them as 4xx to users (e.g.
+                    // sustained upstream provider rate limits).
+                    //
+                    // SKIP_ALERT_PREFIXES override the 5xx rule the other
+                    // direction: an error tagged as caused by an upstream
+                    // provider or a misbehaving client gets exposed to
+                    // the user but does not page.
+                    const FORCED_ALERT_CODES = new Set([
+                        'upstream_rate_limited',
+                        'upstream_auth_failed',
+                    ]);
+                    const SKIP_ALERT_PREFIXES = /^(upstream_|client_)/;
                     const isHttp = isHttpError(err);
                     const status = isHttp ? err.statusCode : 500;
-                    if (status < 500) return;
+                    const legacyCode = isHttp ? (err.legacyCode ?? '') : '';
+                    const forced = FORCED_ALERT_CODES.has(legacyCode);
+                    if (!forced) {
+                        if (status < 500) return;
+                        if (SKIP_ALERT_PREFIXES.test(legacyCode)) return;
+                    }
                     const signature = isHttp
                         ? err.legacyCode || err.code || err.message
                         : err instanceof Error

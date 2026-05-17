@@ -100,12 +100,44 @@ export class ElevenLabsTTSProvider extends TTSProvider {
             status: response.status,
             detail,
         });
+
+        // Map upstream status to an `upstream_*` HttpError so the alarm
+        // gate skips it. Anything 4xx from ElevenLabs (voice_not_found,
+        // invalid model, bad payload, auth) is a user-caused error from
+        // our perspective — expose as 400. 5xx is an outage on their
+        // side — also expose as 400 (`upstream_provider_unavailable`)
+        // since the user can't act on it but it's not our bug.
+        const upstreamCode =
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            (detail as any)?.detail?.code ?? (detail as any)?.code;
+        const upstreamMessage =
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            (detail as any)?.detail?.message ?? (detail as any)?.message;
+        const legacyCode =
+            response.status >= 500
+                ? 'upstream_provider_unavailable'
+                : response.status === 401 || response.status === 403
+                  ? 'upstream_auth_failed'
+                  : response.status === 429
+                    ? 'upstream_rate_limited'
+                    : 'upstream_bad_request';
+        const exposedStatus =
+            legacyCode === 'upstream_rate_limited'
+                ? 429
+                : legacyCode === 'upstream_auth_failed'
+                  ? 500
+                  : 400;
         throw new HttpError(
-            502,
-            `ElevenLabs request failed (status ${response.status})`,
+            exposedStatus,
+            upstreamMessage ??
+                `ElevenLabs request failed (status ${response.status})`,
             {
-                legacyCode: 'internal_error',
-                fields: { provider: 'elevenlabs', status: response.status },
+                legacyCode,
+                fields: {
+                    provider: 'elevenlabs',
+                    upstreamStatus: response.status,
+                    upstreamCode,
+                },
             },
         );
     }
