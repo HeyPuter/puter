@@ -695,6 +695,124 @@ describe('resolvePrivateIdentity', () => {
         expect(out.source).toBe('none');
         expect(out.userUid).toBeUndefined();
     });
+
+    it("ignores req.actor whose actor.app.uid doesn't match the target app", async () => {
+        // Cross-app token confusion guard: an app-under-user actor whose
+        // issuing app is NOT the private host's app must not establish
+        // identity here — even though the underlying user may have legit
+        // entitlement to the target app, accepting the actor would let
+        // attacker-app JS replay a victim's app-under-user token against
+        // an unrelated private host.
+        const user = await makeUser();
+        const out = await resolvePrivateIdentity({
+            req: reqOf({
+                cookies: {},
+                actor: {
+                    user: { uuid: user.uuid },
+                    app: { uid: `app-attacker-${uuidv4()}` },
+                    session: { uid: 'sess-1' },
+                },
+            }),
+            authService,
+            sessionCookieName: 'puter_auth_token',
+            expectedAppUid: `app-target-${uuidv4()}`,
+        });
+        expect(out.source).toBe('none');
+        expect(out.userUid).toBeUndefined();
+    });
+
+    it("ignores a bootstrap query-token whose actor.app.uid doesn't match the target app", async () => {
+        // Same guard for the `?puter.auth.token=` bootstrap path. A token
+        // minted via getUserAppToken for the attacker's app carries
+        // app_uid=attacker; using it as a bootstrap on the target host
+        // must fall through to source='none' (login bootstrap), not
+        // promote it to a victim identity on the target app. Both app
+        // rows are seeded so authenticateFromToken returns a real actor
+        // — proving the guard (not a missing row) is what blocks it.
+        const user = await makeUser();
+        // App uids must be `app-<hex-uuid>` — TokenService compresses the
+        // `app_uid` field by stripping the `app-` prefix and decoding the
+        // rest as a hex-encoded UUID (see TokenService AUTH_COMPRESSION).
+        // Custom non-uuid suffixes round-trip incorrectly and break
+        // authenticateFromToken's app lookup.
+        const attackerUid = `app-${uuidv4()}`;
+        const targetUid = `app-${uuidv4()}`;
+        // index_url is NOT NULL in the schema, so supply placeholders.
+        await server.clients.db.write(
+            `INSERT INTO \`apps\` (\`uid\`, \`name\`, \`title\`, \`index_url\`, \`owner_user_id\`, \`is_private\`)
+             VALUES (?, ?, ?, ?, ?, ?), (?, ?, ?, ?, ?, ?)`,
+            [
+                attackerUid,
+                `attacker-${attackerUid}`,
+                `attacker-${attackerUid}`,
+                `http://${attackerUid}.example/`,
+                user.id,
+                0,
+                targetUid,
+                `target-${targetUid}`,
+                `target-${targetUid}`,
+                `http://${targetUid}.example/`,
+                user.id,
+                1,
+            ],
+        );
+        const wrongAppToken = authService.getUserAppToken(
+            { user: { id: user.id, uuid: user.uuid } } as unknown as Parameters<
+                typeof authService.getUserAppToken
+            >[0],
+            attackerUid,
+        );
+        const out = await resolvePrivateIdentity({
+            req: reqOf({
+                cookies: {},
+                query: { 'puter.auth.token': wrongAppToken },
+            }),
+            authService,
+            sessionCookieName: 'puter_auth_token',
+            expectedAppUid: targetUid,
+        });
+        expect(out.source).toBe('none');
+        expect(out.userUid).toBeUndefined();
+    });
+
+    it('accepts a bootstrap query-token whose actor.app.uid matches the target app', async () => {
+        // Positive case: a token correctly bound to the target app
+        // resolves the user identity. Confirms the guard isn't blocking
+        // legitimate same-app traffic.
+        const user = await makeUser();
+        // App uids must be `app-<hex-uuid>` for token round-trip — see the
+        // negative-case comment above.
+        const targetUid = `app-${uuidv4()}`;
+        await server.clients.db.write(
+            `INSERT INTO \`apps\` (\`uid\`, \`name\`, \`title\`, \`index_url\`, \`owner_user_id\`, \`is_private\`)
+             VALUES (?, ?, ?, ?, ?, ?)`,
+            [
+                targetUid,
+                `target-${targetUid}`,
+                `target-${targetUid}`,
+                `http://${targetUid}.example/`,
+                user.id,
+                1,
+            ],
+        );
+        const matchedToken = authService.getUserAppToken(
+            { user: { id: user.id, uuid: user.uuid } } as unknown as Parameters<
+                typeof authService.getUserAppToken
+            >[0],
+            targetUid,
+        );
+        const out = await resolvePrivateIdentity({
+            req: reqOf({
+                cookies: {},
+                query: { 'puter.auth.token': matchedToken },
+            }),
+            authService,
+            sessionCookieName: 'puter_auth_token',
+            expectedAppUid: targetUid,
+        });
+        expect(out.source).toBe('query');
+        expect(out.userUid).toBe(user.uuid);
+    });
 });
 
 describe('resolvePublicHostedIdentity', () => {

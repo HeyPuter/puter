@@ -17,9 +17,11 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import type { AbstractDatabaseClient } from '@heyputer/backend/src/clients/database/DatabaseClient';
 import type { Request } from 'express';
 import type { AuthService } from '../../../services/auth/AuthService';
 import type { IConfig } from '../../../types';
+import type { Actor } from '../../actor';
 
 /**
  * Support helpers for the private-app access gate — ported from v1's
@@ -87,16 +89,10 @@ interface AppLike {
     id?: number;
     uid?: string;
     name?: string;
+    title?: string;
     owner_user_id?: number;
     is_private?: boolean | number | null;
     index_url?: string | null;
-}
-
-interface DBClient {
-    read: (
-        sql: string,
-        params: unknown[],
-    ) => Promise<Record<string, unknown>[]>;
 }
 
 // ── Host helpers ────────────────────────────────────────────────────
@@ -188,7 +184,7 @@ export async function resolvePrivateAppForHostedSite(opts: {
     req: Request;
     site: SubdomainLike;
     associatedApp: AppLike | null;
-    db: DBClient;
+    db: AbstractDatabaseClient;
     config: PrivateHostingConfig;
     matchedHostingDomain: string;
 }): Promise<AppLike | null> {
@@ -381,7 +377,10 @@ export async function resolvePrivateIdentity(opts: {
 
     // 2. Auth probe actor.
     const existingActor = req.actor;
-    if (existingActor?.user?.uuid) {
+    if (
+        existingActor?.user?.uuid &&
+        actorMatchesExpectedApp(existingActor, expectedAppUid)
+    ) {
         return {
             source: 'session-cookie',
             userUid: existingActor.user.uuid,
@@ -397,7 +396,10 @@ export async function resolvePrivateIdentity(opts: {
     if (sessionToken) {
         try {
             const actor = await authService.authenticateFromToken(sessionToken);
-            if (actor?.user?.uuid) {
+            if (
+                actor?.user?.uuid &&
+                actorMatchesExpectedApp(actor, expectedAppUid)
+            ) {
                 return {
                     source: 'session-cookie',
                     userUid: actor.user.uuid,
@@ -416,7 +418,10 @@ export async function resolvePrivateIdentity(opts: {
             const actor = await authService.authenticateFromToken(
                 bootstrap.token,
             );
-            if (actor?.user?.uuid) {
+            if (
+                actor?.user?.uuid &&
+                actorMatchesExpectedApp(actor, expectedAppUid)
+            ) {
                 return {
                     source: bootstrap.source,
                     userUid: actor.user.uuid,
@@ -429,6 +434,25 @@ export async function resolvePrivateIdentity(opts: {
     }
 
     return { source: 'none' };
+}
+
+/**
+ * Guard against token confusion across private-app boundaries: an actor
+ * derived from an app-under-user token carries the *issuing* app's uid,
+ * which must match the host the request is being made against. A token
+ * minted for app A — e.g. when the visitor authorized a third-party app —
+ * must not be honored as identity on app B's private host, even when the
+ * underlying user happens to have entitlement to B. User-only actors
+ * (no `actor.app`) are unaffected: a plain session token is portable by
+ * design.
+ */
+function actorMatchesExpectedApp(
+    actor: Actor,
+    expectedAppUid: string | undefined,
+): boolean {
+    if (!expectedAppUid) return true;
+    if (!actor.app?.uid) return true;
+    return actor.app.uid === expectedAppUid;
 }
 
 /**
@@ -483,7 +507,10 @@ export async function resolvePublicHostedIdentity(opts: {
     }
 
     const existingActor = req.actor;
-    if (existingActor?.user?.uuid) {
+    if (
+        existingActor?.user?.uuid &&
+        actorMatchesExpectedApp(existingActor, expectedAppUid)
+    ) {
         return {
             source: 'session-cookie',
             userUid: existingActor.user.uuid,
@@ -498,7 +525,10 @@ export async function resolvePublicHostedIdentity(opts: {
     if (sessionToken) {
         try {
             const actor = await authService.authenticateFromToken(sessionToken);
-            if (actor?.user?.uuid) {
+            if (
+                actor?.user?.uuid &&
+                actorMatchesExpectedApp(actor, expectedAppUid)
+            ) {
                 return {
                     source: 'session-cookie',
                     userUid: actor.user.uuid,
@@ -516,7 +546,10 @@ export async function resolvePublicHostedIdentity(opts: {
             const actor = await authService.authenticateFromToken(
                 bootstrap.token,
             );
-            if (actor?.user?.uuid) {
+            if (
+                actor?.user?.uuid &&
+                actorMatchesExpectedApp(actor, expectedAppUid)
+            ) {
                 return {
                     source: bootstrap.source,
                     userUid: actor.user.uuid,
