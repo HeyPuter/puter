@@ -177,7 +177,7 @@ const id = {
         name_cannot_contain_double_period: "Nama tidak boleh mengandung karakter '..'.",
         name_cannot_contain_period: "Nama tidak boleh mengandung karakter '.'.",
         name_cannot_contain_slash: "Nama tidak boleh mengandung karakter '/'",
-        name_must_be_string: 'Nama hanya boleh berupa string(rangkaian teks).',
+        name_must_be_string: 'Nama hanya boleh berupa string (rangkaian teks).',
         name_too_long: 'Nama tidak boleh lebih dari %% karakter.',
         new: 'Baru',
         new_email: 'Email Baru',
