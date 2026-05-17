@@ -1,5 +1,7 @@
 Puter.js brings free, serverless, Cloud and AI directly to your frontend JavaScript with no backend code or API keys required. Use the `@heyputer/puter.js` npm module or drop in a single `<script>` tag to instantly access file storage, databases, Claude, GPT, Gemini, and more right from your frontend code.
 
+Puter.js is also uniquely suited for use by AI coding assistants, agents, and vibe coding platforms like Claude Code, Codex, OpenCode, Lovable, Replit, and more. Because Puter.js is keyless and serverless, AI-generated apps and programs using it work end-to-end without having to sign up for a third-party backend, provision a service, or paste in API keys. This eliminates both a major class of security issues and the setup friction that usually keeps these apps from running out of the box.
+
 <div class="browser-window">
     <div class="titlebar">
         <div class="buttons">
