@@ -113,7 +113,7 @@ Terhubung dengan maintainer dan komunitas melalui saluran-saluran berikut:
 - Reddit: [reddit.com/r/puter/](https://www.reddit.com/r/puter/)
 - Mastodon: [mastodon.social/@puter](https://mastodon.social/@puter)
 - Isu keamanan? [security@puter.com](mailto:security@puter.com)
-- Email maintainers di [hi@puter.com](mailto:hi@puter.com)
+- Email pengelola di [hi@puter.com](mailto:hi@puter.com)
 
 Kami selalu senang membantu Anda dengan pertanyaan apa pun yang Anda miliki. Jangan ragu untuk bertanya!
 
