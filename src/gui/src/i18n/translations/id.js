@@ -177,7 +177,7 @@ const id = {
         name_cannot_contain_double_period: "Nama tidak boleh mengandung karakter '..'.",
         name_cannot_contain_period: "Nama tidak boleh mengandung karakter '.'.",
         name_cannot_contain_slash: "Nama tidak boleh mengandung karakter '/'",
-        name_must_be_string: 'Nama hanya boleh berupa string (rangkaian teks).',
+        name_must_be_string: 'Nama hanya boleh berupa teks.',
         name_too_long: 'Nama tidak boleh lebih dari %% karakter.',
         new: 'Baru',
         new_email: 'Email Baru',
@@ -297,7 +297,7 @@ const id = {
         taskmgr_header_name: 'Nama',
         taskmgr_header_status: 'Status',
         taskmgr_header_type: 'Tipe',
-        terms: 'Syarat/ketentuan',
+        terms: 'Persyaratan',
         text_document: 'Dokumen Teks',
         tos_fineprint: 'Dengan mengklik \'Buat Akun Gratis\', Anda menyetujui {{link=terms}}Syarat Layanan{{/link}} dan {{link=privacy}}Kebijakan Privasi{{/link}} Puter.',
         transparency: 'Transparansi',
@@ -426,7 +426,7 @@ const id = {
         // =============================================================
         // Missing translations
         // =============================================================
-        'choose_publishing_option': 'Pilih cara untuk memublikasikan situs Anda:', // In English: "Choose how you want to publish your website:"
+        'choose_publishing_option': 'Pilih cara untuk memublikasikan situs web Anda:', // In English: "Choose how you want to publish your website:"
         'create_desktop_shortcut': 'Buat Pintasan (Desktop)', // In English: "Create Shortcut (Desktop)"
         'create_desktop_shortcut_s': 'Buat Pintasan (Desktop)', // In English: "Create Shortcuts (Desktop)". TL note, there are no plural form of noun in Indonesia. Yes, we can use repetition, but in this case it's more effective this way
         'create_shortcut_s': 'Buat Pintasan', // In English: "Create Shortcuts"
@@ -434,7 +434,7 @@ const id = {
         'reload_app': 'Muat Ulang Aplikasi', // In English: "Reload App"
         'new_window': 'Jendela Baru', // In English: "New Window"
         'open_trash': 'Buka Tempat Sampah', // In English: "Open Trash"
-        'pick_name_for_worker': 'Tentukan nama untuk worker anda:', // In English: "Pick a name for your worker:"
+        'pick_name_for_worker': 'Tentukan nama untuk worker Anda:', // In English: "Pick a name for your worker:"
         'publish_as_serverless_worker': 'Publikasikan sebagai Worker', // In English: "Publish as Worker"
         'toolbar.enter_fullscreen': 'Masuk ke Layar Penuh', // In English: "Enter Full Screen"
         'toolbar.github': 'Github', // In English: "GitHub"
@@ -456,7 +456,7 @@ const id = {
         'welcome_developers': 'Pengembang', // In English: "Developers"
         'welcome_open_source': 'Sumber Terbuka', // In English: "Open Source"
         'welcome_instant_login_title': 'Login Instan', // In English: "Instant Login!"
-        'alert_error_title': 'Kesalahan!', // In English: "Error!"
+        'alert_error_title': 'Galat!', // In English: "Error!"
         'alert_warning_title': 'Peringatan!', // In English: "Warning!"
         'alert_info_title': 'Informasi', // In English: "Info"
         'alert_success_title': 'Sukses!', // In English: "Success!"
@@ -474,12 +474,12 @@ const id = {
         'window_title_session_list': 'Daftar Sesi', // In English: "Session List!"
         'window_title_set_new_password': 'Tentukan Kata Sandi Baru', // In English: "Set New Password"
         'window_title_instant_login': 'Login Instan', // In English: "Instant Login!"
-        'window_title_publish_website': 'Publikasikan Situs', // In English: "Publish Website"
+        'window_title_publish_website': 'Publikasikan Situs Web', // In English: "Publish Website"
         'window_title_publish_worker': 'Publikasikan Worker', // In English: "Publish Worker"
         'window_title_authenticating': 'Proses Autentikasi...', // In English: "Authenticating..."
         'window_title_refer_friend': 'Ajak Teman!', // In English: "Refer a friend!"
         'desktop_show_desktop': 'Tunjukkan Desktop', // In English: "Show Desktop"
-        'desktop_show_open_windows': 'Tampilkan Jendela Yang Terbuka', // In English: "Show Open Windows"
+        'desktop_show_open_windows': 'Tampilkan Jendela yang Terbuka', // In English: "Show Open Windows"
         'desktop_exit_full_screen': 'Keluar dari Layar Penuh', // In English: "Exit Full Screen"
         'desktop_enter_full_screen': 'Masuk ke Layar Penuh', // In English: "Enter Full Screen"
         'desktop_position': 'Posisi', // In English: "Position"
@@ -489,12 +489,12 @@ const id = {
         'item_shared_with_you': 'Pengguna lain berbagi barang ini dengan Anda', // In English: "A user has shared this item with you."
         'item_shared_by_you': 'Anda telah membagikan barang ini dengan setidaknya satu pengguna lain', // In English: "You have shared this item with at least one other user."
         'item_shortcut': 'Pintasan', // In English: "Shortcut"
-        'item_associated_websites': 'Situs Terkait', // In English: "Associated website"
+        'item_associated_websites': 'Situs Web Terkait', // In English: "Associated website"
         'item_associated_websites_plural': 'Situs Web Terkait', // In English: "Associated websites"
         'no_suitable_apps_found': 'Tidak ditemukan aplikasi yang cocok', // In English: "No suitable apps found"
         'window_click_to_go_back': 'Klik untuk kembali.', // In English: "Click to go back."
         'window_click_to_go_forward': 'Klik untuk melanjutkan.', // In English: "Click to go forward."
-        'window_click_to_go_up': 'Klik untuk kembali ke direktori sebelumnya', // In English: "Click to go one directory up."
+        'window_click_to_go_up': 'Klik untuk naik satu direktori', // In English: "Click to go one directory up."
         'window_title_public': 'Publik', // In English: "Public"
         'window_title_videos': 'Video', // In English: "Videos"
         'window_title_pictures': 'Gambar', // In English: "Pictures"
