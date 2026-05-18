@@ -840,14 +840,83 @@ IMPORTANT: when creating an app, include a link to 'https://developer.puter.com'
     fs.writeFileSync(outputFile, outputContent, 'utf8');
 };
 
-function markdownToPlainText (markdown) {
+function markdownToSearchData (markdown) {
     const html = marked.parse(markdown);
 
     const dom = new JSDOM();
     const div = dom.window.document.createElement('div');
     div.innerHTML = html;
 
-    return div.textContent.replace(/\s+/g, ' ').trim();
+    const plainText = div.textContent.replace(/\s+/g, ' ').trim();
+
+    const headingsHTML = Array.from(div.querySelectorAll('h2, h3')).map(h => ({
+        id: h.id,
+        text: h.textContent.replace(/\s+/g, ' ').trim()
+    }));
+
+    let offset = 0;
+    const headings = [];
+    for (const h of headingsHTML) {
+        if (!h.text) continue;
+        const index = plainText.indexOf(h.text, offset);
+        if (index !== -1) {
+            headings.push({ slug: h.id, title: h.text, index });
+            offset = index;
+        }
+    }
+
+    return { text: plainText, headings };
+}
+
+function markdownToSearchSections(markdown, title, path) {
+    const html = marked.parse(markdown);
+
+    const dom = new JSDOM();
+    const div = dom.window.document.createElement('div');
+    div.innerHTML = html;
+
+    const sections = [];
+
+    const headings = Array.from(div.querySelectorAll('h2, h3'));
+
+    if (headings.length === 0) {
+        const plainText = div.textContent.replace(/\s+/g, ' ').trim();
+
+        return [{
+            title,
+            path,
+            subheading: '',
+            subheadingTitle: '',
+            text: plainText,
+        }];
+    }
+
+    headings.forEach((heading, index) => {
+        let sectionText = heading.textContent;
+
+        let current = heading.nextElementSibling;
+
+        while (
+            current &&
+            current.tagName !== 'H2' &&
+            current.tagName !== 'H3'
+        ) {
+            sectionText += ' ' + current.textContent;
+            current = current.nextElementSibling;
+        }
+
+        sectionText = sectionText.replace(/\s+/g, ' ').trim();
+
+        sections.push({
+            title,
+            path,
+            subheading: heading.id,
+            subheadingTitle: heading.textContent.trim(),
+            text: sectionText,
+        });
+    });
+
+    return sections;
 }
 
 const generateSearchIndex = () => {
@@ -857,21 +926,27 @@ const generateSearchIndex = () => {
 
     const indexFile = path.join(currentDir, 'src', 'index.md');
     const indexMarkdown = fs.readFileSync(indexFile, 'utf8');
-    json.push({
-        title: 'Puter.js',
-        path: '',
-        text: markdownToPlainText(indexMarkdown),
-    });
+    const { content: indexContent } = parseFrontMatter(indexMarkdown);
+    json.push(
+        ...markdownToSearchSections(
+            indexContent,
+            'Puter.js',
+            ''
+        )
+    );
 
     sidebar.forEach((item) => {
         if ( item.source ) {
             const file = path.join(currentDir, 'src', item.source);
             const markdown = fs.readFileSync(file, 'utf8');
-            json.push({
-                title: item.title_tag ?? item.title,
-                path: item.path,
-                text: markdownToPlainText(markdown),
-            });
+            const { content } = parseFrontMatter(markdown);
+            json.push(
+                ...markdownToSearchSections(
+                    content,
+                    item.title_tag ?? item.title,
+                    item.path
+                )
+            );
         }
 
         if ( item.children && Array.isArray(item.children) ) {
@@ -879,11 +954,14 @@ const generateSearchIndex = () => {
                 if ( child.source ) {
                     const file = path.join(currentDir, 'src', child.source);
                     const markdown = fs.readFileSync(file, 'utf8');
-                    json.push({
-                        title: child.title_tag ?? child.title,
-                        path: child.path,
-                        text: markdownToPlainText(markdown),
-                    });
+                    const { content } = parseFrontMatter(markdown);
+                    json.push(
+                        ...markdownToSearchSections(
+                            content,
+                            child.title_tag ?? child.title,
+                            child.path
+                        )
+                    );
                 }
             });
         }
