@@ -1001,7 +1001,12 @@ export class LegacyFSController extends PuterController {
                 }
 
                 const signed = signEntry(entry, signingCfg);
-                result.signatures.push({ ...signed, path: entry.path });
+                if (finalAction !== 'write') {
+                    const { write_url: _, ...rest } = signed;
+                    result.signatures.push({ ...rest, path: entry.path });
+                } else {
+                    result.signatures.push({ ...signed, path: entry.path });
+                }
             } catch {
                 // Silently skip unresolvable items.
                 result.signatures.push({});
@@ -1067,6 +1072,18 @@ export class LegacyFSController extends PuterController {
         }
 
         // `write` — multipart upload, streamed directly to the v2 write path.
+        // ACL re-check: if the caller is session-authenticated, verify they
+        // have write permission on the target. This prevents a read-only
+        // share recipient from using a leaked write signature.
+        if (operation === 'write' && req.actor) {
+            await assertAccess(
+                this.services.acl,
+                this.services.fs,
+                req.actor,
+                targetEntry.path,
+                'write',
+            );
+        }
         if (operation === 'write') {
             const body = asRecord(req.body);
             const parentEntry = targetEntry.isDir
