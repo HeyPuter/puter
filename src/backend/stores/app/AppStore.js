@@ -198,6 +198,24 @@ export class AppStore extends PuterStore {
         return rows.length > 0;
     }
 
+    async getCountByPrefix(prefix) {
+        const rows = await this.clients.db.read(
+            this.clients.db.case({
+                sqlite: 'SELECT COUNT(*) as c FROM `apps` WHERE `name` = ? OR `name` GLOB ?',
+                otherwise:
+                    'SELECT COUNT(*) as c FROM `apps` WHERE `name` = ? OR `name` REGEXP ?',
+            }),
+            [
+                prefix,
+                this.clients.db.case({
+                    sqlite: `${prefix}-[0-9]*`,
+                    otherwise: `^${prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}-[0-9]+$`,
+                }),
+            ],
+        );
+        return rows.length > 0 ? Number(rows[0].c) : 0;
+    }
+
     async existsByIndexUrl(indexUrl) {
         const rows = await this.clients.db.read(
             'SELECT `id` FROM `apps` WHERE `index_url` = ? LIMIT 1',

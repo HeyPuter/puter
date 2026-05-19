@@ -156,11 +156,14 @@ export class AppDriver extends PuterDriver {
         // Name conflict handling
         if (await this.appStore.existsByName(fields.name)) {
             if (options?.dedupe_name) {
+                const existingCount = await this.appStore.countByNamePrefix(
+                    fields.name,
+                );
                 let candidate;
-                let n = 1;
+                let n = existingCount + 1;
                 do {
                     candidate = `${fields.name}-${++n}`;
-                    if (n > 50)
+                    if (n > 10)
                         throw new HttpError(400, 'Failed to dedupe app name', {
                             legacyCode: 'bad_request',
                         });
