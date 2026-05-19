@@ -42,7 +42,7 @@ export interface SignedFile {
     signature: string;
     url: string;
     read_url: string;
-    write_url: string;
+    write_url?: string;
     metadata_url: string;
     fsentry_type: string | null;
     fsentry_is_dir: boolean;
