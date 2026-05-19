@@ -157,13 +157,16 @@ export class AppDriver extends PuterDriver {
         if (await this.appStore.existsByName(fields.name)) {
             if (options?.dedupe_name) {
                 let candidate;
-                let n = 1;
+                let i = 0;
                 do {
-                    candidate = `${fields.name}-${++n}`;
-                    if (n > 50)
+                    const randString = Math.random().toString(36).slice(2, 6);
+                    candidate = `${fields.name}-${randString}`;
+
+                    if (i >= 3)
                         throw new HttpError(400, 'Failed to dedupe app name', {
-                            legacyCode: 'bad_request',
+                            legacyCode: 'app_name_already_in_use',
                         });
+                    i++;
                 } while (await this.appStore.existsByName(candidate));
                 fields.name = candidate;
             } else {
