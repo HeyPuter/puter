@@ -25,6 +25,7 @@ import { PuterDriver } from '../types.js';
 import { loadFileInput } from '../util/fileInput.js';
 import type { Actor } from '../../core/actor.js';
 import path from 'node:path';
+import { EventMetadata } from '../../clients/event/types.js';
 
 const CF_BASE_URL = 'https://api.cloudflare.com/client/v4/accounts';
 const WORKER_NAME_REGEX = /^[a-zA-Z0-9_-]+$/;
@@ -501,7 +502,7 @@ export class WorkerDriver extends PuterDriver {
         ] as const) {
             this.clients.event.on(
                 eventName,
-                (_key: string, data: unknown, meta: unknown) => {
+                (_key: string, data: unknown, meta: EventMetadata) => {
                     void this.#handleFileWrite(data, meta).catch((err) => {
                         console.error('[workers] hot-reload error', err);
                     });
@@ -510,7 +511,7 @@ export class WorkerDriver extends PuterDriver {
         }
     }
 
-    async #handleFileWrite(data: unknown, meta: unknown): Promise<void> {
+    async #handleFileWrite(data: unknown, meta: EventMetadata): Promise<void> {
         const metaObj =
             meta && typeof meta === 'object'
                 ? (meta as Record<string, unknown>)

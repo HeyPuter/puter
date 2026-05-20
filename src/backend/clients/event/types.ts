@@ -15,6 +15,7 @@
  */
 
 import { Actor } from '../../core';
+import { FSEntry } from '../../stores/fs/FSEntry';
 
 // GUI write events spread an entry plus per-event metadata into `response`.
 // The exact field set varies by emit site (FSController / LegacyFSController /
@@ -167,8 +168,9 @@ export type EventMap = {
         sourceObjectKey: string;
         copyObjectKey: string;
     };
-    'fs.move.node': { node: unknown; fromPath: string; toPath: string };
-    'fs.remove.node': { node: unknown; entry: unknown; target: unknown };
+    'fs.move.node': { node: FSEntry; fromPath: string; toPath: string };
+    'fs.remove.node': { node: FSEntry; entry: FSEntry; target: FSEntry };
+    'fs.write.file': { node: FSEntry; entry: FSEntry; target: FSEntry };
     'fs.storage.upload-progress': {
         upload_tracker: unknown;
         context: unknown;
@@ -276,8 +278,9 @@ export type MatchingEvents<P extends ListenKey> = P extends `${infer Prefix}.*`
     ? Extract<EventKey, `${Prefix}.${string}`>
     : P & EventKey;
 
+export type EventMetadata = { from_outside?: boolean };
 export type EventListener<K extends EventKey = EventKey> = (
     key: K,
     data: EventMap[K],
-    meta: unknown,
+    meta: EventMetadata,
 ) => Promise<void> | void;
