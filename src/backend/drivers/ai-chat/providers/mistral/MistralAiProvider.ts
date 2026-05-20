@@ -61,6 +61,22 @@ export class MistralAIProvider implements IChatProvider {
         return ids;
     }
 
+    processInputMistralQuirks(messages: any[]) {
+        const output = [];
+        for (const message of messages) {
+            const contents = [];
+            for (const content of message.content) {
+                if (content.type === 'image_url') {
+                    content.image_url = content.image_url.url;
+                }
+                contents.push(content);
+            }
+            message.content = contents;
+            output.push(message);
+        }
+        return output;
+    }
+
     async complete({
         messages,
         stream,
@@ -70,6 +86,7 @@ export class MistralAIProvider implements IChatProvider {
         temperature,
     }: ICompleteArguments): Promise<IChatCompleteResult> {
         messages = await OpenAIUtil.process_input_messages(messages);
+        messages = this.processInputMistralQuirks(messages);
         for (const message of messages) {
             if (message.tool_calls) {
                 message.toolCalls = message.tool_calls;
