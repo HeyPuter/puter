@@ -19,6 +19,13 @@
 
 import type { RequestHandler } from 'express';
 import type { puterClients } from './clients';
+import {
+    EventListener,
+    EventMap,
+    EventMetadata,
+    ListenKey,
+    MatchingEvents,
+} from './clients/event/types';
 import type {
     IExtensionClientInstances,
     IPuterClientRegistry,
@@ -71,10 +78,7 @@ export const extensionStore = {
     controllers: {} as IPuterControllerRegistry,
     drivers: {} as IPuterDriverRegistry,
     globalMiddlewares: [] as RequestHandler[],
-    events: {} as Record<
-        string,
-        ((key: string, data: unknown, meta: unknown) => void)[]
-    >,
+    events: {} as Record<string, EventListener[]>,
     /**
      * Extension-declared routes. Shape matches the controller-layer
      * `RouteDescriptor`, so both flow through the same materializer
@@ -209,15 +213,19 @@ export const extension = {
 
     // ── Event subscription ───────────────────────────────────────────
 
-    on: (
-        event: string,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        handler: (key: string, data: any, meta: any) => void,
+    on: <P extends ListenKey>(
+        key: P,
+        callback: (
+            key: MatchingEvents<P>,
+            data: EventMap[MatchingEvents<P>],
+            meta: EventMetadata,
+        ) => Promise<void> | void,
     ) => {
-        if (!extensionStore.events[event]) {
-            extensionStore.events[event] = [];
+        if (!extensionStore.events[key]) {
+            extensionStore.events[key] = [];
         }
-        extensionStore.events[event].push(handler);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        extensionStore.events[key].push(callback as any);
     },
 
     // ── Registry writers ─────────────────────────────────────────────
@@ -281,20 +289,21 @@ export const extension = {
 
     import: <S extends string>(
         name: S,
-    ): S extends 'client'
+    ): S extends 'client' | 'clients'
         ? LayerInstances<typeof puterClients> & IExtensionClientInstances
-        : S extends 'store'
+        : S extends 'store' | 'stores'
           ? LayerInstances<typeof puterStores> & IExtensionStoreInstances
-          : S extends 'service'
+          : S extends 'service' | 'services'
             ? LayerInstances<typeof puterServices> & IExtensionServiceInstances
-            : S extends 'controller'
+            : S extends 'controller' | 'controllers'
               ? LayerInstances<typeof puterControllers> &
                     IExtensionControllerInstances
-              : S extends 'driver'
+              : S extends 'driver' | 'drivers'
                 ? LayerInstances<typeof puterDrivers> &
                       IExtensionDriverInstances
                 : never => {
         switch (name) {
+            case 'clients':
             case 'client': {
                 const proxyHandler = {
                     get: (_target: object, prop: string) => {
@@ -321,6 +330,7 @@ export const extension = {
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 return new Proxy({}, proxyHandler) as any;
             }
+            case 'stores':
             case 'store': {
                 const proxyHandler = {
                     get: (_target: object, prop: string) => {
@@ -348,6 +358,7 @@ export const extension = {
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 return new Proxy({}, proxyHandler) as any;
             }
+            case 'services':
             case 'service': {
                 const proxyHandler = {
                     get: (_target: object, prop: string) => {
@@ -375,6 +386,7 @@ export const extension = {
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 return new Proxy({}, proxyHandler) as any;
             }
+            case 'controllers':
             case 'controller': {
                 const proxyHandler = {
                     get: (_target: object, prop: string) => {
@@ -402,6 +414,7 @@ export const extension = {
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 return new Proxy({}, proxyHandler) as any;
             }
+            case 'drivers':
             case 'driver': {
                 const proxyHandler = {
                     get: (_target: object, prop: string) => {

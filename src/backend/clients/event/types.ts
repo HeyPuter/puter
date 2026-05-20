@@ -276,8 +276,9 @@ export type MatchingEvents<P extends ListenKey> = P extends `${infer Prefix}.*`
     ? Extract<EventKey, `${Prefix}.${string}`>
     : P & EventKey;
 
+export type EventMetadata = { from_outside?: boolean };
 export type EventListener<K extends EventKey = EventKey> = (
     key: K,
     data: EventMap[K],
-    meta: unknown,
+    meta: EventMetadata,
 ) => Promise<void> | void;
