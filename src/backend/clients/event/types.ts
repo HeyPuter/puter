@@ -14,6 +14,8 @@
  *   the SocketService fans out to user-scoped channels.
  */
 
+import { Actor } from '../../core';
+
 // GUI write events spread an entry plus per-event metadata into `response`.
 // The exact field set varies by emit site (FSController / LegacyFSController /
 // WebDAVController each project a slightly different shape) so the envelope
@@ -96,8 +98,11 @@ export type EventMap = {
     };
     'app.from-origin': { origin: string };
     'app.privateAccess.check': {
-        app: unknown;
-        actor: unknown;
+        appUid: string;
+        userUid: string;
+        requestHost: string;
+        requestPath: string;
+        actor?: Actor;
         result: {
             allowed: boolean;
             reason?: string;
