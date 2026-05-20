@@ -31,7 +31,7 @@ export const GEMINI_MODELS: IChatModel[] = [
         open_weights: false,
         tool_call: true,
         knowledge: '2025-01',
-        release_date: '2026-05',
+        release_date: '2026-05-19',
         name: 'Gemini 3.5 Flash',
         aliases: ['google/gemini-3.5-flash'],
         context: 1_048_576,
