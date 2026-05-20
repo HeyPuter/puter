@@ -629,7 +629,7 @@ describe('createPuterSiteMiddleware — file serving', () => {
         expect(String(out.body)).toContain('Not Found');
     });
 
-    it('returns 404 when the resolved URL points at a directory rather than a file', async () => {
+    it('returns 404 when the resolved URL points at a directory with no index.html', async () => {
         const owner = await makeUserWithHome();
         const homePath = `/${owner.username}`;
         const homeEntry = await server.stores.fsEntry.getEntryByPath(homePath);
@@ -645,8 +645,8 @@ describe('createPuterSiteMiddleware — file serving', () => {
         await mw(
             makeReq({
                 hostname: `${sub}.site.puter.localhost`,
-                // Documents/ exists from generateDefaultFsentries — a
-                // directory entry, which the file branch must refuse.
+                // Documents/ exists from generateDefaultFsentries but has
+                // no index.html — directory fallback must still 404.
                 path: '/Documents',
             }),
             res,
@@ -655,6 +655,45 @@ describe('createPuterSiteMiddleware — file serving', () => {
 
         expect(out.statusCode).toBe(404);
         expect(out.contentType).toBe('text/html; charset=UTF-8');
+    });
+
+    it('serves <folder>/index.html when the URL resolves to a folder containing one', async () => {
+        const owner = await makeUserWithHome();
+        const homePath = `/${owner.username}`;
+        const homeEntry = await server.stores.fsEntry.getEntryByPath(homePath);
+        const sub = `folderidx-${Math.random().toString(36).slice(2, 8)}`;
+        await server.stores.subdomain.create({
+            userId: owner.id,
+            subdomain: sub,
+            rootDirId: homeEntry!.id,
+        });
+        const body = Buffer.from('nested doc');
+        await writeFile(
+            owner.id,
+            `${homePath}/Documents/index.html`,
+            body,
+            'text/html',
+        );
+
+        const mw = buildMiddleware();
+        const { res, out } = makeRes();
+        await mw(
+            makeReq({
+                hostname: `${sub}.site.puter.localhost`,
+                // No trailing slash; folder exists and contains index.html.
+                path: '/Documents',
+            }),
+            res,
+            vi.fn(),
+        );
+        // Allow the piped stream to flush.
+        await new Promise<void>((resolve) => setImmediate(resolve));
+
+        expect(out.statusCode).toBe(200);
+        expect(out.headers['Content-Type']).toMatch(/text\/html/);
+        const piped = out.body as Buffer | undefined;
+        expect(Buffer.isBuffer(piped)).toBe(true);
+        expect(piped!.equals(body)).toBe(true);
     });
 
     it("serves the HTML SUBDOMAIN_404 when the subdomain's root_dir_id points to a missing entry", async () => {
