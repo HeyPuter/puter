@@ -21,9 +21,9 @@ import type { RequestHandler } from 'express';
 import { contentType as contentTypeFromMime } from 'mime-types';
 import { posix as pathPosix } from 'node:path';
 import type { puterClients } from '../../../clients';
+import { FS_COSTS } from '../../../controllers/fs/costs';
 import type { puterServices } from '../../../services';
 import type { puterStores } from '../../../stores';
-import { FS_COSTS } from '../../../controllers/fs/costs';
 import type { IConfig, LayerInstances } from '../../../types';
 import {
     buildAppCenterFallback,
@@ -495,6 +495,25 @@ export const createPuterSiteMiddleware = (
         const mime =
             contentTypeFromMime(entry.name) || 'application/octet-stream';
         res.setHeader('Content-Type', mime);
+
+        // Fire-and-forget signal for downstream extensions
+        if (mime === 'text/html' || mime === 'application/xhtml+xml') {
+            try {
+                layers.clients.event.emit(
+                    'site.htmlServed',
+                    {
+                        subdomain,
+                        entry,
+                        host,
+                        requestPath: req.path,
+                        mime,
+                    },
+                    {},
+                );
+            } catch (e) {
+                console.warn('[puter-site] site.htmlServed emit failed', e);
+            }
+        }
         if (download.contentLength !== null) {
             res.setHeader('Content-Length', String(download.contentLength));
         }

@@ -204,6 +204,13 @@ export type EventMap = {
     // ---- Subdomains ----
     'subdomain.delete': { subdomain: string };
     'subdomain.update': { subdomain: string };
+    'site.htmlServed': {
+        subdomain: string;
+        entry: unknown;
+        host: string;
+        requestPath: string;
+        mime: string;
+    };
 
     // ---- Thumbnails ----
     'thumbnail.read': {
