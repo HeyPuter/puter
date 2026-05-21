@@ -748,8 +748,12 @@ export class FSEntryStore extends PuterStore {
         for (const requiredPath of normalizedRequiredPaths) {
             const entry = allEntries.get(requiredPath);
             if (!entry) {
-                throw new Error(
-                    `Failed to resolve directory path: ${requiredPath}`,
+                // INSERT IGNORE silently dropped the row (see sibling
+                // path in #ensureDirectoryPath). Surface as 404.
+                throw new HttpError(
+                    404,
+                    `Parent path does not exist: ${requiredPath}`,
+                    { legacyCode: 'not_found' },
                 );
             }
             if (!entry.isDir) {
@@ -862,8 +866,15 @@ export class FSEntryStore extends PuterStore {
                     }`,
                 );
             }
-            throw new Error(
-                `Failed to resolve directory path: ${normalizedPath}`,
+            // INSERT IGNORE silently dropped the row (typical cause:
+            // FK violation on parent_id/user_id — e.g. the user namespace
+            // doesn't exist). The path is unreachable from the client's
+            // perspective; surface as 404 rather than letting a generic
+            // Error become a 500 + page on-call.
+            throw new HttpError(
+                404,
+                `Parent path does not exist: ${normalizedPath}`,
+                { legacyCode: 'not_found' },
             );
         }
         if (!resolvedEntry.isDir) {

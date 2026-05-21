@@ -215,32 +215,45 @@ export class XAISpeechToTextDriver extends PuterDriver {
             formData.append('file', blob, filename);
         }
 
-        let response: Response;
-        try {
-            response = await fetch(`${API_BASE}/stt`, {
-                method: 'POST',
-                headers: {
-                    Authorization: `Bearer ${this.#apiKey}`,
-                },
-                body: formData,
-            });
-        } catch (e: unknown) {
-            const msg = (e as Error).message ?? String(e);
-            console.error('[XAISpeechToTextDriver] API error:', msg);
-            throw new HttpError(502, `xAI STT API error: ${msg}`, {
-                legacyCode: 'internal_error',
-            });
-        }
+        const response = await fetch(`${API_BASE}/stt`, {
+            method: 'POST',
+            headers: {
+                Authorization: `Bearer ${this.#apiKey}`,
+            },
+            body: formData,
+        });
 
         if (!response.ok) {
             const errText = await response.text().catch(() => '');
             console.error(
                 `[XAISpeechToTextDriver] API returned ${response.status}: ${errText}`,
             );
+            // Mirrors ElevenLabs / XAITTS — map upstream status to an
+            // `upstream_*` HttpError so the alarm gate skips it.
+            const legacyCode =
+                response.status >= 500
+                    ? 'upstream_provider_unavailable'
+                    : response.status === 401 || response.status === 403
+                      ? 'upstream_auth_failed'
+                      : response.status === 429
+                        ? 'upstream_rate_limited'
+                        : 'upstream_bad_request';
+            const exposedStatus =
+                legacyCode === 'upstream_rate_limited'
+                    ? 429
+                    : legacyCode === 'upstream_auth_failed'
+                      ? 500
+                      : 400;
             throw new HttpError(
-                502,
-                `xAI STT API error (${response.status}): ${errText}`,
-                { legacyCode: 'internal_error' },
+                exposedStatus,
+                errText || `xAI STT request failed (status ${response.status})`,
+                {
+                    legacyCode,
+                    fields: {
+                        provider: 'xai',
+                        upstreamStatus: response.status,
+                    },
+                },
             );
         }
 

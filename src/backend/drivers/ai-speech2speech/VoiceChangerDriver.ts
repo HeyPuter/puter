@@ -229,8 +229,32 @@ export class VoiceChangerDriver extends PuterDriver {
                 detail && typeof detail === 'object' && 'detail' in detail
                     ? String((detail as { detail: unknown }).detail)
                     : `ElevenLabs returned ${response.status}`;
-            throw new HttpError(response.status, message, {
-                legacyCode: 'internal_error',
+            // Tag upstream status as `upstream_*` so the alarm gate
+            // skips paging on ElevenLabs 5xx outages (we expose them
+            // as 400 like the TTS provider does — user can't act on
+            // them, but it's not our bug either).
+            const legacyCode =
+                response.status >= 500
+                    ? 'upstream_provider_unavailable'
+                    : response.status === 401 || response.status === 403
+                      ? 'upstream_auth_failed'
+                      : response.status === 429
+                        ? 'upstream_rate_limited'
+                        : 'upstream_bad_request';
+            const exposedStatus =
+                legacyCode === 'upstream_rate_limited'
+                    ? 429
+                    : legacyCode === 'upstream_auth_failed'
+                      ? 500
+                      : legacyCode === 'upstream_provider_unavailable'
+                        ? 400
+                        : response.status;
+            throw new HttpError(exposedStatus, message, {
+                legacyCode,
+                fields: {
+                    provider: 'elevenlabs',
+                    upstreamStatus: response.status,
+                },
             });
         }
 

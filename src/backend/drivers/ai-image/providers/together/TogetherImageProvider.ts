@@ -172,43 +172,51 @@ export class TogetherImageProvider implements IImageProvider {
             model: selectedModel.id.replace('togetherai:', ''),
         }) as unknown as Together.Images.ImageGenerateParams;
 
-        try {
-            const response = await this.#client.images.generate(request);
-            if (!response?.data?.length) {
-                throw new Error(
-                    'Together AI response did not include image data',
-                );
-            }
-
-            this.#meteringService.incrementUsage(
-                actor,
-                usageType,
-                usageAmount,
-                costInMicroCents,
-            );
-
-            const first = response.data[0] as {
-                url?: string;
-                b64_json?: string;
-            };
-            const url =
-                first.url ||
-                (first.b64_json
-                    ? `data:image/png;base64,${first.b64_json}`
-                    : undefined);
-
-            if (!url) {
-                throw new Error(
-                    'Together AI response did not include an image URL',
-                );
-            }
-
-            return url;
-        } catch (error) {
-            throw new Error(
-                `Together AI image generation error: ${(error as Error).message}`,
+        // Let SDK errors bubble — together-ai SDK errors carry `.status`
+        // which the driver-boundary `translateProviderError` maps to
+        // `upstream_*` HttpErrors. Re-wrapping in `new Error(...)` would
+        // strip the status field and cause these to surface as 500s.
+        const response = await this.#client.images.generate(request);
+        if (!response?.data?.length) {
+            throw new HttpError(
+                400,
+                'Together AI response did not include image data',
+                {
+                    legacyCode: 'upstream_bad_request',
+                    fields: { provider: 'together' },
+                },
             );
         }
+
+        this.#meteringService.incrementUsage(
+            actor,
+            usageType,
+            usageAmount,
+            costInMicroCents,
+        );
+
+        const first = response.data[0] as {
+            url?: string;
+            b64_json?: string;
+        };
+        const url =
+            first.url ||
+            (first.b64_json
+                ? `data:image/png;base64,${first.b64_json}`
+                : undefined);
+
+        if (!url) {
+            throw new HttpError(
+                400,
+                'Together AI response did not include an image URL',
+                {
+                    legacyCode: 'upstream_bad_request',
+                    fields: { provider: 'together' },
+                },
+            );
+        }
+
+        return url;
     }
 
     #getModel(model?: string) {

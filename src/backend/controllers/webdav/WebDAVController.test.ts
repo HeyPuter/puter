@@ -516,7 +516,7 @@ describe('WebDAVController', () => {
             await dispatchMiddleware(
                 makeReq({
                     method: 'LOCK',
-                    path: '/lockable-file.txt',
+                    path: '/test/lockable-file.txt',
                     actor: {
                         user: {
                             id: 1,
@@ -539,8 +539,28 @@ describe('WebDAVController', () => {
             expect(captured.headers['lock-token']).toContain('urn:uuid:');
         });
 
+        it('rejects locking a path the user has no write access to (e.g. root)', async () => {
+            const { res, captured } = makeRes();
+            await dispatchMiddleware(
+                makeReq({
+                    method: 'LOCK',
+                    path: '/',
+                    actor: {
+                        user: {
+                            id: 1,
+                            uuid: 'test-uuid',
+                            username: 'test',
+                        },
+                    },
+                }),
+                res,
+                noop,
+            );
+            expect(captured.statusCode).toBe(403);
+        });
+
         it('rejects a second exclusive lock on the same path', async () => {
-            const uniquePath = `/double-lock-${Date.now()}.txt`;
+            const uniquePath = `/test/double-lock-${Date.now()}.txt`;
 
             // First lock
             const { res: res1, captured: cap1 } = makeRes();
@@ -582,7 +602,7 @@ describe('WebDAVController', () => {
         });
 
         it('refreshes an existing lock when If header provides the token', async () => {
-            const uniquePath = `/refresh-lock-${Date.now()}.txt`;
+            const uniquePath = `/test/refresh-lock-${Date.now()}.txt`;
             const { res: res1, captured: cap1 } = makeRes();
             await dispatchMiddleware(
                 makeReq({
