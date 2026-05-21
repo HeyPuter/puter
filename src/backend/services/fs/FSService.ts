@@ -280,9 +280,8 @@ export class FSService extends PuterService {
         return normalizedPath;
     }
 
-    #resolveBucket(metadata: FSEntryWriteInput): string {
-        const bucket =
-            metadata.bucket ?? this.config.s3_bucket ?? 'puter-local';
+    #resolveBucket(): string {
+        const bucket = this.config.s3_bucket ?? 'puter-local';
         if (typeof bucket !== 'string' || bucket.length === 0) {
             throw new HttpError(500, 'Missing S3 bucket configuration', {
                 legacyCode: 'internal_error',
@@ -291,12 +290,9 @@ export class FSService extends PuterService {
         return bucket;
     }
 
-    #resolveBucketRegion(metadata: FSEntryWriteInput): string {
+    #resolveBucketRegion(): string {
         const bucketRegion =
-            metadata.bucketRegion ??
-            this.config.s3_region ??
-            this.config.region ??
-            'us-west-2';
+            this.config.s3_region ?? this.config.region ?? 'us-west-2';
 
         if (typeof bucketRegion !== 'string' || bucketRegion.length === 0) {
             throw new HttpError(500, 'Missing S3 region configuration', {
@@ -345,8 +341,8 @@ export class FSService extends PuterService {
             immutable: Boolean(metadata.immutable),
             isPublic: metadata.isPublic,
             multipartPartSize: metadata.multipartPartSize,
-            bucket: this.#resolveBucket(metadata),
-            bucketRegion: this.#resolveBucketRegion(metadata),
+            bucket: this.#resolveBucket(),
+            bucketRegion: this.#resolveBucketRegion(),
         };
     }
 
@@ -650,8 +646,14 @@ export class FSService extends PuterService {
             size: session.size,
             contentType: session.contentType,
             checksumSha256: session.checksumSha256 ?? undefined,
-            bucket: session.bucket ?? undefined,
-            bucketRegion: session.bucketRegion ?? undefined,
+            bucket:
+                session.bucket ??
+                parsedMetadata.bucket ??
+                this.#resolveBucket(),
+            bucketRegion:
+                session.bucketRegion ??
+                parsedMetadata.bucketRegion ??
+                this.#resolveBucketRegion(),
             overwrite: Boolean(session.overwriteTargetUid),
         };
     }
@@ -2075,14 +2077,14 @@ export class FSService extends PuterService {
                         bucket:
                             session.bucket ??
                             createInput.bucket ??
-                            this.#resolveBucket(createInput),
+                            this.#resolveBucket(),
                         objectKey: session.objectKey,
                         multipartUploadId: session.multipartUploadId,
                         parts: completeParts,
                     },
                     session.bucketRegion ??
                         createInput.bucketRegion ??
-                        this.#resolveBucketRegion(createInput),
+                        this.#resolveBucketRegion(),
                 );
             }
 
@@ -2219,14 +2221,14 @@ export class FSService extends PuterService {
                         bucket:
                             item.session.bucket ??
                             item.finalData.bucket ??
-                            this.#resolveBucket(item.finalData),
+                            this.#resolveBucket(),
                         objectKey: item.session.objectKey,
                         multipartUploadId: item.session.multipartUploadId,
                         parts: completeParts,
                     },
                     item.session.bucketRegion ??
                         item.finalData.bucketRegion ??
-                        this.#resolveBucketRegion(item.finalData),
+                        this.#resolveBucketRegion(),
                 );
             }),
         );

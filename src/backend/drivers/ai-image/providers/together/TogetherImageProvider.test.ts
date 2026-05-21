@@ -351,9 +351,14 @@ describe('TogetherImageProvider.generate output handling', () => {
         expect(result).toBe('data:image/png;base64,AAAA');
     });
 
-    it('wraps SDK errors with an "image generation error:" prefix', async () => {
+    it('lets SDK errors bubble untouched so the driver boundary can classify them', async () => {
         const provider = makeProvider();
-        const apiError = new Error('upstream blew up');
+        // Together's SDK errors carry a `.status` field — re-wrapping
+        // them in a plain Error stripped that out and caused the
+        // catch-all `translateProviderError` to fall through to 500.
+        const apiError = Object.assign(new Error('upstream blew up'), {
+            status: 400,
+        });
         generateMock.mockRejectedValueOnce(apiError);
 
         await expect(
@@ -363,7 +368,7 @@ describe('TogetherImageProvider.generate output handling', () => {
                     prompt: 'hi',
                 }),
             ),
-        ).rejects.toThrow(/Together AI image generation error:.*upstream blew up/);
+        ).rejects.toMatchObject({ status: 400, message: 'upstream blew up' });
 
         // Failure path must NOT meter usage.
         expect(incrementUsageSpy).not.toHaveBeenCalled();

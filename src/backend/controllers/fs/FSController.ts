@@ -1649,24 +1649,6 @@ export class FSController extends PuterController {
             normalizedFileMetadata.multipartPartSize = multipartPartSize;
         }
 
-        const bucket = this.#firstDefined(
-            metadataRecord.bucket,
-            fallbackRecord.bucket,
-        );
-        if (typeof bucket === 'string' && bucket.length > 0) {
-            normalizedFileMetadata.bucket = bucket;
-        }
-
-        const bucketRegion = this.#firstDefined(
-            metadataRecord.bucketRegion,
-            metadataRecord.bucket_region,
-            fallbackRecord.bucketRegion,
-            fallbackRecord.bucket_region,
-        );
-        if (typeof bucketRegion === 'string' && bucketRegion.length > 0) {
-            normalizedFileMetadata.bucketRegion = bucketRegion;
-        }
-
         const associatedAppId = this.#toNumber(
             this.#firstDefined(
                 metadataRecord.associatedAppId,

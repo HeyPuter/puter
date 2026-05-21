@@ -195,8 +195,14 @@ export class TogetherVideoProvider extends VideoProvider {
                 finalJob?.info?.errors?.message ??
                 finalJob?.info?.errors ??
                 'Video generation failed';
-            throw new HttpError(500, errorMessage, {
-                legacyCode: 'internal_error',
+            // Together returns `failed` for both user-input issues
+            // (content policy / unsupported params) and their own
+            // outages — we can't reliably tell from the payload, so
+            // expose as 4xx with `upstream_failed`. The alarm gate
+            // skips `upstream_*` legacy codes so this no longer pages.
+            throw new HttpError(400, errorMessage, {
+                legacyCode: 'upstream_failed',
+                fields: { provider: 'together' },
             });
         }
 
