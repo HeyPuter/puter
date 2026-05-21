@@ -75,7 +75,11 @@ export class TogetherAIProvider implements IChatProvider {
                     output_cost_key: 'output',
                     costs: {
                         tokens: 1_000_000,
-                        ...model.pricing,
+                        ...Object.fromEntries(
+                            Object.entries(model.pricing ?? {}).map(
+                                ([k, v]) => [k, (v as number) * 100],
+                            ),
+                        ),
                     },
                     max_tokens: model.context_length ?? 8000,
                 });
@@ -126,9 +130,13 @@ export class TogetherAIProvider implements IChatProvider {
 
         const actor = Context.get('actor');
         const models = await this.models();
+        const modelLower = model.toLowerCase();
         const modelUsed =
-            models.find((m) => [m.id, ...(m.aliases || [])].includes(model)) ||
-            models.find((m) => m.id === this.getDefaultModel())!;
+            models.find((m) =>
+                [m.id, ...(m.aliases || [])].some(
+                    (id) => id.toLowerCase() === modelLower,
+                ),
+            ) || models.find((m) => m.id === this.getDefaultModel())!;
         const modelIdForParams = modelUsed.id.startsWith('togetherai:')
             ? modelUsed.id.slice('togetherai:'.length)
             : modelUsed.id;

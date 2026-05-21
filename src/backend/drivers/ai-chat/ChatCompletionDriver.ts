@@ -651,8 +651,18 @@ export class ChatCompletionDriver extends PuterDriver {
             // thinking_tokens → output rate fallback
             let rate = costs[key];
             if (typeof rate !== 'number' || !Number.isFinite(rate)) {
-                if (key === 'thinking_tokens' && outputRate !== undefined) {
+                if (isOutputKey(key) && outputRate !== undefined) {
                     rate = outputRate;
+                } else if (!isOutputKey(key)) {
+                    const inputRateRaw = costs[inputKey];
+                    if (
+                        typeof inputRateRaw === 'number' &&
+                        Number.isFinite(inputRateRaw)
+                    ) {
+                        rate = inputRateRaw;
+                    } else {
+                        continue;
+                    }
                 } else {
                     continue;
                 }
