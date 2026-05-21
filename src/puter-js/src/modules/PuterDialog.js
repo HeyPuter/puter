@@ -35,10 +35,13 @@ class PuterDialog extends (globalThis.HTMLElement || Object) { // It will fall b
         h = `
         <style>
         dialog{
-            background: transparent; 
-            border: none; 
-            box-shadow: none; 
+            background: transparent;
+            border: none;
+            box-shadow: none;
             outline: none;
+        }
+        dialog::backdrop {
+            background: rgba(0, 0, 0, 0.5);
         }
         .puter-dialog-content {
             border: 1px solid #e8e8e8;
@@ -350,6 +353,21 @@ class PuterDialog extends (globalThis.HTMLElement || Object) { // It will fall b
                 color: #8a8a90;
                 -webkit-box-shadow: inset 0 1px 3px rgb(0 0 0 / 60%);
                 box-shadow: inset 0px 2px 3px rgb(0 0 0 / 60%), 0px 1px 0px rgb(255 255 255 / 4%);
+            }
+
+            /* The dark-mode 'dialog .button' rule above has the same specificity
+               as the light-mode 'dialog .button-primary' rule, so without this
+               override source order wins and the primary button turns gray. */
+            dialog .button-primary {
+                border-color: #088ef0;
+                background: linear-gradient(#34a5f8, #088ef0);
+                color: white;
+            }
+
+            dialog .button-primary:active, dialog .button-primary.active, dialog .button-primary.is-active {
+                background-color: #2798eb;
+                border-color: #2798eb;
+                color: #bedef5;
             }
 
             dialog .button.disabled, dialog .button.is-disabled, dialog .button:disabled {
