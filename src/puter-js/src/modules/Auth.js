@@ -1,4 +1,6 @@
 import * as utils from '../lib/utils.js';
+import PuterDialog from './PuterDialog.js';
+import { hasUserActivation, openAuthPopup } from '../lib/auth-popup.js';
 
 class Auth {
     // Used to generate a unique message id for each message sent to the host environment
@@ -46,55 +48,97 @@ class Auth {
         options = options || {};
 
         return new Promise((resolve, reject) => {
-            let msg_id = this.#messageID++;
-            let w = 600;
-            let h = 700;
-            let title = 'Puter';
-            var left = (screen.width / 2) - (w / 2);
-            var top = (screen.height / 2) - (h / 2);
+            const msg_id = this.#messageID++;
+            const url = `${puter.defaultGUIOrigin}/action/sign-in?embedded_in_popup=true&msg_id=${msg_id}${window.crossOriginIsolated ? '&cross_origin_isolated=true' : ''}${options.attempt_temp_user_creation ? '&attempt_temp_user_creation=true' : ''}`;
 
-            // Store reference to the popup window
-            const popup = window.open(
-                `${puter.defaultGUIOrigin}/action/sign-in?embedded_in_popup=true&msg_id=${msg_id}${window.crossOriginIsolated ? '&cross_origin_isolated=true' : ''}${options.attempt_temp_user_creation ? '&attempt_temp_user_creation=true' : ''}`,
-                title,
-                `toolbar=no, location=no, directories=no, status=no, menubar=no, scrollbars=no, resizable=no, copyhistory=no, width=${w}, height=${h}, top=${top}, left=${left}`,
-            );
+            // Guards against settling the promise more than once across the
+            // message, popup-closed, and dialog-cancel code paths.
+            let settled = false;
+            // Interval id for polling whether the user closed the popup.
+            let checkClosed = null;
 
-            // Set up interval to check if popup was closed
-            const checkClosed = setInterval(() => {
-                if ( popup.closed ) {
+            const cleanup = () => {
+                if ( checkClosed ) {
                     clearInterval(checkClosed);
-                    // Remove the message listener
-                    window.removeEventListener('message', messageHandler);
-                    reject({ error: 'auth_window_closed', msg: 'Authentication window was closed by the user without completing the process.' });
+                    checkClosed = null;
                 }
-            }, 100);
+                window.removeEventListener('message', messageHandler);
+            };
 
             function messageHandler (e) {
-                if ( e.data.msg_id == msg_id ) {
-                    // Clear the interval since we got a response
-                    clearInterval(checkClosed);
+                if ( e.data?.msg_id != msg_id ) {
+                    return;
+                }
+                if ( settled ) {
+                    return;
+                }
+                settled = true;
+                cleanup();
 
-                    // remove redundant attributes
-                    delete e.data.msg_id;
-                    delete e.data.msg;
+                // remove redundant attributes
+                delete e.data.msg_id;
+                delete e.data.msg;
 
-                    if ( e.data.success ) {
-                        // set the auth token
-                        puter.setAuthToken(e.data.token);
-
-                        resolve(e.data);
-                    } else
-                    {
-                        reject(e.data);
-                    }
-
-                    // delete the listener
-                    window.removeEventListener('message', messageHandler);
+                if ( e.data.success ) {
+                    // set the auth token
+                    puter.setAuthToken(e.data.token);
+                    resolve(e.data);
+                } else {
+                    reject(e.data);
                 }
             }
-
             window.addEventListener('message', messageHandler);
+
+            // Once the popup exists, watch for the user closing it without
+            // completing sign-in. `popup` is null if the browser blocked it.
+            const watchPopup = (popup) => {
+                if ( settled ) {
+                    return;
+                }
+                if ( ! popup ) {
+                    settled = true;
+                    cleanup();
+                    reject({ error: 'popup_blocked', msg: 'The sign-in popup was blocked by the browser.' });
+                    return;
+                }
+                checkClosed = setInterval(() => {
+                    if ( ! popup.closed ) {
+                        return;
+                    }
+                    clearInterval(checkClosed);
+                    checkClosed = null;
+                    if ( settled ) {
+                        return;
+                    }
+                    settled = true;
+                    cleanup();
+                    reject({ error: 'auth_window_closed', msg: 'Authentication window was closed by the user without completing the process.' });
+                }, 100);
+            };
+
+            if ( hasUserActivation() ) {
+                // A user gesture is active — open the popup immediately.
+                watchPopup(openAuthPopup(url));
+            } else {
+                // No user gesture: a popup opened now would be blocked by the
+                // browser. Show a consent dialog first; the popup is then
+                // opened from the user's click on that dialog, which provides
+                // the gesture the browser requires.
+                const dialog = new PuterDialog(() => {}, () => {}, {
+                    popupURL: url,
+                    onLaunch: (popup) => watchPopup(popup),
+                    onCancel: () => {
+                        if ( settled ) {
+                            return;
+                        }
+                        settled = true;
+                        cleanup();
+                        reject({ error: 'auth_window_closed', msg: 'Authentication window was closed by the user without completing the process.' });
+                    },
+                });
+                document.body.appendChild(dialog);
+                dialog.open();
+            }
         });
     };
 

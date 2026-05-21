@@ -1,71 +1,32 @@
+import { hasUserActivation, openAuthPopup } from '../lib/auth-popup.js';
+
 class PuterDialog extends (globalThis.HTMLElement || Object) { // It will fall back to only extending Object in environments without a DOM
     // Similar to `#messageID` in Auth.js. We start at an arbitrary high number to avoid
     // collisions.
     static messageID = Math.floor(Number.MAX_SAFE_INTEGER / 2);
 
-    /**
-     * Detects if the current page is loaded using the file:// protocol.
-     * @returns {boolean} True if using file:// protocol, false otherwise.
-     */
-    isUsingFileProtocol = () => {
-        return window.location.protocol === 'file:';
-    };
-
     #messageID;
 
-    constructor (resolve, reject) {
+    /**
+     * @param {Function} resolve - Resolves the implicit-auth promise.
+     * @param {Function} reject - Rejects the implicit-auth promise.
+     * @param {Object} [options] - Optional configuration.
+     * @param {string} [options.popupURL] - When set, the dialog acts as a
+     *   generic popup launcher: it opens this URL (instead of the default
+     *   implicit-auth URL), skips the `puter.token` message handling and
+     *   `puterAuthState` bookkeeping (the caller owns the auth result), and
+     *   reports cancellation through `options.onCancel`.
+     * @param {Function} [options.onLaunch] - Called with the opened popup
+     *   window (or null if the browser blocked it) right after launch.
+     * @param {Function} [options.onCancel] - Called when the user dismisses
+     *   the dialog without completing authentication.
+     */
+    constructor (resolve, reject, options = {}) {
         super();
         this.reject = reject;
         this.resolve = resolve;
-        this.popupLaunched = false; // Track if popup was successfully launched
+        this.options = options;
         this.#messageID = this.constructor.messageID++;
-
-        /**
-         * Detects if there's a recent user activation that would allow popup opening
-         * @returns {boolean} True if user activation is available, false otherwise.
-         */
-        this.hasUserActivation = () => {
-            // Modern browsers support navigator.userActivation
-            if ( navigator.userActivation ) {
-                return navigator.userActivation.hasBeenActive && navigator.userActivation.isActive;
-            }
-
-            // Fallback: try to detect user activation by attempting to open a popup
-            // This is a bit hacky but works as a fallback
-            try {
-                const testPopup = window.open('', '_blank', 'width=1,height=1,left=-1000,top=-1000');
-                if ( testPopup ) {
-                    testPopup.close();
-                    return true;
-                }
-                return false;
-            } catch (e) {
-                return false;
-            }
-        };
-
-        /**
-         * Launches the authentication popup window
-         * @returns {Window|null} The popup window reference or null if failed
-         */
-        this.launchPopup = () => {
-            try {
-                let w = 600;
-                let h = 700;
-                let title = 'Puter';
-                var left = (screen.width / 2) - (w / 2);
-                var top = (screen.height / 2) - (h / 2);
-                const popup = window.open(
-                    `${puter.defaultGUIOrigin }/?embedded_in_popup=true&request_auth=true${ window.crossOriginIsolated ? '&cross_origin_isolated=true' : ''}`,
-                    title,
-                    `toolbar=no, location=no, directories=no, status=no, menubar=no, scrollbars=no, resizable=no, copyhistory=no, width=${ w }, height=${ h }, top=${ top }, left=${ left}`,
-                );
-                return popup;
-            } catch (e) {
-                console.error('Failed to open popup:', e);
-                return null;
-            }
-        };
 
         this.attachShadow({ mode: 'open' });
 
@@ -496,10 +457,31 @@ class PuterDialog extends (globalThis.HTMLElement || Object) { // It will fall b
 
     }
 
+    /**
+     * Returns the URL to open in the auth popup. In launcher mode this is the
+     * caller-supplied URL; otherwise it is the default implicit-auth URL.
+     * @returns {string}
+     */
+    #popupURL () {
+        if ( this.options.popupURL ) {
+            return this.options.popupURL;
+        }
+        return `${puter.defaultGUIOrigin}/?embedded_in_popup=true&request_auth=true&msg_id=${this.#messageID}${window.crossOriginIsolated ? '&cross_origin_isolated=true' : ''}`;
+    }
+
     // Optional: Handle dialog cancellation as rejection
     cancelListener = () => {
         this.close();
         window.removeEventListener('message', this.messageListener);
+
+        // Launcher mode: the caller owns the auth promise and any state.
+        if ( this.options.popupURL ) {
+            if ( typeof this.options.onCancel === 'function' ) {
+                this.options.onCancel();
+            }
+            return;
+        }
+
         puter.puterAuthState.authGranted = false;
         puter.puterAuthState.isPromptOpen = false;
 
@@ -515,22 +497,26 @@ class PuterDialog extends (globalThis.HTMLElement || Object) { // It will fall b
     };
 
     connectedCallback () {
-        // Add event listener to the button
+        // Wire the "Continue" button to open the auth popup. Opening here is
+        // safe from being popup-blocked because it happens inside a click.
         this.shadowRoot.querySelector('#launch-auth-popup')?.addEventListener('click', () => {
-            let w = 600;
-            let h = 700;
-            let title = 'Puter';
-            var left = (screen.width / 2) - (w / 2);
-            var top = (screen.height / 2) - (h / 2);
-            window.open(
-                `${puter.defaultGUIOrigin }/?embedded_in_popup=true&request_auth=true&msg_id=${this.#messageID}${ window.crossOriginIsolated ? '&cross_origin_isolated=true' : ''}`,
-                title,
-                `toolbar=no, location=no, directories=no, status=no, menubar=no, scrollbars=no, resizable=no, copyhistory=no, width=${ w }, height=${ h }, top=${ top }, left=${ left}`,
-            );
+            const popup = openAuthPopup(this.#popupURL());
+
+            // Launcher mode: hand the popup back to the caller and close the
+            // consent dialog — its only job was to provide the user gesture.
+            if ( this.options.popupURL ) {
+                if ( typeof this.options.onLaunch === 'function' ) {
+                    this.options.onLaunch(popup);
+                }
+                this.close();
+            }
         });
 
-        // Add the event listener to the window object
-        window.addEventListener('message', this.messageListener);
+        // The implicit-auth flow listens for the token message from the popup.
+        // In launcher mode the caller registers its own message handler.
+        if ( ! this.options.popupURL ) {
+            window.addEventListener('message', this.messageListener);
+        }
 
         // Add event listeners for cancel and close buttons
         this.shadowRoot.querySelector('#launch-auth-popup-cancel')?.addEventListener('click', this.cancelListener);
@@ -538,17 +524,11 @@ class PuterDialog extends (globalThis.HTMLElement || Object) { // It will fall b
     }
 
     open () {
-        if ( this.hasUserActivation() ) {
-            let w = 600;
-            let h = 700;
-            let title = 'Puter';
-            var left = (screen.width / 2) - (w / 2);
-            var top = (screen.height / 2) - (h / 2);
-            window.open(
-                `${puter.defaultGUIOrigin }/?embedded_in_popup=true&request_auth=true&msg_id=${this.#messageID}${ window.crossOriginIsolated ? '&cross_origin_isolated=true' : ''}`,
-                title,
-                `toolbar=no, location=no, directories=no, status=no, menubar=no, scrollbars=no, resizable=no, copyhistory=no, width=${ w }, height=${ h }, top=${ top }, left=${ left}`,
-            );
+        if ( hasUserActivation() ) {
+            const popup = openAuthPopup(this.#popupURL());
+            if ( this.options.popupURL && typeof this.options.onLaunch === 'function' ) {
+                this.options.onLaunch(popup);
+            }
         }
         else {
             this.shadowRoot.querySelector('dialog').showModal();
