@@ -433,10 +433,10 @@ describe('TogetherAIProvider.complete non-stream output', () => {
             completion_tokens: 50,
             cached_tokens: 0,
         });
-        // Qwen pricing: input=20, output=20 (per million).
+        // Qwen pricing: input=20, output=20 (per million, dollars from API → ×100 for cents).
         expect(overrides).toMatchObject({
-            prompt_tokens: 100 * 20,
-            completion_tokens: 50 * 20,
+            prompt_tokens: 100 * 20 * 100,
+            completion_tokens: 50 * 20 * 100,
         });
     });
 });
@@ -484,13 +484,13 @@ describe('TogetherAIProvider.complete streaming', () => {
             cached_tokens: 0,
         });
 
-        // Qwen pricing: input=20, output=20.
+        // Qwen pricing: input=20, output=20 (dollars from API → ×100 for cents).
         expect(recordSpy).toHaveBeenCalledTimes(1);
         const [, , prefix, overrides] = recordSpy.mock.calls[0]!;
         expect(prefix).toBe('togetherai:Qwen/Qwen2.5-7B-Instruct-Turbo');
         expect(overrides).toMatchObject({
-            prompt_tokens: 4 * 20,
-            completion_tokens: 2 * 20,
+            prompt_tokens: 4 * 20 * 100,
+            completion_tokens: 2 * 20 * 100,
         });
     });
 });
