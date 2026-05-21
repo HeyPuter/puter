@@ -362,7 +362,7 @@ describe('OpenAIVideoProvider.generate polling', () => {
         }
     });
 
-    it('throws when the polled job ends in failed state', async () => {
+    it('surfaces failed jobs as HttpError 400 upstream_failed (not a 500 page)', async () => {
         const provider = makeProvider();
         videosCreateMock.mockResolvedValueOnce({
             id: 'job-fail',
@@ -376,7 +376,11 @@ describe('OpenAIVideoProvider.generate polling', () => {
             withTestActor(() =>
                 provider.generate({ prompt: 'hi', model: 'sora-2' }),
             ),
-        ).rejects.toThrow('content policy violation');
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            legacyCode: 'upstream_failed',
+            message: 'content policy violation',
+        });
         expect(videosDownloadContentMock).not.toHaveBeenCalled();
     });
 });

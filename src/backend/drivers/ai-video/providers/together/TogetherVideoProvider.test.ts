@@ -409,7 +409,7 @@ describe('TogetherVideoProvider.generate polling', () => {
         }
     });
 
-    it('throws HttpError 500 on failed jobs with the surfaced error message', async () => {
+    it('surfaces failed jobs as HttpError 400 upstream_failed (not 500) so they do not page', async () => {
         const provider = makeProvider();
         videosCreateMock.mockResolvedValueOnce({ id: 'job-3' });
         videosRetrieveMock.mockResolvedValueOnce({
@@ -421,7 +421,8 @@ describe('TogetherVideoProvider.generate polling', () => {
         await expect(
             withTestActor(() => provider.generate({ prompt: 'hi' })),
         ).rejects.toMatchObject({
-            statusCode: 500,
+            statusCode: 400,
+            legacyCode: 'upstream_failed',
             message: 'content policy violation',
         });
     });

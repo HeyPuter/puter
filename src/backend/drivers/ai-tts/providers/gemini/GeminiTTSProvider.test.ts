@@ -476,17 +476,21 @@ describe('GeminiTTSProvider.synthesize error paths', () => {
         }
     });
 
-    it('wraps SDK errors as HttpError 502', async () => {
+    it('lets SDK errors bubble untouched so the driver boundary can classify them', async () => {
         const provider = makeProvider();
-        generateContentMock.mockRejectedValueOnce(new Error('upstream blew up'));
+        // Google GenAI `ApiError`s carry `.status` — surfacing them
+        // through the driver-boundary translator yields a proper
+        // `upstream_*` HttpError instead of a 500/502 page.
+        const apiError = Object.assign(new Error('bad voice'), { status: 400 });
+        generateContentMock.mockRejectedValueOnce(apiError);
 
         await expect(
             withTestActor(() => provider.synthesize({ text: 'hi' })),
-        ).rejects.toMatchObject({ statusCode: 502 });
+        ).rejects.toMatchObject({ status: 400, message: 'bad voice' });
         expect(batchIncrementUsagesSpy).not.toHaveBeenCalled();
     });
 
-    it('throws 502 when Gemini response has no inline audio data', async () => {
+    it('throws 400 upstream_bad_request when Gemini response has no inline audio data', async () => {
         const provider = makeProvider();
         generateContentMock.mockResolvedValueOnce({
             candidates: [{ content: { parts: [{ text: 'no audio here' }] } }],
@@ -495,7 +499,10 @@ describe('GeminiTTSProvider.synthesize error paths', () => {
 
         await expect(
             withTestActor(() => provider.synthesize({ text: 'hi' })),
-        ).rejects.toMatchObject({ statusCode: 502 });
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            legacyCode: 'upstream_bad_request',
+        });
         expect(batchIncrementUsagesSpy).not.toHaveBeenCalled();
     });
 });

@@ -154,34 +154,48 @@ export class XAITTSProvider extends TTSProvider {
             body.output_format = { codec };
         }
 
-        let response: Response;
-        try {
-            response = await fetch(`${API_BASE}/tts`, {
-                method: 'POST',
-                headers: {
-                    Authorization: `Bearer ${this.#apiKey}`,
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify(body),
-            });
-        } catch (e: unknown) {
-            const msg = (e as Error).message ?? String(e);
-            console.error('[XAITTSProvider] API error:', msg);
-            throw new HttpError(502, `xAI TTS API error: ${msg}`, {
-                legacyCode: 'internal_error',
-                fields: { provider: 'xai' },
-            });
-        }
+        const response = await fetch(`${API_BASE}/tts`, {
+            method: 'POST',
+            headers: {
+                Authorization: `Bearer ${this.#apiKey}`,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(body),
+        });
 
         if (!response.ok) {
             const errText = await response.text().catch(() => '');
             console.error(
                 `[XAITTSProvider] API returned ${response.status}: ${errText}`,
             );
+            // Map upstream status to an `upstream_*` HttpError so the
+            // alarm gate skips it. Mirrors ElevenLabs' translator —
+            // 4xx and 5xx both surface as 400 to the client (with the
+            // appropriate legacyCode), 429 stays 429, auth stays 500.
+            const legacyCode =
+                response.status >= 500
+                    ? 'upstream_provider_unavailable'
+                    : response.status === 401 || response.status === 403
+                      ? 'upstream_auth_failed'
+                      : response.status === 429
+                        ? 'upstream_rate_limited'
+                        : 'upstream_bad_request';
+            const exposedStatus =
+                legacyCode === 'upstream_rate_limited'
+                    ? 429
+                    : legacyCode === 'upstream_auth_failed'
+                      ? 500
+                      : 400;
             throw new HttpError(
-                502,
-                `xAI TTS API error (${response.status}): ${errText}`,
-                { legacyCode: 'internal_error', fields: { provider: 'xai' } },
+                exposedStatus,
+                errText || `xAI TTS request failed (status ${response.status})`,
+                {
+                    legacyCode,
+                    fields: {
+                        provider: 'xai',
+                        upstreamStatus: response.status,
+                    },
+                },
             );
         }
 

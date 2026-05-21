@@ -128,7 +128,7 @@ export class WebDAVController extends PuterController {
             case 'MOVE':
                 return this.#move(req, res, actor, davPath, redis, lockToken);
             case 'LOCK':
-                return this.#lock(req, res, davPath, redis, lockToken);
+                return this.#lock(req, res, actor, davPath, redis, lockToken);
             case 'UNLOCK':
                 return this.#unlock(req, res, davPath, redis);
             default:
@@ -646,11 +646,17 @@ export class WebDAVController extends PuterController {
     async #lock(
         req: Request,
         res: Response,
+        actor: Actor,
         davPath: string,
         redis: unknown,
         headerToken: string | null,
     ): Promise<void> {
         const r = redis as import('ioredis').Cluster;
+
+        // ACL must succeed before any lock state is touched — otherwise
+        // an authenticated user could lock paths they don't own (e.g. `/`)
+        // and block writes for everyone else.
+        await this.#assertWrite(actor, davPath);
 
         // Refresh existing lock
         if (headerToken) {

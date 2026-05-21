@@ -140,19 +140,52 @@ const XD_HTML = `<!DOCTYPE html>
  * alarm gate (server.ts) treats them as upstream failures and only
  * pages on the two we actually care about (rate-limit / auth).
  *
+ * Status extraction covers the shapes we've seen in the wild:
+ *  - `.status` / `.statusCode` (OpenAI / Anthropic / Together / Google GenAI)
+ *  - `.response.status` (Replicate's `ApiError`)
+ *  - `.$metadata.httpStatusCode` (AWS SDK v3, e.g. Polly)
+ *  - status sniffed from the message string (last resort, for providers
+ *    that re-wrap their SDK error in `new Error(msg)` and lose the field)
+ *
  * `HttpError`s thrown by drivers pass through untouched.
  */
+const extractUpstreamStatus = (e: {
+    status?: number;
+    statusCode?: number;
+    response?: { status?: number };
+    $metadata?: { httpStatusCode?: number };
+    message?: string;
+}): number | undefined => {
+    const direct = e.status ?? e.statusCode;
+    if (typeof direct === 'number') return direct;
+    const fromResponse = e.response?.status;
+    if (typeof fromResponse === 'number') return fromResponse;
+    const fromAws = e.$metadata?.httpStatusCode;
+    if (typeof fromAws === 'number') return fromAws;
+    // Message sniff (e.g. "... failed with status 422 ...").
+    // Only trust if it's adjacent to a status-indicating word to
+    // avoid matching random 4xx/5xx-looking numbers in payloads.
+    const msg = e.message;
+    if (typeof msg === 'string') {
+        const m = msg.match(/\bstatus(?:\s+code)?\s*[:=]?\s*(4\d\d|5\d\d)\b/i);
+        if (m) return Number(m[1]);
+    }
+    return undefined;
+};
+
 const translateProviderError = (err: unknown): unknown => {
     if (isHttpError(err)) return err;
     if (!err || typeof err !== 'object') return err;
     const e = err as {
         status?: number;
         statusCode?: number;
+        response?: { status?: number };
+        $metadata?: { httpStatusCode?: number };
         message?: string;
         error?: { code?: string; type?: string; message?: string };
         code?: string;
     };
-    const status = e.status ?? e.statusCode;
+    const status = extractUpstreamStatus(e);
     if (typeof status !== 'number') return err;
 
     const msg = e.error?.message ?? e.message ?? 'Upstream provider error';

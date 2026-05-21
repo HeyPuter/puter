@@ -317,7 +317,7 @@ describe('VoiceChangerDriver.convert success path', () => {
 // ── Error mapping ───────────────────────────────────────────────────
 
 describe('VoiceChangerDriver.convert error mapping', () => {
-    it('rethrows the upstream status when ElevenLabs returns an error body', async () => {
+    it('maps upstream 4xx to HttpError upstream_bad_request (keeps the upstream status)', async () => {
         const { actor } = await makeUser();
         fetchSpy.mockResolvedValueOnce(
             new Response(
@@ -336,9 +336,32 @@ describe('VoiceChangerDriver.convert error mapping', () => {
                     voice_id: 'missing-voice',
                 }),
             ),
-        ).rejects.toMatchObject({ statusCode: 404 });
+        ).rejects.toMatchObject({
+            statusCode: 404,
+            legacyCode: 'upstream_bad_request',
+        });
 
         // No metering should be recorded on a failed call.
+        expect(incrementUsageSpy).not.toHaveBeenCalled();
+    });
+
+    it('maps upstream 5xx to HttpError 400 upstream_provider_unavailable (skips alert)', async () => {
+        const { actor } = await makeUser();
+        fetchSpy.mockResolvedValueOnce(
+            new Response('boom', { status: 503 }),
+        );
+
+        await expect(
+            withActor(actor, () =>
+                driver.convert({
+                    audio: dataUrl(Buffer.from('x'), 'audio/mpeg'),
+                    voice_id: 'any-voice',
+                }),
+            ),
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            legacyCode: 'upstream_provider_unavailable',
+        });
         expect(incrementUsageSpy).not.toHaveBeenCalled();
     });
 });

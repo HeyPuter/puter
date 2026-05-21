@@ -134,7 +134,14 @@ export class OpenAIVideoProvider extends VideoProvider {
         if (finalJob.status === 'failed') {
             const errorMessage =
                 finalJob.error?.message ?? 'Video generation failed';
-            throw new Error(errorMessage);
+            // Same reasoning as TogetherVideoProvider — Sora's `failed`
+            // status covers both user input issues (content policy) and
+            // their own outages; expose as `upstream_failed` 400 so the
+            // alarm gate skips it instead of paging on 500.
+            throw new HttpError(400, errorMessage, {
+                legacyCode: 'upstream_failed',
+                fields: { provider: 'openai' },
+            });
         }
 
         const finalResolution =

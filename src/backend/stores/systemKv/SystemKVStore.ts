@@ -60,7 +60,7 @@ const SYSTEM_NAMESPACE = `v1:${SYSTEM_ACTOR_UUID}:${GLOBAL_APP_KEY}`;
 const MAX_KEY_BYTES = 1024;
 const MAX_VALUE_BYTES = 399 * 1024;
 const BATCH_GET_CHUNK = 100;
-const PATH_CLEANER_REGEX = /[:\-+/*]/g;
+const PATH_CLEANER_REGEX = /[^A-Za-z0-9_]/g;
 
 const emptyUsage = (): KVUsage => ({ read: 0, write: 0 });
 
@@ -182,7 +182,7 @@ const objectsEqual = (left: unknown, right: unknown): boolean => {
 };
 
 const cleanAttrName = (chunk: string): string =>
-    `#${chunk}`.replaceAll(PATH_CLEANER_REGEX, '');
+    `#${chunk.replaceAll(PATH_CLEANER_REGEX, '')}`;
 
 // ── SystemKVStore ────────────────────────────────────────────────────
 
