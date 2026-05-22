@@ -18,6 +18,7 @@ import { PTLSSocket } from './modules/networking/PTLS.js';
 import { pFetch } from './modules/networking/requests.js';
 import OS from './modules/OS.js';
 import Perms from './modules/Perms.js';
+import PuterDialog from './modules/PuterDialog.js';
 import UI from './modules/UI.js';
 import Util from './modules/Util.js';
 import { WorkersHandler } from './modules/Workers.js';
@@ -505,6 +506,11 @@ const puterInit = (function () {
 
                 // Print a CTA for developers to publish their app on the Puter App Store
                 this.printDevCTA();
+
+                // If the page was opened directly from disk (file:// protocol),
+                // Puter.js cannot function. Warn the developer immediately on
+                // load rather than waiting for an action that triggers auth.
+                this.warnUnsupportedProtocol();
             } else if ( this.env === 'web-worker' || this.env === 'service-worker' || this.env === 'nodejs' ) {
                 this.initSubmodules();
             }
@@ -914,6 +920,33 @@ const puterInit = (function () {
                 `color: ${mutedColor}; font-size: 11px;`,
                 `color: ${mutedColor}; font-size: 11px; font-style: italic;`
             );
+        };
+
+        /**
+         * Shows the "Unsupported Protocol" warning dialog when the SDK is
+         * loaded directly from the file:// protocol. Runs once on load (when
+         * the DOM is ready) so the developer is told to use a web server
+         * immediately, instead of only when an action triggers the auth flow.
+         * @private
+         */
+        warnUnsupportedProtocol = function () {
+            if ( globalThis.location?.protocol !== 'file:' ) return;
+            if ( this._fileProtocolWarned ) return;
+            this._fileProtocolWarned = true;
+
+            const showDialog = () => {
+                // On file:// PuterDialog renders the "Unsupported Protocol"
+                // warning instead of the auth consent content.
+                const dialog = new PuterDialog(() => {}, () => {});
+                document.body.appendChild(dialog);
+                dialog.open();
+            };
+
+            if ( document.readyState === 'loading' ) {
+                document.addEventListener('DOMContentLoaded', showDialog, { once: true });
+            } else {
+                showDialog();
+            }
         };
 
         /**
