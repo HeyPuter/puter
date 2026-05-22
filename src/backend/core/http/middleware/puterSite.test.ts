@@ -820,3 +820,344 @@ describe('createPuterSiteMiddleware — file serving', () => {
         expect(out.statusCode).toBe(404);
     });
 });
+
+// ── .puter_site_config (custom error pages) ─────────────────────────
+//
+// Sites can drop a `.puter_site_config` JSON file at the root of their
+// hosting directory to map error codes onto custom pages — the
+// canonical use case is SPA fallback (404 → /index.html with status
+// 200). These tests pin the contract end-to-end through the real
+// FSService so we exercise parsing, path resolution, and the loop-
+// prevention guard together.
+
+describe('createPuterSiteMiddleware — .puter_site_config', () => {
+    const setupSiteWithConfig = async (config: unknown) => {
+        const owner = await makeUserWithHome();
+        const homePath = `/${owner.username}`;
+        const homeEntry = await server.stores.fsEntry.getEntryByPath(homePath);
+        const sub = `cfg-${Math.random().toString(36).slice(2, 8)}`;
+        await server.stores.subdomain.create({
+            userId: owner.id,
+            subdomain: sub,
+            rootDirId: homeEntry!.id,
+        });
+        await writeFile(
+            owner.id,
+            `${homePath}/.puter_site_config`,
+            Buffer.from(JSON.stringify(config)),
+            'application/json',
+        );
+        return { owner, homePath, sub };
+    };
+
+    it('serves /index.html with status 200 on 404 when configured (SPA fallback)', async () => {
+        // The user's headline use case: route any unknown path through
+        // the SPA entrypoint so client-side routing can take over,
+        // while still serving HTTP 200 so search engines don't cache
+        // the page as a hard 404.
+        const { owner, homePath, sub } = await setupSiteWithConfig({
+            errors: {
+                '404': { file: '/index.html', status: 200 },
+            },
+        });
+        const body = Buffer.from('<html>spa-shell</html>');
+        await writeFile(owner.id, `${homePath}/index.html`, body, 'text/html');
+
+        const mw = buildMiddleware();
+        const { res, out } = makeRes();
+        await mw(
+            makeReq({
+                hostname: `${sub}.site.puter.localhost`,
+                path: '/some/client-route',
+            }),
+            res,
+            vi.fn(),
+        );
+        await new Promise<void>((resolve) => setImmediate(resolve));
+
+        expect(out.statusCode).toBe(200);
+        expect(out.headers['Content-Type']).toMatch(/text\/html/);
+        const piped = out.body as Buffer | undefined;
+        expect(Buffer.isBuffer(piped)).toBe(true);
+        expect(piped!.equals(body)).toBe(true);
+    });
+
+    it('serves the configured file with the matched code when `status` is omitted', async () => {
+        // No explicit `status` → default to the matched error code
+        // (404 here). Bare `{ file: '/404.html' }` should Just Work
+        // for the classic "pretty 404 page" use case.
+        const { owner, homePath, sub } = await setupSiteWithConfig({
+            errors: { '404': { file: '/404.html' } },
+        });
+        const body = Buffer.from('<html>custom 404</html>');
+        await writeFile(owner.id, `${homePath}/404.html`, body, 'text/html');
+
+        const mw = buildMiddleware();
+        const { res, out } = makeRes();
+        await mw(
+            makeReq({
+                hostname: `${sub}.site.puter.localhost`,
+                path: '/no-such-page',
+            }),
+            res,
+            vi.fn(),
+        );
+        await new Promise<void>((resolve) => setImmediate(resolve));
+
+        expect(out.statusCode).toBe(404);
+        const piped = out.body as Buffer | undefined;
+        expect(piped!.equals(body)).toBe(true);
+    });
+
+    it('falls back to the default 404 page when the configured error file does not exist (no infinite loop)', async () => {
+        // Critical loop guard: if the error page itself is missing,
+        // we must NOT recurse through the error config again. The
+        // request must terminate with the built-in 404 page rather
+        // than spinning errors.404 → errors.404 → … .
+        const { sub } = await setupSiteWithConfig({
+            errors: { '404': { file: '/missing.html', status: 200 } },
+        });
+        // Deliberately do not write missing.html.
+
+        const mw = buildMiddleware();
+        const { res, out } = makeRes();
+        await mw(
+            makeReq({
+                hostname: `${sub}.site.puter.localhost`,
+                path: '/anything',
+            }),
+            res,
+            vi.fn(),
+        );
+
+        expect(out.statusCode).toBe(404);
+        expect(out.contentType).toBe('text/html; charset=UTF-8');
+        expect(String(out.body)).toContain('Not Found');
+    });
+
+    it('returns 404 when a visitor requests `.puter_site_config` directly (no config leak)', async () => {
+        // The config file is implementation detail — hide it the same
+        // way any other missing path would 404, so visitors can't
+        // enumerate deployment shape by guessing well-known names.
+        const { sub } = await setupSiteWithConfig({
+            errors: { '404': { file: '/index.html', status: 200 } },
+        });
+
+        const mw = buildMiddleware();
+        const { res, out } = makeRes();
+        await mw(
+            makeReq({
+                hostname: `${sub}.site.puter.localhost`,
+                path: '/.puter_site_config',
+            }),
+            res,
+            vi.fn(),
+        );
+
+        // No error-page fallback because we didn't write /index.html.
+        expect(out.statusCode).toBe(404);
+        // Body shape is the default 404, not the JSON config.
+        expect(String(out.body)).not.toContain('errors');
+    });
+
+    it('rejects `errors.404.file` paths that try to climb out of the site root', async () => {
+        // The normalizer collapses `..` segments, so an attacker who
+        // can edit the config can't pivot it into reading files
+        // outside their own subdomain root.
+        const otherOwner = await makeUserWithHome();
+        const secretPath = `/${otherOwner.username}/secret.html`;
+        await writeFile(
+            otherOwner.id,
+            secretPath,
+            Buffer.from('SECRET'),
+            'text/html',
+        );
+
+        const { sub } = await setupSiteWithConfig({
+            errors: {
+                '404': {
+                    // Tries to walk up to the other user's home dir.
+                    file: `/../${otherOwner.username}/secret.html`,
+                    status: 200,
+                },
+            },
+        });
+
+        const mw = buildMiddleware();
+        const { res, out } = makeRes();
+        await mw(
+            makeReq({
+                hostname: `${sub}.site.puter.localhost`,
+                path: '/anything',
+            }),
+            res,
+            vi.fn(),
+        );
+
+        // The collapsed path resolves under the requesting site's
+        // root, which doesn't have a `<username>/secret.html` file —
+        // so the fallback fails and we get the default 404, NOT the
+        // SECRET body.
+        expect(out.statusCode).toBe(404);
+        expect(String(out.body)).not.toContain('SECRET');
+    });
+
+    it('ignores malformed JSON configs and behaves like there is no config', async () => {
+        // A typo in the config file must not 5xx the request — the
+        // visitor still gets the default 404 on a missing path.
+        const owner = await makeUserWithHome();
+        const homePath = `/${owner.username}`;
+        const homeEntry = await server.stores.fsEntry.getEntryByPath(homePath);
+        const sub = `bad-${Math.random().toString(36).slice(2, 8)}`;
+        await server.stores.subdomain.create({
+            userId: owner.id,
+            subdomain: sub,
+            rootDirId: homeEntry!.id,
+        });
+        await writeFile(
+            owner.id,
+            `${homePath}/.puter_site_config`,
+            Buffer.from('this is not json {{{'),
+            'application/json',
+        );
+        await writeFile(
+            owner.id,
+            `${homePath}/index.html`,
+            Buffer.from('would-be-fallback'),
+            'text/html',
+        );
+
+        const mw = buildMiddleware();
+        const { res, out } = makeRes();
+        await mw(
+            makeReq({
+                hostname: `${sub}.site.puter.localhost`,
+                path: '/unknown',
+            }),
+            res,
+            vi.fn(),
+        );
+
+        expect(out.statusCode).toBe(404);
+        expect(String(out.body)).toContain('Not Found');
+        // Did NOT silently fall back to /index.html as if the config
+        // were valid — malformed config must be ignored, not partially
+        // applied.
+        expect(String(out.body)).not.toContain('would-be-fallback');
+    });
+
+    it('still serves real files normally — config only applies on 404', async () => {
+        // Sanity check: when the requested path exists, the config's
+        // error rules are not consulted, so the response is the live
+        // file at status 200 (not the error-page status override).
+        const { owner, homePath, sub } = await setupSiteWithConfig({
+            errors: { '404': { file: '/index.html', status: 200 } },
+        });
+        const body = Buffer.from('real-page');
+        await writeFile(
+            owner.id,
+            `${homePath}/page.html`,
+            body,
+            'text/html',
+        );
+
+        const mw = buildMiddleware();
+        const { res, out } = makeRes();
+        await mw(
+            makeReq({
+                hostname: `${sub}.site.puter.localhost`,
+                path: '/page.html',
+            }),
+            res,
+            vi.fn(),
+        );
+        await new Promise<void>((resolve) => setImmediate(resolve));
+
+        expect(out.statusCode).toBe(200);
+        const piped = out.body as Buffer | undefined;
+        expect(piped!.equals(body)).toBe(true);
+    });
+
+    it('serves the cached config on a second request, even when the on-disk file is removed (Redis cache holds within TTL)', async () => {
+        // First request seeds the cache with the parsed config. We
+        // then delete the underlying file and fire a second request:
+        // if the cache is wired correctly, the SPA fallback still
+        // applies because we never re-read from S3. Within-TTL
+        // staleness is the explicit contract (60s default).
+        const { owner, homePath, sub } = await setupSiteWithConfig({
+            errors: { '404': { file: '/index.html', status: 200 } },
+        });
+        const body = Buffer.from('<html>spa-shell</html>');
+        await writeFile(owner.id, `${homePath}/index.html`, body, 'text/html');
+
+        const mw = buildMiddleware();
+
+        // First request → primes the cache.
+        const first = makeRes();
+        await mw(
+            makeReq({
+                hostname: `${sub}.site.puter.localhost`,
+                path: '/route-a',
+            }),
+            first.res,
+            vi.fn(),
+        );
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        expect(first.out.statusCode).toBe(200);
+
+        // Now wipe the on-disk config. If the loader hits S3 on every
+        // request, the second call below would see no config and fall
+        // through to a default 404. The cache contract is that it
+        // does NOT — within the TTL, the prior parse stands.
+        const configEntry = await server.stores.fsEntry.getEntryByPath(
+            `${homePath}/.puter_site_config`,
+        );
+        if (configEntry) {
+            await server.services.fs.remove(owner.id, { entry: configEntry });
+        }
+
+        const second = makeRes();
+        await mw(
+            makeReq({
+                hostname: `${sub}.site.puter.localhost`,
+                path: '/route-b',
+            }),
+            second.res,
+            vi.fn(),
+        );
+        await new Promise<void>((resolve) => setImmediate(resolve));
+
+        // SPA fallback still fires → cache served the deleted config.
+        expect(second.out.statusCode).toBe(200);
+        expect(
+            (second.out.body as Buffer | undefined)?.equals(body),
+        ).toBe(true);
+    });
+
+    it('ignores `errors` entries with status codes outside 4xx/5xx', async () => {
+        // A `200` key in errors is meaningless and a footgun (it
+        // could be used to silently override the happy path). The
+        // parser must drop these on the floor.
+        const { sub } = await setupSiteWithConfig({
+            errors: {
+                '200': { file: '/oops.html', status: 200 },
+                '999': { file: '/oops.html', status: 200 },
+            },
+        });
+
+        const mw = buildMiddleware();
+        const { res, out } = makeRes();
+        await mw(
+            makeReq({
+                hostname: `${sub}.site.puter.localhost`,
+                path: '/missing',
+            }),
+            res,
+            vi.fn(),
+        );
+
+        // No valid 404 rule survives the filter → default 404.
+        expect(out.statusCode).toBe(404);
+        expect(String(out.body)).toContain('Not Found');
+    });
+});
