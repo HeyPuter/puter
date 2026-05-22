@@ -16,3 +16,4 @@
 -- along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 ALTER TABLE `subdomains` ADD COLUMN `preamble_version` varchar(64) DEFAULT NULL;
+

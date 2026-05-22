@@ -120,7 +120,12 @@ export class AuthService extends PuterService {
         token: string;
         gui_token: string;
     }> {
-        const session = await this.stores.session.create(user.id, meta);
+        const session = await this.stores.session.create(user.id, {
+            meta,
+            kind: 'web',
+            last_ip: (meta.ip as string | undefined) ?? null,
+            last_user_agent: (meta.user_agent as string | undefined) ?? null,
+        });
 
         const token = this.services.token.sign('auth', {
             type: 'session',
