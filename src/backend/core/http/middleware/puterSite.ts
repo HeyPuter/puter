@@ -36,6 +36,12 @@ import {
     resolvePrivateIdentity,
     resolvePublicHostedIdentity,
 } from './privateAppGate';
+import {
+    isSiteConfigPath,
+    loadSiteConfig,
+    resolveErrorTarget,
+    type SiteConfig,
+} from './puterSiteConfig';
 
 /**
  * Serves user-hosted static sites on the hosting domains (`*.puter.site`,
@@ -52,9 +58,15 @@ import {
  *
  * Deferred (not yet implemented):
  *   - `.at` username-based sites (UUIDv5-keyed `/user/Public`).
- *   - `.puter_site_config` error rules (custom status-code → file mapping).
  *   - Custom domains (subdomains table `domain` column) — requires host
  *     validation to allow arbitrary hostnames first.
+ *
+ * Site config:
+ *   - `.puter_site_config` at the site root (see `puterSiteConfig.ts`)
+ *     supplies custom error pages. On a file 404, the matching rule's
+ *     `file` is served with the rule's `status` — supports the SPA
+ *     fallback pattern of `404 → /index.html with status 200`. The
+ *     config file itself is hidden from public serving.
  */
 
 const SUBDOMAIN_404 = `<div style="font-size: 20px;
@@ -458,10 +470,35 @@ export const createPuterSiteMiddleware = (
         }
         const filePath = rootPath + resolvedUrlPath;
 
+        // Best-effort site config load. A missing / malformed config
+        // never blocks the request — `loadSiteConfig` swallows all
+        // errors and returns null on any failure. The Redis cache
+        // keyed on `rootDirId` keeps the hot path off S3 for the
+        // common case where the same subdomain gets repeat visits.
+        let siteConfig: SiteConfig | null = null;
+        try {
+            siteConfig = await loadSiteConfig({
+                rootPath,
+                rootDirId: rootEntry.id,
+                fsEntryStore: layers.stores.fsEntry,
+                fsService: layers.services.fs,
+                cache: layers.clients.redis,
+            });
+        } catch (e) {
+            console.warn('[puter-site] loadSiteConfig threw', e);
+        }
+
+        // Hide the config file from public serving — visitors should
+        // see the same 404 as for any other missing path so the
+        // deployment shape isn't leaked.
+        const isConfigRequest = isSiteConfigPath(resolvedUrlPath);
+
         // Subdomain hosting bypasses ACL by design: anything the owner placed
         // under the registered root_dir is treated as public. Path traversal
         // is blocked above by `pathPosix.normalize` anchoring at `/`.
-        let entry = await layers.stores.fsEntry.getEntryByPath(filePath);
+        let entry = isConfigRequest
+            ? null
+            : await layers.stores.fsEntry.getEntryByPath(filePath);
         if (entry?.isDir) {
             // Folder request → fall back to <folder>/index.html, the same
             // way `/` is rewritten to `/index.html` at the site root above.
@@ -469,6 +506,27 @@ export const createPuterSiteMiddleware = (
                 pathPosix.join(filePath, 'index.html'),
             );
         }
+
+        // Custom error page fallback. On a 404 we consult the site config
+        // for a rule and, if one resolves to an existing file, serve that
+        // instead. Critical: we do this exactly once — the error page
+        // itself never re-enters error handling, so a misconfigured
+        // `errors.404.file` that doesn't exist falls through to the
+        // default 404 page rather than looping.
+        let statusOverride: number | undefined;
+        if (!entry || entry.isDir) {
+            const errorTarget = resolveErrorTarget(siteConfig, 404, rootPath);
+            if (errorTarget) {
+                const candidate = await layers.stores.fsEntry.getEntryByPath(
+                    errorTarget.absPath,
+                );
+                if (candidate && !candidate.isDir) {
+                    entry = candidate;
+                    statusOverride = errorTarget.status;
+                }
+            }
+        }
+
         if (!entry || entry.isDir) {
             res.status(404)
                 .type('text/html; charset=UTF-8')
@@ -477,8 +535,13 @@ export const createPuterSiteMiddleware = (
         }
 
         // Stream the file. `fsEntry.readContent` honours Range + emits
-        // ETag/Last-Modified when the S3 layer returns them.
+        // ETag/Last-Modified when the S3 layer returns them. Range
+        // requests are suppressed when serving a custom error page so
+        // the visitor always receives the full document with the
+        // configured status code (no 206 with a stale `bytes=...`
+        // header from the original request).
         const range =
+            statusOverride === undefined &&
             typeof req.headers.range === 'string'
                 ? req.headers.range
                 : undefined;
@@ -524,7 +587,7 @@ export const createPuterSiteMiddleware = (
             res.setHeader('Last-Modified', download.lastModified.toUTCString());
         res.setHeader('Accept-Ranges', 'bytes');
         res.setHeader('Access-Control-Allow-Origin', '*');
-        res.status(range ? 206 : 200);
+        res.status(statusOverride ?? (range ? 206 : 200));
 
         // Best-effort egress metering against the site owner. The request
         // itself is unauthenticated (public site visitor), so we can't use
