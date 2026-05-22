@@ -368,6 +368,19 @@ export class DriverController extends PuterController {
         if (
             !(await checkDriverRateLimit(req, ifaceName, method, rateLimitSpec))
         ) {
+            // De-dupe on (iface, method) so a hot loop across many users
+            // aggregates as occurrences on a single low-severity alarm
+            // instead of fanning out one per user.
+            this.clients.alarm.create(
+                `driver_rate_limit_hit:${ifaceName}:${method}`,
+                `Driver rate limit hit on ${ifaceName}:${method}`,
+                {
+                    iface: ifaceName,
+                    method,
+                    userUuid: req.actor?.user?.uuid,
+                },
+                'info',
+            );
             throw new HttpError(429, 'Too many requests.', {
                 legacyCode: 'too_many_requests',
             });
@@ -390,6 +403,16 @@ export class DriverController extends PuterController {
                 concurrentSpec,
             );
             if (!handle.ok) {
+                this.clients.alarm.create(
+                    `driver_concurrent_limit_hit:${ifaceName}:${method}`,
+                    `Driver concurrency limit hit on ${ifaceName}:${method}`,
+                    {
+                        iface: ifaceName,
+                        method,
+                        userUuid: req.actor?.user?.uuid,
+                    },
+                    'info',
+                );
                 throw new HttpError(429, 'Too many concurrent requests.', {
                     legacyCode: 'too_many_requests',
                 });
