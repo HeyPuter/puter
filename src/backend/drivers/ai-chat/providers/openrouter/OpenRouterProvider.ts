@@ -36,19 +36,16 @@ type OpenrouterUsage = OpenAI.Completions.CompletionUsage & {
     cost?: number;
 };
 
-const openRouterReleaseDate = (created: unknown) => {
-    const timestamp =
-        typeof created === 'number'
-            ? created
-            : typeof created === 'string'
-              ? Number(created)
-              : undefined;
-
-    if (!timestamp || !Number.isFinite(timestamp)) {
+const openRouterReleaseDate = (created: unknown): string | undefined => {
+    const seconds = Number(created);
+    if (!Number.isFinite(seconds) || seconds <= 0) {
         return undefined;
     }
-
-    return new Date(timestamp * 1000).toISOString().slice(0, 10);
+    const date = new Date(seconds * 1000);
+    const year = date.getUTCFullYear();
+    const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(date.getUTCDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
 };
 
 export class OpenRouterProvider implements IChatProvider {
