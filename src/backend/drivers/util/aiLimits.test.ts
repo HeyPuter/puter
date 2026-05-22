@@ -40,8 +40,8 @@ describe('AI_RATE_LIMIT', () => {
             limit: 200,
             window: 10_000,
             bySubscription: {
-                [DEFAULT_FREE_SUBSCRIPTION]: 60,
-                [DEFAULT_TEMP_SUBSCRIPTION]: 40,
+                [DEFAULT_FREE_SUBSCRIPTION]: 30,
+                [DEFAULT_TEMP_SUBSCRIPTION]: 20,
             },
         });
     });
@@ -77,8 +77,8 @@ describe('AI_CONCURRENT', () => {
         expect(AI_CONCURRENT.default).toEqual({
             limit: 20,
             bySubscription: {
-                [DEFAULT_FREE_SUBSCRIPTION]: 6,
-                [DEFAULT_TEMP_SUBSCRIPTION]: 4,
+                [DEFAULT_FREE_SUBSCRIPTION]: 3,
+                [DEFAULT_TEMP_SUBSCRIPTION]: 2,
             },
         });
     });
