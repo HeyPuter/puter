@@ -36,6 +36,21 @@ type OpenrouterUsage = OpenAI.Completions.CompletionUsage & {
     cost?: number;
 };
 
+const openRouterReleaseDate = (created: unknown) => {
+    const timestamp =
+        typeof created === 'number'
+            ? created
+            : typeof created === 'string'
+              ? Number(created)
+              : undefined;
+
+    if (!timestamp || !Number.isFinite(timestamp)) {
+        return undefined;
+    }
+
+    return new Date(timestamp * 1000).toISOString().slice(0, 10);
+};
+
 export class OpenRouterProvider implements IChatProvider {
     #meteringService: MeteringService;
 
@@ -275,6 +290,7 @@ export class OpenRouterProvider implements IChatProvider {
                     tokens: 1_000_000,
                     ...microcentCosts,
                 },
+                release_date: openRouterReleaseDate(model.created),
                 ...overridenModel,
             });
         }
