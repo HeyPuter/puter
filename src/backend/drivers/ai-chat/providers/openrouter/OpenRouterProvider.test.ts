@@ -92,6 +92,7 @@ const SAMPLE_API_MODELS = [
     {
         id: 'openai/gpt-5-nano',
         name: 'GPT-5 Nano',
+        created: 1714564800,
         context_length: 128000,
         pricing: { prompt: 0.00001, completion: 0.00003 },
         top_provider: { max_completion_tokens: 16000 },
@@ -99,6 +100,7 @@ const SAMPLE_API_MODELS = [
     {
         id: 'anthropic/claude-haiku-4.5',
         name: 'Claude Haiku 4.5',
+        created: 1760529600,
         context_length: 200000,
         pricing: { prompt: 0.000002, completion: 0.00001 },
         top_provider: { max_completion_tokens: 8192 },
@@ -107,6 +109,7 @@ const SAMPLE_API_MODELS = [
         // 'openrouter/auto' is filtered out — disallowed.
         id: 'openrouter/auto',
         name: 'Auto',
+        created: 1704067200,
         context_length: 32768,
         pricing: { prompt: 0, completion: 0 },
         top_provider: { max_completion_tokens: 4096 },
@@ -223,6 +226,23 @@ describe('OpenRouterProvider model catalog', () => {
         await provider.models();
         // Second call should be a cache hit, not a second axios request.
         expect(axiosRequestMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('maps OpenRouter created timestamps to release_date metadata', async () => {
+        const { provider } = makeProvider();
+        const models = await provider.models();
+        expect(models).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    id: 'openrouter:openai/gpt-5-nano',
+                    release_date: '2024-05-01',
+                }),
+                expect.objectContaining({
+                    id: 'openrouter:anthropic/claude-haiku-4.5',
+                    release_date: '2025-10-15',
+                }),
+            ]),
+        );
     });
 });
 
