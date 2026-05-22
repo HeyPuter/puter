@@ -1071,15 +1071,16 @@ export class LegacyFSController extends PuterController {
             );
         }
 
-        // `write` — multipart upload, streamed directly to the v2 write path.
-        // ACL re-check: if the caller is session-authenticated, verify they
-        // have write permission on the target. This prevents a read-only
-        // share recipient from using a leaked write signature.
-        if (operation === 'write' && req.actor) {
+        // ACL re-check: require an authenticated actor with write
+        // permission. A valid write signature alone is not sufficient —
+        // the caller must also pass ACL, preventing exploitation of
+        // leaked write URLs by read-only share recipients.
+        const callerActor = this.#requireActor(req);
+        if (operation === 'write') {
             await assertAccess(
                 this.services.acl,
                 this.services.fs,
-                req.actor,
+                callerActor,
                 targetEntry.path,
                 'write',
             );
@@ -1120,7 +1121,6 @@ export class LegacyFSController extends PuterController {
         // ops (mkdir/rename/copy/move/delete) require a caller actor with explicit
         // ACL on the affected paths — mirroring the unsigned counterparts above.
         const record = asRecord(req.body);
-        const callerActor = this.#requireActor(req);
         if (operation === 'mkdir') {
             await assertAccess(
                 this.services.acl,
@@ -1271,12 +1271,14 @@ export class LegacyFSController extends PuterController {
         }
 
         // Directory: return a signed listing of direct children.
+        // The caller only proved read access, so strip write_url from
+        // each child to prevent privilege escalation via /writeFile.
         if (entry.isDir) {
             const children = await this.services.fs.listDirectory(entry.uuid);
-            const signedChildren = children.map((child) => ({
-                ...signEntry(child, signingCfg),
-                path: child.path,
-            }));
+            const signedChildren = children.map((child) => {
+                const { write_url: _, ...rest } = signEntry(child, signingCfg);
+                return { ...rest, path: child.path };
+            });
             res.json(signedChildren);
             return;
         }
