@@ -32,7 +32,7 @@ import {
     buildPublicHostRedirect,
     hostMatchesPrivateDomain,
     renderLoginBootstrapHtml,
-    resolvePrivateAppForHostedSite,
+    resolveOwnedAppForHostedSite,
     resolvePrivateIdentity,
     resolvePublicHostedIdentity,
 } from './privateAppGate';
@@ -204,29 +204,21 @@ export const createPuterSiteMiddleware = (
 
         const hostingCfg = buildHostingConfig(config);
 
-        let associatedApp: AppRow | null = null;
-        if (
-            site.associated_app_id !== null &&
-            site.associated_app_id !== undefined
-        ) {
-            associatedApp = (await layers.stores.app.getById(
-                site.associated_app_id,
-            )) as unknown as AppRow | null;
-        }
-
-        const privateApp = (await resolvePrivateAppForHostedSite({
+        // The subdomain row's `associated_app_id` column is intentionally
+        // not consulted — it was previously user-writable without an
+        // ownership check (so any value there is either legacy or planted).
+        // Resolve "what app does this subdomain host?" directly from
+        // `apps.owner_user_id = site.user_id` + `index_url` match against
+        // the request host.
+        const associatedApp = (await resolveOwnedAppForHostedSite({
             req,
-            site: {
-                user_id: site.user_id,
-                associated_app_id: site.associated_app_id,
-            },
-            associatedApp,
+            site: { user_id: site.user_id },
             db: layers.clients.db,
             config: hostingCfg,
-            matchedHostingDomain: matched,
         })) as AppRow | null;
 
-        const isPrivateApp = Boolean(privateApp?.is_private);
+        const isPrivateApp = Boolean(associatedApp?.is_private);
+        const privateApp = isPrivateApp ? associatedApp : null;
 
         if (isPrivateApp) {
             // Private apps must run on the private hosting domain. If a

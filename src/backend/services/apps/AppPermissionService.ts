@@ -203,25 +203,21 @@ export class AppPermissionService extends PuterService {
     }
 
     /**
-     * Resolve an app's filesystem root directory id. Ported from v1's
-     * AppService.getAppRootDirId — first checks the canonical
-     * `subdomains.associated_app_id` binding, then falls back to parsing
-     * the hosting subdomain out of `app.index_url` and resolving it.
+     * Resolve an app's filesystem root directory id by parsing the hosting
+     * subdomain out of `app.index_url` and looking up the matching subdomain
+     * row.
+     *
+     * v1 first consulted `subdomains.associated_app_id` for a direct
+     * binding — that column was user-writable without an ownership check,
+     * so trusting it let any user point an arbitrary app's "root dir" at
+     * their own subdomain. The column is no longer authoritative; the
+     * `index_url`-derived lookup below is the only path.
      */
     async #resolveAppRootDirId(app: {
         id: number;
         uid: string;
         index_url?: string;
     }): Promise<number | null> {
-        const rows = (await this.clients.db.read(
-            'SELECT root_dir_id FROM subdomains WHERE associated_app_id = ? AND root_dir_id IS NOT NULL LIMIT 1',
-            [app.id],
-        )) as Array<{ root_dir_id: number | null }>;
-        const direct = rows[0]?.root_dir_id;
-        if (direct !== undefined && direct !== null) {
-            return Number(direct);
-        }
-
         const hostingDomain = (
             this.config as { static_hosting_domain?: string }
         ).static_hosting_domain?.toLowerCase();

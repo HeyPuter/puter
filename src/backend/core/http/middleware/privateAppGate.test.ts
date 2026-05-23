@@ -34,7 +34,7 @@ import {
     normalizeHost,
     normalizeHostRaw,
     renderLoginBootstrapHtml,
-    resolvePrivateAppForHostedSite,
+    resolveOwnedAppForHostedSite,
     resolvePrivateIdentity,
     resolvePublicHostedIdentity,
     subdomainFromHost,
@@ -451,7 +451,7 @@ describe('renderLoginBootstrapHtml', () => {
 
 // ── Server-backed helpers (AuthService + DB) ─────────────────────────
 //
-// `resolvePrivateAppForHostedSite` queries the apps table directly;
+// `resolveOwnedAppForHostedSite` queries the apps table directly;
 // `resolvePrivateIdentity` / `resolvePublicHostedIdentity` rely on the
 // real AuthService for token verification + cookie naming.
 
@@ -524,7 +524,33 @@ const baseConfig = () =>
         protocol: 'http',
     } as unknown as IConfig);
 
-describe('resolvePrivateAppForHostedSite', () => {
+const createApp = async (
+    ownerId: number,
+    indexUrl: string,
+    opts: { isPrivate?: boolean } = {},
+): Promise<{ id: number; uid: string }> => {
+    const uid = `app-${uuidv4()}`;
+    await server.clients.db.write(
+        `INSERT INTO \`apps\` (\`uid\`, \`name\`, \`title\`, \`index_url\`, \`owner_user_id\`, \`is_private\`)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [
+            uid,
+            `app-${uid}`,
+            `app-${uid}`,
+            indexUrl,
+            ownerId,
+            opts.isPrivate ? 1 : 0,
+        ],
+    );
+    const row = (
+        await server.clients.db.read('SELECT id, uid FROM apps WHERE uid = ?', [
+            uid,
+        ])
+    )[0] as { id: number; uid: string };
+    return row;
+};
+
+describe('resolveOwnedAppForHostedSite', () => {
     const reqOf = (host: string): Request =>
         ({
             hostname: host,
@@ -532,84 +558,101 @@ describe('resolvePrivateAppForHostedSite', () => {
             headers: { host },
         }) as unknown as Request;
 
-    it('returns the associated app immediately when it is already private', async () => {
+    it("matches the subdomain owner's app by index_url on the same hosting domain", async () => {
         const owner = await makeUser();
-        const associatedApp = {
-            id: 1,
-            uid: 'app-direct',
-            is_private: 1,
-            owner_user_id: owner.id,
-        };
-        const out = await resolvePrivateAppForHostedSite({
-            req: reqOf('beans.site.puter.localhost'),
-            site: { user_id: owner.id, associated_app_id: 1 },
-            associatedApp,
-            db: server.clients.db,
-            config: baseConfig(),
-            matchedHostingDomain: 'site.puter.localhost',
-        });
-        expect(out?.uid).toBe('app-direct');
-    });
-
-    it('falls back to an index_url lookup when associated_app_id is unset', async () => {
-        const owner = await makeUser();
-        // Private app registered with a URL on the static hosting domain.
-        // The visitor lands on the equivalent private host — the helper
-        // should still find it.
         const app = await createPrivateApp(
             owner.id,
             'http://beans.site.puter.localhost/',
         );
-        const out = await resolvePrivateAppForHostedSite({
-            req: reqOf('beans.app.puter.localhost'),
-            site: { user_id: owner.id, associated_app_id: null },
-            associatedApp: null,
+        const out = await resolveOwnedAppForHostedSite({
+            req: reqOf('beans.site.puter.localhost'),
+            site: { user_id: owner.id },
             db: server.clients.db,
             config: baseConfig(),
-            matchedHostingDomain: 'app.puter.localhost',
         });
         expect(out?.uid).toBe(app.uid);
     });
 
-    it('returns the original associated app when no index_url matches', async () => {
+    it('matches across hosting variants (static URL, private host request)', async () => {
         const owner = await makeUser();
-        const associatedApp = {
-            id: 99,
-            uid: 'app-public',
-            is_private: 0,
-            owner_user_id: owner.id,
-        };
-        const out = await resolvePrivateAppForHostedSite({
-            req: reqOf('orphan.site.puter.localhost'),
-            site: { user_id: owner.id, associated_app_id: 99 },
-            associatedApp,
+        const app = await createPrivateApp(
+            owner.id,
+            'http://beans.site.puter.localhost/',
+        );
+        const out = await resolveOwnedAppForHostedSite({
+            req: reqOf('beans.app.puter.localhost'),
+            site: { user_id: owner.id },
             db: server.clients.db,
             config: baseConfig(),
-            matchedHostingDomain: 'site.puter.localhost',
         });
-        expect(out?.uid).toBe('app-public');
+        expect(out?.uid).toBe(app.uid);
+    });
+
+    it("ignores apps owned by a different user even when index_url matches the host", async () => {
+        // Regression test for the `associated_app_uid` IDOR: an app owned
+        // by user B must never resolve as "associated" with a subdomain
+        // owned by user A, even when the index_url notionally matches.
+        const a = await makeUser();
+        const b = await makeUser();
+        await createPrivateApp(b.id, 'http://beans.site.puter.localhost/');
+        const out = await resolveOwnedAppForHostedSite({
+            req: reqOf('beans.site.puter.localhost'),
+            site: { user_id: a.id },
+            db: server.clients.db,
+            config: baseConfig(),
+        });
+        expect(out).toBeNull();
+    });
+
+    it('returns a public app when requirePrivate is not set', async () => {
+        const owner = await makeUser();
+        const app = await createApp(
+            owner.id,
+            'http://beans.site.puter.localhost/',
+            { isPrivate: false },
+        );
+        const out = await resolveOwnedAppForHostedSite({
+            req: reqOf('beans.site.puter.localhost'),
+            site: { user_id: owner.id },
+            db: server.clients.db,
+            config: baseConfig(),
+        });
+        expect(out?.uid).toBe(app.uid);
+    });
+
+    it('filters out non-private apps when requirePrivate is set', async () => {
+        const owner = await makeUser();
+        await createApp(
+            owner.id,
+            'http://beans.site.puter.localhost/',
+            { isPrivate: false },
+        );
+        const out = await resolveOwnedAppForHostedSite({
+            req: reqOf('beans.site.puter.localhost'),
+            site: { user_id: owner.id },
+            db: server.clients.db,
+            config: baseConfig(),
+            requirePrivate: true,
+        });
+        expect(out).toBeNull();
     });
 
     it('returns null when the site has no owner', async () => {
-        const out = await resolvePrivateAppForHostedSite({
+        const out = await resolveOwnedAppForHostedSite({
             req: reqOf('beans.site.puter.localhost'),
-            site: { user_id: null, associated_app_id: null },
-            associatedApp: null,
+            site: { user_id: null },
             db: server.clients.db,
             config: baseConfig(),
-            matchedHostingDomain: 'site.puter.localhost',
         });
         expect(out).toBeNull();
     });
 
     it("returns null on a request whose host can't be parsed", async () => {
-        const out = await resolvePrivateAppForHostedSite({
+        const out = await resolveOwnedAppForHostedSite({
             req: reqOf(''),
-            site: { user_id: 1, associated_app_id: null },
-            associatedApp: null,
+            site: { user_id: 1 },
             db: server.clients.db,
             config: baseConfig(),
-            matchedHostingDomain: 'site.puter.localhost',
         });
         expect(out).toBeNull();
     });
