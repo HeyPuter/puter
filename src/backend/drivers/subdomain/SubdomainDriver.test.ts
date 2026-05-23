@@ -491,3 +491,147 @@ describe('SubdomainDriver.delete', () => {
         ).rejects.toMatchObject({ statusCode: 404 });
     });
 });
+
+// ── associated_app derivation (security fix) ───────────────────────
+//
+// `associated_app_uid` was previously a user-writable field on the
+// subdomain row, with no check that the targeted app belonged to the
+// caller. That let an attacker bind their own subdomain to another
+// user's app (notably a private app), tricking the hosted-site
+// middleware into running the entitlement gate for the victim's app on
+// the attacker's subdomain. The field is now ignored on writes and
+// derived on reads from `apps.owner_user_id = subdomain.user_id` plus
+// an `index_url` match against the subdomain's host variants.
+
+const createAppWithIndexUrl = async (
+    ownerUserId: number,
+    indexUrl: string,
+    opts: { isPrivate?: boolean } = {},
+): Promise<{ id: number; uid: string }> => {
+    const uid = `app-${uuidv4()}`;
+    await server.clients.db.write(
+        `INSERT INTO \`apps\` (\`uid\`, \`name\`, \`title\`, \`index_url\`, \`owner_user_id\`, \`is_private\`)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [
+            uid,
+            `app-${uid}`,
+            `app-${uid}`,
+            indexUrl,
+            ownerUserId,
+            opts.isPrivate ? 1 : 0,
+        ],
+    );
+    const row = (
+        await server.clients.db.read('SELECT id, uid FROM apps WHERE uid = ?', [
+            uid,
+        ])
+    )[0] as { id: number; uid: string };
+    return row;
+};
+
+describe('SubdomainDriver associated_app derivation', () => {
+    it('ignores `associated_app_uid` on create and derives null when no app matches', async () => {
+        const { actor } = await makeUser();
+        const username = actor.user!.username!;
+        const sub = uniqueSubdomain('assoc-create');
+
+        // Caller asserts an arbitrary app uid — must be silently dropped.
+        const result = (await withActor(actor, () =>
+            driver.create({
+                object: {
+                    subdomain: sub,
+                    root_dir: `/${username}/Public`,
+                    associated_app_uid: 'app-does-not-exist',
+                },
+            }),
+        )) as Record<string, unknown>;
+
+        expect(result.associated_app).toBeNull();
+        const row = await server.stores.subdomain.getBySubdomain(sub);
+        expect(row?.associated_app_id).toBeFalsy();
+    });
+
+    it('ignores `associated_app_uid` on update', async () => {
+        const { actor, userId } = await makeUser();
+        const username = actor.user!.username!;
+        const sub = uniqueSubdomain('assoc-update');
+
+        const created = (await withActor(actor, () =>
+            driver.create({
+                object: { subdomain: sub, root_dir: `/${username}/Public` },
+            }),
+        )) as Record<string, unknown>;
+
+        // Plant an app owned by another user that the index_url-derive
+        // would otherwise reject anyway. Even with the (now-defunct)
+        // explicit `associated_app_uid` knob, the field must stay null.
+        const other = await makeUser();
+        const otherApp = await createAppWithIndexUrl(
+            other.userId,
+            'http://anything.example.test/',
+        );
+        const updated = (await withActor(actor, () =>
+            driver.update({
+                uid: created.uid,
+                object: { associated_app_uid: otherApp.uid },
+            }),
+        )) as Record<string, unknown>;
+
+        expect(updated.associated_app).toBeNull();
+        const row = await server.stores.subdomain.getBySubdomain(sub);
+        expect(row?.associated_app_id).toBeFalsy();
+        // user_id should still be the original owner.
+        expect(row?.user_id).toBe(userId);
+    });
+
+    it("derives `associated_app` from the owner's app whose index_url matches the subdomain host", async () => {
+        const { actor, userId } = await makeUser();
+        const username = actor.user!.username!;
+        const sub = uniqueSubdomain('assoc-derive');
+
+        // App owned by the same user, registered with a URL on the
+        // default test hosting domain. The derive logic crosses host
+        // variants × protocols × paths, so any reasonable index_url
+        // anchored at the subdomain's name should match.
+        const indexUrl = `http://${sub}.site.puter.localhost/`;
+        const app = await createAppWithIndexUrl(userId, indexUrl);
+
+        const created = (await withActor(actor, () =>
+            driver.create({
+                object: { subdomain: sub, root_dir: `/${username}/Public` },
+            }),
+        )) as Record<string, unknown>;
+
+        const associated = created.associated_app as {
+            uid: string;
+        } | null;
+        expect(associated?.uid).toBe(app.uid);
+    });
+
+    it("does not derive an `associated_app` for another user's app at the same host", async () => {
+        // The core IDOR: attacker (a) sets up a subdomain whose host
+        // matches the index_url of a victim's (b) private app. Even on
+        // exact index_url match, the ownership filter must reject the
+        // app from another user's account.
+        const a = await makeUser();
+        const b = await makeUser();
+        const sub = uniqueSubdomain('idor');
+
+        await createAppWithIndexUrl(
+            b.userId,
+            `http://${sub}.site.puter.localhost/`,
+            { isPrivate: true },
+        );
+
+        const created = (await withActor(a.actor, () =>
+            driver.create({
+                object: {
+                    subdomain: sub,
+                    root_dir: `/${a.actor.user!.username}/Public`,
+                },
+            }),
+        )) as Record<string, unknown>;
+
+        expect(created.associated_app).toBeNull();
+    });
+});

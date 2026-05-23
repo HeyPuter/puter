@@ -141,12 +141,16 @@ export class SubdomainDriver extends PuterDriver {
             });
         }
         await this.services.fs.checkFSAccess(entry, actor);
-        const associatedAppId = await this.#resolveAssociatedAppId(object);
+        // `associated_app_id` is no longer accepted from clients. The
+        // "associated app" for a subdomain is derived at read time from
+        // `apps.owner_user_id = subdomain.user_id` + `index_url` match
+        // (see `#hydrateRows`), so a subdomain row can never assert an
+        // association with an app the caller doesn't own.
         const created = await this.stores.subdomain.create({
             userId: actor.user.id,
             subdomain,
             rootDirId,
-            associatedAppId,
+            associatedAppId: null,
             appOwner: actor.app?.id ?? null,
         });
         const [shaped] = await this.#hydrateRows(
@@ -234,9 +238,9 @@ export class SubdomainDriver extends PuterDriver {
             }
             patch.root_dir_id = rootDirId;
         }
-        if (object.associated_app_uid !== undefined)
-            patch.associated_app_id =
-                await this.#resolveAssociatedAppId(object);
+        // `associated_app_uid` is silently ignored on update — the field is
+        // derived at read time (see `#hydrateRows`). Same rationale as
+        // `create`: no parallel source of truth that the system can't verify.
         if (object.domain !== undefined)
             patch.domain = object.domain != null ? String(object.domain) : null;
 
@@ -496,32 +500,6 @@ export class SubdomainDriver extends PuterDriver {
         }
     }
 
-    // ── Input resolution ────────────────────────────────────────────
-    //
-    // Clients send `associated_app_uid` (the app's public UUID), never
-    // a raw mysql id. v1 used the OM `reference` mapping to do the
-    // same translation under the hood; v2 does it explicitly.
-    async #resolveAssociatedAppId(
-        object: Record<string, unknown>,
-    ): Promise<number | null> {
-        const uid = object.associated_app_uid;
-        if (uid == null) return null;
-        if (typeof uid !== 'string' || uid.length === 0) {
-            throw new HttpError(400, '`associated_app_uid` must be a string', {
-                legacyCode: 'bad_request',
-            });
-        }
-        const app = (await this.stores.app.getByUid(uid)) as {
-            id: number;
-        } | null;
-        if (!app) {
-            throw new HttpError(400, '`associated_app_uid` does not exist', {
-                legacyCode: 'bad_request',
-            });
-        }
-        return app.id;
-    }
-
     // ── Config ──────────────────────────────────────────────────────
 
     #configMaxSubdomains(): number {
@@ -565,7 +543,7 @@ export class SubdomainDriver extends PuterDriver {
         if (rows.length === 0) return [];
 
         const collectIds = (
-            key: 'user_id' | 'root_dir_id' | 'associated_app_id' | 'app_owner',
+            key: 'user_id' | 'root_dir_id' | 'app_owner',
         ): number[] => {
             const out = new Set<number>();
             for (const r of rows) {
@@ -581,12 +559,18 @@ export class SubdomainDriver extends PuterDriver {
 
         const userIds = collectIds('user_id');
         const rootDirIds = collectIds('root_dir_id');
-        const appIds = [
-            ...new Set([
-                ...collectIds('associated_app_id'),
-                ...collectIds('app_owner'),
-            ]),
+        const appOwnerIds = collectIds('app_owner');
+
+        // `associated_app` is derived: match apps owned by `subdomain.user_id`
+        // whose `index_url` resolves to one of the subdomain's host
+        // variants. The row's stored `associated_app_id` is ignored
+        // (was user-writable without an ownership check).
+        const associatedAppIdByRowUuid =
+            await this.#deriveAssociatedAppIdByRowUuid(rows);
+        const associatedAppIds = [
+            ...new Set(associatedAppIdByRowUuid.values()),
         ];
+        const allAppIds = [...new Set([...associatedAppIds, ...appOwnerIds])];
 
         // Single round-trip per store, all in parallel — the filetype
         // lookup keys off the requested ids (not on getByIds' result),
@@ -595,8 +579,8 @@ export class SubdomainDriver extends PuterDriver {
             await Promise.all([
                 this.stores.user.getByIds(userIds),
                 this.stores.fsEntry.getEntriesByIds(rootDirIds),
-                this.stores.app.getByIds(appIds),
-                this.stores.app.getFiletypeAssociationsByIds(appIds),
+                this.stores.app.getByIds(allAppIds),
+                this.stores.app.getFiletypeAssociationsByIds(allAppIds),
             ]);
 
         return rows.map((row) =>
@@ -605,8 +589,133 @@ export class SubdomainDriver extends PuterDriver {
                 entriesById,
                 appsById,
                 filetypesByAppId,
+                associatedAppIdByRowUuid,
             }),
         );
+    }
+
+    /**
+     * For each subdomain row, find the app owned by the same user whose
+     * `index_url` matches one of the subdomain's host candidates
+     * (subdomain × hosting domains × protocols × paths). Returns a
+     * `rowUuid → appId` map. Rows with no matching app are absent.
+     *
+     * Runs one batched DB query regardless of input size.
+     */
+    async #deriveAssociatedAppIdByRowUuid(
+        rows: Array<Record<string, unknown>>,
+    ): Promise<Map<string, number>> {
+        const result = new Map<string, number>();
+        if (rows.length === 0) return result;
+
+        const normalize = (v: unknown): string | null => {
+            if (typeof v !== 'string') return null;
+            const trimmed = v.trim().toLowerCase().replace(/^\./, '');
+            return trimmed || null;
+        };
+        const stripPort = (v: string): string => v.split(':')[0] || v;
+
+        const hostingDomainsRaw = [
+            normalize(this.config.static_hosting_domain),
+            normalize(this.config.static_hosting_domain_alt),
+            normalize(this.config.private_app_hosting_domain),
+            normalize(this.config.private_app_hosting_domain_alt),
+        ].filter((d): d is string => !!d);
+        const hostingDomains = [
+            ...new Set([
+                ...hostingDomainsRaw,
+                ...hostingDomainsRaw.map(stripPort),
+            ]),
+        ];
+        if (hostingDomains.length === 0) return result;
+
+        const configuredProtocol =
+            typeof this.config.protocol === 'string'
+                ? this.config.protocol.trim().replace(/:$/, '')
+                : '';
+        const protocols = [
+            ...new Set(
+                [configuredProtocol, 'https', 'http'].filter((p) => !!p),
+            ),
+        ];
+
+        const userIdToRowMeta = new Map<
+            number,
+            Array<{ rowUuid: string; candidates: Set<string> }>
+        >();
+        const allCandidates = new Set<string>();
+
+        for (const row of rows) {
+            const subdomain =
+                typeof row.subdomain === 'string'
+                    ? row.subdomain.toLowerCase()
+                    : '';
+            const userId =
+                typeof row.user_id === 'number'
+                    ? row.user_id
+                    : Number(row.user_id);
+            const rowUuid =
+                typeof row.uuid === 'string' && row.uuid.length > 0
+                    ? row.uuid
+                    : '';
+            if (!subdomain || !Number.isFinite(userId) || !rowUuid) continue;
+
+            const candidates = new Set<string>();
+            for (const d of hostingDomains) {
+                const host = `${subdomain}.${d}`;
+                for (const p of protocols) {
+                    const base = `${p}://${host}`;
+                    candidates.add(base);
+                    candidates.add(`${base}/`);
+                    candidates.add(`${base}/index.html`);
+                }
+            }
+            for (const c of candidates) allCandidates.add(c);
+
+            if (!userIdToRowMeta.has(userId)) {
+                userIdToRowMeta.set(userId, []);
+            }
+            userIdToRowMeta.get(userId)!.push({ rowUuid, candidates });
+        }
+
+        if (allCandidates.size === 0 || userIdToRowMeta.size === 0) {
+            return result;
+        }
+
+        const userIds = [...userIdToRowMeta.keys()];
+        const userPlaceholders = userIds.map(() => '?').join(', ');
+        const candidateList = [...allCandidates];
+        const urlPlaceholders = candidateList.map(() => '?').join(', ');
+        const matches = (await this.clients.db.read(
+            `SELECT \`id\`, \`owner_user_id\`, \`index_url\` FROM \`apps\`
+             WHERE \`owner_user_id\` IN (${userPlaceholders})
+               AND \`index_url\` IN (${urlPlaceholders})`,
+            [...userIds, ...candidateList],
+        )) as Array<Record<string, unknown>>;
+
+        for (const m of matches) {
+            const appId = typeof m.id === 'number' ? m.id : Number(m.id);
+            const ownerId =
+                typeof m.owner_user_id === 'number'
+                    ? m.owner_user_id
+                    : Number(m.owner_user_id);
+            const indexUrl = typeof m.index_url === 'string' ? m.index_url : '';
+            if (
+                !Number.isFinite(appId) ||
+                !Number.isFinite(ownerId) ||
+                !indexUrl
+            ) {
+                continue;
+            }
+            const rowsForOwner = userIdToRowMeta.get(ownerId) ?? [];
+            for (const { rowUuid, candidates } of rowsForOwner) {
+                if (candidates.has(indexUrl) && !result.has(rowUuid)) {
+                    result.set(rowUuid, appId);
+                }
+            }
+        }
+
+        return result;
     }
 
     #shapeRow(
@@ -616,6 +725,7 @@ export class SubdomainDriver extends PuterDriver {
             entriesById: Map<number, FSEntry>;
             appsById: Map<number, Record<string, unknown>>;
             filetypesByAppId: Map<number, string[]>;
+            associatedAppIdByRowUuid: Map<string, number>;
         },
     ): Record<string, unknown> {
         const ts = row.ts;
@@ -641,11 +751,9 @@ export class SubdomainDriver extends PuterDriver {
                 : null;
 
         const associatedAppRefId =
-            row.associated_app_id == null
-                ? null
-                : typeof row.associated_app_id === 'number'
-                  ? row.associated_app_id
-                  : Number(row.associated_app_id);
+            typeof row.uuid === 'string'
+                ? (lookups.associatedAppIdByRowUuid.get(row.uuid) ?? null)
+                : null;
         const associatedApp =
             associatedAppRefId != null
                 ? (lookups.appsById.get(associatedAppRefId) ?? null)
