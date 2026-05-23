@@ -42,6 +42,7 @@ const WORKER_SUBDOMAIN_PREFIX = 'workers.puter.';
 let preamble = '';
 let preambleError = false;
 let preambleLineCount = 0;
+let preambleVersion: string | null = null;
 try {
     const preamblePath = path.join(
         __dirname,
@@ -50,6 +51,13 @@ try {
     console.log('reading: ' + preamblePath);
     preamble = readFileSync(preamblePath, 'utf-8');
     preambleLineCount = preamble.split('\n').length - 1;
+
+    const versionMatch = /^var __PUTER_PREAMBLE_VERSION__\s*=\s*"([^"]+)"/.exec(
+        preamble,
+    );
+    if (versionMatch) {
+        preambleVersion = versionMatch[1];
+    }
 } catch {
     console.warn(
         '[workers] preamble not built — workers will not have puter.js injected.',
@@ -74,6 +82,10 @@ export class WorkerDriver extends PuterDriver {
     readonly isDefault = true;
 
     #cfBaseUrl = '';
+
+    static currentPreambleVersion(): string | null {
+        return preambleVersion;
+    }
 
     override onServerStart(): void {
         const cfg = this.#workerConfig();
@@ -199,6 +211,7 @@ export class WorkerDriver extends PuterDriver {
                 String(existingSub.uuid),
                 {
                     root_dir_id: loaded.fsEntry?.sqlId ?? null,
+                    preamble_version: preambleVersion,
                 },
                 { userId: actor.user.id },
             );
@@ -217,6 +230,7 @@ export class WorkerDriver extends PuterDriver {
                 subdomain: subdomainName,
                 rootDirId: loaded.fsEntry?.sqlId,
                 appOwner: appOwnerId,
+                preambleVersion,
             });
         }
 
@@ -603,6 +617,14 @@ export class WorkerDriver extends PuterDriver {
                     authorization,
                     preamble + sourceCode,
                 )) as { success?: boolean; errors?: unknown[]; url?: string };
+
+                if (cfResult.success && row.uuid) {
+                    await this.stores.subdomain.update(
+                        String(row.uuid),
+                        { preamble_version: preambleVersion },
+                        { userId },
+                    );
+                }
 
                 // Notify the user
                 await this.#notifyUser(userId, workerName, cfResult);
