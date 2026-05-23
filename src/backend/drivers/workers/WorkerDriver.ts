@@ -25,7 +25,8 @@ import { PuterDriver } from '../types.js';
 import { loadFileInput } from '../util/fileInput.js';
 import type { Actor } from '../../core/actor.js';
 import path from 'node:path';
-import { EventMetadata } from '../../clients/event/types.js';
+import type { EventMetadata } from '../../clients/event/types.js';
+import type { FSEntry } from '../../stores/fs/FSEntry.js';
 
 const CF_BASE_URL = 'https://api.cloudflare.com/client/v4/accounts';
 const WORKER_NAME_REGEX = /^[a-zA-Z0-9_-]+$/;
@@ -497,38 +498,49 @@ export class WorkerDriver extends PuterDriver {
         );
     }
 
-    // ── Hot-reload: auto-redeploy on file write ─────────────────────
+    // ── Hot-reload: auto-redeploy on source file write ──────────────
     //
     // When a user saves a JS file that's tied to a worker subdomain,
     // we redeploy it to Cloudflare automatically. This is what makes
     // "save file → live in prod" instant.
     //
-    // The FS layer emits `outer.gui.item.added` and
-    // `outer.gui.item.updated` after a write commits. We subscribe to
-    // those — the payload carries `{ user_id_list, response }` where
-    // `response` is the entry shape (uuid, path, user_id, etc.). We
-    // match against worker subdomain `root_dir_id` to decide whether
-    // to re-deploy.
+    // This listens to backend FS lifecycle events rather than `outer.gui.*`
+    // socket events. GUI events intentionally expose public UUID-shaped ids,
+    // while worker subdomains are keyed to the numeric fsentries.id.
 
     #subscribeHotReload(): void {
         if (!this.#cfBaseUrl) return; // CF not configured — skip
 
-        for (const eventName of [
-            'outer.gui.item.added',
-            'outer.gui.item.updated',
-        ] as const) {
-            this.clients.event.on(
-                eventName,
-                (_key: string, data: unknown, meta: EventMetadata) => {
-                    void this.#handleFileWrite(data, meta).catch((err) => {
-                        console.error('[workers] hot-reload error', err);
-                    });
-                },
-            );
-        }
+        this.clients.event.on(
+            'fs.write.file',
+            (_key: string, data: unknown, meta: EventMetadata) => {
+                void this.#handleSourceWrite(data, meta).catch((err) => {
+                    console.error('[workers] hot-reload error', err);
+                });
+            },
+        );
+        this.clients.event.on(
+            'fs.remove.node',
+            (_key: string, data: unknown, meta: EventMetadata) => {
+                void this.#handleSourceRemove(data, meta).catch((err) => {
+                    console.error('[workers] source remove error', err);
+                });
+            },
+        );
+        this.clients.event.on(
+            'fs.move.node',
+            (_key: string, data: unknown, meta: EventMetadata) => {
+                void this.#handleSourceMove(data, meta).catch((err) => {
+                    console.error('[workers] source move error', err);
+                });
+            },
+        );
     }
 
-    async #handleFileWrite(data: unknown, meta: EventMetadata): Promise<void> {
+    async #handleSourceWrite(
+        data: unknown,
+        meta: EventMetadata,
+    ): Promise<void> {
         const metaObj =
             meta && typeof meta === 'object'
                 ? (meta as Record<string, unknown>)
@@ -536,37 +548,10 @@ export class WorkerDriver extends PuterDriver {
         // Only run on the local node — incoming broadcast writes shouldn't trigger a re-deploy
         if (metaObj.from_outside) return;
 
-        const d = data as Record<string, unknown> | undefined;
-        if (!d) return;
+        const entry = this.#extractFsEntryFromEvent(data);
+        if (!entry || entry.isDir) return;
 
-        // `outer.gui.item.*` events carry `{ user_id_list, response }`
-        // where `response` is the FS entry shape. Extract what we need.
-        const response = (d.response ?? d) as Record<string, unknown>;
-        const userIdList = d.user_id_list as Array<number | string> | undefined;
-
-        const uuid = (response.uuid ?? response.uid) as string | undefined;
-        const userId = (userIdList?.[0] ?? response.user_id) as
-            | number
-            | undefined;
-        const path = response.path as string | undefined;
-
-        // Only files trigger hot-reload (not directories)
-        if (response.is_dir || response.isDir) return;
-        if (!uuid || !userId) return;
-
-        // Check if any worker subdomain points at this file
-        const workerSubs = await this.stores.subdomain.listByUserIdAndPrefix(
-            userId,
-            WORKER_SUBDOMAIN_PREFIX,
-        );
-        const matched = workerSubs.filter((r: Record<string, unknown>) => {
-            // root_dir_id can be the FS entry id or uuid depending on how it was stored
-            return (
-                String(r.root_dir_id) === String(uuid) ||
-                String(r.root_dir_id) === String(response.id)
-            );
-        });
-
+        const matched = await this.#listWorkerRowsForEntry(entry);
         if (matched.length === 0) return;
 
         for (const row of matched) {
@@ -577,7 +562,7 @@ export class WorkerDriver extends PuterDriver {
             );
 
             try {
-                const ownerUser = await this.stores.user.getById(userId);
+                const ownerUser = await this.stores.user.getById(entry.userId);
                 if (!ownerUser) continue;
                 const ownerActor = { user: ownerUser } as Actor;
 
@@ -591,7 +576,7 @@ export class WorkerDriver extends PuterDriver {
                     },
                     this.services.fs,
                     ownerActor,
-                    path ?? uuid, // prefer path, fall back to uuid
+                    entry.path ?? entry.uuid, // prefer path, fall back to uuid
                     { maxBytes: MAX_SOURCE_SIZE },
                 );
                 const sourceCode = loaded.buffer.toString('utf-8');
@@ -625,22 +610,151 @@ export class WorkerDriver extends PuterDriver {
                     await this.stores.subdomain.update(
                         String(row.uuid),
                         { preamble_version: preambleVersion },
-                        { userId },
+                        { userId: entry.userId },
                     );
                 }
 
                 // Notify the user
-                await this.#notifyUser(userId, workerName, cfResult);
+                await this.#notifyUser(entry.userId, workerName, cfResult);
             } catch (err) {
                 console.warn(
                     `[workers] hot-reload deploy failed for ${workerName}`,
                     err,
                 );
-                await this.#notifyUser(userId, workerName, {
+                await this.#notifyUser(entry.userId, workerName, {
                     success: false,
                     errors: [String(err)],
                 });
             }
+        }
+    }
+
+    async #handleSourceRemove(
+        data: unknown,
+        meta: EventMetadata,
+    ): Promise<void> {
+        const metaObj =
+            meta && typeof meta === 'object'
+                ? (meta as Record<string, unknown>)
+                : {};
+        if (metaObj.from_outside) return;
+
+        const entry = this.#extractFsEntryFromEvent(data);
+        if (!entry || entry.isDir) return;
+
+        const matched = await this.#listWorkerRowsForEntry(entry);
+        for (const row of matched) {
+            await this.#deleteWorkerForSourceRow(row, entry.userId);
+        }
+    }
+
+    async #handleSourceMove(data: unknown, meta: EventMetadata): Promise<void> {
+        const metaObj =
+            meta && typeof meta === 'object'
+                ? (meta as Record<string, unknown>)
+                : {};
+        if (metaObj.from_outside) return;
+
+        const entry = this.#extractFsEntryFromEvent(data);
+        if (!entry || !this.#isTrashPath(entry.path)) return;
+
+        const matched = entry.isDir
+            ? await this.#listWorkerRowsUnderPath(entry.userId, entry.path)
+            : await this.#listWorkerRowsForEntry(entry);
+        for (const row of matched) {
+            await this.#deleteWorkerForSourceRow(row, entry.userId);
+        }
+    }
+
+    #extractFsEntryFromEvent(data: unknown): FSEntry | undefined {
+        if (!data || typeof data !== 'object') return undefined;
+        const event = data as Record<string, unknown>;
+        for (const key of ['node', 'entry', 'target']) {
+            const value = event[key];
+            if (this.#isFsEntry(value)) {
+                return value;
+            }
+        }
+        return undefined;
+    }
+
+    #isFsEntry(value: unknown): value is FSEntry {
+        if (!value || typeof value !== 'object') return false;
+        const entry = value as Partial<FSEntry>;
+        return (
+            typeof entry.id === 'number' &&
+            typeof entry.uuid === 'string' &&
+            typeof entry.userId === 'number' &&
+            typeof entry.path === 'string' &&
+            typeof entry.isDir === 'boolean'
+        );
+    }
+
+    async #listWorkerRowsForEntry(
+        entry: FSEntry,
+    ): Promise<Array<Record<string, unknown>>> {
+        const workerSubs = await this.stores.subdomain.listByUserIdAndPrefix(
+            entry.userId,
+            WORKER_SUBDOMAIN_PREFIX,
+        );
+        return workerSubs.filter((r: Record<string, unknown>) => {
+            return (
+                String(r.root_dir_id) === String(entry.id) ||
+                String(r.root_dir_id) === String(entry.uuid) ||
+                String(r.root_dir_id) === String(entry.uid)
+            );
+        });
+    }
+
+    async #listWorkerRowsUnderPath(
+        userId: number,
+        parentPath: string,
+    ): Promise<Array<Record<string, unknown>>> {
+        const workerSubs = await this.stores.subdomain.listByUserIdAndPrefix(
+            userId,
+            WORKER_SUBDOMAIN_PREFIX,
+        );
+        const rootDirIds = workerSubs
+            .map((r: Record<string, unknown>) => r.root_dir_id)
+            .filter((id): id is number => typeof id === 'number');
+        const entriesById =
+            await this.stores.fsEntry.getEntriesByIds(rootDirIds);
+        return workerSubs.filter((row: Record<string, unknown>) => {
+            const rootDirId = row.root_dir_id;
+            if (typeof rootDirId !== 'number') return false;
+            const entry = entriesById.get(rootDirId);
+            return (
+                entry?.path === parentPath ||
+                entry?.path.startsWith(`${parentPath}/`)
+            );
+        });
+    }
+
+    #isTrashPath(entryPath: string): boolean {
+        const parts = entryPath.split('/').filter(Boolean);
+        return parts[1] === 'Trash';
+    }
+
+    async #deleteWorkerForSourceRow(
+        row: Record<string, unknown>,
+        userId: number,
+    ): Promise<void> {
+        const workerFullName = String(row.subdomain ?? '');
+        if (!workerFullName.startsWith(WORKER_SUBDOMAIN_PREFIX)) return;
+        const workerName = workerFullName.slice(WORKER_SUBDOMAIN_PREFIX.length);
+
+        try {
+            await this.#cfDelete(workerName);
+            if (row.uuid) {
+                await this.stores.subdomain.deleteByUuid(String(row.uuid), {
+                    userId,
+                });
+            }
+        } catch (err) {
+            console.warn(
+                `[workers] source cleanup failed for ${workerName}`,
+                err,
+            );
         }
     }
 

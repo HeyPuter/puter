@@ -1,10 +1,13 @@
 // This suite tests basic features of puter webdav. it is not a comprehensive webdav test suite unlike litmus 
 // but rather it performs some common sense checks to ensure that WebDAV support isn't irrevocably broken in puter
 import type { Request, Response } from 'express';
+import { Readable } from 'node:stream';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { v4 as uuidv4 } from 'uuid';
 import { PuterRouter } from '../../core/http/PuterRouter.js';
 import { PuterServer } from '../../server.js';
 import { setupTestServer } from '../../testUtil.js';
+import { generateDefaultFsentries } from '../../util/userProvisioning.js';
 import type { WebDAVController } from './WebDAVController.js';
 
 let server: PuterServer;
@@ -100,6 +103,35 @@ const basicAuth = (user: string, pass: string) =>
     `Basic ${Buffer.from(`${user}:${pass}`).toString('base64')}`;
 
 const noop = vi.fn();
+
+const makeUser = async () => {
+    const username = `webdav-${Math.random().toString(36).slice(2, 10)}`;
+    const created = await server.stores.user.create({
+        username,
+        uuid: uuidv4(),
+        password: null,
+        email: `${username}@test.local`,
+        free_storage: 100 * 1024 * 1024,
+        requires_email_confirmation: false,
+    });
+    await generateDefaultFsentries(
+        server.clients.db,
+        server.stores.user,
+        created,
+    );
+    const refreshed = (await server.stores.user.getById(created.id))!;
+    return {
+        userId: refreshed.id,
+        username: refreshed.username,
+        actor: {
+            user: {
+                id: refreshed.id,
+                uuid: refreshed.uuid,
+                username: refreshed.username,
+            },
+        },
+    };
+};
 
 describe('WebDAVController', () => {
     describe('route registration', () => {
@@ -395,6 +427,53 @@ describe('WebDAVController', () => {
                 noop,
             );
             expect(captured.statusCode).toBe(422);
+        });
+
+        it('emits GUI-safe item events without leaking numeric fsentry ids', async () => {
+            const { actor, userId, username } = await makeUser();
+            const target = `/${username}/Documents/webdav-event.txt`;
+            const { res, captured } = makeRes();
+            const req = Object.assign(
+                Readable.from(['hello']),
+                makeReq({
+                    method: 'PUT',
+                    path: target,
+                    headers: { 'content-length': '5' },
+                    actor,
+                }),
+            ) as Request;
+
+            const emitSpy = vi.spyOn(server.clients.event, 'emit');
+            let addedCall:
+                | (typeof emitSpy.mock.calls)[number]
+                | undefined;
+            try {
+                await dispatchMiddleware(req, res, noop);
+                await new Promise((resolve) => setTimeout(resolve, 0));
+                addedCall = emitSpy.mock.calls.find(
+                    ([eventName]) => eventName === 'outer.gui.item.added',
+                );
+            } finally {
+                emitSpy.mockRestore();
+            }
+
+            expect(captured.statusCode).toBe(201);
+            expect(addedCall).toBeTruthy();
+            const payload = addedCall?.[1] as {
+                user_id_list?: number[];
+                response?: Record<string, unknown>;
+            };
+            expect(payload.user_id_list).toEqual([userId]);
+            expect(payload.response).toMatchObject({
+                id: expect.any(String),
+                uid: expect.any(String),
+                uuid: expect.any(String),
+                path: target,
+                from_new_service: true,
+            });
+            expect(typeof payload.response?.id).toBe('string');
+            expect(payload.response?.id).toBe(payload.response?.uuid);
+            expect(payload.response).not.toHaveProperty('userId');
         });
     });
 
