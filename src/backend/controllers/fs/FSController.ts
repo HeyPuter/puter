@@ -20,12 +20,13 @@
 import Busboy from 'busboy';
 import type { Request, Response } from 'express';
 import { posix as pathPosix } from 'node:path';
-import { assertNormalized } from '../../services/fs/resolveNode.js';
 import { pipeline } from 'node:stream/promises';
 import type { Actor } from '../../core/actor.js';
+import { effectiveActorApp } from '../../core/actor.js';
 import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { Controller, Get, Post } from '../../core/http/decorators.js';
+import { assertNormalized } from '../../services/fs/resolveNode.js';
 import type {
     PreparedBatchWrite,
     UploadedBatchWriteItem,
@@ -421,7 +422,11 @@ export class FSController extends PuterController {
             const busboy = Busboy({ headers: req.headers });
 
             busboy.on('field', (fieldName, value, info) => {
-                if (info.fieldnameTruncated || info.valueTruncated) {
+                if (
+                    info.fieldnameTruncated ||
+                    info.nameTruncated ||
+                    info.valueTruncated
+                ) {
                     failParse(
                         new HttpError(
                             400,
@@ -910,7 +915,7 @@ export class FSController extends PuterController {
 
     @Post('/search', { subdomain: 'api', requireVerified: true })
     async searchEntries(req: Request, res: Response) {
-        this.#requireActor(req);
+        const actor = this.#requireActor(req);
         const userId = this.#getActorUserId(req);
         const body = this.#toObjectRecord(req.body);
         const query =
@@ -929,6 +934,7 @@ export class FSController extends PuterController {
             userId,
             query,
             limit ?? 200,
+            this.#appDataScopeForActor(actor),
         );
         res.json(results);
     }
@@ -2124,6 +2130,20 @@ export class FSController extends PuterController {
     #isAppDataPath(targetPath: string): boolean {
         const pathParts = targetPath.split('/').filter(Boolean);
         return pathParts.length >= 2 && pathParts[1] === 'AppData';
+    }
+
+    // If `actor` is effectively scoped to an app (directly or through an
+    // access-token issuer chain), return that app's AppData root under the
+    // actor's user. Returns undefined for pure user actors. The store anchors
+    // search results to this path so app actors can't see entries outside
+    // their AppData via `/fs/search`.
+    #appDataScopeForActor(actor: Actor): string | undefined {
+        const app = effectiveActorApp(actor);
+        if (!app) return undefined;
+        const username = actor.user?.username;
+        if (typeof username !== 'string' || username.length === 0)
+            return undefined;
+        return `/${username}/AppData/${app.uid}`;
     }
 
     #estimateDataUrlSize(dataUrl: string): number {
