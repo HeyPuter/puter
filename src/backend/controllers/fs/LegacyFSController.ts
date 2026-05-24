@@ -22,7 +22,7 @@ import type { Request, RequestHandler, Response } from 'express';
 import { contentType as contentTypeFromMime } from 'mime-types';
 import { posix as pathPosix } from 'node:path';
 import type { Actor } from '../../core/actor.js';
-import { isAccessTokenActor } from '../../core/actor.js';
+import { effectiveActorApp, isAccessTokenActor } from '../../core/actor.js';
 import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import type { PuterRouter } from '../../core/http/PuterRouter.js';
@@ -195,35 +195,7 @@ export class LegacyFSController extends PuterController {
             res.json({ recommended, recent });
         });
 
-        router.post('/suggest_apps', apiOptions, async (req, res) => {
-            const suggestSvc = this.services.suggestedApps;
-            if (!suggestSvc?.getSuggestedApps) {
-                res.json([]);
-                return;
-            }
-            const body = req.body ?? {};
-            // Client sends { uid } or { path } identifying a file entry.
-            // Resolve the entry to get its name/path for extension detection.
-            let entryName: string | undefined;
-            let entryPath: string | undefined;
-            if (body.uid || body.path) {
-                try {
-                    const entry = await resolveV1Selector(
-                        this.stores.fsEntry,
-                        body,
-                    );
-                    entryName = entry?.name;
-                    entryPath = entry?.path;
-                } catch {
-                    // If we can't resolve, fall back to empty
-                }
-            }
-            const suggestions = await suggestSvc.getSuggestedApps({
-                name: entryName,
-                path: entryPath,
-            });
-            res.json(suggestions);
-        });
+        router.post('/suggest_apps', apiOptions, this.suggestApps);
 
         // puter-js polls this to decide whether to purge its in-memory FS
         // cache. SocketService bumps a per-user Redis key on every
@@ -251,70 +223,11 @@ export class LegacyFSController extends PuterController {
             },
         );
 
-        // ── POST /readdir-subdomains ────────────────────────────────
-        router.post(
-            '/readdir-subdomains',
-            apiOptions,
-            async (req: Request, res: Response) => {
-                const userId = req.actor?.user?.id;
-                if (!userId)
-                    throw new HttpError(401, 'Authentication required', {
-                        legacyCode: 'unauthorized',
-                    });
-                const rows = await this.clients.db.read(
-                    'SELECT `subdomain`, `root_dir_id`, `uuid`, `ts` FROM `subdomains` WHERE `user_id` = ?',
-                    [userId],
-                );
-                res.json(rows);
-            },
-        );
-
-        // ── POST /update-fsentry-thumbnail ──────────────────────────
+        router.post('/readdir-subdomains', apiOptions, this.readdirSubdomains);
         router.post(
             '/update-fsentry-thumbnail',
             apiOptions,
-            async (req: Request, res: Response) => {
-                const userId = req.actor?.user?.id;
-                if (!userId)
-                    throw new HttpError(401, 'Authentication required', {
-                        legacyCode: 'unauthorized',
-                    });
-                const { uid, thumbnail } = (req.body ?? {}) as {
-                    uid?: string;
-                    thumbnail?: string;
-                };
-                if (!uid)
-                    throw new HttpError(400, 'Missing `uid`', {
-                        legacyCode: 'bad_request',
-                    });
-                if (!thumbnail)
-                    throw new HttpError(400, 'Missing `thumbnail`', {
-                        legacyCode: 'bad_request',
-                    });
-
-                const entry = await this.stores.fsEntry.getEntryByUuid(uid);
-                if (!entry || entry.userId !== userId)
-                    throw new HttpError(403, 'Access denied', {
-                        legacyCode: 'forbidden',
-                    });
-
-                // Emit thumbnail.created so the thumbnails extension can S3-upload.
-                // emitAndWait is required — the extension rewrites `event.url`
-                // from a data URL to an `s3://` pointer, and the DB write below
-                // needs to see that rewrite.
-                const event = { url: thumbnail };
-                await this.clients.event.emitAndWait(
-                    'thumbnail.created',
-                    event,
-                    {},
-                );
-
-                await this.clients.db.write(
-                    'UPDATE `fsentries` SET `thumbnail` = ? WHERE `uuid` = ?',
-                    [event.url, uid],
-                );
-                res.json({ thumbnail: event.url });
-            },
+            this.updateFsentryThumbnail,
         );
 
         for (const key of Object.keys(additionalRoutePaths)) {
@@ -756,8 +669,108 @@ export class LegacyFSController extends PuterController {
         res.send('');
     };
 
+    suggestApps = async (req: Request, res: Response): Promise<void> => {
+        const suggestSvc = this.services.suggestedApps;
+        if (!suggestSvc?.getSuggestedApps) {
+            res.json([]);
+            return;
+        }
+        const actor = this.#requireActor(req);
+        const body = asRecord(req.body);
+        let entryName: string | undefined;
+        let entryPath: string | undefined;
+        if (body.uid || body.path) {
+            try {
+                const entry = await resolveV1Selector(
+                    this.stores.fsEntry,
+                    body,
+                );
+                // Suggestions leak the entry's extension and existence;
+                // gate on `see` so app actors can't probe outside scope.
+                if (entry?.path) {
+                    await assertAccess(
+                        this.services.acl,
+                        this.services.fs,
+                        actor,
+                        entry.path,
+                        'see',
+                    );
+                }
+                entryName = entry?.name;
+                entryPath = entry?.path;
+            } catch {
+                // Unresolvable or ACL-denied → empty suggestions.
+            }
+        }
+        const suggestions = await suggestSvc.getSuggestedApps({
+            name: entryName,
+            path: entryPath,
+        });
+        res.json(suggestions);
+    };
+
+    readdirSubdomains = async (req: Request, res: Response): Promise<void> => {
+        const actor = this.#requireActor(req);
+        // Subdomain enumeration is a user-level concern; app actors would
+        // otherwise see root_dir uids pointing outside their AppData scope.
+        if (effectiveActorApp(actor)) {
+            res.json([]);
+            return;
+        }
+        const userId = this.#getActorUserId(req);
+        const rows = await this.clients.db.read(
+            'SELECT `subdomain`, `root_dir_id`, `uuid`, `ts` FROM `subdomains` WHERE `user_id` = ?',
+            [userId],
+        );
+        res.json(rows);
+    };
+
+    updateFsentryThumbnail = async (
+        req: Request,
+        res: Response,
+    ): Promise<void> => {
+        const actor = this.#requireActor(req);
+        const { uid, thumbnail } = asRecord(req.body) as {
+            uid?: string;
+            thumbnail?: string;
+        };
+        if (!uid)
+            throw new HttpError(400, 'Missing `uid`', {
+                legacyCode: 'bad_request',
+            });
+        if (!thumbnail)
+            throw new HttpError(400, 'Missing `thumbnail`', {
+                legacyCode: 'bad_request',
+            });
+
+        const entry = await this.stores.fsEntry.getEntryByUuid(uid);
+        if (!entry || !entry.path)
+            throw new HttpError(404, `Entry not found: uid=${uid}`, {
+                legacyCode: 'subject_does_not_exist',
+            });
+        await assertAccess(
+            this.services.acl,
+            this.services.fs,
+            actor,
+            entry.path,
+            'write',
+        );
+
+        // emitAndWait is required: the thumbnails extension rewrites
+        // `event.url` from a data URL to an `s3://` pointer, and the DB
+        // write below needs to see that rewrite.
+        const event = { url: thumbnail };
+        await this.clients.event.emitAndWait('thumbnail.created', event, {});
+
+        await this.clients.db.write(
+            'UPDATE `fsentries` SET `thumbnail` = ? WHERE `uuid` = ?',
+            [event.url, uid],
+        );
+        res.json({ thumbnail: event.url });
+    };
+
     search = async (req: Request, res: Response): Promise<void> => {
-        this.#requireActor(req);
+        const actor = this.#requireActor(req);
         const userId = this.#getActorUserId(req);
         const body = asRecord(req.body);
         const query = getString(body, 'query', 'text') ?? '';
@@ -766,7 +779,21 @@ export class LegacyFSController extends PuterController {
                 legacyCode: 'bad_request',
             });
 
-        const results = await this.services.fs.searchByName(userId, query, 200);
+        // App-under-user actors only see entries within their AppData root;
+        // user actors are unscoped. Mirrors the ACL short-circuit in
+        // ACLService.check.
+        const app = effectiveActorApp(actor);
+        const username = actor.user?.username;
+        const pathScope =
+            app && typeof username === 'string' && username.length > 0
+                ? `/${username}/AppData/${app.uid}`
+                : undefined;
+        const results = await this.services.fs.searchByName(
+            userId,
+            query,
+            200,
+            pathScope,
+        );
         const shaped = await Promise.all(
             results.map((r) => toLegacyEntry(this.clients.event, r)),
         );

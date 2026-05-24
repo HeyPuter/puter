@@ -678,6 +678,87 @@ describe('FSController.searchEntries', () => {
         expect(Array.isArray(results)).toBe(true);
         expect(results.some((r) => r.name === needle)).toBe(true);
     });
+
+    it('scopes app-under-user actors to their AppData root', async () => {
+        const { actor: userActor } = await makeUser();
+        const username = userActor.user!.username!;
+        const appUid = `app-search-${uuidv4()}`;
+        const appActor: Actor = { ...userActor, app: { uid: appUid } };
+        const needle = `appneedle-${Math.random().toString(36).slice(2, 8)}`;
+
+        // User-owned entry outside AppData — must NOT appear for the app.
+        await withActor(userActor, () =>
+            controller.mkdirEntry(
+                makeReq({
+                    body: { path: `/${username}/Documents/${needle}` },
+                    actor: userActor,
+                }),
+                makeRes().res,
+            ),
+        );
+        // Entry under the app's own AppData — must appear.
+        await withActor(userActor, () =>
+            controller.mkdirEntry(
+                makeReq({
+                    body: {
+                        path: `/${username}/AppData/${appUid}/${needle}`,
+                        create_missing_parents: true,
+                    },
+                    actor: userActor,
+                }),
+                makeRes().res,
+            ),
+        );
+
+        const { res, captured } = makeRes();
+        await withActor(appActor, () =>
+            controller.searchEntries(
+                makeReq({ body: { query: needle }, actor: appActor }),
+                res,
+            ),
+        );
+        const results = captured.body as Array<{ name: string; path: string }>;
+        expect(results.length).toBeGreaterThan(0);
+        for (const r of results) {
+            expect(
+                r.path === `/${username}/AppData/${appUid}` ||
+                    r.path.startsWith(`/${username}/AppData/${appUid}/`),
+            ).toBe(true);
+        }
+        expect(
+            results.some(
+                (r) => r.path === `/${username}/Documents/${needle}`,
+            ),
+        ).toBe(false);
+    });
+
+    it('returns nothing for an app actor when no AppData entries match', async () => {
+        const { actor: userActor } = await makeUser();
+        const username = userActor.user!.username!;
+        const appUid = `app-search-${uuidv4()}`;
+        const appActor: Actor = { ...userActor, app: { uid: appUid } };
+        const needle = `appneedle-${Math.random().toString(36).slice(2, 8)}`;
+
+        // Only seed outside AppData — the app must not be able to find it.
+        await withActor(userActor, () =>
+            controller.mkdirEntry(
+                makeReq({
+                    body: { path: `/${username}/Documents/${needle}` },
+                    actor: userActor,
+                }),
+                makeRes().res,
+            ),
+        );
+
+        const { res, captured } = makeRes();
+        await withActor(appActor, () =>
+            controller.searchEntries(
+                makeReq({ body: { query: needle }, actor: appActor }),
+                res,
+            ),
+        );
+        expect(captured.body).toEqual([]);
+    });
 });
 
 // ── /read (readEntry, validation paths) ─────────────────────────────

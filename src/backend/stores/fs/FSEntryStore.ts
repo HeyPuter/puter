@@ -2504,21 +2504,32 @@ export class FSEntryStore extends PuterStore {
     }
 
     // Simple case-insensitive substring search on name, scoped to one user.
+    // When `pathScope` is set, results are further restricted to that path
+    // and its descendants — used to keep app-under-user actors from peeking
+    // outside their AppData subtree via search.
     async searchByNameForUser(
         userId: number,
         query: string,
         limit = 200,
+        pathScope?: string,
     ): Promise<FSEntry[]> {
         const q = query.trim();
         if (q.length === 0) return [];
         const likePattern = `%${this.#escapeLikePattern(q)}%`;
         const capped = Math.max(1, Math.min(1000, Math.floor(limit)));
+        const params: unknown[] = [userId, likePattern];
+        let scopeClause = '';
+        if (pathScope) {
+            scopeClause = ` AND (path = ? OR path LIKE ? ESCAPE '!')`;
+            params.push(pathScope);
+            params.push(`${this.#escapeLikePattern(pathScope)}/%`);
+        }
         const rows = (await this.clients.db.read(
             `SELECT ${this.#selectFsentriesColumns()} FROM fsentries
-             WHERE user_id = ? AND name LIKE ? ESCAPE '!'
+             WHERE user_id = ? AND name LIKE ? ESCAPE '!'${scopeClause}
              ORDER BY modified DESC
              LIMIT ${capped}`,
-            [userId, likePattern],
+            params,
         )) as unknown as FSEntryRow[];
         const entries = rows.map((row) => this.#mapFSEntryRow(row));
         // Search matches by `name`, so legacy NULL-path rows can land here.

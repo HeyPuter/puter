@@ -97,3 +97,13 @@ export const userRelatedActor = (actor: Actor): Actor => {
     if (!actor.app && !actor.accessToken) return actor;
     return { user: actor.user };
 };
+
+/**
+ * Walk the access-token issuer chain and return the first app identity found,
+ * or null if no app appears anywhere in the chain.
+ */
+export const effectiveActorApp = (actor: Actor): ActorApp | null => {
+    if (actor.app) return actor.app;
+    if (actor.accessToken) return effectiveActorApp(actor.accessToken.issuer);
+    return null;
+};

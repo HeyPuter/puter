@@ -2573,13 +2573,23 @@ export class FSService extends PuterService {
     /**
      * Search by file name for a user. Linear-scan with LIKE — cheap for
      * typical library sizes, revisit if we need full-text.
+     *
+     * `pathScope` restricts results to entries at or under that path.
+     * App-under-user callers pass their AppData root so search can't leak
+     * paths the actor isn't allowed to read.
      */
     async searchByName(
         userId: number,
         query: string,
         limit = 200,
+        pathScope?: string,
     ): Promise<FSEntry[]> {
-        return this.stores.fsEntry.searchByNameForUser(userId, query, limit);
+        return this.stores.fsEntry.searchByNameForUser(
+            userId,
+            query,
+            limit,
+            pathScope,
+        );
     }
 
     /**
