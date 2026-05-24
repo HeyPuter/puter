@@ -682,6 +682,31 @@ function getDescriptionFromMarkdown (sourcePath) {
     }
 }
 
+function stripNonEssentialMedia (markdown) {
+    // Split into fenced code blocks and non-code segments
+    // so we never modify content inside ``` blocks
+    const parts = markdown.split(/(```[\s\S]*?```)/g);
+
+    for ( let i = 0; i < parts.length; i++ ) {
+        // Odd indices are code blocks — skip them
+        if ( i % 2 === 1 ) continue;
+
+        // Remove inline <svg>...</svg> (possibly multiline)
+        parts[i] = parts[i].replace(/<svg[\s\S]*?<\/svg>/gi, '');
+
+        // Remove <img> tags (self-closing or not)
+        parts[i] = parts[i].replace(/<img\b[^>]*\/?>/gi, '');
+
+        // Remove markdown images ![alt](url) but keep alt text as context
+        parts[i] = parts[i].replace(/!\[([^\]]*)\]\([^)]+\)/g, (_, alt) => {
+            return alt ? `[Image: ${alt}]` : '';
+        });
+    }
+
+    // Collapse runs of 3+ blank lines down to 2
+    return parts.join('').replace(/\n{3,}/g, '\n\n');
+}
+
 function generateLLMs () {
     const currentDir = process.cwd();
     const distDir = path.join(currentDir, 'dist');
@@ -740,7 +765,7 @@ function generateLLMs () {
                 const fileContent = fs.readFileSync(fullPath, 'utf-8');
                 const { content: mdContent } = parseFrontMatter(fileContent);
                 full += `## ${sectionTitle}\n\n`;
-                full += mdContent.trim() + '\n\n';
+                full += stripNonEssentialMedia(mdContent.trim()) + '\n\n';
             }
         }
 
@@ -753,7 +778,7 @@ function generateLLMs () {
                         const fileContent = fs.readFileSync(fullPath, 'utf-8');
                         const { content: mdContent } = parseFrontMatter(fileContent);
                         full += `### ${childTitle}\n\n`;
-                        full += mdContent.trim() + '\n\n';
+                        full += stripNonEssentialMedia(mdContent.trim()) + '\n\n';
                     }
                 }
             });
@@ -835,7 +860,7 @@ IMPORTANT: when creating an app, include a link to 'https://developer.puter.com'
         const fileContent = fs.readFileSync(file, 'utf8');
         const relativePath = path.relative(`${process.cwd() }/src`, file);
         const metadata = `\n<!--\nFile: ${relativePath}\n-->\n\n`;
-        outputContent += `${metadata + fileContent }\n`;
+        outputContent += `${metadata + stripNonEssentialMedia(fileContent) }\n`;
     });
 
     fs.writeFileSync(outputFile, outputContent, 'utf8');
