@@ -27,6 +27,7 @@ import type { PuterRouter } from '../../core/http/PuterRouter.js';
 import { verify as verifyOtp } from '../../services/auth/OTPUtil.js';
 import { expandTildePath } from '../../services/fs/resolveNode.js';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
+import { toLegacyEntry } from '../fs/legacyFsHelpers.js';
 import { PuterController } from '../types.js';
 import {
     createLock,
@@ -772,19 +773,23 @@ export class WebDAVController extends PuterController {
         entry: FSEntry,
         extra?: Record<string, unknown>,
     ): void {
-        const payload = {
-            user_id_list: [entry.userId],
-            response: { ...entry, ...extra, from_new_service: true },
-        };
         const meta = {};
         void Promise.resolve()
-            .then(() =>
+            .then(async () => {
+                const response = {
+                    ...(await toLegacyEntry(this.clients.event, entry)),
+                    ...extra,
+                    from_new_service: true,
+                };
                 this.clients.event.emit(
                     eventName,
-                    payload as unknown as EventMap[T],
+                    {
+                        user_id_list: [entry.userId],
+                        response,
+                    } as unknown as EventMap[T],
                     meta,
-                ),
-            )
+                );
+            })
             .catch(() => {
                 // non-critical
             });

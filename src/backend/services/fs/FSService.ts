@@ -3033,6 +3033,9 @@ export class FSService extends PuterService {
             await this.#removeDescendantsStorage(descendants);
             if (descendants.length > 0) {
                 await this.stores.fsEntry.deleteEntries(descendants);
+                for (const descendant of descendants) {
+                    this.#emitRemoveEvent(descendant);
+                }
             }
 
             if (!input.descendantsOnly) {
