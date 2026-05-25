@@ -69,26 +69,27 @@ export class SessionStore extends PuterStore {
      * expired row in cache doesn't grant access.
      */
     async getByUuid(uuid) {
+        const row = await this.getByUuidAny(uuid);
+        if (!row) return null;
+        if (row.revoked_at != null) return null;
+        if (isExpired(row, nowSeconds())) return null;
+        return row;
+    }
+
+    async getByUuidAny(uuid) {
         if (!uuid) return null;
 
-        const now = nowSeconds();
         const cached = await this.#readCache(uuid);
-        if (cached) {
-            if (cached.revoked_at != null) return null;
-            if (isExpired(cached, now)) return null;
-            return cached;
-        }
+        if (cached) return cached;
 
         const rows = await this.clients.db.read(
-            'SELECT * FROM `sessions` WHERE `uuid` = ? AND `revoked_at` IS NULL AND (`expires_at` IS NULL OR `expires_at` > ?) LIMIT 1',
-            [uuid, now],
+            'SELECT * FROM `sessions` WHERE `uuid` = ? LIMIT 1',
+            [uuid],
         );
         const normalized = this.#normalizeRow(rows[0]);
         if (!normalized) return null;
 
-        this.#writeCache(normalized).catch(() => {
-            // Best-effort backfill — local only.
-        });
+        this.#writeCache(normalized).catch(() => {});
         return normalized;
     }
 

@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import jwt from 'jsonwebtoken';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 import type { Actor } from '../../core/actor.js';
@@ -163,6 +164,230 @@ describe('AuthService (integration)', () => {
                 app_uid: 'app-doesnotexist',
             });
             expect(await authService.authenticateFromToken(jwt)).toBeNull();
+        });
+    });
+
+    // ── AUTH-4: rich `authenticate()` result shape ───────────────────
+
+    describe('authenticate (AUTH-4 reauth signal)', () => {
+        it('returns { actor } for a healthy v2 session token', async () => {
+            const user = await makeUser();
+            const { token } = await authService.createSessionToken(user, {});
+            const result = await authService.authenticate(token);
+            expect(result.actor?.user.uuid).toBe(user.uuid);
+            expect(result.reauth).toBeUndefined();
+            expect(result.invalid).toBeUndefined();
+        });
+
+        it('returns { reauth: session_revoked } when the row is soft-revoked', async () => {
+            const user = await makeUser();
+            const { token, session } = await authService.createSessionToken(
+                user,
+                {},
+            );
+            await server.stores.session.removeByUuid(
+                (session as { uuid: string }).uuid,
+            );
+            const result = await authService.authenticate(token);
+            expect(result.actor).toBeUndefined();
+            expect(result.reauth).toEqual({
+                reason: 'session_revoked',
+                auth_id: user.uuid,
+            });
+        });
+
+        it('returns { reauth: session_expired } when expires_at is in the past', async () => {
+            const user = await makeUser();
+            const { token, session } = await authService.createSessionToken(
+                user,
+                {},
+            );
+            // Backdate expires_at directly — the mint path sets it
+            // 30d in the future, so we have to forcibly age it for the
+            // test.
+            await server.clients.db.write(
+                'UPDATE `sessions` SET `expires_at` = ? WHERE `uuid` = ?',
+                [
+                    Math.floor(Date.now() / 1000) - 60,
+                    (session as { uuid: string }).uuid,
+                ],
+            );
+            // Invalidate the cached row so getByUuidAny re-reads from DB.
+            await server.clients.redis.del(
+                `sessions:v2:uuid:${(session as { uuid: string }).uuid}`,
+            );
+            const result = await authService.authenticate(token);
+            expect(result.actor).toBeUndefined();
+            expect(result.reauth).toEqual({
+                reason: 'session_expired',
+                auth_id: user.uuid,
+            });
+        });
+
+        it('returns { invalid } for a malformed token', async () => {
+            const result = await authService.authenticate('not-a-jwt');
+            expect(result.invalid).toBe(true);
+            expect(result.actor).toBeUndefined();
+            expect(result.reauth).toBeUndefined();
+        });
+
+        it('overlays reauth.token_v1 onto the actor when the token verifies via the legacy secret', async () => {
+            // Hand-mint a v1-shape token with the legacy secret (no kid).
+            // Compress the same way TokenService does so it round-trips
+            // after verify.
+            const user = await makeUser();
+            const { session } = await authService.createSessionToken(user, {});
+            const legacyJwt = jwt.sign(
+                {
+                    // v1 compression: type=session → t='s', uuid → u, user_uid → uu
+                    t: 's',
+                    u: Buffer.from(
+                        (session as { uuid: string }).uuid.replace(/-/g, ''),
+                        'hex',
+                    ).toString('base64'),
+                    uu: Buffer.from(
+                        user.uuid.replace(/-/g, ''),
+                        'hex',
+                    ).toString('base64'),
+                },
+                'dev-jwt-secret-change-me',
+            );
+            const result = await authService.authenticate(legacyJwt);
+            // The actor is resolved (row exists and is active) AND the
+            // reauth signal fires so SDK clients migrate.
+            expect(result.actor?.user.uuid).toBe(user.uuid);
+            expect(result.reauth?.reason).toBe('token_v1');
+        });
+
+        // ── App-under-user verify path ─────────────────────────────
+
+        // Helper: insert a minimal app row so the verify path's
+        // `stores.app.getByUid(decoded.app_uid)` lookup succeeds. Without
+        // a real row the verify falls through to `{ invalid: true }`
+        // before it ever checks the session state we want to test.
+        const makeApp = async (): Promise<string> => {
+            const uid = `app-${uuidv4()}`;
+            await server.clients.db.write(
+                'INSERT INTO `apps` (`uid`, `name`, `title`, `index_url`, `owner_user_id`) VALUES (?, ?, ?, ?, ?)',
+                [
+                    uid,
+                    `n-${uid}`,
+                    `t-${uid}`,
+                    `https://${uid}.example/`,
+                    1,
+                ],
+            );
+            return uid;
+        };
+
+        it('app-under-user: returns reauth.session_revoked when the app session is revoked', async () => {
+            const user = await makeUser();
+            const appUid = await makeApp();
+            const appToken = await authService.getUserAppToken(
+                {
+                    user: { id: user.id, uuid: user.uuid, username: user.username },
+                } as Actor,
+                appUid,
+            );
+            // Pull the session_uid claim out of the JWT so we revoke
+            // the exact row the verify path will look up.
+            const decoded = server.services.token.verify(
+                'auth',
+                appToken,
+            ) as { session_uid: string };
+            await server.stores.session.removeByUuid(decoded.session_uid);
+
+            const result = await authService.authenticate(appToken);
+            expect(result.actor).toBeUndefined();
+            expect(result.reauth).toEqual({
+                reason: 'session_revoked',
+                auth_id: user.uuid,
+            });
+        });
+
+        it('app-under-user: returns reauth.session_expired when the app session expires_at is in the past', async () => {
+            const user = await makeUser();
+            const appUid = await makeApp();
+            const appToken = await authService.getUserAppToken(
+                {
+                    user: { id: user.id, uuid: user.uuid, username: user.username },
+                } as Actor,
+                appUid,
+            );
+            const decoded = server.services.token.verify(
+                'auth',
+                appToken,
+            ) as { session_uid: string };
+            await server.clients.db.write(
+                'UPDATE `sessions` SET `expires_at` = ? WHERE `uuid` = ?',
+                [Math.floor(Date.now() / 1000) - 60, decoded.session_uid],
+            );
+            await server.clients.redis.del(
+                `sessions:v2:uuid:${decoded.session_uid}`,
+            );
+
+            const result = await authService.authenticate(appToken);
+            expect(result.actor).toBeUndefined();
+            expect(result.reauth).toEqual({
+                reason: 'session_expired',
+                auth_id: user.uuid,
+            });
+        });
+
+        // ── Access-token verify path ───────────────────────────────
+
+        it('access-token: returns reauth.session_revoked when the access-token session is revoked', async () => {
+            const user = await makeUser();
+            const accessToken = await authService.createAccessToken(
+                {
+                    user: { id: user.id, uuid: user.uuid, username: user.username },
+                } as Actor,
+                [['fs:abc:read']],
+            );
+            const decoded = server.services.token.verify(
+                'auth',
+                accessToken,
+            ) as { session_uid: string };
+            await server.stores.session.removeByUuid(decoded.session_uid);
+
+            const result = await authService.authenticate(accessToken);
+            expect(result.actor).toBeUndefined();
+            expect(result.reauth).toEqual({
+                reason: 'session_revoked',
+                auth_id: user.uuid,
+            });
+        });
+
+        it('access-token: returns reauth.session_expired when the access-token session expires_at is in the past', async () => {
+            const user = await makeUser();
+            // Pass a short expiresIn so the row gets a non-NULL
+            // expires_at to start with — the verify path's expired-row
+            // check only fires when expires_at is non-NULL.
+            const accessToken = await authService.createAccessToken(
+                {
+                    user: { id: user.id, uuid: user.uuid, username: user.username },
+                } as Actor,
+                [['fs:abc:read']],
+                { expiresIn: '1h' },
+            );
+            const decoded = server.services.token.verify(
+                'auth',
+                accessToken,
+            ) as { session_uid: string };
+            await server.clients.db.write(
+                'UPDATE `sessions` SET `expires_at` = ? WHERE `uuid` = ?',
+                [Math.floor(Date.now() / 1000) - 60, decoded.session_uid],
+            );
+            await server.clients.redis.del(
+                `sessions:v2:uuid:${decoded.session_uid}`,
+            );
+
+            const result = await authService.authenticate(accessToken);
+            expect(result.actor).toBeUndefined();
+            expect(result.reauth).toEqual({
+                reason: 'session_expired',
+                auth_id: user.uuid,
+            });
         });
     });
 
