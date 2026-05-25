@@ -48,6 +48,7 @@ MARIADB_ROOT_PASSWORD=$(openssl rand -hex 32)
 MARIADB_PASSWORD=$(openssl rand -hex 32)
 S3_SECRET_KEY=$(openssl rand -hex 32)
 JWT_SECRET=$(openssl rand -hex 64)
+JWT_SECRET_V2=$(openssl rand -hex 64)
 URL_SIGNATURE_SECRET=$(openssl rand -hex 64)
 
 cat > .env <<EOF
@@ -78,6 +79,8 @@ cat > puter/config/config.json <<EOF
     "private_app_hosting_domain_alt": "dev.puter.localhost",
 
     "jwt_secret": "$JWT_SECRET",
+    "jwt_secret_v2": "$JWT_SECRET_V2",
+    "allow_v1_tokens": true,
     "url_signature_secret": "$URL_SIGNATURE_SECRET",
 
     "database": {
@@ -131,6 +134,7 @@ Replace `puter.localhost`, `site.puter.localhost`, `host.puter.localhost`, `dev.
 
 Why these knobs:
 
+- `jwt_secret` + `jwt_secret_v2` — Puter signs new auth tokens with `jwt_secret_v2` (v2 token format, `kid: 'v2'` JWT header). `jwt_secret` is verify-only and lets tokens minted before this version (cookies still in users' browsers, stored API tokens) keep working. `allow_v1_tokens: true` keeps that fallback enabled. Fresh installs can leave it as-is; future versions will flip the flag to `false` and retire `jwt_secret` entirely once legacy tokens have drained.
 - `env: "prod"` — the bundled `config.default.json` ships with `env: "dev"` (matches the source-tree `npm run start=gui` workflow, which expects webpack-dev-server emitting a CSS manifest). Self-host runs against pre-built static bundles, so `env: "prod"` makes the homepage emit the `/dist/bundle.min.css` `<link>` tag instead of waiting on a manifest that doesn't exist.
 - `database.migrationPaths` — Puter applies the bundled MySQL schema on boot. `mysql_mig_1.sql` (tables) and `mysql_mig_2.sql` (default apps: editor, viewer, pdf, camera, player, recorder, git, dev-center, puter-linux). Idempotent — safe to re-run.
 - `dynamo.bootstrapTables: true` — Puter creates its KV table on boot. **Only set against a local emulator**, never real AWS.

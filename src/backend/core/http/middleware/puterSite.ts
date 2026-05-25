@@ -323,13 +323,14 @@ export const createPuterSiteMiddleware = (
             // visitors but still refreshes after rotation/expiry.
             if (!identity.hasValidPrivateCookie) {
                 try {
-                    const token = layers.services.auth.createPrivateAssetToken({
-                        appUid: privateApp!.uid,
-                        userUid: identity.userUid,
-                        sessionUuid: identity.sessionUuid,
-                        subdomain,
-                        privateHost: host,
-                    });
+                    const token =
+                        await layers.services.auth.createPrivateAssetToken({
+                            appUid: privateApp!.uid,
+                            userUid: identity.userUid,
+                            sessionUuid: identity.sessionUuid,
+                            subdomain,
+                            privateHost: host,
+                        });
                     res.cookie(
                         layers.services.auth.getPrivateAssetCookieName(),
                         token,
@@ -390,13 +391,15 @@ export const createPuterSiteMiddleware = (
                     associatedApp?.uid
                 ) {
                     const token =
-                        layers.services.auth.createPublicHostedActorToken({
-                            appUid: associatedApp.uid,
-                            userUid: identity.userUid,
-                            sessionUuid: identity.sessionUuid,
-                            subdomain,
-                            host,
-                        });
+                        await layers.services.auth.createPublicHostedActorToken(
+                            {
+                                appUid: associatedApp.uid,
+                                userUid: identity.userUid,
+                                sessionUuid: identity.sessionUuid,
+                                subdomain,
+                                host,
+                            },
+                        );
                     res.cookie(
                         layers.services.auth.getPublicHostedActorCookieName(),
                         token,

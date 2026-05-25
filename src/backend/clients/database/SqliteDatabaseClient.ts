@@ -80,6 +80,7 @@ const AVAILABLE_MIGRATIONS: [number, string[]][] = [
     [45, ['0049_music-player-pdf-player-updates.sql']],
     [46, ['0050_add_preamble_version.sql']],
     [47, ['0051_sessions_v2.sql']],
+    [48, ['0052_sessions_v2_lookups.sql']],
 ];
 
 export class SqliteDatabaseClient extends AbstractDatabaseClient {

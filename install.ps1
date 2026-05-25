@@ -113,7 +113,10 @@ if ($writeConfig) {
     $mariadbRootPw = New-HexSecret 32
     $mariadbPw     = New-HexSecret 32
     $s3SecretKey   = New-HexSecret 32
+    # Two JWT secrets: $jwtSecret is verify-only for legacy v1 tokens
+    # already in circulation; $jwtSecretV2 signs every new token.
     $jwtSecret     = New-HexSecret 64
+    $jwtSecretV2   = New-HexSecret 64
     $urlSigSecret  = New-HexSecret 64
 
     $envContent = @"
@@ -142,6 +145,8 @@ S3_BUCKET=puter-local
         private_app_hosting_domain     = "app.$PuterDomain"
         private_app_hosting_domain_alt = "dev.$PuterDomain"
         jwt_secret                     = $jwtSecret
+        jwt_secret_v2                  = $jwtSecretV2
+        allow_v1_tokens                = $true
         url_signature_secret           = $urlSigSecret
         database = [ordered]@{
             engine         = 'mysql'

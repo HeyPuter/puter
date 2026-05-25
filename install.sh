@@ -92,7 +92,11 @@ if [ "$write_config" = "1" ]; then
     MARIADB_ROOT_PASSWORD=$(openssl rand -hex 32)
     MARIADB_PASSWORD=$(openssl rand -hex 32)
     S3_SECRET_KEY=$(openssl rand -hex 32)
+    # Two JWT secrets: `jwt_secret` is verify-only for legacy v1 tokens
+    # already in circulation; `jwt_secret_v2` signs every new token.
+    # Both are required at boot (`jwt_secret` only when verifying v1).
     JWT_SECRET=$(openssl rand -hex 64)
+    JWT_SECRET_V2=$(openssl rand -hex 64)
     URL_SIGNATURE_SECRET=$(openssl rand -hex 64)
 
     cat > .env <<EOF
@@ -123,6 +127,8 @@ EOF
     "private_app_hosting_domain_alt": "dev.$PUTER_DOMAIN",
 
     "jwt_secret": "$JWT_SECRET",
+    "jwt_secret_v2": "$JWT_SECRET_V2",
+    "allow_v1_tokens": true,
     "url_signature_secret": "$URL_SIGNATURE_SECRET",
 
     "database": {

@@ -161,10 +161,13 @@ export class WorkerDriver extends PuterDriver {
                 );
             }
             appOwnerId = actor.app?.id;
-            authorization = this.services.auth.getUserAppToken(actor, appId);
+            authorization = await this.services.auth.getUserAppToken(
+                actor,
+                appId,
+            );
         }
         if (!authorization && actor.app?.uid) {
-            authorization = this.services.auth.getUserAppToken(
+            authorization = await this.services.auth.getUserAppToken(
                 actor,
                 actor.app.uid,
             );
@@ -600,7 +603,7 @@ export class WorkerDriver extends PuterDriver {
                     // App-scoped: get the app's uid, then mint an app-under-user token
                     const app = await this.stores.app.getById(appOwnerId);
                     if (!app) continue; // app gone
-                    authorization = this.services.auth.getUserAppToken(
+                    authorization = await this.services.auth.getUserAppToken(
                         ownerActor,
                         app.uid,
                     );

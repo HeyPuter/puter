@@ -675,7 +675,7 @@ describe('resolvePrivateIdentity', () => {
     it('returns the sticky private-cookie identity when the token matches the expected app/subdomain/host', async () => {
         const user = await makeUser();
         const appUid = `app-${uuidv4()}`;
-        const token = authService.createPrivateAssetToken({
+        const token = await authService.createPrivateAssetToken({
             appUid,
             userUid: user.uuid,
             subdomain: 'beans',
@@ -700,7 +700,7 @@ describe('resolvePrivateIdentity', () => {
 
     it('falls through to req.actor when the private cookie is for a different app', async () => {
         const user = await makeUser();
-        const wrongToken = authService.createPrivateAssetToken({
+        const wrongToken = await authService.createPrivateAssetToken({
             appUid: `app-${uuidv4()}`,
             userUid: user.uuid,
             subdomain: 'beans',
@@ -799,7 +799,7 @@ describe('resolvePrivateIdentity', () => {
                 1,
             ],
         );
-        const wrongAppToken = authService.getUserAppToken(
+        const wrongAppToken = await authService.getUserAppToken(
             { user: { id: user.id, uuid: user.uuid } } as unknown as Parameters<
                 typeof authService.getUserAppToken
             >[0],
@@ -838,7 +838,7 @@ describe('resolvePrivateIdentity', () => {
                 1,
             ],
         );
-        const matchedToken = authService.getUserAppToken(
+        const matchedToken = await authService.getUserAppToken(
             { user: { id: user.id, uuid: user.uuid } } as unknown as Parameters<
                 typeof authService.getUserAppToken
             >[0],
@@ -873,7 +873,7 @@ describe('resolvePublicHostedIdentity', () => {
     it('returns the cookie identity when present and valid', async () => {
         const user = await makeUser();
         const appUid = `app-${uuidv4()}`;
-        const token = authService.createPublicHostedActorToken({
+        const token = await authService.createPublicHostedActorToken({
             appUid,
             userUid: user.uuid,
             subdomain: 'beans',

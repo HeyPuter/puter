@@ -964,7 +964,10 @@ export class LegacyFSController extends PuterController {
                     legacyCode: 'not_found',
                 });
             grantApp = { uid: app.uid };
-            result.token = this.services.auth.getUserAppToken(actor, app.uid);
+            result.token = await this.services.auth.getUserAppToken(
+                actor,
+                app.uid,
+            );
         }
 
         for (const rawItem of items) {
@@ -1397,7 +1400,10 @@ export class LegacyFSController extends PuterController {
                 {},
                 { reason: 'open_item' },
             );
-            token = this.services.auth.getUserAppToken(actor, defaultAppUid);
+            token = await this.services.auth.getUserAppToken(
+                actor,
+                defaultAppUid,
+            );
         }
 
         const signingCfg = signingConfigFromAppConfig(this.config);

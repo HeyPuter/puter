@@ -312,12 +312,12 @@ describe('AuthService (integration)', () => {
 
     describe('getUserAppToken', () => {
         it('throws 403 when actor has no user', async () => {
-            expect(() =>
+            await expect(
                 authService.getUserAppToken(
                     { user: undefined } as unknown as Actor,
                     'app-foo',
                 ),
-            ).toThrow(/Actor must be a user/);
+            ).rejects.toThrow(/Actor must be a user/);
         });
 
         it('signs an app-under-user JWT carrying user_uid + app_uid', async () => {
@@ -326,7 +326,7 @@ describe('AuthService (integration)', () => {
                 user: { id: user.id, uuid: user.uuid, username: user.username },
             } as Actor;
             const appUid = `app-${uuidv4()}`;
-            const token = authService.getUserAppToken(actor, appUid);
+            const token = await authService.getUserAppToken(actor, appUid);
             const decoded = server.services.token.verify('auth', token) as {
                 type: string;
                 user_uid: string;
@@ -337,19 +337,25 @@ describe('AuthService (integration)', () => {
             expect(decoded.app_uid).toBe(appUid);
         });
 
-        it('includes the session claim when actor.session.uid is set', async () => {
+        it('binds the JWT to a kind="app" session row and reuses it on repeat calls', async () => {
             const user = await makeUser();
-            const sessionUuid = uuidv4();
             const actor = {
                 user: { id: user.id, uuid: user.uuid, username: user.username },
-                session: { uid: sessionUuid },
             } as Actor;
             const appUid = `app-${uuidv4()}`;
-            const token = authService.getUserAppToken(actor, appUid);
-            const decoded = server.services.token.verify('auth', token) as {
-                session: string;
-            };
-            expect(decoded.session).toBe(sessionUuid);
+            const first = await authService.getUserAppToken(actor, appUid);
+            const second = await authService.getUserAppToken(actor, appUid);
+            const decodedFirst = server.services.token.verify(
+                'auth',
+                first,
+            ) as { session_uid: string };
+            const decodedSecond = server.services.token.verify(
+                'auth',
+                second,
+            ) as { session_uid: string };
+            // Idempotent per (user_id, app_uid) — both tokens reference the
+            // same app session row.
+            expect(decodedFirst.session_uid).toBe(decodedSecond.session_uid);
         });
     });
 
@@ -480,7 +486,7 @@ describe('AuthService (integration)', () => {
             const { session } = await authService.createSessionToken(user, {});
             const sessionUuid = (session as { uuid: string }).uuid;
             const appUid = `app-${uuidv4()}`;
-            const token = authService.createPrivateAssetToken({
+            const token = await authService.createPrivateAssetToken({
                 appUid,
                 userUid: user.uuid,
                 sessionUuid,
@@ -493,14 +499,18 @@ describe('AuthService (integration)', () => {
             expect(decoded.userUid).toBe(user.uuid);
             expect(decoded.appUid).toBe(appUid);
             expect(decoded.subdomain).toBe('priv');
-            expect(decoded.sessionUuid).toBe(sessionUuid);
+            // v2 cookies carry the *asset* session row's uuid, not the
+            // web session's. The asset row is parented to the web
+            // session so logout cascade still invalidates the cookie.
+            expect(typeof decoded.sessionUuid).toBe('string');
+            expect(decoded.sessionUuid).not.toBe(sessionUuid);
         });
 
         it('verifyPrivateAssetToken throws 401 when expected app_uid mismatches', async () => {
             const user = await makeUser();
             const appA = `app-${uuidv4()}`;
             const appB = `app-${uuidv4()}`;
-            const token = authService.createPrivateAssetToken({
+            const token = await authService.createPrivateAssetToken({
                 appUid: appA,
                 userUid: user.uuid,
             });
@@ -515,7 +525,7 @@ describe('AuthService (integration)', () => {
             const user = await makeUser();
             const { session } = await authService.createSessionToken(user, {});
             const sessionUuid = (session as { uuid: string }).uuid;
-            const token = authService.createPrivateAssetToken({
+            const token = await authService.createPrivateAssetToken({
                 appUid: `app-${uuidv4()}`,
                 userUid: user.uuid,
                 sessionUuid,
@@ -529,7 +539,7 @@ describe('AuthService (integration)', () => {
         it('public hosted-actor token round-trips and enforces expectations', async () => {
             const user = await makeUser();
             const appUid = `app-${uuidv4()}`;
-            const token = authService.createPublicHostedActorToken({
+            const token = await authService.createPublicHostedActorToken({
                 appUid,
                 userUid: user.uuid,
                 host: 'host.example',
@@ -543,9 +553,9 @@ describe('AuthService (integration)', () => {
             expect(decoded.host).toBe('host.example');
         });
 
-        it('verifyPublicHostedActorToken rejects a private-kind token (kind mismatch)', () => {
+        it('verifyPublicHostedActorToken rejects a private-kind token (kind mismatch)', async () => {
             const user = { uuid: uuidv4() };
-            const privateToken = authService.createPrivateAssetToken({
+            const privateToken = await authService.createPrivateAssetToken({
                 appUid: `app-${uuidv4()}`,
                 userUid: user.uuid,
             });
