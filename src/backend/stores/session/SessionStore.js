@@ -25,7 +25,10 @@ import { PuterStore } from '../types';
 // the cached row doesn't gate anything, and eating a Redis write per
 // request isn't worth it.
 
-const CACHE_KEY_PREFIX = 'sessions';
+// Prefix is versioned so a schema change (new columns added to the
+// row shape) doesn't leak stale cached rows through Redis on a
+// rolling deploy. Bump the suffix on the next schema change.
+const CACHE_KEY_PREFIX = 'sessions:v2';
 const CACHE_TTL_SECONDS = 15 * 60;
 // Min interval between successive activity flushes per session/user.
 // In-memory throttle keeps DB writes bounded; multi-node duplicates
@@ -44,15 +47,21 @@ export class SessionStore extends PuterStore {
     #lastSessionTouchMs = new Map();
     #lastUserTouchMs = new Map();
 
-    /** Look up a session by its uuid. Returns `null` if not found. */
+    /**
+     * Look up an active session by its uuid. Returns `null` if not
+     * found or soft-revoked.
+     */
     async getByUuid(uuid) {
         if (!uuid) return null;
 
         const cached = await this.#readCache(uuid);
-        if (cached) return cached;
+        if (cached) {
+            if (cached.revoked_at != null) return null;
+            return cached;
+        }
 
         const rows = await this.clients.db.read(
-            'SELECT * FROM `sessions` WHERE `uuid` = ? LIMIT 1',
+            'SELECT * FROM `sessions` WHERE `uuid` = ? AND `revoked_at` IS NULL LIMIT 1',
             [uuid],
         );
         const normalized = this.#normalizeRow(rows[0]);
@@ -64,23 +73,44 @@ export class SessionStore extends PuterStore {
         return normalized;
     }
 
-    /** Get all sessions for a user. */
-    async getByUserId(userId) {
-        const rows = await this.clients.db.read(
-            'SELECT * FROM `sessions` WHERE `user_id` = ?',
-            [userId],
-        );
+    /**
+     * Get sessions for a user. By default returns only active rows;
+     * pass `{ includeRevoked: true }` to include soft-revoked rows.
+     */
+    async getByUserId(userId, { includeRevoked = false } = {}) {
+        const sql = includeRevoked
+            ? 'SELECT * FROM `sessions` WHERE `user_id` = ?'
+            : 'SELECT * FROM `sessions` WHERE `user_id` = ? AND `revoked_at` IS NULL';
+        const rows = await this.clients.db.read(sql, [userId]);
         return rows.map((r) => this.#normalizeRow(r)).filter(Boolean);
     }
 
     /**
-     * Create a new session.
+     * Create a new session row.
      *
      * @param userId - User ID (numeric)
-     * @param meta - Metadata object (IP, user-agent, etc.)
-     * @returns The created session row
+     * @param opts.meta - Request-context metadata (IP, UA, etc.) stored as JSON.
+     * @param opts.kind - 'web' (default), 'app', 'access_token', 'asset'.
+     * @param opts.label - User-editable label for manage-sessions UI.
+     * @param opts.parent_session_id - uuid of root session, for derived kinds.
+     * @param opts.last_ip - Request IP at creation.
+     * @param opts.last_user_agent - Request User-Agent at creation.
+     * @param opts.expires_at - Row-level expiry (unix seconds). NULL means
+     *   JWT `exp` is the sole truth. AUTH-4 slides this forward on activity.
+     * @returns The created session row.
      */
-    async create(userId, meta = {}) {
+    async create(
+        userId,
+        {
+            meta = {},
+            kind = 'web',
+            label = null,
+            parent_session_id = null,
+            last_ip = null,
+            last_user_agent = null,
+            expires_at = null,
+        } = {},
+    ) {
         const uuid = uuidv4();
         const now = Math.floor(Date.now() / 1000);
 
@@ -88,8 +118,20 @@ export class SessionStore extends PuterStore {
         meta.created_unix = now;
 
         await this.clients.db.write(
-            'INSERT INTO `sessions` (`uuid`, `user_id`, `meta`, `last_activity`, `created_at`) VALUES (?, ?, ?, ?, ?)',
-            [uuid, userId, JSON.stringify(meta), now, now],
+            'INSERT INTO `sessions` (`uuid`, `user_id`, `meta`, `last_activity`, `created_at`, `kind`, `label`, `parent_session_id`, `last_ip`, `last_user_agent`, `expires_at`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            [
+                uuid,
+                userId,
+                JSON.stringify(meta),
+                now,
+                now,
+                kind,
+                label,
+                parent_session_id,
+                last_ip,
+                last_user_agent,
+                expires_at,
+            ],
         );
 
         return {
@@ -98,16 +140,58 @@ export class SessionStore extends PuterStore {
             meta,
             created_at: now,
             last_activity: now,
+            kind,
+            label,
+            parent_session_id,
+            last_ip,
+            last_user_agent,
+            revoked_at: null,
+            expires_at,
         };
     }
 
-    /** Delete a session by uuid. Invalidates cache on this node + peers. */
+    /**
+     * Soft-revoke a session by uuid. The row remains in the table
+     * with `revoked_at` set; subsequent `getByUuid` calls treat it
+     * as not found. Invalidates cache on this node + peers.
+     */
     async removeByUuid(uuid) {
-        await this.clients.db.write('DELETE FROM `sessions` WHERE `uuid` = ?', [
-            uuid,
-        ]);
+        const now = Math.floor(Date.now() / 1000);
+        await this.clients.db.write(
+            'UPDATE `sessions` SET `revoked_at` = ? WHERE `uuid` = ? AND `revoked_at` IS NULL',
+            [now, uuid],
+        );
         await this.publishCacheKeys({
             keys: [this.#cacheKey(uuid)],
+            broadcast: true,
+        });
+    }
+
+    /**
+     * Soft-revoke a root session and every derived session that
+     * points back to it via `parent_session_id`. Broadcasts cache
+     * invalidation for each affected row.
+     */
+    async revokeCascade(rootUuid) {
+        if (!rootUuid) return;
+
+        // Collect affected uuids first so we can broadcast cache
+        // invalidation for each row. A single UPDATE ... RETURNING
+        // would be cleaner but isn't portable between sqlite/mysql.
+        const rows = await this.clients.db.read(
+            'SELECT `uuid` FROM `sessions` WHERE (`uuid` = ? OR `parent_session_id` = ?) AND `revoked_at` IS NULL',
+            [rootUuid, rootUuid],
+        );
+        if (rows.length === 0) return;
+
+        const now = Math.floor(Date.now() / 1000);
+        await this.clients.db.write(
+            'UPDATE `sessions` SET `revoked_at` = ? WHERE (`uuid` = ? OR `parent_session_id` = ?) AND `revoked_at` IS NULL',
+            [now, rootUuid, rootUuid],
+        );
+
+        await this.publishCacheKeys({
+            keys: rows.map((r) => this.#cacheKey(r.uuid)),
             broadcast: true,
         });
     }

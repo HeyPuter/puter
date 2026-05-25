@@ -14,5 +14,26 @@
 --
 -- You should have received a copy of the GNU Affero General Public License
 -- along with this program.  If not, see <https://www.gnu.org/licenses/>.
+--
+-- Idempotent: the ADD COLUMN is guarded by an INFORMATION_SCHEMA check,
+-- so re-running the migration directory is safe (required — the runner
+-- has no per-file tracking).
 
-ALTER TABLE `subdomains` ADD COLUMN `preamble_version` varchar(64) DEFAULT NULL;
+DROP PROCEDURE IF EXISTS _puter_add_subdomains_preamble_version;
+DELIMITER //
+CREATE PROCEDURE _puter_add_subdomains_preamble_version()
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'subdomains' AND COLUMN_NAME = 'preamble_version'
+  ) THEN
+    ALTER TABLE `subdomains`
+      ADD COLUMN `preamble_version` varchar(64) DEFAULT NULL;
+  END IF;
+END//
+DELIMITER ;
+
+CALL _puter_add_subdomains_preamble_version();
+
+DROP PROCEDURE IF EXISTS _puter_add_subdomains_preamble_version;
