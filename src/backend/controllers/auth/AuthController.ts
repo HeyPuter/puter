@@ -1933,7 +1933,10 @@ export class AuthController extends PuterController {
                 {},
             );
 
-        const token = this.services.auth.getUserAppToken(req.actor!, app_uid);
+        const token = await this.services.auth.getUserAppToken(
+            req.actor!,
+            app_uid,
+        );
 
         const missingFSPathPromise = (async () => {
             // Ensure the app's per-user AppData directory exists.
@@ -1988,7 +1991,7 @@ export class AuthController extends PuterController {
             token?: string;
         } = { app_uid, authenticated };
         if (authenticated) {
-            result.token = this.services.auth.getUserAppToken(
+            result.token = await this.services.auth.getUserAppToken(
                 req.actor!,
                 app_uid,
             );

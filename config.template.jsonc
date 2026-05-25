@@ -67,7 +67,11 @@
 
     // ── Auth / session ──────────────────────────────────────────────────
     // ALWAYS replace these for any public install — `openssl rand -hex 64`.
+    // `jwt_secret` is legacy verify-only; new tokens sign with `jwt_secret_v2`.
     "jwt_secret": "change-me",
+    "jwt_secret_v2": "change-me",
+    // Set false to retire v1 tokens entirely (ROLLOUT-1).
+    "allow_v1_tokens": true,
     "url_signature_secret": "change-me",
     "cookie_name": "puter_auth_token",
     "min_pass_length": 6,

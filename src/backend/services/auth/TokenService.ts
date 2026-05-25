@@ -20,6 +20,11 @@
 import jwt, { type SignOptions } from 'jsonwebtoken';
 import { PuterService } from '../types';
 
+// Clock-skew tolerance for `iat` / `exp` checks. 30s matches the
+// design-doc allowance and absorbs ordinary NTP drift between nodes
+// without papering over a genuinely-expired token.
+const CLOCK_TOLERANCE_SECONDS = 30;
+
 // ── Compression tables ──────────────────────────────────────────────
 //
 // Token payloads are compressed on the wire: full field names become
@@ -109,6 +114,7 @@ const uuidCompression = (prefix?: string) => ({
 
 const AUTH_COMPRESSION = def({
     uuid: { short: 'u', ...uuidCompression() },
+    // v1 per-type field on app-under-user. v2 uses `session_uid` instead.
     session: { short: 's', ...uuidCompression() },
     version: 'v',
     type: {
@@ -121,6 +127,10 @@ const AUTH_COMPRESSION = def({
     },
     user_uid: { short: 'uu', ...uuidCompression() },
     app_uid: { short: 'au', ...uuidCompression('app-') },
+    // v2 unified session-row binding — present on every v2 token kind.
+    session_uid: { short: 'su', ...uuidCompression() },
+    // v2 stable per-user identity that survives re-login (PUT-1010).
+    auth_id: { short: 'ai', ...uuidCompression() },
 });
 
 // `hosted-asset` scope signs the sticky cookies set after a visitor
@@ -154,25 +164,38 @@ const COMPRESSION: Record<string, CompressionContext> = {
 /**
  * Signs and verifies JWTs.
  *
- * Kept intentionally small — no session lifecycle, no revocation list, no
- * cookie shaping. That logic lives in `AuthService` (actor resolution) and
- * will live in a future session controller (mint/rotate/revoke).
+ * Two secrets coexist for the v1→v2 migration:
+ *   - `jwt_secret_v2` signs every new token (`kid: 'v2'` header).
+ *   - `jwt_secret` is verify-only for tokens minted before this rolled out;
+ *     verified-legacy results carry `legacy: true` so AuthService can
+ *     drive lazy-backfill + the re-auth migration flow (AUTH-4).
+ *
+ * `allow_v1_tokens=false` (ROLLOUT-1) hard-rejects v1 tokens at verify.
  */
 export class TokenService extends PuterService {
-    #secret: string = '';
+    #secretV2: string = '';
+    #secretLegacy: string = '';
+    #allowV1Tokens = true;
 
     override onServerStart(): void {
-        const secret = this.config.jwt_secret;
-        if (!secret) {
-            throw new Error('TokenService requires `jwt_secret` in config');
+        const secretV2 = this.config.jwt_secret_v2;
+        if (!secretV2) {
+            throw new Error(
+                'TokenService requires `jwt_secret_v2` in config — v2 signing cannot proceed without it',
+            );
         }
-        this.#secret = secret;
+        this.#secretV2 = secretV2;
+        // Legacy secret is optional in fresh installs (no v1 tokens to verify),
+        // but every existing deployment carries one. Don't fail boot if it's
+        // missing — instead, refuse to verify v1 tokens later.
+        this.#secretLegacy = this.config.jwt_secret ?? '';
+        this.#allowV1Tokens = this.config.allow_v1_tokens !== false;
     }
 
     /**
-     * Sign a payload for the given scope. The compression table for `scope`
-     * is applied to the payload before signing, so what reaches the wire is
-     * the short-key form.
+     * Sign a payload for the given scope. Always emits v2 — the JWT header
+     * carries `kid: 'v2'` so the verifier can route to the right secret.
+     * Compression for `scope` is applied to the payload before signing.
      */
     sign(
         scope: string,
@@ -181,21 +204,60 @@ export class TokenService extends PuterService {
     ): string {
         const context = COMPRESSION[scope];
         const compressed = this.#compressPayload(context, payload);
-        return jwt.sign(compressed, this.#secret, options ?? {});
+        return jwt.sign(compressed, this.#secretV2, {
+            ...(options ?? {}),
+            // `keyid` is the SignOption name; it surfaces in the JWT header
+            // as `kid`. Caller-supplied options can't override this — `kid`
+            // is the routing discriminant.
+            keyid: 'v2',
+        });
     }
 
     /**
-     * Verify and decompress. Throws on invalid signature / expired / malformed
-     * (propagating `jsonwebtoken`'s errors). Callers in the auth probe should
-     * catch and treat as "no actor".
+     * Verify and decompress. Routes by header `kid`:
+     *   - `kid === 'v2'` → verify against the v2 secret.
+     *   - else → verify against the legacy secret and tag the result with
+     *     `legacy: true`. Rejected outright if `allow_v1_tokens=false`.
+     *
+     * Throws on invalid signature / expired / malformed (propagates
+     * `jsonwebtoken`'s errors). Callers in the auth probe should catch and
+     * treat as "no actor".
      */
     verify<T = Record<string, unknown>>(scope: string, token: string): T {
         const context = COMPRESSION[scope];
-        const payload = jwt.verify(token, this.#secret) as Record<
-            string,
-            unknown
-        >;
-        return this.#decompressPayload(context, payload) as unknown as T;
+        const decoded = jwt.decode(token, { complete: true });
+        const kid =
+            typeof decoded === 'object' && decoded
+                ? (decoded.header?.kid ?? null)
+                : null;
+
+        if (kid === 'v2') {
+            const payload = jwt.verify(token, this.#secretV2, {
+                clockTolerance: CLOCK_TOLERANCE_SECONDS,
+            }) as Record<string, unknown>;
+            return this.#decompressPayload(context, payload) as unknown as T;
+        }
+
+        // Legacy / unsigned-kid path.
+        if (!this.#allowV1Tokens) {
+            throw new Error('v1 tokens are disabled');
+        }
+        if (!this.#secretLegacy) {
+            throw new Error(
+                'v1 token presented but no legacy `jwt_secret` configured',
+            );
+        }
+        const payload = jwt.verify(token, this.#secretLegacy, {
+            clockTolerance: CLOCK_TOLERANCE_SECONDS,
+        }) as Record<string, unknown>;
+        const decompressed = this.#decompressPayload(
+            context,
+            payload,
+        ) as Record<string, unknown>;
+        // `legacy: true` lets AuthService run the v1-token migration paths
+        // (lazy session backfill, re-auth signal for web sessions).
+        decompressed.legacy = true;
+        return decompressed as unknown as T;
     }
 
     // ── Internals ───────────────────────────────────────────────────
