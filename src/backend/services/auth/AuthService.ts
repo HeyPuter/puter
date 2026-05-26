@@ -261,26 +261,86 @@ export class AuthService extends PuterService {
         await this.stores.session.revokeCascade(sessionUuid);
     }
 
-    /** List all sessions for an actor's user. */
+    /**
+     * List sessions surfaced to the manage-sessions UI. Excludes `asset`
+     * rows (per-cookie children of `web` rows, revoked transitively via
+     * cascade — surfacing them as standalone entries would be confusing).
+     * App rows are joined to the apps table so the UI can render the
+     * authorizing app's title and icon without a second round trip.
+     */
     async listSessions(actor: Actor): Promise<Array<Record<string, unknown>>> {
         if (!actor.user?.id) return [];
 
-        const rows = await this.stores.session.getByUserId(actor.user.id);
+        const rows = (await this.stores.session.getByUserId(
+            actor.user.id,
+        )) as Array<Record<string, unknown>>;
 
-        return rows.map((row: Record<string, unknown>) => {
+        const visible = rows.filter((row) => row.kind !== 'asset');
+
+        const appUids = [
+            ...new Set(
+                visible
+                    .map((row) => row.app_uid)
+                    .filter(
+                        (uid): uid is string =>
+                            typeof uid === 'string' && uid.length > 0,
+                    ),
+            ),
+        ];
+        const apps = new Map<string, Record<string, unknown>>();
+        await Promise.all(
+            appUids.map(async (uid) => {
+                try {
+                    const app = await this.stores.app.getByUid(uid);
+                    if (app) apps.set(uid, app);
+                } catch {
+                    // App lookup failures fall back to app_uid only.
+                }
+            }),
+        );
+
+        const enriched = visible.map((row) => {
             const meta =
                 (typeof row.meta === 'string'
                     ? JSON.parse(row.meta as string)
                     : row.meta) ?? {};
             const isCurrent = actor.session?.uid === row.uuid;
+            const appUid = typeof row.app_uid === 'string' ? row.app_uid : null;
+            const app = appUid ? (apps.get(appUid) ?? null) : null;
             return {
+                ...meta,
                 uuid: row.uuid,
+                kind: row.kind,
+                current: isCurrent,
+                label: row.label ?? null,
                 created_at: row.created_at,
                 last_activity: row.last_activity,
-                current: isCurrent,
-                ...meta,
+                expires_at: row.expires_at ?? null,
+                last_ip: row.last_ip ?? null,
+                created_via: row.created_via ?? null,
+                app_uid: appUid,
+                app: app
+                    ? {
+                          uid: app.uid,
+                          name: app.name,
+                          title: app.title,
+                          icon: app.icon,
+                      }
+                    : null,
             };
         });
+
+        // Sort: current session first, then most-recently-active. The
+        // manage-sessions UI relies on this so the "you are here" row
+        // anchors the top of the list.
+        enriched.sort((a, b) => {
+            if (a.current !== b.current) return a.current ? -1 : 1;
+            const al = Number(a.last_activity ?? 0);
+            const bl = Number(b.last_activity ?? 0);
+            return bl - al;
+        });
+
+        return enriched;
     }
 
     /**

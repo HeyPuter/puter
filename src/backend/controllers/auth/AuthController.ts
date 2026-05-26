@@ -1776,6 +1776,18 @@ export class AuthController extends PuterController {
                 legacyCode: 'bad_request',
             });
         }
+        // The caller's own session row must go through /logout, not a
+        // self-revoke — otherwise the response can't write fresh auth
+        // state and the client ends up with an ambiguous post-revoke
+        // identity. /auth/revoke-all-sessions still supports a separate
+        // `include_current` opt-in for the nuclear case.
+        if (uuid === req.actor!.session?.uid) {
+            throw new HttpError(
+                400,
+                'Cannot revoke your current session — use /logout instead',
+                { legacyCode: 'bad_request' },
+            );
+        }
         const session = await this.stores.session.getByUuid(uuid);
         if (session.user_id !== req.actor!.user.id) {
             throw new HttpError(403, 'Can only revoke your own sessions', {
