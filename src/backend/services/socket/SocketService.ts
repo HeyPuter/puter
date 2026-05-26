@@ -22,8 +22,62 @@ import type { Server as HttpServer } from 'node:http';
 import { Server as SocketIOServer, type Socket } from 'socket.io';
 import type { Actor } from '../../core/actor.js';
 import { isAccessTokenActor, isAppActor } from '../../core/actor.js';
-import type { AuthService } from '../auth/AuthService.js';
+import type { AuthResult, AuthService } from '../auth/AuthService.js';
 import { PuterService } from '../types.js';
+
+/**
+ * Error carrying the AUTH-4 reauth payload. socket.io forwards `error.data`
+ * to the client's `connect_error` callback, so clients receive the same
+ * `{ code, reason, auth_id }` shape the HTTP gate emits.
+ */
+export type SocketReauthError = Error & { data: Record<string, unknown> };
+
+/**
+ * Build a `reauth_required` error for the socket auth middleware to
+ * pass to `next()`. Exported for unit testing.
+ */
+export const buildSocketReauthError = (reauth: {
+    reason: string;
+    auth_id?: string;
+}): SocketReauthError => {
+    const err = new Error('reauth_required') as SocketReauthError;
+    err.data = {
+        code: 'reauth_required',
+        reason: reauth.reason,
+        ...(reauth.auth_id ? { auth_id: reauth.auth_id } : {}),
+    };
+    return err;
+};
+
+/** Pure decision from an `AuthResult` to a socket-side accept/reject. */
+export type SocketAuthDecision = { accept: Actor } | { reject: Error };
+
+/**
+ * Map an `AuthService.authenticate()` result onto the socket-handshake
+ * verdict. Order matters:
+ *
+ *   1. `reauth` → structured `reauth_required` error so the client can
+ *      drive the same migration / re-login flow it does for HTTP.
+ *   2. Missing actor → generic `socket auth failed`.
+ *   3. App-under-user / access-token actor → rejected with a specific
+ *      message; sockets only accept plain user actors.
+ *   4. Otherwise → accept the actor.
+ *
+ * Pure / no side effects — the middleware logs the reauth event.
+ */
+export const decideSocketAuth = (result: AuthResult): SocketAuthDecision => {
+    if (result.reauth) {
+        return { reject: buildSocketReauthError(result.reauth) };
+    }
+    const actor = result.actor;
+    if (!actor || !actor.user) {
+        return { reject: new Error('socket auth failed') };
+    }
+    if (isAppActor(actor) || isAccessTokenActor(actor)) {
+        return { reject: new Error('socket auth: only user tokens accepted') };
+    }
+    return { accept: actor };
+};
 
 /**
  * Socket push target. A `room` fans to every socket in that room; a
@@ -266,21 +320,27 @@ export class SocketService extends PuterService {
             }
 
             try {
-                const actor = await authService.authenticateFromToken(token);
-                if (!actor || !actor.user) {
-                    next(new Error('socket auth failed'));
-                    return;
+                const result = await authService.authenticate(token);
+
+                // Log the AUTH-4 signal here; `decideSocketAuth` stays
+                // pure (no side effects) for unit testing. The `(ws)`
+                // suffix lets the same grep find HTTP + socket events.
+                if (result.reauth) {
+                    console.info(
+                        `[auth-v2] reauth reason=${result.reauth.reason} auth_id=${result.reauth.auth_id ?? '-'} (ws)`,
+                    );
                 }
-                // Only user tokens accepted — no app-under-user, no access-token.
-                if (isAppActor(actor) || isAccessTokenActor(actor)) {
-                    next(new Error('socket auth: only user tokens accepted'));
+
+                const decision = decideSocketAuth(result);
+                if ('reject' in decision) {
+                    next(decision.reject);
                     return;
                 }
 
-                socket.actor = actor;
+                socket.actor = decision.accept;
                 // user.id is numeric in the DB; stringify for room name
                 // so adapter lookups key on a stable type.
-                socket.join(String(actor.user.id));
+                socket.join(String(decision.accept.user!.id));
                 next();
             } catch (err) {
                 console.warn('[socket] auth error', err);
@@ -379,7 +439,7 @@ export class SocketService extends PuterService {
             this.clients.event.emit(
                 `sent-to-user.${wireName}`,
                 {
-                    user_id: userId,
+                    user_id: userId as number,
                     response: data.response,
                 },
                 {},

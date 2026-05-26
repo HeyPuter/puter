@@ -35,40 +35,18 @@ declare global {
     // eslint-disable-next-line @typescript-eslint/no-namespace
     namespace Express {
         interface Request {
-            /**
-             * Populated by the global auth probe when a valid token is
-             * attached to the request (Bearer header, auth_token body/query,
-             * session cookie, or socket handshake). Absent for anonymous
-             * requests — route-level gates decide whether to reject.
-             */
             actor?: Actor;
 
             /** The raw token string, if one was presented and parsed. */
             token?: string;
 
-            /**
-             * Set by the global auth probe when a token was extracted from
-             * the request but failed to resolve to an actor (bad signature,
-             * expired, references a deleted session/user/app, or has a
-             * legacy shape v2 can't authenticate). Lets `requireAuthGate`
-             * distinguish "no token" from "token present but invalid" and
-             * emit the legacy `token_auth_failed` error so old clients
-             * trigger their re-login flow.
-             */
             tokenAuthFailed?: boolean;
 
-            /**
-             * Raw request body bytes, captured by the global JSON parser's
-             * `verify` callback. Available for any JSON request — needed by
-             * webhook handlers that verify an HMAC over the exact bytes the
-             * sender signed (e.g., AppStore prod webhooks, BroadcastService
-             * inter-instance hooks).
-             *
-             * Set only when the global JSON parser actually ran (request had
-             * `Content-Type: application/json` or one of the recognized
-             * JSON-as-text variants). For non-JSON requests it stays
-             * `undefined`.
-             */
+            requiresReauth?: {
+                reason: 'token_v1' | 'session_revoked' | 'session_expired';
+                auth_id?: string;
+            };
+
             rawBody?: Buffer;
 
             /** Parsed user-agent, populated by the global UA-parsing middleware. */

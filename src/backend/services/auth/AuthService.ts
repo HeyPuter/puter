@@ -41,6 +41,14 @@ const APP_ORIGIN_UUID_NAMESPACE = '33de3768-8ee0-43e9-9e73-db192b97a5d8';
 
 const nowSeconds = (): number => Math.floor(Date.now() / 1000);
 
+export type ReauthReason = 'token_v1' | 'session_revoked' | 'session_expired';
+
+export interface AuthResult {
+    actor?: Actor;
+    reauth?: { reason: ReauthReason; auth_id?: string };
+    invalid?: true;
+}
+
 /**
  * Authentication service.
  *
@@ -75,15 +83,12 @@ export class AuthService extends PuterService {
 
     // ── Public API ──────────────────────────────────────────────────
 
-    /**
-     * Resolve an auth token to a v2 Actor.
-     *
-     * Returns `null` for *any* failure — invalid signature, malformed payload,
-     * legacy token shape, missing session, missing user, missing app. The
-     * caller (auth probe) never differentiates: it either attaches an actor
-     * or leaves `req.actor` undefined for per-route gates to reject.
-     */
     async authenticateFromToken(token: string): Promise<Actor | null> {
+        const result = await this.authenticate(token);
+        return result.actor ?? null;
+    }
+
+    async authenticate(token: string): Promise<AuthResult> {
         let decoded: AnyTokenPayload;
         try {
             decoded = this.services.token.verify<AnyTokenPayload>(
@@ -91,23 +96,36 @@ export class AuthService extends PuterService {
                 token,
             );
         } catch {
-            return null;
+            return { invalid: true };
         }
 
         // Legacy tokens (pre-`type` field) aren't supported.
-        if (!decoded.type) return null;
+        if (!decoded.type) return { invalid: true };
 
+        let result: AuthResult;
         switch (decoded.type) {
             case 'session':
             case 'gui':
-                return this.#actorFromSessionToken(decoded);
+                result = await this.#actorFromSessionToken(decoded);
+                break;
             case 'app-under-user':
-                return this.#actorFromAppUnderUserToken(decoded);
+                result = await this.#actorFromAppUnderUserToken(decoded);
+                break;
             case 'access-token':
-                return this.#actorFromAccessTokenToken(decoded);
+                result = await this.#actorFromAccessTokenToken(decoded);
+                break;
             default:
-                return null;
+                return { invalid: true };
         }
+
+        if (decoded.legacy && !result.reauth) {
+            const authId =
+                (decoded.auth_id as string | undefined) ??
+                result.actor?.user?.uuid;
+            result.reauth = { reason: 'token_v1', auth_id: authId };
+        }
+
+        return result;
     }
 
     // ── Session lifecycle ────────────────────────────────────────────
@@ -1010,77 +1028,83 @@ export class AuthService extends PuterService {
 
     async #actorFromSessionToken(
         decoded: SessionTokenPayload,
-    ): Promise<Actor | null> {
+    ): Promise<AuthResult> {
         const user = await this.stores.user.getByUuid(decoded.user_uid);
-        if (!user) return null;
+        if (!user) return { invalid: true };
+        const auth_id = this.#authIdFor(user as UserRow);
 
         // v2 tokens prefer `session_uid`; v1 only carries `uuid`. Both
         // store the web-session uuid.
         const sessionUuid = decoded.session_uid ?? decoded.uuid;
 
-        let session: SessionRow | null = sessionUuid
-            ? ((await this.stores.session.getByUuid(
+        const rawRow = sessionUuid
+            ? ((await this.stores.session.getByUuidAny(
                   sessionUuid,
               )) as SessionRow | null)
             : null;
 
-        // Legacy v1 tokens whose row never existed (or whose row was
-        // pre-PUT-1013) get lazy-backfilled so revoke works during the
-        // migration window. AUTH-4 will still emit `reauth_required`
-        // for these, but until then the session validates.
+        if (rawRow?.revoked_at != null) {
+            return { reauth: { reason: 'session_revoked', auth_id } };
+        }
+        if (rawRow?.expires_at != null && rawRow.expires_at <= nowSeconds()) {
+            return { reauth: { reason: 'session_expired', auth_id } };
+        }
+
+        let session: SessionRow | null = rawRow;
+
         if (!session && decoded.legacy) {
             session = (await this.stores.session.findOrCreateLegacyWeb({
                 userId: user.id,
-                auth_id: this.#authIdFor(user as UserRow),
+                auth_id,
             })) as SessionRow | null;
         }
 
-        if (!session) return null;
+        if (!session) return { invalid: true };
 
         this.stores.session
             .touch({ uuid: session.uuid, userId: user.id })
             .catch(() => {});
 
-        return this.#buildUserActor(user, session);
+        return { actor: this.#buildUserActor(user, session) };
     }
 
     async #actorFromAppUnderUserToken(
         decoded: AppUnderUserTokenPayload,
-    ): Promise<Actor | null> {
+    ): Promise<AuthResult> {
         const user = await this.stores.user.getByUuid(decoded.user_uid);
-        if (!user) return null;
+        if (!user) return { invalid: true };
+        const auth_id = this.#authIdFor(user as UserRow);
 
         const app = await this.stores.app.getByUid(decoded.app_uid);
-        if (!app) return null;
+        if (!app) return { invalid: true };
 
-        // v2 tokens point at the app's own `kind='app'` session row via
-        // `session_uid`. v1 tokens (or v2 tokens minted before this
-        // landed) get lazy-backfilled to the same idempotent row keyed
-        // on (user_id, app_uid). For decoded.legacy we always backfill;
-        // for decoded.session_uid we trust the row reference.
-        let session: SessionRow | null = null;
+        let rawRow: SessionRow | null = null;
         if (decoded.session_uid) {
-            session = (await this.stores.session.getByUuid(
+            rawRow = (await this.stores.session.getByUuidAny(
                 decoded.session_uid,
             )) as SessionRow | null;
         }
+
+        if (rawRow?.revoked_at != null) {
+            return { reauth: { reason: 'session_revoked', auth_id } };
+        }
+        if (rawRow?.expires_at != null && rawRow.expires_at <= nowSeconds()) {
+            return { reauth: { reason: 'session_expired', auth_id } };
+        }
+
+        let session: SessionRow | null = rawRow;
+
+        // Legacy v1: lazy-backfill keyed on (user_id, app_uid).
         if (!session && decoded.legacy) {
             session = (await this.stores.session.getOrCreateApp(
                 user.id,
                 decoded.app_uid,
-                { auth_id: this.#authIdFor(user as UserRow) },
+                { auth_id },
             )) as SessionRow | null;
         }
 
-        // v2 tokens whose session_uid is missing/revoked are rejected
-        // outright — the row is the authoritative kill switch.
-        if (!session && !decoded.legacy) return null;
+        if (!session && !decoded.legacy) return { invalid: true };
 
-        // Pre-v2 fallback: v1 tokens that carried `decoded.session`
-        // (raw web-session uuid). Best-effort — if the row doesn't
-        // resolve we still proceed so old puter-js builds without the
-        // re-login patch don't strand users. AUTH-4 owns the migration
-        // pressure.
         if (!session && decoded.session) {
             session = (await this.stores.session.getByUuid(
                 decoded.session,
@@ -1091,50 +1115,50 @@ export class AuthService extends PuterService {
             .touch({ uuid: session?.uuid, userId: user.id })
             .catch(() => {});
 
-        return this.#buildAppUnderUserActor(user, app, session);
+        return {
+            actor: this.#buildAppUnderUserActor(user, app, session),
+        };
     }
 
     async #actorFromAccessTokenToken(
         decoded: AccessTokenPayload,
-    ): Promise<Actor | null> {
-        if (!decoded.token_uid || !decoded.user_uid) return null;
+    ): Promise<AuthResult> {
+        if (!decoded.token_uid || !decoded.user_uid) return { invalid: true };
 
         const user = await this.stores.user.getByUuid(decoded.user_uid);
-        if (!user) return null;
+        if (!user) return { invalid: true };
+        const auth_id = this.#authIdFor(user as UserRow);
 
-        // v2 access tokens carry their session row uuid as `session_uid`
-        // and the row is the kill switch — reject if missing/revoked.
-        // v1 tokens lazy-backfill keyed on `token_uid` so revoke works
-        // during the migration window.
         let session: SessionRow | null = null;
         if (decoded.session_uid) {
-            session = (await this.stores.session.getByUuid(
+            const rawRow = (await this.stores.session.getByUuidAny(
                 decoded.session_uid,
             )) as SessionRow | null;
-            if (!session) return null;
+            if (rawRow?.revoked_at != null) {
+                return { reauth: { reason: 'session_revoked', auth_id } };
+            }
+            if (
+                rawRow?.expires_at != null &&
+                rawRow.expires_at <= nowSeconds()
+            ) {
+                return { reauth: { reason: 'session_expired', auth_id } };
+            }
+            if (!rawRow) return { invalid: true };
+            session = rawRow;
         } else if (decoded.legacy) {
             session = (await this.stores.session.findOrCreateLegacyAccessToken(
                 decoded.token_uid,
-                {
-                    userId: user.id,
-                    auth_id: this.#authIdFor(user as UserRow),
-                },
+                { userId: user.id, auth_id },
             )) as SessionRow | null;
             // If backfill fails (DB write contention etc.) we don't
             // strand the legacy token — it falls through to the
             // permission-table path that v1 used.
         }
-        // Otherwise: v2 token without `session_uid` shouldn't happen
-        // (the mint path always emits it), but if a malformed token
-        // reaches here we let it through with no session binding —
-        // the access_token_permissions table is the v1 contract.
 
-        // The authorizer is the identity whose permissions the access token
-        // can exercise — either a plain user or an app-under-user.
         let authorizer: Actor;
         if (decoded.app_uid) {
             const app = await this.stores.app.getByUid(decoded.app_uid);
-            if (!app) return null;
+            if (!app) return { invalid: true };
             authorizer = this.#buildAppUnderUserActor(user, app, null);
         } else {
             authorizer = this.#buildUserActor(user, null);
@@ -1147,11 +1171,13 @@ export class AuthService extends PuterService {
         }
 
         return {
-            user: this.#actorUserFromRow(user),
-            accessToken: {
-                uid: decoded.token_uid,
-                issuer: authorizer,
-                authorized: null,
+            actor: {
+                user: this.#actorUserFromRow(user),
+                accessToken: {
+                    uid: decoded.token_uid,
+                    issuer: authorizer,
+                    authorized: null,
+                },
             },
         };
     }

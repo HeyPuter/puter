@@ -18,7 +18,11 @@
  */
 
 import type { Request, RequestHandler } from 'express';
-import type { AuthService } from '../../../services/auth/AuthService';
+import type {
+    AuthService,
+    ReauthReason,
+} from '../../../services/auth/AuthService';
+import type { SystemKVStore } from '../../../stores/systemKv/SystemKVStore';
 
 // Ensure the `Request.actor` / `Request.token` augmentation is in scope
 // wherever this middleware is imported.
@@ -28,7 +32,25 @@ interface AuthProbeOptions {
     authService: AuthService;
     /** Name of the session cookie to inspect. Falls back to `config.cookie_name`. */
     cookieName?: string;
+    kvStore?: SystemKVStore;
 }
+
+/** Day-bucketed KV key for AUTH-4 metrics. */
+const authV2MetricsKey = (): string => {
+    const now = new Date();
+    const yyyy = now.getUTCFullYear();
+    const mm = String(now.getUTCMonth() + 1).padStart(2, '0');
+    const dd = String(now.getUTCDate()).padStart(2, '0');
+    return `auth-v2:metrics:${yyyy}-${mm}-${dd}`;
+};
+
+const bumpCounter = (
+    kv: Pick<SystemKVStore, 'incr'> | undefined,
+    pathAndAmountMap: Record<string, number>,
+): void => {
+    if (!kv) return;
+    kv.incr({ key: authV2MetricsKey(), pathAndAmountMap }).catch(() => {});
+};
 
 /**
  * Non-enforcing auth probe. Runs globally (installed by `PuterServer`) on
@@ -49,7 +71,7 @@ interface AuthProbeOptions {
  *   6. Socket handshake query (for ws upgrades that pass through HTTP first)
  */
 export const createAuthProbe = (opts: AuthProbeOptions): RequestHandler => {
-    const { authService, cookieName } = opts;
+    const { authService, cookieName, kvStore } = opts;
     return async (req, _res, next): Promise<void> => {
         // If something upstream already attached an actor, respect it.
         if (req.actor) {
@@ -64,24 +86,31 @@ export const createAuthProbe = (opts: AuthProbeOptions): RequestHandler => {
         }
 
         try {
-            const actor = await authService.authenticateFromToken(token);
-            if (actor) {
-                req.actor = actor;
+            const result = await authService.authenticate(token);
+
+            if (result.reauth) {
+                bumpCounter(kvStore, {
+                    v1: 1,
+                    [`reauth.${result.reauth.reason}`]: 1,
+                });
+                req.requiresReauth = {
+                    reason: result.reauth.reason as ReauthReason,
+                    auth_id: result.reauth.auth_id,
+                };
+                console.info(
+                    `[auth-v2] reauth reason=${result.reauth.reason} auth_id=${result.reauth.auth_id ?? '-'}`,
+                );
+            } else if (result.actor) {
+                bumpCounter(kvStore, { v2: 1 });
+            }
+
+            if (result.actor) {
+                req.actor = result.actor;
                 req.token = token;
-            } else {
-                // Token was present but didn't resolve — covers v1-shape
-                // tokens v2 can't authenticate (e.g. FPE-encrypted session
-                // UUIDs), as well as tokens whose session/user/app rows
-                // have been deleted. `requireAuthGate` reads this flag
-                // to emit `token_auth_failed` (matching v1) so clients
-                // trigger their re-login flow instead of retrying.
+            } else if (result.invalid) {
                 req.tokenAuthFailed = true;
             }
         } catch {
-            // Probe never rejects — invalid tokens just leave `req.actor`
-            // undefined. Same flag as above so the gate's response shape
-            // is identical regardless of whether the failure came from
-            // jwt.verify or a downstream lookup.
             req.tokenAuthFailed = true;
         }
         next();

@@ -136,6 +136,53 @@ describe('requireAuthGate', () => {
         });
         expectHttpError(got, 403, 'forbidden');
     });
+
+    // ── AUTH-4 reauth signal ────────────────────────────────────────
+
+    it('returns 401 reauth_required for a legacy v1 token', () => {
+        const got = runGate(requireAuthGate(), {
+            requiresReauth: { reason: 'token_v1', auth_id: 'u-1' },
+        });
+        expectHttpError(got, 401, 'reauth_required');
+        expect((got as HttpError).fields).toMatchObject({
+            code: 'reauth_required',
+            reason: 'token_v1',
+            auth_id: 'u-1',
+        });
+    });
+
+    it('returns 401 reauth_required with reason=session_revoked', () => {
+        const got = runGate(requireAuthGate(), {
+            requiresReauth: { reason: 'session_revoked', auth_id: 'u-2' },
+        });
+        expectHttpError(got, 401, 'reauth_required');
+        expect((got as HttpError).fields).toMatchObject({
+            reason: 'session_revoked',
+            auth_id: 'u-2',
+        });
+    });
+
+    it('returns 401 reauth_required with reason=session_expired', () => {
+        const got = runGate(requireAuthGate(), {
+            requiresReauth: { reason: 'session_expired' },
+        });
+        expectHttpError(got, 401, 'reauth_required');
+        expect((got as HttpError).fields).toMatchObject({
+            reason: 'session_expired',
+        });
+        // No auth_id field at all when none was supplied (vs. set-to-undefined).
+        expect((got as HttpError).fields?.auth_id).toBeUndefined();
+    });
+
+    it('reauth_required takes priority over tokenAuthFailed', () => {
+        // Both flags set: the structured reauth signal wins. v2 clients
+        // key on `code === 'reauth_required'`; v1 clients still see a 401.
+        const got = runGate(requireAuthGate(), {
+            requiresReauth: { reason: 'token_v1', auth_id: 'u-1' },
+            tokenAuthFailed: true,
+        });
+        expectHttpError(got, 401, 'reauth_required');
+    });
 });
 
 // ── requireUserActorGate ────────────────────────────────────────────
