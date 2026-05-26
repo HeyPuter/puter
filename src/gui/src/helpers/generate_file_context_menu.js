@@ -365,9 +365,9 @@ const generate_file_context_menu = async function (options) {
                             'Authorization': `Bearer ${window.auth_token}`,
                         },
                         statusCode: {
-                            401: function () {
-                                window.logout();
-                            },
+                            401: function (xhr) {
+                        window.handle401(xhr);
+                    },
                         },
                     });
                 } catch ( err ) {

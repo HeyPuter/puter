@@ -178,9 +178,9 @@ async function UIWindowDesktopBGSettings (options) {
                         'Authorization': `Bearer ${window.auth_token}`,
                     },
                     statusCode: {
-                        401: function () {
-                            window.logout();
-                        },
+                        401: function (xhr) {
+                        window.handle401(xhr);
+                    },
                     },
                 });
                 $(el_window).close();

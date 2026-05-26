@@ -125,6 +125,23 @@ async function UIDesktop (options) {
         console.error('GUI Socket Error:', error);
     });
 
+    // PUT-1023 (GUI-1) — pick up reauth_required signals delivered via the
+    // socket.io handshake. SocketService emits `Error { data: { code:
+    // 'reauth_required', reason, auth_id } }` for legacy/revoked/expired
+    // tokens. Without this branch the disconnect would look like a silent
+    // network failure to the user.
+    window.socket.on('connect_error', (err) => {
+        const signal = err?.data;
+        if ( signal?.code === 'reauth_required' ) {
+            window.handleReauthRequired({
+                reason: signal.reason,
+                auth_id: signal.auth_id,
+            });
+        } else {
+            console.error('GUI Socket connect_error:', err);
+        }
+    });
+
     window.socket.on('connect', function () {
         // console.log('GUI Socket: Connected', window.socket.id);
         window.socket.emit('puter_is_actually_open');
@@ -1735,8 +1752,8 @@ async function UIDesktop (options) {
                     'Authorization': `Bearer ${window.auth_token}`,
                 },
                 statusCode: {
-                    401: function () {
-                        window.logout();
+                    401: function (xhr) {
+                        window.handle401(xhr);
                     },
                 },
             });

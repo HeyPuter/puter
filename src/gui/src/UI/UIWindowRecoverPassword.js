@@ -101,8 +101,8 @@ function UIWindowRecoverPassword (options) {
                     username: username,
                 }),
                 statusCode: {
-                    401: function () {
-                        window.logout();
+                    401: function (xhr) {
+                        window.handle401(xhr);
                     },
                 },
                 success: async function (res) {

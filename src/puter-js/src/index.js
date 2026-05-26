@@ -92,6 +92,14 @@ class Lock {
 //       (using defaultGUIOrigin breaks locally-hosted apps)
 const PROD_ORIGIN = 'https://puter.com';
 
+// localStorage keys for the auth token. v1 is the legacy key. v2 is the new
+// key written after the token rotation in the v1→v2 cutover (PUT-1024).
+// Reads prefer v2; v1 is only consulted to drive the silent-migration path
+// (SDK access_token / app kinds) or — for kind='web' — to fail over to the
+// interactive reauth flow.
+const STORAGE_KEY_V1 = 'puter.auth.token';
+const STORAGE_KEY_V2 = 'puter.auth.token.v2';
+
 const puterInit = (function () {
     'use strict';
 
@@ -143,6 +151,12 @@ const puterInit = (function () {
 
         // Event handling properties
         eventHandlers = {};
+
+        // Reauth coordinator state (PUT-1022 PJS-1). When the backend signals
+        // `401 { code: 'reauth_required' }`, in-flight requests await this
+        // promise; the first caller drives the interactive flow, everyone
+        // else replays after it resolves.
+        _reauthInflight = null;
 
         // debug flag
         debugMode = false;
@@ -457,17 +471,40 @@ const puterInit = (function () {
                 );
                 try {
                     let selectedAuthToken = bootstrapAuthToken;
+                    let needsSilentMigration = false;
                     if ( bootstrapAuthToken ) {
+                        // URL-param tokens may still be v1 (host apps that
+                        // haven't rebuilt yet). Set immediately so submodules
+                        // can run, then attempt silent migration in the
+                        // background — PJS-2.
                         this.setAuthToken(bootstrapAuthToken);
+                        needsSilentMigration = true;
                     } else {
-                        const storedAuthToken = this.normalizeAuthTokenCandidate(
-                            localStorage.getItem('puter.auth.token'),
+                        // Prefer the v2 storage key (PJS-2). Fall back to v1
+                        // and queue a silent migrate-token call.
+                        const v2 = this.normalizeAuthTokenCandidate(
+                            localStorage.getItem(STORAGE_KEY_V2),
                         );
-                        // If the authToken is already set in localStorage, then we don't need to show the dialog
-                        if ( storedAuthToken ) {
-                            this.setAuthToken(storedAuthToken);
-                            selectedAuthToken = storedAuthToken;
+                        if ( v2 ) {
+                            this.setAuthToken(v2);
+                            selectedAuthToken = v2;
+                        } else {
+                            const v1 = this.normalizeAuthTokenCandidate(
+                                localStorage.getItem(STORAGE_KEY_V1),
+                            );
+                            if ( v1 ) {
+                                this.setAuthToken(v1);
+                                selectedAuthToken = v1;
+                                needsSilentMigration = true;
+                            }
                         }
+                    }
+                    if ( needsSilentMigration && selectedAuthToken ) {
+                        // Fire-and-forget. On success, setAuthToken inside the
+                        // migration helper updates submodules with the v2
+                        // token. On failure the next 401 reauth_required
+                        // triggers the interactive flow.
+                        this._silentMigrateV1Token(selectedAuthToken);
                     }
                     const tokenAppID = this.getAppIDFromAuthToken(selectedAuthToken);
                     if ( !tokenAppID && !this.appID ) {
@@ -490,10 +527,25 @@ const puterInit = (function () {
                 // initialize submodules
                 this.initSubmodules();
                 try {
-                    // If the authToken is already set in localStorage, then we don't need to show the dialog
-                    const storedAuthToken = this.normalizeAuthTokenCandidate(localStorage.getItem('puter.auth.token'));
-                    if ( storedAuthToken ) {
-                        this.setAuthToken(storedAuthToken);
+                    // Prefer the v2 storage key (PJS-2). Fall back to v1 and
+                    // run a silent migration in the background.
+                    const v2 = this.normalizeAuthTokenCandidate(
+                        localStorage.getItem(STORAGE_KEY_V2),
+                    );
+                    if ( v2 ) {
+                        this.setAuthToken(v2);
+                    } else {
+                        const v1 = this.normalizeAuthTokenCandidate(
+                            localStorage.getItem(STORAGE_KEY_V1),
+                        );
+                        if ( v1 ) {
+                            this.setAuthToken(v1);
+                            // For kind='access_token' the backend will swap
+                            // this for a v2 token. For kind='web' it'll
+                            // refuse (409) and the next request bounces us
+                            // through the reauth popup.
+                            this._silentMigrateV1Token(v1);
+                        }
                     }
                     // if appID is already set in localStorage, then we don't need to show the dialog
                     if ( !this.appID && localStorage.getItem('puter.app.id') ) {
@@ -647,10 +699,14 @@ const puterInit = (function () {
             if ( this.env === 'web' || this.env === 'app' ) {
                 try {
                     if ( normalizedAuthToken ) {
-                        localStorage.setItem('puter.auth.token', normalizedAuthToken);
+                        localStorage.setItem(STORAGE_KEY_V2, normalizedAuthToken);
                     } else {
-                        localStorage.removeItem('puter.auth.token');
+                        localStorage.removeItem(STORAGE_KEY_V2);
                     }
+                    // Always clear the legacy v1 key on a write — once we
+                    // have a v2 token, the v1 one must not linger or it
+                    // would be picked up by older code paths.
+                    localStorage.removeItem(STORAGE_KEY_V1);
                 } catch ( error ) {
                     // Handle the error here
                     console.error('Error accessing localStorage:', error);
@@ -706,7 +762,8 @@ const puterInit = (function () {
             // If the SDK is running on a 3rd-party site or an app, then save the authToken in localStorage
             if ( this.env === 'web' || this.env === 'app' ) {
                 try {
-                    localStorage.removeItem('puter.auth.token');
+                    localStorage.removeItem(STORAGE_KEY_V2);
+                    localStorage.removeItem(STORAGE_KEY_V1);
                 } catch ( error ) {
                     // Handle the error here
                     console.error('Error accessing localStorage:', error);
@@ -714,6 +771,181 @@ const puterInit = (function () {
             }
             // reinitialize submodules
             this.updateSubmodules();
+        };
+
+        /**
+         * PUT-1022 (PJS-1) — reauth coordinator. Called by the network layer
+         * (lib/utils.js) when the backend returns
+         * `401 { code: 'reauth_required', reason, auth_id }`.
+         *
+         * Behavior is environment-specific:
+         *   - `web` / `app`: clear the stored token, emit an event, and
+         *     drive the existing puter.com login popup. Returns a promise
+         *     that resolves when the user signs in (so callers can replay)
+         *     or rejects if reauth fails / is canceled.
+         *   - `gui`: no-op — the GUI environment renders its own modal
+         *     (PUT-1023 GUI-1) and host code is responsible for the flow.
+         *   - workers / nodejs: there's no UI surface to drive, so reject
+         *     with a structured error and let worker code react.
+         *
+         * Idempotent: parallel callers share a single in-flight promise.
+         * @param {{ reason?: string, auth_id?: string }} signal
+         */
+        triggerReauth = async function (signal = {}) {
+            const { reason, auth_id } = signal;
+            if ( this._reauthInflight ) return this._reauthInflight;
+
+            // Emit before clearing so listeners can read state if needed.
+            this._emitReauthEvent({ reason, auth_id });
+
+            // Drop the stored token immediately so a failed/canceled reauth
+            // doesn't leave a poisoned value in localStorage. The new token
+            // (if reauth succeeds) is written by setAuthToken downstream.
+            this.authToken = null;
+            if ( this.env === 'web' || this.env === 'app' ) {
+                try {
+                    localStorage.removeItem(STORAGE_KEY_V2);
+                    localStorage.removeItem(STORAGE_KEY_V1);
+                } catch ( e ) {
+                    console.error('Error accessing localStorage:', e);
+                }
+            }
+            this.updateSubmodules();
+
+            this._reauthInflight = (async () => {
+                if ( this.env === 'gui' ) {
+                    // GUI handles its own modal at the layer above puter-js.
+                    return;
+                }
+                if (
+                    this.env === 'web-worker' ||
+                    this.env === 'service-worker' ||
+                    this.env === 'nodejs'
+                ) {
+                    const err = new Error('reauth_required');
+                    err.code = 'reauth_required';
+                    err.reason = reason;
+                    err.auth_id = auth_id;
+                    throw err;
+                }
+                if ( this.env === 'web' ) {
+                    // Drives the puter.com login popup. On success, the
+                    // postMessage handler at the bottom of this file calls
+                    // setAuthToken() and updates this.authToken.
+                    await this.ui.authenticateWithPuter({ auth_id, reason });
+                    return;
+                }
+                if ( this.env === 'app' ) {
+                    // We're inside an iframe in the GUI. Ask the parent to
+                    // surface the reauth modal; once the user signs in there,
+                    // the existing `puter.token` postMessage delivers the
+                    // fresh token back to us.
+                    try {
+                        globalThis.parent?.postMessage?.({
+                            msg: 'reauth_required',
+                            appInstanceID: this.appInstanceID,
+                            reason,
+                            auth_id,
+                        }, '*');
+                    } catch ( e ) {
+                        // Best-effort: if postMessage isn't available
+                        // (sandboxed iframe), fall through to error.
+                    }
+                    // Wait for the parent to deliver a fresh token.
+                    await new Promise((resolve, reject) => {
+                        const onToken = (event) => {
+                            if ( event.origin !== this.defaultGUIOrigin ) return;
+                            if ( event.data?.msg !== 'puter.token' ) return;
+                            globalThis.removeEventListener('message', onToken);
+                            resolve();
+                        };
+                        globalThis.addEventListener?.('message', onToken);
+                        // Give the user a generous window to re-auth.
+                        setTimeout(() => {
+                            globalThis.removeEventListener?.('message', onToken);
+                            reject(new Error('reauth_timeout'));
+                        }, 5 * 60 * 1000);
+                    });
+                }
+            })();
+
+            try {
+                await this._reauthInflight;
+            } finally {
+                this._reauthInflight = null;
+            }
+        };
+
+        _emitReauthEvent = function ({ reason, auth_id }) {
+            try {
+                const handlers = this.eventHandlers?.['auth.reauth_required'];
+                if ( Array.isArray(handlers) ) {
+                    for ( const h of handlers ) {
+                        try { h({ reason, auth_id }); } catch ( e ) { /* swallow per-handler errors */ }
+                    }
+                }
+            } catch ( e ) {
+                // Never let event delivery break the reauth flow itself.
+            }
+        };
+
+        /**
+         * Register a listener for SDK events. Used by host apps to react
+         * to `auth.reauth_required` (PUT-1022 PJS-1).
+         */
+        on = function (eventName, handler) {
+            if ( ! this.eventHandlers[eventName] ) this.eventHandlers[eventName] = [];
+            this.eventHandlers[eventName].push(handler);
+            return () => this.off(eventName, handler);
+        };
+
+        off = function (eventName, handler) {
+            const handlers = this.eventHandlers[eventName];
+            if ( ! handlers ) return;
+            const idx = handlers.indexOf(handler);
+            if ( idx >= 0 ) handlers.splice(idx, 1);
+        };
+
+        /**
+         * PUT-1024 (PJS-2) — best-effort silent v1→v2 token migration via
+         * the backend `/auth/migrate-token` endpoint (SDK-1). Used at boot
+         * when only a legacy `puter.auth.token` is present; on success the
+         * v2 token is set via setAuthToken (which clears the v1 key).
+         *
+         * Returns true on successful migration, false otherwise.
+         * Failures fall through to the existing 401-reauth path: any
+         * subsequent API call against the v1 token will receive a
+         * `reauth_required` and route through triggerReauth.
+         */
+        _silentMigrateV1Token = async function (v1Token) {
+            if ( ! v1Token ) return false;
+            try {
+                const resp = await fetch(`${this.APIOrigin}/auth/migrate-token`, {
+                    method: 'POST',
+                    headers: {
+                        Authorization: `Bearer ${v1Token}`,
+                        'Content-Type': 'application/json',
+                    },
+                    credentials: 'include',
+                    body: JSON.stringify({}),
+                });
+                if ( ! resp.ok ) {
+                    // 409 = backend refuses silent migration for this kind
+                    // (web sessions). Any caller will then 401 reauth_required
+                    // and the interactive flow takes over.
+                    return false;
+                }
+                const data = await resp.json().catch(() => null);
+                const token = data?.token;
+                if ( typeof token === 'string' && token.length > 0 ) {
+                    this.setAuthToken(token);
+                    return true;
+                }
+                return false;
+            } catch ( e ) {
+                // Network errors etc. — fall back to reauth on next 401.
+                return false;
+            }
         };
 
         exit = function (statusCode = 0) {

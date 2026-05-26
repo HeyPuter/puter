@@ -100,6 +100,21 @@ function initXhr (endpoint, APIOrigin, authToken, method = 'post', contentType =
     xhr.setRequestHeader('Content-Type', contentType);
     xhr.responseType = responseType ?? '';
 
+    // Capture enough request shape to replay this XHR after a reauth_required
+    // (PUT-1022 PJS-1). The body is captured below by intercepting send().
+    xhr._puterReq = {
+        endpoint,
+        APIOrigin,
+        method,
+        contentType,
+        responseType,
+    };
+    const origSend = xhr.send.bind(xhr);
+    xhr.send = function (body) {
+        xhr._puterReq.body = body;
+        return origSend(body);
+    };
+
     // Add API call logging if available
     if ( globalThis.puter?.apiCallLogger?.isEnabled() ) {
         xhr._puterRequestId = {
@@ -111,6 +126,33 @@ function initXhr (endpoint, APIOrigin, authToken, method = 'post', contentType =
     }
 
     return xhr;
+}
+
+/**
+ * Re-issue an XHR after the reauth coordinator resolves. Uses the request
+ * shape captured on `_puterReq` and the fresh `puter.authToken` to build a
+ * new XHR; the new response is then routed back through the same callbacks.
+ * Returns true if a replay was scheduled, false otherwise.
+ */
+function replayXhrAfterReauth (response, success_cb, error_cb, resolve_func, reject_func) {
+    const xhr = response.target ?? response;
+    const req = xhr?._puterReq;
+    if ( ! req ) return false;
+    // Already a replay attempt — don't loop into reauth a second time if
+    // even the fresh token comes back rejected. The retry path is one-shot.
+    if ( req._replayed ) return false;
+    const newXhr = initXhr(
+        req.endpoint,
+        req.APIOrigin,
+        globalThis.puter?.authToken,
+        req.method,
+        req.contentType,
+        req.responseType,
+    );
+    newXhr._puterReq._replayed = true;
+    setupXhrEventHandlers(newXhr, success_cb, error_cb, resolve_func, reject_func);
+    newXhr.send(req.body);
+    return true;
 }
 
 /**
@@ -134,6 +176,33 @@ async function handle_resp (success_cb, error_cb, resolve_func, reject_func, res
     const resp = await parseResponse(response);
     // error - unauthorized
     if ( response.status === 401 ) {
+        // PUT-1022 (PJS-1) — v2 reauth signal. The backend `authProbe`
+        // middleware returns `401 { code: 'reauth_required', reason, auth_id }`
+        // for legacy v1 tokens, revoked sessions, and expired sessions
+        // beyond the silent re-mint window. Drive the env-specific reauth
+        // flow on the Puter class, then replay the original request with
+        // the new token.
+        if ( resp?.code === 'reauth_required' ) {
+            try {
+                await puter.triggerReauth({
+                    reason: resp.reason,
+                    auth_id: resp.auth_id,
+                });
+                if ( replayXhrAfterReauth(response, success_cb, error_cb, resolve_func, reject_func) ) {
+                    return;
+                }
+            } catch ( e ) {
+                const err = {
+                    status: 401,
+                    code: 'reauth_required',
+                    reason: resp.reason,
+                    auth_id: resp.auth_id,
+                    message: e?.message || 'Reauthentication required',
+                };
+                if ( error_cb && typeof error_cb === 'function' ) error_cb(err);
+                return reject_func(err);
+            }
+        }
         // Backend signals "token is no longer valid, prompt re-login" via
         // the legacy `token_auth_failed` code (matches v1 backend's
         // APIError.create('token_auth_failed') shape). Trigger the same
@@ -522,6 +591,30 @@ async function driverCall_ (
 
         // HTTP Error - unauthorized
         if ( response.target.status === 401 || resp?.code === 'token_auth_failed' ) {
+            // PUT-1022 (PJS-1) — v2 reauth signal. Same shape as the
+            // non-driver path in handle_resp above; the call is replayed
+            // with the fresh token after triggerReauth resolves.
+            if ( resp?.code === 'reauth_required' ) {
+                try {
+                    await puter.triggerReauth({
+                        reason: resp.reason,
+                        auth_id: resp.auth_id,
+                    });
+                    if ( replayXhrAfterReauth(response, success_cb, error_cb, resolve_func, reject_func) ) {
+                        return;
+                    }
+                } catch ( e ) {
+                    const err = {
+                        status: 401,
+                        code: 'reauth_required',
+                        reason: resp.reason,
+                        auth_id: resp.auth_id,
+                        message: e?.message || 'Reauthentication required',
+                    };
+                    if ( error_cb && typeof error_cb === 'function' ) error_cb(err);
+                    return reject_func(err);
+                }
+            }
             if ( resp?.code === 'token_auth_failed' && puter.env === 'web' ) {
                 try {
                     puter.resetAuthToken();
