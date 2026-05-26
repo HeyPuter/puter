@@ -129,7 +129,7 @@ const AUTH_COMPRESSION = def({
     app_uid: { short: 'au', ...uuidCompression('app-') },
     // v2 unified session-row binding — present on every v2 token kind.
     session_uid: { short: 'su', ...uuidCompression() },
-    // v2 stable per-user identity that survives re-login (PUT-1010).
+    // v2 stable per-user identity that survives re-login
     auth_id: { short: 'ai', ...uuidCompression() },
 });
 
@@ -161,17 +161,6 @@ const COMPRESSION: Record<string, CompressionContext> = {
 
 // ── TokenService ────────────────────────────────────────────────────
 
-/**
- * Signs and verifies JWTs.
- *
- * Two secrets coexist for the v1→v2 migration:
- *   - `jwt_secret_v2` signs every new token (`kid: 'v2'` header).
- *   - `jwt_secret` is verify-only for tokens minted before this rolled out;
- *     verified-legacy results carry `legacy: true` so AuthService can
- *     drive lazy-backfill + the re-auth migration flow (AUTH-4).
- *
- * `allow_v1_tokens=false` (ROLLOUT-1) hard-rejects v1 tokens at verify.
- */
 export class TokenService extends PuterService {
     #secretV2: string = '';
     #secretLegacy: string = '';

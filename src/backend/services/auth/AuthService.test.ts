@@ -789,4 +789,357 @@ describe('AuthService (integration)', () => {
             ).toThrow();
         });
     });
+
+    // ── AUTH-5 (PUT-1019) revoke coverage ────────────────────────────
+
+    describe('revokeAccessToken raw-uuid session-row coverage', () => {
+        // The JWT-input branch has always flipped the session row's
+        // revoked_at. AUTH-5 closes the raw-uuid gap: the new
+        // `sessions.access_token_uid` column lets revoke find the row
+        // for v2-minted tokens even when no JWT was presented.
+
+        it('soft-revokes the v2 session row when revoked by raw token_uid', async () => {
+            const user = await makeUser();
+            const actor = {
+                user: { id: user.id, uuid: user.uuid, username: user.username },
+            } as Actor;
+            const jwt = await authService.createAccessToken(actor, [
+                ['service:foo:ii:read'],
+            ]);
+            const decoded = server.services.token.verify('auth', jwt) as {
+                token_uid: string;
+                session_uid: string;
+            };
+
+            // Confirm session row is active before revoke.
+            const before = await server.stores.session.getByUuid(
+                decoded.session_uid,
+            );
+            expect(before).toBeTruthy();
+
+            await authService.revokeAccessToken(actor, decoded.token_uid);
+
+            // Row is soft-revoked, not just permissions-stripped.
+            const after = await server.stores.session.getByUuid(
+                decoded.session_uid,
+            );
+            expect(after).toBeNull();
+        });
+    });
+
+    describe('revokeAllSessions', () => {
+        it('throws 403 when actor has no user', async () => {
+            await expect(
+                authService.revokeAllSessions({
+                    user: undefined,
+                } as unknown as Actor),
+            ).rejects.toMatchObject({ statusCode: 403 });
+        });
+
+        it('revokes every web session except the caller by default', async () => {
+            const user = await makeUser();
+            const otherDevice = await authService.createSessionToken(user, {});
+            const otherUuid = (otherDevice.session as { uuid: string }).uuid;
+            const currentDevice = await authService.createSessionToken(user, {});
+            const currentUuid = (currentDevice.session as { uuid: string })
+                .uuid;
+            const actor = {
+                user: { id: user.id, uuid: user.uuid, username: user.username },
+                session: { uid: currentUuid },
+            } as unknown as Actor;
+
+            await authService.revokeAllSessions(actor);
+
+            // Caller's session survives.
+            expect(
+                await server.stores.session.getByUuid(currentUuid),
+            ).toBeTruthy();
+            // Other device's session is gone.
+            expect(
+                await server.stores.session.getByUuid(otherUuid),
+            ).toBeNull();
+        });
+
+        it('with includeCurrent=true also revokes the caller', async () => {
+            const user = await makeUser();
+            const currentDevice = await authService.createSessionToken(user, {});
+            const currentUuid = (currentDevice.session as { uuid: string })
+                .uuid;
+            const actor = {
+                user: { id: user.id, uuid: user.uuid, username: user.username },
+                session: { uid: currentUuid },
+            } as unknown as Actor;
+
+            await authService.revokeAllSessions(actor, {
+                includeCurrent: true,
+            });
+
+            expect(
+                await server.stores.session.getByUuid(currentUuid),
+            ).toBeNull();
+        });
+
+        it('leaves app authorizations alone by default', async () => {
+            const user = await makeUser();
+            const actor = {
+                user: { id: user.id, uuid: user.uuid, username: user.username },
+            } as Actor;
+            const appUid = `app-${uuidv4()}`;
+            // Mint an app authorization (creates a kind='app' session row).
+            await authService.getUserAppToken(actor, appUid);
+
+            // Plus a web session that revoke-all should touch.
+            const web = await authService.createSessionToken(user, {});
+            const webUuid = (web.session as { uuid: string }).uuid;
+
+            await authService.revokeAllSessions({
+                user: actor.user,
+                session: { uid: 'unrelated' },
+            } as unknown as Actor);
+
+            // Web is gone, app survives.
+            expect(
+                await server.stores.session.getByUuid(webUuid),
+            ).toBeNull();
+            const appSession = await server.stores.session.getOrCreateApp(
+                user.id,
+                appUid,
+            );
+            expect(appSession?.revoked_at ?? null).toBeNull();
+        });
+
+        it('with includeApps=true also revokes app authorizations', async () => {
+            const user = await makeUser();
+            const actor = {
+                user: { id: user.id, uuid: user.uuid, username: user.username },
+            } as Actor;
+            const appUid = `app-${uuidv4()}`;
+            const appToken = await authService.getUserAppToken(actor, appUid);
+            const appDecoded = server.services.token.verify('auth', appToken) as {
+                session_uid: string;
+            };
+
+            await authService.revokeAllSessions(
+                {
+                    user: actor.user,
+                    session: { uid: 'unrelated' },
+                } as unknown as Actor,
+                { includeApps: true },
+            );
+
+            expect(
+                await server.stores.session.getByUuid(appDecoded.session_uid),
+            ).toBeNull();
+        });
+    });
+
+    // ── SDK-1 (PUT-1021) migrate-token ────────────────────────────────
+
+    describe('migrateLegacyToken', () => {
+        // Hand-mint v1 tokens using the same compression dict the
+        // TokenService's verify path will decompress against.
+
+        const encodeUuid = (u: string): string =>
+            Buffer.from(u.replace(/-/g, ''), 'hex').toString('base64');
+
+        const signV1AccessToken = (opts: {
+            tokenUid: string;
+            userUid: string;
+            appUid?: string;
+        }): string => {
+            const payload: Record<string, unknown> = {
+                t: 't',
+                token_uid: opts.tokenUid,
+                uu: encodeUuid(opts.userUid),
+            };
+            if (opts.appUid) {
+                payload.au = encodeUuid(
+                    opts.appUid.startsWith('app-')
+                        ? opts.appUid.slice('app-'.length)
+                        : opts.appUid,
+                );
+            }
+            return jwt.sign(payload, 'dev-jwt-secret-change-me');
+        };
+
+        const signV1AppToken = (opts: {
+            userUid: string;
+            appUid: string;
+        }): string => {
+            const stripped = opts.appUid.startsWith('app-')
+                ? opts.appUid.slice('app-'.length)
+                : opts.appUid;
+            return jwt.sign(
+                {
+                    t: 'au',
+                    uu: encodeUuid(opts.userUid),
+                    au: encodeUuid(stripped),
+                },
+                'dev-jwt-secret-change-me',
+            );
+        };
+
+        const signV1SessionToken = (opts: {
+            userUid: string;
+            sessionUuid: string;
+        }): string =>
+            jwt.sign(
+                {
+                    t: 's',
+                    u: encodeUuid(opts.sessionUuid),
+                    uu: encodeUuid(opts.userUid),
+                },
+                'dev-jwt-secret-change-me',
+            );
+
+        it('migrates a v1 access-token to a v2 token preserving token_uid', async () => {
+            const user = await makeUser();
+            const tokenUid = uuidv4();
+            const v1 = signV1AccessToken({
+                tokenUid,
+                userUid: user.uuid,
+            });
+
+            const result = await authService.migrateLegacyToken(v1);
+
+            expect(result.kind).toBe('access_token');
+            expect(result.auth_id).toBe(user.uuid);
+            expect(typeof result.session_uid).toBe('string');
+
+            // v2 token re-verifies and carries the same token_uid +
+            // a fresh session_uid.
+            const decoded = server.services.token.verify('auth', result.token) as {
+                type: string;
+                token_uid: string;
+                session_uid: string;
+                user_uid: string;
+            };
+            expect(decoded.type).toBe('access-token');
+            expect(decoded.token_uid).toBe(tokenUid);
+            expect(decoded.user_uid).toBe(user.uuid);
+            expect(decoded.session_uid).toBe(result.session_uid);
+        });
+
+        it('access-token migration is idempotent (same session_uid on retry)', async () => {
+            const user = await makeUser();
+            const tokenUid = uuidv4();
+            const v1 = signV1AccessToken({ tokenUid, userUid: user.uuid });
+
+            const first = await authService.migrateLegacyToken(v1);
+            const second = await authService.migrateLegacyToken(v1);
+
+            expect(first.session_uid).toBe(second.session_uid);
+        });
+
+        it('migrates a v1 app-under-user token to a v2 token', async () => {
+            const user = await makeUser();
+            const appUid = `app-${uuidv4()}`;
+            const v1 = signV1AppToken({
+                userUid: user.uuid,
+                appUid,
+            });
+
+            const result = await authService.migrateLegacyToken(v1);
+
+            expect(result.kind).toBe('app');
+            expect(result.auth_id).toBe(user.uuid);
+            const decoded = server.services.token.verify('auth', result.token) as {
+                type: string;
+                app_uid: string;
+                user_uid: string;
+                session_uid: string;
+            };
+            expect(decoded.type).toBe('app-under-user');
+            expect(decoded.app_uid).toBe(appUid);
+            expect(decoded.user_uid).toBe(user.uuid);
+            expect(decoded.session_uid).toBe(result.session_uid);
+        });
+
+        it('app-token migration is idempotent on (user_id, app_uid)', async () => {
+            const user = await makeUser();
+            const appUid = `app-${uuidv4()}`;
+            const v1a = signV1AppToken({ userUid: user.uuid, appUid });
+            const v1b = signV1AppToken({ userUid: user.uuid, appUid });
+
+            const first = await authService.migrateLegacyToken(v1a);
+            const second = await authService.migrateLegacyToken(v1b);
+
+            expect(first.session_uid).toBe(second.session_uid);
+        });
+
+        it('returns 409 reauth_required for v1 session tokens', async () => {
+            const user = await makeUser();
+            const v1 = signV1SessionToken({
+                userUid: user.uuid,
+                sessionUuid: uuidv4(),
+            });
+
+            await expect(
+                authService.migrateLegacyToken(v1),
+            ).rejects.toMatchObject({
+                statusCode: 409,
+                code: 'reauth_required',
+            });
+        });
+
+        it('rejects v2 tokens with 401 (nothing to migrate)', async () => {
+            const user = await makeUser();
+            const v2 = await authService.createAccessToken(
+                {
+                    user: { id: user.id, uuid: user.uuid, username: user.username },
+                } as Actor,
+                [['service:foo:ii:read']],
+            );
+            await expect(
+                authService.migrateLegacyToken(v2),
+            ).rejects.toMatchObject({ statusCode: 401 });
+        });
+
+        it('rejects garbage tokens with 401', async () => {
+            await expect(
+                authService.migrateLegacyToken('not-a-jwt'),
+            ).rejects.toMatchObject({ statusCode: 401 });
+        });
+
+        it('returns 410 for app tokens when allow_v1_app_migration=false', async () => {
+            // Use a scoped server with the flag flipped — toggling
+            // `this.config` on the shared server would race with other
+            // tests.
+            const scopedServer = await setupTestServer({
+                allow_v1_app_migration: false,
+            } as never);
+            try {
+                const scopedAuth = scopedServer.services.auth as unknown as
+                    AuthService;
+                const user = await scopedServer.stores.user.create({
+                    username: `mt-${uuidv4().slice(0, 8)}`,
+                    uuid: uuidv4(),
+                    password: null,
+                    email: `mt-${uuidv4().slice(0, 8)}@test.local`,
+                    free_storage: 100 * 1024 * 1024,
+                    requires_email_confirmation: false,
+                });
+                const appUid = `app-${uuidv4()}`;
+                const v1App = signV1AppToken({
+                    userUid: user.uuid,
+                    appUid,
+                });
+                await expect(
+                    scopedAuth.migrateLegacyToken(v1App),
+                ).rejects.toMatchObject({
+                    statusCode: 410,
+                    code: 'app_migration_disabled',
+                });
+                // Access-token migration stays on regardless.
+                const v1AccessToken = signV1AccessToken({
+                    tokenUid: uuidv4(),
+                    userUid: user.uuid,
+                });
+                const ok = await scopedAuth.migrateLegacyToken(v1AccessToken);
+                expect(ok.kind).toBe('access_token');
+            } finally {
+                await scopedServer.shutdown();
+            }
+        });
+    });
 });

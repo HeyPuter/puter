@@ -492,6 +492,29 @@ export async function checkDriverRateLimit(req, ifaceName, method, opts = {}) {
     }
 }
 
+// ── Imperative helper ───────────────────────────────────────────────
+
+/**
+ * Imperative rate-limit check (no middleware shape). For handlers that
+ * need a second-axis limit after their route-level limit fires —
+ * e.g. `/auth/migrate-token` limits per IP at the route, then per
+ * `auth_id` once the v1 token is decoded. Returns true if allowed,
+ * false if rate-limited. Fails open on backend error, matching the
+ * rest of this module's policy.
+ */
+export async function checkRateLimit(key, limit, windowMs, backend) {
+    const bk = resolveBackend(backend);
+    try {
+        return await bk.rate(key, limit, windowMs);
+    } catch (err) {
+        console.error(
+            '[rate-limit] imperative check failed, failing open:',
+            err,
+        );
+        return true;
+    }
+}
+
 // ── Subscription-aware limit resolution ─────────────────────────────
 
 /**

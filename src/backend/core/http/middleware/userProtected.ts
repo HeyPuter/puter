@@ -63,6 +63,30 @@ export interface UserProtectedGateDeps {
     tokenService: TokenService;
 }
 
+/**
+ * Cookie-only credential check. Rejects API tokens, GUI tokens,
+ * `x-api-key` headers, and query-string tokens — only a request whose
+ * resolved `req.token` matches the session cookie passes. Used both by
+ * `createUserProtectedGate` (as its first stage) and standalone by
+ * routes that need session-cookie-only credentials without the full
+ * password-revalidation gate (e.g. `/auth/revoke-*`, where an access
+ * token shouldn't be able to revoke its own issuing web session).
+ */
+export const createSessionCookieGate = (config: IConfig): RequestHandler => {
+    const cookieName = config.cookie_name ?? 'puter_token';
+    return (req, _res, next) => {
+        const cookieValue = req.cookies?.[cookieName];
+        if (!cookieValue || (req.token && req.token !== cookieValue)) {
+            return next(
+                new HttpError(401, 'Session cookie required', {
+                    legacyCode: 'session_required',
+                }),
+            );
+        }
+        next();
+    };
+};
+
 export interface UserProtectedGateOptions {
     /** Allow temp accounts (no password + no email) through. Default: false. */
     allowTempUsers?: boolean;
@@ -95,19 +119,10 @@ export const createUserProtectedGate = (
     options: UserProtectedGateOptions = {},
 ): RequestHandler[] => {
     const { config, userStore, oidcService, tokenService } = deps;
-    const cookieName = config.cookie_name ?? 'puter_token';
     const allowTemp = !!options.allowTempUsers;
 
-    // 1. Session cookie only.
-    const requireSessionCookie: RequestHandler = (req, _res, next) => {
-        const cookieValue = req.cookies?.[cookieName];
-        if (!cookieValue || (req.token && req.token !== cookieValue)) {
-            throw new HttpError(401, 'Session cookie required', {
-                legacyCode: 'session_required',
-            });
-        }
-        next();
-    };
+    // 1. Session cookie only. Shared with the standalone cookie-only gate.
+    const requireSessionCookie = createSessionCookieGate(config);
 
     // 2. Fresh user row (bypass cache to catch just-suspended accounts).
     // `getById` doesn't take options; go through `getByProperty` with

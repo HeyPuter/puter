@@ -20,6 +20,7 @@
 import { v4 as uuidv4, v5 as uuidv5 } from 'uuid';
 import type { Actor } from '../../core/actor';
 import { HttpError } from '../../core/http/HttpError.js';
+import { checkRateLimit } from '../../core/http/middleware/rateLimit.js';
 import {
     ASSET_WINDOW_SECONDS,
     WEB_WINDOW_SECONDS,
@@ -210,16 +211,6 @@ export class AuthService extends PuterService {
         });
     }
 
-    /**
-     * Stable per-user identity carried on every v2 token (PUT-1010). Survives
-     * re-login so the login endpoint can re-attach a new session to the same
-     * underlying account — critical for temp users whose files are keyed off
-     * the account that owns them.
-     *
-     * For normal users this is `user.uuid` (already stable). Temp-user
-     * dedicated ids are PUT-1016's territory; until then, the uuid is fine
-     * because temp re-login swaps the row but keeps the uuid.
-     */
     #authIdFor(user: UserRow): string {
         return user.uuid;
     }
@@ -252,13 +243,6 @@ export class AuthService extends PuterService {
         return now + seconds;
     }
 
-    /**
-     * Remove the session referenced by a session/GUI JWT. Cascades to
-     * derived rows (asset cookies parented to this web session) so
-     * logout transitively kills every cookie minted under the session.
-     * App authorizations are top-level (no parent) and survive logout
-     * per the PUT-1010 hierarchy.
-     */
     async removeSessionByToken(token: string): Promise<void> {
         let decoded: AnyTokenPayload;
         try {
@@ -306,6 +290,235 @@ export class AuthService extends PuterService {
      */
     async revokeSession(uuid: string): Promise<void> {
         await this.stores.session.revokeCascade(uuid);
+    }
+
+    async revokeAllSessions(
+        actor: Actor,
+        opts: { includeCurrent?: boolean; includeApps?: boolean } = {},
+    ): Promise<void> {
+        if (!actor.user) {
+            throw new HttpError(403, 'Actor must be a user', {
+                legacyCode: 'forbidden',
+            });
+        }
+        const currentUuid = actor.session?.uid;
+        const rows = await this.stores.session.getByUserId(
+            actor.user.id as number,
+        );
+        for (const row of rows) {
+            if (row.kind === 'web') {
+                if (!opts.includeCurrent && row.uuid === currentUuid) continue;
+                await this.stores.session.revokeCascade(row.uuid as string);
+            } else if (row.kind === 'app' && opts.includeApps) {
+                await this.stores.session.revokeCascade(row.uuid as string);
+            }
+        }
+    }
+
+    async migrateLegacyToken(
+        v1Token: string,
+        _ctx: { ip?: string; userAgent?: string } = {},
+    ): Promise<{
+        token: string;
+        session_uid: string;
+        auth_id: string;
+        kind: 'access_token' | 'app';
+    }> {
+        // 1. Verify under v1 secret. `TokenService.verify` tags v1
+        // results with `legacy: true`; anything else is either a v2
+        // token (nothing to migrate) or invalid.
+        let decoded: AnyTokenPayload;
+        try {
+            decoded = this.services.token.verify<AnyTokenPayload>(
+                'auth',
+                v1Token,
+            );
+        } catch {
+            throw new HttpError(401, 'Invalid token', {
+                legacyCode: 'token_invalid',
+            });
+        }
+        if (!decoded.legacy) {
+            throw new HttpError(401, 'Token is not v1', {
+                legacyCode: 'token_invalid',
+            });
+        }
+        if (!decoded.type) {
+            throw new HttpError(401, 'Invalid token type', {
+                legacyCode: 'token_invalid',
+            });
+        }
+
+        // 2. Web tokens never migrate silently — they go through the
+        // interactive reauth flow. The `code` field is what puter.js /
+        // GUI clients key on; `legacyCode` keeps the body shape valid
+        // for legacy error readers.
+        if (decoded.type === 'session' || decoded.type === 'gui') {
+            throw new HttpError(409, 'Reauthentication required', {
+                legacyCode: 'unauthorized',
+                code: 'reauth_required',
+            });
+        }
+
+        // 3. Branch by kind.
+        if (decoded.type === 'access-token') {
+            return this.#migrateAccessToken(decoded as AccessTokenPayload);
+        }
+        if (decoded.type === 'app-under-user') {
+            // Per ROLLOUT-1, app-token migration is the kind that
+            // ultimately retires — flag-gated independently from the
+            // top-level `allow_v1_tokens` so access-token migration
+            // can stay on indefinitely.
+            const allowAppMigration =
+                (this.config as { allow_v1_app_migration?: boolean })
+                    .allow_v1_app_migration !== false;
+            if (!allowAppMigration) {
+                throw new HttpError(410, 'App-token migration disabled', {
+                    legacyCode: 'unauthorized',
+                    code: 'app_migration_disabled',
+                });
+            }
+            return this.#migrateAppToken(decoded as AppUnderUserTokenPayload);
+        }
+
+        throw new HttpError(401, 'Unsupported token type', {
+            legacyCode: 'token_invalid',
+        });
+    }
+
+    async #migrateAccessToken(decoded: AccessTokenPayload): Promise<{
+        token: string;
+        session_uid: string;
+        auth_id: string;
+        kind: 'access_token';
+    }> {
+        if (!decoded.token_uid || !decoded.user_uid) {
+            throw new HttpError(401, 'Invalid token claims', {
+                legacyCode: 'token_invalid',
+            });
+        }
+        const user = (await this.stores.user.getByUuid(
+            decoded.user_uid,
+        )) as UserRow | null;
+        if (!user) {
+            throw new HttpError(401, 'User not found', {
+                legacyCode: 'unauthorized',
+            });
+        }
+        const auth_id = this.#authIdFor(user);
+
+        // Per-auth_id rate limit — second axis beyond the route-level
+        // per-IP limit. Catches an attacker who has both the token and
+        // a rotating IP pool.
+        await this.#enforceMigrateAuthIdLimit(auth_id);
+
+        const session = await this.stores.session.findOrCreateLegacyAccessToken(
+            decoded.token_uid,
+            { userId: user.id, auth_id },
+        );
+        if (!session) {
+            throw new HttpError(500, 'Session backfill failed', {
+                legacyCode: 'internal_error',
+            });
+        }
+
+        // Mint v2 access token. token_uid is preserved so the existing
+        // `access_token_permissions` rows (keyed by token_uid) keep
+        // applying — only the JWT envelope and session-row binding
+        // change.
+        const jwtPayload: Record<string, unknown> = {
+            type: 'access-token',
+            version: '2',
+            token_uid: decoded.token_uid,
+            user_uid: user.uuid,
+            session_uid: session.uuid as string,
+            auth_id,
+        };
+        if (decoded.app_uid) jwtPayload.app_uid = decoded.app_uid;
+        const token = this.services.token.sign('auth', jwtPayload);
+
+        return {
+            token,
+            session_uid: session.uuid as string,
+            auth_id,
+            kind: 'access_token',
+        };
+    }
+
+    async #migrateAppToken(decoded: AppUnderUserTokenPayload): Promise<{
+        token: string;
+        session_uid: string;
+        auth_id: string;
+        kind: 'app';
+    }> {
+        if (!decoded.user_uid || !decoded.app_uid) {
+            throw new HttpError(401, 'Invalid token claims', {
+                legacyCode: 'token_invalid',
+            });
+        }
+        const user = (await this.stores.user.getByUuid(
+            decoded.user_uid,
+        )) as UserRow | null;
+        if (!user) {
+            throw new HttpError(401, 'User not found', {
+                legacyCode: 'unauthorized',
+            });
+        }
+        const auth_id = this.#authIdFor(user);
+
+        await this.#enforceMigrateAuthIdLimit(auth_id);
+
+        // Idempotent on `(user_id, app_uid)` via the partial unique
+        const session = await this.stores.session.getOrCreateApp(
+            user.id,
+            decoded.app_uid,
+            { auth_id },
+        );
+        if (!session) {
+            throw new HttpError(500, 'Session backfill failed', {
+                legacyCode: 'internal_error',
+            });
+        }
+
+        const jwtPayload: Record<string, unknown> = {
+            type: 'app-under-user',
+            version: '2',
+            user_uid: user.uuid,
+            app_uid: decoded.app_uid,
+            session_uid: session.uuid as string,
+            auth_id,
+        };
+        const token = this.services.token.sign('auth', jwtPayload);
+
+        return {
+            token,
+            session_uid: session.uuid as string,
+            auth_id,
+            kind: 'app',
+        };
+    }
+
+    /**
+     * Per-`auth_id` rate limit for migrate-token. Keyed on the stable
+     * v2 identity so an attacker rotating IPs but holding one user's
+     * v1 token still hits a ceiling.
+     */
+    async #enforceMigrateAuthIdLimit(auth_id: string): Promise<void> {
+        // 20 migrations per 15min per identity matches the per-IP
+        // route limit — either axis trips first depending on the
+        // attack shape. Generous enough that a healthy client (one
+        // app open per device) never sees it.
+        const ok = await checkRateLimit(
+            `migrate-token-auth:${auth_id}`,
+            20,
+            15 * 60_000,
+        );
+        if (!ok) {
+            throw new HttpError(429, 'Too many migration attempts', {
+                legacyCode: 'too_many_requests',
+                fields: { 'retry-after': 900 },
+            });
+        }
     }
 
     // ── App / origin resolution ─────────────────────────────────────
@@ -540,13 +753,6 @@ export class AuthService extends PuterService {
         return typeof uid === 'string' && uid ? uid : null;
     }
 
-    /**
-     * Sign an app-under-user token for the given app UID. Idempotent per
-     * `(user.id, appUid)` — repeat opens of the same app reuse the existing
-     * `kind='app'` session row rather than minting a fresh one. The row is
-     * top-level (no `parent_session_id`) so signing out of the web session
-     * doesn't kill the app authorization (PUT-1010 hierarchy).
-     */
     async getUserAppToken(actor: Actor, appUid: string): Promise<string> {
         if (!actor.user)
             throw new HttpError(403, 'Actor must be a user', {
@@ -865,7 +1071,7 @@ export class AuthService extends PuterService {
     async createAccessToken(
         actor: Actor,
         permissions: Array<[string, Record<string, unknown>?]>,
-        options: { expiresIn?: string } = {},
+        options: { expiresIn?: number } = {},
     ): Promise<string> {
         if (!actor.user)
             throw new HttpError(403, 'Actor must be a user', {
@@ -902,6 +1108,10 @@ export class AuthService extends PuterService {
                 parent_session_id,
                 expires_at: expiresAt,
                 auth_id,
+                // Stored on the session row so a raw-uuid revoke (caller has the
+                // token_uid but no JWT) can reverse-find the row and flip
+                // `revoked_at` — see `revokeAccessToken`.
+                access_token_uid: tokenUid,
             },
         );
 
@@ -1005,13 +1215,12 @@ export class AuthService extends PuterService {
         );
         await this.stores.permission.invalidateAccessTokenPerms(tokenUid);
 
-        // v2 access tokens carry a session row whose `revoked_at` is the
-        // authoritative kill switch — flip it so a stolen token can't
-        // resurrect by re-grabbing the deleted permissions. v1 tokens
-        // (or raw-uuid input where the JWT wasn't presented) have no
-        // session uuid here; AUTH-5 owns the full back-fill revoke flow.
         if (sessionUidFromJwt) {
             await this.stores.session.removeByUuid(sessionUidFromJwt);
+        } else {
+            const row =
+                await this.stores.session.findActiveByAccessTokenUid(tokenUid);
+            if (row) await this.stores.session.removeByUuid(row.uuid);
         }
     }
 

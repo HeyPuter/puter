@@ -491,6 +491,22 @@ interface IConfigOptional {
      * Default true during the v1→v2 migration window.
      */
     allow_v1_tokens: boolean;
+    /**
+     * When false, `POST /auth/migrate-token` returns 410 Gone for v1
+     * `app-under-user` tokens. Per ROLLOUT-1, app-token migration is
+     * retired ahead of access-token migration — keeping these on
+     * separate flags lets ops kill apps first and keep API-key
+     * migration on indefinitely. Default true.
+     */
+    allow_v1_app_migration: boolean;
+    /**
+     * Optional explicit allowlist of `Origin` header values that may
+     * call `POST /auth/migrate-token` cross-origin. The main `origin`
+     * is always allowed. Used to thread the SDK migration call through
+     * app subdomains (e.g. `*.puter.site`) without opening the
+     * endpoint to arbitrary attacker pages.
+     */
+    allow_migrate_token_origins?: string[];
     /** HMAC secret for signed file URLs (/file, /writeFile, /sign). */
     url_signature_secret: string;
     /** Name of the session cookie the auth probe reads. */

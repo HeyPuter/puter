@@ -124,6 +124,10 @@ export class SessionStore extends PuterStore {
      *   index.
      * @param opts.legacy_token_uid - v1 token_uid this row backfills.
      *   Only set for `created_via='legacy_backfill'`.
+     * @param opts.access_token_uid - For `kind='access_token'` v2 rows: the
+     *   `token_uid` claim that lives in `access_token_permissions`. Lets
+     *   raw-uuid revoke reverse-find the session row when no JWT was
+     *   presented.
      * @param opts.created_via - Audit sentinel (e.g. 'legacy_backfill').
      * @param opts.auth_id - Stable per-user identity (survives re-login);
      *   carried on every v2 JWT so manage-sessions can group by identity.
@@ -152,6 +156,7 @@ export class SessionStore extends PuterStore {
             expires_at = null,
             app_uid = null,
             legacy_token_uid = null,
+            access_token_uid = null,
             created_via = null,
             auth_id = null,
         } = {},
@@ -171,7 +176,7 @@ export class SessionStore extends PuterStore {
             : 'INSERT INTO';
 
         await this.clients.db.write(
-            `${insertVerb} \`sessions\` (\`uuid\`, \`user_id\`, \`meta\`, \`last_activity\`, \`created_at\`, \`kind\`, \`label\`, \`parent_session_id\`, \`last_ip\`, \`last_user_agent\`, \`expires_at\`, \`app_uid\`, \`legacy_token_uid\`, \`created_via\`, \`auth_id\`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            `${insertVerb} \`sessions\` (\`uuid\`, \`user_id\`, \`meta\`, \`last_activity\`, \`created_at\`, \`kind\`, \`label\`, \`parent_session_id\`, \`last_ip\`, \`last_user_agent\`, \`expires_at\`, \`app_uid\`, \`legacy_token_uid\`, \`access_token_uid\`, \`created_via\`, \`auth_id\`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
                 uuid,
                 userId,
@@ -186,6 +191,7 @@ export class SessionStore extends PuterStore {
                 expires_at,
                 app_uid,
                 legacy_token_uid,
+                access_token_uid,
                 created_via,
                 auth_id,
             ],
@@ -206,6 +212,7 @@ export class SessionStore extends PuterStore {
             expires_at,
             app_uid,
             legacy_token_uid,
+            access_token_uid,
             created_via,
             auth_id,
         };
@@ -283,6 +290,23 @@ export class SessionStore extends PuterStore {
     }
 
     /**
+     * Active session row whose access-token identity matches `tokenUid`.
+     * Covers both v2 (`access_token_uid` set at mint) and v1 lazy-backfill
+     * (`legacy_token_uid` set on first verify) rows so raw-uuid revoke can
+     * find the row regardless of whether the token was originally v1 or v2.
+     * Returns `null` if no active row matches.
+     */
+    async findActiveByAccessTokenUid(tokenUid) {
+        if (!tokenUid) return null;
+        const now = nowSeconds();
+        const rows = await this.clients.db.read(
+            "SELECT * FROM `sessions` WHERE `kind` = 'access_token' AND (`access_token_uid` = ? OR `legacy_token_uid` = ?) AND `revoked_at` IS NULL AND (`expires_at` IS NULL OR `expires_at` > ?) ORDER BY `id` DESC LIMIT 1",
+            [tokenUid, tokenUid, now],
+        );
+        return this.#normalizeRow(rows[0]);
+    }
+
+    /**
      * Idempotent "give me the app session for this (user, app)" lookup.
      * Returns the existing active app session if one exists, or creates
      * a new one. Concurrent callers converge on a single row via the
@@ -299,7 +323,7 @@ export class SessionStore extends PuterStore {
      * @param appUid - App UID (string).
      * @param opts.last_ip / opts.last_user_agent - Request context for
      *   first-time creation. Ignored when a row already exists.
-     * @param opts.auth_id - Stable per-user identity (PUT-1010).
+     * @param opts.auth_id - Stable per-user identity .
      */
     async getOrCreateApp(userId, appUid, opts = {}) {
         if (!userId || !appUid) return null;
