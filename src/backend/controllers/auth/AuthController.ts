@@ -712,7 +712,7 @@ export class AuthController extends PuterController {
     })
     async handleLogout(req: Request, res: Response): Promise<void> {
         // Clear the session cookie
-        res.clearCookie(this.config.cookie_name!);
+        res.clearCookie(this.config.cookie_name ?? 'puter_token');
 
         // Remove the session (fire-and-forget)
         if (req.token) {
@@ -2080,15 +2080,37 @@ export class AuthController extends PuterController {
                     ? req.headers['user-agent']
                     : undefined,
         });
+        // `puter_token_v2` is the cookie companion to v2 app tokens —
+        // the app runs in-browser (we already gated on Origin above) so
+        // the GUI's cookie-only middleware can authenticate subsequent
+        // calls from the same iframe without the client having to
+        // forward Authorization headers. Access tokens are programmatic
+        // (no browser cookie surface) so we deliberately skip them here.
+        if (result.kind === 'app') {
+            res.cookie('puter_token_v2', result.token, {
+                ...sessionCookieFlags(this.config),
+                httpOnly: true,
+            });
+        }
         res.json(result);
     }
 
     #isMigrateTokenOriginAllowed(origin: string): boolean {
-        if (origin === this.config.origin) return true;
+        // Origin headers and config values both reach us in inconsistent
+        // shapes (trailing slash, mixed case from misconfigured deploys,
+        // stray whitespace from JSON config edits). Normalize both sides
+        // before equality so a `config.origin` with a trailing slash
+        // doesn't reject every same-origin browser call.
+        const normalize = (raw: string | undefined): string =>
+            (raw ?? '').trim().replace(/\/+$/, '').toLowerCase();
+        const incoming = normalize(origin);
+        if (!incoming) return false;
+        if (incoming === normalize(this.config.origin)) return true;
         const allowlist = (
             this.config as { allow_migrate_token_origins?: string[] }
         ).allow_migrate_token_origins;
-        return Array.isArray(allowlist) && allowlist.includes(origin);
+        if (!Array.isArray(allowlist)) return false;
+        return allowlist.some((entry) => normalize(entry) === incoming);
     }
 
     @Post('/auth/create-access-token', {
@@ -2452,7 +2474,7 @@ export class AuthController extends PuterController {
             user,
             req.actor.session.uid,
         );
-        res.cookie(this.config.cookie_name!, sessionToken, {
+        res.cookie(this.config.cookie_name ?? 'puter_token', sessionToken, {
             ...sessionCookieFlags(this.config),
             httpOnly: true,
         });
@@ -2468,7 +2490,7 @@ export class AuthController extends PuterController {
 
     async handleDeleteOwnUser(req: Request, res: Response): Promise<void> {
         const userId = req.actor!.user.id!;
-        res.clearCookie(this.config.cookie_name!);
+        res.clearCookie(this.config.cookie_name ?? 'puter_token');
         res.clearCookie('puter_revalidation');
         await this.#cascadeDeleteUser(userId);
         res.json({ success: true });
@@ -2783,7 +2805,7 @@ export class AuthController extends PuterController {
             await this.services.auth.createSessionToken(user as never, meta);
 
         // HTTP-only cookie gets the session token
-        res.cookie(this.config.cookie_name!, sessionToken, {
+        res.cookie(this.config.cookie_name ?? 'puter_token', sessionToken, {
             ...sessionCookieFlags(this.config),
             httpOnly: true,
         });

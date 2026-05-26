@@ -323,7 +323,8 @@ export class SessionStore extends PuterStore {
      * @param appUid - App UID (string).
      * @param opts.last_ip / opts.last_user_agent - Request context for
      *   first-time creation. Ignored when a row already exists.
-     * @param opts.auth_id - Stable per-user identity .
+     * @param opts.auth_id - Stable per-user identity (survives re-login);
+     *   carried on every v2 JWT so manage-sessions can group by identity.
      */
     async getOrCreateApp(userId, appUid, opts = {}) {
         if (!userId || !appUid) return null;

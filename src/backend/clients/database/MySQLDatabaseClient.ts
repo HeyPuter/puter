@@ -243,11 +243,33 @@ export class MySQLDatabaseClient extends AbstractDatabaseClient {
 
                 let files: string[];
                 try {
+                    // Existing files are named `mysql_mig_<N>.sql` with
+                    // unpadded N, so a plain lexical .sort() puts
+                    // mysql_mig_10 BEFORE mysql_mig_2. Pull the integer
+                    // out of the filename and sort numerically — any
+                    // file that doesn't match (manual one-off, vendor
+                    // dump) falls back to lexical comparison so it stays
+                    // deterministic.
+                    const numericIndex = (name: string): number => {
+                        const m = /_(\d+)\.sql$/.exec(name);
+                        return m ? Number.parseInt(m[1], 10) : Number.NaN;
+                    };
                     files = readdirSync(dir)
                         .filter(
                             (f) => f.endsWith('.sql') && f.startsWith('mysql'),
                         )
-                        .sort();
+                        .sort((a, b) => {
+                            const na = numericIndex(a);
+                            const nb = numericIndex(b);
+                            if (Number.isFinite(na) && Number.isFinite(nb)) {
+                                if (na !== nb) return na - nb;
+                            } else if (Number.isFinite(na)) {
+                                return -1;
+                            } else if (Number.isFinite(nb)) {
+                                return 1;
+                            }
+                            return a.localeCompare(b);
+                        });
                 } catch (e) {
                     throw new Error(
                         `[mysql] migration path is unreadable: ${dir}`,

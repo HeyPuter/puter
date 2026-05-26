@@ -1131,7 +1131,12 @@ export class AuthService extends PuterService {
     async createAccessToken(
         actor: Actor,
         permissions: Array<[string, Record<string, unknown>?]>,
-        options: { expiresIn?: number } = {},
+        // `expiresIn` follows jsonwebtoken's expiresIn semantics — either
+        // a number of seconds (integer) or a duration string ('1h',
+        // '30d'). `#hardExpiryFromExpiresIn` supports both, and existing
+        // callers / tests pass the string form, so narrowing to `number`
+        // here would force unsafe casts at every call site.
+        options: { expiresIn?: string | number } = {},
     ): Promise<string> {
         if (!actor.user)
             throw new HttpError(403, 'Actor must be a user', {
@@ -1187,7 +1192,16 @@ export class AuthService extends PuterService {
             jwtPayload.app_uid = actor.app.uid;
         }
 
-        const jwt = this.services.token.sign('auth', jwtPayload, options);
+        // jsonwebtoken's SignOptions.expiresIn is typed as `number |
+        // ${number}${unit}` (template literal), so a plain string can't
+        // be statically proven safe. The runtime accepts the same range
+        // of strings #hardExpiryFromExpiresIn parses ('1h', '30d'), so
+        // the cast is faithful to actual behavior.
+        const jwt = this.services.token.sign(
+            'auth',
+            jwtPayload,
+            options as { expiresIn?: number },
+        );
 
         // Store each permission grant
         const db = this.stores.permission as unknown as {
@@ -1269,6 +1283,15 @@ export class AuthService extends PuterService {
             }
         }
 
+        // Permissions rows still DELETE — the AUTH-5 "no DELETE on revoke"
+        // rule scoped to the `sessions` table (where the audit trail of
+        // when a session existed/was revoked is load-bearing for forensic
+        // queries and the cascade graph). `access_token_permissions`
+        // rows are the grant manifest for an *active* token; once its
+        // session is soft-revoked, the grants are dead-weight cache
+        // entries that would only confuse `checkMany`. If we later need
+        // permission-grant history for audit, that becomes a
+        // `revoked_at` column on this table, not a behavior change here.
         await this.clients.db.write(
             'DELETE FROM `access_token_permissions` WHERE `token_uid` = ?',
             [tokenUid],
