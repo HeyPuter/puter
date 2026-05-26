@@ -840,21 +840,32 @@ const puterInit = (function () {
                     // surface the reauth modal; once the user signs in there,
                     // the existing `puter.token` postMessage delivers the
                     // fresh token back to us.
+                    //
+                    // targetOrigin is locked to the expected GUI origin —
+                    // postMessage('*') would leak reauth signal + auth_id
+                    // to any embedding parent (including a malicious one),
+                    // and the message body is only meaningful to the GUI.
                     try {
                         globalThis.parent?.postMessage?.({
                             msg: 'reauth_required',
                             appInstanceID: this.appInstanceID,
                             reason,
                             auth_id,
-                        }, '*');
+                        }, this.defaultGUIOrigin);
                     } catch ( e ) {
                         // Best-effort: if postMessage isn't available
                         // (sandboxed iframe), fall through to error.
                     }
                     // Wait for the parent to deliver a fresh token.
+                    // Validate both event.origin AND event.source — origin
+                    // alone lets any same-origin frame on the GUI domain
+                    // deliver a token; pinning source to globalThis.parent
+                    // ensures the message came from the actual embedder.
                     await new Promise((resolve, reject) => {
+                        const expectedSource = globalThis.parent;
                         const onToken = (event) => {
                             if ( event.origin !== this.defaultGUIOrigin ) return;
+                            if ( expectedSource && event.source !== expectedSource ) return;
                             if ( event.data?.msg !== 'puter.token' ) return;
                             globalThis.removeEventListener('message', onToken);
                             resolve();
@@ -878,7 +889,7 @@ const puterInit = (function () {
 
         _emitReauthEvent = function ({ reason, auth_id }) {
             try {
-                const handlers = this.eventHandlers?.['auth.reauth_required'];
+                const handlers = this.eventHandlers?.['puter.auth.reauth_required'];
                 if ( Array.isArray(handlers) ) {
                     for ( const h of handlers ) {
                         try { h({ reason, auth_id }); } catch ( e ) { /* swallow per-handler errors */ }
@@ -891,7 +902,7 @@ const puterInit = (function () {
 
         /**
          * Register a listener for SDK events. Used by host apps to react
-         * to `auth.reauth_required` (PUT-1022 PJS-1).
+         * to `puter.auth.reauth_required` (PUT-1022 PJS-1).
          */
         on = function (eventName, handler) {
             if ( ! this.eventHandlers[eventName] ) this.eventHandlers[eventName] = [];

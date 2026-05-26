@@ -443,6 +443,10 @@ async function driverCall_ (
 
     if ( settings.responseType ) {
         xhr.responseType = settings.responseType;
+        // Keep _puterReq in sync with the live XHR config so any replay
+        // path (driver or generic) builds the retry with the correct
+        // responseType rather than the stale value captured by initXhr.
+        if ( xhr._puterReq ) xhr._puterReq.responseType = settings.responseType;
     }
 
     // ===============================================
@@ -591,18 +595,47 @@ async function driverCall_ (
 
         // HTTP Error - unauthorized
         if ( response.target.status === 401 || resp?.code === 'token_auth_failed' ) {
-            // PUT-1022 (PJS-1) — v2 reauth signal. Same shape as the
-            // non-driver path in handle_resp above; the call is replayed
-            // with the fresh token after triggerReauth resolves.
+            // PUT-1022 (PJS-1) — v2 reauth signal. Replay the driver
+            // call by re-entering driverCall_ rather than using the
+            // generic replayXhrAfterReauth helper: the generic helper
+            // wires the retried XHR through setupXhrEventHandlers, which
+            // resolves with the parsed response and skips driverCall_'s
+            // streaming detection, usage-limit / email-confirmation
+            // handling, settings.transform, and `resp.result` unwrapping
+            // — i.e. it would silently change the driver call API
+            // contract on retry. One-shot via `settings._reauthReplayed`
+            // so a fresh-token rejection bubbles up instead of looping.
             if ( resp?.code === 'reauth_required' ) {
                 try {
                     await puter.triggerReauth({
                         reason: resp.reason,
                         auth_id: resp.auth_id,
                     });
-                    if ( replayXhrAfterReauth(response, success_cb, error_cb, resolve_func, reject_func) ) {
-                        return;
+                    if ( ! settings._reauthReplayed ) {
+                        return driverCall_(
+                            options,
+                            resolve_func,
+                            reject_func,
+                            driverInterface,
+                            driverName,
+                            driverMethod,
+                            driverArgs,
+                            method,
+                            contentType,
+                            { ...settings, _reauthReplayed: true },
+                        );
                     }
+                    // Already replayed once — the fresh token is still
+                    // rejected. Bubble the reauth error.
+                    const err = {
+                        status: 401,
+                        code: 'reauth_required',
+                        reason: resp.reason,
+                        auth_id: resp.auth_id,
+                        message: 'Reauthentication still required after retry',
+                    };
+                    if ( error_cb && typeof error_cb === 'function' ) error_cb(err);
+                    return reject_func(err);
                 } catch ( e ) {
                     const err = {
                         status: 401,
