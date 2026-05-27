@@ -159,6 +159,7 @@ export class GroupStore extends PuterStore {
     }): Promise<string> {
         const windowClause = this.clients.db.case<string>({
             sqlite: "datetime('now', '-1 hour')",
+            postgres: "NOW() - INTERVAL '1 hour'",
             otherwise: 'NOW() - INTERVAL 1 HOUR',
         });
         const [countRow] = await this.clients.db.read(

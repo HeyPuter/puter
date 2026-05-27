@@ -165,7 +165,7 @@ export class StaticPagesController extends PuterController {
             const domain = this.config.domain ?? req.hostname;
             const origin = `${req.protocol}://${domain}`;
             const apps = (await this.clients.db.read(
-                'SELECT `name` FROM `apps` WHERE `approved_for_listing` = 1',
+                `SELECT \`name\` FROM \`apps\` WHERE \`approved_for_listing\` = ${this.clients.db.booleanLiteral(true)}`,
             )) as Array<{ name: string }>;
             const urls = [
                 `<url><loc>${req.protocol}://docs.${domain}/</loc></url>`,
@@ -252,7 +252,7 @@ export class StaticPagesController extends PuterController {
             const [dupe] = (await this.clients.db.read(
                 `SELECT EXISTS(
                     SELECT 1 FROM \`user\` WHERE (\`email\` = ? OR \`clean_email\` = ?)
-                    AND \`email_confirmed\` = 1
+                    AND \`email_confirmed\` = ${this.clients.db.booleanLiteral(true)}
                     AND \`password\` IS NOT NULL
                 ) AS email_exists`,
                 [user.email, cleanEmail],

@@ -84,7 +84,7 @@ export const handleAppTelemetryUsers = async (
 
     const users = await clients.db.read(
         `SELECT u.username, u.uuid FROM user_to_app_permissions p
-         INNER JOIN user u ON p.user_id = u.id
+         INNER JOIN ${clients.db.quoteIdentifier('user')} u ON p.user_id = u.id
          WHERE p.permission = 'flag:app-is-authenticated' AND p.app_id = ?
          ORDER BY (p.dt IS NOT NULL), p.dt, p.user_id
          LIMIT ? OFFSET ?`,
