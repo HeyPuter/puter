@@ -18,15 +18,15 @@
  */
 
 import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import type { EventMetadata } from '../../clients/event/types.js';
+import type { Actor } from '../../core/actor.js';
 import { Context } from '../../core/context.js';
 import { HttpError, type LegacyErrorCodes } from '../../core/http/HttpError.js';
 import { assertVerifiedEmail } from '../../core/http/verifiedEmail.js';
+import type { FSEntry } from '../../stores/fs/FSEntry.js';
 import { PuterDriver } from '../types.js';
 import { loadFileInput } from '../util/fileInput.js';
-import type { Actor } from '../../core/actor.js';
-import path from 'node:path';
-import type { EventMetadata } from '../../clients/event/types.js';
-import type { FSEntry } from '../../stores/fs/FSEntry.js';
 
 const CF_BASE_URL = 'https://api.cloudflare.com/client/v4/accounts';
 const WORKER_NAME_REGEX = /^[a-zA-Z0-9_-]+$/;
@@ -155,7 +155,7 @@ export class WorkerDriver extends PuterDriver {
         // collide with any interactive `kind='app'` session for the
         // same (user, app); the long expiry (WORKER_WINDOW_SECONDS)
         // means the worker doesn't have to re-mint on a clock cadence.
-        let authorization = String(args.authorization ?? '');
+        let authorization = undefined;
         let appOwnerId = actor.app?.id ?? undefined;
         if (appId) {
             if (actor.app && actor.app.uid !== appId) {
@@ -612,6 +612,7 @@ export class WorkerDriver extends PuterDriver {
                             ownerUser,
                             workerName,
                         );
+
                     authorization = session.token;
                 }
 
