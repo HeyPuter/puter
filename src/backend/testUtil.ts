@@ -1,8 +1,74 @@
 import { deepMerge } from '../../tools/lib/configMigration.mjs';
 import { PuterServer } from './server';
 import { IConfig } from './types';
+import { puterClients } from './clients';
+import {
+    PostgresDatabaseClient,
+    type PostgresPool,
+} from './clients/database/PostgresDatabaseClient';
+import type { PoolConfig } from 'pg';
 
-export const setupTestServer = async (configOverrides?: IConfig) => {
+export const POSTGRES_TEST_MIGRATIONS_PATH =
+    'src/backend/clients/database/migrations/postgres';
+
+type PgMockPostgresHarness = {
+    client: PostgresDatabaseClient;
+    createClient: () => PostgresDatabaseClient;
+    destroy: () => void;
+};
+
+const usesPgMockPostgres = (config: IConfig): boolean => {
+    const database = config.database;
+    if (database?.engine !== 'postgres' || database.inMemory !== true) {
+        return false;
+    }
+
+    return !(
+        database.connectionString ||
+        database.url ||
+        database.host ||
+        database.port ||
+        database.user ||
+        database.password ||
+        database.database ||
+        database.replica
+    );
+};
+
+export const createPgMockPostgresDatabaseClient = async (
+    config: IConfig,
+): Promise<PgMockPostgresHarness> => {
+    const [{ PostgresMock }, { Pool }] = await Promise.all([
+        import('pgmock'),
+        import('pg'),
+    ]);
+    const mock = await PostgresMock.create();
+    const pgMockConfig = mock.getNodePostgresConfig();
+    const createPgMockStream = pgMockConfig.stream;
+    const poolFactory = (poolConfig: PoolConfig): PostgresPool =>
+        new Pool({
+            ...poolConfig,
+            database: 'postgres',
+            ...pgMockConfig,
+            stream: () => {
+                const stream = createPgMockStream();
+                stream.ref = () => stream;
+                stream.unref = () => stream;
+                return stream;
+            },
+        }) as unknown as PostgresPool;
+    const createClient = () => new PostgresDatabaseClient(config, poolFactory);
+
+    return {
+        client: createClient(),
+        createClient,
+        destroy: () => mock.destroy(),
+    };
+};
+
+export const setupTestServer = async (
+    configOverrides?: IConfig,
+): Promise<PuterServer> => {
     // read default config json
     const defaultConfig = await import('../../config.default.json', {
         with: {
@@ -22,8 +88,41 @@ export const setupTestServer = async (configOverrides?: IConfig) => {
             no_devwatch: true,
         }),
         configOverrides ?? {},
+    ) as IConfig;
+
+    let pgMockClient: PgMockPostgresHarness | undefined;
+    if (usesPgMockPostgres(config)) {
+        const database = config.database;
+        if (!database) {
+            throw new Error('Postgres test database config is missing');
+        }
+        database.migrationPaths ??= [POSTGRES_TEST_MIGRATIONS_PATH];
+        pgMockClient = await createPgMockPostgresDatabaseClient(config);
+    }
+
+    const server = new PuterServer(
+        config,
+        pgMockClient ? { ...puterClients, db: pgMockClient.client } : undefined,
     );
-    const server = new PuterServer(config);
-    await server.start(true);
+
+    if (pgMockClient) {
+        const originalShutdown = server.shutdown.bind(server);
+        let destroyPgMock: (() => void) | undefined = pgMockClient.destroy;
+        server.shutdown = async () => {
+            try {
+                await originalShutdown();
+            } finally {
+                destroyPgMock?.();
+                destroyPgMock = undefined;
+            }
+        };
+    }
+
+    try {
+        await server.start(true);
+    } catch (e) {
+        pgMockClient?.destroy();
+        throw e;
+    }
     return server;
 };

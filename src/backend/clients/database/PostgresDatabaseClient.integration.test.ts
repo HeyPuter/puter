@@ -23,14 +23,17 @@ import { v4 as uuidv4 } from 'uuid';
 import type { IConfig } from '../../types';
 import type { PuterServer } from '../../server';
 import { generateDefaultFsentries } from '../../util/userProvisioning.js';
-import { setupTestServer } from '../../testUtil.js';
+import {
+    createPgMockPostgresDatabaseClient,
+    POSTGRES_TEST_MIGRATIONS_PATH,
+    setupTestServer,
+} from '../../testUtil.js';
 import { PostgresDatabaseClient } from './PostgresDatabaseClient.js';
 
 const postgresUrl = process.env.PUTER_TEST_POSTGRES_URL;
-const describePostgres = postgresUrl ? describe : describe.skip;
-const postgresMigrationsPath =
-    'src/backend/clients/database/migrations/postgres';
+const postgresMigrationsPath = POSTGRES_TEST_MIGRATIONS_PATH;
 const postgresTestSchemaPattern = /^puter_test_[a-f0-9]{32}$/u;
+const postgresIntegrationTimeoutMs = 180_000;
 
 let postgresTestSchema: string | undefined;
 let postgresTestUrl: string | undefined;
@@ -40,15 +43,25 @@ const postgresConfig = (overrides: Partial<IConfig> = {}): IConfig => {
         throw new Error('Postgres test schema was not initialized');
     }
 
+    const { database: databaseOverrides, ...rootOverrides } = overrides;
+    const database = postgresUrl
+        ? {
+              engine: 'postgres' as const,
+              inMemory: false,
+              connectionString: postgresTestUrl,
+              migrationPaths: [postgresMigrationsPath],
+          }
+        : {
+              engine: 'postgres' as const,
+              inMemory: true,
+              migrationPaths: [postgresMigrationsPath],
+          };
+
     return {
         port: 0,
         extensions: [],
-        database: {
-            engine: 'postgres',
-            connectionString: postgresTestUrl,
-            migrationPaths: [postgresMigrationsPath],
-        },
-        ...overrides,
+        database: { ...database, ...(databaseOverrides ?? {}) },
+        ...rootOverrides,
     };
 };
 
@@ -106,7 +119,7 @@ const dropPostgresTestSchema = async (): Promise<void> => {
     }
 };
 
-describePostgres('PostgresDatabaseClient integration', () => {
+describe('PostgresDatabaseClient integration', () => {
     let server: PuterServer | undefined;
 
     beforeEach(async () => {
@@ -122,38 +135,54 @@ describePostgres('PostgresDatabaseClient integration', () => {
         }
     });
 
-    it('applies the native migrations idempotently to an empty database', async () => {
-        const firstClient = new PostgresDatabaseClient(postgresConfig());
-        try {
-            await firstClient.onServerStart();
-        } finally {
-            await firstClient.onServerShutdown();
-        }
+    it(
+        'applies the native migrations idempotently to an empty database',
+        async () => {
+            const config = postgresConfig();
+            const pgMockClient = postgresUrl
+                ? undefined
+                : await createPgMockPostgresDatabaseClient(config);
+            try {
+                const firstClient =
+                    pgMockClient?.client ?? new PostgresDatabaseClient(config);
+                try {
+                    await firstClient.onServerStart();
+                } finally {
+                    await firstClient.onServerShutdown();
+                }
 
-        const secondClient = new PostgresDatabaseClient(postgresConfig());
-        await secondClient.onServerStart();
-        try {
-            const [systemUser] = await secondClient.read(
-                'SELECT `id`, `username` FROM `user` WHERE `username` = ?',
-                ['system'],
-            );
-            const [devCenter] = await secondClient.read(
-                'SELECT `name`, `index_url` FROM `apps` WHERE `name` = ?',
-                ['dev-center'],
-            );
+                const secondClient =
+                    pgMockClient?.createClient() ??
+                    new PostgresDatabaseClient(config);
+                try {
+                    await secondClient.onServerStart();
+                    const [systemUser] = await secondClient.read(
+                        'SELECT `id`, `username` FROM `user` WHERE `username` = ?',
+                        ['system'],
+                    );
+                    const [devCenter] = await secondClient.read(
+                        'SELECT `name`, `index_url` FROM `apps` WHERE `name` = ?',
+                        ['dev-center'],
+                    );
 
-            expect(systemUser).toMatchObject({
-                id: 1,
-                username: 'system',
-            });
-            expect(devCenter).toMatchObject({
-                name: 'dev-center',
-                index_url: 'https://builtins.namespaces.puter.com/dev-center',
-            });
-        } finally {
-            await secondClient.onServerShutdown();
-        }
-    });
+                    expect(systemUser).toMatchObject({
+                        id: 1,
+                        username: 'system',
+                    });
+                    expect(devCenter).toMatchObject({
+                        name: 'dev-center',
+                        index_url:
+                            'https://builtins.namespaces.puter.com/dev-center',
+                    });
+                } finally {
+                    await secondClient.onServerShutdown();
+                }
+            } finally {
+                pgMockClient?.destroy();
+            }
+        },
+        postgresIntegrationTimeoutMs,
+    );
 
     it('starts the server and exercises user, app, fsentry, permission, and session flows', async () => {
         const userStorageAllowance = 123_456_789;
@@ -295,5 +324,5 @@ describePostgres('PostgresDatabaseClient integration', () => {
         await expect(
             server.stores.session.getByUuid(session.uuid),
         ).resolves.toBeNull();
-    });
+    }, postgresIntegrationTimeoutMs);
 });

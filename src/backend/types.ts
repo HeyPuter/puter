@@ -317,7 +317,8 @@ export interface IDatabaseConfig {
     /**
      * Force in-memory SQLite (ignores `path`). Equivalent to
      * `path: ':memory:'`. Intended for tests so each suite gets a
-     * pristine in-process database.
+     * pristine in-process database. Test utilities also use
+     * `engine: 'postgres'` with `inMemory: true` to run against pgmock.
      */
     inMemory?: boolean;
     targetVersion?: number;
