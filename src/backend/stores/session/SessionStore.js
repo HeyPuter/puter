@@ -48,6 +48,26 @@ const TOUCH_THROTTLE_MAX_ENTRIES = 10000;
 export const WEB_WINDOW_SECONDS = 365 * 24 * 60 * 60; // 1y
 export const APP_WINDOW_SECONDS = 365 * 24 * 60 * 60; // 1y
 export const WORKER_WINDOW_SECONDS = 99 * 365 * 24 * 60 * 60; // 99y (virtually infinite);
+
+// Duplicate-key error codes used by the `getOrCreate*` paths to detect
+// "another caller won the partial-unique-index race" — the only error
+// category they're prepared to silently no-op through. CHECK / NOT NULL /
+// FK / type violations must bubble up; otherwise the caller caches a
+// row that was never inserted.
+//   better-sqlite3 surfaces SqliteError.code; mysql2 surfaces .code and
+//   .errno (1062 = ER_DUP_ENTRY).
+function isUniqueViolation(err) {
+    if (!err) return false;
+    const code = err.code;
+    if (
+        code === 'SQLITE_CONSTRAINT_UNIQUE' ||
+        code === 'SQLITE_CONSTRAINT_PRIMARYKEY' ||
+        code === 'ER_DUP_ENTRY'
+    ) {
+        return true;
+    }
+    return err.errno === 1062;
+}
 export const ASSET_WINDOW_SECONDS = 7 * 24 * 60 * 60; // 7 days
 
 const sqlTimestamp = (ms) =>
@@ -140,10 +160,10 @@ export class SessionStore extends PuterStore {
 
     /**
      * Shared INSERT implementation for `create()` and the idempotent
-     * `getOrCreate*` paths. `ignoreConflict: true` switches to engine-
-     * specific INSERT-IGNORE so partial-unique-index collisions silently
-     * no-op rather than throw — the idempotent callers handle the "row
-     * already existed" path via a re-SELECT.
+     * `getOrCreate*` paths. With `ignoreConflict: true`, only a duplicate-
+     * key error from the partial unique indexes is swallowed (concurrent
+     * caller won the race); every other failure — CHECK, NOT NULL, FK,
+     * type — throws. The caller then re-SELECTs to find the winning row.
      */
     async #insertSession(
         userId,
@@ -169,34 +189,45 @@ export class SessionStore extends PuterStore {
         meta.created = new Date().toISOString();
         meta.created_unix = now;
 
-        const insertVerb = ignoreConflict
-            ? this.clients.db.case({
-                  sqlite: 'INSERT OR IGNORE INTO',
-                  otherwise: 'INSERT IGNORE INTO',
-              })
-            : 'INSERT INTO';
-
-        await this.clients.db.write(
-            `${insertVerb} \`sessions\` (\`uuid\`, \`user_id\`, \`meta\`, \`last_activity\`, \`created_at\`, \`kind\`, \`label\`, \`parent_session_id\`, \`last_ip\`, \`last_user_agent\`, \`expires_at\`, \`app_uid\`, \`legacy_token_uid\`, \`access_token_uid\`, \`created_via\`, \`auth_id\`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [
-                uuid,
-                userId,
-                JSON.stringify(meta),
-                now,
-                now,
-                kind,
-                label,
-                parent_session_id,
-                last_ip,
-                last_user_agent,
-                expires_at,
-                app_uid,
-                legacy_token_uid,
-                access_token_uid,
-                created_via,
-                auth_id,
-            ],
-        );
+        // Always issue a plain INSERT. The `getOrCreate*` paths set
+        // ignoreConflict=true so the partial-unique-index race against a
+        // concurrent caller can no-op, but only that specific error class
+        // is swallowed — every other failure (CHECK, NOT NULL, FK, type)
+        // bubbles up. Engine-specific INSERT-IGNORE swallowed all
+        // constraint violations, which masked schema bugs as "row didn't
+        // appear in the DB but the caller cached a synthetic row anyway".
+        try {
+            await this.clients.db.write(
+                `INSERT INTO \`sessions\` (\`uuid\`, \`user_id\`, \`meta\`, \`last_activity\`, \`created_at\`, \`kind\`, \`label\`, \`parent_session_id\`, \`last_ip\`, \`last_user_agent\`, \`expires_at\`, \`app_uid\`, \`legacy_token_uid\`, \`access_token_uid\`, \`created_via\`, \`auth_id\`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [
+                    uuid,
+                    userId,
+                    JSON.stringify(meta),
+                    now,
+                    now,
+                    kind,
+                    label,
+                    parent_session_id,
+                    last_ip,
+                    last_user_agent,
+                    expires_at,
+                    app_uid,
+                    legacy_token_uid,
+                    access_token_uid,
+                    created_via,
+                    auth_id,
+                ],
+            );
+        } catch (err) {
+            if (!ignoreConflict || !isUniqueViolation(err)) {
+                throw err;
+            }
+            // Concurrent caller won the partial-unique-index race. The
+            // caller's re-SELECT will return that winning row; the local
+            // `row` object below is a placeholder for the caller's
+            // `winner ?? created` fallback shape and is never cached on
+            // the ignoreConflict path.
+        }
 
         const row = {
             uuid,
