@@ -218,6 +218,7 @@ const UIWindowManageSessions = async function UIWindowManageSessions (options) {
 
                     const resp = await fetch(`${window.api_origin}/auth/revoke-session`, {
                         method: 'POST',
+                        credentials: 'include',
                         headers: {
                             Authorization: `Bearer ${puter.authToken}`,
                             'Content-Type': 'application/json',
