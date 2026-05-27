@@ -61,6 +61,38 @@ export class MistralAIProvider implements IChatProvider {
         return ids;
     }
 
+    /**
+     * Mistral's API expects `image_url` content parts to carry a plain
+     * string URL, not the OpenAI-style `{ url: string }` object.
+     * This method normalises any `{ type: 'image_url', image_url: { url } }`
+     * parts to `{ type: 'image_url', image_url: url }` before the request
+     * is sent. Messages whose `content` is a plain string are left untouched.
+     */
+    #coerceImageUrls(
+        messages: { role: string; content: unknown }[],
+    ): { role: string; content: unknown }[] {
+        return messages.map((message) => {
+            if (!Array.isArray(message.content)) return message;
+            const content = message.content.map(
+                (part: { type?: string; image_url?: unknown }) => {
+                    if (
+                        part.type === 'image_url' &&
+                        part.image_url !== null &&
+                        typeof part.image_url === 'object' &&
+                        'url' in (part.image_url as object)
+                    ) {
+                        return {
+                            ...part,
+                            image_url: (part.image_url as { url: string }).url,
+                        };
+                    }
+                    return part;
+                },
+            );
+            return { ...message, content };
+        });
+    }
+
     async complete({
         messages,
         stream,
@@ -70,6 +102,7 @@ export class MistralAIProvider implements IChatProvider {
         temperature,
     }: ICompleteArguments): Promise<IChatCompleteResult> {
         messages = await OpenAIUtil.process_input_messages(messages);
+        messages = this.#coerceImageUrls(messages);
         for (const message of messages) {
             if (message.tool_calls) {
                 message.toolCalls = message.tool_calls;
