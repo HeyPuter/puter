@@ -47,7 +47,7 @@ const TOUCH_THROTTLE_MAX_ENTRIES = 10000;
 // Exported so AuthService can use the same values when seeding new rows.
 export const WEB_WINDOW_SECONDS = 365 * 24 * 60 * 60; // 1y
 export const APP_WINDOW_SECONDS = 365 * 24 * 60 * 60; // 1y
-export const WORKER_WINDOW_SECONDS = 99 * 365 * 24 * 60 * 60; // 99y (virtually infinite); TODO DS: have workers pass in flag when creating worker token so that we can give them infinite time
+export const WORKER_WINDOW_SECONDS = 99 * 365 * 24 * 60 * 60; // 99y (virtually infinite);
 export const ASSET_WINDOW_SECONDS = 7 * 24 * 60 * 60; // 7 days
 
 const sqlTimestamp = (ms) =>
@@ -372,6 +372,79 @@ export class SessionStore extends PuterStore {
     }
 
     /**
+     * Idempotent "give me the worker session for this (user, app,
+     * worker_name)" lookup. Same shape as `getOrCreateApp` but keyed on
+     * a triple so multiple workers can sit under the same app (each
+     * with its own `worker_name`) and each gets its own session row.
+     *
+     * `appUid` is allowed null for user-scoped workers — the partial
+     * unique index treats those distinctly (SQLite via NULL-distinct
+     * semantics, MySQL via IFNULL in the generated key).
+     *
+     * @param userId - User row id (numeric).
+     * @param opts.appUid - App UID or null for user-scoped workers.
+     * @param opts.workerName - Per-worker discriminator. Required.
+     * @param opts.meta - Additional metadata merged into the row's
+     *   `meta` blob alongside the canonical `worker: true` and
+     *   `worker_name` markers.
+     * @param opts.last_ip / opts.last_user_agent - Request context for
+     *   first-time creation. Ignored when a row already exists.
+     * @param opts.auth_id - Stable per-user identity (survives re-login).
+     */
+    async getOrCreateWorker(userId, opts = {}) {
+        if (!userId || !opts.workerName) return null;
+        const appUid = opts.appUid ?? null;
+        const workerName = String(opts.workerName);
+
+        const cacheKey = this.#cacheKeyWorker(userId, appUid, workerName);
+        const now = nowSeconds();
+
+        const cached = await this.#readCacheKey(cacheKey);
+        if (cached && cached.revoked_at == null && !isExpired(cached, now)) {
+            return cached;
+        }
+
+        const existing = await this.#selectWorkerRow(
+            userId,
+            appUid,
+            workerName,
+        );
+        if (existing) {
+            await this.#writeCacheKey(cacheKey, existing);
+            this.#writeCache(existing).catch(() => {});
+            return existing;
+        }
+
+        const created = await this.#insertSession(
+            userId,
+            {
+                kind: 'worker',
+                app_uid: appUid,
+                parent_session_id: null,
+                last_ip: opts.last_ip ?? null,
+                last_user_agent: opts.last_user_agent ?? null,
+                expires_at: now + WORKER_WINDOW_SECONDS,
+                auth_id: opts.auth_id ?? null,
+                meta: {
+                    ...(opts.meta ?? {}),
+                    worker: true,
+                    worker_name: workerName,
+                },
+            },
+            { ignoreConflict: true },
+        );
+
+        // INSERT-IGNORE may have lost the race against another caller;
+        // re-SELECT under the partial unique index to find whichever
+        // row actually won.
+        const winner = await this.#selectWorkerRow(userId, appUid, workerName);
+        const row = winner ?? created;
+        await this.#writeCacheKey(cacheKey, row);
+        this.#writeCache(row).catch(() => {});
+        return row;
+    }
+
+    /**
      * Idempotent "give me the lazy-backfill row for this v1 token_uid"
      * lookup. Mirrors `getOrCreateApp` but keys on `legacy_token_uid`.
      */
@@ -566,6 +639,15 @@ export class SessionStore extends PuterStore {
     }
 
     /**
+     * Cache key for the (user, app, worker_name) worker-session triple.
+     * `app_uid` is encoded as empty-string for user-scoped workers so
+     * the namespace doesn't fracture on NULL.
+     */
+    #cacheKeyWorker(userId, appUid, workerName) {
+        return `${CACHE_KEY_PREFIX}:worker:${userId}:${appUid ?? ''}:${workerName}`;
+    }
+
+    /**
      * Cache key for the (legacy-web) backfill lookup. IP and UA are
      * percent-encoded into a single key segment so a UA containing `:`
      * doesn't fracture the namespace.
@@ -585,6 +667,28 @@ export class SessionStore extends PuterStore {
         const keys = [this.#cacheKey(row.uuid)];
         if (row.kind === 'app' && row.user_id && row.app_uid) {
             keys.push(this.#cacheKeyApp(row.user_id, row.app_uid));
+        }
+        if (row.kind === 'worker' && row.user_id) {
+            const meta =
+                typeof row.meta === 'string'
+                    ? (() => {
+                          try {
+                              return JSON.parse(row.meta);
+                          } catch {
+                              return null;
+                          }
+                      })()
+                    : row.meta;
+            const workerName = meta?.worker_name;
+            if (typeof workerName === 'string' && workerName) {
+                keys.push(
+                    this.#cacheKeyWorker(
+                        row.user_id,
+                        row.app_uid ?? null,
+                        workerName,
+                    ),
+                );
+            }
         }
         if (row.legacy_token_uid) {
             keys.push(this.#cacheKeyLegacyAt(row.legacy_token_uid));
@@ -634,6 +738,21 @@ export class SessionStore extends PuterStore {
         const rows = await this.clients.db.read(
             "SELECT * FROM `sessions` WHERE `kind` = 'app' AND `user_id` = ? AND `app_uid` = ? AND `revoked_at` IS NULL AND (`expires_at` IS NULL OR `expires_at` > ?) LIMIT 1",
             [userId, appUid, now],
+        );
+        return this.#normalizeRow(rows[0]);
+    }
+
+    /**
+     * Active worker session for (userId, appUid, workerName). Matches
+     * the partial unique index `idx_sessions_user_worker_active`.
+     * `appUid` is allowed null for user-scoped workers; IFNULL keeps
+     * the comparison correct since SQL `= NULL` doesn't match.
+     */
+    async #selectWorkerRow(userId, appUid, workerName) {
+        const now = nowSeconds();
+        const rows = await this.clients.db.read(
+            "SELECT * FROM `sessions` WHERE `kind` = 'worker' AND `user_id` = ? AND IFNULL(`app_uid`, '') = IFNULL(?, '') AND JSON_EXTRACT(`meta`, '$.worker_name') = ? AND `revoked_at` IS NULL AND (`expires_at` IS NULL OR `expires_at` > ?) LIMIT 1",
+            [userId, appUid ?? null, workerName, now],
         );
         return this.#normalizeRow(rows[0]);
     }

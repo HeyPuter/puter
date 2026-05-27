@@ -64,6 +64,14 @@ const UIWindowManageSessions = async function UIWindowManageSessions (options) {
     };
 
     const sessionTitle = (session) => {
+        if ( session.kind === 'worker' ) {
+            // Worker rows surface `worker_name` from meta. Show the
+            // worker's own name first, then the app it's bound to (if
+            // any) for context.
+            const name = session.worker_name || (i18n('ui_session_kind_worker') || 'Worker');
+            const appPart = session.app?.title || session.app?.name;
+            return appPart ? `${name} (${appPart})` : name;
+        }
         if ( session.kind === 'app' ) {
             return session.app?.title || session.app?.name || i18n('ui_session_kind_app') || 'App session';
         }

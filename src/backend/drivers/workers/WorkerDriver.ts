@@ -150,7 +150,11 @@ export class WorkerDriver extends PuterDriver {
             );
         }
 
-        // If tied to an app, verify ownership and get app-scoped token
+        // If tied to an app, verify ownership and get an app-scoped
+        // worker token. Worker tokens use `kind='worker'` so they don't
+        // collide with any interactive `kind='app'` session for the
+        // same (user, app); the long expiry (WORKER_WINDOW_SECONDS)
+        // means the worker doesn't have to re-mint on a clock cadence.
         let authorization = String(args.authorization ?? '');
         let appOwnerId = actor.app?.id ?? undefined;
         if (appId) {
@@ -162,15 +166,17 @@ export class WorkerDriver extends PuterDriver {
                 );
             }
             appOwnerId = actor.app?.id;
-            authorization = await this.services.auth.getUserAppToken(
+            authorization = await this.services.auth.createWorkerAppToken(
                 actor,
                 appId,
+                workerName,
             );
         }
         if (!authorization && actor.app?.uid) {
-            authorization = await this.services.auth.getUserAppToken(
+            authorization = await this.services.auth.createWorkerAppToken(
                 actor,
                 actor.app.uid,
+                workerName,
             );
         }
 
@@ -186,14 +192,18 @@ export class WorkerDriver extends PuterDriver {
             );
         }
         if (!authorization) {
-            // Fall back to a session token for the current user
+            // Fall back to a user-scoped worker token (no app binding).
+            // Same kind='worker' row + long expiry as the app-scoped
+            // branch above; (user, worker_name) is the unique key.
             const userRow = await this.stores.user.getById(actor.user.id!);
             if (!userRow)
                 throw new HttpError(500, 'User not found', {
                     legacyCode: 'internal_error',
                 });
-            const session =
-                await this.services.auth.createSessionToken(userRow);
+            const session = await this.services.auth.createWorkerSessionToken(
+                userRow,
+                workerName,
+            );
             authorization = session.token;
         }
 
@@ -581,21 +591,27 @@ export class WorkerDriver extends PuterDriver {
                 );
                 const sourceCode = loaded.buffer.toString('utf-8');
 
-                // Get an auth token for the deploy
+                // Mint a worker token for the redeploy. Idempotent on
+                // (user, app_uid, worker_name) so a hot-reload reuses
+                // the same row across reloads and the long-lived token
+                // stays stable for the worker's whole lifetime.
                 const appOwnerId = row.app_owner as number | null;
                 let authorization: string;
                 if (appOwnerId) {
-                    // App-scoped: get the app's uid, then mint an app-under-user token
                     const app = await this.stores.app.getById(appOwnerId);
                     if (!app) continue; // app gone
-                    authorization = await this.services.auth.getUserAppToken(
-                        ownerActor,
-                        app.uid,
-                    );
+                    authorization =
+                        await this.services.auth.createWorkerAppToken(
+                            ownerActor,
+                            app.uid,
+                            workerName,
+                        );
                 } else {
-                    // User-scoped: mint a session token
                     const session =
-                        await this.services.auth.createSessionToken(ownerUser);
+                        await this.services.auth.createWorkerSessionToken(
+                            ownerUser,
+                            workerName,
+                        );
                     authorization = session.token;
                 }
 
