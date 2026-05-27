@@ -391,9 +391,9 @@ export class UserStore extends PuterStore {
         userId: number,
         patch: Record<string, unknown>,
     ): Promise<void> {
-        const normalizedPatch: Record<string, unknown> = {};
+        const dbPatch: Record<string, unknown> = {};
         for (const [key, value] of Object.entries(patch)) {
-            normalizedPatch[key] =
+            dbPatch[key] =
                 USER_BOOLEAN_COLUMNS.has(key) &&
                 value !== null &&
                 value !== undefined
@@ -401,13 +401,13 @@ export class UserStore extends PuterStore {
                     : value;
         }
 
-        const keys = Object.keys(normalizedPatch);
+        const keys = Object.keys(dbPatch);
         if (keys.length === 0) return;
 
-        assertLatin1Writable(normalizedPatch);
+        assertLatin1Writable(dbPatch);
 
         const setClause = keys.map((k) => `\`${k}\` = ?`).join(', ');
-        const values = keys.map((k) => normalizedPatch[k]);
+        const values = keys.map((k) => dbPatch[k]);
 
         await this.clients.db.write(
             `UPDATE \`user\` SET ${setClause} WHERE \`id\` = ?`,
@@ -416,7 +416,7 @@ export class UserStore extends PuterStore {
 
         const fresh = await this.getByProperty('id', userId, { force: true });
         if (fresh) {
-            await this.#refreshCache({ ...fresh, ...normalizedPatch });
+            await this.#refreshCache(fresh);
         } else {
             await this.invalidateById(userId);
         }
