@@ -57,6 +57,16 @@ type RouterCache = Map<string, RequestHandler | null>;
 
 const additionalRoutePaths: Record<string, string> = {};
 
+// Legacy `/batch` multipart upload caps. Each file is buffered fully into
+// memory before any quota / storage check runs, so without these limits an
+// authenticated caller could grow the process heap proportional to whatever
+// they sent. Streaming uploads go through `/writeFile`; this path is for
+// pre-v2 clients only.
+const BATCH_MAX_FILE_SIZE = 100 * 1024 * 1024; // 100 MiB per file
+const BATCH_MAX_FILES = 64;
+const BATCH_MAX_PARTS = 256;
+const BATCH_MAX_FIELD_SIZE = 1 * 1024 * 1024; // 1 MiB per operation/fileinfo JSON
+
 async function loadAdditionalRouter(
     key: string,
 ): Promise<RequestHandler | null> {
@@ -2012,7 +2022,46 @@ export class LegacyFSController extends PuterController {
             }> = [];
             const fileinfos: Array<Record<string, unknown>> = [];
             let parseError: Error | null = null;
-            const bb = Busboy({ headers: req.headers });
+            const bb = Busboy({
+                headers: req.headers,
+                limits: {
+                    fileSize: BATCH_MAX_FILE_SIZE,
+                    files: BATCH_MAX_FILES,
+                    parts: BATCH_MAX_PARTS,
+                    fieldSize: BATCH_MAX_FIELD_SIZE,
+                },
+            });
+
+            // Busboy emits these `*Limit` events when a configured cap is
+            // hit. Capture the first one as a 413 so callers get a clean
+            // signal instead of a silently-truncated upload.
+            bb.on('filesLimit', () => {
+                if (!parseError) {
+                    parseError = new HttpError(
+                        413,
+                        `Too many files in batch (max ${BATCH_MAX_FILES})`,
+                        { legacyCode: 'too_large' as never },
+                    );
+                }
+            });
+            bb.on('partsLimit', () => {
+                if (!parseError) {
+                    parseError = new HttpError(
+                        413,
+                        `Too many parts in batch (max ${BATCH_MAX_PARTS})`,
+                        { legacyCode: 'too_large' as never },
+                    );
+                }
+            });
+            bb.on('fieldsLimit', () => {
+                if (!parseError) {
+                    parseError = new HttpError(
+                        413,
+                        'Too many fields in batch',
+                        { legacyCode: 'too_large' as never },
+                    );
+                }
+            });
 
             bb.on('field', (fieldName, value) => {
                 try {
@@ -2039,8 +2088,24 @@ export class LegacyFSController extends PuterController {
             // For streaming uploads use the signed `/writeFile` endpoint.
             bb.on('file', (_fieldName, stream, info) => {
                 const chunks: Buffer[] = [];
+                let truncated = false;
                 stream.on('data', (chunk: Buffer) => chunks.push(chunk));
+                // Busboy emits `limit` after writing the first byte past
+                // `fileSize`. The stream continues being drained so the
+                // multipart parser stays in sync, but we discard the (now
+                // truncated) buffer and mark the batch as failed.
+                stream.on('limit', () => {
+                    truncated = true;
+                    if (!parseError) {
+                        parseError = new HttpError(
+                            413,
+                            `File in batch exceeds ${BATCH_MAX_FILE_SIZE} bytes`,
+                            { legacyCode: 'too_large' as never },
+                        );
+                    }
+                });
                 stream.on('end', () => {
+                    if (truncated) return;
                     files.push({
                         content: Buffer.concat(chunks),
                         mimeType:

@@ -159,10 +159,16 @@ export const DEFAULT_ADMIN_USERNAMES = ['admin', 'system'] as const;
 export const adminOnlyGate = (
     extras: readonly string[] = [],
 ): RequestHandler => {
-    const allowList = new Set<string>([...DEFAULT_ADMIN_USERNAMES, ...extras]);
+    // Match the case-insensitivity guarantee of the username column
+    // (MySQL: ascii_general_ci; SQLite: idx_user_username_nocase). Comparing
+    // raw-case here would let a stored `Admin` bypass the lowercase allowlist
+    // on any backend that lets case-collision rows exist.
+    const allowList = new Set<string>(
+        [...DEFAULT_ADMIN_USERNAMES, ...extras].map((u) => u.toLowerCase()),
+    );
     return (req, _res, next) => {
         const username = req.actor?.user.username;
-        if (!username || !allowList.has(username)) {
+        if (!username || !allowList.has(username.toLowerCase())) {
             next(
                 new HttpError(403, 'Only admins may request this resource', {
                     legacyCode: 'forbidden',
