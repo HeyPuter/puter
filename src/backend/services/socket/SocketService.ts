@@ -84,7 +84,7 @@ export interface SocketSpecifier {
     socket?: string;
 }
 
-// ── Redis key format for cross-node FS-cache invalidation ──────────
+// -- Redis key format for cross-node FS-cache invalidation ----------
 //
 // puter-js (browser) polls `GET /cache/last-change-timestamp` and purges
 // its in-memory FS cache when the server's timestamp is ≥ ~2s ahead of
@@ -148,7 +148,7 @@ interface AuthenticatedSocket extends Socket {
 export class SocketService extends PuterService {
     #io: SocketIOServer | null = null;
 
-    // ── Lifecycle ───────────────────────────────────────────────────
+    // -- Lifecycle ---------------------------------------------------
 
     /**
      * Called by `PuterServer` after the http server is created but
@@ -212,7 +212,7 @@ export class SocketService extends PuterService {
         });
     }
 
-    // ── Public API (used by other services / controllers) ──────────
+    // -- Public API (used by other services / controllers) ----------
 
     /**
      * Push an event to one or more specifiers. `room` targets every
@@ -277,7 +277,7 @@ export class SocketService extends PuterService {
         }
     }
 
-    // ── Auth + connection wiring ───────────────────────────────────
+    // -- Auth + connection wiring -----------------------------------
 
     #installAuthMiddleware(): void {
         if (!this.#io) return;
@@ -385,7 +385,7 @@ export class SocketService extends PuterService {
         });
     }
 
-    // ── Event bus → socket fan-out ──────────────────────────────────
+    // -- Event bus → socket fan-out ----------------------------------
 
     #subscribeEventBus(): void {
         // One wildcard subscriber covers every `outer.gui.*` mutation +

@@ -198,7 +198,7 @@ export async function hasWritePermission(
     return true;
 }
 
-// ── Internals ───────────────────────────────────────────────────────
+// -- Internals -------------------------------------------------------
 
 async function getPathLockMap(
     redis: Cluster,

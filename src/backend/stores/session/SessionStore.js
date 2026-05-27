@@ -629,7 +629,7 @@ export class SessionStore extends PuterStore {
         await Promise.all(tasks);
     }
 
-    // ── Internals ───────────────────────────────────────────────────
+    // -- Internals ---------------------------------------------------
 
     #cacheKey(uuid) {
         return `${CACHE_KEY_PREFIX}:uuid:${uuid}`;

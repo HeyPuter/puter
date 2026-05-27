@@ -152,7 +152,7 @@ export class AppIconService extends PuterService {
         return `${protocol}://${APP_ICONS_SUBDOMAIN}.${host}${portSuffix}`;
     }
 
-    // ── Bootstrap ───────────────────────────────────────────────────
+    // -- Bootstrap ---------------------------------------------------
 
     /**
      * Public so `DefaultUserService` can call it immediately after it
@@ -210,7 +210,7 @@ export class AppIconService extends PuterService {
         }
     }
 
-    // ── Icon pipeline ───────────────────────────────────────────────
+    // -- Icon pipeline -----------------------------------------------
 
     async #processIcon(data: Record<string, unknown>): Promise<void> {
         if (this.#dirReady) await this.#dirReady;

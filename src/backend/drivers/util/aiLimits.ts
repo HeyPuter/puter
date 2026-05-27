@@ -23,7 +23,7 @@ import {
 } from '../../services/metering/consts.js';
 import type { DriverConcurrentConfig, DriverRateLimitConfig } from '../meta.js';
 
-// ── Shared AI driver limits ─────────────────────────────────────────
+// -- Shared AI driver limits -----------------------------------------
 //
 // Every AI driver — chat, image, video, TTS, speech↔speech, speech→text,
 // OCR — shares this policy envelope. Tuning the numbers in one place

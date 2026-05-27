@@ -395,7 +395,7 @@ export interface IDevWatcherConfig {
  * need to migrate.
  */
 interface IConfigOptional {
-    // ── Environment / identity ──────────────────────────────────────
+    // -- Environment / identity --------------------------------------
 
     /** Environment marker. `dev` disables blocked-email checks, opens auto-browser, etc. */
     env: 'dev' | 'prod';
@@ -406,7 +406,7 @@ interface IConfigOptional {
     /** Stable identity for this server node. Enables pager alerts + graceful shutdown delay. */
     serverId: string;
 
-    // ── Networking / URLs ───────────────────────────────────────────
+    // -- Networking / URLs -------------------------------------------
 
     /** Protocol used for the externally-visible origin ('http' or 'https'). Default: 'http'. */
     protocol: string;
@@ -476,7 +476,7 @@ interface IConfigOptional {
     /** Optional dev-time frontend watcher overrides. */
     devwatch: IDevWatcherConfig;
 
-    // ── Auth / session ──────────────────────────────────────────────
+    // -- Auth / session ----------------------------------------------
 
     /**
      * Legacy HMAC secret for v1 JWTs. New tokens are always signed with
@@ -522,7 +522,7 @@ interface IConfigOptional {
     /** OIDC / OAuth2 providers (google + custom). */
     oidc: IOIDCConfig;
 
-    // ── Groups / provisioning ───────────────────────────────────────
+    // -- Groups / provisioning ---------------------------------------
 
     /** UID of the persistent group that non-temp users are enrolled in at signup. */
     default_user_group: string;
@@ -531,7 +531,7 @@ interface IConfigOptional {
     /** When true, ACL grants read/list/see on `/<user>/Public` to any actor. */
     enable_public_folders: boolean;
 
-    // ── Storage / S3 ────────────────────────────────────────────────
+    // -- Storage / S3 ------------------------------------------------
 
     /** S3 storage config (local fauxqs or remote). */
     s3: IS3Config;
@@ -550,11 +550,11 @@ interface IConfigOptional {
     /** Optional dedicated S3-compatible bucket used by the thumbnails extension. */
     thumbnailStore: IThumbnailStoreConfig;
 
-    // ── Database ────────────────────────────────────────────────────
+    // -- Database ----------------------------------------------------
 
     database: IDatabaseConfig;
 
-    // ── Clients / infra ─────────────────────────────────────────────
+    // -- Clients / infra ---------------------------------------------
 
     dynamo: IDynamoConfig;
     redis: IRedisConfig;
@@ -563,7 +563,7 @@ interface IConfigOptional {
     clickhouse: IClickhouseConfig;
     cf_file_cache: ICfFileCacheConfig;
 
-    // ── Rate limiting ───────────────────────────────────────────────
+    // -- Rate limiting -----------------------------------------------
 
     rate_limit: {
         /**
@@ -575,7 +575,7 @@ interface IConfigOptional {
         backend?: 'memory' | 'redis' | 'kv';
     };
 
-    // ── AI / integration providers ──────────────────────────────────
+    // -- AI / integration providers ----------------------------------
     //
     // All AI providers — chat, image, video, TTS, OCR, speech-to-text,
     // speech-to-speech — are configured under `providers[<provider-id>]`.
@@ -585,7 +585,7 @@ interface IConfigOptional {
     // shortcut.
     providers: Record<string, IAIProviderConfig | undefined>;
 
-    // ── Cross-node / external integrations ──────────────────────────
+    // -- Cross-node / external integrations --------------------------
 
     /** Cross-node event replication config. */
     broadcast: IBroadcastConfig;
@@ -599,7 +599,7 @@ interface IConfigOptional {
     secureCorsProxy: ISecureCorsProxyConfig;
     /** Legacy Stripe billing extension. */
 
-    // ── GUI / static mounts ─────────────────────────────────────────
+    // -- GUI / static mounts -----------------------------------------
 
     /** Absolute path to the GUI assets root. */
     gui_assets_root: string;
@@ -629,7 +629,7 @@ interface IConfigOptional {
     /** Path to the puter-js SDK root (serves `/sdk/*` and `/puter.js/v{1,2}`). */
     puterjs_root: string;
 
-    // ── Extension-specific ──────────────────────────────────────────
+    // -- Extension-specific ------------------------------------------
 
     /**
      * Flat `{ flag_name: boolean }` bag of feature toggles. Non-boolean values

@@ -20,7 +20,7 @@
 import type { IChatModel } from '../../types.js';
 
 export const MOONSHOT_MODELS: IChatModel[] = [
-    // ── Flagship ────────────────────────────────────────────────────
+    // -- Flagship ----------------------------------------------------
     {
         puterId: 'moonshotai:moonshotai/kimi-k2.6',
         id: 'kimi-k2.6',
@@ -47,7 +47,7 @@ export const MOONSHOT_MODELS: IChatModel[] = [
         knowledge: '2025-01',
     },
 
-    // ── Kimi K2.5 ──────────────────────────────────────────────────
+    // -- Kimi K2.5 --------------------------------------------------
     {
         puterId: 'moonshotai:moonshotai/kimi-k2.5',
         id: 'kimi-k2.5',
@@ -69,7 +69,7 @@ export const MOONSHOT_MODELS: IChatModel[] = [
         knowledge: '2025-01',
     },
 
-    // ── Moonshot V1 (Legacy) ───────────────────────────────────────
+    // -- Moonshot V1 (Legacy) ---------------------------------------
     {
         puterId: 'moonshotai:moonshotai/moonshot-v1-8k',
         id: 'moonshot-v1-8k',

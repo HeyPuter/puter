@@ -64,7 +64,7 @@ export const antiCsrf = {
     },
 };
 
-// ── Route middleware ────────────────────────────────────────────────
+// -- Route middleware ------------------------------------------------
 
 /**
  * Middleware that requires a valid anti-CSRF token in `req.body.anti_csrf`.

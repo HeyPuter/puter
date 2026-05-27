@@ -26,9 +26,10 @@ import { Controller, Get, Post } from '../../core/http/decorators.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { antiCsrf } from '../../core/http/middleware/antiCsrf.js';
 import { generateCaptcha } from '../../core/http/middleware/captcha.js';
+import { checkRateLimit } from '../../core/http/middleware/rateLimit.js';
 import {
-    createSessionCookieGate,
     createUserProtectedGate,
+    createWebSessionActorGate,
 } from '../../core/http/middleware/userProtected.js';
 import type { PuterRouter } from '../../core/http/PuterRouter.js';
 import {
@@ -94,7 +95,7 @@ const RESERVED_USERNAMES = new Set([
  */
 @Controller('')
 export class AuthController extends PuterController {
-    // ── Login ───────────────────────────────────────────────────────
+    // -- Login -------------------------------------------------------
 
     @Post('/login', {
         captcha: true,
@@ -171,16 +172,24 @@ export class AuthController extends PuterController {
             });
         }
 
-        // OTP branching — if 2FA enabled, return a short-lived OTP JWT
+        const reauthAuthId = this.#extractAuthIdFromReauthToken(
+            req.body.reauth_token,
+        );
+        await this.#enforceAuthIdMatch(req, user, reauthAuthId);
+
+        // OTP branching — if 2FA enabled, return a short-lived OTP JWT.
+        // Re-bind the verified `auth_id` into the JWT so the follow-up
+        // OTP/recovery call can re-enforce the match without re-trusting
+        // a free-form claim from the client.
         if (user.otp_enabled) {
-            const otp_jwt_token = this.services.token.sign(
-                'otp',
-                {
-                    user_uid: user.uuid,
-                    purpose: 'otp-login',
-                },
-                { expiresIn: '5m' },
-            );
+            const otpClaims: Record<string, unknown> = {
+                user_uid: user.uuid,
+                purpose: 'otp-login',
+            };
+            if (reauthAuthId) otpClaims.auth_id = reauthAuthId;
+            const otp_jwt_token = this.services.token.sign('otp', otpClaims, {
+                expiresIn: '5m',
+            });
 
             res.status(202).json({
                 proceed: true,
@@ -193,7 +202,7 @@ export class AuthController extends PuterController {
         await this.#completeLogin(req, res, user);
     }
 
-    // ── Login: OTP verification ─────────────────────────────────────
+    // -- Login: OTP verification -------------------------------------
 
     @Post('/login/otp', {
         captcha: true,
@@ -219,6 +228,7 @@ export class AuthController extends PuterController {
             decoded = this.services.token.verify<{
                 user_uid: string;
                 purpose: string;
+                auth_id?: string;
             }>('otp', token);
         } catch {
             throw new HttpError(400, 'Invalid token.', {
@@ -247,10 +257,12 @@ export class AuthController extends PuterController {
             return;
         }
 
+        await this.#enforceAuthIdMatch(req, user, decoded.auth_id ?? null);
+
         await this.#completeLogin(req, res, user);
     }
 
-    // ── Login: recovery code ────────────────────────────────────────
+    // -- Login: recovery code ----------------------------------------
 
     @Post('/login/recovery-code', {
         captcha: true,
@@ -276,6 +288,7 @@ export class AuthController extends PuterController {
             decoded = this.services.token.verify<{
                 user_uid: string;
                 purpose: string;
+                auth_id?: string;
             }>('otp', token);
         } catch {
             throw new HttpError(400, 'Invalid token.', {
@@ -317,10 +330,12 @@ export class AuthController extends PuterController {
         );
         await this.stores.user.invalidateById(user.id);
 
+        await this.#enforceAuthIdMatch(req, user, decoded.auth_id ?? null);
+
         await this.#completeLogin(req, res, user);
     }
 
-    // ── Signup ──────────────────────────────────────────────────────
+    // -- Signup ------------------------------------------------------
 
     @Post('/signup', {
         captcha: true,
@@ -337,6 +352,49 @@ export class AuthController extends PuterController {
             body.p102xyzname !== undefined
         ) {
             res.json({});
+            return;
+        }
+
+        // Temp-user reauth short-circuit: when an existing temp user is
+        // forced through the reauth flow, the GUI re-submits /signup with
+        // is_temp=true plus the server-signed reauth_token from the 401.
+        // Verifying the token (not a raw auth_id) means a leaked uuid alone
+        // can't re-attach a session to someone else's temp account.
+        // Permanent users must go through /login (they have credentials),
+        // so we reject that path here.
+        if (
+            is_temp &&
+            body.reauth_token !== undefined &&
+            body.reauth_token !== null
+        ) {
+            const reauthAuthId = this.#extractAuthIdFromReauthToken(
+                body.reauth_token,
+            );
+            if (!reauthAuthId) {
+                throw new HttpError(400, 'Invalid `reauth_token`.', {
+                    legacyCode: 'bad_request',
+                });
+            }
+            await this.#checkAuthIdRateLimit(req);
+            const existing = await this.stores.user.getByUuid(reauthAuthId);
+            if (!existing) {
+                throw new HttpError(404, 'auth_id not found.', {
+                    legacyCode: 'not_found',
+                });
+            }
+            if (existing.password !== null || existing.email !== null) {
+                throw new HttpError(
+                    400,
+                    'auth_id resolves to a non-temp account; use /login instead.',
+                    { legacyCode: 'bad_request' },
+                );
+            }
+            if (existing.suspended) {
+                throw new HttpError(401, 'This account is suspended.', {
+                    legacyCode: 'account_suspended',
+                });
+            }
+            await this.#completeLogin(req, res, existing);
             return;
         }
 
@@ -531,7 +589,7 @@ export class AuthController extends PuterController {
 
         let user;
         if (pseudo_user) {
-            // ── Pseudo-user claim (convert the placeholder row) ──
+            // -- Pseudo-user claim (convert the placeholder row) --
             await this.stores.user.update(pseudo_user.id, {
                 username: body.username,
                 password: password_hash,
@@ -572,7 +630,7 @@ export class AuthController extends PuterController {
                 force: true,
             });
         } else {
-            // ── New user ────────────────────────────────────────
+            // -- New user ----------------------------------------
             const clientIp = req.ip || req.socket?.remoteAddress || null;
             const proxyIpChain = req.headers['x-forwarded-for'];
 
@@ -617,7 +675,7 @@ export class AuthController extends PuterController {
             }
         }
 
-        // ── Provision FS home + default folders ─────────────────
+        // -- Provision FS home + default folders -----------------
         // Idempotent — skips if `user.trash_uuid` is already set (pseudo
         // users who went through a prior signup won't double-create).
         try {
@@ -630,7 +688,7 @@ export class AuthController extends PuterController {
             console.warn('[signup] generateDefaultFsentries failed:', e);
         }
 
-        // ── Send email confirmation ─────────────────────────────
+        // -- Send email confirmation -----------------------------
         if (
             !is_temp &&
             user!.requires_email_confirmation &&
@@ -703,7 +761,7 @@ export class AuthController extends PuterController {
         await this.#completeLogin(req, res, user!);
     }
 
-    // ── Logout ──────────────────────────────────────────────────────
+    // -- Logout ------------------------------------------------------
 
     @Post('/logout', {
         requireAuth: true,
@@ -736,7 +794,7 @@ export class AuthController extends PuterController {
         res.send('logged out');
     }
 
-    // ── Email confirmation ──────────────────────────────────────────
+    // -- Email confirmation ------------------------------------------
 
     @Post('/send-confirm-email', {
         subdomain: ['api', ''],
@@ -866,7 +924,7 @@ export class AuthController extends PuterController {
         res.json({ email_confirmed: true, original_client_socket_id });
     }
 
-    // ── Password recovery ───────────────────────────────────────────
+    // -- Password recovery -------------------------------------------
 
     @Post('/send-pass-recovery-email', {
         subdomain: ['api', ''],
@@ -1070,7 +1128,7 @@ export class AuthController extends PuterController {
         res.send('Password successfully updated.');
     }
 
-    // ── User-protected mutations ────────────────────────────────────
+    // -- User-protected mutations ------------------------------------
     //
     // The five `/user-protected/*` and `/user-protected/delete-own-user`
     // routes are wired in the `registerRoutes` override below because
@@ -1368,7 +1426,7 @@ export class AuthController extends PuterController {
         res.send('Email changed successfully. You may close this window.');
     }
 
-    // ── Save account (convert temp user to permanent) ───────────────
+    // -- Save account (convert temp user to permanent) ---------------
 
     @Post('/save_account', {
         subdomain: ['api', ''],
@@ -1558,7 +1616,7 @@ export class AuthController extends PuterController {
         });
     }
 
-    // ── Captcha generation ───────────────────────────────────────────
+    // -- Captcha generation -------------------------------------------
 
     @Get('/api/captcha/generate', { subdomain: '*' })
     async handleCaptchaGenerate(_req: Request, res: Response): Promise<void> {
@@ -1569,7 +1627,7 @@ export class AuthController extends PuterController {
         res.json({ token, image });
     }
 
-    // ── Anti-CSRF token generation ──────────────────────────────────
+    // -- Anti-CSRF token generation ----------------------------------
 
     @Get('/get-anticsrf-token', {
         requireAuth: true,
@@ -1585,7 +1643,7 @@ export class AuthController extends PuterController {
         res.json({ token });
     }
 
-    // ── Permission grants ───────────────────────────────────────────
+    // -- Permission grants -------------------------------------------
 
     @Post('/auth/grant-user-user', {
         subdomain: 'api',
@@ -1657,7 +1715,7 @@ export class AuthController extends PuterController {
         res.json({});
     }
 
-    // ── Permission revokes ──────────────────────────────────────────
+    // -- Permission revokes ------------------------------------------
 
     @Post('/auth/revoke-user-user', {
         subdomain: 'api',
@@ -1729,7 +1787,7 @@ export class AuthController extends PuterController {
         res.json({});
     }
 
-    // ── Permission checks ───────────────────────────────────────────
+    // -- Permission checks -------------------------------------------
 
     @Post('/auth/check-permissions', { subdomain: 'api', requireAuth: true })
     async handleCheckPermissions(req: Request, res: Response): Promise<void> {
@@ -1757,7 +1815,7 @@ export class AuthController extends PuterController {
         res.json({ permissions: result });
     }
 
-    // ── Session management ──────────────────────────────────────────
+    // -- Session management ------------------------------------------
 
     @Get('/auth/list-sessions', { subdomain: 'api', requireUserActor: true })
     async handleListSessions(req: Request, res: Response): Promise<void> {
@@ -1809,7 +1867,7 @@ export class AuthController extends PuterController {
         res.json({ sessions });
     }
 
-    // ── Dev app permissions ─────────────────────────────────────────
+    // -- Dev app permissions -----------------------------------------
 
     @Post('/auth/grant-dev-app', { subdomain: 'api', requireUserActor: true })
     async handleGrantDevApp(req: Request, res: Response): Promise<void> {
@@ -1864,7 +1922,7 @@ export class AuthController extends PuterController {
         res.json({});
     }
 
-    // ── Permission listing ──────────────────────────────────────────
+    // -- Permission listing ------------------------------------------
 
     @Get('/auth/list-permissions', {
         subdomain: 'api',
@@ -1926,7 +1984,7 @@ export class AuthController extends PuterController {
         });
     }
 
-    // ── App origin resolution ───────────────────────────────────────
+    // -- App origin resolution ---------------------------------------
 
     @Post('/auth/app-uid-from-origin', { subdomain: 'api', requireAuth: true })
     async handleAppUidFromOrigin(req: Request, res: Response): Promise<void> {
@@ -1939,7 +1997,7 @@ export class AuthController extends PuterController {
         res.json({ uid });
     }
 
-    // ── App token + check ───────────────────────────────────────────
+    // -- App token + check -------------------------------------------
 
     @Post('/auth/get-user-app-token', {
         subdomain: 'api',
@@ -2043,7 +2101,7 @@ export class AuthController extends PuterController {
         res.json(result);
     }
 
-    // ── Access tokens ───────────────────────────────────────────────
+    // -- Access tokens -----------------------------------------------
 
     async handleMigrateToken(req: Request, res: Response): Promise<void> {
         // 1. Origin lock. Reject anything that isn't same-origin to
@@ -2164,7 +2222,7 @@ export class AuthController extends PuterController {
         res.json({ ok: true });
     }
 
-    // ── 2FA: configure ──────────────────────────────────────────────
+    // -- 2FA: configure ----------------------------------------------
 
     @Post('/auth/configure-2fa/:action', {
         subdomain: 'api',
@@ -2267,7 +2325,7 @@ export class AuthController extends PuterController {
         });
     }
 
-    // ── 2FA: disable (user-protected, wired in registerRoutes below) ─
+    // -- 2FA: disable (user-protected, wired in registerRoutes below) -
 
     async handleDisable2fa(req: Request, res: Response): Promise<void> {
         const user = await this.stores.user.getById(req.actor!.user.id!, {
@@ -2297,7 +2355,7 @@ export class AuthController extends PuterController {
         res.json({ success: true });
     }
 
-    // ── Developer profile ───────────────────────────────────────────
+    // -- Developer profile -------------------------------------------
 
     @Get('/get-dev-profile', { subdomain: 'api', requireUserActor: true })
     async handleGetDevProfile(req: Request, res: Response): Promise<void> {
@@ -2327,7 +2385,7 @@ export class AuthController extends PuterController {
         });
     }
 
-    // ── Group management ────────────────────────────────────────────
+    // -- Group management --------------------------------------------
 
     @Post('/group/create', { subdomain: 'api', requireUserActor: true })
     async handleGroupCreate(req: Request, res: Response): Promise<void> {
@@ -2433,7 +2491,7 @@ export class AuthController extends PuterController {
         });
     }
 
-    // ── Session helpers ─────────────────────────────────────────────
+    // -- Session helpers ---------------------------------------------
 
     @Get('/get-gui-token', {
         requireUserActor: true,
@@ -2481,7 +2539,7 @@ export class AuthController extends PuterController {
         res.status(204).end();
     }
 
-    // ── Delete own account (user-protected, wired below) ────────────
+    // -- Delete own account (user-protected, wired below) ------------
     //
     // Purge S3 objects + fsentries first, then the user row. FK
     // cascades on most related tables are `ON DELETE SET NULL` (not
@@ -2496,7 +2554,7 @@ export class AuthController extends PuterController {
         res.json({ success: true });
     }
 
-    // ── registerRoutes override ─────────────────────────────────────
+    // -- registerRoutes override -------------------------------------
     //
     // The `@Controller('')` decorator would normally install a default
     // `registerRoutes` walker that iterates `prototype[__puterRoutes]`.
@@ -2539,7 +2597,7 @@ export class AuthController extends PuterController {
             routerMethod.call(router, r.path, r.options, bound);
         }
 
-        // ── User-protected routes (per-instance middleware) ──────────
+        // -- User-protected routes (per-instance middleware) ----------
         const userProtectedDeps = {
             config: this.config,
             userStore: this.stores.user,
@@ -2638,7 +2696,7 @@ export class AuthController extends PuterController {
             (req, res) => this.handleDeleteOwnUser(req, res),
         );
 
-        const sessionCookieGate = createSessionCookieGate(this.config);
+        const webSessionGate = createWebSessionActorGate();
 
         router.post(
             '/auth/revoke-session',
@@ -2647,7 +2705,7 @@ export class AuthController extends PuterController {
                 requireUserActor: true,
                 allowUnconfirmed: true,
                 antiCsrf: true,
-                middleware: [sessionCookieGate],
+                middleware: [webSessionGate],
             },
             (req, res) => this.handleRevokeSession(req, res),
         );
@@ -2665,7 +2723,7 @@ export class AuthController extends PuterController {
                     window: 60 * 60_000,
                     key: 'user',
                 },
-                middleware: [sessionCookieGate],
+                middleware: [webSessionGate],
             },
             (req, res) => this.handleRevokeAllSessions(req, res),
         );
@@ -2676,7 +2734,7 @@ export class AuthController extends PuterController {
                 subdomain: 'api',
                 requireUserActor: true,
                 antiCsrf: true,
-                middleware: [sessionCookieGate],
+                middleware: [webSessionGate],
             },
             (req, res) => this.handleRevokeAccessToken(req, res),
         );
@@ -2696,7 +2754,7 @@ export class AuthController extends PuterController {
         );
     }
 
-    // ── Private helpers ──────────────────────────────────────────────
+    // -- Private helpers ----------------------------------------------
 
     async #cascadeDeleteUser(userId: number): Promise<void> {
         try {
@@ -2778,6 +2836,89 @@ export class AuthController extends PuterController {
                     'This email cannot be used. Please try a different email address.',
                 { legacyCode: 'bad_request' },
             );
+        }
+    }
+
+    /**
+     * Per-IP enumeration clamp on `auth_id`-bearing auth requests. Separate
+     * from the route-level rate limit so a tighter ceiling applies only to
+     * the path that takes a uuid hint from the body — the normal login
+     * path stays at its more generous limit.
+     */
+    async #checkAuthIdRateLimit(req: Request): Promise<void> {
+        const ip = req.ip || req.socket?.remoteAddress || 'unknown';
+        const ok = await checkRateLimit(
+            `login-with-auth-id:${ip}`,
+            5,
+            15 * 60_000,
+        );
+        if (!ok) {
+            throw new HttpError(429, 'Too many auth_id login attempts.', {
+                legacyCode: 'too_many_requests',
+                fields: { 'retry-after': 900 },
+            });
+        }
+    }
+
+    /**
+     * Extract the `auth_id` claim from a client-supplied reauth_token.
+     * Returns null when no token was supplied. Throws on invalid/expired
+     * tokens. The reauth_token is a server-signed JWT minted by the
+     * authProbe at 401 time — accepting only the signed envelope (vs. a
+     * raw UUID) means a leaked auth_id alone can't attach a session to
+     * an existing account.
+     */
+    #extractAuthIdFromReauthToken(suppliedToken: unknown): string | null {
+        if (suppliedToken === undefined || suppliedToken === null) return null;
+        if (typeof suppliedToken !== 'string' || !suppliedToken) {
+            throw new HttpError(400, 'Invalid `reauth_token`.', {
+                legacyCode: 'bad_request',
+            });
+        }
+        const { authId } = this.services.auth.verifyReauthToken(suppliedToken);
+        return authId;
+    }
+
+    /**
+     * Enforce a verified `auth_id` against the user the credential flow
+     * has resolved. Caller has already extracted `auth_id` from the
+     * server-signed reauth_token (or from an OTP-flow JWT). When the GUI
+     * is forced through reauth, the 401 response embeds the reauth_token;
+     * the client echoes it back so we can confirm the second login lands
+     * on the same user row — critical for temp users, where a fresh
+     * signup would otherwise mint a new account and strand their files.
+     *
+     * No `authId` supplied → no-op (normal login). Unknown `authId` →
+     * 404 (mirrors username-not-found, avoids being an enumeration
+     * oracle). Mismatch against the resolved user → 409
+     * (`auth_id_mismatch`).
+     */
+    async #enforceAuthIdMatch(
+        req: Request,
+        resolvedUser: { id: number; uuid: string },
+        authId: string | null,
+    ): Promise<void> {
+        if (!authId) return;
+
+        await this.#checkAuthIdRateLimit(req);
+
+        // Common path: auth_id maps to the same uuid the credential flow
+        // resolved. Skip the user-table read entirely. The DB lookup is
+        // only needed to disambiguate 404 (unknown auth_id) from 409
+        // (known but mismatched) on the error path.
+        if (authId === resolvedUser.uuid) return;
+
+        const authIdUser = await this.stores.user.getByUuid(authId);
+        if (!authIdUser) {
+            throw new HttpError(404, 'auth_id not found.', {
+                legacyCode: 'not_found',
+            });
+        }
+        if (authIdUser.id !== resolvedUser.id) {
+            throw new HttpError(409, 'auth_id does not match credentials.', {
+                legacyCode: 'bad_request',
+                fields: { code: 'auth_id_mismatch' },
+            });
         }
     }
 

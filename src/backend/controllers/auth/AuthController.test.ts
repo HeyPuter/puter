@@ -3662,3 +3662,312 @@ describe('AuthController.handleMigrateToken', () => {
         expect(cookie.opts?.httpOnly).toBe(true);
     });
 });
+
+// -- auth_id preservation on forced re-login --
+
+describe('AuthController auth_id preservation on reauth', () => {
+    const password = 'correct-horse-battery';
+    const mintReauth = (uuid: string): string =>
+        server.services.auth.signReauthToken(uuid);
+
+    it('handleLogin with matching reauth_token completes login as the same user', async () => {
+        const u = `aid_${Math.random().toString(36).slice(2, 10)}`;
+        const ip = `127.0.${Math.floor(Math.random() * 200)}.1`;
+        await controller.handleSignup(
+            makeReq(
+                { username: u, email: `${u}@test.local`, password },
+                { ip },
+            ),
+            makeRes(),
+        );
+        const seeded = await server.stores.user.getByUsername(u);
+
+        const res = makeRes();
+        await controller.handleLogin(
+            makeReq(
+                {
+                    username: u,
+                    password,
+                    reauth_token: mintReauth(seeded!.uuid),
+                },
+                { ip },
+            ),
+            res,
+        );
+        expect(isCompleteLoginResponse(res.body)).toBe(true);
+        expect((res.body as { user: { uuid: string } }).user.uuid).toBe(
+            seeded!.uuid,
+        );
+    });
+
+    it('handleLogin with mismatched reauth_token is rejected 409', async () => {
+        const a = `aida_${Math.random().toString(36).slice(2, 10)}`;
+        const b = `aidb_${Math.random().toString(36).slice(2, 10)}`;
+        const ip = `127.0.${Math.floor(Math.random() * 200)}.2`;
+        await controller.handleSignup(
+            makeReq(
+                { username: a, email: `${a}@test.local`, password },
+                { ip },
+            ),
+            makeRes(),
+        );
+        await controller.handleSignup(
+            makeReq(
+                { username: b, email: `${b}@test.local`, password },
+                { ip },
+            ),
+            makeRes(),
+        );
+        const userB = await server.stores.user.getByUsername(b);
+
+        await expect(
+            controller.handleLogin(
+                makeReq(
+                    {
+                        username: a,
+                        password,
+                        reauth_token: mintReauth(userB!.uuid),
+                    },
+                    { ip },
+                ),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({
+            statusCode: 409,
+            fields: { code: 'auth_id_mismatch' },
+        });
+    });
+
+    it('handleLogin with reauth_token for an unknown user returns 404', async () => {
+        const u = `aidu_${Math.random().toString(36).slice(2, 10)}`;
+        const ip = `127.0.${Math.floor(Math.random() * 200)}.3`;
+        await controller.handleSignup(
+            makeReq(
+                { username: u, email: `${u}@test.local`, password },
+                { ip },
+            ),
+            makeRes(),
+        );
+        await expect(
+            controller.handleLogin(
+                makeReq(
+                    {
+                        username: u,
+                        password,
+                        reauth_token: mintReauth(uuidv4()),
+                    },
+                    { ip },
+                ),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 404 });
+    });
+
+    it('handleLogin with a non-string reauth_token returns 400', async () => {
+        const u = `aidb_${Math.random().toString(36).slice(2, 10)}`;
+        const ip = `127.0.${Math.floor(Math.random() * 200)}.4`;
+        await controller.handleSignup(
+            makeReq(
+                { username: u, email: `${u}@test.local`, password },
+                { ip },
+            ),
+            makeRes(),
+        );
+        await expect(
+            controller.handleLogin(
+                makeReq({ username: u, password, reauth_token: 42 }, { ip }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('handleLogin with a forged/garbage reauth_token returns 401', async () => {
+        const u = `aidf_${Math.random().toString(36).slice(2, 10)}`;
+        const ip = `127.0.${Math.floor(Math.random() * 200)}.9`;
+        await controller.handleSignup(
+            makeReq(
+                { username: u, email: `${u}@test.local`, password },
+                { ip },
+            ),
+            makeRes(),
+        );
+        await expect(
+            controller.handleLogin(
+                makeReq(
+                    { username: u, password, reauth_token: 'not-a-jwt' },
+                    { ip },
+                ),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 401 });
+    });
+
+    it('handleLogin OTP branch echoes auth_id into the OTP JWT', async () => {
+        const u = `aidotp_${Math.random().toString(36).slice(2, 10)}`;
+        const ip = `127.0.${Math.floor(Math.random() * 200)}.5`;
+        await controller.handleSignup(
+            makeReq(
+                { username: u, email: `${u}@test.local`, password },
+                { ip },
+            ),
+            makeRes(),
+        );
+        const seeded = await server.stores.user.getByUsername(u);
+        await server.stores.user.update(seeded!.id, {
+            otp_enabled: 1,
+            otp_secret: 'TESTSECRETBASE32',
+        });
+
+        const res = makeRes();
+        await controller.handleLogin(
+            makeReq(
+                {
+                    username: u,
+                    password,
+                    reauth_token: mintReauth(seeded!.uuid),
+                },
+                { ip },
+            ),
+            res,
+        );
+        expect(res.statusCode).toBe(202);
+        const body = res.body as { otp_jwt_token: string };
+        const decoded = server.services.token.verify(
+            'otp',
+            body.otp_jwt_token,
+        ) as {
+            user_uid: string;
+            auth_id?: string;
+        };
+        expect(decoded.auth_id).toBe(seeded!.uuid);
+    });
+
+    it('handleSignup is_temp + matching reauth_token returns the SAME temp user', async () => {
+        const tempRes1 = makeRes();
+        const ip = `127.0.${Math.floor(Math.random() * 200)}.6`;
+        await controller.handleSignup(
+            makeReq({ is_temp: true }, { ip }),
+            tempRes1,
+        );
+        const body1 = tempRes1.body as { user: { uuid: string } };
+        const tempUuid = body1.user.uuid;
+        const tempUser1 = await server.stores.user.getByUuid(tempUuid);
+        expect(tempUser1).toBeTruthy();
+        const markerId = tempUser1!.id;
+
+        const tempRes2 = makeRes();
+        await controller.handleSignup(
+            makeReq(
+                { is_temp: true, reauth_token: mintReauth(tempUuid) },
+                { ip },
+            ),
+            tempRes2,
+        );
+        expect(isCompleteLoginResponse(tempRes2.body)).toBe(true);
+        const body2 = tempRes2.body as {
+            user: { uuid: string; is_temp: boolean };
+        };
+        expect(body2.user.uuid).toBe(tempUuid);
+        expect(body2.user.is_temp).toBe(true);
+
+        const tempUser2 = await server.stores.user.getByUuid(tempUuid);
+        expect(tempUser2!.id).toBe(markerId);
+    });
+
+    it('handleSignup is_temp + reauth_token pointing at a permanent user is rejected', async () => {
+        const u = `aidperm_${Math.random().toString(36).slice(2, 10)}`;
+        const ip = `127.0.${Math.floor(Math.random() * 200)}.7`;
+        await controller.handleSignup(
+            makeReq(
+                { username: u, email: `${u}@test.local`, password },
+                { ip },
+            ),
+            makeRes(),
+        );
+        const seeded = await server.stores.user.getByUsername(u);
+
+        await expect(
+            controller.handleSignup(
+                makeReq(
+                    {
+                        is_temp: true,
+                        reauth_token: mintReauth(seeded!.uuid),
+                    },
+                    { ip },
+                ),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('handleSignup is_temp + reauth_token for an unknown user returns 404', async () => {
+        const ip = `127.0.${Math.floor(Math.random() * 200)}.8`;
+        await expect(
+            controller.handleSignup(
+                makeReq(
+                    {
+                        is_temp: true,
+                        reauth_token: mintReauth(uuidv4()),
+                    },
+                    { ip },
+                ),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 404 });
+    });
+
+    it('handleSignup is_temp rejects a forged reauth_token (401)', async () => {
+        const ip = `127.0.${Math.floor(Math.random() * 200)}.10`;
+        await expect(
+            controller.handleSignup(
+                makeReq(
+                    { is_temp: true, reauth_token: 'not-a-jwt' },
+                    { ip },
+                ),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 401 });
+    });
+
+    it('rate-limits reauth_token login attempts per IP', async () => {
+        const ip = `10.99.${Math.floor(Math.random() * 200)}.${Math.floor(Math.random() * 200)}`;
+        const u = `aidrl_${Math.random().toString(36).slice(2, 10)}`;
+        await controller.handleSignup(
+            makeReq(
+                { username: u, email: `${u}@test.local`, password },
+                { ip },
+            ),
+            makeRes(),
+        );
+        const seeded = await server.stores.user.getByUsername(u);
+
+        for (let i = 0; i < 5; i++) {
+            const res = makeRes();
+            await controller.handleLogin(
+                makeReq(
+                    {
+                        username: u,
+                        password,
+                        reauth_token: mintReauth(seeded!.uuid),
+                    },
+                    { ip },
+                ),
+                res,
+            );
+            expect(isCompleteLoginResponse(res.body)).toBe(true);
+        }
+        await expect(
+            controller.handleLogin(
+                makeReq(
+                    {
+                        username: u,
+                        password,
+                        reauth_token: mintReauth(seeded!.uuid),
+                    },
+                    { ip },
+                ),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 429 });
+    });
+});

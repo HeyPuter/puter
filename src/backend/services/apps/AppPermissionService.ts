@@ -45,7 +45,7 @@ export class AppPermissionService extends PuterService {
         const permissions = this.services.permission;
         const appStore = this.stores.app;
 
-        // ── app:<name>:mode → app:uid#<uid>:mode ───────────────────────
+        // -- app:<name>:mode → app:uid#<uid>:mode -----------------------
         // Names change (via app rename); uids are stable. Store/scan uid
         // form so renames don't invalidate existing grants. AppStore caches
         // `getByName` in Redis (5m), invalidated on rename/update.
@@ -65,7 +65,7 @@ export class AppPermissionService extends PuterService {
             },
         });
 
-        // ── app-is-owner implicator ───────────────────────────────────
+        // -- app-is-owner implicator -----------------------------------
         // User actors implicitly hold `app:uid#X:*` (and manage form) on
         // apps they own. Mirrors the fs is-owner pattern.
         permissions.registerImplicator({
@@ -97,7 +97,7 @@ export class AppPermissionService extends PuterService {
             },
         });
 
-        // ── apps-of-user:<own_uuid>:* / subdomains-of-user:… ──────────
+        // -- apps-of-user:<own_uuid>:* / subdomains-of-user:… ----------
         // A user implicitly holds read/write over *their own* apps and
         // subdomains. `puter.perms` expresses these as
         // `apps-of-user:<own_uuid>:<mode>` etc.
@@ -118,7 +118,7 @@ export class AppPermissionService extends PuterService {
             },
         });
 
-        // ── app-root-dir:<app_uid>:<mode> → fs:<root_uid>:<mode> ───────
+        // -- app-root-dir:<app_uid>:<mode> → fs:<root_uid>:<mode> -------
         // Only rewrites during an explicit `grantUserAppPermission` (see
         // PermissionService for the context flag). During scans we return
         // PERMISSION_FOR_NOTHING_IN_PARTICULAR so `check(actor, 'app-root-dir:…')`

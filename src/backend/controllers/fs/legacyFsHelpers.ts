@@ -48,7 +48,7 @@ import type { IConfig } from '../../types.js';
  * terse.
  */
 
-// ── Body parsing ─────────────────────────────────────────────────────
+// -- Body parsing -----------------------------------------------------
 
 export function asRecord(value: unknown): Record<string, unknown> {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
@@ -160,7 +160,7 @@ export async function resolveV1Selector(
     return entry;
 }
 
-// ── ACL ──────────────────────────────────────────────────────────────
+// -- ACL --------------------------------------------------------------
 
 export async function assertAccess(
     aclService: ACLService,
@@ -261,7 +261,7 @@ export async function assertCanCreate(
     await assertAccess(aclService, fsService, actor, parentForCheck, 'write');
 }
 
-// ── Response shaping ────────────────────────────────────────────────
+// -- Response shaping ------------------------------------------------
 
 type AppRowLookup = {
     getByIds: (ids: number[]) => Promise<Map<number, Record<string, unknown>>>;
@@ -461,7 +461,7 @@ export async function toLegacyEntry(
 
 export { normalizeAbsolutePath };
 
-// ── Signing ─────────────────────────────────────────────────────────
+// -- Signing ---------------------------------------------------------
 
 /**
  * Pull the signing config off the app config. Throws if either value is

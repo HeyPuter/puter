@@ -87,6 +87,33 @@ export const createSessionCookieGate = (config: IConfig): RequestHandler => {
     };
 };
 
+/**
+ * Same intent as `createSessionCookieGate` ("an access token can't revoke
+ * its issuing web session") but identity-shape based instead of cookie-
+ * value based, so it works for the cross-subdomain GUI -> api.puter.com
+ * call path where the session cookie isn't sent. Accepts a plain user
+ * actor (web/session/gui-token); rejects app-under-user actors and
+ * access-token actors. Pair with `antiCsrf: true` on the route.
+ */
+export const createWebSessionActorGate = (): RequestHandler => {
+    return (req, _res, next) => {
+        const actor = req.actor;
+        if (
+            !actor?.user ||
+            !actor.session ||
+            (actor as { app?: unknown }).app ||
+            (actor as { accessToken?: unknown }).accessToken
+        ) {
+            return next(
+                new HttpError(401, 'Web session required', {
+                    legacyCode: 'session_required',
+                }),
+            );
+        }
+        next();
+    };
+};
+
 export interface UserProtectedGateOptions {
     /** Allow temp accounts (no password + no email) through. Default: false. */
     allowTempUsers?: boolean;

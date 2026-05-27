@@ -27,7 +27,7 @@ import { HttpError } from '../../core/http/HttpError.js';
  * UNIQUE(provider, provider_sub).
  */
 export class OIDCStore extends PuterStore {
-    // ── Reads ────────────────────────────────────────────────────────
+    // -- Reads --------------------------------------------------------
 
     async getByProviderSub(provider, providerSub) {
         const rows = await this.clients.db.read(
@@ -44,7 +44,7 @@ export class OIDCStore extends PuterStore {
         );
     }
 
-    // ── Writes ───────────────────────────────────────────────────────
+    // -- Writes -------------------------------------------------------
 
     async link(userId, provider, providerSub, refreshToken = null) {
         try {

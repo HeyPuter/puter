@@ -42,7 +42,7 @@ import {
  * directly work equally well.
  */
 
-// ── Prototype shape helpers ─────────────────────────────────────────
+// -- Prototype shape helpers -----------------------------------------
 
 interface DecoratedPrototype {
     [ROUTES_METADATA_KEY]?: CollectedRoute[];
@@ -57,7 +57,7 @@ const getOrInitRoutes = (proto: DecoratedPrototype): CollectedRoute[] => {
     return proto[ROUTES_METADATA_KEY]!;
 };
 
-// ── @Controller ─────────────────────────────────────────────────────
+// -- @Controller -----------------------------------------------------
 
 /**
  * Class decorator.
@@ -128,7 +128,7 @@ export function Controller(prefix: string = '') {
     };
 }
 
-// ── Method decorators (@Get, @Post, ...) ───────────────────────────
+// -- Method decorators (@Get, @Post, ...) ---------------------------
 
 // eslint-disable-next-line @typescript-eslint/no-unsafe-function-type
 type AnyMethod = Function;

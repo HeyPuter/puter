@@ -23,7 +23,7 @@ import { Agent as HttpsAgent } from 'node:https';
 import { IBroadcastPeerConfig } from '../../types.js';
 import { PuterService } from '../types.js';
 
-// ── Wire types ──────────────────────────────────────────────────────
+// -- Wire types ------------------------------------------------------
 
 interface BroadcastEvent {
     key: string;
@@ -55,7 +55,7 @@ interface IncomingHeaders {
     signature: string | undefined;
 }
 
-// ── Service ─────────────────────────────────────────────────────────
+// -- Service ---------------------------------------------------------
 
 /**
  * Cross-node event replication via signed HTTP webhooks.
@@ -104,7 +104,7 @@ export class BroadcastService extends PuterService {
     /** Self-signed certs are common between Puter nodes — accept them. */
     #webhookHttpsAgent = new HttpsAgent({ rejectUnauthorized: false });
 
-    // ── Lifecycle ───────────────────────────────────────────────────
+    // -- Lifecycle ---------------------------------------------------
 
     override onServerStart(): void {
         this.#loadConfig();
@@ -125,7 +125,7 @@ export class BroadcastService extends PuterService {
         }
     }
 
-    // ── Public API used by BroadcastController ──────────────────────
+    // -- Public API used by BroadcastController ----------------------
 
     /**
      * Verify an incoming webhook POST and, if valid, fan its events
@@ -231,7 +231,7 @@ export class BroadcastService extends PuterService {
         return { ok: true };
     }
 
-    // ── Outbound: subscribe + queue + flush ────────────────────────
+    // -- Outbound: subscribe + queue + flush ------------------------
 
     #subscribeOutbound(): void {
         // Wildcard: every `outer.*` event gets considered for broadcast.
@@ -368,7 +368,7 @@ export class BroadcastService extends PuterService {
         }
     }
 
-    // ── Inbound helpers ─────────────────────────────────────────────
+    // -- Inbound helpers ---------------------------------------------
 
     #normalizeIncomingPayload(
         payload: IncomingPayload,
@@ -511,7 +511,7 @@ export class BroadcastService extends PuterService {
         return { ok: true, nonce: n };
     }
 
-    // ── Misc ────────────────────────────────────────────────────────
+    // -- Misc --------------------------------------------------------
 
     #normalizeMeta(meta: unknown): Record<string, unknown> {
         if (!meta || typeof meta !== 'object' || Array.isArray(meta)) return {};

@@ -118,7 +118,7 @@ export class AppDriver extends PuterDriver {
         return this.services.permission;
     }
 
-    // ── Driver methods ───────────────────────────────────────────────
+    // -- Driver methods -----------------------------------------------
 
     async create({ object, options } = {}) {
         if (!object || typeof object !== 'object') {
@@ -414,7 +414,7 @@ export class AppDriver extends PuterDriver {
         return { success: true, uid: app.uid };
     }
 
-    // ── Event emission ───────────────────────────────────────────────
+    // -- Event emission -----------------------------------------------
     //
     // Consumers (AppIconService, future cf-file-cache port, billing
     // event handlers) key off `app_uid`; the full `app` / `old_app`
@@ -451,7 +451,7 @@ export class AppDriver extends PuterDriver {
         }
     }
 
-    // ── Public helpers (used by AppController) ──────────────────────
+    // -- Public helpers (used by AppController) ----------------------
 
     /** Check if an app name is available. Mirrors the REST endpoint behaviour. */
     async isNameAvailable(name) {
@@ -463,7 +463,7 @@ export class AppDriver extends PuterDriver {
         return !(await this.appStore.existsByName(name));
     }
 
-    // ── Validation ───────────────────────────────────────────────────
+    // -- Validation ---------------------------------------------------
 
     async #validateInput(object, { isCreate }) {
         const out = {};
@@ -581,7 +581,7 @@ export class AppDriver extends PuterDriver {
         return out;
     }
 
-    // ── Permission checks ────────────────────────────────────────────
+    // -- Permission checks --------------------------------------------
 
     #requireActor() {
         const actor = Context.get('actor');
@@ -679,7 +679,7 @@ export class AppDriver extends PuterDriver {
         }
     }
 
-    // ── Serialization ────────────────────────────────────────────────
+    // -- Serialization ------------------------------------------------
 
     /**
      * Resolve the canonical app row that backs `app.index_url`.
@@ -843,7 +843,7 @@ export class AppDriver extends PuterDriver {
         return result;
     }
 
-    // ── Puter-hosted index_url merge logic ───────────────────────────
+    // -- Puter-hosted index_url merge logic ---------------------------
     //
     // Ported from v1 AppES (`#maybeJoinOwnedHostedIndexUrlAppOnCreate`,
     // `#ensure_puter_site_subdomain_is_owned`, `#ensureIndexUrlNotAlreadyInUse`,
@@ -1078,7 +1078,7 @@ export class AppDriver extends PuterDriver {
         return app.description.startsWith('App created from origin ');
     }
 
-    // ── Canonical-uid alias kvstore pair ─────────────────────────────
+    // -- Canonical-uid alias kvstore pair -----------------------------
     //
     // After a merge, the source app uid → canonical uid mapping is
     // kept in `stores.kv` (system namespace) so any client that still

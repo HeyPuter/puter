@@ -109,7 +109,7 @@ const READ_ONLY_COLUMNS = new Set([
 
 export class AppStore extends PuterStore {
     #appStatsInterval;
-    // ── Reads ────────────────────────────────────────────────────────
+    // -- Reads --------------------------------------------------------
 
     async getByUid(uid) {
         return this.#getByProperty('uid', uid);
@@ -304,7 +304,7 @@ export class AppStore extends PuterStore {
         return apps;
     }
 
-    // ── Writes ───────────────────────────────────────────────────────
+    // -- Writes -------------------------------------------------------
 
     /**
      * Create a new app row.
@@ -497,7 +497,7 @@ export class AppStore extends PuterStore {
         return true;
     }
 
-    // ── Filetype associations ────────────────────────────────────────
+    // -- Filetype associations ----------------------------------------
 
     async getFiletypeAssociations(appId) {
         const rows = await this.clients.db.read(
@@ -621,7 +621,7 @@ export class AppStore extends PuterStore {
         await this.publishCacheKeys({ keys, broadcast: true });
     }
 
-    // ── Cache invalidation ───────────────────────────────────────────
+    // -- Cache invalidation -------------------------------------------
 
     async invalidate(app) {
         const keys = this.#cacheKeysForApp(app);
@@ -651,7 +651,7 @@ export class AppStore extends PuterStore {
         );
     }
 
-    // ── Internals ────────────────────────────────────────────────────
+    // -- Internals ----------------------------------------------------
 
     async #getByProperty(prop, value) {
         if (value === undefined || value === null) return null;
@@ -997,7 +997,7 @@ export class AppStore extends PuterStore {
         return this.#querySingleStats(appUid, timeRange, clickhouse);
     }
 
-    // ── Stats internals ──────────────────────────────────────────────
+    // -- Stats internals ----------------------------------------------
 
     async #queryStatsForUids(uids) {
         const out = new Map();
@@ -1335,7 +1335,7 @@ export class AppStore extends PuterStore {
         return 1 + Math.ceil((firstThursday - target) / 604800000);
     }
 
-    // ── Refresh loop ─────────────────────────────────────────────────
+    // -- Refresh loop -------------------------------------------------
 
     async #refreshAppStats() {
         // Cross-instance lock: if another node refreshed within the window,

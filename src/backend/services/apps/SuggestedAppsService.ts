@@ -21,7 +21,7 @@ import { posix as pathPosix } from 'node:path';
 import { getAppIconUrl } from '../../util/appIcon.js';
 import { PuterService } from '../types.js';
 
-// ── Extension → suggested app names mapping ─────────────────────────
+// -- Extension → suggested app names mapping -------------------------
 //
 // Each extension maps to an ordered list of built-in app names that
 // can open files of that type.

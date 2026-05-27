@@ -36,7 +36,7 @@ import { toMicroCents } from './utils';
 
 import { SUB_POLICIES } from '../../data/subPolicies/index.js';
 
-// ── Types ────────────────────────────────────────────────────────────
+// -- Types ------------------------------------------------------------
 
 type SubscriptionPolicy = (typeof SUB_POLICIES)[number];
 
@@ -50,7 +50,7 @@ interface UsageInput {
     costOverride?: number;
 }
 
-// ── MeteringService ──────────────────────────────────────────────────
+// -- MeteringService --------------------------------------------------
 
 /**
  * Tracks per-actor and global usage, and exposes subscription/addon lookup.
@@ -70,7 +70,7 @@ export class MeteringService extends PuterService {
     private subscriptionResolvers: SubscriptionResolver[] = [];
     private defaultSubscriptionResolvers: SubscriptionResolver[] = [];
 
-    // ── Lifecycle ────────────────────────────────────────────────────
+    // -- Lifecycle ----------------------------------------------------
 
     override onServerStart(): void {
         this.rateCheckTimer = setInterval(
@@ -91,7 +91,7 @@ export class MeteringService extends PuterService {
         }
     }
 
-    // ── Extension hooks ──────────────────────────────────────────────
+    // -- Extension hooks ----------------------------------------------
 
     /** Register a policy that should be available to actors. */
     registerPolicy(policy: SubscriptionPolicy): void {
@@ -114,7 +114,7 @@ export class MeteringService extends PuterService {
         this.defaultSubscriptionResolvers.push(fn);
     }
 
-    // ── Public API: increment usage ──────────────────────────────────
+    // -- Public API: increment usage ----------------------------------
 
     utilRecordUsageObject<T extends Record<string, number>>(
         trackedUsageObject: T,
@@ -458,7 +458,7 @@ export class MeteringService extends PuterService {
         }
     }
 
-    // ── Public API: read usage ───────────────────────────────────────
+    // -- Public API: read usage ---------------------------------------
 
     async getActorCurrentMonthUsageDetails(actor: Actor): Promise<{
         usage: UsageByType;
@@ -788,7 +788,7 @@ export class MeteringService extends PuterService {
         });
     }
 
-    // ── Internals ────────────────────────────────────────────────────
+    // -- Internals ----------------------------------------------------
 
     private monthYearString(): string {
         const now = new Date();

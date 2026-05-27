@@ -26,7 +26,7 @@ import { PermissionUtil } from '../permission/permissionUtil';
 import { MANAGE_PERM_PREFIX } from '../permission/consts';
 import { HttpError } from '../../core/http/HttpError.js';
 
-// ── Types ────────────────────────────────────────────────────────────
+// -- Types ------------------------------------------------------------
 
 /**
  * Thin, filesystem-agnostic view of a resource for ACL checks.
@@ -77,7 +77,7 @@ const PUBLIC_READ_MODES: ReadonlyArray<AclMode> = Object.freeze([
     'see',
 ]);
 
-// ── ACLService ───────────────────────────────────────────────────────
+// -- ACLService -------------------------------------------------------
 
 /**
  * ACLService enforces filesystem access-control semantics for Puter.
@@ -97,7 +97,7 @@ const PUBLIC_READ_MODES: ReadonlyArray<AclMode> = Object.freeze([
 export class ACLService extends PuterService {
     declare protected services: LayerInstances<typeof puterServices>;
 
-    // ── Public API ───────────────────────────────────────────────────
+    // -- Public API ---------------------------------------------------
 
     /**
      * Returns true iff `actor` is allowed to perform `mode` access on `resource`.

@@ -60,7 +60,7 @@ const NEGATIVE_CACHE_MARKER = '__none__';
 const NEGATIVE_CACHE_TTL_SECONDS = 10;
 
 export class SubdomainStore extends PuterStore {
-    // ── Reads ────────────────────────────────────────────────────────
+    // -- Reads --------------------------------------------------------
 
     async getByUuid(uuid, { userId, primary = false } = {}) {
         const where =
@@ -180,7 +180,7 @@ export class SubdomainStore extends PuterStore {
         return rows;
     }
 
-    // ── Writes ───────────────────────────────────────────────────────
+    // -- Writes -------------------------------------------------------
 
     /** @param {{ userId: number, subdomain: string, rootDirId?: number|null, associatedAppId?: number|null, appOwner?: number|null, preambleVersion?: string|null }} opts */
     async create({
@@ -311,7 +311,7 @@ export class SubdomainStore extends PuterStore {
         }
     }
 
-    // ── Internals ────────────────────────────────────────────────────
+    // -- Internals ----------------------------------------------------
 
     #cacheKey(subdomain) {
         return `${CACHE_KEY_PREFIX}:name:${subdomain}`;

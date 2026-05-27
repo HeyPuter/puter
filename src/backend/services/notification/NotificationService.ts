@@ -77,7 +77,7 @@ export class NotificationService extends PuterService {
         );
     }
 
-    // ── Public API ──────────────────────────────────────────────────
+    // -- Public API --------------------------------------------------
 
     /**
      * Push a notification to one or more users. The notification is
@@ -172,7 +172,7 @@ export class NotificationService extends PuterService {
         );
     }
 
-    // ── Internals ───────────────────────────────────────────────────
+    // -- Internals ---------------------------------------------------
 
     async #sendUnreads(userId: number): Promise<void> {
         // Fetch all unseen + unacknowledged notifications

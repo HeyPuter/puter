@@ -139,7 +139,7 @@ export class WebDAVController extends PuterController {
         }
     }
 
-    // ── Auth ─────────────────────────────────────────────────────────
+    // -- Auth ---------------------------------------------------------
 
     async #resolveActor(req: Request, res: Response): Promise<Actor | null> {
         // If the global authProbe already resolved an actor, use it.
@@ -237,7 +237,7 @@ export class WebDAVController extends PuterController {
         };
     }
 
-    // ── OPTIONS ──────────────────────────────────────────────────────
+    // -- OPTIONS ------------------------------------------------------
 
     #options(res: Response): void {
         res.status(200)
@@ -251,7 +251,7 @@ export class WebDAVController extends PuterController {
             .send('');
     }
 
-    // ── GET / HEAD ──────────────────────────────────────────────────
+    // -- GET / HEAD --------------------------------------------------
 
     async #get(
         req: Request,
@@ -301,7 +301,7 @@ export class WebDAVController extends PuterController {
         result.body.pipe(res);
     }
 
-    // ── PROPFIND ────────────────────────────────────────────────────
+    // -- PROPFIND ----------------------------------------------------
 
     async #propfind(
         req: Request,
@@ -348,7 +348,7 @@ export class WebDAVController extends PuterController {
             .send(wrapMultistatus(responses.join('\n')));
     }
 
-    // ── PROPPATCH (stub — acknowledges but doesn't persist props) ───
+    // -- PROPPATCH (stub — acknowledges but doesn't persist props) ---
 
     async #proppatch(
         res: Response,
@@ -372,7 +372,7 @@ export class WebDAVController extends PuterController {
             );
     }
 
-    // ── MKCOL ───────────────────────────────────────────────────────
+    // -- MKCOL -------------------------------------------------------
 
     async #mkcol(
         req: Request,
@@ -422,7 +422,7 @@ export class WebDAVController extends PuterController {
             .end();
     }
 
-    // ── PUT ─────────────────────────────────────────────────────────
+    // -- PUT ---------------------------------------------------------
 
     async #put(
         req: Request,
@@ -498,7 +498,7 @@ export class WebDAVController extends PuterController {
             .end();
     }
 
-    // ── DELETE ───────────────────────────────────────────────────────
+    // -- DELETE -------------------------------------------------------
 
     async #delete(
         res: Response,
@@ -528,7 +528,7 @@ export class WebDAVController extends PuterController {
         res.status(204).end();
     }
 
-    // ── COPY ────────────────────────────────────────────────────────
+    // -- COPY --------------------------------------------------------
 
     async #copy(
         req: Request,
@@ -586,7 +586,7 @@ export class WebDAVController extends PuterController {
         res.status(destExists ? 204 : 201).end();
     }
 
-    // ── MOVE ────────────────────────────────────────────────────────
+    // -- MOVE --------------------------------------------------------
 
     async #move(
         req: Request,
@@ -642,7 +642,7 @@ export class WebDAVController extends PuterController {
         res.status(destExists ? 204 : 201).end();
     }
 
-    // ── LOCK ────────────────────────────────────────────────────────
+    // -- LOCK --------------------------------------------------------
 
     async #lock(
         req: Request,
@@ -709,7 +709,7 @@ export class WebDAVController extends PuterController {
             .send(lockResponseXml(token, davPath, lockScope));
     }
 
-    // ── UNLOCK ──────────────────────────────────────────────────────
+    // -- UNLOCK ------------------------------------------------------
 
     async #unlock(
         req: Request,
@@ -740,7 +740,7 @@ export class WebDAVController extends PuterController {
         res.status(204).end();
     }
 
-    // ── ACL helpers ─────────────────────────────────────────────────
+    // -- ACL helpers -------------------------------------------------
 
     async #assertRead(actor: Actor, path: string): Promise<void> {
         const descriptor = {
@@ -766,7 +766,7 @@ export class WebDAVController extends PuterController {
             });
     }
 
-    // ── Event emission ──────────────────────────────────────────────
+    // -- Event emission ----------------------------------------------
 
     #emitGuiEvent<T extends keyof EventMap>(
         eventName: T,
@@ -795,7 +795,7 @@ export class WebDAVController extends PuterController {
             });
     }
 
-    // ── Misc helpers ────────────────────────────────────────────────
+    // -- Misc helpers ------------------------------------------------
 
     #parseDestination(req: Request): string {
         const dest = req.headers.destination as string | undefined;
@@ -812,7 +812,7 @@ export class WebDAVController extends PuterController {
     }
 }
 
-// ── XML helpers ──────────────────────────────────────────────────────
+// -- XML helpers ------------------------------------------------------
 
 function escapeXml(text: string): string {
     return text

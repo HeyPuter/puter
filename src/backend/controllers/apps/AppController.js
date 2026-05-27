@@ -196,7 +196,7 @@ export class AppController extends PuterController {
             },
         );
 
-        // ── POST /query/app ────────────────────────────────────────
+        // -- POST /query/app ----------------------------------------
         // Batch marketplace-style lookup by name or UID.
         //
         // Access rules: only apps the caller has a legitimate reason to
@@ -293,7 +293,7 @@ export class AppController extends PuterController {
             },
         );
 
-        // ── GET /app-icon/:app_uid(/:size) ─────────────────────────
+        // -- GET /app-icon/:app_uid(/:size) -------------------------
         // Serve app icon — data URL decoded inline, HTTP URL redirected.
         //
         // ⚠ FLAG: Missing sharp-based resize pipeline; serves the original.

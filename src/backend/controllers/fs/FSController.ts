@@ -817,7 +817,7 @@ export class FSController extends PuterController {
         res.json(updatedResponses);
     }
 
-    // ── Read-side routes ────────────────────────────────────────────────
+    // -- Read-side routes ------------------------------------------------
 
     @Post('/stat', { subdomain: 'api', requireVerified: true })
     async statEntry(req: Request, res: Response) {
@@ -1015,7 +1015,7 @@ export class FSController extends PuterController {
         }
     }
 
-    // ── Mutation routes ────────────────────────────────────────────────
+    // -- Mutation routes ------------------------------------------------
 
     @Post('/mkdir', { subdomain: 'api', requireVerified: true })
     async mkdirEntry(req: Request, res: Response) {
@@ -1213,7 +1213,7 @@ export class FSController extends PuterController {
         res.json(shortcut);
     }
 
-    // ── Read-side helpers ───────────────────────────────────────────────
+    // -- Read-side helpers -----------------------------------------------
 
     #requireActor(req: Request): Actor {
         const actor = req.actor;

@@ -82,11 +82,56 @@ export class AuthService extends PuterService {
         });
     }
 
-    // ── Public API ──────────────────────────────────────────────────
+    // -- Public API --------------------------------------------------
 
     async authenticateFromToken(token: string): Promise<Actor | null> {
         const result = await this.authenticate(token);
         return result.actor ?? null;
+    }
+
+    /**
+     * Mint a short-lived, server-signed JWT that proves the bearer was
+     * previously identified as `authId` by a real session (the one that
+     * just rejected with reauth-required). The 401 response embeds this
+     * token; the GUI echoes it back on /login or /signup so the controller
+     * can re-attach the new session to the same user row.
+     *
+     * Signing here — rather than letting the client present the raw
+     * `auth_id` UUID — means a leaked UUID alone is not enough to attach
+     * a session to an existing temp account; the attacker would also
+     * have to have intercepted a live 401 from that user. The token's
+     * 10-minute TTL bounds that intercept window.
+     */
+    signReauthToken(authId: string): string {
+        return this.services.token.sign(
+            'otp',
+            { auth_id: authId, purpose: 'reauth' },
+            { expiresIn: '10m' },
+        );
+    }
+
+    /**
+     * Verify a reauth token and return its `auth_id` claim. Throws an
+     * HttpError on signature failure, expiry, or wrong purpose.
+     */
+    verifyReauthToken(token: string): { authId: string } {
+        let decoded: { auth_id?: string; purpose?: string };
+        try {
+            decoded = this.services.token.verify<{
+                auth_id?: string;
+                purpose?: string;
+            }>('otp', token);
+        } catch {
+            throw new HttpError(401, 'Invalid reauth token', {
+                legacyCode: 'token_invalid',
+            });
+        }
+        if (decoded.purpose !== 'reauth' || !decoded.auth_id) {
+            throw new HttpError(401, 'Invalid reauth token', {
+                legacyCode: 'token_invalid',
+            });
+        }
+        return { authId: decoded.auth_id };
     }
 
     async authenticate(token: string): Promise<AuthResult> {
@@ -129,7 +174,7 @@ export class AuthService extends PuterService {
         return result;
     }
 
-    // ── Session lifecycle ────────────────────────────────────────────
+    // -- Session lifecycle --------------------------------------------
 
     /**
      * Create a session and sign a session JWT + GUI JWT for the user.
@@ -689,7 +734,7 @@ export class AuthService extends PuterService {
         }
     }
 
-    // ── App / origin resolution ─────────────────────────────────────
+    // -- App / origin resolution -------------------------------------
 
     /**
      * Resolve an origin URL to an app UID.
@@ -947,7 +992,7 @@ export class AuthService extends PuterService {
         });
     }
 
-    // ── Private / public hosted asset cookies ───────────────────────
+    // -- Private / public hosted asset cookies -----------------------
     //
     // Ported from v1's `createPrivateAssetToken` / `createPublicHostedActor
     // Token`. These are sticky cookies set by the puter-site middleware
@@ -959,14 +1004,28 @@ export class AuthService extends PuterService {
     // + privateHost — so a cookie minted for one app/subdomain cannot be
     // replayed against another. `verify*Token` enforces those expectations.
 
-    /** Cookie name that carries the sticky private-asset token. */
+    /**
+     * Cookie name that carries the sticky private-asset token. Legacy
+     * dot-style name kept readable through the v2 deprecation window —
+     * `resolvePrivateIdentity` still reads it as a fallback.
+     */
     getPrivateAssetCookieName(): string {
         return 'puter.private.asset.token';
     }
 
-    /** Cookie name that carries the public hosted-actor token. */
+    /** Cookie name that carries the public hosted-actor token (legacy). */
     getPublicHostedActorCookieName(): string {
         return 'puter.public.hosted.actor.token';
+    }
+
+    /** v2 cookie name for the sticky private-asset token. */
+    getPrivateAssetCookieNameV2(): string {
+        return 'puter_private_asset_token_v2';
+    }
+
+    /** v2 cookie name for the public hosted-actor token. */
+    getPublicHostedActorCookieNameV2(): string {
+        return 'puter_public_hosted_actor_token_v2';
     }
 
     /** Shared cookie options for both sticky-auth cookies. */
@@ -994,9 +1053,8 @@ export class AuthService extends PuterService {
         subdomain?: string;
         privateHost?: string;
     }): Promise<string> {
-        const assetSessionUuid = await this.#mintAssetSessionUuid(
-            claims.sessionUuid,
-        );
+        const { assetSessionUuid, authId } =
+            await this.#mintAssetSessionContext(claims.sessionUuid);
         return this.services.token.sign('hosted-asset', {
             kind: 'private',
             version: '2',
@@ -1007,6 +1065,7 @@ export class AuthService extends PuterService {
                 : claims.sessionUuid
                   ? { session_uuid: claims.sessionUuid }
                   : {}),
+            ...(authId ? { auth_id: authId } : {}),
             ...(claims.subdomain ? { subdomain: claims.subdomain } : {}),
             ...(claims.privateHost ? { host: claims.privateHost } : {}),
         });
@@ -1019,9 +1078,8 @@ export class AuthService extends PuterService {
         subdomain?: string;
         host?: string;
     }): Promise<string> {
-        const assetSessionUuid = await this.#mintAssetSessionUuid(
-            claims.sessionUuid,
-        );
+        const { assetSessionUuid, authId } =
+            await this.#mintAssetSessionContext(claims.sessionUuid);
         return this.services.token.sign('hosted-asset', {
             kind: 'public',
             version: '2',
@@ -1032,6 +1090,7 @@ export class AuthService extends PuterService {
                 : claims.sessionUuid
                   ? { session_uuid: claims.sessionUuid }
                   : {}),
+            ...(authId ? { auth_id: authId } : {}),
             ...(claims.subdomain ? { subdomain: claims.subdomain } : {}),
             ...(claims.host ? { host: claims.host } : {}),
         });
@@ -1040,29 +1099,30 @@ export class AuthService extends PuterService {
     /**
      * Materialize the `kind='asset'` session row that the cookie's
      * `session_uuid` claim points at. Parented to the web session so a
-     * logout cascade kills every asset cookie minted under it. Returns
-     * `null` when the caller didn't supply a web session — the cookie
-     * still mints, but unparented (matches v1 behavior for access-token-
-     * minted cookies that aren't tied to an interactive session).
+     * logout cascade kills every asset cookie minted under it. Both
+     * fields are `null` when the caller didn't supply a web session —
+     * the cookie still mints, but unparented and without an `auth_id`
+     * claim (matches v1 behavior for access-token-minted cookies that
+     * aren't tied to an interactive session).
      */
-    async #mintAssetSessionUuid(
+    async #mintAssetSessionContext(
         webSessionUuid: string | undefined,
-    ): Promise<string | null> {
-        if (!webSessionUuid) return null;
+    ): Promise<{ assetSessionUuid: string | null; authId: string | null }> {
+        if (!webSessionUuid) return { assetSessionUuid: null, authId: null };
         const webSession = await this.stores.session.getByUuid(webSessionUuid);
-        if (!webSession) return null;
+        if (!webSession) return { assetSessionUuid: null, authId: null };
+        const authId =
+            ((webSession as SessionRow).auth_id as string | null) ?? null;
         const row = await this.stores.session.create(
             (webSession as SessionRow).user_id as number,
             {
                 kind: 'asset',
                 parent_session_id: webSessionUuid,
                 expires_at: nowSeconds() + ASSET_WINDOW_SECONDS,
-                auth_id:
-                    ((webSession as SessionRow).auth_id as string | null) ??
-                    null,
+                auth_id: authId,
             },
         );
-        return row.uuid;
+        return { assetSessionUuid: row.uuid, authId };
     }
 
     async verifyPrivateAssetToken(
@@ -1078,6 +1138,8 @@ export class AuthService extends PuterService {
         appUid?: string;
         subdomain?: string;
         privateHost?: string;
+        authId?: string;
+        legacy?: boolean;
     }> {
         const decoded = this.#verifyHostedAssetToken(token, 'private');
         this.#assertExpected(
@@ -1100,12 +1162,12 @@ export class AuthService extends PuterService {
         );
 
         // Bind the cookie to the user's session lifetime: the session row
-        // referenced at mint must still exist. Logging out drops the row,
-        // which transitively invalidates every private-app cookie issued
-        // under that session — matching v1's `expectedSessionUuid` check
-        // (private apps only; public hosted-actor cookies stay informational).
-        // Cookies minted without a session_uuid (e.g. from an access-token
-        // actor) skip this check; nothing to bind.
+        // referenced at mint must still exist AND not be revoked. The
+        // `getByUuid` lookup is already filtered on `revoked_at IS NULL`,
+        // so a logout cascade transparently invalidates every asset
+        // cookie minted under that web session. Cookies minted without
+        // a session_uuid (e.g. from an access-token actor) skip the
+        // check; nothing to bind.
         const sessionUuid = decoded.session_uuid as string | undefined;
         if (sessionUuid) {
             const session = await this.stores.session.getByUuid(sessionUuid);
@@ -1124,23 +1186,27 @@ export class AuthService extends PuterService {
             appUid: decoded.app_uid as string | undefined,
             subdomain: decoded.subdomain as string | undefined,
             privateHost: decoded.host as string | undefined,
+            authId: decoded.auth_id as string | undefined,
+            legacy: decoded.legacy === true ? true : undefined,
         };
     }
 
-    verifyPublicHostedActorToken(
+    async verifyPublicHostedActorToken(
         token: string,
         expected: {
             expectedAppUid?: string;
             expectedSubdomain?: string;
             expectedHost?: string;
         } = {},
-    ): {
+    ): Promise<{
         userUid: string;
         sessionUuid?: string;
         appUid?: string;
         subdomain?: string;
         host?: string;
-    } {
+        authId?: string;
+        legacy?: boolean;
+    }> {
         const decoded = this.#verifyHostedAssetToken(token, 'public');
         this.#assertExpected(
             decoded,
@@ -1160,12 +1226,29 @@ export class AuthService extends PuterService {
             expected.expectedHost,
             'expectedHost',
         );
+
+        // Same revocation cascade as the private path: if the cookie was
+        // minted under a now-revoked web session, drop it.
+        const sessionUuid = decoded.session_uuid as string | undefined;
+        if (sessionUuid) {
+            const session = await this.stores.session.getByUuid(sessionUuid);
+            if (!session) {
+                throw new HttpError(
+                    401,
+                    'public hosted-actor token session no longer valid',
+                    { legacyCode: 'session_required' },
+                );
+            }
+        }
+
         return {
             userUid: decoded.user_uid as string,
-            sessionUuid: decoded.session_uuid as string | undefined,
+            sessionUuid,
             appUid: decoded.app_uid as string | undefined,
             subdomain: decoded.subdomain as string | undefined,
             host: decoded.host as string | undefined,
+            authId: decoded.auth_id as string | undefined,
+            legacy: decoded.legacy === true ? true : undefined,
         };
     }
 
@@ -1227,7 +1310,7 @@ export class AuthService extends PuterService {
         return options;
     }
 
-    // ── Access tokens ───────────────────────────────────────────────
+    // -- Access tokens -----------------------------------------------
 
     /**
      * Create an access token with the given permissions.
@@ -1415,7 +1498,7 @@ export class AuthService extends PuterService {
         }
     }
 
-    // ── Internals ───────────────────────────────────────────────────
+    // -- Internals ---------------------------------------------------
 
     #originFromUrl(url: string): string | null {
         try {
@@ -1582,7 +1665,7 @@ export class AuthService extends PuterService {
         };
     }
 
-    // ── Actor builders ──────────────────────────────────────────────
+    // -- Actor builders ----------------------------------------------
 
     #actorUserFromRow(user: UserRow) {
         // Strip the password hash; pass everything else through so callers

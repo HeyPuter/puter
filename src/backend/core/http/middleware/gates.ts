@@ -34,6 +34,9 @@ const rejectAuth = (req: Request): HttpError => {
                 ...(req.requiresReauth.auth_id
                     ? { auth_id: req.requiresReauth.auth_id }
                     : {}),
+                ...(req.requiresReauth.reauth_token
+                    ? { reauth_token: req.requiresReauth.reauth_token }
+                    : {}),
             },
         });
     }

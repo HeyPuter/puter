@@ -147,7 +147,7 @@ export class PuterHomepageService extends PuterService {
         res.send(html);
     }
 
-    // ── Internals ────────────────────────────────────────────────────
+    // -- Internals ----------------------------------------------------
 
     async #renderShell(
         ctx: { req: Request; actor: Actor | null },

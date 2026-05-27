@@ -23,7 +23,7 @@ import { createHash } from 'node:crypto';
 import type { IConfig } from '../../types';
 import { PuterClient } from '../types';
 
-// ── Types ────────────────────────────────────────────────────────────
+// -- Types ------------------------------------------------------------
 
 export interface AlarmFields {
     error?: Error;
@@ -73,7 +73,7 @@ interface KnownErrorRule {
     };
 }
 
-// ── Helpers ──────────────────────────────────────────────────────────
+// -- Helpers ----------------------------------------------------------
 
 /**
  * Deterministic short identifier derived from an alarm ID.
@@ -166,7 +166,7 @@ function cleanFields(fields: AlarmFields): Record<string, string> {
     return out;
 }
 
-// ── AlarmClient ──────────────────────────────────────────────────────
+// -- AlarmClient ------------------------------------------------------
 
 /**
  * Manages system alarms and dispatches alerts to external paging
@@ -184,7 +184,7 @@ export class AlarmClient extends PuterClient {
         super(config);
     }
 
-    // ── Lifecycle ────────────────────────────────────────────────────
+    // -- Lifecycle ----------------------------------------------------
 
     override async onServerStart(): Promise<void> {
         const pagerConf = this.config.pager;
@@ -228,7 +228,7 @@ export class AlarmClient extends PuterClient {
         console.log('[alarm] entering drain mode — suppressing new alarms');
     }
 
-    // ── Public API ───────────────────────────────────────────────────
+    // -- Public API ---------------------------------------------------
 
     /**
      * Create or update an alarm. If the alarm ID already exists, the
@@ -309,7 +309,7 @@ export class AlarmClient extends PuterClient {
         this.knownErrors = rules;
     }
 
-    // ── Internals ────────────────────────────────────────────────────
+    // -- Internals ----------------------------------------------------
 
     private recordOccurrence(
         alarm: Alarm,

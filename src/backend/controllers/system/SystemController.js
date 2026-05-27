@@ -35,7 +35,7 @@ export class SystemController extends PuterController {
         /** @type {import('../../core/http/PuterRouter.js').PuterRouter} */
         router,
     ) {
-        // ── Healthcheck ─────────────────────────────────────────────
+        // -- Healthcheck ---------------------------------------------
         // Delegates to ServerHealthService for the real check-based
         // status. Returns `{ ok: true }` when all registered checks pass,
         // or `{ ok: false, failed: [...] }` + 503 when any fail or the
@@ -51,7 +51,7 @@ export class SystemController extends PuterController {
             return res.json(status);
         });
 
-        // ── Version ─────────────────────────────────────────────────
+        // -- Version -------------------------------------------------
 
         router.get('/version', { subdomain: '*' }, (_req, res) => {
             const version =
@@ -70,7 +70,7 @@ export class SystemController extends PuterController {
             });
         });
 
-        // ── Contact us ──────────────────────────────────────────────
+        // -- Contact us ----------------------------------------------
 
         router.post(
             '/contactUs',
@@ -129,7 +129,7 @@ export class SystemController extends PuterController {
             },
         );
 
-        // ── GET /whoarewe ───────────────────────────────────────────
+        // -- GET /whoarewe -------------------------------------------
 
         router.get('/whoarewe', {}, (_req, res) => {
             res.json({
@@ -139,7 +139,7 @@ export class SystemController extends PuterController {
             });
         });
 
-        // ── GET /lsmod ──────────────────────────────────────────────
+        // -- GET /lsmod ----------------------------------------------
         // Enumerates driver interfaces and their implementors.
 
         router.get(

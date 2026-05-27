@@ -69,6 +69,7 @@ export interface PrivateHostingConfig {
 export interface PrivateIdentity {
     source:
         | 'private-cookie'
+        | 'public-cookie'
         | 'session-cookie'
         | 'bootstrap-token'
         | 'authorization'
@@ -77,7 +78,7 @@ export interface PrivateIdentity {
         | 'none';
     userUid?: string;
     sessionUuid?: string;
-    /** True when resolved from the sticky `puter.private.asset.token` cookie. */
+    /** True when resolved from the sticky private-asset cookie. */
     hasValidPrivateCookie?: boolean;
 }
 
@@ -95,7 +96,7 @@ interface AppLike {
     index_url?: string | null;
 }
 
-// ── Host helpers ────────────────────────────────────────────────────
+// -- Host helpers ----------------------------------------------------
 
 export function normalizeHost(value: string | undefined | null): string | null {
     if (typeof value !== 'string') return null;
@@ -149,7 +150,7 @@ export function hostMatchesPrivateDomain(
     return privateDomains.some((pd) => host === pd || host.endsWith(`.${pd}`));
 }
 
-// ── Subdomain extraction from a hosted request ─────────────────────
+// -- Subdomain extraction from a hosted request ---------------------
 
 export function subdomainFromHost(
     host: string,
@@ -169,7 +170,7 @@ export function subdomainFromHost(
     return host.split('.')[0] || '';
 }
 
-// ── Hosted-site → owned-app resolution ─────────────────────────────
+// -- Hosted-site → owned-app resolution -----------------------------
 
 /**
  * Resolve "what app does the subdomain owner run on this host?" by matching
@@ -258,7 +259,7 @@ export async function resolveOwnedAppForHostedSite(opts: {
     return rows[0] as unknown as AppLike;
 }
 
-// ── Bootstrap token resolution ──────────────────────────────────────
+// -- Bootstrap token resolution --------------------------------------
 
 function getAuthorizationToken(req: Request): string | null {
     const header = req.headers?.authorization;
@@ -345,12 +346,20 @@ export async function resolvePrivateIdentity(opts: {
     const cookies = (req as Request & { cookies?: Record<string, string> })
         .cookies;
 
-    // 1. Sticky private-asset cookie.
-    const privateCookieName = authService.getPrivateAssetCookieName();
+    // 1. Sticky private-asset cookie. Prefer the v2 cookie name; fall
+    // back to the legacy dot-style name while the deprecation window
+    // is open. A v1 (legacy-secret) token verifies but is intentionally
+    // NOT treated as a valid sticky cookie — we fall through so the
+    // chain re-mints under the v2 secret on this response.
+    const v2CookieName = authService.getPrivateAssetCookieNameV2();
+    const legacyCookieName = authService.getPrivateAssetCookieName();
     const privateCookieToken =
-        typeof cookies?.[privateCookieName] === 'string'
-            ? cookies[privateCookieName]
-            : null;
+        (typeof cookies?.[v2CookieName] === 'string'
+            ? cookies[v2CookieName]
+            : null) ??
+        (typeof cookies?.[legacyCookieName] === 'string'
+            ? cookies[legacyCookieName]
+            : null);
     if (privateCookieToken) {
         try {
             const claims = await authService.verifyPrivateAssetToken(
@@ -361,12 +370,15 @@ export async function resolvePrivateIdentity(opts: {
                     expectedPrivateHost,
                 },
             );
-            return {
-                source: 'private-cookie',
-                userUid: claims.userUid,
-                sessionUuid: claims.sessionUuid,
-                hasValidPrivateCookie: true,
-            };
+            if (!claims.legacy) {
+                return {
+                    source: 'private-cookie',
+                    userUid: claims.userUid,
+                    sessionUuid: claims.sessionUuid,
+                    hasValidPrivateCookie: true,
+                };
+            }
+            /* legacy cookie: fall through so the caller re-mints v2 */
         } catch {
             /* fall through — stale / mismatched / logged-out cookie */
         }
@@ -477,14 +489,18 @@ export async function resolvePublicHostedIdentity(opts: {
     const cookies = (req as Request & { cookies?: Record<string, string> })
         .cookies;
 
-    const publicCookieName = authService.getPublicHostedActorCookieName();
+    const publicCookieNameV2 = authService.getPublicHostedActorCookieNameV2();
+    const publicCookieNameLegacy = authService.getPublicHostedActorCookieName();
     const publicCookieToken =
-        typeof cookies?.[publicCookieName] === 'string'
-            ? cookies[publicCookieName]
-            : null;
+        (typeof cookies?.[publicCookieNameV2] === 'string'
+            ? cookies[publicCookieNameV2]
+            : null) ??
+        (typeof cookies?.[publicCookieNameLegacy] === 'string'
+            ? cookies[publicCookieNameLegacy]
+            : null);
     if (publicCookieToken) {
         try {
-            const claims = authService.verifyPublicHostedActorToken(
+            const claims = await authService.verifyPublicHostedActorToken(
                 publicCookieToken,
                 {
                     expectedAppUid,
@@ -492,12 +508,15 @@ export async function resolvePublicHostedIdentity(opts: {
                     expectedHost,
                 },
             );
-            return {
-                source: 'private-cookie',
-                userUid: claims.userUid,
-                sessionUuid: claims.sessionUuid,
-                hasValidPublicCookie: true,
-            };
+            if (!claims.legacy) {
+                return {
+                    source: 'public-cookie',
+                    userUid: claims.userUid,
+                    sessionUuid: claims.sessionUuid,
+                    hasValidPublicCookie: true,
+                };
+            }
+            /* legacy cookie: fall through so the caller re-mints v2 */
         } catch {
             /* fall through */
         }
@@ -561,7 +580,7 @@ export async function resolvePublicHostedIdentity(opts: {
     return { source: 'none' };
 }
 
-// ── Redirect helpers ────────────────────────────────────────────────
+// -- Redirect helpers ------------------------------------------------
 
 /** Build the URL to redirect a private-app request to its private host. */
 export function buildPrivateHostRedirect(
@@ -642,7 +661,7 @@ export function buildAppCenterFallback(
     return `https://${config.domain}/app/app-center/?item=${encodeURIComponent(appName)}`;
 }
 
-// ── Login bootstrap HTML ────────────────────────────────────────────
+// -- Login bootstrap HTML --------------------------------------------
 
 /**
  * Minimal HTML page that prompts the visitor to sign in with Puter.
