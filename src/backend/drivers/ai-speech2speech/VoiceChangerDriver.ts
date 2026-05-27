@@ -140,6 +140,21 @@ export class VoiceChangerDriver extends PuterDriver {
             throw new HttpError(400, '`voice` is required', {
                 legacyCode: 'bad_request',
             });
+        // `voiceId` lands in the request URL path; `modelId` lands in a
+        // multipart field. Both are forwarded to ElevenLabs with our
+        // long-lived API key, so anything other than a strict alphanumeric
+        // shape lets a caller steer the request at a different endpoint or
+        // inject parameters. ElevenLabs voice/model IDs are always
+        // `[A-Za-z0-9_-]+` in practice.
+        const ID_REGEX = /^[A-Za-z0-9_-]+$/;
+        if (!ID_REGEX.test(voiceId))
+            throw new HttpError(400, '`voice` must be alphanumeric', {
+                legacyCode: 'bad_request',
+            });
+        if (!ID_REGEX.test(modelId))
+            throw new HttpError(400, '`model` must be alphanumeric', {
+                legacyCode: 'bad_request',
+            });
 
         // Metering: estimate duration from file size if we don't parse metadata.
         // 16 kbit/s is a safe lower bound for speech audio; pre-check credits

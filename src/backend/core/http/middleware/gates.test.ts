@@ -273,6 +273,35 @@ describe('adminOnlyGate', () => {
             'forbidden',
         );
     });
+
+    it('admits the built-ins regardless of case', () => {
+        // On a SQLite self-host with case-sensitive (BINARY) collation, a
+        // user row could exist with `Admin`/`SYSTEM` capitalization. The
+        // gate must still admit those — case is normalized on both sides.
+        for (const username of ['Admin', 'ADMIN', 'sYsTeM']) {
+            const got = runGate(adminOnlyGate(), {
+                actor: { user: { uuid: 'u-1', username } },
+            });
+            expect(got).toBeUndefined();
+        }
+    });
+
+    it('admits case-mismatched extras (allowlist lowercased on construction)', () => {
+        // Pass an extra in mixed case; the gate must accept the same name
+        // in any case — the on-disk username row may be either, depending
+        // on the DB's column collation.
+        const gate = adminOnlyGate(['Daniel']);
+        expect(
+            runGate(gate, {
+                actor: { user: { uuid: 'u-1', username: 'daniel' } },
+            }),
+        ).toBeUndefined();
+        expect(
+            runGate(gate, {
+                actor: { user: { uuid: 'u-1', username: 'DANIEL' } },
+            }),
+        ).toBeUndefined();
+    });
 });
 
 // ── requireVerifiedGate ─────────────────────────────────────────────
