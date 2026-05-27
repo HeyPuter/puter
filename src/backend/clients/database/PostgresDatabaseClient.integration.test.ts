@@ -30,25 +30,77 @@ const postgresUrl = process.env.PUTER_TEST_POSTGRES_URL;
 const describePostgres = postgresUrl ? describe : describe.skip;
 const postgresMigrationsPath =
     'src/backend/clients/database/migrations/postgres';
+const postgresTestSchemaPattern = /^puter_test_[a-f0-9]{32}$/u;
 
-const postgresConfig = (overrides: Partial<IConfig> = {}): IConfig => ({
-    port: 0,
-    extensions: [],
-    database: {
-        engine: 'postgres',
-        connectionString: postgresUrl,
-        migrationPaths: [postgresMigrationsPath],
-    },
-    ...overrides,
-});
+let postgresTestSchema: string | undefined;
+let postgresTestUrl: string | undefined;
 
-const resetPostgresSchema = async (): Promise<void> => {
+const postgresConfig = (overrides: Partial<IConfig> = {}): IConfig => {
+    if (postgresUrl && !postgresTestUrl) {
+        throw new Error('Postgres test schema was not initialized');
+    }
+
+    return {
+        port: 0,
+        extensions: [],
+        database: {
+            engine: 'postgres',
+            connectionString: postgresTestUrl,
+            migrationPaths: [postgresMigrationsPath],
+        },
+        ...overrides,
+    };
+};
+
+const quoteTestSchemaIdentifier = (schema: string): string => {
+    if (!postgresTestSchemaPattern.test(schema)) {
+        throw new Error(`Unsafe Postgres test schema name: ${schema}`);
+    }
+    return `"${schema}"`;
+};
+
+const postgresConnectionStringForSchema = (
+    connectionString: string,
+    schema: string,
+): string => {
+    if (!postgresTestSchemaPattern.test(schema)) {
+        throw new Error(`Unsafe Postgres test schema name: ${schema}`);
+    }
+
+    const url = new URL(connectionString);
+    url.searchParams.set('options', `-c search_path=${schema}`);
+    return url.toString();
+};
+
+const createPostgresTestSchema = async (): Promise<void> => {
     if (!postgresUrl) return;
+
+    const schema = `puter_test_${uuidv4().replaceAll('-', '')}`;
+    const pool = new Pool({ connectionString: postgresUrl });
+    try {
+        await pool.query(`CREATE SCHEMA ${quoteTestSchemaIdentifier(schema)}`);
+        postgresTestSchema = schema;
+        postgresTestUrl = postgresConnectionStringForSchema(
+            postgresUrl,
+            schema,
+        );
+    } finally {
+        await pool.end();
+    }
+};
+
+const dropPostgresTestSchema = async (): Promise<void> => {
+    if (!postgresUrl || !postgresTestSchema) return;
+
+    const schema = postgresTestSchema;
+    postgresTestSchema = undefined;
+    postgresTestUrl = undefined;
 
     const pool = new Pool({ connectionString: postgresUrl });
     try {
-        await pool.query('DROP SCHEMA public CASCADE');
-        await pool.query('CREATE SCHEMA public');
+        await pool.query(
+            `DROP SCHEMA IF EXISTS ${quoteTestSchemaIdentifier(schema)} CASCADE`,
+        );
     } finally {
         await pool.end();
     }
@@ -58,18 +110,25 @@ describePostgres('PostgresDatabaseClient integration', () => {
     let server: PuterServer | undefined;
 
     beforeEach(async () => {
-        await resetPostgresSchema();
+        await createPostgresTestSchema();
     });
 
     afterEach(async () => {
-        await server?.shutdown();
-        server = undefined;
+        try {
+            await server?.shutdown();
+        } finally {
+            server = undefined;
+            await dropPostgresTestSchema();
+        }
     });
 
     it('applies the native migrations idempotently to an empty database', async () => {
         const firstClient = new PostgresDatabaseClient(postgresConfig());
-        await firstClient.onServerStart();
-        await firstClient.onServerShutdown();
+        try {
+            await firstClient.onServerStart();
+        } finally {
+            await firstClient.onServerShutdown();
+        }
 
         const secondClient = new PostgresDatabaseClient(postgresConfig());
         await secondClient.onServerStart();
@@ -124,6 +183,16 @@ describePostgres('PostgresDatabaseClient integration', () => {
         if (!user) throw new Error('created user was not readable');
         expect(user.username).toBe(username);
 
+        const otherUsername = `pg-other-${uuidv4().slice(0, 8)}`;
+        const otherUser = await server.stores.user.create({
+            username: otherUsername,
+            uuid: uuidv4(),
+            password: null,
+            email: `${otherUsername}@test.local`,
+            free_storage: 100 * 1024 * 1024,
+            requires_email_confirmation: false,
+        });
+
         const authResult = await server.services.auth.createSessionToken(
             user,
             {
@@ -172,6 +241,32 @@ describePostgres('PostgresDatabaseClient integration', () => {
                 'driver:postgres-integration',
             ),
         ).resolves.toBe(true);
+
+        await server.stores.oidc.link(
+            user.id,
+            'postgres-integration-test',
+            'subject-1',
+            null,
+        );
+        await expect(
+            server.stores.oidc.link(
+                user.id,
+                'postgres-integration-test',
+                'subject-1',
+                null,
+            ),
+        ).resolves.toBeUndefined();
+        await expect(
+            server.stores.oidc.link(
+                otherUser.id,
+                'postgres-integration-test',
+                'subject-1',
+                null,
+            ),
+        ).rejects.toMatchObject({
+            statusCode: 409,
+            legacyCode: 'conflict',
+        });
 
         const session = await server.stores.session.create(user.id, {
             meta: { source: 'postgres-integration-test' },
