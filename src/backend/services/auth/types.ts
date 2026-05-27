@@ -36,7 +36,7 @@ interface TokenPayloadBase {
     type: TokenType;
     /** v2: unified session-row binding (uuid of the `sessions` row). */
     session_uid?: string;
-    /** v2: stable per-user identity that survives re-login (PUT-1010). */
+    /** v2: stable per-user identity that survives re-login */
     auth_id?: string;
     /** Set by TokenService when the token verified via the legacy secret. */
     legacy?: boolean;
@@ -103,12 +103,10 @@ export interface SessionRow {
     meta?: Record<string, unknown> | string | null;
     created_at?: number | null;
     last_activity?: number | null;
-    /** PUT-1013: 'web' | 'app' | 'access_token' | 'asset'. */
     kind?: string | null;
     parent_session_id?: string | null;
     revoked_at?: number | null;
     expires_at?: number | null;
-    /** PUT-1014: composite-key columns. */
     app_uid?: string | null;
     legacy_token_uid?: string | null;
     created_via?: string | null;

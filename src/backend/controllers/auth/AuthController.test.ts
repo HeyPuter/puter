@@ -30,6 +30,7 @@
  */
 
 import bcrypt from 'bcrypt';
+import jwt from 'jsonwebtoken';
 import { v4 as uuidv4 } from 'uuid';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { EventClient } from '../../clients/event/EventClient.js';
@@ -3404,5 +3405,260 @@ describe('AuthController.handleRevokeSession additional branches', () => {
         );
         const body = res.body as { sessions: unknown[] };
         expect(Array.isArray(body.sessions)).toBe(true);
+    });
+
+    it('refuses to revoke the caller’s OWN current session row (400)', async () => {
+        // PUT-1019 invariant: a self-revoke leaves the client in an
+        // ambiguous identity state because the response can't write
+        // fresh auth state. /logout is the only path that should end
+        // the session you're currently authenticated under.
+        const { user, actor } = await makeUserAndActor();
+        const sessionRes = await server.services.auth.createSessionToken(
+            user,
+            {},
+        );
+        const sessionUid = (sessionRes.session as { uuid: string }).uuid;
+        const actorWithSession = {
+            ...actor,
+            session: { uid: sessionUid },
+        } as Actor;
+        await expect(
+            controller.handleRevokeSession(
+                makeReq({ uuid: sessionUid }, { actor: actorWithSession }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            legacyCode: 'bad_request',
+        });
+    });
+
+    it('still allows revoking a DIFFERENT session belonging to the same user', async () => {
+        // Sanity check that the self-revoke guard only blocks the
+        // caller's own uuid — sibling rows must still be revokable
+        // (that's the whole point of manage-sessions).
+        const { user, actor } = await makeUserAndActor();
+        const callerSession = await server.services.auth.createSessionToken(
+            user,
+            {},
+        );
+        const targetSession = await server.services.auth.createSessionToken(
+            user,
+            {},
+        );
+        const actorWithSession = {
+            ...actor,
+            session: {
+                uid: (callerSession.session as { uuid: string }).uuid,
+            },
+        } as Actor;
+        const res = makeRes();
+        await controller.handleRevokeSession(
+            makeReq(
+                { uuid: (targetSession.session as { uuid: string }).uuid },
+                { actor: actorWithSession },
+            ),
+            res,
+        );
+        expect((res.body as { sessions: unknown[] }).sessions).toBeDefined();
+    });
+});
+
+// ── handleMigrateToken (PUT-1021 SDK-1) ─────────────────────────────
+
+describe('AuthController.handleMigrateToken', () => {
+    const TEST_ORIGIN = 'https://migrate.test.local';
+
+    // PuterServer keeps config in a private field (#config), so we go
+    // through the controller — IController stores it as `protected
+    // config` which TS marks but JS doesn't enforce, and the controller
+    // is the actual consumer of #isMigrateTokenOriginAllowed anyway.
+    const controllerConfig = () =>
+        (controller as { config: Record<string, unknown> }).config;
+
+    // Mints a v1-shaped JWT signed under the test server's legacy
+    // secret. The body matches what migrateLegacyToken expects per
+    // `decoded.type`.
+    const mintV1Token = (payload: Record<string, unknown>): string => {
+        const legacy = controllerConfig().jwt_secret as string | undefined;
+        if (!legacy) throw new Error('test config missing jwt_secret');
+        return jwt.sign(payload, legacy);
+    };
+
+    beforeAll(() => {
+        // Make the origin allow-check pass for these tests. We mutate
+        // the live config because setupTestServer is shared across the
+        // file; the original value is undefined (default config has no
+        // `origin`) so we don't need to restore.
+        controllerConfig().origin = TEST_ORIGIN;
+    });
+
+    it('rejects when the Origin header is missing', async () => {
+        await expect(
+            controller.handleMigrateToken(makeReq({}), makeRes()),
+        ).rejects.toMatchObject({ statusCode: 403 });
+    });
+
+    it('rejects when the Origin header is not in config.origin or the allowlist', async () => {
+        const { user } = await makeUserAndActor();
+        const v1 = mintV1Token({
+            type: 'access-token',
+            token_uid: uuidv4(),
+            user_uid: user.uuid,
+        });
+        await expect(
+            controller.handleMigrateToken(
+                makeReq(
+                    {},
+                    {
+                        headers: {
+                            origin: 'https://not-allowed.example',
+                            authorization: `Bearer ${v1}`,
+                        },
+                    },
+                ),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 403 });
+    });
+
+    it('normalizes trailing slash on the request Origin (B4)', async () => {
+        // The Origin header per spec doesn't carry a trailing slash, but
+        // a misconfigured proxy or a deployment with config.origin
+        // ending in `/` would otherwise force every call to reject.
+        const { user } = await makeUserAndActor();
+        const v1 = mintV1Token({
+            type: 'access-token',
+            token_uid: uuidv4(),
+            user_uid: user.uuid,
+        });
+        const res = makeRes();
+        await controller.handleMigrateToken(
+            makeReq(
+                {},
+                {
+                    headers: {
+                        origin: `${TEST_ORIGIN}/`, // trailing slash
+                        authorization: `Bearer ${v1}`,
+                    },
+                },
+            ),
+            res,
+        );
+        expect((res.body as { kind: string }).kind).toBe('access_token');
+    });
+
+    it('normalizes case on the request Origin (B4)', async () => {
+        const { user } = await makeUserAndActor();
+        const v1 = mintV1Token({
+            type: 'access-token',
+            token_uid: uuidv4(),
+            user_uid: user.uuid,
+        });
+        const res = makeRes();
+        await controller.handleMigrateToken(
+            makeReq(
+                {},
+                {
+                    headers: {
+                        origin: TEST_ORIGIN.toUpperCase(),
+                        authorization: `Bearer ${v1}`,
+                    },
+                },
+            ),
+            res,
+        );
+        expect((res.body as { kind: string }).kind).toBe('access_token');
+    });
+
+    it('returns 409 reauth_required for v1 web/session tokens', async () => {
+        // Web tokens never migrate silently — they always go through the
+        // interactive reauth flow (PUT-1023). The body code is what
+        // puter.js / GUI key on; the 409 status is what tells SDK code
+        // "this isn't a generic auth failure, route through reauth".
+        const { user } = await makeUserAndActor();
+        const v1 = mintV1Token({
+            type: 'session',
+            user_uid: user.uuid,
+            uuid: uuidv4(),
+        });
+        await expect(
+            controller.handleMigrateToken(
+                makeReq(
+                    {},
+                    {
+                        headers: {
+                            origin: TEST_ORIGIN,
+                            authorization: `Bearer ${v1}`,
+                        },
+                    },
+                ),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({
+            statusCode: 409,
+            code: 'reauth_required',
+        });
+    });
+
+    it('does NOT set the puter_token_v2 cookie when migrating an access token (B3)', async () => {
+        // Access tokens are programmatic — they ride in Authorization
+        // headers, not browser cookies. Setting a cookie here would
+        // confuse cookie-only middleware downstream.
+        const { user } = await makeUserAndActor();
+        const v1 = mintV1Token({
+            type: 'access-token',
+            token_uid: uuidv4(),
+            user_uid: user.uuid,
+        });
+        const res = makeRes();
+        await controller.handleMigrateToken(
+            makeReq(
+                {},
+                {
+                    headers: {
+                        origin: TEST_ORIGIN,
+                        authorization: `Bearer ${v1}`,
+                    },
+                },
+            ),
+            res,
+        );
+        expect(res.cookies.puter_token_v2).toBeUndefined();
+        expect((res.body as { kind: string }).kind).toBe('access_token');
+        expect((res.body as { token: string }).token).toBeTruthy();
+    });
+
+    it('sets the puter_token_v2 cookie when migrating an app-under-user token (B3)', async () => {
+        // App tokens DO get a cookie companion — the app runs inside an
+        // iframe in the GUI, and the GUI's cookie-only middleware
+        // authenticates subsequent calls from the iframe via the cookie
+        // rather than the client having to plumb Authorization through
+        // every request.
+        const { user } = await makeUserAndActor();
+        const appUid = `app-${uuidv4()}`;
+        const v1 = mintV1Token({
+            type: 'app-under-user',
+            user_uid: user.uuid,
+            app_uid: appUid,
+        });
+        const res = makeRes();
+        await controller.handleMigrateToken(
+            makeReq(
+                {},
+                {
+                    headers: {
+                        origin: TEST_ORIGIN,
+                        authorization: `Bearer ${v1}`,
+                    },
+                },
+            ),
+            res,
+        );
+        expect((res.body as { kind: string }).kind).toBe('app');
+        const cookie = res.cookies.puter_token_v2;
+        expect(cookie).toBeDefined();
+        expect(cookie.value).toBe((res.body as { token: string }).token);
+        expect(cookie.opts?.httpOnly).toBe(true);
     });
 });

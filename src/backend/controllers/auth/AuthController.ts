@@ -26,7 +26,10 @@ import { Controller, Get, Post } from '../../core/http/decorators.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { antiCsrf } from '../../core/http/middleware/antiCsrf.js';
 import { generateCaptcha } from '../../core/http/middleware/captcha.js';
-import { createUserProtectedGate } from '../../core/http/middleware/userProtected.js';
+import {
+    createSessionCookieGate,
+    createUserProtectedGate,
+} from '../../core/http/middleware/userProtected.js';
 import type { PuterRouter } from '../../core/http/PuterRouter.js';
 import {
     ROUTES_METADATA_KEY,
@@ -158,7 +161,10 @@ export class AuthController extends PuterController {
         }
 
         // Verify password
-        const passwordMatch = await bcrypt.compare(password, user.password);
+        const passwordMatch = await bcrypt.compare(
+            password,
+            user.password as string,
+        );
         if (!passwordMatch) {
             throw new HttpError(401, 'Incorrect password.', {
                 legacyCode: 'password_mismatch',
@@ -210,7 +216,10 @@ export class AuthController extends PuterController {
 
         let decoded;
         try {
-            decoded = this.services.token.verify('otp', token);
+            decoded = this.services.token.verify<{
+                user_uid: string;
+                purpose: string;
+            }>('otp', token);
         } catch {
             throw new HttpError(400, 'Invalid token.', {
                 legacyCode: 'bad_request',
@@ -264,7 +273,10 @@ export class AuthController extends PuterController {
 
         let decoded;
         try {
-            decoded = this.services.token.verify('otp', token);
+            decoded = this.services.token.verify<{
+                user_uid: string;
+                purpose: string;
+            }>('otp', token);
         } catch {
             throw new HttpError(400, 'Invalid token.', {
                 legacyCode: 'bad_request',
@@ -288,7 +300,7 @@ export class AuthController extends PuterController {
         }
 
         const hashed = hashRecoveryCode(code);
-        const codes = (user.otp_recovery_codes || '')
+        const codes = ((user.otp_recovery_codes as string) || '')
             .split(',')
             .filter(Boolean);
         const idx = codes.indexOf(hashed);
@@ -700,7 +712,7 @@ export class AuthController extends PuterController {
     })
     async handleLogout(req: Request, res: Response): Promise<void> {
         // Clear the session cookie
-        res.clearCookie(this.config.cookie_name!);
+        res.clearCookie(this.config.cookie_name ?? 'puter_token');
 
         // Remove the session (fire-and-forget)
         if (req.token) {
@@ -711,7 +723,9 @@ export class AuthController extends PuterController {
         // same path as /user-protected/delete-own-user — so we don't
         // orphan fsentries/sessions/permissions.
         if (req.actor?.user && !req.actor.user.email) {
-            const user = await this.stores.user.getByUuid(req.actor.user.uuid);
+            const user = await this.stores.user.getByUuid(
+                req.actor.user.uuid as string,
+            );
             if (user && user.password === null && user.email === null) {
                 this.#cascadeDeleteUser(user.id).catch((e) => {
                     console.warn('[logout] temp-user cleanup failed:', e);
@@ -944,7 +958,12 @@ export class AuthController extends PuterController {
 
         let decoded;
         try {
-            decoded = this.services.token.verify('otp', token);
+            decoded = this.services.token.verify<{
+                user_uid: string;
+                email: string;
+                exp: number;
+                purpose: string;
+            }>('otp', token);
         } catch {
             throw new HttpError(400, 'Invalid or expired token.', {
                 legacyCode: 'token_expired' as never,
@@ -956,7 +975,7 @@ export class AuthController extends PuterController {
             });
         }
 
-        const user = await this.stores.user.getByUuid(decoded.user_uid);
+        const user = await this.stores.user.getByUuid(decoded?.user_uid);
         if (!user || user.email !== decoded.email) {
             throw new HttpError(400, 'Token is no longer valid.', {
                 legacyCode: 'bad_request',
@@ -968,7 +987,7 @@ export class AuthController extends PuterController {
             });
         }
 
-        const exp = decoded.exp;
+        const exp = decoded.exp as number;
         const time_remaining = exp
             ? Math.max(0, exp - Math.floor(Date.now() / 1000))
             : 0;
@@ -1001,7 +1020,12 @@ export class AuthController extends PuterController {
 
         let decoded;
         try {
-            decoded = this.services.token.verify('otp', token);
+            decoded = this.services.token.verify<{
+                user_uid: string;
+                email: string;
+                token: string;
+                purpose: string;
+            }>('otp', token);
         } catch {
             throw new HttpError(400, 'Invalid or expired token.', {
                 legacyCode: 'token_expired' as never,
@@ -1741,18 +1765,28 @@ export class AuthController extends PuterController {
         res.json(sessions);
     }
 
-    @Post('/auth/revoke-session', {
-        subdomain: 'api',
-        requireUserActor: true,
-        allowUnconfirmed: true,
-        antiCsrf: true,
-    })
+    // Wired imperatively in `registerRoutes` so the cookie-only gate
+    // (built from `this.config`) can be composed in. Cookie-only is
+    // mandatory: an access token must not be able to revoke its own
+    // issuing web session.
     async handleRevokeSession(req: Request, res: Response): Promise<void> {
         const { uuid } = req.body;
         if (!uuid || typeof uuid !== 'string') {
             throw new HttpError(400, 'Missing or invalid `uuid`', {
                 legacyCode: 'bad_request',
             });
+        }
+        // The caller's own session row must go through /logout, not a
+        // self-revoke — otherwise the response can't write fresh auth
+        // state and the client ends up with an ambiguous post-revoke
+        // identity. /auth/revoke-all-sessions still supports a separate
+        // `include_current` opt-in for the nuclear case.
+        if (uuid === req.actor!.session?.uid) {
+            throw new HttpError(
+                400,
+                'Cannot revoke your current session — use /logout instead',
+                { legacyCode: 'bad_request' },
+            );
         }
         const session = await this.stores.session.getByUuid(uuid);
         if (session.user_id !== req.actor!.user.id) {
@@ -1761,6 +1795,16 @@ export class AuthController extends PuterController {
             });
         }
         await this.services.auth.revokeSession(uuid);
+        const sessions = await this.services.auth.listSessions(req.actor!);
+        res.json({ sessions });
+    }
+
+    async handleRevokeAllSessions(req: Request, res: Response): Promise<void> {
+        const { include_current, include_apps } = req.body ?? {};
+        await this.services.auth.revokeAllSessions(req.actor!, {
+            includeCurrent: !!include_current,
+            includeApps: !!include_apps,
+        });
         const sessions = await this.services.auth.listSessions(req.actor!);
         res.json({ sessions });
     }
@@ -2001,6 +2045,74 @@ export class AuthController extends PuterController {
 
     // ── Access tokens ───────────────────────────────────────────────
 
+    async handleMigrateToken(req: Request, res: Response): Promise<void> {
+        // 1. Origin lock. Reject anything that isn't same-origin to
+        // `config.origin` or in the explicit per-deployment allowlist.
+        // No Origin header → reject (this endpoint is browser-only by
+        // design; server-side callers should re-auth properly).
+        const reqOrigin = req.headers.origin;
+        if (!reqOrigin || !this.#isMigrateTokenOriginAllowed(reqOrigin)) {
+            throw new HttpError(403, 'Origin not allowed', {
+                legacyCode: 'forbidden',
+            });
+        }
+
+        // 2. Extract token. Header takes precedence so body-capture logs
+        // (if any) never see the credential.
+        const authHeader = req.headers.authorization;
+        const headerToken =
+            typeof authHeader === 'string' && authHeader.startsWith('Bearer ')
+                ? authHeader.slice('Bearer '.length).trim()
+                : null;
+        const bodyToken =
+            typeof req.body?.token === 'string' ? req.body.token.trim() : null;
+        const v1Token = headerToken || bodyToken;
+        if (!v1Token) {
+            throw new HttpError(400, 'Missing token', {
+                legacyCode: 'bad_request',
+            });
+        }
+
+        const result = await this.services.auth.migrateLegacyToken(v1Token, {
+            ip: req.ip,
+            userAgent:
+                typeof req.headers['user-agent'] === 'string'
+                    ? req.headers['user-agent']
+                    : undefined,
+        });
+        // `puter_token_v2` is the cookie companion to v2 app tokens —
+        // the app runs in-browser (we already gated on Origin above) so
+        // the GUI's cookie-only middleware can authenticate subsequent
+        // calls from the same iframe without the client having to
+        // forward Authorization headers. Access tokens are programmatic
+        // (no browser cookie surface) so we deliberately skip them here.
+        if (result.kind === 'app') {
+            res.cookie('puter_token_v2', result.token, {
+                ...sessionCookieFlags(this.config),
+                httpOnly: true,
+            });
+        }
+        res.json(result);
+    }
+
+    #isMigrateTokenOriginAllowed(origin: string): boolean {
+        // Origin headers and config values both reach us in inconsistent
+        // shapes (trailing slash, mixed case from misconfigured deploys,
+        // stray whitespace from JSON config edits). Normalize both sides
+        // before equality so a `config.origin` with a trailing slash
+        // doesn't reject every same-origin browser call.
+        const normalize = (raw: string | undefined): string =>
+            (raw ?? '').trim().replace(/\/+$/, '').toLowerCase();
+        const incoming = normalize(origin);
+        if (!incoming) return false;
+        if (incoming === normalize(this.config.origin)) return true;
+        const allowlist = (
+            this.config as { allow_migrate_token_origins?: string[] }
+        ).allow_migrate_token_origins;
+        if (!Array.isArray(allowlist)) return false;
+        return allowlist.some((entry) => normalize(entry) === incoming);
+    }
+
     @Post('/auth/create-access-token', {
         subdomain: 'api',
         requireAuth: true,
@@ -2032,10 +2144,10 @@ export class AuthController extends PuterController {
         res.json({ token });
     }
 
-    @Post('/auth/revoke-access-token', {
-        subdomain: 'api',
-        requireUserActor: true,
-    })
+    // Wired imperatively in `registerRoutes` so the cookie-only gate
+    // (built from `this.config`) can be composed in. Cookie-only is
+    // mandatory: a leaked access token must not be able to silently
+    // revoke its own siblings.
     async handleRevokeAccessToken(req: Request, res: Response): Promise<void> {
         let { tokenOrUuid } = req.body;
         if (!tokenOrUuid || typeof tokenOrUuid !== 'string') {
@@ -2362,7 +2474,7 @@ export class AuthController extends PuterController {
             user,
             req.actor.session.uid,
         );
-        res.cookie(this.config.cookie_name, sessionToken, {
+        res.cookie(this.config.cookie_name ?? 'puter_token', sessionToken, {
             ...sessionCookieFlags(this.config),
             httpOnly: true,
         });
@@ -2378,7 +2490,7 @@ export class AuthController extends PuterController {
 
     async handleDeleteOwnUser(req: Request, res: Response): Promise<void> {
         const userId = req.actor!.user.id!;
-        res.clearCookie(this.config.cookie_name!);
+        res.clearCookie(this.config.cookie_name ?? 'puter_token');
         res.clearCookie('puter_revalidation');
         await this.#cascadeDeleteUser(userId);
         res.json({ success: true });
@@ -2525,6 +2637,63 @@ export class AuthController extends PuterController {
             },
             (req, res) => this.handleDeleteOwnUser(req, res),
         );
+
+        const sessionCookieGate = createSessionCookieGate(this.config);
+
+        router.post(
+            '/auth/revoke-session',
+            {
+                subdomain: 'api',
+                requireUserActor: true,
+                allowUnconfirmed: true,
+                antiCsrf: true,
+                middleware: [sessionCookieGate],
+            },
+            (req, res) => this.handleRevokeSession(req, res),
+        );
+
+        router.post(
+            '/auth/revoke-all-sessions',
+            {
+                subdomain: 'api',
+                requireUserActor: true,
+                allowUnconfirmed: true,
+                antiCsrf: true,
+                rateLimit: {
+                    scope: 'revoke-all-sessions',
+                    limit: 10,
+                    window: 60 * 60_000,
+                    key: 'user',
+                },
+                middleware: [sessionCookieGate],
+            },
+            (req, res) => this.handleRevokeAllSessions(req, res),
+        );
+
+        router.post(
+            '/auth/revoke-access-token',
+            {
+                subdomain: 'api',
+                requireUserActor: true,
+                antiCsrf: true,
+                middleware: [sessionCookieGate],
+            },
+            (req, res) => this.handleRevokeAccessToken(req, res),
+        );
+
+        router.post(
+            '/auth/migrate-token',
+            {
+                subdomain: 'api',
+                rateLimit: {
+                    scope: 'migrate-token',
+                    limit: 20,
+                    window: 15 * 60_000,
+                    key: 'ip',
+                },
+            },
+            (req, res) => this.handleMigrateToken(req, res),
+        );
     }
 
     // ── Private helpers ──────────────────────────────────────────────
@@ -2636,7 +2805,7 @@ export class AuthController extends PuterController {
             await this.services.auth.createSessionToken(user as never, meta);
 
         // HTTP-only cookie gets the session token
-        res.cookie(this.config.cookie_name, sessionToken, {
+        res.cookie(this.config.cookie_name ?? 'puter_token', sessionToken, {
             ...sessionCookieFlags(this.config),
             httpOnly: true,
         });

@@ -25,11 +25,6 @@ import { isAccessTokenActor, isAppActor } from '../../core/actor.js';
 import type { AuthResult, AuthService } from '../auth/AuthService.js';
 import { PuterService } from '../types.js';
 
-/**
- * Error carrying the AUTH-4 reauth payload. socket.io forwards `error.data`
- * to the client's `connect_error` callback, so clients receive the same
- * `{ code, reason, auth_id }` shape the HTTP gate emits.
- */
 export type SocketReauthError = Error & { data: Record<string, unknown> };
 
 /**
@@ -322,9 +317,6 @@ export class SocketService extends PuterService {
             try {
                 const result = await authService.authenticate(token);
 
-                // Log the AUTH-4 signal here; `decideSocketAuth` stays
-                // pure (no side effects) for unit testing. The `(ws)`
-                // suffix lets the same grep find HTTP + socket events.
                 if (result.reauth) {
                     console.info(
                         `[auth-v2] reauth reason=${result.reauth.reason} auth_id=${result.reauth.auth_id ?? '-'} (ws)`,

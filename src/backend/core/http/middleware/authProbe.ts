@@ -35,7 +35,6 @@ interface AuthProbeOptions {
     kvStore?: SystemKVStore;
 }
 
-/** Day-bucketed KV key for AUTH-4 metrics. */
 const authV2MetricsKey = (): string => {
     const now = new Date();
     const yyyy = now.getUTCFullYear();

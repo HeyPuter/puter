@@ -20,9 +20,11 @@
 import { v4 as uuidv4, v5 as uuidv5 } from 'uuid';
 import type { Actor } from '../../core/actor';
 import { HttpError } from '../../core/http/HttpError.js';
+import { checkRateLimit } from '../../core/http/middleware/rateLimit.js';
 import {
     ASSET_WINDOW_SECONDS,
     WEB_WINDOW_SECONDS,
+    WORKER_WINDOW_SECONDS,
 } from '../../stores/session/SessionStore.js';
 import type { UserRow } from '../../stores/user/UserStore';
 import type { LayerInstances } from '../../types';
@@ -196,8 +198,9 @@ export class AuthService extends PuterService {
         user: UserRow,
         sessionUuid: string,
         authId: string,
+        opts: { worker?: boolean } = {},
     ): string {
-        return this.services.token.sign('auth', {
+        const claims: Record<string, unknown> = {
             type,
             version: '2',
             // `uuid` retained alongside `session_uid` so any legacy reader
@@ -207,19 +210,96 @@ export class AuthService extends PuterService {
             session_uid: sessionUuid,
             user_uid: user.uuid,
             auth_id: authId,
-        });
+        };
+        if (opts.worker) claims.worker = true;
+        return this.services.token.sign('auth', claims);
     }
 
     /**
-     * Stable per-user identity carried on every v2 token (PUT-1010). Survives
-     * re-login so the login endpoint can re-attach a new session to the same
-     * underlying account — critical for temp users whose files are keyed off
-     * the account that owns them.
-     *
-     * For normal users this is `user.uuid` (already stable). Temp-user
-     * dedicated ids are PUT-1016's territory; until then, the uuid is fine
-     * because temp re-login swaps the row but keeps the uuid.
+     * Worker variant of `createSessionToken`. Mints a new `kind='web'`
+     * session row tagged `meta.worker = true` and expiring after
+     * `WORKER_WINDOW_SECONDS` (vs. WEB_WINDOW_SECONDS for an interactive
+     * session). The emitted JWT carries `worker: true` so downstream
+     * code can tell a worker session from a user-driven one without a
+     * DB round-trip. Same return shape as createSessionToken.
      */
+    async createWorkerSessionToken(
+        user: UserRow,
+        meta: Record<string, unknown> = {},
+    ): Promise<{
+        session: Record<string, unknown>;
+        token: string;
+        gui_token: string;
+    }> {
+        const auth_id = this.#authIdFor(user);
+        const session = await this.stores.session.create(user.id, {
+            meta: { ...meta, worker: true },
+            kind: 'web',
+            last_ip: (meta.ip as string | undefined) ?? null,
+            last_user_agent: (meta.user_agent as string | undefined) ?? null,
+            expires_at: nowSeconds() + WORKER_WINDOW_SECONDS,
+            auth_id,
+        });
+
+        const token = this.#signSessionTypeToken(
+            'session',
+            user,
+            session.uuid,
+            auth_id,
+            { worker: true },
+        );
+        const gui_token = this.#signSessionTypeToken(
+            'gui',
+            user,
+            session.uuid,
+            auth_id,
+            { worker: true },
+        );
+
+        return { session, token, gui_token };
+    }
+
+    /**
+     * Worker variant of `getUserAppToken`. Bypasses the idempotent
+     * `getOrCreateApp` path (which would return the existing
+     * interactive app session at WEB/APP_WINDOW_SECONDS) and creates a
+     * fresh `kind='app'` row tagged `meta.worker = true` with a
+     * `WORKER_WINDOW_SECONDS` expiry. The emitted JWT is shaped like a
+     * standard app-under-user token plus a `worker: true` claim so the
+     * downstream consumer can tell them apart.
+     *
+     * NOTE: the v2 `idx_sessions_user_app_active` index ensures one
+     * active app row per (user, app). A worker session here will
+     * collide with an existing non-worker app session for the same
+     * (user, app) pair. Future schema work can carve workers out of
+     * that uniqueness; for now callers must accept that constraint.
+     */
+    async createWorkerAppToken(actor: Actor, appUid: string): Promise<string> {
+        if (!actor.user) {
+            throw new HttpError(403, 'Actor must be a user', {
+                legacyCode: 'forbidden',
+            });
+        }
+        const auth_id = this.#authIdFor(actor.user as UserRow);
+        const session = await this.stores.session.create(actor.user.id, {
+            meta: { worker: true },
+            kind: 'app',
+            app_uid: appUid,
+            expires_at: nowSeconds() + WORKER_WINDOW_SECONDS,
+            auth_id,
+        });
+
+        return this.services.token.sign('auth', {
+            type: 'app-under-user',
+            version: '2',
+            user_uid: actor.user.uuid,
+            app_uid: appUid,
+            session_uid: session.uuid,
+            auth_id,
+            worker: true,
+        });
+    }
+
     #authIdFor(user: UserRow): string {
         return user.uuid;
     }
@@ -252,13 +332,6 @@ export class AuthService extends PuterService {
         return now + seconds;
     }
 
-    /**
-     * Remove the session referenced by a session/GUI JWT. Cascades to
-     * derived rows (asset cookies parented to this web session) so
-     * logout transitively kills every cookie minted under the session.
-     * App authorizations are top-level (no parent) and survive logout
-     * per the PUT-1010 hierarchy.
-     */
     async removeSessionByToken(token: string): Promise<void> {
         let decoded: AnyTokenPayload;
         try {
@@ -277,26 +350,86 @@ export class AuthService extends PuterService {
         await this.stores.session.revokeCascade(sessionUuid);
     }
 
-    /** List all sessions for an actor's user. */
+    /**
+     * List sessions surfaced to the manage-sessions UI. Excludes `asset`
+     * rows (per-cookie children of `web` rows, revoked transitively via
+     * cascade — surfacing them as standalone entries would be confusing).
+     * App rows are joined to the apps table so the UI can render the
+     * authorizing app's title and icon without a second round trip.
+     */
     async listSessions(actor: Actor): Promise<Array<Record<string, unknown>>> {
         if (!actor.user?.id) return [];
 
-        const rows = await this.stores.session.getByUserId(actor.user.id);
+        const rows = (await this.stores.session.getByUserId(
+            actor.user.id,
+        )) as Array<Record<string, unknown>>;
 
-        return rows.map((row: Record<string, unknown>) => {
+        const visible = rows.filter((row) => row.kind !== 'asset');
+
+        const appUids = [
+            ...new Set(
+                visible
+                    .map((row) => row.app_uid)
+                    .filter(
+                        (uid): uid is string =>
+                            typeof uid === 'string' && uid.length > 0,
+                    ),
+            ),
+        ];
+        const apps = new Map<string, Record<string, unknown>>();
+        await Promise.all(
+            appUids.map(async (uid) => {
+                try {
+                    const app = await this.stores.app.getByUid(uid);
+                    if (app) apps.set(uid, app);
+                } catch {
+                    // App lookup failures fall back to app_uid only.
+                }
+            }),
+        );
+
+        const enriched = visible.map((row) => {
             const meta =
                 (typeof row.meta === 'string'
                     ? JSON.parse(row.meta as string)
                     : row.meta) ?? {};
             const isCurrent = actor.session?.uid === row.uuid;
+            const appUid = typeof row.app_uid === 'string' ? row.app_uid : null;
+            const app = appUid ? (apps.get(appUid) ?? null) : null;
             return {
+                ...meta,
                 uuid: row.uuid,
+                kind: row.kind,
+                current: isCurrent,
+                label: row.label ?? null,
                 created_at: row.created_at,
                 last_activity: row.last_activity,
-                current: isCurrent,
-                ...meta,
+                expires_at: row.expires_at ?? null,
+                last_ip: row.last_ip ?? null,
+                created_via: row.created_via ?? null,
+                app_uid: appUid,
+                app: app
+                    ? {
+                          uid: app.uid,
+                          name: app.name,
+                          title: app.title,
+                          icon: app.icon,
+                      }
+                    : null,
             };
         });
+
+        // Sort: current session first, then most-recently-active. The
+        // manage-sessions UI relies on this so the "you are here" row
+        // anchors the top of the list.
+        enriched.sort((a, b) => {
+            if (a.current !== b.current) return a.current ? -1 : 1;
+            const al = Number(a.last_activity ?? 0);
+            const bl = Number(b.last_activity ?? 0);
+            return bl - al;
+        });
+
+        return enriched;
     }
 
     /**
@@ -306,6 +439,235 @@ export class AuthService extends PuterService {
      */
     async revokeSession(uuid: string): Promise<void> {
         await this.stores.session.revokeCascade(uuid);
+    }
+
+    async revokeAllSessions(
+        actor: Actor,
+        opts: { includeCurrent?: boolean; includeApps?: boolean } = {},
+    ): Promise<void> {
+        if (!actor.user) {
+            throw new HttpError(403, 'Actor must be a user', {
+                legacyCode: 'forbidden',
+            });
+        }
+        const currentUuid = actor.session?.uid;
+        const rows = await this.stores.session.getByUserId(
+            actor.user.id as number,
+        );
+        for (const row of rows) {
+            if (row.kind === 'web') {
+                if (!opts.includeCurrent && row.uuid === currentUuid) continue;
+                await this.stores.session.revokeCascade(row.uuid as string);
+            } else if (row.kind === 'app' && opts.includeApps) {
+                await this.stores.session.revokeCascade(row.uuid as string);
+            }
+        }
+    }
+
+    async migrateLegacyToken(
+        v1Token: string,
+        _ctx: { ip?: string; userAgent?: string } = {},
+    ): Promise<{
+        token: string;
+        session_uid: string;
+        auth_id: string;
+        kind: 'access_token' | 'app';
+    }> {
+        // 1. Verify under v1 secret. `TokenService.verify` tags v1
+        // results with `legacy: true`; anything else is either a v2
+        // token (nothing to migrate) or invalid.
+        let decoded: AnyTokenPayload;
+        try {
+            decoded = this.services.token.verify<AnyTokenPayload>(
+                'auth',
+                v1Token,
+            );
+        } catch {
+            throw new HttpError(401, 'Invalid token', {
+                legacyCode: 'token_invalid',
+            });
+        }
+        if (!decoded.legacy) {
+            throw new HttpError(401, 'Token is not v1', {
+                legacyCode: 'token_invalid',
+            });
+        }
+        if (!decoded.type) {
+            throw new HttpError(401, 'Invalid token type', {
+                legacyCode: 'token_invalid',
+            });
+        }
+
+        // 2. Web tokens never migrate silently — they go through the
+        // interactive reauth flow. The `code` field is what puter.js /
+        // GUI clients key on; `legacyCode` keeps the body shape valid
+        // for legacy error readers.
+        if (decoded.type === 'session' || decoded.type === 'gui') {
+            throw new HttpError(409, 'Reauthentication required', {
+                legacyCode: 'unauthorized',
+                code: 'reauth_required',
+            });
+        }
+
+        // 3. Branch by kind.
+        if (decoded.type === 'access-token') {
+            return this.#migrateAccessToken(decoded as AccessTokenPayload);
+        }
+        if (decoded.type === 'app-under-user') {
+            // Per ROLLOUT-1, app-token migration is the kind that
+            // ultimately retires — flag-gated independently from the
+            // top-level `allow_v1_tokens` so access-token migration
+            // can stay on indefinitely.
+            const allowAppMigration =
+                (this.config as { allow_v1_app_migration?: boolean })
+                    .allow_v1_app_migration !== false;
+            if (!allowAppMigration) {
+                throw new HttpError(410, 'App-token migration disabled', {
+                    legacyCode: 'unauthorized',
+                    code: 'app_migration_disabled',
+                });
+            }
+            return this.#migrateAppToken(decoded as AppUnderUserTokenPayload);
+        }
+
+        throw new HttpError(401, 'Unsupported token type', {
+            legacyCode: 'token_invalid',
+        });
+    }
+
+    async #migrateAccessToken(decoded: AccessTokenPayload): Promise<{
+        token: string;
+        session_uid: string;
+        auth_id: string;
+        kind: 'access_token';
+    }> {
+        if (!decoded.token_uid || !decoded.user_uid) {
+            throw new HttpError(401, 'Invalid token claims', {
+                legacyCode: 'token_invalid',
+            });
+        }
+        const user = (await this.stores.user.getByUuid(
+            decoded.user_uid,
+        )) as UserRow | null;
+        if (!user) {
+            throw new HttpError(401, 'User not found', {
+                legacyCode: 'unauthorized',
+            });
+        }
+        const auth_id = this.#authIdFor(user);
+
+        // Per-auth_id rate limit — second axis beyond the route-level
+        // per-IP limit. Catches an attacker who has both the token and
+        // a rotating IP pool.
+        await this.#enforceMigrateAuthIdLimit(auth_id);
+
+        const session = await this.stores.session.findOrCreateLegacyAccessToken(
+            decoded.token_uid,
+            { userId: user.id, auth_id },
+        );
+        if (!session) {
+            throw new HttpError(500, 'Session backfill failed', {
+                legacyCode: 'internal_error',
+            });
+        }
+
+        // Mint v2 access token. token_uid is preserved so the existing
+        // `access_token_permissions` rows (keyed by token_uid) keep
+        // applying — only the JWT envelope and session-row binding
+        // change.
+        const jwtPayload: Record<string, unknown> = {
+            type: 'access-token',
+            version: '2',
+            token_uid: decoded.token_uid,
+            user_uid: user.uuid,
+            session_uid: session.uuid as string,
+            auth_id,
+        };
+        if (decoded.app_uid) jwtPayload.app_uid = decoded.app_uid;
+        const token = this.services.token.sign('auth', jwtPayload);
+
+        return {
+            token,
+            session_uid: session.uuid as string,
+            auth_id,
+            kind: 'access_token',
+        };
+    }
+
+    async #migrateAppToken(decoded: AppUnderUserTokenPayload): Promise<{
+        token: string;
+        session_uid: string;
+        auth_id: string;
+        kind: 'app';
+    }> {
+        if (!decoded.user_uid || !decoded.app_uid) {
+            throw new HttpError(401, 'Invalid token claims', {
+                legacyCode: 'token_invalid',
+            });
+        }
+        const user = (await this.stores.user.getByUuid(
+            decoded.user_uid,
+        )) as UserRow | null;
+        if (!user) {
+            throw new HttpError(401, 'User not found', {
+                legacyCode: 'unauthorized',
+            });
+        }
+        const auth_id = this.#authIdFor(user);
+
+        await this.#enforceMigrateAuthIdLimit(auth_id);
+
+        // Idempotent on `(user_id, app_uid)` via the partial unique
+        const session = await this.stores.session.getOrCreateApp(
+            user.id,
+            decoded.app_uid,
+            { auth_id },
+        );
+        if (!session) {
+            throw new HttpError(500, 'Session backfill failed', {
+                legacyCode: 'internal_error',
+            });
+        }
+
+        const jwtPayload: Record<string, unknown> = {
+            type: 'app-under-user',
+            version: '2',
+            user_uid: user.uuid,
+            app_uid: decoded.app_uid,
+            session_uid: session.uuid as string,
+            auth_id,
+        };
+        const token = this.services.token.sign('auth', jwtPayload);
+
+        return {
+            token,
+            session_uid: session.uuid as string,
+            auth_id,
+            kind: 'app',
+        };
+    }
+
+    /**
+     * Per-`auth_id` rate limit for migrate-token. Keyed on the stable
+     * v2 identity so an attacker rotating IPs but holding one user's
+     * v1 token still hits a ceiling.
+     */
+    async #enforceMigrateAuthIdLimit(auth_id: string): Promise<void> {
+        // 20 migrations per 15min per identity matches the per-IP
+        // route limit — either axis trips first depending on the
+        // attack shape. Generous enough that a healthy client (one
+        // app open per device) never sees it.
+        const ok = await checkRateLimit(
+            `migrate-token-auth:${auth_id}`,
+            20,
+            15 * 60_000,
+        );
+        if (!ok) {
+            throw new HttpError(429, 'Too many migration attempts', {
+                legacyCode: 'too_many_requests',
+                fields: { 'retry-after': 900 },
+            });
+        }
     }
 
     // ── App / origin resolution ─────────────────────────────────────
@@ -540,13 +902,6 @@ export class AuthService extends PuterService {
         return typeof uid === 'string' && uid ? uid : null;
     }
 
-    /**
-     * Sign an app-under-user token for the given app UID. Idempotent per
-     * `(user.id, appUid)` — repeat opens of the same app reuse the existing
-     * `kind='app'` session row rather than minting a fresh one. The row is
-     * top-level (no `parent_session_id`) so signing out of the web session
-     * doesn't kill the app authorization (PUT-1010 hierarchy).
-     */
     async getUserAppToken(actor: Actor, appUid: string): Promise<string> {
         if (!actor.user)
             throw new HttpError(403, 'Actor must be a user', {
@@ -865,7 +1220,12 @@ export class AuthService extends PuterService {
     async createAccessToken(
         actor: Actor,
         permissions: Array<[string, Record<string, unknown>?]>,
-        options: { expiresIn?: string } = {},
+        // `expiresIn` follows jsonwebtoken's expiresIn semantics — either
+        // a number of seconds (integer) or a duration string ('1h',
+        // '30d'). `#hardExpiryFromExpiresIn` supports both, and existing
+        // callers / tests pass the string form, so narrowing to `number`
+        // here would force unsafe casts at every call site.
+        options: { expiresIn?: string | number } = {},
     ): Promise<string> {
         if (!actor.user)
             throw new HttpError(403, 'Actor must be a user', {
@@ -902,6 +1262,10 @@ export class AuthService extends PuterService {
                 parent_session_id,
                 expires_at: expiresAt,
                 auth_id,
+                // Stored on the session row so a raw-uuid revoke (caller has the
+                // token_uid but no JWT) can reverse-find the row and flip
+                // `revoked_at` — see `revokeAccessToken`.
+                access_token_uid: tokenUid,
             },
         );
 
@@ -917,7 +1281,16 @@ export class AuthService extends PuterService {
             jwtPayload.app_uid = actor.app.uid;
         }
 
-        const jwt = this.services.token.sign('auth', jwtPayload, options);
+        // jsonwebtoken's SignOptions.expiresIn is typed as `number |
+        // ${number}${unit}` (template literal), so a plain string can't
+        // be statically proven safe. The runtime accepts the same range
+        // of strings #hardExpiryFromExpiresIn parses ('1h', '30d'), so
+        // the cast is faithful to actual behavior.
+        const jwt = this.services.token.sign(
+            'auth',
+            jwtPayload,
+            options as { expiresIn?: number },
+        );
 
         // Store each permission grant
         const db = this.stores.permission as unknown as {
@@ -999,19 +1372,27 @@ export class AuthService extends PuterService {
             }
         }
 
+        // Permissions rows still DELETE — the AUTH-5 "no DELETE on revoke"
+        // rule scoped to the `sessions` table (where the audit trail of
+        // when a session existed/was revoked is load-bearing for forensic
+        // queries and the cascade graph). `access_token_permissions`
+        // rows are the grant manifest for an *active* token; once its
+        // session is soft-revoked, the grants are dead-weight cache
+        // entries that would only confuse `checkMany`. If we later need
+        // permission-grant history for audit, that becomes a
+        // `revoked_at` column on this table, not a behavior change here.
         await this.clients.db.write(
             'DELETE FROM `access_token_permissions` WHERE `token_uid` = ?',
             [tokenUid],
         );
         await this.stores.permission.invalidateAccessTokenPerms(tokenUid);
 
-        // v2 access tokens carry a session row whose `revoked_at` is the
-        // authoritative kill switch — flip it so a stolen token can't
-        // resurrect by re-grabbing the deleted permissions. v1 tokens
-        // (or raw-uuid input where the JWT wasn't presented) have no
-        // session uuid here; AUTH-5 owns the full back-fill revoke flow.
         if (sessionUidFromJwt) {
             await this.stores.session.removeByUuid(sessionUidFromJwt);
+        } else {
+            const row =
+                await this.stores.session.findActiveByAccessTokenUid(tokenUid);
+            if (row) await this.stores.session.removeByUuid(row.uuid);
         }
     }
 
