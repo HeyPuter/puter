@@ -44,7 +44,7 @@ import {
 } from '../../data/hardcoded-permissions.js';
 import { UserRow } from '../../stores/user/UserStore';
 
-// ── Types ────────────────────────────────────────────────────────────
+// -- Types ------------------------------------------------------------
 
 export interface ScanOptions {
     noCache?: boolean;
@@ -81,7 +81,7 @@ export class PermissionService extends PuterService {
         Record<string, unknown>
     > = {};
 
-    // ── Extension hooks ──────────────────────────────────────────────
+    // -- Extension hooks ----------------------------------------------
     //
     // Other services contribute domain semantics via these. A controller or
     // driver *could* register too, but typically the owning service for a
@@ -131,7 +131,7 @@ export class PermissionService extends PuterService {
         this.systemGrantsByGroupUid[groupUid][permission] = data;
     }
 
-    // ── Rewrite / explode (pure-ish helpers) ────────────────────────
+    // -- Rewrite / explode (pure-ish helpers) ------------------------
 
     async rewritePermission(permission: string): Promise<string> {
         for (const rewriter of this.rewriters) {
@@ -167,7 +167,7 @@ export class PermissionService extends PuterService {
         return parents;
     }
 
-    // ── Public check / scan API ──────────────────────────────────────
+    // -- Public check / scan API --------------------------------------
 
     async check(
         actor: Actor,
@@ -213,7 +213,7 @@ export class PermissionService extends PuterService {
             return out;
         }
 
-        // ── Cache pass: one pipelined MGET ──
+        // -- Cache pass: one pipelined MGET --
         const aUid = actorUid(actor);
         const cached = await this.stores.permission.getMultiCheckCache(
             aUid,
@@ -285,7 +285,7 @@ export class PermissionService extends PuterService {
         const reading: ReadingNode[] = [];
         const workingState: ScanState = state ?? { antiCycleActors: [actor] };
 
-        // ── Redis scan cache ──
+        // -- Redis scan cache --
         const cacheKey = this.stores.permission.buildScanCacheKey(
             actorUid(actor),
             options,
@@ -297,7 +297,7 @@ export class PermissionService extends PuterService {
 
         const startTs = Date.now();
 
-        // ── grant_if_system short-circuit ──
+        // -- grant_if_system short-circuit --
         if (isSystemActor(actor)) {
             reading.push({
                 $: 'option',
@@ -312,7 +312,7 @@ export class PermissionService extends PuterService {
             return reading;
         }
 
-        // ── rewrite ──
+        // -- rewrite --
         for (let i = 0; i < options.length; i++) {
             const old = options[i];
             const rewritten = await this.rewritePermission(old);
@@ -321,7 +321,7 @@ export class PermissionService extends PuterService {
             reading.push({ $: 'rewrite', from: old, to: rewritten });
         }
 
-        // ── explode (parents + exploders) ──
+        // -- explode (parents + exploders) --
         const exploded: string[][] = [];
         for (let i = 0; i < options.length; i++) {
             const perm = options[i];
@@ -333,7 +333,7 @@ export class PermissionService extends PuterService {
         }
         options = exploded.flat();
 
-        // ── shortcut implicators ──
+        // -- shortcut implicators --
         let shortCircuit = false;
         for (const permission of options) {
             for (const implicator of this.implicators) {
@@ -358,7 +358,7 @@ export class PermissionService extends PuterService {
         }
 
         if (!shortCircuit) {
-            // ── scanners (formerly PERMISSION_SCANNERS) ──
+            // -- scanners (formerly PERMISSION_SCANNERS) --
             // Run in parallel — matches v1's `Promise.all(ps)` in the
             // scan-permission Sequence. Each scanner has a cheap actor-shape
             // guard at the top (e.g. `if (!actor.app) return` for app-only
@@ -397,7 +397,7 @@ export class PermissionService extends PuterService {
         }
     }
 
-    // ── Scanners (inlined, no Sequence) ──────────────────────────────
+    // -- Scanners (inlined, no Sequence) ------------------------------
 
     async #scanNonShortcutImplicators(
         actor: Actor,
@@ -692,7 +692,7 @@ export class PermissionService extends PuterService {
         });
     }
 
-    // ── validateUserPerms (flat + linked reads) ──────────────────────
+    // -- validateUserPerms (flat + linked reads) ----------------------
 
     /**
      * Resolves user-to-user permissions for an actor across the given
@@ -832,7 +832,7 @@ export class PermissionService extends PuterService {
         return out;
     }
 
-    // ── Grant / revoke orchestration ─────────────────────────────────
+    // -- Grant / revoke orchestration ---------------------------------
 
     async grantUserUserPermission(
         actor: Actor,
@@ -1224,7 +1224,7 @@ export class PermissionService extends PuterService {
             .catch(() => {});
     }
 
-    // ── Issuer queries (share discovery et al) ───────────────────────
+    // -- Issuer queries (share discovery et al) -----------------------
 
     async listUserPermissionIssuers(user: {
         id: number;
@@ -1310,7 +1310,7 @@ export class PermissionService extends PuterService {
         );
     }
 
-    // ── Cache invalidation ───────────────────────────────────────────
+    // -- Cache invalidation -------------------------------------------
 
     async invalidatePermissionScanCacheForAppUnderUser(
         userUuid: string,
@@ -1324,7 +1324,7 @@ export class PermissionService extends PuterService {
         await this.stores.permission.invalidateScanCache(cacheKey);
     }
 
-    // ── Internals ────────────────────────────────────────────────────
+    // -- Internals ----------------------------------------------------
 
     #userToActor(user: {
         id: number;

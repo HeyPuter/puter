@@ -21,7 +21,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { PuterStore } from '../types';
 import { HttpError } from '../../core/http/HttpError.js';
 
-// ── Types ────────────────────────────────────────────────────────────
+// -- Types ------------------------------------------------------------
 
 export interface GroupRow {
     id: number;
@@ -32,12 +32,12 @@ export interface GroupRow {
     [k: string]: unknown;
 }
 
-// ── Constants ────────────────────────────────────────────────────────
+// -- Constants --------------------------------------------------------
 
 const CREATE_RATE_LIMIT_PER_HOUR = 20;
 const PUBLIC_GROUPS_CACHE_TTL_SECONDS = 10 * 60;
 
-// ── GroupStore ───────────────────────────────────────────────────────
+// -- GroupStore -------------------------------------------------------
 
 /**
  * Persistence layer for persistent user groups.
@@ -60,7 +60,7 @@ export class GroupStore extends PuterStore {
         this.redisNamespace = uuidv4();
     }
 
-    // ── Reads ────────────────────────────────────────────────────────
+    // -- Reads --------------------------------------------------------
 
     async getByUid(uid: string): Promise<GroupRow | null> {
         const rows = await this.clients.db.read(
@@ -142,7 +142,7 @@ export class GroupStore extends PuterStore {
         return rows.map((r) => String(r.username));
     }
 
-    // ── Writes ───────────────────────────────────────────────────────
+    // -- Writes -------------------------------------------------------
 
     /**
      * Creates a new group owned by `ownerUserId`. Enforces a 20/hour per-owner
@@ -210,7 +210,7 @@ export class GroupStore extends PuterStore {
         );
     }
 
-    // ── Internals ────────────────────────────────────────────────────
+    // -- Internals ----------------------------------------------------
 
     #publicGroupsCacheKey(): string {
         return `${this.redisNamespace}:group:public-groups`;

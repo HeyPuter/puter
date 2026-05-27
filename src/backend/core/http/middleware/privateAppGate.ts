@@ -95,7 +95,7 @@ interface AppLike {
     index_url?: string | null;
 }
 
-// ── Host helpers ────────────────────────────────────────────────────
+// -- Host helpers ----------------------------------------------------
 
 export function normalizeHost(value: string | undefined | null): string | null {
     if (typeof value !== 'string') return null;
@@ -149,7 +149,7 @@ export function hostMatchesPrivateDomain(
     return privateDomains.some((pd) => host === pd || host.endsWith(`.${pd}`));
 }
 
-// ── Subdomain extraction from a hosted request ─────────────────────
+// -- Subdomain extraction from a hosted request ---------------------
 
 export function subdomainFromHost(
     host: string,
@@ -169,7 +169,7 @@ export function subdomainFromHost(
     return host.split('.')[0] || '';
 }
 
-// ── Hosted-site → owned-app resolution ─────────────────────────────
+// -- Hosted-site → owned-app resolution -----------------------------
 
 /**
  * Resolve "what app does the subdomain owner run on this host?" by matching
@@ -258,7 +258,7 @@ export async function resolveOwnedAppForHostedSite(opts: {
     return rows[0] as unknown as AppLike;
 }
 
-// ── Bootstrap token resolution ──────────────────────────────────────
+// -- Bootstrap token resolution --------------------------------------
 
 function getAuthorizationToken(req: Request): string | null {
     const header = req.headers?.authorization;
@@ -579,7 +579,7 @@ export async function resolvePublicHostedIdentity(opts: {
     return { source: 'none' };
 }
 
-// ── Redirect helpers ────────────────────────────────────────────────
+// -- Redirect helpers ------------------------------------------------
 
 /** Build the URL to redirect a private-app request to its private host. */
 export function buildPrivateHostRedirect(
@@ -660,7 +660,7 @@ export function buildAppCenterFallback(
     return `https://${config.domain}/app/app-center/?item=${encodeURIComponent(appName)}`;
 }
 
-// ── Login bootstrap HTML ────────────────────────────────────────────
+// -- Login bootstrap HTML --------------------------------------------
 
 /**
  * Minimal HTML page that prompts the visitor to sign in with Puter.

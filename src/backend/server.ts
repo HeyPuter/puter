@@ -389,7 +389,7 @@ export class PuterServer {
             next();
         });
 
-        // ── Query param sanitization ────────────────────────────────
+        // -- Query param sanitization --------------------------------
         // Strip non-primitive query values. Express 5's default simple
         // parser mostly avoids these, but when `extended` qs is enabled
         // (or a client tricks the parser) arrays/objects can sneak in.
@@ -406,7 +406,7 @@ export class PuterServer {
             next();
         });
 
-        // ── UA parsing ──────────────────────────────────────────────
+        // -- UA parsing ----------------------------------------------
         this.#app.use((req, _res, next) => {
             const header = req.headers['user-agent'];
             if (header) {
@@ -415,34 +415,34 @@ export class PuterServer {
             next();
         });
 
-        // ── Host header validation ──────────────────────────────────
+        // -- Host header validation ----------------------------------
         this.#installHostValidation();
 
-        // ── Host redirects (www → root, user subdomain → static hosting)
+        // -- Host redirects (www → root, user subdomain → static hosting)
         // Installed after host validation so we know the host is allowed,
         // and before CORS/body-parsing so we short-circuit on redirects
         // without burning work.
         this.#app.use(createWwwRedirect(this.#config));
         this.#app.use(createUserSubdomainRedirect(this.#config));
 
-        // ── Native app static serving (editor.*, docs.*, …) ─────────
+        // -- Native app static serving (editor.*, docs.*, …) ---------
         // No-op when `native_apps_root` is unset.
         this.#app.use(createNativeAppStatic(this.#config));
 
-        // ── CORS headers ────────────────────────────────────────────
+        // -- CORS headers --------------------------------------------
         this.#installCors();
 
-        // ── IP validation ───────────────────────────────────────────
+        // -- IP validation -------------------------------------------
         if (this.#config.enable_ip_validation) {
             this.#installIpValidation();
         }
 
-        // ── OPTIONS preflight ───────────────────────────────────────
+        // -- OPTIONS preflight ---------------------------------------
         this.#app.options('/*splat', (_req, res) => {
             res.sendStatus(200);
         });
 
-        // ── Body parsing (JSON + text-as-json shim) ─────────────────
+        // -- Body parsing (JSON + text-as-json shim) -----------------
         const captureRawBody: NonNullable<
             Parameters<typeof express.json>[0]
         >['verify'] = (req, _res, buf) => {
@@ -464,7 +464,7 @@ export class PuterServer {
         // cover the auth_token / anti_csrf field shape, not file uploads.
         this.#app.use(express.urlencoded({ extended: true, limit: '100kb' }));
 
-        // ── Auth probe ──────────────────────────────────────────────
+        // -- Auth probe ----------------------------------------------
         const authService = this.services.auth as AuthService | undefined;
         if (authService) {
             this.#app.use(
@@ -476,12 +476,12 @@ export class PuterServer {
             );
         }
 
-        // ── Per-request ALS context ─────────────────────────────────
+        // -- Per-request ALS context ---------------------------------
         // Runs AFTER auth probe so `req.actor` is already populated when
         // we snapshot it into the context.
         this.#app.use(createRequestContextMiddleware());
 
-        // ── User-hosted sites (*.puter.site, *.puter.app) ───────────
+        // -- User-hosted sites (*.puter.site, *.puter.app) -----------
         // Short-circuits hosting-domain hosts before any API/GUI
         // controller route has a chance to match. Needs DI layers for
         // subdomain lookup, private-app gate, and file streaming.
@@ -498,7 +498,7 @@ export class PuterServer {
         });
     }
 
-    // ── Host header validation ──────────────────────────────────────
+    // -- Host header validation --------------------------------------
 
     #installHostValidation() {
         const config = this.#config;
@@ -589,7 +589,7 @@ export class PuterServer {
         return hostname === domain || hostname.endsWith(`.${domain}`);
     }
 
-    // ── CORS headers ─────────────────────────────────────────────────
+    // -- CORS headers -------------------------------------------------
 
     #installCors() {
         const config = this.#config;
@@ -643,7 +643,7 @@ export class PuterServer {
         });
     }
 
-    // ── IP validation ───────────────────────────────────────────────
+    // -- IP validation -----------------------------------------------
 
     #installIpValidation() {
         this.#app.use(async (req, res, next) => {

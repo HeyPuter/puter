@@ -34,7 +34,7 @@ const MAX_WORKERS_PER_USER = 100;
 const MAX_SOURCE_SIZE = 10 * 1024 * 1024; // 10 MB
 const WORKER_SUBDOMAIN_PREFIX = 'workers.puter.';
 
-// ── Preamble ────────────────────────────────────────────────────────
+// -- Preamble --------------------------------------------------------
 //
 // The preamble is a webpack-built JS bundle that provides puter.js to
 // worker code. It's baked into the source sent to Cloudflare Workers.
@@ -104,7 +104,7 @@ export class WorkerDriver extends PuterDriver {
         this.#subscribeHotReload();
     }
 
-    // ── Driver methods ──────────────────────────────────────────────
+    // -- Driver methods ----------------------------------------------
 
     async create(args: {
         appId: string;
@@ -350,7 +350,7 @@ export class WorkerDriver extends PuterDriver {
         return this.#workerConfig().loggingUrl ?? null;
     }
 
-    // ── Cloudflare API ──────────────────────────────────────────────
+    // -- Cloudflare API ----------------------------------------------
 
     async #cfDeploy(
         workerName: string,
@@ -430,7 +430,7 @@ export class WorkerDriver extends PuterDriver {
         return (await res.json()) as Record<string, unknown>;
     }
 
-    // ── Helpers ──────────────────────────────────────────────────────
+    // -- Helpers ------------------------------------------------------
 
     #requireActor(): Actor & {
         user: { id: number; uuid: string; username: string };
@@ -508,7 +508,7 @@ export class WorkerDriver extends PuterDriver {
         );
     }
 
-    // ── Hot-reload: auto-redeploy on source file write ──────────────
+    // -- Hot-reload: auto-redeploy on source file write --------------
     //
     // When a user saves a JS file that's tied to a worker subdomain,
     // we redeploy it to Cloudflare automatically. This is what makes

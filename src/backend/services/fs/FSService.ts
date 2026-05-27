@@ -136,7 +136,7 @@ export class FSService extends PuterService {
         const permissions = this.services.permission;
         const fsEntryStore = this.stores.fsEntry;
 
-        // ── fs:/path:mode → fs:<uuid>:mode ─────────────────────────────
+        // -- fs:/path:mode → fs:<uuid>:mode -----------------------------
         // Clients (puter.perms, requestPermission) emit path-based strings;
         // stored as-is they'd never match anything, so resolve to uuid up
         // front.
@@ -169,7 +169,7 @@ export class FSService extends PuterService {
             },
         });
 
-        // ── is-owner ──────────────────────────────────────────────────
+        // -- is-owner --------------------------------------------------
         // For user actors, `fs:<uuid>:*` resolves iff the actor owns the
         // underlying entry. Without this, `check(user, fs:UUID:*)` can't
         // find a terminal and the `has_terminal` probe that #scanUserApp
@@ -206,7 +206,7 @@ export class FSService extends PuterService {
             },
         });
 
-        // ── fs-access-levels exploder ──────────────────────────────────
+        // -- fs-access-levels exploder ----------------------------------
         // `fs:UUID:see` implies `[list, read, write, manage:fs:UUID]`.
         // ACLService.check already expands the same-family chain
         // (see→list→read→write) via MODES_ABOVE, but the `manage:fs:UUID`
@@ -2551,7 +2551,7 @@ export class FSService extends PuterService {
         return this.stores.fsEntry.getUserStorageAllowance(numericUserId);
     }
 
-    // ── Reads ───────────────────────────────────────────────────────────
+    // -- Reads -----------------------------------------------------------
 
     /**
      * List direct children of a directory. Caller is responsible for any ACL
@@ -2708,7 +2708,7 @@ export class FSService extends PuterService {
         return entry.uuid;
     }
 
-    // ── Mutation: mkdir / touch / rename / mkshortcut ─────────
+    // -- Mutation: mkdir / touch / rename / mkshortcut ---------
 
     /**
      * Resolve a free child name under `parentEntry` by appending ` (N)` when
@@ -2988,7 +2988,7 @@ export class FSService extends PuterService {
         return created;
     }
 
-    // ── Mutation: remove / move / copy ─────────────────────────────────
+    // -- Mutation: remove / move / copy ---------------------------------
 
     /**
      * Remove an entry. For directories, descendants are walked and removed

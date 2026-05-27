@@ -82,7 +82,7 @@ export class AuthService extends PuterService {
         });
     }
 
-    // ── Public API ──────────────────────────────────────────────────
+    // -- Public API --------------------------------------------------
 
     async authenticateFromToken(token: string): Promise<Actor | null> {
         const result = await this.authenticate(token);
@@ -129,7 +129,7 @@ export class AuthService extends PuterService {
         return result;
     }
 
-    // ── Session lifecycle ────────────────────────────────────────────
+    // -- Session lifecycle --------------------------------------------
 
     /**
      * Create a session and sign a session JWT + GUI JWT for the user.
@@ -689,7 +689,7 @@ export class AuthService extends PuterService {
         }
     }
 
-    // ── App / origin resolution ─────────────────────────────────────
+    // -- App / origin resolution -------------------------------------
 
     /**
      * Resolve an origin URL to an app UID.
@@ -947,7 +947,7 @@ export class AuthService extends PuterService {
         });
     }
 
-    // ── Private / public hosted asset cookies ───────────────────────
+    // -- Private / public hosted asset cookies -----------------------
     //
     // Ported from v1's `createPrivateAssetToken` / `createPublicHostedActor
     // Token`. These are sticky cookies set by the puter-site middleware
@@ -1119,10 +1119,10 @@ export class AuthService extends PuterService {
         // Bind the cookie to the user's session lifetime: the session row
         // referenced at mint must still exist AND not be revoked. The
         // `getByUuid` lookup is already filtered on `revoked_at IS NULL`,
-        // so the cascade from AUTH-3 transparently invalidates every
-        // asset cookie minted under a logged-out web session. Cookies
-        // minted without a session_uuid (e.g. from an access-token actor)
-        // skip the check; nothing to bind.
+        // so a logout cascade transparently invalidates every asset
+        // cookie minted under that web session. Cookies minted without
+        // a session_uuid (e.g. from an access-token actor) skip the
+        // check; nothing to bind.
         const sessionUuid = decoded.session_uuid as string | undefined;
         if (sessionUuid) {
             const session = await this.stores.session.getByUuid(sessionUuid);
@@ -1265,7 +1265,7 @@ export class AuthService extends PuterService {
         return options;
     }
 
-    // ── Access tokens ───────────────────────────────────────────────
+    // -- Access tokens -----------------------------------------------
 
     /**
      * Create an access token with the given permissions.
@@ -1453,7 +1453,7 @@ export class AuthService extends PuterService {
         }
     }
 
-    // ── Internals ───────────────────────────────────────────────────
+    // -- Internals ---------------------------------------------------
 
     #originFromUrl(url: string): string | null {
         try {
@@ -1620,7 +1620,7 @@ export class AuthService extends PuterService {
         };
     }
 
-    // ── Actor builders ──────────────────────────────────────────────
+    // -- Actor builders ----------------------------------------------
 
     #actorUserFromRow(user: UserRow) {
         // Strip the password hash; pass everything else through so callers

@@ -44,7 +44,7 @@ export class DesktopController extends PuterController {
     }
 
     registerRoutes(router) {
-        // ── Desktop background ──────────────────────────────────────
+        // -- Desktop background --------------------------------------
 
         router.post(
             '/set-desktop-bg',
@@ -98,7 +98,7 @@ export class DesktopController extends PuterController {
             },
         );
 
-        // ── Taskbar items ───────────────────────────────────────────
+        // -- Taskbar items -------------------------------------------
 
         router.post(
             '/update-taskbar-items',
@@ -123,7 +123,7 @@ export class DesktopController extends PuterController {
             },
         );
 
-        // ── Folder layout ───────────────────────────────────────────
+        // -- Folder layout -------------------------------------------
 
         router.post(
             '/set_layout',
@@ -149,7 +149,7 @@ export class DesktopController extends PuterController {
             },
         );
 
-        // ── Folder sort ─────────────────────────────────────────────
+        // -- Folder sort ---------------------------------------------
 
         router.post(
             '/set_sort_by',
@@ -188,7 +188,7 @@ export class DesktopController extends PuterController {
         );
     }
 
-    // ── Helpers ──────────────────────────────────────────────────────
+    // -- Helpers ------------------------------------------------------
 
     /**
      * Update columns on an actor-owned fsentry. Accepts either `item_uid`

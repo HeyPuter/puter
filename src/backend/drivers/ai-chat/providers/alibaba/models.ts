@@ -21,7 +21,7 @@ import type { IChatModel } from '../../types.js';
 
 // Hardcoded from https://models.dev/api.json
 export const ALIBABA_MODELS: IChatModel[] = [
-    // ── Commercial flagship ────────────────────────────────────────
+    // -- Commercial flagship ----------------------------------------
     {
         puterId: 'alibaba:qwen/qwen-max',
         id: 'qwen-max',
@@ -89,7 +89,7 @@ export const ALIBABA_MODELS: IChatModel[] = [
         },
     },
 
-    // ── Plus tier ──────────────────────────────────────────────────
+    // -- Plus tier --------------------------------------------------
     {
         puterId: 'alibaba:qwen/qwen-plus',
         id: 'qwen-plus',
@@ -157,7 +157,7 @@ export const ALIBABA_MODELS: IChatModel[] = [
         },
     },
 
-    // ── Turbo / Flash tier ─────────────────────────────────────────
+    // -- Turbo / Flash tier -----------------------------------------
     {
         puterId: 'alibaba:qwen/qwen-turbo',
         id: 'qwen-turbo',
@@ -203,7 +203,7 @@ export const ALIBABA_MODELS: IChatModel[] = [
         },
     },
 
-    // ── Coding models ──────────────────────────────────────────────
+    // -- Coding models ----------------------------------------------
     {
         puterId: 'alibaba:qwen/qwen3-coder-plus',
         id: 'qwen3-coder-plus',
@@ -293,7 +293,7 @@ export const ALIBABA_MODELS: IChatModel[] = [
         },
     },
 
-    // ── Reasoning models ───────────────────────────────────────────
+    // -- Reasoning models -------------------------------------------
     {
         puterId: 'alibaba:qwen/qwq-plus',
         id: 'qwq-plus',
@@ -361,7 +361,7 @@ export const ALIBABA_MODELS: IChatModel[] = [
         },
     },
 
-    // ── Open-weight Qwen3 ──────────────────────────────────────────
+    // -- Open-weight Qwen3 ------------------------------------------
     {
         puterId: 'alibaba:qwen/qwen3-235b-a22b',
         id: 'qwen3-235b-a22b',
@@ -451,7 +451,7 @@ export const ALIBABA_MODELS: IChatModel[] = [
         },
     },
 
-    // ── Open-weight Qwen3.5 ────────────────────────────────────────
+    // -- Open-weight Qwen3.5 ----------------------------------------
     {
         puterId: 'alibaba:qwen/qwen3.5-397b-a17b',
         id: 'qwen3.5-397b-a17b',
@@ -549,7 +549,7 @@ export const ALIBABA_MODELS: IChatModel[] = [
         },
     },
 
-    // ── Open-weight Qwen3.6 ────────────────────────────────────────
+    // -- Open-weight Qwen3.6 ----------------------------------------
     {
         puterId: 'alibaba:qwen/qwen3.6-35b-a3b',
         id: 'qwen3.6-35b-a3b',
@@ -599,7 +599,7 @@ export const ALIBABA_MODELS: IChatModel[] = [
         },
     },
 
-    // ── Vision models ──────────────────────────────────────────────
+    // -- Vision models ----------------------------------------------
     {
         puterId: 'alibaba:qwen/qwen-vl-max',
         id: 'qwen-vl-max',
@@ -755,7 +755,7 @@ export const ALIBABA_MODELS: IChatModel[] = [
         },
     },
 
-    // ── Legacy Qwen2.5 ────────────────────────────────────────────
+    // -- Legacy Qwen2.5 --------------------------------------------
     {
         puterId: 'alibaba:qwen/qwen2-5-72b-instruct',
         id: 'qwen2-5-72b-instruct',
@@ -889,7 +889,7 @@ export const ALIBABA_MODELS: IChatModel[] = [
         },
     },
 
-    // ── Omni models (text interface, audio costs excluded) ─────────
+    // -- Omni models (text interface, audio costs excluded) ---------
     {
         puterId: 'alibaba:qwen/qwen-omni-turbo',
         id: 'qwen-omni-turbo',
@@ -966,7 +966,7 @@ export const ALIBABA_MODELS: IChatModel[] = [
         },
     },
 
-    // ── Translation models ─────────────────────────────────────────
+    // -- Translation models -----------------------------------------
     {
         puterId: 'alibaba:qwen/qwen-mt-plus',
         id: 'qwen-mt-plus',

@@ -19,7 +19,7 @@
 
 import { PuterStore } from '../types';
 
-// ── Types ────────────────────────────────────────────────────────────
+// -- Types ------------------------------------------------------------
 
 /**
  * Canonical user row. Typed fields cover everything auth/acl/quota code
@@ -55,7 +55,7 @@ export interface UserRow {
 export const USER_ID_PROPERTIES = ['id', 'uuid', 'username', 'email'] as const;
 export type UserIdProperty = (typeof USER_ID_PROPERTIES)[number];
 
-// ── Constants ────────────────────────────────────────────────────────
+// -- Constants --------------------------------------------------------
 
 const CACHE_KEY_PREFIX = 'users';
 const CACHE_TTL_SECONDS = 15 * 60;
@@ -99,7 +99,7 @@ const assertLatin1Writable = (fields: Record<string, unknown>): void => {
     }
 };
 
-// ── UserStore ────────────────────────────────────────────────────────
+// -- UserStore --------------------------------------------------------
 
 /**
  * Persistence + cache for the `user` table. Provides a multi-key Redis cache
@@ -113,7 +113,7 @@ const assertLatin1Writable = (fields: Record<string, unknown>): void => {
  *   add the property to that tuple.
  */
 export class UserStore extends PuterStore {
-    // ── Reads ────────────────────────────────────────────────────────
+    // -- Reads --------------------------------------------------------
 
     async getById(
         id: number,
@@ -284,7 +284,7 @@ export class UserStore extends PuterStore {
         return user;
     }
 
-    // ── Writes ───────────────────────────────────────────────────────
+    // -- Writes -------------------------------------------------------
 
     /**
      * Merge-update a user's `metadata` JSON blob. Reads current value,
@@ -449,7 +449,7 @@ export class UserStore extends PuterStore {
         if (cached) await this.invalidate(cached);
     }
 
-    // ── Internals ────────────────────────────────────────────────────
+    // -- Internals ----------------------------------------------------
 
     #cacheKey(prop: UserIdProperty, value: unknown): string {
         return `${CACHE_KEY_PREFIX}:${prop}:${String(value)}`;

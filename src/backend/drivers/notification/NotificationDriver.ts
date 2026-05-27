@@ -69,7 +69,7 @@ export class NotificationDriver extends PuterDriver {
         },
     };
 
-    // ── Driver methods ──────────────────────────────────────────────
+    // -- Driver methods ----------------------------------------------
 
     async create(args: Record<string, unknown>): Promise<unknown> {
         const object = args.object as Record<string, unknown> | undefined;
@@ -188,7 +188,7 @@ export class NotificationDriver extends PuterDriver {
         return { success: ok };
     }
 
-    // ── Permissions ─────────────────────────────────────────────────
+    // -- Permissions -------------------------------------------------
 
     #requireUserActor(): Actor & {
         user: { id: number; uuid: string; username: string };
@@ -212,7 +212,7 @@ export class NotificationDriver extends PuterDriver {
         };
     }
 
-    // ── Serialization ───────────────────────────────────────────────
+    // -- Serialization -----------------------------------------------
 
     #toClient(
         row: Record<string, unknown> | null,

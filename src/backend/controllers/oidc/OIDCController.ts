@@ -93,7 +93,7 @@ function isSameOrigin(target: string, origin: string): boolean {
  */
 export class OIDCController extends PuterController {
     registerRoutes(router: PuterRouter): void {
-        // ── GET /auth/oidc/providers ────────────────────────────────
+        // -- GET /auth/oidc/providers --------------------------------
         // Public — list enabled provider IDs for the frontend.
 
         router.get(
@@ -106,7 +106,7 @@ export class OIDCController extends PuterController {
             },
         );
 
-        // ── GET /auth/oidc/:provider/start ──────────────────────────
+        // -- GET /auth/oidc/:provider/start --------------------------
         // Redirect user to IdP authorization endpoint.
 
         router.get(
@@ -215,7 +215,7 @@ export class OIDCController extends PuterController {
             },
         );
 
-        // ── /auth/oidc/callback/login (GET + POST) ────────────────
+        // -- /auth/oidc/callback/login (GET + POST) ----------------
 
         const cbOpts = {
             subdomain: '',
@@ -283,7 +283,7 @@ export class OIDCController extends PuterController {
         router.get('/auth/oidc/callback/login', cbOpts, loginCb);
         router.post('/auth/oidc/callback/login', cbOpts, loginCb);
 
-        // ── /auth/oidc/callback/signup (GET + POST) ────────────────
+        // -- /auth/oidc/callback/signup (GET + POST) ----------------
 
         const signupCb = async (req: Request, res: Response) => {
             const origin = this.config.origin ?? '';
@@ -346,7 +346,7 @@ export class OIDCController extends PuterController {
         router.get('/auth/oidc/callback/signup', cbOpts, signupCb);
         router.post('/auth/oidc/callback/signup', cbOpts, signupCb);
 
-        // ── /auth/oidc/callback/revalidate (GET + POST) ────────────
+        // -- /auth/oidc/callback/revalidate (GET + POST) ------------
 
         const revalidateCb = async (
             req: Request,
@@ -404,7 +404,7 @@ export class OIDCController extends PuterController {
         router.get('/auth/oidc/callback/revalidate', cbOpts, revalidateCb);
         router.post('/auth/oidc/callback/revalidate', cbOpts, revalidateCb);
 
-        // ── GET /auth/revalidate-done ───────────────────────────────
+        // -- GET /auth/revalidate-done -------------------------------
         // Landing page after revalidation; posts to opener for popup flow.
 
         router.get(
@@ -428,7 +428,7 @@ if (window.opener) {
         );
     }
 
-    // ── Shared helpers ──────────────────────────────────────────────
+    // -- Shared helpers ----------------------------------------------
 
     /**
      * Resolve an OIDC callback to a Puter user. In order:

@@ -25,7 +25,7 @@ import { PuterService } from '../types';
 // without papering over a genuinely-expired token.
 const CLOCK_TOLERANCE_SECONDS = 30;
 
-// ── Compression tables ──────────────────────────────────────────────
+// -- Compression tables ----------------------------------------------
 //
 // Token payloads are compressed on the wire: full field names become
 // short aliases, enum values become single-letter codes, and UUIDs get
@@ -163,7 +163,7 @@ const COMPRESSION: Record<string, CompressionContext> = {
     'hosted-asset': HOSTED_ASSET_COMPRESSION,
 };
 
-// ── TokenService ────────────────────────────────────────────────────
+// -- TokenService ----------------------------------------------------
 
 export class TokenService extends PuterService {
     #secretV2: string = '';
@@ -253,7 +253,7 @@ export class TokenService extends PuterService {
         return decompressed as unknown as T;
     }
 
-    // ── Internals ───────────────────────────────────────────────────
+    // -- Internals ---------------------------------------------------
 
     #compressPayload(
         context: CompressionContext | undefined,

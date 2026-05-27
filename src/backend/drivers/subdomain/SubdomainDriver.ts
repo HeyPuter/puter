@@ -90,7 +90,7 @@ export class SubdomainDriver extends PuterDriver {
         },
     };
 
-    // ── Driver methods ──────────────────────────────────────────────
+    // -- Driver methods ----------------------------------------------
 
     async create(args: Record<string, unknown>): Promise<unknown> {
         const object = args.object as Record<string, unknown> | undefined;
@@ -368,7 +368,7 @@ export class SubdomainDriver extends PuterDriver {
         return { success: true, uid: row.uuid };
     }
 
-    // ── Resolve ─────────────────────────────────────────────────────
+    // -- Resolve -----------------------------------------------------
 
     async #resolve(
         args: Record<string, unknown>,
@@ -386,7 +386,7 @@ export class SubdomainDriver extends PuterDriver {
         return null;
     }
 
-    // ── Validation ──────────────────────────────────────────────────
+    // -- Validation --------------------------------------------------
 
     #validateSubdomain(raw: unknown): string {
         if (typeof raw !== 'string' || raw.trim().length === 0) {
@@ -418,7 +418,7 @@ export class SubdomainDriver extends PuterDriver {
         return s;
     }
 
-    // ── Permissions ─────────────────────────────────────────────────
+    // -- Permissions -------------------------------------------------
 
     #requireActor(): Actor & {
         user: { id: number; uuid: string; username: string };
@@ -500,7 +500,7 @@ export class SubdomainDriver extends PuterDriver {
         }
     }
 
-    // ── Config ──────────────────────────────────────────────────────
+    // -- Config ------------------------------------------------------
 
     #configMaxSubdomains(): number {
         const n = Number(
@@ -509,7 +509,7 @@ export class SubdomainDriver extends PuterDriver {
         return Number.isFinite(n) && n > 0 ? n : DEFAULT_MAX_SUBDOMAINS;
     }
 
-    // ── Serialization ───────────────────────────────────────────────
+    // -- Serialization -----------------------------------------------
     //
     // v1's `puter-subdomains` shape (canonical, see SubdomainES + the
     // mapping at om/mappings/subdomain.js):
@@ -798,7 +798,7 @@ export class SubdomainDriver extends PuterDriver {
     }
 }
 
-// ── Embed shape helpers (module-level, sync, no DB) ─────────────────
+// -- Embed shape helpers (module-level, sync, no DB) -----------------
 //
 // `root_dir` mirrors v1's `safe_entry` from FSNodeContext, minus the
 // fields v1 deletes before sending to clients (`user_id`, `bucket`,

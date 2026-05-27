@@ -74,7 +74,7 @@ async function loadAdditionalRouter(
     }
 }
 
-// ── Controller ──────────────────────────────────────────────────────
+// -- Controller ------------------------------------------------------
 
 export class LegacyFSController extends PuterController {
     #additionalCache: RouterCache = new Map();
@@ -241,7 +241,7 @@ export class LegacyFSController extends PuterController {
         }
     }
 
-    // ── Route implementations ───────────────────────────────────────────
+    // -- Route implementations -------------------------------------------
     //
     // Handlers are public arrow class fields so they auto-bind `this` and can
     // be passed directly to `router.post(...)` without `.bind(this)`. Express
@@ -915,7 +915,7 @@ export class LegacyFSController extends PuterController {
         return this.read(req, res, { realMime: true });
     };
 
-    // ── Signed-URL + meta routes ────────────────────────────────────────
+    // -- Signed-URL + meta routes ----------------------------------------
 
     /**
      * POST /sign
@@ -1573,7 +1573,7 @@ export class LegacyFSController extends PuterController {
     };
 
     // Helpers for writeFile
-    // ── GUI event emission ───────────────────────────────────────────
+    // -- GUI event emission -------------------------------------------
     //
     // Fire-and-forget `outer.gui.item.*` events so SocketService,
     // BroadcastService, WorkerDriver (hot-reload), and cache-invalidation
@@ -1703,7 +1703,7 @@ export class LegacyFSController extends PuterController {
         });
     }
 
-    // ── Batch route ─────────────────────────────────────────────────────
+    // -- Batch route -----------------------------------------------------
     //
     // `/batch` interleaves multipart JSON operations with optional file
     // uploads. puter-js uses it for `write`, `shortcut`, `mkdir`, `move`,
@@ -2100,7 +2100,7 @@ export class LegacyFSController extends PuterController {
         return { error: true, status: 500, message: 'Unknown batch error' };
     }
 
-    // ── Helpers ─────────────────────────────────────────────────────────
+    // -- Helpers ---------------------------------------------------------
 
     #parsePositiveIntegerQuery(
         query: Record<string, unknown>,

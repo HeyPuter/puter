@@ -2239,7 +2239,7 @@ export class FSEntryStore extends PuterStore {
         return completedEntries;
     }
 
-    // ── Non-file entry creation (dirs, shortcuts, symlinks, touch) ──────
+    // -- Non-file entry creation (dirs, shortcuts, symlinks, touch) ------
 
     /**
      * Create a single non-file entry: directory, shortcut, or symlink.
@@ -2389,7 +2389,7 @@ export class FSEntryStore extends PuterStore {
         return entry;
     }
 
-    // ── Listing / descendants / search ──────────────────────────────────
+    // -- Listing / descendants / search ----------------------------------
 
     // Children of a directory (direct children only). Paginated + sortable.
     async listChildren(
@@ -2538,7 +2538,7 @@ export class FSEntryStore extends PuterStore {
         return entries;
     }
 
-    // ── Mutation ───────────────────────────────────────────────────────
+    // -- Mutation -------------------------------------------------------
 
     // Generic single-entry update. Only a narrow set of columns are patchable
     // through this method; the caller provides the JS-shaped patch and we map.

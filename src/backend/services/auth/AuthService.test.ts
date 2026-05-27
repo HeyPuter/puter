@@ -1162,7 +1162,7 @@ describe('AuthService (integration)', () => {
             ).rejects.toThrow();
         });
 
-        // ── PUT-1020: v2 hosted-asset migration ───────────────────────
+        // -- v2 hosted-asset migration --
 
         it('v2 cookie names', () => {
             expect(authService.getPrivateAssetCookieNameV2()).toBe(

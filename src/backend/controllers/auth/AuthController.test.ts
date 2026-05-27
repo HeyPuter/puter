@@ -3663,7 +3663,7 @@ describe('AuthController.handleMigrateToken', () => {
     });
 });
 
-// ── PUT-1016: temp-account preservation on forced re-login ──────────
+// ── auth_id preservation on forced re-login ─────────────────────────
 
 describe('AuthController auth_id preservation on reauth', () => {
     const password = 'correct-horse-battery';

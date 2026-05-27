@@ -85,7 +85,7 @@ export class TTSDriver extends PuterDriver {
         this.#registerProviders();
     }
 
-    // ── Interface methods ───────────────────────────────────────────
+    // -- Interface methods -------------------------------------------
 
     /**
      * List all available voices across all configured providers.
@@ -194,7 +194,7 @@ export class TTSDriver extends PuterDriver {
         >;
     }
 
-    // ── Provider registration ───────────────────────────────────────
+    // -- Provider registration ---------------------------------------
 
     #registerProviders() {
         const providers = this.config.providers ?? {};

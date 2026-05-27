@@ -300,7 +300,7 @@ export function resolveErrorTarget(
     return { absPath, status: rule.status };
 }
 
-// ── Parsers ─────────────────────────────────────────────────────────
+// -- Parsers ---------------------------------------------------------
 
 function parsePuterSiteConfig(text: string): SiteConfig | null {
     let raw: unknown;

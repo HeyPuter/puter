@@ -81,7 +81,7 @@ export class OIDCService extends PuterService {
         >;
     }
 
-    // ── Provider config ─────────────────────────────────────────────
+    // -- Provider config ---------------------------------------------
 
     async getProviderConfig(
         providerId: string,
@@ -180,7 +180,7 @@ export class OIDCService extends PuterService {
         return ids;
     }
 
-    // ── Auth URL ────────────────────────────────────────────────────
+    // -- Auth URL ----------------------------------------------------
 
     getCallbackUrl(flow: string): string | null {
         if (!(VALID_OIDC_FLOWS as readonly string[]).includes(flow))
@@ -212,7 +212,7 @@ export class OIDCService extends PuterService {
         return `${config.authorization_endpoint}?${params.toString()}`;
     }
 
-    // ── State tokens (CSRF) ─────────────────────────────────────────
+    // -- State tokens (CSRF) -----------------------------------------
 
     signState(payload: Record<string, unknown>): string {
         return this.services.token.sign('oidc-state', payload, {
@@ -231,7 +231,7 @@ export class OIDCService extends PuterService {
         }
     }
 
-    // ── Revalidation tokens ─────────────────────────────────────────
+    // -- Revalidation tokens -----------------------------------------
 
     signRevalidation(userUuid: string): string {
         return this.services.token.sign(
@@ -244,7 +244,7 @@ export class OIDCService extends PuterService {
         );
     }
 
-    // ── Token exchange ──────────────────────────────────────────────
+    // -- Token exchange ----------------------------------------------
 
     async exchangeCodeForTokens(
         providerId: string,
@@ -279,7 +279,7 @@ export class OIDCService extends PuterService {
         return (await res.json()) as { access_token: string };
     }
 
-    // ── User info ───────────────────────────────────────────────────
+    // -- User info ---------------------------------------------------
 
     async getUserInfo(
         providerId: string,
@@ -304,7 +304,7 @@ export class OIDCService extends PuterService {
         return null;
     }
 
-    // ── User lookup / creation ──────────────────────────────────────
+    // -- User lookup / creation --------------------------------------
 
     async findUserByProviderSub(
         provider: string,
@@ -589,7 +589,7 @@ export class OIDCService extends PuterService {
         return { success: true, user: resolved };
     }
 
-    // ── Internals ───────────────────────────────────────────────────
+    // -- Internals ---------------------------------------------------
 
     async #fetchDiscovery(
         url: string,

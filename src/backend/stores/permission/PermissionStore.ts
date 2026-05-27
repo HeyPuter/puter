@@ -37,7 +37,7 @@ const TOKEN_CACHE_TTL_SECONDS = 10 * 60;
 // The canonical definition lives in `UserStore`, which owns the user table.
 export type { UserRow };
 
-// ── Types ────────────────────────────────────────────────────────────
+// -- Types ------------------------------------------------------------
 
 export interface FlatPermValue {
     permission?: string;
@@ -94,7 +94,7 @@ export interface AuditEntry {
 export class PermissionStore extends PuterStore {
     declare protected stores: LayerInstances<typeof puterStores>;
 
-    // ── Flat view (KV under system namespace) ────────────────────────
+    // -- Flat view (KV under system namespace) ------------------------
 
     /**
      * Read the flat user-to-user permissions for a holder across a set of
@@ -151,7 +151,7 @@ export class PermissionStore extends PuterStore {
         await this.stores.kv.del({ key });
     }
 
-    // ── SQL: user-to-user permissions ───────────────────────────────
+    // -- SQL: user-to-user permissions -------------------------------
 
     async readLinkedUserUserPerms(
         holderUserId: number,
@@ -234,7 +234,7 @@ export class PermissionStore extends PuterStore {
         return rows.map((r) => Number(r.issuer_user_id));
     }
 
-    // ── SQL: user-to-app permissions ────────────────────────────────
+    // -- SQL: user-to-app permissions --------------------------------
 
     async readUserAppPerms(
         userId: number,
@@ -330,7 +330,7 @@ export class PermissionStore extends PuterStore {
         );
     }
 
-    // ── SQL: dev-to-app permissions ─────────────────────────────────
+    // -- SQL: dev-to-app permissions ---------------------------------
 
     async readDevAppPerms(
         appId: number,
@@ -412,7 +412,7 @@ export class PermissionStore extends PuterStore {
         );
     }
 
-    // ── SQL: user-to-group permissions ──────────────────────────────
+    // -- SQL: user-to-group permissions ------------------------------
 
     /**
      * Reads group permissions granted to groups the user is a member of, for
@@ -495,7 +495,7 @@ export class PermissionStore extends PuterStore {
         );
     }
 
-    // ── SQL: access token permissions ───────────────────────────────
+    // -- SQL: access token permissions -------------------------------
 
     async hasAccessTokenPerm(
         tokenUid: string,
@@ -512,7 +512,7 @@ export class PermissionStore extends PuterStore {
         });
     }
 
-    // ── SQL: issuer-prefix queries (share discovery, etc.) ──────────
+    // -- SQL: issuer-prefix queries (share discovery, etc.) ----------
 
     async queryIssuerUserPermsByPrefix(
         issuerUserId: number,
@@ -557,7 +557,7 @@ export class PermissionStore extends PuterStore {
         return rows.map((r) => String(r.permission));
     }
 
-    // ── Scan cache (redis) ──────────────────────────────────────────
+    // -- Scan cache (redis) ------------------------------------------
 
     buildScanCacheKey(actorUid: string, permissionOptions: string[]): string {
         return PermissionUtil.join(
@@ -595,7 +595,7 @@ export class PermissionStore extends PuterStore {
         await this.publishCacheKeys({ keys: [cacheKey] });
     }
 
-    // ── Per-permission check cache (for `checkMany`) ─────────────────
+    // -- Per-permission check cache (for `checkMany`) -----------------
     //
     // Cached as `1`/`0` per (actor, permission) pair so a batch lookup
     // reduces to a single MGET. Same TTL as the scan cache — the
@@ -656,7 +656,7 @@ export class PermissionStore extends PuterStore {
         }
     }
 
-    // ── Internals ───────────────────────────────────────────────────
+    // -- Internals ---------------------------------------------------
 
     #u2uCacheKey(holderUserId: number): string {
         return `perms:u2u:holder:${holderUserId}`;

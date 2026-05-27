@@ -202,7 +202,7 @@ const makeUseFn = (): ExtensionUseFn => {
  *     proxy to the registered instance (thrown on use-before-init).
  */
 export const extension = {
-    // ── Config access ───────────────────────────────────────────────
+    // -- Config access -----------------------------------------------
     //
     // Lazy proxy to the server config. Populated by PuterServer during
     // boot, so extensions can read it at request time (not import time).
@@ -211,7 +211,7 @@ export const extension = {
         return configContainer;
     },
 
-    // ── Event subscription ───────────────────────────────────────────
+    // -- Event subscription -------------------------------------------
 
     on: <P extends ListenKey>(
         key: P,
@@ -228,7 +228,7 @@ export const extension = {
         extensionStore.events[key].push(callback as any);
     },
 
-    // ── Registry writers ─────────────────────────────────────────────
+    // -- Registry writers ---------------------------------------------
 
     registerClient: (
         name: string,
@@ -264,7 +264,7 @@ export const extension = {
         extensionStore.globalMiddlewares.push(middleware);
     },
 
-    // ── Route registration ───────────────────────────────────────────
+    // -- Route registration -------------------------------------------
     //
     // Supports two call shapes per verb:
     //   extension.get('/path', handler)
@@ -285,7 +285,7 @@ export const extension = {
     all: makeRouteFn('all'),
     use: makeUseFn(),
 
-    // ── Import proxy ─────────────────────────────────────────────────
+    // -- Import proxy -------------------------------------------------
 
     import: <S extends string>(
         name: S,

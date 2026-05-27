@@ -39,7 +39,7 @@ import { PuterController } from '../types.js';
 
 type DriverInstance = WithLifecycle & Record<string, unknown>;
 
-// ── /drivers/xd payload ─────────────────────────────────────────────
+// -- /drivers/xd payload ---------------------------------------------
 //
 // Self-contained HTML/JS shipped to the iframe consumer. Listens for
 // postMessage events shaped as `{ id, interface, method, params }`,
@@ -110,7 +110,7 @@ const XD_HTML = `<!DOCTYPE html>
     <body></body>
 </html>`;
 
-// ── Controller ──────────────────────────────────────────────────────
+// -- Controller ------------------------------------------------------
 
 /**
  * Routes driver RPC calls through a unified HTTP surface.
@@ -236,7 +236,7 @@ export class DriverController extends PuterController {
         this.#buildIfaceMap();
     }
 
-    // ── Lookup API (used by tests / internals) ──────────────────────
+    // -- Lookup API (used by tests / internals) ----------------------
 
     /** Resolve a driver by interface + optional name (default when omitted). */
     resolve(interfaceName: string, driverName?: string): DriverInstance | null {
@@ -260,7 +260,7 @@ export class DriverController extends PuterController {
         return this.#defaults.get(interfaceName);
     }
 
-    // ── Route registration ──────────────────────────────────────────
+    // -- Route registration ------------------------------------------
 
     registerRoutes(router: PuterRouter): void {
         router.post(
@@ -280,7 +280,7 @@ export class DriverController extends PuterController {
         );
     }
 
-    // ── Handlers ────────────────────────────────────────────────────
+    // -- Handlers ----------------------------------------------------
 
     #handleCall = async (req: Request, res: Response): Promise<void> => {
         const {
@@ -494,7 +494,7 @@ export class DriverController extends PuterController {
         res.send(XD_HTML);
     };
 
-    // ── Internals ───────────────────────────────────────────────────
+    // -- Internals ---------------------------------------------------
 
     #buildIfaceMap(): void {
         const bag = this.drivers as unknown as Record<string, DriverInstance>;

@@ -95,7 +95,7 @@ const RESERVED_USERNAMES = new Set([
  */
 @Controller('')
 export class AuthController extends PuterController {
-    // ── Login ───────────────────────────────────────────────────────
+    // -- Login -------------------------------------------------------
 
     @Post('/login', {
         captcha: true,
@@ -201,7 +201,7 @@ export class AuthController extends PuterController {
         await this.#completeLogin(req, res, user);
     }
 
-    // ── Login: OTP verification ─────────────────────────────────────
+    // -- Login: OTP verification -------------------------------------
 
     @Post('/login/otp', {
         captcha: true,
@@ -261,7 +261,7 @@ export class AuthController extends PuterController {
         await this.#completeLogin(req, res, user);
     }
 
-    // ── Login: recovery code ────────────────────────────────────────
+    // -- Login: recovery code ----------------------------------------
 
     @Post('/login/recovery-code', {
         captcha: true,
@@ -334,7 +334,7 @@ export class AuthController extends PuterController {
         await this.#completeLogin(req, res, user);
     }
 
-    // ── Signup ──────────────────────────────────────────────────────
+    // -- Signup ------------------------------------------------------
 
     @Post('/signup', {
         captcha: true,
@@ -580,7 +580,7 @@ export class AuthController extends PuterController {
 
         let user;
         if (pseudo_user) {
-            // ── Pseudo-user claim (convert the placeholder row) ──
+            // -- Pseudo-user claim (convert the placeholder row) --
             await this.stores.user.update(pseudo_user.id, {
                 username: body.username,
                 password: password_hash,
@@ -621,7 +621,7 @@ export class AuthController extends PuterController {
                 force: true,
             });
         } else {
-            // ── New user ────────────────────────────────────────
+            // -- New user ----------------------------------------
             const clientIp = req.ip || req.socket?.remoteAddress || null;
             const proxyIpChain = req.headers['x-forwarded-for'];
 
@@ -666,7 +666,7 @@ export class AuthController extends PuterController {
             }
         }
 
-        // ── Provision FS home + default folders ─────────────────
+        // -- Provision FS home + default folders -----------------
         // Idempotent — skips if `user.trash_uuid` is already set (pseudo
         // users who went through a prior signup won't double-create).
         try {
@@ -679,7 +679,7 @@ export class AuthController extends PuterController {
             console.warn('[signup] generateDefaultFsentries failed:', e);
         }
 
-        // ── Send email confirmation ─────────────────────────────
+        // -- Send email confirmation -----------------------------
         if (
             !is_temp &&
             user!.requires_email_confirmation &&
@@ -752,7 +752,7 @@ export class AuthController extends PuterController {
         await this.#completeLogin(req, res, user!);
     }
 
-    // ── Logout ──────────────────────────────────────────────────────
+    // -- Logout ------------------------------------------------------
 
     @Post('/logout', {
         requireAuth: true,
@@ -785,7 +785,7 @@ export class AuthController extends PuterController {
         res.send('logged out');
     }
 
-    // ── Email confirmation ──────────────────────────────────────────
+    // -- Email confirmation ------------------------------------------
 
     @Post('/send-confirm-email', {
         subdomain: ['api', ''],
@@ -915,7 +915,7 @@ export class AuthController extends PuterController {
         res.json({ email_confirmed: true, original_client_socket_id });
     }
 
-    // ── Password recovery ───────────────────────────────────────────
+    // -- Password recovery -------------------------------------------
 
     @Post('/send-pass-recovery-email', {
         subdomain: ['api', ''],
@@ -1119,7 +1119,7 @@ export class AuthController extends PuterController {
         res.send('Password successfully updated.');
     }
 
-    // ── User-protected mutations ────────────────────────────────────
+    // -- User-protected mutations ------------------------------------
     //
     // The five `/user-protected/*` and `/user-protected/delete-own-user`
     // routes are wired in the `registerRoutes` override below because
@@ -1417,7 +1417,7 @@ export class AuthController extends PuterController {
         res.send('Email changed successfully. You may close this window.');
     }
 
-    // ── Save account (convert temp user to permanent) ───────────────
+    // -- Save account (convert temp user to permanent) ---------------
 
     @Post('/save_account', {
         subdomain: ['api', ''],
@@ -1607,7 +1607,7 @@ export class AuthController extends PuterController {
         });
     }
 
-    // ── Captcha generation ───────────────────────────────────────────
+    // -- Captcha generation -------------------------------------------
 
     @Get('/api/captcha/generate', { subdomain: '*' })
     async handleCaptchaGenerate(_req: Request, res: Response): Promise<void> {
@@ -1618,7 +1618,7 @@ export class AuthController extends PuterController {
         res.json({ token, image });
     }
 
-    // ── Anti-CSRF token generation ──────────────────────────────────
+    // -- Anti-CSRF token generation ----------------------------------
 
     @Get('/get-anticsrf-token', {
         requireAuth: true,
@@ -1634,7 +1634,7 @@ export class AuthController extends PuterController {
         res.json({ token });
     }
 
-    // ── Permission grants ───────────────────────────────────────────
+    // -- Permission grants -------------------------------------------
 
     @Post('/auth/grant-user-user', {
         subdomain: 'api',
@@ -1706,7 +1706,7 @@ export class AuthController extends PuterController {
         res.json({});
     }
 
-    // ── Permission revokes ──────────────────────────────────────────
+    // -- Permission revokes ------------------------------------------
 
     @Post('/auth/revoke-user-user', {
         subdomain: 'api',
@@ -1778,7 +1778,7 @@ export class AuthController extends PuterController {
         res.json({});
     }
 
-    // ── Permission checks ───────────────────────────────────────────
+    // -- Permission checks -------------------------------------------
 
     @Post('/auth/check-permissions', { subdomain: 'api', requireAuth: true })
     async handleCheckPermissions(req: Request, res: Response): Promise<void> {
@@ -1806,7 +1806,7 @@ export class AuthController extends PuterController {
         res.json({ permissions: result });
     }
 
-    // ── Session management ──────────────────────────────────────────
+    // -- Session management ------------------------------------------
 
     @Get('/auth/list-sessions', { subdomain: 'api', requireUserActor: true })
     async handleListSessions(req: Request, res: Response): Promise<void> {
@@ -1858,7 +1858,7 @@ export class AuthController extends PuterController {
         res.json({ sessions });
     }
 
-    // ── Dev app permissions ─────────────────────────────────────────
+    // -- Dev app permissions -----------------------------------------
 
     @Post('/auth/grant-dev-app', { subdomain: 'api', requireUserActor: true })
     async handleGrantDevApp(req: Request, res: Response): Promise<void> {
@@ -1913,7 +1913,7 @@ export class AuthController extends PuterController {
         res.json({});
     }
 
-    // ── Permission listing ──────────────────────────────────────────
+    // -- Permission listing ------------------------------------------
 
     @Get('/auth/list-permissions', {
         subdomain: 'api',
@@ -1975,7 +1975,7 @@ export class AuthController extends PuterController {
         });
     }
 
-    // ── App origin resolution ───────────────────────────────────────
+    // -- App origin resolution ---------------------------------------
 
     @Post('/auth/app-uid-from-origin', { subdomain: 'api', requireAuth: true })
     async handleAppUidFromOrigin(req: Request, res: Response): Promise<void> {
@@ -1988,7 +1988,7 @@ export class AuthController extends PuterController {
         res.json({ uid });
     }
 
-    // ── App token + check ───────────────────────────────────────────
+    // -- App token + check -------------------------------------------
 
     @Post('/auth/get-user-app-token', {
         subdomain: 'api',
@@ -2092,7 +2092,7 @@ export class AuthController extends PuterController {
         res.json(result);
     }
 
-    // ── Access tokens ───────────────────────────────────────────────
+    // -- Access tokens -----------------------------------------------
 
     async handleMigrateToken(req: Request, res: Response): Promise<void> {
         // 1. Origin lock. Reject anything that isn't same-origin to
@@ -2213,7 +2213,7 @@ export class AuthController extends PuterController {
         res.json({ ok: true });
     }
 
-    // ── 2FA: configure ──────────────────────────────────────────────
+    // -- 2FA: configure ----------------------------------------------
 
     @Post('/auth/configure-2fa/:action', {
         subdomain: 'api',
@@ -2316,7 +2316,7 @@ export class AuthController extends PuterController {
         });
     }
 
-    // ── 2FA: disable (user-protected, wired in registerRoutes below) ─
+    // -- 2FA: disable (user-protected, wired in registerRoutes below) -
 
     async handleDisable2fa(req: Request, res: Response): Promise<void> {
         const user = await this.stores.user.getById(req.actor!.user.id!, {
@@ -2346,7 +2346,7 @@ export class AuthController extends PuterController {
         res.json({ success: true });
     }
 
-    // ── Developer profile ───────────────────────────────────────────
+    // -- Developer profile -------------------------------------------
 
     @Get('/get-dev-profile', { subdomain: 'api', requireUserActor: true })
     async handleGetDevProfile(req: Request, res: Response): Promise<void> {
@@ -2376,7 +2376,7 @@ export class AuthController extends PuterController {
         });
     }
 
-    // ── Group management ────────────────────────────────────────────
+    // -- Group management --------------------------------------------
 
     @Post('/group/create', { subdomain: 'api', requireUserActor: true })
     async handleGroupCreate(req: Request, res: Response): Promise<void> {
@@ -2482,7 +2482,7 @@ export class AuthController extends PuterController {
         });
     }
 
-    // ── Session helpers ─────────────────────────────────────────────
+    // -- Session helpers ---------------------------------------------
 
     @Get('/get-gui-token', {
         requireUserActor: true,
@@ -2530,7 +2530,7 @@ export class AuthController extends PuterController {
         res.status(204).end();
     }
 
-    // ── Delete own account (user-protected, wired below) ────────────
+    // -- Delete own account (user-protected, wired below) ------------
     //
     // Purge S3 objects + fsentries first, then the user row. FK
     // cascades on most related tables are `ON DELETE SET NULL` (not
@@ -2545,7 +2545,7 @@ export class AuthController extends PuterController {
         res.json({ success: true });
     }
 
-    // ── registerRoutes override ─────────────────────────────────────
+    // -- registerRoutes override -------------------------------------
     //
     // The `@Controller('')` decorator would normally install a default
     // `registerRoutes` walker that iterates `prototype[__puterRoutes]`.
@@ -2588,7 +2588,7 @@ export class AuthController extends PuterController {
             routerMethod.call(router, r.path, r.options, bound);
         }
 
-        // ── User-protected routes (per-instance middleware) ──────────
+        // -- User-protected routes (per-instance middleware) ----------
         const userProtectedDeps = {
             config: this.config,
             userStore: this.stores.user,
@@ -2745,7 +2745,7 @@ export class AuthController extends PuterController {
         );
     }
 
-    // ── Private helpers ──────────────────────────────────────────────
+    // -- Private helpers ----------------------------------------------
 
     async #cascadeDeleteUser(userId: number): Promise<void> {
         try {

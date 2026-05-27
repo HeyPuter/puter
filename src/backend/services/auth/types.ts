@@ -21,7 +21,7 @@
 // — auth-related fields (`actor`, `token`) are declared there alongside the
 // other request-level fields populated by global middleware.
 
-// ── Token payload shapes (after `TokenService.verify` decompression) ──
+// -- Token payload shapes (after `TokenService.verify` decompression) --
 
 /**
  * Base fields every auth token carries.
@@ -94,7 +94,7 @@ export type AnyTokenPayload =
     | AppUnderUserTokenPayload
     | AccessTokenPayload;
 
-// ── Session row (from `sessions` table) ────────────────────────────
+// -- Session row (from `sessions` table) ----------------------------
 
 export interface SessionRow {
     id: number;

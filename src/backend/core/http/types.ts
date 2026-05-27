@@ -274,7 +274,7 @@ export const ROUTES_METADATA_KEY = '__puterRoutes' as const;
 /** Internal: the property name used to stash a controller's path prefix. */
 export const PREFIX_METADATA_KEY = '__puterControllerPrefix' as const;
 
-// ── Type narrowing helpers ──────────────────────────────────────────
+// -- Type narrowing helpers ------------------------------------------
 //
 // When a route declares a gate option (requireAuth, requireUserActor,
 // adminOnly, allowedAppIds), the materializer guarantees the corresponding

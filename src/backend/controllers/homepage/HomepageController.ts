@@ -72,7 +72,7 @@ export class HomepageController extends PuterController {
             await homepage.send({ req, res, actor }, meta, launch);
         };
 
-        // ── Root + path-aliased shell routes ────────────────────────
+        // -- Root + path-aliased shell routes ------------------------
 
         router.get('/', {}, (req, res) => sendShell(req, res));
 
@@ -86,7 +86,7 @@ export class HomepageController extends PuterController {
 
         router.get('/@:username', {}, (req, res) => sendShell(req, res));
 
-        // ── /app/:name ─ app metadata baked into the shell ──────────
+        // -- /app/:name - app metadata baked into the shell ----------
 
         router.get('/app/:name', {}, async (req, res) => {
             const name = String(req.params.name ?? '');
@@ -122,7 +122,7 @@ export class HomepageController extends PuterController {
             });
         });
 
-        // ── /show/* ─ launch explorer with the requested file path ──
+        // -- /show/* - launch explorer with the requested file path --
 
         router.get('/show/*splat', {}, (req, res) => {
             const filePath = req.path.slice('/show'.length);
@@ -138,7 +138,7 @@ export class HomepageController extends PuterController {
             return sendShell(req, res, {}, launch);
         });
 
-        // ── Fallback static mount ───────────────────────────────────
+        // -- Fallback static mount -----------------------------------
         // Serves lingering GUI assets (images, fonts, lib files, etc.)
         // out of <gui_assets_root>/src. Falls through to the 404 handler
         // when the file doesn't exist.
