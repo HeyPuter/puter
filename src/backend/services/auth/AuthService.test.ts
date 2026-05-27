@@ -517,6 +517,241 @@ describe('AuthService (integration)', () => {
                 await server.stores.session.getByUuid(sessionUuid),
             ).toBeFalsy();
         });
+
+        it('listSessions excludes kind="asset" rows', async () => {
+            // Asset rows are per-cookie children of `web` rows, revoked
+            // transitively via the cascade — surfacing them in the
+            // manage-sessions UI as standalone entries would be confusing.
+            const user = await makeUser();
+            const { session: webSession } =
+                await authService.createSessionToken(user, {});
+            const webUuid = (webSession as { uuid: string }).uuid;
+            const assetRow = await server.stores.session.create(user.id, {
+                kind: 'asset',
+                parent_session_id: webUuid,
+            });
+            const actor = {
+                user: { id: user.id, uuid: user.uuid, username: user.username },
+                session: { uid: webUuid },
+            } as unknown as Actor;
+            const rows = await authService.listSessions(actor);
+            expect(
+                rows.find(
+                    (r) =>
+                        (r as { uuid: string }).uuid ===
+                        (assetRow as { uuid: string }).uuid,
+                ),
+            ).toBeUndefined();
+            expect(
+                rows.find((r) => (r as { uuid: string }).uuid === webUuid),
+            ).toBeTruthy();
+        });
+
+        it('listSessions enriches rows with kind / expires_at / last_ip / created_via', async () => {
+            // Manage-sessions GUI keys on these fields to render the rich
+            // row layout (kind badge, IP, expires-in). Lock the shape so
+            // future GUI work can rely on them.
+            const user = await makeUser();
+            const { session } = await authService.createSessionToken(user, {
+                user_agent: 'shape-probe',
+                ip: '203.0.113.7',
+            });
+            const sessionUuid = (session as { uuid: string }).uuid;
+            const actor = {
+                user: { id: user.id, uuid: user.uuid, username: user.username },
+                session: { uid: sessionUuid },
+            } as unknown as Actor;
+            const rows = await authService.listSessions(actor);
+            const row = rows.find(
+                (r) => (r as { uuid: string }).uuid === sessionUuid,
+            ) as Record<string, unknown> | undefined;
+            expect(row).toBeTruthy();
+            expect(row!.kind).toBe('web');
+            expect(typeof row!.created_at).toBe('number');
+            expect(typeof row!.last_activity).toBe('number');
+            expect(row!.expires_at).toEqual(expect.any(Number));
+            expect(row!.last_ip).toBe('203.0.113.7');
+            // app_uid / app are null for web rows; present for app rows.
+            expect(row!.app_uid).toBeNull();
+            expect(row!.app).toBeNull();
+        });
+
+        it('listSessions joins kind="app" rows with the apps table', async () => {
+            // App rows carry an `app_uid`; AuthService.listSessions does a
+            // batch lookup against the apps table so the GUI doesn't need a
+            // second round trip. If the app row exists, the response
+            // includes a non-null `app: { uid, name, title, icon }`.
+            const user = await makeUser();
+            const appUid = `app-${uuidv4()}`;
+            await server.clients.db.write(
+                'INSERT INTO `apps` (`uid`, `name`, `title`, `icon`, `description`, `index_url`, `owner_user_id`) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                [
+                    appUid,
+                    `app_name_${Math.random().toString(36).slice(2, 10)}`,
+                    'Listed App Title',
+                    'data:image/png;base64,ICON',
+                    '',
+                    `https://${Math.random().toString(36).slice(2, 10)}.example`,
+                    user.id ?? null,
+                ],
+            );
+            await server.stores.session.create(user.id, {
+                kind: 'app',
+                app_uid: appUid,
+            });
+            const actor = {
+                user: { id: user.id, uuid: user.uuid, username: user.username },
+            } as unknown as Actor;
+            const rows = await authService.listSessions(actor);
+            const appRow = rows.find(
+                (r) => (r as { kind?: string }).kind === 'app',
+            ) as Record<string, unknown> | undefined;
+            expect(appRow).toBeTruthy();
+            expect(appRow!.app_uid).toBe(appUid);
+            const app = appRow!.app as { title: string; icon: string };
+            expect(app.title).toBe('Listed App Title');
+            expect(app.icon).toBe('data:image/png;base64,ICON');
+        });
+
+        it('listSessions sorts the actor’s current session first, then by last_activity desc', async () => {
+            // Manage-sessions GUI anchors "you are here" at the top of the
+            // list; downstream rendering doesn't re-sort, so the backend
+            // order is what users see.
+            const user = await makeUser();
+            const { session: olderSession } =
+                await authService.createSessionToken(user, {});
+            const { session: newerSession } =
+                await authService.createSessionToken(user, {});
+            const { session: currentSession } =
+                await authService.createSessionToken(user, {});
+            const olderUuid = (olderSession as { uuid: string }).uuid;
+            const newerUuid = (newerSession as { uuid: string }).uuid;
+            const currentUuid = (currentSession as { uuid: string }).uuid;
+            // Bump `last_activity` to FUTURE values — updateActivity has
+            // a `last_activity < ?` guard that skips no-op updates, so
+            // any past timestamp gets silently dropped after the fresh
+            // rows created above stamped `last_activity = now`.
+            const future = Math.floor(Date.now() / 1000) + 60_000;
+            await server.stores.session.updateActivity(olderUuid, future);
+            await server.stores.session.updateActivity(newerUuid, future + 1000);
+            const actor = {
+                user: { id: user.id, uuid: user.uuid, username: user.username },
+                session: { uid: currentUuid },
+            } as unknown as Actor;
+            const rows = await authService.listSessions(actor);
+            const ourRows = rows.filter((r) =>
+                [olderUuid, newerUuid, currentUuid].includes(
+                    (r as { uuid: string }).uuid,
+                ),
+            );
+            expect(
+                (ourRows[0] as { uuid: string; current: boolean }).uuid,
+            ).toBe(currentUuid);
+            expect((ourRows[0] as { current: boolean }).current).toBe(true);
+            // Newer non-current row comes before the older one.
+            const newerIdx = ourRows.findIndex(
+                (r) => (r as { uuid: string }).uuid === newerUuid,
+            );
+            const olderIdx = ourRows.findIndex(
+                (r) => (r as { uuid: string }).uuid === olderUuid,
+            );
+            expect(newerIdx).toBeLessThan(olderIdx);
+        });
+    });
+
+    describe('createWorkerSessionToken / createWorkerAppToken', () => {
+        // The test config's v2 jwt_secret is the source of truth for
+        // verifying claims; go through TokenService to mirror how
+        // production decodes the same tokens.
+        const decodeAuth = (token: string): Record<string, unknown> => {
+            return server.services.token.verify('auth', token) as Record<
+                string,
+                unknown
+            >;
+        };
+
+        it('createWorkerSessionToken mints a kind="web" row tagged meta.worker, with the WORKER_WINDOW_SECONDS expiry', async () => {
+            const user = await makeUser();
+            const before = Math.floor(Date.now() / 1000);
+            const { session, token, gui_token } =
+                await authService.createWorkerSessionToken(user, {
+                    user_agent: 'worker-agent',
+                });
+
+            const row = (await server.stores.session.getByUuid(
+                (session as { uuid: string }).uuid,
+            )) as Record<string, unknown>;
+            expect(row.kind).toBe('web');
+            // expires_at lands in the ~99-year window — assert lower
+            // bound only so the test isn't fragile to small drift or a
+            // future constant adjustment.
+            expect(row.expires_at as number).toBeGreaterThanOrEqual(
+                before + 50 * 365 * 24 * 60 * 60,
+            );
+            const meta =
+                typeof row.meta === 'string'
+                    ? (JSON.parse(row.meta as string) as Record<
+                          string,
+                          unknown
+                      >)
+                    : (row.meta as Record<string, unknown>);
+            expect(meta.worker).toBe(true);
+
+            // Both JWTs carry the worker claim so downstream code can
+            // distinguish without re-reading the session row.
+            expect(decodeAuth(token).worker).toBe(true);
+            expect(decodeAuth(gui_token).worker).toBe(true);
+        });
+
+        it('createWorkerAppToken mints a kind="app" row tagged meta.worker, with the WORKER_WINDOW_SECONDS expiry', async () => {
+            const user = await makeUser();
+            // Existing AuthService surfaces (e.g. getUserAppToken in the
+            // tests below) shape app_uid as `app-${uuid}` — keep the
+            // same shape here so any downstream validator that asserts
+            // on the hyphenated form doesn't reject the row.
+            const appUid = `app-${uuidv4()}`;
+            const actor = {
+                user: { id: user.id, uuid: user.uuid, username: user.username },
+            } as Actor;
+            const before = Math.floor(Date.now() / 1000);
+            const token = await authService.createWorkerAppToken(
+                actor,
+                appUid,
+            );
+
+            const decoded = decodeAuth(token);
+            expect(decoded.type).toBe('app-under-user');
+            expect(decoded.worker).toBe(true);
+            expect(decoded.app_uid).toBe(appUid);
+            expect(decoded.user_uid).toBe(user.uuid);
+
+            const sessionUid = decoded.session_uid as string;
+            const row = (await server.stores.session.getByUuid(
+                sessionUid,
+            )) as Record<string, unknown>;
+            expect(row.kind).toBe('app');
+            expect(row.app_uid).toBe(appUid);
+            expect(row.expires_at as number).toBeGreaterThanOrEqual(
+                before + 50 * 365 * 24 * 60 * 60,
+            );
+            const meta =
+                typeof row.meta === 'string'
+                    ? (JSON.parse(row.meta as string) as Record<
+                          string,
+                          unknown
+                      >)
+                    : (row.meta as Record<string, unknown>);
+            expect(meta.worker).toBe(true);
+        });
+
+        it('createWorkerAppToken refuses an actor with no user (403)', async () => {
+            await expect(
+                authService.createWorkerAppToken(
+                    { user: undefined } as unknown as Actor,
+                    'app-x',
+                ),
+            ).rejects.toMatchObject({ statusCode: 403 });
+        });
     });
 
     describe('appUidFromOrigin', () => {

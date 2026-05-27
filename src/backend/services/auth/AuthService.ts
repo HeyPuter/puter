@@ -24,6 +24,7 @@ import { checkRateLimit } from '../../core/http/middleware/rateLimit.js';
 import {
     ASSET_WINDOW_SECONDS,
     WEB_WINDOW_SECONDS,
+    WORKER_WINDOW_SECONDS,
 } from '../../stores/session/SessionStore.js';
 import type { UserRow } from '../../stores/user/UserStore';
 import type { LayerInstances } from '../../types';
@@ -197,8 +198,9 @@ export class AuthService extends PuterService {
         user: UserRow,
         sessionUuid: string,
         authId: string,
+        opts: { worker?: boolean } = {},
     ): string {
-        return this.services.token.sign('auth', {
+        const claims: Record<string, unknown> = {
             type,
             version: '2',
             // `uuid` retained alongside `session_uid` so any legacy reader
@@ -208,6 +210,93 @@ export class AuthService extends PuterService {
             session_uid: sessionUuid,
             user_uid: user.uuid,
             auth_id: authId,
+        };
+        if (opts.worker) claims.worker = true;
+        return this.services.token.sign('auth', claims);
+    }
+
+    /**
+     * Worker variant of `createSessionToken`. Mints a new `kind='web'`
+     * session row tagged `meta.worker = true` and expiring after
+     * `WORKER_WINDOW_SECONDS` (vs. WEB_WINDOW_SECONDS for an interactive
+     * session). The emitted JWT carries `worker: true` so downstream
+     * code can tell a worker session from a user-driven one without a
+     * DB round-trip. Same return shape as createSessionToken.
+     */
+    async createWorkerSessionToken(
+        user: UserRow,
+        meta: Record<string, unknown> = {},
+    ): Promise<{
+        session: Record<string, unknown>;
+        token: string;
+        gui_token: string;
+    }> {
+        const auth_id = this.#authIdFor(user);
+        const session = await this.stores.session.create(user.id, {
+            meta: { ...meta, worker: true },
+            kind: 'web',
+            last_ip: (meta.ip as string | undefined) ?? null,
+            last_user_agent: (meta.user_agent as string | undefined) ?? null,
+            expires_at: nowSeconds() + WORKER_WINDOW_SECONDS,
+            auth_id,
+        });
+
+        const token = this.#signSessionTypeToken(
+            'session',
+            user,
+            session.uuid,
+            auth_id,
+            { worker: true },
+        );
+        const gui_token = this.#signSessionTypeToken(
+            'gui',
+            user,
+            session.uuid,
+            auth_id,
+            { worker: true },
+        );
+
+        return { session, token, gui_token };
+    }
+
+    /**
+     * Worker variant of `getUserAppToken`. Bypasses the idempotent
+     * `getOrCreateApp` path (which would return the existing
+     * interactive app session at WEB/APP_WINDOW_SECONDS) and creates a
+     * fresh `kind='app'` row tagged `meta.worker = true` with a
+     * `WORKER_WINDOW_SECONDS` expiry. The emitted JWT is shaped like a
+     * standard app-under-user token plus a `worker: true` claim so the
+     * downstream consumer can tell them apart.
+     *
+     * NOTE: the v2 `idx_sessions_user_app_active` index ensures one
+     * active app row per (user, app). A worker session here will
+     * collide with an existing non-worker app session for the same
+     * (user, app) pair. Future schema work can carve workers out of
+     * that uniqueness; for now callers must accept that constraint.
+     */
+    async createWorkerAppToken(actor: Actor, appUid: string): Promise<string> {
+        if (!actor.user) {
+            throw new HttpError(403, 'Actor must be a user', {
+                legacyCode: 'forbidden',
+            });
+        }
+        const auth_id = this.#authIdFor(actor.user as UserRow);
+        const session = await this.stores.session.create(actor.user.id, {
+            meta: { worker: true },
+            kind: 'app',
+            app_uid: appUid,
+            expires_at: nowSeconds() + WORKER_WINDOW_SECONDS,
+            auth_id,
+        });
+
+        return this.services.token.sign('auth', {
+            type: 'app-under-user',
+            version: '2',
+            user_uid: actor.user.uuid,
+            app_uid: appUid,
+            session_uid: session.uuid,
+            auth_id,
+            worker: true,
         });
     }
 

@@ -21,6 +21,10 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 import { setupTestServer } from '../../testUtil.ts';
 import { PuterServer } from '../../server.ts';
+import {
+    APP_WINDOW_SECONDS,
+    WEB_WINDOW_SECONDS,
+} from './SessionStore.js';
 
 describe('SessionStore', () => {
     let server: PuterServer;
@@ -282,11 +286,13 @@ describe('SessionStore', () => {
             expect(row.app_uid).toBe(appUid);
             expect(row.parent_session_id).toBeNull();
             expect(row.user_id).toBe(user.id);
-            // Sliding window seeded — 90 days for app.
+            // Sliding window seeded for app — bound matches the live
+            // APP_WINDOW_SECONDS constant so a future bump to the window
+            // doesn't silently fail this assertion.
             const now = Math.floor(Date.now() / 1000);
             expect(row.expires_at).toBeGreaterThan(now);
             expect(row.expires_at).toBeLessThanOrEqual(
-                now + 90 * 24 * 60 * 60 + 5,
+                now + APP_WINDOW_SECONDS + 5,
             );
         });
 
@@ -370,13 +376,15 @@ describe('SessionStore', () => {
             await target.updateActivity(session.uuid, now);
 
             const row = await rawRow(session.uuid);
-            // After slide, expires_at = now + 30d (within a tolerance
-            // for between-statement wall-clock drift).
+            // After slide, expires_at = now + WEB_WINDOW_SECONDS (within
+            // a tolerance for between-statement wall-clock drift). Use
+            // the constant directly so a future window bump doesn't
+            // need a parallel edit here.
             expect(row.expires_at).toBeGreaterThanOrEqual(
-                now + 30 * 24 * 60 * 60 - 5,
+                now + WEB_WINDOW_SECONDS - 5,
             );
             expect(row.expires_at).toBeLessThanOrEqual(
-                now + 30 * 24 * 60 * 60 + 5,
+                now + WEB_WINDOW_SECONDS + 5,
             );
         });
 

@@ -45,8 +45,9 @@ const TOUCH_THROTTLE_MAX_ENTRIES = 10000;
 // session never expires. `access_token` rows are *not* slid — their
 // `expires_at` is hard-set at mint to the caller-specified value.
 // Exported so AuthService can use the same values when seeding new rows.
-export const WEB_WINDOW_SECONDS = 30 * 24 * 60 * 60; // 30 days
-export const APP_WINDOW_SECONDS = 90 * 24 * 60 * 60; // 90 days
+export const WEB_WINDOW_SECONDS = 365 * 24 * 60 * 60; // 1y
+export const APP_WINDOW_SECONDS = 365 * 24 * 60 * 60; // 1y
+export const WORKER_WINDOW_SECONDS = 99 * 365 * 24 * 60 * 60; // 99y (virtually infinite); TODO DS: have workers pass in flag when creating worker token so that we can give them infinite time
 export const ASSET_WINDOW_SECONDS = 7 * 24 * 60 * 60; // 7 days
 
 const sqlTimestamp = (ms) =>
