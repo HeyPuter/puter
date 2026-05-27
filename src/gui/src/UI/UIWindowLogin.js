@@ -454,16 +454,25 @@ async function UIWindowLogin (options) {
             }
 
             // Prepare data for the request
+            // PUT-1023 (GUI-1) — when this login was triggered by a 401
+            // reauth_required, forward `auth_id` (and the originating
+            // reason) so the backend can re-attach the user/session to the
+            // same stable identity (consumed by GUI-2).
+            const reauth_payload = options.auth_id
+                ? { auth_id: options.auth_id, reauth_reason: options.reauth_reason }
+                : {};
             let data;
             if ( window.is_email(email_username) ) {
                 data = JSON.stringify({
                     email: email_username,
                     password: password,
+                    ...reauth_payload,
                 });
             } else {
                 data = JSON.stringify({
                     username: email_username,
                     password: password,
+                    ...reauth_payload,
                 });
             }
 

@@ -130,9 +130,9 @@ function UIWindowEmailConfirmationRequired (options) {
                         'Authorization': `Bearer ${window.auth_token}`,
                     },
                     statusCode: {
-                        401: function () {
-                            window.logout();
-                        },
+                        401: function (xhr) {
+                        window.handle401(xhr);
+                    },
                     },
                     success: function (res) {
                         if ( res.email_confirmed ) {
@@ -176,8 +176,8 @@ function UIWindowEmailConfirmationRequired (options) {
                     'Authorization': `Bearer ${window.auth_token}`,
                 },
                 statusCode: {
-                    401: function () {
-                        window.logout();
+                    401: function (xhr) {
+                        window.handle401(xhr);
                     },
                 },
                 success: async function (res) {

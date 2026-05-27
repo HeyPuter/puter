@@ -1422,8 +1422,8 @@ const ipc_listener = async (event, handled) => {
                     'Authorization': `Bearer ${window.auth_token}`,
                 },
                 statusCode: {
-                    401: function () {
-                        window.logout();
+                    401: function (xhr) {
+                        window.handle401(xhr);
                     },
                 },
             });

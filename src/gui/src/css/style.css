@@ -5066,9 +5066,55 @@ html.dark-mode .usage-table-show-less:hover {
 .session-widget-meta {
     display: flex;
     flex-direction: column;
-    gap: 10px;
-    max-height: 100px;
-    overflow-y: scroll;
+    gap: 6px;
+}
+
+.session-widget-header {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 4px;
+}
+
+.session-widget-app-icon {
+    width: 24px;
+    height: 24px;
+    border-radius: 4px;
+    flex-shrink: 0;
+}
+
+.session-widget-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: #222;
+    flex-grow: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.session-widget-badges {
+    display: flex;
+    flex-direction: row;
+    gap: 4px;
+    flex-shrink: 0;
+}
+
+.session-widget-badge {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 2px 6px;
+    border-radius: 10px;
+    background-color: #e0e0e0;
+    color: #555;
+}
+
+.session-widget-badge-current {
+    background-color: #1f7a3a;
+    color: #fff;
 }
 
 .session-widget-meta-entry {
