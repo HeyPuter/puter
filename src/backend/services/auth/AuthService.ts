@@ -30,6 +30,7 @@ import type { LayerInstances } from '../../types';
 import { sessionCookieFlags } from '../../util/cookieFlags.js';
 import type { puterServices } from '../index';
 import { PuterService } from '../types';
+import { V1TokensDisabledError } from './TokenService';
 import type {
     AccessTokenPayload,
     AnyTokenPayload,
@@ -134,14 +135,29 @@ export class AuthService extends PuterService {
         return { authId: decoded.auth_id };
     }
 
-    async authenticate(token: string): Promise<AuthResult> {
+    async authenticate(
+        token: string,
+        ctx: { ip?: string; userAgent?: string } = {},
+    ): Promise<AuthResult> {
         let decoded: AnyTokenPayload;
         try {
             decoded = this.services.token.verify<AnyTokenPayload>(
                 'auth',
                 token,
             );
-        } catch {
+        } catch (err) {
+            // v1 tokens disabled — surface a `reauth_required` signal
+            // with an advisory `auth_id` hint so stragglers on cached
+            // old bundles see the re-login modal instead of a bare 401.
+            // The hint is read from the *unverified* payload; it's only
+            // used to label the response, never to grant access.
+            if (err instanceof V1TokensDisabledError) {
+                const hint = err.payload;
+                const auth_id =
+                    (hint.auth_id as string | undefined) ??
+                    (hint.user_uid as string | undefined);
+                return { reauth: { reason: 'token_v1', auth_id } };
+            }
             return { invalid: true };
         }
 
@@ -152,13 +168,13 @@ export class AuthService extends PuterService {
         switch (decoded.type) {
             case 'session':
             case 'gui':
-                result = await this.#actorFromSessionToken(decoded);
+                result = await this.#actorFromSessionToken(decoded, ctx);
                 break;
             case 'app-under-user':
-                result = await this.#actorFromAppUnderUserToken(decoded);
+                result = await this.#actorFromAppUnderUserToken(decoded, ctx);
                 break;
             case 'access-token':
-                result = await this.#actorFromAccessTokenToken(decoded);
+                result = await this.#actorFromAccessTokenToken(decoded, ctx);
                 break;
             default:
                 return { invalid: true };
@@ -397,20 +413,35 @@ export class AuthService extends PuterService {
     }
 
     async removeSessionByToken(token: string): Promise<void> {
-        let decoded: AnyTokenPayload;
+        // Try the signed path first. If verify fails (typically because
+        // the JWT expired between authProbe and this logout call —
+        // `req.token` was valid at probe time but the user took a while
+        // before clicking logout), fall back to an *unverified* decode
+        // (with the same decompression as the verified path) just to
+        // recover the `session_uid` so the row still gets soft-revoked.
+        // The recovered uuid is only used as a `revokeCascade` pointer;
+        // a forged uuid (worst case for an unverified read) can't
+        // escalate — `revokeCascade` is a no-op against unknown rows
+        // and only flips `revoked_at` on existing ones.
+        let decoded: AnyTokenPayload | null = null;
         try {
             decoded = this.services.token.verify<AnyTokenPayload>(
                 'auth',
                 token,
             );
         } catch {
-            return;
+            decoded = this.services.token.decodeWithoutVerify<AnyTokenPayload>(
+                'auth',
+                token,
+            );
         }
+        if (!decoded) return;
         if (decoded.type !== 'session' && decoded.type !== 'gui') return;
         const sessionPayload = decoded as SessionTokenPayload;
         const sessionUuid =
             (sessionPayload.session_uid as string | undefined) ??
             sessionPayload.uuid;
+        if (!sessionUuid) return;
         await this.stores.session.revokeCascade(sessionUuid);
     }
 
@@ -466,10 +497,12 @@ export class AuthService extends PuterService {
                 kind: row.kind,
                 current: isCurrent,
                 label: row.label ?? null,
+                parent_session_id: row.parent_session_id ?? null,
                 created_at: row.created_at,
                 last_activity: row.last_activity,
                 expires_at: row.expires_at ?? null,
                 last_ip: row.last_ip ?? null,
+                last_user_agent: row.last_user_agent ?? null,
                 created_via: row.created_via ?? null,
                 app_uid: appUid,
                 app: app
@@ -503,6 +536,59 @@ export class AuthService extends PuterService {
      */
     async revokeSession(uuid: string): Promise<void> {
         await this.stores.session.revokeCascade(uuid);
+    }
+
+    /**
+     * Rename a session's user-visible label. Throws 404 when the row
+     * doesn't exist or belongs to another user — ownership is enforced
+     * inside `SessionStore.setLabel` via the (uuid, user_id) WHERE
+     * clause, so the 404 vs 403 distinction is collapsed (a user can't
+     * tell from this endpoint whether a uuid exists under another
+     * account).
+     */
+    async setSessionLabel(
+        actor: Actor,
+        uuid: string,
+        label: string | null,
+    ): Promise<void> {
+        if (!actor.user) {
+            throw new HttpError(403, 'Actor must be a user', {
+                legacyCode: 'forbidden',
+            });
+        }
+        const trimmed =
+            typeof label === 'string' ? label.trim().slice(0, 64) : null;
+        const ok = await this.stores.session.setLabel(
+            uuid,
+            actor.user.id as number,
+            trimmed && trimmed.length > 0 ? trimmed : null,
+        );
+        if (!ok) {
+            throw new HttpError(404, 'Session not found', {
+                legacyCode: 'not_found',
+            });
+        }
+    }
+
+    /**
+     * Admin-driven cascade: revoke EVERY session row for the given user
+     * (web, app, access_token, asset, worker). No actor context — this
+     * is the "suspension / forced sign-out" path, where workers
+     * deliberately go too (a suspended user shouldn't keep long-lived
+     * worker credentials calling back into the backend). Distinct from
+     * `revokeAllSessions` which is the user-driven UI flow and exempts
+     * workers + standalone access tokens by design.
+     *
+     * Iterates each top-level row through `revokeCascade` so derived
+     * rows (asset under web, app-issued access tokens under their app
+     * session) follow via the parent_session_id link.
+     */
+    async revokeAllSessionsForUserId(userId: number): Promise<void> {
+        if (!userId) return;
+        const rows = await this.stores.session.getByUserId(userId);
+        for (const row of rows) {
+            await this.stores.session.revokeCascade(row.uuid as string);
+        }
     }
 
     async revokeAllSessions(
@@ -1100,17 +1186,27 @@ export class AuthService extends PuterService {
      * Materialize the `kind='asset'` session row that the cookie's
      * `session_uuid` claim points at. Parented to the web session so a
      * logout cascade kills every asset cookie minted under it. Both
-     * fields are `null` when the caller didn't supply a web session —
-     * the cookie still mints, but unparented and without an `auth_id`
-     * claim (matches v1 behavior for access-token-minted cookies that
-     * aren't tied to an interactive session).
+     * fields are `null` only when the caller didn't supply a web session
+     * at all — the cookie still mints unparented and without an
+     * `auth_id` claim (matches v1 behavior for access-token-minted
+     * cookies that aren't tied to an interactive session).
+     *
+     * If the caller DID supply a `webSessionUuid` but the lookup misses
+     * (row revoked / expired between mint request and this lookup),
+     * throw — otherwise we'd quietly emit an unparented "ghost" cookie
+     * that has no revocation hook for 7 days. The extra check piggybacks
+     * on the lookup we already had to do, so no added perf cost.
      */
     async #mintAssetSessionContext(
         webSessionUuid: string | undefined,
     ): Promise<{ assetSessionUuid: string | null; authId: string | null }> {
         if (!webSessionUuid) return { assetSessionUuid: null, authId: null };
         const webSession = await this.stores.session.getByUuid(webSessionUuid);
-        if (!webSession) return { assetSessionUuid: null, authId: null };
+        if (!webSession) {
+            throw new HttpError(401, 'session no longer valid', {
+                legacyCode: 'session_required',
+            });
+        }
         const authId =
             ((webSession as SessionRow).auth_id as string | null) ?? null;
         const row = await this.stores.session.create(
@@ -1343,6 +1439,40 @@ export class AuthService extends PuterService {
             );
         }
 
+        // Permission-subset enforcement: an access token can only carry
+        // permissions the issuer itself holds. Without this, an
+        // app-under-user actor (third-party app authorized by the user)
+        // could mint a token claiming permissions it was never granted —
+        // those grants live in `access_token_permissions` and are
+        // returned verbatim at check-time, with no re-validation against
+        // the authorizer. `checkMany` is one pipelined MGET against the
+        // per-actor permission cache so the cost is small even for
+        // many-permission mints.
+        const requestedPerms = [
+            ...new Set(
+                permissions
+                    .map(([p]) => p)
+                    .filter((p): p is string => typeof p === 'string' && !!p),
+            ),
+        ];
+        if (requestedPerms.length > 0) {
+            const granted = await this.services.permission.checkMany(
+                actor,
+                requestedPerms,
+            );
+            const missing = requestedPerms.filter((p) => !granted.get(p));
+            if (missing.length > 0) {
+                throw new HttpError(
+                    403,
+                    `Issuer lacks permission(s): ${missing.join(', ')}`,
+                    {
+                        legacyCode: 'forbidden',
+                        fields: { missing_permissions: missing },
+                    },
+                );
+            }
+        }
+
         const tokenUid = uuidv4();
         const auth_id = this.#authIdFor(actor.user as UserRow);
 
@@ -1511,6 +1641,7 @@ export class AuthService extends PuterService {
 
     async #actorFromSessionToken(
         decoded: SessionTokenPayload,
+        ctx: { ip?: string; userAgent?: string } = {},
     ): Promise<AuthResult> {
         const user = await this.stores.user.getByUuid(decoded.user_uid);
         if (!user) return { invalid: true };
@@ -1545,7 +1676,12 @@ export class AuthService extends PuterService {
         if (!session) return { invalid: true };
 
         this.stores.session
-            .touch({ uuid: session.uuid, userId: user.id })
+            .touch({
+                uuid: session.uuid,
+                userId: user.id,
+                ip: ctx.ip,
+                userAgent: ctx.userAgent,
+            })
             .catch(() => {});
 
         return { actor: this.#buildUserActor(user, session) };
@@ -1553,6 +1689,7 @@ export class AuthService extends PuterService {
 
     async #actorFromAppUnderUserToken(
         decoded: AppUnderUserTokenPayload,
+        ctx: { ip?: string; userAgent?: string } = {},
     ): Promise<AuthResult> {
         const user = await this.stores.user.getByUuid(decoded.user_uid);
         if (!user) return { invalid: true };
@@ -1595,7 +1732,12 @@ export class AuthService extends PuterService {
         }
 
         this.stores.session
-            .touch({ uuid: session?.uuid, userId: user.id })
+            .touch({
+                uuid: session?.uuid,
+                userId: user.id,
+                ip: ctx.ip,
+                userAgent: ctx.userAgent,
+            })
             .catch(() => {});
 
         return {
@@ -1605,6 +1747,7 @@ export class AuthService extends PuterService {
 
     async #actorFromAccessTokenToken(
         decoded: AccessTokenPayload,
+        ctx: { ip?: string; userAgent?: string } = {},
     ): Promise<AuthResult> {
         if (!decoded.token_uid || !decoded.user_uid) return { invalid: true };
 
@@ -1649,7 +1792,12 @@ export class AuthService extends PuterService {
 
         if (session) {
             this.stores.session
-                .touch({ uuid: session.uuid, userId: user.id })
+                .touch({
+                    uuid: session.uuid,
+                    userId: user.id,
+                    ip: ctx.ip,
+                    userAgent: ctx.userAgent,
+                })
                 .catch(() => {});
         }
 

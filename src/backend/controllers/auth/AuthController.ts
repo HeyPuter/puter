@@ -769,8 +769,12 @@ export class AuthController extends PuterController {
         antiCsrf: true,
     })
     async handleLogout(req: Request, res: Response): Promise<void> {
-        // Clear the session cookie
+        // Clear the session cookie + the v2 migrate-token companion
+        // cookie (set after `/auth/migrate-token` for app-under-user
+        // iframes). authProbe reads `puter_token_v2` as a fallback, so
+        // a stale value would re-authenticate the next request.
         res.clearCookie(this.config.cookie_name ?? 'puter_token');
+        res.clearCookie('puter_token_v2');
 
         // Remove the session (fire-and-forget)
         if (req.token) {
@@ -1846,7 +1850,16 @@ export class AuthController extends PuterController {
                 { legacyCode: 'bad_request' },
             );
         }
+        // `getByUuid` returns null when the row is missing, already
+        // soft-revoked, or past `expires_at` — surface as 404 so a stale
+        // manage-sessions UI doesn't 500 when it clicks revoke on a row
+        // that already went away.
         const session = await this.stores.session.getByUuid(uuid);
+        if (!session) {
+            throw new HttpError(404, 'Session not found', {
+                legacyCode: 'not_found',
+            });
+        }
         if (session.user_id !== req.actor!.user.id) {
             throw new HttpError(403, 'Can only revoke your own sessions', {
                 legacyCode: 'unauthorized',
@@ -1865,6 +1878,27 @@ export class AuthController extends PuterController {
         });
         const sessions = await this.services.auth.listSessions(req.actor!);
         res.json({ sessions });
+    }
+
+    async handleRenameSession(req: Request, res: Response): Promise<void> {
+        const uuid = req.params.uuid;
+        const { label } = (req.body ?? {}) as { label?: unknown };
+        if (!uuid || typeof uuid !== 'string') {
+            throw new HttpError(400, 'Missing or invalid `uuid`', {
+                legacyCode: 'bad_request',
+            });
+        }
+        if (label !== null && typeof label !== 'string') {
+            throw new HttpError(400, '`label` must be a string or null', {
+                legacyCode: 'bad_request',
+            });
+        }
+        await this.services.auth.setSessionLabel(
+            req.actor!,
+            uuid,
+            label ?? null,
+        );
+        res.json({});
     }
 
     // -- Dev app permissions -----------------------------------------
@@ -2549,6 +2583,7 @@ export class AuthController extends PuterController {
     async handleDeleteOwnUser(req: Request, res: Response): Promise<void> {
         const userId = req.actor!.user.id!;
         res.clearCookie(this.config.cookie_name ?? 'puter_token');
+        res.clearCookie('puter_token_v2');
         res.clearCookie('puter_revalidation');
         await this.#cascadeDeleteUser(userId);
         res.json({ success: true });
@@ -2737,6 +2772,18 @@ export class AuthController extends PuterController {
                 middleware: [webSessionGate],
             },
             (req, res) => this.handleRevokeAccessToken(req, res),
+        );
+
+        router.patch(
+            '/auth/sessions/:uuid/label',
+            {
+                subdomain: 'api',
+                requireUserActor: true,
+                allowUnconfirmed: true,
+                antiCsrf: true,
+                middleware: [webSessionGate],
+            },
+            (req, res) => this.handleRenameSession(req, res),
         );
 
         router.post(

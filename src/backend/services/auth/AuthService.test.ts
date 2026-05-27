@@ -338,11 +338,15 @@ describe('AuthService (integration)', () => {
 
         it('access-token: returns reauth.session_revoked when the access-token session is revoked', async () => {
             const user = await makeUser();
+            // Use the auto-implicated `user:<own-uuid>:email:read`
+            // permission so the createAccessToken permission-subset
+            // check passes without a separate grant; the permission
+            // identity isn't what this test exercises.
             const accessToken = await authService.createAccessToken(
                 {
                     user: { id: user.id, uuid: user.uuid, username: user.username },
                 } as Actor,
-                [['fs:abc:read']],
+                [[`user:${user.uuid}:email:read`]],
             );
             const decoded = server.services.token.verify(
                 'auth',
@@ -367,7 +371,7 @@ describe('AuthService (integration)', () => {
                 {
                     user: { id: user.id, uuid: user.uuid, username: user.username },
                 } as Actor,
-                [['fs:abc:read']],
+                [[`user:${user.uuid}:email:read`]],
                 { expiresIn: '1h' },
             );
             const decoded = server.services.token.verify(
@@ -574,6 +578,45 @@ describe('AuthService (integration)', () => {
             // app_uid / app are null for web rows; present for app rows.
             expect(row!.app_uid).toBeNull();
             expect(row!.app).toBeNull();
+            // parent_session_id is null for top-level web rows but the
+            // field must be present so the GUI tree-builder can key on
+            // it; same for last_user_agent (powers UA→browser/OS render).
+            expect(row!).toHaveProperty('parent_session_id');
+            expect(row!.parent_session_id).toBeNull();
+            expect(row!).toHaveProperty('last_user_agent');
+        });
+
+        it('listSessions surfaces parent_session_id and last_user_agent for derived rows', async () => {
+            // GUI tree-nesting (PUT-1025) reads `parent_session_id` to
+            // attach children under the right parent; the UA parser
+            // reads `last_user_agent`. If either drops out of the
+            // projection the GUI degrades to a flat list with no client
+            // label.
+            const user = await makeUser();
+            const { session: parent } = await authService.createSessionToken(
+                user,
+                { ip: '198.51.100.1', user_agent: 'parent-ua' },
+            );
+            const parentUuid = (parent as { uuid: string }).uuid;
+            const child = await server.stores.session.create(user.id, {
+                kind: 'app',
+                parent_session_id: parentUuid,
+                last_user_agent: 'child-ua',
+                last_ip: '198.51.100.2',
+            });
+            const actor = {
+                user: { id: user.id, uuid: user.uuid, username: user.username },
+                session: { uid: parentUuid },
+            } as unknown as Actor;
+            const rows = await authService.listSessions(actor);
+            const childRow = rows.find(
+                (r) =>
+                    (r as { uuid: string }).uuid ===
+                    (child as { uuid: string }).uuid,
+            ) as Record<string, unknown> | undefined;
+            expect(childRow).toBeTruthy();
+            expect(childRow!.parent_session_id).toBe(parentUuid);
+            expect(childRow!.last_user_agent).toBe('child-ua');
         });
 
         it('listSessions joins kind="app" rows with the apps table', async () => {
@@ -656,6 +699,256 @@ describe('AuthService (integration)', () => {
                 (r) => (r as { uuid: string }).uuid === olderUuid,
             );
             expect(newerIdx).toBeLessThan(olderIdx);
+        });
+    });
+
+    describe('authenticate (ctx threading: IP/UA roam refresh)', () => {
+        // The touch path is throttled per-uuid by TOUCH_THROTTLE_MS, so a
+        // fresh session won't fire updateActivity again on the next
+        // authenticate() call. Backdating `last_activity` AND the
+        // in-memory throttle map is the smallest surgery to make the
+        // touch deterministic from the test.
+        const ageSessionForTouch = async (sessionUuid: string) => {
+            const ancient = Math.floor(Date.now() / 1000) - 3600;
+            await server.clients.db.write(
+                'UPDATE `sessions` SET `last_activity` = ? WHERE `uuid` = ?',
+                [ancient, sessionUuid],
+            );
+            // The store's in-memory throttle is keyed on uuid — clear it
+            // so the next touch isn't coalesced by the recent-create
+            // entry from createSessionToken.
+            const store = server.stores.session as unknown as {
+                ['#lastSessionTouchMs']?: Map<string, number>;
+            };
+            // Private field access via the public clear path: a `clear()`
+            // helper isn't exposed, so we re-construct the touch by
+            // running it once with a long-ago timestamp that the SQL
+            // guard accepts. Simpler: read raw row directly after
+            // authenticate to confirm column was rewritten.
+            // (Throttle map values live on the instance — but at module
+            // boundary across `describe`s they should be empty for a
+            // fresh uuid.)
+            void store; // intentional no-op — kept as a docstring anchor
+            await server.clients.redis.del(
+                `sessions:v2:uuid:${sessionUuid}`,
+            );
+        };
+
+        const readRawRow = async (uuid: string) => {
+            const rows = await server.clients.db.read(
+                'SELECT `last_ip`, `last_user_agent` FROM `sessions` WHERE `uuid` = ? LIMIT 1',
+                [uuid],
+            );
+            return rows[0] as
+                | { last_ip: string | null; last_user_agent: string | null }
+                | undefined;
+        };
+
+        it('session token: passing ctx.ip and ctx.userAgent refreshes the row', async () => {
+            const user = await makeUser();
+            const { token, session } = await authService.createSessionToken(
+                user,
+                { ip: '1.1.1.1', user_agent: 'old-ua' },
+            );
+            const sessionUuid = (session as { uuid: string }).uuid;
+            await ageSessionForTouch(sessionUuid);
+
+            await authService.authenticate(token, {
+                ip: '9.9.9.9',
+                userAgent: 'new-ua',
+            });
+
+            const row = await readRawRow(sessionUuid);
+            expect(row?.last_ip).toBe('9.9.9.9');
+            expect(row?.last_user_agent).toBe('new-ua');
+        });
+
+        it('session token: omitting ctx leaves last_ip / last_user_agent unchanged', async () => {
+            const user = await makeUser();
+            const { token, session } = await authService.createSessionToken(
+                user,
+                { ip: '5.5.5.5', user_agent: 'stable-ua' },
+            );
+            const sessionUuid = (session as { uuid: string }).uuid;
+            await ageSessionForTouch(sessionUuid);
+
+            await authService.authenticate(token);
+
+            const row = await readRawRow(sessionUuid);
+            expect(row?.last_ip).toBe('5.5.5.5');
+            expect(row?.last_user_agent).toBe('stable-ua');
+        });
+
+        it('app-under-user token: ctx refreshes the app session row', async () => {
+            const user = await makeUser();
+            // makeApp helper from the outer describe isn't in scope; inline a minimal app row.
+            const appUid = `app-${uuidv4()}`;
+            await server.clients.db.write(
+                'INSERT INTO `apps` (`uid`, `name`, `title`, `index_url`, `owner_user_id`) VALUES (?, ?, ?, ?, ?)',
+                [
+                    appUid,
+                    `n-${appUid}`,
+                    `t-${appUid}`,
+                    `https://${appUid}.example/`,
+                    1,
+                ],
+            );
+            const appToken = await authService.getUserAppToken(
+                {
+                    user: { id: user.id, uuid: user.uuid, username: user.username },
+                } as Actor,
+                appUid,
+            );
+            const decoded = server.services.token.verify(
+                'auth',
+                appToken,
+            ) as { session_uid: string };
+            await ageSessionForTouch(decoded.session_uid);
+
+            await authService.authenticate(appToken, {
+                ip: '10.0.0.1',
+                userAgent: 'app-roam-ua',
+            });
+
+            const row = await readRawRow(decoded.session_uid);
+            expect(row?.last_ip).toBe('10.0.0.1');
+            expect(row?.last_user_agent).toBe('app-roam-ua');
+        });
+
+        it('access-token: ctx refreshes the access-token session row', async () => {
+            const user = await makeUser();
+            const accessToken = await authService.createAccessToken(
+                {
+                    user: { id: user.id, uuid: user.uuid, username: user.username },
+                } as Actor,
+                [[`user:${user.uuid}:email:read`]],
+                { expiresIn: '1h' },
+            );
+            const decoded = server.services.token.verify(
+                'auth',
+                accessToken,
+            ) as { session_uid: string };
+            await ageSessionForTouch(decoded.session_uid);
+
+            await authService.authenticate(accessToken, {
+                ip: '203.0.113.20',
+                userAgent: 'at-roam-ua',
+            });
+
+            const row = await readRawRow(decoded.session_uid);
+            expect(row?.last_ip).toBe('203.0.113.20');
+            expect(row?.last_user_agent).toBe('at-roam-ua');
+        });
+    });
+
+    describe('setSessionLabel', () => {
+        it('throws 403 when actor has no user', async () => {
+            await expect(
+                authService.setSessionLabel(
+                    { user: undefined } as unknown as Actor,
+                    uuidv4(),
+                    'x',
+                ),
+            ).rejects.toMatchObject({ statusCode: 403 });
+        });
+
+        it('throws 404 when the uuid does not exist', async () => {
+            const user = await makeUser();
+            const actor = {
+                user: { id: user.id, uuid: user.uuid, username: user.username },
+            } as Actor;
+            await expect(
+                authService.setSessionLabel(actor, uuidv4(), 'nope'),
+            ).rejects.toMatchObject({ statusCode: 404 });
+        });
+
+        it('throws 404 when the uuid belongs to another user', async () => {
+            const owner = await makeUser();
+            const interloper = await makeUser();
+            const { session } = await authService.createSessionToken(owner, {});
+            const sessionUuid = (session as { uuid: string }).uuid;
+            const interloperActor = {
+                user: {
+                    id: interloper.id,
+                    uuid: interloper.uuid,
+                    username: interloper.username,
+                },
+            } as Actor;
+            await expect(
+                authService.setSessionLabel(
+                    interloperActor,
+                    sessionUuid,
+                    'pwned',
+                ),
+            ).rejects.toMatchObject({ statusCode: 404 });
+        });
+
+        it('renames the row for the owning user', async () => {
+            const user = await makeUser();
+            const { session } = await authService.createSessionToken(user, {});
+            const sessionUuid = (session as { uuid: string }).uuid;
+            const actor = {
+                user: { id: user.id, uuid: user.uuid, username: user.username },
+            } as Actor;
+            await authService.setSessionLabel(actor, sessionUuid, 'My Laptop');
+            const rows = await server.clients.db.read(
+                'SELECT `label` FROM `sessions` WHERE `uuid` = ?',
+                [sessionUuid],
+            );
+            expect((rows[0] as { label: string }).label).toBe('My Laptop');
+        });
+
+        it('trims whitespace and caps at 64 characters', async () => {
+            const user = await makeUser();
+            const { session } = await authService.createSessionToken(user, {});
+            const sessionUuid = (session as { uuid: string }).uuid;
+            const actor = {
+                user: { id: user.id, uuid: user.uuid, username: user.username },
+            } as Actor;
+            // Lead/trail whitespace + 80 chars of body — expect trim then 64-char cap.
+            const padded = '   ' + 'a'.repeat(80) + '   ';
+            await authService.setSessionLabel(actor, sessionUuid, padded);
+            const rows = await server.clients.db.read(
+                'SELECT `label` FROM `sessions` WHERE `uuid` = ?',
+                [sessionUuid],
+            );
+            const stored = (rows[0] as { label: string }).label;
+            expect(stored.length).toBe(64);
+            expect(stored).toBe('a'.repeat(64));
+        });
+
+        it('stores null when label is empty / whitespace / explicit null', async () => {
+            const user = await makeUser();
+            const { session } = await authService.createSessionToken(user, {
+                user_agent: 'unused',
+            });
+            const sessionUuid = (session as { uuid: string }).uuid;
+            // Seed with a non-null label so we can prove a follow-up null clears it.
+            await server.clients.db.write(
+                'UPDATE `sessions` SET `label` = ? WHERE `uuid` = ?',
+                ['initial', sessionUuid],
+            );
+            const actor = {
+                user: { id: user.id, uuid: user.uuid, username: user.username },
+            } as Actor;
+
+            for (const empty of ['', '   ', null]) {
+                await authService.setSessionLabel(
+                    actor,
+                    sessionUuid,
+                    empty as string | null,
+                );
+                const rows = await server.clients.db.read(
+                    'SELECT `label` FROM `sessions` WHERE `uuid` = ?',
+                    [sessionUuid],
+                );
+                expect((rows[0] as { label: string | null }).label).toBeNull();
+                // Re-seed for the next iteration.
+                await server.clients.db.write(
+                    'UPDATE `sessions` SET `label` = ? WHERE `uuid` = ?',
+                    ['initial', sessionUuid],
+                );
+            }
         });
     });
 
@@ -961,7 +1254,7 @@ describe('AuthService (integration)', () => {
                 user: { id: user.id, uuid: user.uuid, username: user.username },
             } as Actor;
             const jwt = await authService.createAccessToken(actor, [
-                ['service:foo:ii:read'],
+                [`user:${user.uuid}:email:read`],
             ]);
             const decoded = server.services.token.verify('auth', jwt) as {
                 type: string;
@@ -979,7 +1272,7 @@ describe('AuthService (integration)', () => {
                 user: { id: user.id, uuid: user.uuid, username: user.username },
             } as Actor;
             const jwt = await authService.createAccessToken(actor, [
-                ['service:foo:ii:read'],
+                [`user:${user.uuid}:email:read`],
             ]);
             await authService.revokeAccessToken(actor, jwt);
 
@@ -1004,7 +1297,7 @@ describe('AuthService (integration)', () => {
                 user: { id: u2.id, uuid: u2.uuid, username: u2.username },
             } as Actor;
             const jwt = await authService.createAccessToken(a1, [
-                ['service:foo:ii:read'],
+                [`user:${u1.uuid}:email:read`],
             ]);
             await expect(
                 authService.revokeAccessToken(a2, jwt),
@@ -1017,7 +1310,7 @@ describe('AuthService (integration)', () => {
                 user: { id: user.id, uuid: user.uuid, username: user.username },
             } as Actor;
             const jwt = await authService.createAccessToken(actor, [
-                ['service:foo:ii:read'],
+                [`user:${user.uuid}:email:read`],
             ]);
             const decoded = server.services.token.verify('auth', jwt) as {
                 token_uid: string;
@@ -1275,7 +1568,7 @@ describe('AuthService (integration)', () => {
                 user: { id: user.id, uuid: user.uuid, username: user.username },
             } as Actor;
             const jwt = await authService.createAccessToken(actor, [
-                ['service:foo:ii:read'],
+                [`user:${user.uuid}:email:read`],
             ]);
             const decoded = server.services.token.verify('auth', jwt) as {
                 token_uid: string;
@@ -1559,7 +1852,7 @@ describe('AuthService (integration)', () => {
                 {
                     user: { id: user.id, uuid: user.uuid, username: user.username },
                 } as Actor,
-                [['service:foo:ii:read']],
+                [[`user:${user.uuid}:email:read`]],
             );
             await expect(
                 authService.migrateLegacyToken(v2),

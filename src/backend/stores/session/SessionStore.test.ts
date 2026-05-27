@@ -404,6 +404,117 @@ describe('SessionStore', () => {
         });
     });
 
+    describe('updateActivity refreshes last_ip / last_user_agent', () => {
+        // Backdate so the SQL `last_activity < ?` guard fires deterministically.
+        const backdate = async (uuid: string) => {
+            const ancient = Math.floor(Date.now() / 1000) - 3600;
+            await server.clients.db.write(
+                'UPDATE `sessions` SET `last_activity` = ? WHERE `uuid` = ?',
+                [ancient, uuid],
+            );
+        };
+
+        it('writes new ip and user-agent when changed', async () => {
+            const user = await makeUser();
+            const session = await target.create(user.id, {
+                kind: 'web',
+                last_ip: '1.1.1.1',
+                last_user_agent: 'old-agent',
+            });
+            await backdate(session.uuid);
+
+            await target.updateActivity(
+                session.uuid,
+                Math.floor(Date.now() / 1000),
+                { ip: '2.2.2.2', userAgent: 'new-agent' },
+            );
+
+            const row = await rawRow(session.uuid);
+            expect(row.last_ip).toBe('2.2.2.2');
+            expect(row.last_user_agent).toBe('new-agent');
+        });
+
+        it('leaves existing ip / ua untouched when args are null', async () => {
+            const user = await makeUser();
+            const session = await target.create(user.id, {
+                kind: 'web',
+                last_ip: '3.3.3.3',
+                last_user_agent: 'keep-me',
+            });
+            await backdate(session.uuid);
+
+            await target.updateActivity(
+                session.uuid,
+                Math.floor(Date.now() / 1000),
+                {},
+            );
+
+            const row = await rawRow(session.uuid);
+            expect(row.last_ip).toBe('3.3.3.3');
+            expect(row.last_user_agent).toBe('keep-me');
+        });
+
+        it('does not overwrite when values are unchanged', async () => {
+            const user = await makeUser();
+            const session = await target.create(user.id, {
+                kind: 'web',
+                last_ip: '4.4.4.4',
+                last_user_agent: 'same-agent',
+            });
+            await backdate(session.uuid);
+
+            await target.updateActivity(
+                session.uuid,
+                Math.floor(Date.now() / 1000),
+                { ip: '4.4.4.4', userAgent: 'same-agent' },
+            );
+
+            const row = await rawRow(session.uuid);
+            expect(row.last_ip).toBe('4.4.4.4');
+            expect(row.last_user_agent).toBe('same-agent');
+        });
+    });
+
+    describe('setLabel', () => {
+        it('renames the label for the owning user', async () => {
+            const user = await makeUser();
+            const session = await target.create(user.id, { label: 'old' });
+            const ok = await target.setLabel(session.uuid, user.id, 'new');
+            expect(ok).toBe(true);
+            const row = await rawRow(session.uuid);
+            expect(row.label).toBe('new');
+        });
+
+        it('returns false when the uuid belongs to another user', async () => {
+            const owner = await makeUser();
+            const interloper = await makeUser();
+            const session = await target.create(owner.id, { label: 'mine' });
+            const ok = await target.setLabel(
+                session.uuid,
+                interloper.id,
+                'pwned',
+            );
+            expect(ok).toBe(false);
+            const row = await rawRow(session.uuid);
+            expect(row.label).toBe('mine');
+        });
+
+        it('returns false when the row is soft-revoked', async () => {
+            const user = await makeUser();
+            const session = await target.create(user.id, { label: 'live' });
+            await target.removeByUuid(session.uuid);
+            const ok = await target.setLabel(session.uuid, user.id, 'after');
+            expect(ok).toBe(false);
+            const row = await rawRow(session.uuid);
+            expect(row.label).toBe('live');
+        });
+
+        it('returns false on falsy uuid / userId', async () => {
+            expect(await target.setLabel('', 1, 'x')).toBe(false);
+            expect(await target.setLabel('some-uuid', 0, 'x')).toBe(false);
+        });
+    });
+
     describe('revokeCascade invalidates composite caches', () => {
         it('a revoked app row is not re-served by getOrCreateApp cache hit', async () => {
             // First create primes the app composite cache. Revoke via

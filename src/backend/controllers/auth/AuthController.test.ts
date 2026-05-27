@@ -2080,6 +2080,104 @@ describe('AuthController session endpoints', () => {
             ),
         ).rejects.toMatchObject({ statusCode: 403 });
     });
+
+    it('rename-session: 400 when uuid param is missing', async () => {
+        const { actor } = await makeUserAndActor();
+        await expect(
+            controller.handleRenameSession(
+                makeReq({ label: 'x' }, { actor, params: {} }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('rename-session: 400 when label is the wrong type', async () => {
+        const { actor } = await makeUserAndActor();
+        await expect(
+            controller.handleRenameSession(
+                makeReq(
+                    { label: 123 as unknown as string },
+                    { actor, params: { uuid: 'whatever' } },
+                ),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('rename-session: 400 when label field is missing entirely', async () => {
+        // Guards against accidental "PATCH with empty body silently clears
+        // the label". Type guard rejects `undefined` before reaching the
+        // service layer.
+        const { actor } = await makeUserAndActor();
+        await expect(
+            controller.handleRenameSession(
+                makeReq({}, { actor, params: { uuid: 'whatever' } }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('rename-session: 404 when the uuid belongs to another user', async () => {
+        const { user: u1 } = await makeUserAndActor();
+        const { actor: a2 } = await makeUserAndActor();
+        const sessionRes = await server.services.auth.createSessionToken(
+            u1,
+            {},
+        );
+        const uuid = (sessionRes.session as { uuid: string }).uuid;
+        await expect(
+            controller.handleRenameSession(
+                makeReq(
+                    { label: 'pwned' },
+                    { actor: a2, params: { uuid } },
+                ),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 404 });
+    });
+
+    it('rename-session: success updates the row label', async () => {
+        const { user, actor } = await makeUserAndActor();
+        const sessionRes = await server.services.auth.createSessionToken(
+            user,
+            {},
+        );
+        const uuid = (sessionRes.session as { uuid: string }).uuid;
+        const res = makeRes();
+        await controller.handleRenameSession(
+            makeReq({ label: 'My Phone' }, { actor, params: { uuid } }),
+            res,
+        );
+        expect(res.body).toEqual({});
+        const rows = await server.clients.db.read(
+            'SELECT `label` FROM `sessions` WHERE `uuid` = ?',
+            [uuid],
+        );
+        expect((rows[0] as { label: string }).label).toBe('My Phone');
+    });
+
+    it('rename-session: accepts null to clear the label', async () => {
+        const { user, actor } = await makeUserAndActor();
+        const sessionRes = await server.services.auth.createSessionToken(
+            user,
+            {},
+        );
+        const uuid = (sessionRes.session as { uuid: string }).uuid;
+        // Seed a non-null label so the clear-to-null transition is observable.
+        await server.clients.db.write(
+            'UPDATE `sessions` SET `label` = ? WHERE `uuid` = ?',
+            ['something', uuid],
+        );
+        await controller.handleRenameSession(
+            makeReq({ label: null }, { actor, params: { uuid } }),
+            makeRes(),
+        );
+        const rows = await server.clients.db.read(
+            'SELECT `label` FROM `sessions` WHERE `uuid` = ?',
+            [uuid],
+        );
+        expect((rows[0] as { label: string | null }).label).toBeNull();
+    });
 });
 
 // ── Dev-app grants/revokes ─────────────────────────────────────────
