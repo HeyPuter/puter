@@ -252,6 +252,10 @@
         "mistral": { "apiKey": "" },
         "xai": { "apiKey": "" },
         "moonshot": { "apiKey": "" },
+        "minimax": {
+            "apiKey": "",
+            "apiBaseUrl": "https://api.minimax.io/v1"
+        },
         "openrouter": {
             "apiKey": "",
             "apiBaseUrl": "https://openrouter.ai/api/v1"

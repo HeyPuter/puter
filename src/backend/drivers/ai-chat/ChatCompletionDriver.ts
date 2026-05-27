@@ -43,6 +43,7 @@ import { XAIProvider } from './providers/xai/XAIProvider.js';
 import { ZAIProvider } from './providers/zai/ZAIProvider.js';
 import { AlibabaProvider } from './providers/alibaba/AlibabaProvider.js';
 import { MoonshotProvider } from './providers/moonshot/MoonshotProvider.js';
+import { MiniMaxProvider } from './providers/minimax/MiniMaxProvider.js';
 import type {
     IChatCompleteResult,
     IChatModel,
@@ -865,6 +866,18 @@ export class ChatCompletionDriver extends PuterDriver {
         if (moonshotKey) {
             this.#providers['moonshotai'] = new MoonshotProvider(
                 { apiKey: moonshotKey },
+                metering,
+            );
+        }
+
+        const minimax = providers['minimax'];
+        const minimaxKey = readKey(minimax);
+        if (minimaxKey) {
+            this.#providers['minimax'] = new MiniMaxProvider(
+                {
+                    apiKey: minimaxKey,
+                    apiBaseUrl: minimax?.apiBaseUrl as string | undefined,
+                },
                 metering,
             );
         }

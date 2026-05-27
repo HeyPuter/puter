@@ -70,3 +70,5 @@ coverage/
 undefined
 servers.json
 config.*.json
+
+volatile/
