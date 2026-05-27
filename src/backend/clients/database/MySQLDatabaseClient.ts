@@ -23,6 +23,7 @@ import { createPool, type Pool } from 'mysql2';
 import { AbstractDatabaseClient, type WriteResult } from './DatabaseClient';
 import { SQLBatcher } from './SQLBatcher.js';
 import { splitMysqlStatements } from './splitMysqlStatements.js';
+import { compareMigrationFilenames } from './migrationFilenames.js';
 import type { IConfig } from '../../types';
 
 const RETRIABLE_ERROR_CODES = new Set([
@@ -44,36 +45,7 @@ const RETRIABLE_ERROR_MESSAGES = [
     'ETIMEDOUT',
 ];
 
-/**
- * Comparator for MySQL migration filenames.
- *
- * Existing files are named `mysql_mig_<N>.sql` with unpadded N, so a
- * plain lexical sort puts `mysql_mig_10.sql` BEFORE `mysql_mig_2.sql`.
- * Pull the trailing integer out and sort numerically. Anything that
- * doesn't match the `_<digits>.sql` shape (one-off, vendor dump) falls
- * back to lexical comparison so the order stays deterministic, and
- * unmatched names sort *after* numbered files so future numbered
- * migrations don't get interleaved into a one-off's namespace.
- *
- * Exported only for the unit test — the production caller is the
- * `runMigrations()` loop inside this file.
- */
-export const compareMigrationFilenames = (a: string, b: string): number => {
-    const numericIndex = (name: string): number => {
-        const m = /_(\d+)\.sql$/.exec(name);
-        return m ? Number.parseInt(m[1], 10) : Number.NaN;
-    };
-    const na = numericIndex(a);
-    const nb = numericIndex(b);
-    if (Number.isFinite(na) && Number.isFinite(nb)) {
-        if (na !== nb) return na - nb;
-    } else if (Number.isFinite(na)) {
-        return -1;
-    } else if (Number.isFinite(nb)) {
-        return 1;
-    }
-    return a.localeCompare(b);
-};
+export { compareMigrationFilenames };
 
 type PoolConfig = Parameters<typeof createPool>[0];
 
