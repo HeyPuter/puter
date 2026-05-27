@@ -85,7 +85,13 @@ export const createAuthProbe = (opts: AuthProbeOptions): RequestHandler => {
         }
 
         try {
-            const result = await authService.authenticate(token);
+            // Thread the request IP and User-Agent into authenticate so
+            // SessionStore.touch can refresh `last_ip` / `last_user_agent`
+            // when a session roams to a new network / browser.
+            const result = await authService.authenticate(token, {
+                ip: req.ip,
+                userAgent: req.headers['user-agent'] ?? undefined,
+            });
 
             if (result.reauth) {
                 bumpCounter(kvStore, {

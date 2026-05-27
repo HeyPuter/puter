@@ -1867,6 +1867,27 @@ export class AuthController extends PuterController {
         res.json({ sessions });
     }
 
+    async handleRenameSession(req: Request, res: Response): Promise<void> {
+        const uuid = req.params.uuid;
+        const { label } = (req.body ?? {}) as { label?: unknown };
+        if (!uuid || typeof uuid !== 'string') {
+            throw new HttpError(400, 'Missing or invalid `uuid`', {
+                legacyCode: 'bad_request',
+            });
+        }
+        if (label !== null && typeof label !== 'string') {
+            throw new HttpError(400, '`label` must be a string or null', {
+                legacyCode: 'bad_request',
+            });
+        }
+        await this.services.auth.setSessionLabel(
+            req.actor!,
+            uuid,
+            label ?? null,
+        );
+        res.json({});
+    }
+
     // -- Dev app permissions -----------------------------------------
 
     @Post('/auth/grant-dev-app', { subdomain: 'api', requireUserActor: true })
@@ -2737,6 +2758,18 @@ export class AuthController extends PuterController {
                 middleware: [webSessionGate],
             },
             (req, res) => this.handleRevokeAccessToken(req, res),
+        );
+
+        router.patch(
+            '/auth/sessions/:uuid/label',
+            {
+                subdomain: 'api',
+                requireUserActor: true,
+                allowUnconfirmed: true,
+                antiCsrf: true,
+                middleware: [webSessionGate],
+            },
+            (req, res) => this.handleRenameSession(req, res),
         );
 
         router.post(

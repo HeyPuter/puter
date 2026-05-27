@@ -315,7 +315,18 @@ export class SocketService extends PuterService {
             }
 
             try {
-                const result = await authService.authenticate(token);
+                const handshakeHeaders =
+                    (socket.handshake.headers as
+                        | Record<string, string | string[] | undefined>
+                        | undefined) ?? {};
+                const uaHeader = handshakeHeaders['user-agent'];
+                const userAgent = Array.isArray(uaHeader)
+                    ? uaHeader[0]
+                    : uaHeader;
+                const result = await authService.authenticate(token, {
+                    ip: socket.handshake.address,
+                    userAgent: userAgent ?? undefined,
+                });
 
                 if (result.reauth) {
                     console.info(

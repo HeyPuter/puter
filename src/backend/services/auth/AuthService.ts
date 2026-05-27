@@ -134,7 +134,10 @@ export class AuthService extends PuterService {
         return { authId: decoded.auth_id };
     }
 
-    async authenticate(token: string): Promise<AuthResult> {
+    async authenticate(
+        token: string,
+        ctx: { ip?: string; userAgent?: string } = {},
+    ): Promise<AuthResult> {
         let decoded: AnyTokenPayload;
         try {
             decoded = this.services.token.verify<AnyTokenPayload>(
@@ -152,13 +155,13 @@ export class AuthService extends PuterService {
         switch (decoded.type) {
             case 'session':
             case 'gui':
-                result = await this.#actorFromSessionToken(decoded);
+                result = await this.#actorFromSessionToken(decoded, ctx);
                 break;
             case 'app-under-user':
-                result = await this.#actorFromAppUnderUserToken(decoded);
+                result = await this.#actorFromAppUnderUserToken(decoded, ctx);
                 break;
             case 'access-token':
-                result = await this.#actorFromAccessTokenToken(decoded);
+                result = await this.#actorFromAccessTokenToken(decoded, ctx);
                 break;
             default:
                 return { invalid: true };
@@ -466,10 +469,12 @@ export class AuthService extends PuterService {
                 kind: row.kind,
                 current: isCurrent,
                 label: row.label ?? null,
+                parent_session_id: row.parent_session_id ?? null,
                 created_at: row.created_at,
                 last_activity: row.last_activity,
                 expires_at: row.expires_at ?? null,
                 last_ip: row.last_ip ?? null,
+                last_user_agent: row.last_user_agent ?? null,
                 created_via: row.created_via ?? null,
                 app_uid: appUid,
                 app: app
@@ -503,6 +508,38 @@ export class AuthService extends PuterService {
      */
     async revokeSession(uuid: string): Promise<void> {
         await this.stores.session.revokeCascade(uuid);
+    }
+
+    /**
+     * Rename a session's user-visible label. Throws 404 when the row
+     * doesn't exist or belongs to another user — ownership is enforced
+     * inside `SessionStore.setLabel` via the (uuid, user_id) WHERE
+     * clause, so the 404 vs 403 distinction is collapsed (a user can't
+     * tell from this endpoint whether a uuid exists under another
+     * account).
+     */
+    async setSessionLabel(
+        actor: Actor,
+        uuid: string,
+        label: string | null,
+    ): Promise<void> {
+        if (!actor.user) {
+            throw new HttpError(403, 'Actor must be a user', {
+                legacyCode: 'forbidden',
+            });
+        }
+        const trimmed =
+            typeof label === 'string' ? label.trim().slice(0, 64) : null;
+        const ok = await this.stores.session.setLabel(
+            uuid,
+            actor.user.id as number,
+            trimmed && trimmed.length > 0 ? trimmed : null,
+        );
+        if (!ok) {
+            throw new HttpError(404, 'Session not found', {
+                legacyCode: 'not_found',
+            });
+        }
     }
 
     async revokeAllSessions(
@@ -1511,6 +1548,7 @@ export class AuthService extends PuterService {
 
     async #actorFromSessionToken(
         decoded: SessionTokenPayload,
+        ctx: { ip?: string; userAgent?: string } = {},
     ): Promise<AuthResult> {
         const user = await this.stores.user.getByUuid(decoded.user_uid);
         if (!user) return { invalid: true };
@@ -1545,7 +1583,12 @@ export class AuthService extends PuterService {
         if (!session) return { invalid: true };
 
         this.stores.session
-            .touch({ uuid: session.uuid, userId: user.id })
+            .touch({
+                uuid: session.uuid,
+                userId: user.id,
+                ip: ctx.ip,
+                userAgent: ctx.userAgent,
+            })
             .catch(() => {});
 
         return { actor: this.#buildUserActor(user, session) };
@@ -1553,6 +1596,7 @@ export class AuthService extends PuterService {
 
     async #actorFromAppUnderUserToken(
         decoded: AppUnderUserTokenPayload,
+        ctx: { ip?: string; userAgent?: string } = {},
     ): Promise<AuthResult> {
         const user = await this.stores.user.getByUuid(decoded.user_uid);
         if (!user) return { invalid: true };
@@ -1595,7 +1639,12 @@ export class AuthService extends PuterService {
         }
 
         this.stores.session
-            .touch({ uuid: session?.uuid, userId: user.id })
+            .touch({
+                uuid: session?.uuid,
+                userId: user.id,
+                ip: ctx.ip,
+                userAgent: ctx.userAgent,
+            })
             .catch(() => {});
 
         return {
@@ -1605,6 +1654,7 @@ export class AuthService extends PuterService {
 
     async #actorFromAccessTokenToken(
         decoded: AccessTokenPayload,
+        ctx: { ip?: string; userAgent?: string } = {},
     ): Promise<AuthResult> {
         if (!decoded.token_uid || !decoded.user_uid) return { invalid: true };
 
@@ -1649,7 +1699,12 @@ export class AuthService extends PuterService {
 
         if (session) {
             this.stores.session
-                .touch({ uuid: session.uuid, userId: user.id })
+                .touch({
+                    uuid: session.uuid,
+                    userId: user.id,
+                    ip: ctx.ip,
+                    userAgent: ctx.userAgent,
+                })
                 .catch(() => {});
         }
 
