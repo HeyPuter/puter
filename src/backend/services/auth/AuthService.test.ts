@@ -338,11 +338,15 @@ describe('AuthService (integration)', () => {
 
         it('access-token: returns reauth.session_revoked when the access-token session is revoked', async () => {
             const user = await makeUser();
+            // Use the auto-implicated `user:<own-uuid>:email:read`
+            // permission so the createAccessToken permission-subset
+            // check passes without a separate grant; the permission
+            // identity isn't what this test exercises.
             const accessToken = await authService.createAccessToken(
                 {
                     user: { id: user.id, uuid: user.uuid, username: user.username },
                 } as Actor,
-                [['fs:abc:read']],
+                [[`user:${user.uuid}:email:read`]],
             );
             const decoded = server.services.token.verify(
                 'auth',
@@ -367,7 +371,7 @@ describe('AuthService (integration)', () => {
                 {
                     user: { id: user.id, uuid: user.uuid, username: user.username },
                 } as Actor,
-                [['fs:abc:read']],
+                [[`user:${user.uuid}:email:read`]],
                 { expiresIn: '1h' },
             );
             const decoded = server.services.token.verify(
@@ -817,7 +821,7 @@ describe('AuthService (integration)', () => {
                 {
                     user: { id: user.id, uuid: user.uuid, username: user.username },
                 } as Actor,
-                [['fs:abc:read']],
+                [[`user:${user.uuid}:email:read`]],
                 { expiresIn: '1h' },
             );
             const decoded = server.services.token.verify(
@@ -1250,7 +1254,7 @@ describe('AuthService (integration)', () => {
                 user: { id: user.id, uuid: user.uuid, username: user.username },
             } as Actor;
             const jwt = await authService.createAccessToken(actor, [
-                ['service:foo:ii:read'],
+                [`user:${user.uuid}:email:read`],
             ]);
             const decoded = server.services.token.verify('auth', jwt) as {
                 type: string;
@@ -1268,7 +1272,7 @@ describe('AuthService (integration)', () => {
                 user: { id: user.id, uuid: user.uuid, username: user.username },
             } as Actor;
             const jwt = await authService.createAccessToken(actor, [
-                ['service:foo:ii:read'],
+                [`user:${user.uuid}:email:read`],
             ]);
             await authService.revokeAccessToken(actor, jwt);
 
@@ -1293,7 +1297,7 @@ describe('AuthService (integration)', () => {
                 user: { id: u2.id, uuid: u2.uuid, username: u2.username },
             } as Actor;
             const jwt = await authService.createAccessToken(a1, [
-                ['service:foo:ii:read'],
+                [`user:${u1.uuid}:email:read`],
             ]);
             await expect(
                 authService.revokeAccessToken(a2, jwt),
@@ -1306,7 +1310,7 @@ describe('AuthService (integration)', () => {
                 user: { id: user.id, uuid: user.uuid, username: user.username },
             } as Actor;
             const jwt = await authService.createAccessToken(actor, [
-                ['service:foo:ii:read'],
+                [`user:${user.uuid}:email:read`],
             ]);
             const decoded = server.services.token.verify('auth', jwt) as {
                 token_uid: string;
@@ -1564,7 +1568,7 @@ describe('AuthService (integration)', () => {
                 user: { id: user.id, uuid: user.uuid, username: user.username },
             } as Actor;
             const jwt = await authService.createAccessToken(actor, [
-                ['service:foo:ii:read'],
+                [`user:${user.uuid}:email:read`],
             ]);
             const decoded = server.services.token.verify('auth', jwt) as {
                 token_uid: string;
@@ -1848,7 +1852,7 @@ describe('AuthService (integration)', () => {
                 {
                     user: { id: user.id, uuid: user.uuid, username: user.username },
                 } as Actor,
-                [['service:foo:ii:read']],
+                [[`user:${user.uuid}:email:read`]],
             );
             await expect(
                 authService.migrateLegacyToken(v2),

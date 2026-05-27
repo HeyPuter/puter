@@ -250,7 +250,7 @@ export class SessionStore extends PuterStore {
             // Invalidate every cached view onto the row so the next read
             // (manage-sessions reload, /whoami, etc.) sees the new label.
             const rows = await this.clients.db.read(
-                'SELECT `uuid`, `user_id`, `kind`, `app_uid`, `legacy_token_uid`, `meta` FROM `sessions` WHERE `uuid` = ? LIMIT 1',
+                'SELECT `uuid`, `user_id`, `kind`, `app_uid`, `legacy_token_uid`, `meta`, `created_via`, `last_ip`, `last_user_agent` FROM `sessions` WHERE `uuid` = ? LIMIT 1',
                 [uuid],
             );
             if (rows[0]) {
@@ -281,22 +281,32 @@ export class SessionStore extends PuterStore {
         // meta.worker_name for the worker cache key; without it the
         // composite worker cache entry would survive revocation and
         // getOrCreateWorker would serve the stale (revoked) row for
-        // up to CACHE_TTL_SECONDS.
+        // up to CACHE_TTL_SECONDS. `created_via` + `last_ip` +
+        // `last_user_agent` ride along for the symmetric legacy-web
+        // key derivation.
         const rows = await this.clients.db.read(
-            'SELECT `uuid`, `user_id`, `kind`, `app_uid`, `legacy_token_uid`, `meta` FROM `sessions` WHERE `uuid` = ? AND `revoked_at` IS NULL LIMIT 1',
+            'SELECT `uuid`, `user_id`, `kind`, `app_uid`, `legacy_token_uid`, `meta`, `created_via`, `last_ip`, `last_user_agent` FROM `sessions` WHERE `uuid` = ? AND `revoked_at` IS NULL LIMIT 1',
             [uuid],
         );
         if (rows.length === 0) return;
+
+        // Double-delete pattern: invalidate the cache BEFORE the SQL
+        // UPDATE, then again after. The pre-DEL drops any cached
+        // active-row view so a concurrent reader between the DEL and the
+        // UPDATE goes to the DB (seeing the still-active row is fine —
+        // that's the truth at that instant). The post-DEL clears any
+        // entry a racer might have re-cached during the window. Pays
+        // one extra pipelined DEL per revoke; revokes are rare so the
+        // cost is negligible.
+        const keys = this.#allCacheKeysForRow(rows[0]);
+        await this.publishCacheKeys({ keys, broadcast: true });
 
         const now = nowSeconds();
         await this.clients.db.write(
             'UPDATE `sessions` SET `revoked_at` = ? WHERE `uuid` = ? AND `revoked_at` IS NULL',
             [now, uuid],
         );
-        await this.publishCacheKeys({
-            keys: this.#allCacheKeysForRow(rows[0]),
-            broadcast: true,
-        });
+        await this.publishCacheKeys({ keys, broadcast: true });
     }
 
     /**
@@ -308,14 +318,20 @@ export class SessionStore extends PuterStore {
         if (!rootUuid) return;
 
         // Read each affected row's identity columns up-front — every
-        // composite cache mapping (app, legacy-token) must be invalidated
-        // alongside the uuid key, otherwise a follow-up `getOrCreateApp`
-        // would short-circuit to the freshly-revoked row.
+        // composite cache mapping (app, legacy-token, legacy-web) must
+        // be invalidated alongside the uuid key, otherwise a follow-up
+        // `getOrCreateApp` / `findOrCreateLegacyWeb` would short-circuit
+        // to the freshly-revoked row.
         const rows = await this.clients.db.read(
-            'SELECT `uuid`, `user_id`, `kind`, `app_uid`, `legacy_token_uid`, `meta` FROM `sessions` WHERE (`uuid` = ? OR `parent_session_id` = ?) AND `revoked_at` IS NULL',
+            'SELECT `uuid`, `user_id`, `kind`, `app_uid`, `legacy_token_uid`, `meta`, `created_via`, `last_ip`, `last_user_agent` FROM `sessions` WHERE (`uuid` = ? OR `parent_session_id` = ?) AND `revoked_at` IS NULL',
             [rootUuid, rootUuid],
         );
         if (rows.length === 0) return;
+
+        // Double-delete: see `removeByUuid` for rationale.
+        const keys = [];
+        for (const r of rows) keys.push(...this.#allCacheKeysForRow(r));
+        await this.publishCacheKeys({ keys, broadcast: true });
 
         const now = nowSeconds();
         await this.clients.db.write(
@@ -323,8 +339,6 @@ export class SessionStore extends PuterStore {
             [now, rootUuid, rootUuid],
         );
 
-        const keys = [];
-        for (const r of rows) keys.push(...this.#allCacheKeysForRow(r));
         await this.publishCacheKeys({ keys, broadcast: true });
     }
 
@@ -528,9 +542,17 @@ export class SessionStore extends PuterStore {
 
     /**
      * Best-effort lazy-backfill row for a v1 web session. The keying tuple
-     * is `(user_id, last_ip, last_user_agent)` — a UA/IP shift on a roaming
-     * client produces a fresh row, which is the spec's accepted trade-off.
-     * No partial unique index here; collisions are tolerated.
+     * is `(user_id, last_ip, last_user_agent)` — a UA/IP shift on a
+     * roaming client produces a fresh row, which is the spec's accepted
+     * trade-off.
+     *
+     * No partial unique index exists for this tuple (a UA string is too
+     * variable to index), so concurrent racers can both INSERT. We
+     * resolve via an optimistic-lock pass: after our INSERT we re-SELECT
+     * the oldest matching row; if we lost the race, soft-revoke our own
+     * row and return the winner so every caller converges on a single
+     * `session_uuid`. Cheap (one extra SELECT per legacy-backfill mint,
+     * which only runs on the first contact from a stale v1 client).
      */
     async findOrCreateLegacyWeb(opts = {}) {
         if (!opts.userId) return null;
@@ -545,10 +567,13 @@ export class SessionStore extends PuterStore {
             return cached;
         }
 
-        const rows = await this.clients.db.read(
-            "SELECT * FROM `sessions` WHERE `kind` = 'web' AND `user_id` = ? AND `created_via` = 'legacy_backfill' AND IFNULL(`last_ip`, '') = IFNULL(?, '') AND IFNULL(`last_user_agent`, '') = IFNULL(?, '') AND `revoked_at` IS NULL AND (`expires_at` IS NULL OR `expires_at` > ?) ORDER BY `id` ASC LIMIT 1",
-            [opts.userId, ip, ua, now],
-        );
+        const selectOldest = () =>
+            this.clients.db.read(
+                "SELECT * FROM `sessions` WHERE `kind` = 'web' AND `user_id` = ? AND `created_via` = 'legacy_backfill' AND IFNULL(`last_ip`, '') = IFNULL(?, '') AND IFNULL(`last_user_agent`, '') = IFNULL(?, '') AND `revoked_at` IS NULL AND (`expires_at` IS NULL OR `expires_at` > ?) ORDER BY `id` ASC LIMIT 1",
+                [opts.userId, ip, ua, now],
+            );
+
+        const rows = await selectOldest();
         const existing = this.#normalizeRow(rows[0]);
         if (existing) {
             await this.#writeCacheKey(cacheKey, existing);
@@ -564,6 +589,21 @@ export class SessionStore extends PuterStore {
             created_via: 'legacy_backfill',
             auth_id: opts.auth_id ?? null,
         });
+
+        // Optimistic conflict resolution: re-SELECT the oldest row that
+        // matches the same tuple. If a concurrent racer beat us to the
+        // INSERT, fold to their row and revoke ours so the (rare) pair
+        // doesn't both linger for a year. `removeByUuid` is a no-op when
+        // the row was already revoked by a third party.
+        const winnerRows = await selectOldest();
+        const winner = this.#normalizeRow(winnerRows[0]);
+        if (winner && winner.uuid !== created.uuid) {
+            await this.removeByUuid(created.uuid);
+            await this.#writeCacheKey(cacheKey, winner);
+            this.#writeCache(winner).catch(() => {});
+            return winner;
+        }
+
         await this.#writeCacheKey(cacheKey, created);
         // uuid cache already warmed by create()
         return created;
@@ -774,6 +814,20 @@ export class SessionStore extends PuterStore {
                     ),
                 );
             }
+        }
+        // Legacy-web backfill rows are cached by (user_id, last_ip,
+        // last_user_agent) inside `findOrCreateLegacyWeb`. Without this
+        // branch, revoke would clear the uuid key but leave the composite
+        // key serving the stale revoked row for up to CACHE_TTL_SECONDS,
+        // letting a same-IP/UA replay re-authenticate.
+        if (row.kind === 'web' && row.created_via === 'legacy_backfill') {
+            keys.push(
+                this.#cacheKeyLegacyWeb(
+                    row.user_id,
+                    row.last_ip ?? null,
+                    row.last_user_agent ?? null,
+                ),
+            );
         }
         if (row.legacy_token_uid) {
             keys.push(this.#cacheKeyLegacyAt(row.legacy_token_uid));

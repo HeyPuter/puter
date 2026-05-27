@@ -172,10 +172,22 @@ const extractToken = (req: Request, cookieName?: string): string | null => {
     // arbitrary browser Origin spend an ambient session cookie against the
     // credentialed API CORS surface; bearer/body/x-api-key tokens remain
     // available for cross-origin SDK requests.
-    if (cookieName && !isCrossOriginBrowserRequest(req)) {
-        const cookieToken = req.cookies?.[cookieName];
-        if (typeof cookieToken === 'string' && cookieToken.length > 0) {
-            return stripBearer(cookieToken);
+    //
+    // `puter_token_v2` is the cookie companion to v2 app-under-user
+    // tokens set by `POST /auth/migrate-token`. We accept it under the
+    // same same-origin gate as the primary session cookie so a private
+    // app iframe can authenticate subsequent calls without re-attaching
+    // an `Authorization` header on every request.
+    if (!isCrossOriginBrowserRequest(req)) {
+        if (cookieName) {
+            const cookieToken = req.cookies?.[cookieName];
+            if (typeof cookieToken === 'string' && cookieToken.length > 0) {
+                return stripBearer(cookieToken);
+            }
+        }
+        const v2Token = req.cookies?.puter_token_v2;
+        if (typeof v2Token === 'string' && v2Token.length > 0) {
+            return stripBearer(v2Token);
         }
     }
 

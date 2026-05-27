@@ -163,6 +163,20 @@ const COMPRESSION: Record<string, CompressionContext> = {
     'hosted-asset': HOSTED_ASSET_COMPRESSION,
 };
 
+/**
+ * Thrown by `verify()` when a v1 token is presented while
+ * `auth.allow_v1_tokens=false`. Carries the **unverified** payload so
+ * the auth probe can mint a `reauth_required` response with an
+ * `auth_id` hint — the hint is advisory only (never trusted as
+ * identity), so reading it from an unsigned payload is safe.
+ */
+export class V1TokensDisabledError extends Error {
+    constructor(public readonly payload: Record<string, unknown>) {
+        super('v1 tokens are disabled');
+        this.name = 'V1TokensDisabledError';
+    }
+}
+
 // -- TokenService ----------------------------------------------------
 
 export class TokenService extends PuterService {
@@ -233,7 +247,20 @@ export class TokenService extends PuterService {
 
         // Legacy / unsigned-kid path.
         if (!this.#allowV1Tokens) {
-            throw new Error('v1 tokens are disabled');
+            // Surface a structured error so the auth probe can route to a
+            // `reauth_required` response (with an `auth_id` hint) instead
+            // of a bare 401 that strands the user. Decompress the
+            // *unverified* payload — the hint is advisory, never trusted
+            // as identity.
+            const rawPayload =
+                decoded &&
+                typeof decoded === 'object' &&
+                decoded.payload &&
+                typeof decoded.payload === 'object'
+                    ? (decoded.payload as Record<string, unknown>)
+                    : {};
+            const hint = this.#decompressPayload(context, rawPayload);
+            throw new V1TokensDisabledError(hint);
         }
         if (!this.#secretLegacy) {
             throw new Error(
@@ -251,6 +278,29 @@ export class TokenService extends PuterService {
         // (lazy session backfill, re-auth signal for web sessions).
         decompressed.legacy = true;
         return decompressed as unknown as T;
+    }
+
+    /**
+     * Decode + decompress *without* verifying the signature. Returns
+     * `null` for malformed tokens. Use **only** for paths that need to
+     * recover advisory hints from an expired / unsignable token (e.g.,
+     * the logout path that wants to revoke a session row even if the
+     * JWT has expired since the user opened the tab). The result is
+     * never trusted as identity — only as a pointer for cleanup
+     * operations the caller would otherwise authorize via a different
+     * channel.
+     */
+    decodeWithoutVerify<T = Record<string, unknown>>(
+        scope: string,
+        token: string,
+    ): T | null {
+        const context = COMPRESSION[scope];
+        const decoded = jwt.decode(token);
+        if (!decoded || typeof decoded !== 'object') return null;
+        return this.#decompressPayload(
+            context,
+            decoded as Record<string, unknown>,
+        ) as unknown as T;
     }
 
     // -- Internals ---------------------------------------------------
