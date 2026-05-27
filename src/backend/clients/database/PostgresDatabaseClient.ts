@@ -60,6 +60,55 @@ enum Configuration {
     REPLICA,
 }
 
+const POSTGRES_INT8_OID = 20;
+const INTEGER_TEXT_PATTERN = /^-?\d+$/u;
+
+const normalizePostgresInt8 = (
+    value: unknown,
+    columnName: string,
+): number | null | undefined => {
+    if (value === null || value === undefined) return value;
+
+    const parsed =
+        typeof value === 'bigint'
+            ? Number(value)
+            : typeof value === 'number'
+              ? value
+              : typeof value === 'string' && INTEGER_TEXT_PATTERN.test(value)
+                ? Number(value)
+                : Number.NaN;
+
+    if (!Number.isSafeInteger(parsed)) {
+        throw new Error(
+            `[postgres] int8 column ${columnName} is outside JavaScript's safe integer range`,
+        );
+    }
+
+    return parsed;
+};
+
+const normalizePostgresRows = (
+    result: QueryResult,
+): Record<string, unknown>[] => {
+    const int8Fields = result.fields.filter(
+        (field) => field.dataTypeID === POSTGRES_INT8_OID,
+    );
+    if (int8Fields.length === 0) {
+        return result.rows as Record<string, unknown>[];
+    }
+
+    return result.rows.map((row) => {
+        const normalized: Record<string, unknown> = { ...row };
+        for (const field of int8Fields) {
+            normalized[field.name] = normalizePostgresInt8(
+                normalized[field.name],
+                field.name,
+            );
+        }
+        return normalized;
+    });
+};
+
 export const mapPostgresWriteResult = (result: QueryResult): WriteResult => {
     const affectedRows = result.rowCount ?? 0;
     const rowId = result.rows[0]?.id;
@@ -170,7 +219,7 @@ export class PostgresDatabaseClient extends AbstractDatabaseClient {
         params: unknown[] = [],
     ): Promise<Record<string, unknown>[]> {
         const result = await this.query(this.replicaPool, query, params);
-        return result.rows as Record<string, unknown>[];
+        return normalizePostgresRows(result);
     }
 
     override async pread(
@@ -178,7 +227,7 @@ export class PostgresDatabaseClient extends AbstractDatabaseClient {
         params: unknown[] = [],
     ): Promise<Record<string, unknown>[]> {
         const result = await this.query(this.primaryPool, query, params);
-        return result.rows as Record<string, unknown>[];
+        return normalizePostgresRows(result);
     }
 
     override async write(
@@ -226,14 +275,14 @@ export class PostgresDatabaseClient extends AbstractDatabaseClient {
             );
             if (replicaResult.rows.length > 0) {
                 primaryPromise.catch(() => {});
-                return replicaResult.rows as Record<string, unknown>[];
+                return normalizePostgresRows(replicaResult);
             }
         } catch {
             // fall through to primary
         }
 
         const primaryResult = await primaryPromise;
-        return primaryResult.rows as Record<string, unknown>[];
+        return normalizePostgresRows(primaryResult);
     }
 
     private async runMigrations(): Promise<void> {

@@ -32,7 +32,6 @@ type ScannerState =
     | { kind: 'dollarQuote'; tag: string };
 
 const isLineCommentStart = (sql: string, index: number): boolean => {
-    if (sql[index] === '#') return true;
     if (sql[index] !== '-' || sql[index + 1] !== '-') return false;
     const after = sql[index + 2];
     return after === undefined || /\s/u.test(after);

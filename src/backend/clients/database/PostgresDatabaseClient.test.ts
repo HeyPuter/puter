@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import type { QueryResult } from 'pg';
+import type { FieldDef, QueryResult } from 'pg';
 import { describe, expect, it } from 'vitest';
 import type { IConfig } from '../../types';
 import { DatabaseClientFactory } from './index.js';
@@ -42,12 +42,36 @@ const postgresConfig = (): IConfig => ({
     },
 });
 
+const postgresReplicaConfig = (): IConfig => ({
+    port: 0,
+    extensions: [],
+    database: {
+        engine: 'postgres',
+        migrationPaths: [],
+        replica: {},
+    },
+});
+
+const field = (name: string, dataTypeID: number): FieldDef => ({
+    name,
+    tableID: 0,
+    columnID: 0,
+    dataTypeID,
+    dataTypeSize: -1,
+    dataTypeModifier: -1,
+    format: 'text',
+});
+
+const int8Field = (name: string): FieldDef => field(name, 20);
+const textField = (name: string): FieldDef => field(name, 25);
+
 const queryResult = (
     rows: Record<string, unknown>[] = [],
     rowCount = rows.length,
+    fields: FieldDef[] = [],
 ): QueryResult<Record<string, unknown>> => ({
     command: '',
-    fields: [],
+    fields,
     oid: 0,
     rowCount,
     rows,
@@ -141,6 +165,133 @@ describe('PostgresDatabaseClient', () => {
             text: 'INSERT INTO "apps" ("name") VALUES ($1) RETURNING id',
             values: ['editor'],
         });
+    });
+
+    it('normalizes int8 fields on read and primary read rows', async () => {
+        const pool = new RecordingPool(
+            new RecordingPoolClient(),
+            queryResult(
+                [
+                    {
+                        uuid: 'session-1',
+                        created_at: '1710000000',
+                        last_activity: '1710000001',
+                        expires_at: '1710000002',
+                        revoked_at: null,
+                    },
+                ],
+                1,
+                [
+                    textField('uuid'),
+                    int8Field('created_at'),
+                    int8Field('last_activity'),
+                    int8Field('expires_at'),
+                    int8Field('revoked_at'),
+                ],
+            ),
+        );
+        const client = new PostgresDatabaseClient(postgresConfig(), () => pool);
+        await client.onServerStart();
+
+        await expect(client.read('SELECT * FROM `sessions`')).resolves.toEqual(
+            [
+                {
+                    uuid: 'session-1',
+                    created_at: 1710000000,
+                    last_activity: 1710000001,
+                    expires_at: 1710000002,
+                    revoked_at: null,
+                },
+            ],
+        );
+        await expect(client.pread('SELECT * FROM `sessions`')).resolves.toEqual(
+            [
+                {
+                    uuid: 'session-1',
+                    created_at: 1710000000,
+                    last_activity: 1710000001,
+                    expires_at: 1710000002,
+                    revoked_at: null,
+                },
+            ],
+        );
+    });
+
+    it('rejects unsafe int8 values instead of losing precision', async () => {
+        const pool = new RecordingPool(
+            new RecordingPoolClient(),
+            queryResult(
+                [{ id: '9007199254740992' }],
+                1,
+                [int8Field('id')],
+            ),
+        );
+        const client = new PostgresDatabaseClient(postgresConfig(), () => pool);
+        await client.onServerStart();
+
+        await expect(client.read('SELECT `id` FROM `sessions`')).rejects.toThrow(
+            'safe integer',
+        );
+    });
+
+    it('normalizes tryHardRead rows returned by a replica', async () => {
+        const primaryPool = new RecordingPool(
+            new RecordingPoolClient(),
+            queryResult([{ created_at: '1' }], 1, [
+                int8Field('created_at'),
+            ]),
+        );
+        const replicaPool = new RecordingPool(
+            new RecordingPoolClient(),
+            queryResult([{ created_at: '2' }], 1, [
+                int8Field('created_at'),
+            ]),
+        );
+        const pools = [primaryPool, replicaPool];
+        let nextPoolIndex = 0;
+        const client = new PostgresDatabaseClient(
+            postgresReplicaConfig(),
+            () => {
+                const pool = pools[nextPoolIndex];
+                nextPoolIndex += 1;
+                if (!pool) throw new Error('unexpected pool factory call');
+                return pool;
+            },
+        );
+        await client.onServerStart();
+
+        await expect(
+            client.tryHardRead('SELECT `created_at` FROM `sessions`'),
+        ).resolves.toEqual([{ created_at: 2 }]);
+    });
+
+    it('normalizes tryHardRead rows returned by primary fallback', async () => {
+        const primaryPool = new RecordingPool(
+            new RecordingPoolClient(),
+            queryResult([{ created_at: '3' }], 1, [
+                int8Field('created_at'),
+            ]),
+        );
+        const replicaPool = new RecordingPool(
+            new RecordingPoolClient(),
+            queryResult([], 0, [int8Field('created_at')]),
+        );
+        const pools = [primaryPool, replicaPool];
+        let nextPoolIndex = 0;
+        const client = new PostgresDatabaseClient(
+            postgresReplicaConfig(),
+            () => {
+                const pool = pools[nextPoolIndex];
+                nextPoolIndex += 1;
+                if (!pool) throw new Error('unexpected pool factory call');
+                return pool;
+            },
+        );
+        await client.onServerStart();
+
+        await expect(
+            client.tryHardRead('SELECT `created_at` FROM `sessions`'),
+        ).resolves.toEqual([{ created_at: 3 }]);
     });
 
     it('runs batch writes in order and commits', async () => {

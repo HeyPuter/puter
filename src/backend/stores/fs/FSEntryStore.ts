@@ -2800,11 +2800,11 @@ export class FSEntryStore extends PuterStore {
     ): Promise<{ curr: number; max: number }> {
         const [usageRows, userRows] = await Promise.all([
             this.clients.db.read(
-                'SELECT COALESCE(SUM(size), 0) AS totalUsage FROM fsentries WHERE user_id = ?',
+                `SELECT COALESCE(SUM(size), 0) AS ${this.clients.db.quoteIdentifier('totalUsage')} FROM fsentries WHERE user_id = ?`,
                 [userId],
             ) as Promise<{ totalUsage: number }[]>,
             this.clients.db.read(
-                `SELECT free_storage AS freeStorage FROM ${this.clients.db.quoteIdentifier('user')} WHERE id = ? LIMIT 1`,
+                `SELECT free_storage AS ${this.clients.db.quoteIdentifier('freeStorage')} FROM ${this.clients.db.quoteIdentifier('user')} WHERE id = ? LIMIT 1`,
                 [userId],
             ) as Promise<{ freeStorage: number | null }[]>,
         ]);

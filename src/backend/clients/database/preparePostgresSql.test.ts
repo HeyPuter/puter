@@ -71,4 +71,15 @@ describe('preparePostgresSql', () => {
             parameterCount: 1,
         });
     });
+
+    it('does not treat Postgres JSON operators as comments', () => {
+        const prepared = preparePostgresSql(
+            "SELECT * FROM `sessions` WHERE `user_id` = ? AND `meta` #>> ARRAY['worker_name'] = ? AND `expires_at` > ?",
+        );
+
+        expect(prepared).toEqual({
+            text: 'SELECT * FROM "sessions" WHERE "user_id" = $1 AND "meta" #>> ARRAY[\'worker_name\'] = $2 AND "expires_at" > $3',
+            parameterCount: 3,
+        });
+    });
 });

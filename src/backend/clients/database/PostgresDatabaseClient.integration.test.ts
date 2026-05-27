@@ -156,9 +156,11 @@ describePostgres('PostgresDatabaseClient integration', () => {
     });
 
     it('starts the server and exercises user, app, fsentry, permission, and session flows', async () => {
+        const userStorageAllowance = 123_456_789;
         server = await setupTestServer(
             postgresConfig({
                 no_default_user: false,
+                is_storage_limited: true,
             }),
         );
 
@@ -171,7 +173,7 @@ describePostgres('PostgresDatabaseClient integration', () => {
             uuid: uuidv4(),
             password: null,
             email: `${username}@test.local`,
-            free_storage: 100 * 1024 * 1024,
+            free_storage: userStorageAllowance,
             requires_email_confirmation: false,
         });
         await generateDefaultFsentries(
@@ -182,6 +184,11 @@ describePostgres('PostgresDatabaseClient integration', () => {
         const user = await server.stores.user.getById(createdUser.id);
         if (!user) throw new Error('created user was not readable');
         expect(user.username).toBe(username);
+        await expect(
+            server.stores.fsEntry.getUserStorageAllowance(user.id),
+        ).resolves.toMatchObject({
+            max: userStorageAllowance,
+        });
 
         const otherUsername = `pg-other-${uuidv4().slice(0, 8)}`;
         const otherUser = await server.stores.user.create({
@@ -212,7 +219,7 @@ describePostgres('PostgresDatabaseClient integration', () => {
             `/${username}/Documents`,
         );
         if (!documents) throw new Error('Documents directory was not created');
-        expect(documents.is_dir).toBe(true);
+        expect(documents.isDir).toBe(true);
         const folder = await server.stores.fsEntry.createNonFileEntry({
             userId: user.id,
             parent: documents,
@@ -276,7 +283,15 @@ describePostgres('PostgresDatabaseClient integration', () => {
         );
         expect(activeSession?.uuid).toBe(session.uuid);
 
-        await server.stores.session.revoke(session.uuid);
+        const workerName = `worker-${uuidv4().slice(0, 8)}`;
+        const workerSession = await server.stores.session.getOrCreateWorker(
+            user.id,
+            { workerName },
+        );
+        expect(workerSession?.kind).toBe('worker');
+        expect(workerSession?.meta?.worker_name).toBe(workerName);
+
+        await server.stores.session.removeByUuid(session.uuid);
         await expect(
             server.stores.session.getByUuid(session.uuid),
         ).resolves.toBeNull();
