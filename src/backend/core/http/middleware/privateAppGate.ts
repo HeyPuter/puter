@@ -69,6 +69,7 @@ export interface PrivateHostingConfig {
 export interface PrivateIdentity {
     source:
         | 'private-cookie'
+        | 'public-cookie'
         | 'session-cookie'
         | 'bootstrap-token'
         | 'authorization'
@@ -77,7 +78,7 @@ export interface PrivateIdentity {
         | 'none';
     userUid?: string;
     sessionUuid?: string;
-    /** True when resolved from the sticky `puter.private.asset.token` cookie. */
+    /** True when resolved from the sticky private-asset cookie. */
     hasValidPrivateCookie?: boolean;
 }
 
@@ -509,7 +510,7 @@ export async function resolvePublicHostedIdentity(opts: {
             );
             if (!claims.legacy) {
                 return {
-                    source: 'private-cookie',
+                    source: 'public-cookie',
                     userUid: claims.userUid,
                     sessionUuid: claims.sessionUuid,
                     hasValidPublicCookie: true,

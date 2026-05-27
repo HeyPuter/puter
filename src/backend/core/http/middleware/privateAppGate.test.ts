@@ -891,7 +891,7 @@ describe('resolvePublicHostedIdentity', () => {
             expectedSubdomain: 'beans',
             expectedHost: 'beans.site.puter.localhost',
         });
-        expect(out.source).toBe('private-cookie');
+        expect(out.source).toBe('public-cookie');
         expect(out.userUid).toBe(user.uuid);
         expect(
             (out as { hasValidPublicCookie?: boolean }).hasValidPublicCookie,

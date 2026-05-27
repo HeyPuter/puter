@@ -89,6 +89,51 @@ export class AuthService extends PuterService {
         return result.actor ?? null;
     }
 
+    /**
+     * Mint a short-lived, server-signed JWT that proves the bearer was
+     * previously identified as `authId` by a real session (the one that
+     * just rejected with reauth-required). The 401 response embeds this
+     * token; the GUI echoes it back on /login or /signup so the controller
+     * can re-attach the new session to the same user row.
+     *
+     * Signing here — rather than letting the client present the raw
+     * `auth_id` UUID — means a leaked UUID alone is not enough to attach
+     * a session to an existing temp account; the attacker would also
+     * have to have intercepted a live 401 from that user. The token's
+     * 10-minute TTL bounds that intercept window.
+     */
+    signReauthToken(authId: string): string {
+        return this.services.token.sign(
+            'otp',
+            { auth_id: authId, purpose: 'reauth' },
+            { expiresIn: '10m' },
+        );
+    }
+
+    /**
+     * Verify a reauth token and return its `auth_id` claim. Throws an
+     * HttpError on signature failure, expiry, or wrong purpose.
+     */
+    verifyReauthToken(token: string): { authId: string } {
+        let decoded: { auth_id?: string; purpose?: string };
+        try {
+            decoded = this.services.token.verify<{
+                auth_id?: string;
+                purpose?: string;
+            }>('otp', token);
+        } catch {
+            throw new HttpError(401, 'Invalid reauth token', {
+                legacyCode: 'token_invalid',
+            });
+        }
+        if (decoded.purpose !== 'reauth' || !decoded.auth_id) {
+            throw new HttpError(401, 'Invalid reauth token', {
+                legacyCode: 'token_invalid',
+            });
+        }
+        return { authId: decoded.auth_id };
+    }
+
     async authenticate(token: string): Promise<AuthResult> {
         let decoded: AnyTokenPayload;
         try {

@@ -172,20 +172,21 @@ export class AuthController extends PuterController {
             });
         }
 
-        await this.#enforceAuthIdMatch(req, user, req.body.auth_id);
+        const reauthAuthId = this.#extractAuthIdFromReauthToken(
+            req.body.reauth_token,
+        );
+        await this.#enforceAuthIdMatch(req, user, reauthAuthId);
 
         // OTP branching — if 2FA enabled, return a short-lived OTP JWT.
-        // Re-bind the optional `auth_id` into the JWT so the follow-up
-        // OTP/recovery call can re-enforce the match without trusting a
-        // free-form claim from the client.
+        // Re-bind the verified `auth_id` into the JWT so the follow-up
+        // OTP/recovery call can re-enforce the match without re-trusting
+        // a free-form claim from the client.
         if (user.otp_enabled) {
             const otpClaims: Record<string, unknown> = {
                 user_uid: user.uuid,
                 purpose: 'otp-login',
             };
-            if (typeof req.body.auth_id === 'string' && req.body.auth_id) {
-                otpClaims.auth_id = req.body.auth_id;
-            }
+            if (reauthAuthId) otpClaims.auth_id = reauthAuthId;
             const otp_jwt_token = this.services.token.sign('otp', otpClaims, {
                 expiresIn: '5m',
             });
@@ -256,7 +257,7 @@ export class AuthController extends PuterController {
             return;
         }
 
-        await this.#enforceAuthIdMatch(req, user, decoded.auth_id);
+        await this.#enforceAuthIdMatch(req, user, decoded.auth_id ?? null);
 
         await this.#completeLogin(req, res, user);
     }
@@ -329,7 +330,7 @@ export class AuthController extends PuterController {
         );
         await this.stores.user.invalidateById(user.id);
 
-        await this.#enforceAuthIdMatch(req, user, decoded.auth_id);
+        await this.#enforceAuthIdMatch(req, user, decoded.auth_id ?? null);
 
         await this.#completeLogin(req, res, user);
     }
@@ -356,18 +357,26 @@ export class AuthController extends PuterController {
 
         // Temp-user reauth short-circuit: when an existing temp user is
         // forced through the reauth flow, the GUI re-submits /signup with
-        // is_temp=true plus the original `auth_id`. Re-attach them to the
-        // existing row instead of minting a new account — otherwise they
-        // lose access to all their files. Permanent users must go through
-        // /login (they have credentials), so we reject that path here.
-        if (is_temp && body.auth_id !== undefined && body.auth_id !== null) {
-            if (typeof body.auth_id !== 'string' || !body.auth_id) {
-                throw new HttpError(400, 'Invalid `auth_id`.', {
+        // is_temp=true plus the server-signed reauth_token from the 401.
+        // Verifying the token (not a raw auth_id) means a leaked uuid alone
+        // can't re-attach a session to someone else's temp account.
+        // Permanent users must go through /login (they have credentials),
+        // so we reject that path here.
+        if (
+            is_temp &&
+            body.reauth_token !== undefined &&
+            body.reauth_token !== null
+        ) {
+            const reauthAuthId = this.#extractAuthIdFromReauthToken(
+                body.reauth_token,
+            );
+            if (!reauthAuthId) {
+                throw new HttpError(400, 'Invalid `reauth_token`.', {
                     legacyCode: 'bad_request',
                 });
             }
             await this.#checkAuthIdRateLimit(req);
-            const existing = await this.stores.user.getByUuid(body.auth_id);
+            const existing = await this.stores.user.getByUuid(reauthAuthId);
             if (!existing) {
                 throw new HttpError(404, 'auth_id not found.', {
                     legacyCode: 'not_found',
@@ -2852,34 +2861,54 @@ export class AuthController extends PuterController {
     }
 
     /**
-     * Enforce a client-supplied `auth_id` against the user the credential
-     * flow has resolved. When the GUI is forced through reauth (e.g. v1
-     * token rejected, session revoked, session expired), the 401 response
-     * carries the original `auth_id`; the client must echo it back here
-     * so we can confirm the second login lands on the same user row —
-     * critical for temp users, where a fresh signup would otherwise mint
-     * a new account and strand their files.
+     * Extract the `auth_id` claim from a client-supplied reauth_token.
+     * Returns null when no token was supplied. Throws on invalid/expired
+     * tokens. The reauth_token is a server-signed JWT minted by the
+     * authProbe at 401 time — accepting only the signed envelope (vs. a
+     * raw UUID) means a leaked auth_id alone can't attach a session to
+     * an existing account.
+     */
+    #extractAuthIdFromReauthToken(suppliedToken: unknown): string | null {
+        if (suppliedToken === undefined || suppliedToken === null) return null;
+        if (typeof suppliedToken !== 'string' || !suppliedToken) {
+            throw new HttpError(400, 'Invalid `reauth_token`.', {
+                legacyCode: 'bad_request',
+            });
+        }
+        const { authId } = this.services.auth.verifyReauthToken(suppliedToken);
+        return authId;
+    }
+
+    /**
+     * Enforce a verified `auth_id` against the user the credential flow
+     * has resolved. Caller has already extracted `auth_id` from the
+     * server-signed reauth_token (or from an OTP-flow JWT). When the GUI
+     * is forced through reauth, the 401 response embeds the reauth_token;
+     * the client echoes it back so we can confirm the second login lands
+     * on the same user row — critical for temp users, where a fresh
+     * signup would otherwise mint a new account and strand their files.
      *
-     * No `auth_id` supplied → no-op (normal login). Unknown `auth_id` →
-     * 404, mirroring the username-not-found shape so the error doesn't
-     * become an enumeration oracle for which user_uuids exist. Mismatch
-     * against the resolved user → 409 (`auth_id_mismatch`).
+     * No `authId` supplied → no-op (normal login). Unknown `authId` →
+     * 404 (mirrors username-not-found, avoids being an enumeration
+     * oracle). Mismatch against the resolved user → 409
+     * (`auth_id_mismatch`).
      */
     async #enforceAuthIdMatch(
         req: Request,
         resolvedUser: { id: number; uuid: string },
-        suppliedAuthId: unknown,
+        authId: string | null,
     ): Promise<void> {
-        if (suppliedAuthId === undefined || suppliedAuthId === null) return;
-        if (typeof suppliedAuthId !== 'string' || !suppliedAuthId) {
-            throw new HttpError(400, 'Invalid `auth_id`.', {
-                legacyCode: 'bad_request',
-            });
-        }
+        if (!authId) return;
 
         await this.#checkAuthIdRateLimit(req);
 
-        const authIdUser = await this.stores.user.getByUuid(suppliedAuthId);
+        // Common path: auth_id maps to the same uuid the credential flow
+        // resolved. Skip the user-table read entirely. The DB lookup is
+        // only needed to disambiguate 404 (unknown auth_id) from 409
+        // (known but mismatched) on the error path.
+        if (authId === resolvedUser.uuid) return;
+
+        const authIdUser = await this.stores.user.getByUuid(authId);
         if (!authIdUser) {
             throw new HttpError(404, 'auth_id not found.', {
                 legacyCode: 'not_found',

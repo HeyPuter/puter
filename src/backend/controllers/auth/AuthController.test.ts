@@ -3663,12 +3663,14 @@ describe('AuthController.handleMigrateToken', () => {
     });
 });
 
-// ── auth_id preservation on forced re-login ─────────────────────────
+// -- auth_id preservation on forced re-login --
 
 describe('AuthController auth_id preservation on reauth', () => {
     const password = 'correct-horse-battery';
+    const mintReauth = (uuid: string): string =>
+        server.services.auth.signReauthToken(uuid);
 
-    it('handleLogin with matching auth_id completes login as the same user', async () => {
+    it('handleLogin with matching reauth_token completes login as the same user', async () => {
         const u = `aid_${Math.random().toString(36).slice(2, 10)}`;
         const ip = `127.0.${Math.floor(Math.random() * 200)}.1`;
         await controller.handleSignup(
@@ -3683,7 +3685,11 @@ describe('AuthController auth_id preservation on reauth', () => {
         const res = makeRes();
         await controller.handleLogin(
             makeReq(
-                { username: u, password, auth_id: seeded!.uuid },
+                {
+                    username: u,
+                    password,
+                    reauth_token: mintReauth(seeded!.uuid),
+                },
                 { ip },
             ),
             res,
@@ -3694,7 +3700,7 @@ describe('AuthController auth_id preservation on reauth', () => {
         );
     });
 
-    it('handleLogin with mismatched auth_id is rejected 409', async () => {
+    it('handleLogin with mismatched reauth_token is rejected 409', async () => {
         const a = `aida_${Math.random().toString(36).slice(2, 10)}`;
         const b = `aidb_${Math.random().toString(36).slice(2, 10)}`;
         const ip = `127.0.${Math.floor(Math.random() * 200)}.2`;
@@ -3717,7 +3723,11 @@ describe('AuthController auth_id preservation on reauth', () => {
         await expect(
             controller.handleLogin(
                 makeReq(
-                    { username: a, password, auth_id: userB!.uuid },
+                    {
+                        username: a,
+                        password,
+                        reauth_token: mintReauth(userB!.uuid),
+                    },
                     { ip },
                 ),
                 makeRes(),
@@ -3728,7 +3738,7 @@ describe('AuthController auth_id preservation on reauth', () => {
         });
     });
 
-    it('handleLogin with unknown auth_id returns 404', async () => {
+    it('handleLogin with reauth_token for an unknown user returns 404', async () => {
         const u = `aidu_${Math.random().toString(36).slice(2, 10)}`;
         const ip = `127.0.${Math.floor(Math.random() * 200)}.3`;
         await controller.handleSignup(
@@ -3741,7 +3751,11 @@ describe('AuthController auth_id preservation on reauth', () => {
         await expect(
             controller.handleLogin(
                 makeReq(
-                    { username: u, password, auth_id: uuidv4() },
+                    {
+                        username: u,
+                        password,
+                        reauth_token: mintReauth(uuidv4()),
+                    },
                     { ip },
                 ),
                 makeRes(),
@@ -3749,7 +3763,7 @@ describe('AuthController auth_id preservation on reauth', () => {
         ).rejects.toMatchObject({ statusCode: 404 });
     });
 
-    it('handleLogin with non-string auth_id returns 400', async () => {
+    it('handleLogin with a non-string reauth_token returns 400', async () => {
         const u = `aidb_${Math.random().toString(36).slice(2, 10)}`;
         const ip = `127.0.${Math.floor(Math.random() * 200)}.4`;
         await controller.handleSignup(
@@ -3761,10 +3775,31 @@ describe('AuthController auth_id preservation on reauth', () => {
         );
         await expect(
             controller.handleLogin(
-                makeReq({ username: u, password, auth_id: 42 }, { ip }),
+                makeReq({ username: u, password, reauth_token: 42 }, { ip }),
                 makeRes(),
             ),
         ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('handleLogin with a forged/garbage reauth_token returns 401', async () => {
+        const u = `aidf_${Math.random().toString(36).slice(2, 10)}`;
+        const ip = `127.0.${Math.floor(Math.random() * 200)}.9`;
+        await controller.handleSignup(
+            makeReq(
+                { username: u, email: `${u}@test.local`, password },
+                { ip },
+            ),
+            makeRes(),
+        );
+        await expect(
+            controller.handleLogin(
+                makeReq(
+                    { username: u, password, reauth_token: 'not-a-jwt' },
+                    { ip },
+                ),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 401 });
     });
 
     it('handleLogin OTP branch echoes auth_id into the OTP JWT', async () => {
@@ -3786,22 +3821,28 @@ describe('AuthController auth_id preservation on reauth', () => {
         const res = makeRes();
         await controller.handleLogin(
             makeReq(
-                { username: u, password, auth_id: seeded!.uuid },
+                {
+                    username: u,
+                    password,
+                    reauth_token: mintReauth(seeded!.uuid),
+                },
                 { ip },
             ),
             res,
         );
         expect(res.statusCode).toBe(202);
         const body = res.body as { otp_jwt_token: string };
-        const decoded = server.services.token.verify('otp', body.otp_jwt_token) as {
+        const decoded = server.services.token.verify(
+            'otp',
+            body.otp_jwt_token,
+        ) as {
             user_uid: string;
             auth_id?: string;
         };
         expect(decoded.auth_id).toBe(seeded!.uuid);
     });
 
-    it('handleSignup is_temp + matching auth_id returns the SAME temp user', async () => {
-        // Original temp signup.
+    it('handleSignup is_temp + matching reauth_token returns the SAME temp user', async () => {
         const tempRes1 = makeRes();
         const ip = `127.0.${Math.floor(Math.random() * 200)}.6`;
         await controller.handleSignup(
@@ -3812,20 +3853,20 @@ describe('AuthController auth_id preservation on reauth', () => {
         const tempUuid = body1.user.uuid;
         const tempUser1 = await server.stores.user.getByUuid(tempUuid);
         expect(tempUser1).toBeTruthy();
-
-        // Drop a marker file on the temp user so we can prove the row
-        // wasn't recreated (id stable, plus a side-effect that wouldn't
-        // survive a re-provision).
         const markerId = tempUser1!.id;
 
-        // Reauth: re-call /signup is_temp=true with the original auth_id.
         const tempRes2 = makeRes();
         await controller.handleSignup(
-            makeReq({ is_temp: true, auth_id: tempUuid }, { ip }),
+            makeReq(
+                { is_temp: true, reauth_token: mintReauth(tempUuid) },
+                { ip },
+            ),
             tempRes2,
         );
         expect(isCompleteLoginResponse(tempRes2.body)).toBe(true);
-        const body2 = tempRes2.body as { user: { uuid: string; is_temp: boolean } };
+        const body2 = tempRes2.body as {
+            user: { uuid: string; is_temp: boolean };
+        };
         expect(body2.user.uuid).toBe(tempUuid);
         expect(body2.user.is_temp).toBe(true);
 
@@ -3833,7 +3874,7 @@ describe('AuthController auth_id preservation on reauth', () => {
         expect(tempUser2!.id).toBe(markerId);
     });
 
-    it('handleSignup is_temp + auth_id pointing at a permanent user is rejected', async () => {
+    it('handleSignup is_temp + reauth_token pointing at a permanent user is rejected', async () => {
         const u = `aidperm_${Math.random().toString(36).slice(2, 10)}`;
         const ip = `127.0.${Math.floor(Math.random() * 200)}.7`;
         await controller.handleSignup(
@@ -3847,23 +3888,48 @@ describe('AuthController auth_id preservation on reauth', () => {
 
         await expect(
             controller.handleSignup(
-                makeReq({ is_temp: true, auth_id: seeded!.uuid }, { ip }),
+                makeReq(
+                    {
+                        is_temp: true,
+                        reauth_token: mintReauth(seeded!.uuid),
+                    },
+                    { ip },
+                ),
                 makeRes(),
             ),
         ).rejects.toMatchObject({ statusCode: 400 });
     });
 
-    it('handleSignup is_temp + unknown auth_id returns 404', async () => {
+    it('handleSignup is_temp + reauth_token for an unknown user returns 404', async () => {
         const ip = `127.0.${Math.floor(Math.random() * 200)}.8`;
         await expect(
             controller.handleSignup(
-                makeReq({ is_temp: true, auth_id: uuidv4() }, { ip }),
+                makeReq(
+                    {
+                        is_temp: true,
+                        reauth_token: mintReauth(uuidv4()),
+                    },
+                    { ip },
+                ),
                 makeRes(),
             ),
         ).rejects.toMatchObject({ statusCode: 404 });
     });
 
-    it('rate-limits auth_id login attempts per IP', async () => {
+    it('handleSignup is_temp rejects a forged reauth_token (401)', async () => {
+        const ip = `127.0.${Math.floor(Math.random() * 200)}.10`;
+        await expect(
+            controller.handleSignup(
+                makeReq(
+                    { is_temp: true, reauth_token: 'not-a-jwt' },
+                    { ip },
+                ),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 401 });
+    });
+
+    it('rate-limits reauth_token login attempts per IP', async () => {
         const ip = `10.99.${Math.floor(Math.random() * 200)}.${Math.floor(Math.random() * 200)}`;
         const u = `aidrl_${Math.random().toString(36).slice(2, 10)}`;
         await controller.handleSignup(
@@ -3875,13 +3941,15 @@ describe('AuthController auth_id preservation on reauth', () => {
         );
         const seeded = await server.stores.user.getByUsername(u);
 
-        // 5 hits are allowed (the matching auth_id case succeeds), 6th
-        // must trip the limit.
         for (let i = 0; i < 5; i++) {
             const res = makeRes();
             await controller.handleLogin(
                 makeReq(
-                    { username: u, password, auth_id: seeded!.uuid },
+                    {
+                        username: u,
+                        password,
+                        reauth_token: mintReauth(seeded!.uuid),
+                    },
                     { ip },
                 ),
                 res,
@@ -3891,7 +3959,11 @@ describe('AuthController auth_id preservation on reauth', () => {
         await expect(
             controller.handleLogin(
                 makeReq(
-                    { username: u, password, auth_id: seeded!.uuid },
+                    {
+                        username: u,
+                        password,
+                        reauth_token: mintReauth(seeded!.uuid),
+                    },
                     { ip },
                 ),
                 makeRes(),

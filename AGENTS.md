@@ -66,6 +66,10 @@ Keep comments light. Prefer self-documenting code — clear names, small functio
 
 Don't restate what the code already says. Don't write comments that reference the current task or PR — those rot.
 
+**No ticket references in code or test comments.** Don't write `PUT-1234`, `AUTH-3`, `GUI-2`, `// fix for FOO-99`, `// per ROLLOUT-1`, or section headers like `// -- PUT-1020: ... --`. The ticket exists in git history and the issue tracker; the code should describe the *why* in domain terms ("logout cascade transparently invalidates...") not project-management terms ("the cascade from AUTH-3..."). Same rule for test-block names and section dividers — describe what's being tested, not which ticket asked for it.
+
+**Use plain ASCII `-` in comment section dividers, not box-drawing characters.** Write `// -- Section name --`, not `// ── Section name ──`. The `─` (U+2500) character renders inconsistently in some editors and diff tools and adds nothing over `-`.
+
 ### Tests
 
 When adding new behavior (function, endpoint, driver method, branch of logic), add a test for it.

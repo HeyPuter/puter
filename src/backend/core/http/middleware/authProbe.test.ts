@@ -66,6 +66,8 @@ const makeStubAuth = (defaultActor: Actor | null = null): StubAuth => {
             if (nextResult === 'throw') throw new Error('verify failed');
             return 'actor' in nextResult ? nextResult.actor : null;
         },
+        // Deterministic stub — production mints a real JWT here.
+        signReauthToken: (authId: string) => `reauth-jwt:${authId}`,
     } as unknown as AuthService;
     return {
         service,
@@ -586,6 +588,7 @@ describe('createAuthProbe — reauth signal', () => {
         expect(req.requiresReauth).toEqual({
             reason: 'token_v1',
             auth_id: 'u-legacy',
+            reauth_token: 'reauth-jwt:u-legacy',
         });
         // Both increments fire under the same day-bucketed key.
         expect(kv.calls).toHaveLength(1);

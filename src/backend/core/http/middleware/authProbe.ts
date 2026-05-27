@@ -92,9 +92,17 @@ export const createAuthProbe = (opts: AuthProbeOptions): RequestHandler => {
                     v1: 1,
                     [`reauth.${result.reauth.reason}`]: 1,
                 });
+                // Bind a short-lived JWT proving the rejected session
+                // identified this auth_id. The GUI echoes this back on
+                // /login or /signup; the raw auth_id is informational
+                // only and is not accepted as authoritative on its own.
+                const reauth_token = result.reauth.auth_id
+                    ? authService.signReauthToken(result.reauth.auth_id)
+                    : undefined;
                 req.requiresReauth = {
                     reason: result.reauth.reason as ReauthReason,
                     auth_id: result.reauth.auth_id,
+                    ...(reauth_token ? { reauth_token } : {}),
                 };
                 console.info(
                     `[auth-v2] reauth reason=${result.reauth.reason} auth_id=${result.reauth.auth_id ?? '-'}`,
