@@ -26,7 +26,10 @@
 -- generated column that's non-NULL only for the rows under the rule,
 -- then a UNIQUE INDEX on the column. NULLs don't conflict in MySQL
 -- UNIQUE indexes, so soft-revoked / non-worker rows fall out
--- automatically.
+-- automatically. IFNULL normalises NULL `app_uid` so two user-scoped
+-- workers with the same name still dedupe. JSON_UNQUOTE strips the
+-- JSON value quoting from JSON_EXTRACT so the concatenated key is a
+-- plain string that matches the SELECT path's binding.
 --
 -- Idempotent: each ADD COLUMN / ADD INDEX is guarded so the migration
 -- directory can be replayed safely.
@@ -41,11 +44,11 @@ BEGIN
       AND TABLE_NAME = 'sessions' AND COLUMN_NAME = 'worker_unique_key'
   ) THEN
     ALTER TABLE `sessions`
-      ADD COLUMN `worker_unique_key` VARCHAR(255)
+      ADD COLUMN `worker_unique_key` VARCHAR(550)
         GENERATED ALWAYS AS (
           IF(`kind` = 'worker' AND `revoked_at` IS NULL,
              CONCAT(`user_id`, '|', IFNULL(`app_uid`, ''), '|',
-                    JSON_UNQUOTE(JSON_EXTRACT(`meta`, '$.worker_name'))),
+                    IFNULL(JSON_UNQUOTE(JSON_EXTRACT(`meta`, '$.worker_name')), '')),
              NULL)
         ) VIRTUAL;
   END IF;

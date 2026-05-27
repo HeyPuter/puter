@@ -244,8 +244,13 @@ export class SessionStore extends PuterStore {
         // SELECT first so we know which composite cache keys point at
         // this row. A single UPDATE ... RETURNING would be cleaner but
         // isn't portable between sqlite/mysql.
+        // `meta` included so #allCacheKeysForRow can read
+        // meta.worker_name for the worker cache key; without it the
+        // composite worker cache entry would survive revocation and
+        // getOrCreateWorker would serve the stale (revoked) row for
+        // up to CACHE_TTL_SECONDS.
         const rows = await this.clients.db.read(
-            'SELECT `uuid`, `user_id`, `kind`, `app_uid`, `legacy_token_uid` FROM `sessions` WHERE `uuid` = ? AND `revoked_at` IS NULL LIMIT 1',
+            'SELECT `uuid`, `user_id`, `kind`, `app_uid`, `legacy_token_uid`, `meta` FROM `sessions` WHERE `uuid` = ? AND `revoked_at` IS NULL LIMIT 1',
             [uuid],
         );
         if (rows.length === 0) return;
@@ -274,7 +279,7 @@ export class SessionStore extends PuterStore {
         // alongside the uuid key, otherwise a follow-up `getOrCreateApp`
         // would short-circuit to the freshly-revoked row.
         const rows = await this.clients.db.read(
-            'SELECT `uuid`, `user_id`, `kind`, `app_uid`, `legacy_token_uid` FROM `sessions` WHERE (`uuid` = ? OR `parent_session_id` = ?) AND `revoked_at` IS NULL',
+            'SELECT `uuid`, `user_id`, `kind`, `app_uid`, `legacy_token_uid`, `meta` FROM `sessions` WHERE (`uuid` = ? OR `parent_session_id` = ?) AND `revoked_at` IS NULL',
             [rootUuid, rootUuid],
         );
         if (rows.length === 0) return;
@@ -747,11 +752,21 @@ export class SessionStore extends PuterStore {
      * the partial unique index `idx_sessions_user_worker_active`.
      * `appUid` is allowed null for user-scoped workers; IFNULL keeps
      * the comparison correct since SQL `= NULL` doesn't match.
+     *
+     * MySQL's `JSON_EXTRACT` returns a JSON-typed value with embedded
+     * quoting (`"name"` rather than `name`), which never equals a
+     * plain string bind. Use `JSON_UNQUOTE(JSON_EXTRACT(...))` on
+     * MySQL to strip that. SQLite's `json_extract` already returns the
+     * unwrapped scalar so the literal form works there.
      */
     async #selectWorkerRow(userId, appUid, workerName) {
         const now = nowSeconds();
+        const workerNameExpr = this.clients.db.case({
+            sqlite: "json_extract(`meta`, '$.worker_name')",
+            otherwise: "JSON_UNQUOTE(JSON_EXTRACT(`meta`, '$.worker_name'))",
+        });
         const rows = await this.clients.db.read(
-            "SELECT * FROM `sessions` WHERE `kind` = 'worker' AND `user_id` = ? AND IFNULL(`app_uid`, '') = IFNULL(?, '') AND JSON_EXTRACT(`meta`, '$.worker_name') = ? AND `revoked_at` IS NULL AND (`expires_at` IS NULL OR `expires_at` > ?) LIMIT 1",
+            `SELECT * FROM \`sessions\` WHERE \`kind\` = 'worker' AND \`user_id\` = ? AND IFNULL(\`app_uid\`, '') = IFNULL(?, '') AND ${workerNameExpr} = ? AND \`revoked_at\` IS NULL AND (\`expires_at\` IS NULL OR \`expires_at\` > ?) LIMIT 1`,
             [userId, appUid ?? null, workerName, now],
         );
         return this.#normalizeRow(rows[0]);

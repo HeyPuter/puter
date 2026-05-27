@@ -16,12 +16,15 @@
 -- along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 -- Worker session uniqueness. One active kind='worker' row per
--- (user_id, app_uid, worker_name). app_uid is allowed NULL for
--- user-scoped workers; SQLite treats two NULL values as distinct, so
--- the (NULL, worker_name) case still deduplicates correctly via the
--- worker_name component. Mirrors the MySQL `worker_unique_key`
--- approach using a partial unique index with `json_extract` on `meta`.
+-- (user_id, app_uid, worker_name).
+--
+-- SQLite UNIQUE indexes treat NULLs as distinct (per the SQL standard),
+-- so user-scoped workers (where `app_uid` is NULL) would otherwise be
+-- allowed to duplicate. IFNULL collapses NULL `app_uid` to empty
+-- string in the index expression so two user-scoped workers with the
+-- same worker_name correctly conflict. MySQL handles the same case
+-- via the IFNULL in mig_11's generated column.
 
 CREATE UNIQUE INDEX IF NOT EXISTS `idx_sessions_user_worker_active`
-    ON `sessions` (`user_id`, `app_uid`, json_extract(`meta`, '$.worker_name'))
+    ON `sessions` (`user_id`, IFNULL(`app_uid`, ''), json_extract(`meta`, '$.worker_name'))
     WHERE `kind` = 'worker' AND `revoked_at` IS NULL;
