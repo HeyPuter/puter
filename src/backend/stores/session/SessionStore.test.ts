@@ -135,9 +135,9 @@ describe('SessionStore', () => {
         });
 
         it('returns null when expires_at is in the past', async () => {
-            // PUT-1014 moved expires_at enforcement into getByUuid so the
-            // row is the single source of truth — no AUTH-4 re-mint pass
-            // needed (we run long-lived JWTs in v2).
+            // expires_at enforcement lives in getByUuid so the row is
+            // the single source of truth — no re-mint pass needed (we
+            // run long-lived JWTs in v2).
             const user = await makeUser();
             const past = Math.floor(Date.now() / 1000) - 60;
             const session = await target.create(user.id, { expires_at: past });
@@ -272,7 +272,7 @@ describe('SessionStore', () => {
         });
     });
 
-    // ── PUT-1014 composite-key lookups ──────────────────────────────
+    // ── Composite-key lookups ──────────────────────────────────────
 
     describe('getOrCreateApp', () => {
         it('creates a kind="app" row on first call with the right shape', async () => {

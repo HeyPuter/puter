@@ -15,7 +15,7 @@
 -- You should have received a copy of the GNU Affero General Public License
 -- along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
--- AUTH-5 (PUT-1019) — let `kind='access_token'` rows be reverse-looked-up
+-- Let `kind='access_token'` rows be reverse-looked-up
 -- from the `token_uid` claim that lives only in `access_token_permissions`.
 -- Required so `POST /auth/revoke-access-token` with a raw token_uid input
 -- (no JWT) can find and soft-revoke the session row, matching the JWT

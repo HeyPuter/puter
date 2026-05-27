@@ -167,9 +167,9 @@ describe('AuthService (integration)', () => {
         });
     });
 
-    // ── AUTH-4: rich `authenticate()` result shape ───────────────────
+    // ── Rich `authenticate()` result shape ──────────────────────────
 
-    describe('authenticate (AUTH-4 reauth signal)', () => {
+    describe('authenticate (reauth signal)', () => {
         it('returns { actor } for a healthy v2 session token', async () => {
             const user = await makeUser();
             const { token } = await authService.createSessionToken(user, {});
@@ -1025,13 +1025,13 @@ describe('AuthService (integration)', () => {
         });
     });
 
-    // ── AUTH-5 (PUT-1019) revoke coverage ────────────────────────────
+    // ── Revoke coverage ─────────────────────────────────────────────
 
     describe('revokeAccessToken raw-uuid session-row coverage', () => {
         // The JWT-input branch has always flipped the session row's
-        // revoked_at. AUTH-5 closes the raw-uuid gap: the new
-        // `sessions.access_token_uid` column lets revoke find the row
-        // for v2-minted tokens even when no JWT was presented.
+        // revoked_at. The raw-uuid gap is closed by the
+        // `sessions.access_token_uid` column, which lets revoke find
+        // the row for v2-minted tokens even when no JWT was presented.
 
         it('soft-revokes the v2 session row when revoked by raw token_uid', async () => {
             const user = await makeUser();
@@ -1168,7 +1168,7 @@ describe('AuthService (integration)', () => {
         });
     });
 
-    // ── SDK-1 (PUT-1021) migrate-token ────────────────────────────────
+    // ── migrate-token ───────────────────────────────────────────────
 
     describe('migrateLegacyToken', () => {
         // Hand-mint v1 tokens using the same compression dict the

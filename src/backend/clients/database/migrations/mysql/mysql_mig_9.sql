@@ -15,7 +15,7 @@
 -- You should have received a copy of the GNU Affero General Public License
 -- along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
--- AUTH-2 (PUT-1014) — composite-key lookups + audit columns. Mirrors
+-- Composite-key lookups + audit columns. Mirrors
 -- SQLite migration 0052. MySQL has no partial unique indexes, so the
 -- "at most one active row per (user_id, app_uid)" / "one active row
 -- per legacy_token_uid" semantics are encoded via VIRTUAL generated

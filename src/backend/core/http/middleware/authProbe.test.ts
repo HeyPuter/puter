@@ -44,7 +44,7 @@ interface StubAuth {
     seenTokens: string[];
     /** Legacy setter — accepts the old Actor|null|'throw' shape. */
     setNext: (next: Actor | null | 'throw') => void;
-    /** AUTH-4: set the full AuthResult to be returned by `authenticate()`. */
+    /** Set the full AuthResult to be returned by `authenticate()`. */
     setNextResult: (next: AuthResultLike | 'throw') => void;
 }
 
@@ -54,7 +54,7 @@ const makeStubAuth = (defaultActor: Actor | null = null): StubAuth => {
         ? { actor: defaultActor }
         : { invalid: true };
     const service = {
-        // AUTH-4 entry point used by the probe.
+        // Entry point used by the probe.
         authenticate: async (token: string) => {
             seenTokens.push(token);
             if (nextResult === 'throw') throw new Error('verify failed');
@@ -543,9 +543,9 @@ describe('createAuthProbe — actor attachment + failure tracking', () => {
     });
 });
 
-// ── AUTH-4: reauth signal + KV counters ─────────────────────────────
+// ── Reauth signal + KV counters ─────────────────────────────────────
 
-describe('createAuthProbe — AUTH-4 reauth signal', () => {
+describe('createAuthProbe — reauth signal', () => {
     /** Capture KV increments without a real store. */
     const makeKvStub = () => {
         const calls: Array<{
