@@ -345,12 +345,20 @@ export async function resolvePrivateIdentity(opts: {
     const cookies = (req as Request & { cookies?: Record<string, string> })
         .cookies;
 
-    // 1. Sticky private-asset cookie.
-    const privateCookieName = authService.getPrivateAssetCookieName();
+    // 1. Sticky private-asset cookie. Prefer the v2 cookie name; fall
+    // back to the legacy dot-style name while the deprecation window
+    // is open. A v1 (legacy-secret) token verifies but is intentionally
+    // NOT treated as a valid sticky cookie — we fall through so the
+    // chain re-mints under the v2 secret on this response.
+    const v2CookieName = authService.getPrivateAssetCookieNameV2();
+    const legacyCookieName = authService.getPrivateAssetCookieName();
     const privateCookieToken =
-        typeof cookies?.[privateCookieName] === 'string'
-            ? cookies[privateCookieName]
-            : null;
+        (typeof cookies?.[v2CookieName] === 'string'
+            ? cookies[v2CookieName]
+            : null) ??
+        (typeof cookies?.[legacyCookieName] === 'string'
+            ? cookies[legacyCookieName]
+            : null);
     if (privateCookieToken) {
         try {
             const claims = await authService.verifyPrivateAssetToken(
@@ -361,12 +369,15 @@ export async function resolvePrivateIdentity(opts: {
                     expectedPrivateHost,
                 },
             );
-            return {
-                source: 'private-cookie',
-                userUid: claims.userUid,
-                sessionUuid: claims.sessionUuid,
-                hasValidPrivateCookie: true,
-            };
+            if (!claims.legacy) {
+                return {
+                    source: 'private-cookie',
+                    userUid: claims.userUid,
+                    sessionUuid: claims.sessionUuid,
+                    hasValidPrivateCookie: true,
+                };
+            }
+            /* legacy cookie: fall through so the caller re-mints v2 */
         } catch {
             /* fall through — stale / mismatched / logged-out cookie */
         }
@@ -477,14 +488,18 @@ export async function resolvePublicHostedIdentity(opts: {
     const cookies = (req as Request & { cookies?: Record<string, string> })
         .cookies;
 
-    const publicCookieName = authService.getPublicHostedActorCookieName();
+    const publicCookieNameV2 = authService.getPublicHostedActorCookieNameV2();
+    const publicCookieNameLegacy = authService.getPublicHostedActorCookieName();
     const publicCookieToken =
-        typeof cookies?.[publicCookieName] === 'string'
-            ? cookies[publicCookieName]
-            : null;
+        (typeof cookies?.[publicCookieNameV2] === 'string'
+            ? cookies[publicCookieNameV2]
+            : null) ??
+        (typeof cookies?.[publicCookieNameLegacy] === 'string'
+            ? cookies[publicCookieNameLegacy]
+            : null);
     if (publicCookieToken) {
         try {
-            const claims = authService.verifyPublicHostedActorToken(
+            const claims = await authService.verifyPublicHostedActorToken(
                 publicCookieToken,
                 {
                     expectedAppUid,
@@ -492,12 +507,15 @@ export async function resolvePublicHostedIdentity(opts: {
                     expectedHost,
                 },
             );
-            return {
-                source: 'private-cookie',
-                userUid: claims.userUid,
-                sessionUuid: claims.sessionUuid,
-                hasValidPublicCookie: true,
-            };
+            if (!claims.legacy) {
+                return {
+                    source: 'private-cookie',
+                    userUid: claims.userUid,
+                    sessionUuid: claims.sessionUuid,
+                    hasValidPublicCookie: true,
+                };
+            }
+            /* legacy cookie: fall through so the caller re-mints v2 */
         } catch {
             /* fall through */
         }

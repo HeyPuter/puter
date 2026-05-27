@@ -332,7 +332,7 @@ export const createPuterSiteMiddleware = (
                             privateHost: host,
                         });
                     res.cookie(
-                        layers.services.auth.getPrivateAssetCookieName(),
+                        layers.services.auth.getPrivateAssetCookieNameV2(),
                         token,
                         layers.services.auth.getPrivateAssetCookieOptions({
                             requestHostname: host,
@@ -401,7 +401,7 @@ export const createPuterSiteMiddleware = (
                             },
                         );
                     res.cookie(
-                        layers.services.auth.getPublicHostedActorCookieName(),
+                        layers.services.auth.getPublicHostedActorCookieNameV2(),
                         token,
                         layers.services.auth.getPublicHostedActorCookieOptions({
                             requestHostname: host,

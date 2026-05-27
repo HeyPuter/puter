@@ -150,6 +150,10 @@ const HOSTED_ASSET_COMPRESSION = def({
     user_uid: { short: 'uu', ...uuidCompression() },
     app_uid: { short: 'au', ...uuidCompression('app-') },
     session_uuid: { short: 's', ...uuidCompression() },
+    // Mirrors the `auth_id` claim on `auth`-scope tokens — stable
+    // per-user identity that survives re-login. Lets a reauth flow
+    // re-mint an asset cookie tied to the same identity.
+    auth_id: { short: 'ai', ...uuidCompression() },
     subdomain: 'sd',
     host: 'h',
 });

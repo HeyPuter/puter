@@ -26,9 +26,10 @@ import { Controller, Get, Post } from '../../core/http/decorators.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { antiCsrf } from '../../core/http/middleware/antiCsrf.js';
 import { generateCaptcha } from '../../core/http/middleware/captcha.js';
+import { checkRateLimit } from '../../core/http/middleware/rateLimit.js';
 import {
-    createSessionCookieGate,
     createUserProtectedGate,
+    createWebSessionActorGate,
 } from '../../core/http/middleware/userProtected.js';
 import type { PuterRouter } from '../../core/http/PuterRouter.js';
 import {
@@ -171,16 +172,23 @@ export class AuthController extends PuterController {
             });
         }
 
-        // OTP branching — if 2FA enabled, return a short-lived OTP JWT
+        await this.#enforceAuthIdMatch(req, user, req.body.auth_id);
+
+        // OTP branching — if 2FA enabled, return a short-lived OTP JWT.
+        // Re-bind the optional `auth_id` into the JWT so the follow-up
+        // OTP/recovery call can re-enforce the match without trusting a
+        // free-form claim from the client.
         if (user.otp_enabled) {
-            const otp_jwt_token = this.services.token.sign(
-                'otp',
-                {
-                    user_uid: user.uuid,
-                    purpose: 'otp-login',
-                },
-                { expiresIn: '5m' },
-            );
+            const otpClaims: Record<string, unknown> = {
+                user_uid: user.uuid,
+                purpose: 'otp-login',
+            };
+            if (typeof req.body.auth_id === 'string' && req.body.auth_id) {
+                otpClaims.auth_id = req.body.auth_id;
+            }
+            const otp_jwt_token = this.services.token.sign('otp', otpClaims, {
+                expiresIn: '5m',
+            });
 
             res.status(202).json({
                 proceed: true,
@@ -219,6 +227,7 @@ export class AuthController extends PuterController {
             decoded = this.services.token.verify<{
                 user_uid: string;
                 purpose: string;
+                auth_id?: string;
             }>('otp', token);
         } catch {
             throw new HttpError(400, 'Invalid token.', {
@@ -246,6 +255,8 @@ export class AuthController extends PuterController {
             res.json({ proceed: false });
             return;
         }
+
+        await this.#enforceAuthIdMatch(req, user, decoded.auth_id);
 
         await this.#completeLogin(req, res, user);
     }
@@ -276,6 +287,7 @@ export class AuthController extends PuterController {
             decoded = this.services.token.verify<{
                 user_uid: string;
                 purpose: string;
+                auth_id?: string;
             }>('otp', token);
         } catch {
             throw new HttpError(400, 'Invalid token.', {
@@ -317,6 +329,8 @@ export class AuthController extends PuterController {
         );
         await this.stores.user.invalidateById(user.id);
 
+        await this.#enforceAuthIdMatch(req, user, decoded.auth_id);
+
         await this.#completeLogin(req, res, user);
     }
 
@@ -337,6 +351,41 @@ export class AuthController extends PuterController {
             body.p102xyzname !== undefined
         ) {
             res.json({});
+            return;
+        }
+
+        // Temp-user reauth short-circuit: when an existing temp user is
+        // forced through the reauth flow, the GUI re-submits /signup with
+        // is_temp=true plus the original `auth_id`. Re-attach them to the
+        // existing row instead of minting a new account — otherwise they
+        // lose access to all their files. Permanent users must go through
+        // /login (they have credentials), so we reject that path here.
+        if (is_temp && body.auth_id !== undefined && body.auth_id !== null) {
+            if (typeof body.auth_id !== 'string' || !body.auth_id) {
+                throw new HttpError(400, 'Invalid `auth_id`.', {
+                    legacyCode: 'bad_request',
+                });
+            }
+            await this.#checkAuthIdRateLimit(req);
+            const existing = await this.stores.user.getByUuid(body.auth_id);
+            if (!existing) {
+                throw new HttpError(404, 'auth_id not found.', {
+                    legacyCode: 'not_found',
+                });
+            }
+            if (existing.password !== null || existing.email !== null) {
+                throw new HttpError(
+                    400,
+                    'auth_id resolves to a non-temp account; use /login instead.',
+                    { legacyCode: 'bad_request' },
+                );
+            }
+            if (existing.suspended) {
+                throw new HttpError(401, 'This account is suspended.', {
+                    legacyCode: 'account_suspended',
+                });
+            }
+            await this.#completeLogin(req, res, existing);
             return;
         }
 
@@ -2638,7 +2687,7 @@ export class AuthController extends PuterController {
             (req, res) => this.handleDeleteOwnUser(req, res),
         );
 
-        const sessionCookieGate = createSessionCookieGate(this.config);
+        const webSessionGate = createWebSessionActorGate();
 
         router.post(
             '/auth/revoke-session',
@@ -2647,7 +2696,7 @@ export class AuthController extends PuterController {
                 requireUserActor: true,
                 allowUnconfirmed: true,
                 antiCsrf: true,
-                middleware: [sessionCookieGate],
+                middleware: [webSessionGate],
             },
             (req, res) => this.handleRevokeSession(req, res),
         );
@@ -2665,7 +2714,7 @@ export class AuthController extends PuterController {
                     window: 60 * 60_000,
                     key: 'user',
                 },
-                middleware: [sessionCookieGate],
+                middleware: [webSessionGate],
             },
             (req, res) => this.handleRevokeAllSessions(req, res),
         );
@@ -2676,7 +2725,7 @@ export class AuthController extends PuterController {
                 subdomain: 'api',
                 requireUserActor: true,
                 antiCsrf: true,
-                middleware: [sessionCookieGate],
+                middleware: [webSessionGate],
             },
             (req, res) => this.handleRevokeAccessToken(req, res),
         );
@@ -2778,6 +2827,69 @@ export class AuthController extends PuterController {
                     'This email cannot be used. Please try a different email address.',
                 { legacyCode: 'bad_request' },
             );
+        }
+    }
+
+    /**
+     * Per-IP enumeration clamp on `auth_id`-bearing auth requests. Separate
+     * from the route-level rate limit so a tighter ceiling applies only to
+     * the path that takes a uuid hint from the body — the normal login
+     * path stays at its more generous limit.
+     */
+    async #checkAuthIdRateLimit(req: Request): Promise<void> {
+        const ip = req.ip || req.socket?.remoteAddress || 'unknown';
+        const ok = await checkRateLimit(
+            `login-with-auth-id:${ip}`,
+            5,
+            15 * 60_000,
+        );
+        if (!ok) {
+            throw new HttpError(429, 'Too many auth_id login attempts.', {
+                legacyCode: 'too_many_requests',
+                fields: { 'retry-after': 900 },
+            });
+        }
+    }
+
+    /**
+     * Enforce a client-supplied `auth_id` against the user the credential
+     * flow has resolved. When the GUI is forced through reauth (e.g. v1
+     * token rejected, session revoked, session expired), the 401 response
+     * carries the original `auth_id`; the client must echo it back here
+     * so we can confirm the second login lands on the same user row —
+     * critical for temp users, where a fresh signup would otherwise mint
+     * a new account and strand their files.
+     *
+     * No `auth_id` supplied → no-op (normal login). Unknown `auth_id` →
+     * 404, mirroring the username-not-found shape so the error doesn't
+     * become an enumeration oracle for which user_uuids exist. Mismatch
+     * against the resolved user → 409 (`auth_id_mismatch`).
+     */
+    async #enforceAuthIdMatch(
+        req: Request,
+        resolvedUser: { id: number; uuid: string },
+        suppliedAuthId: unknown,
+    ): Promise<void> {
+        if (suppliedAuthId === undefined || suppliedAuthId === null) return;
+        if (typeof suppliedAuthId !== 'string' || !suppliedAuthId) {
+            throw new HttpError(400, 'Invalid `auth_id`.', {
+                legacyCode: 'bad_request',
+            });
+        }
+
+        await this.#checkAuthIdRateLimit(req);
+
+        const authIdUser = await this.stores.user.getByUuid(suppliedAuthId);
+        if (!authIdUser) {
+            throw new HttpError(404, 'auth_id not found.', {
+                legacyCode: 'not_found',
+            });
+        }
+        if (authIdUser.id !== resolvedUser.id) {
+            throw new HttpError(409, 'auth_id does not match credentials.', {
+                legacyCode: 'bad_request',
+                fields: { code: 'auth_id_mismatch' },
+            });
         }
     }
 
