@@ -24,6 +24,7 @@ import { PuterServer } from '../../server.ts';
 import {
     APP_WINDOW_SECONDS,
     WEB_WINDOW_SECONDS,
+    WORKER_WINDOW_SECONDS,
 } from './SessionStore.js';
 
 describe('SessionStore', () => {
@@ -356,6 +357,228 @@ describe('SessionStore', () => {
                 userId: user.id,
             });
             expect(a.uuid).toBe(b.uuid);
+        });
+    });
+
+    describe('getOrCreateWorker', () => {
+        it('creates a kind="worker" row tagged meta.worker / meta.worker_name', async () => {
+            const user = await makeUser();
+            const appUid = `app-${uuidv4()}`;
+            const workerName = `wk-${Math.random().toString(36).slice(2, 8)}`;
+            const row = await target.getOrCreateWorker(user.id, {
+                appUid,
+                workerName,
+                auth_id: user.uuid,
+            });
+            expect(row).toBeTruthy();
+            expect(row.kind).toBe('worker');
+            expect(row.app_uid).toBe(appUid);
+            expect(row.user_id).toBe(user.id);
+            expect(row.parent_session_id).toBeNull();
+            expect(row.meta.worker).toBe(true);
+            expect(row.meta.worker_name).toBe(workerName);
+
+            // Sliding window seeded for worker — bound matches the live
+            // WORKER_WINDOW_SECONDS constant so a future bump to the window
+            // doesn't silently fail this assertion.
+            const now = Math.floor(Date.now() / 1000);
+            expect(row.expires_at).toBeGreaterThan(now);
+            expect(row.expires_at).toBeLessThanOrEqual(
+                now + WORKER_WINDOW_SECONDS + 5,
+            );
+
+            const raw = await rawRow(row.uuid);
+            expect(raw.kind).toBe('worker');
+            expect(raw.app_uid).toBe(appUid);
+        });
+
+        it('is idempotent on (user, app, worker_name)', async () => {
+            const user = await makeUser();
+            const appUid = `app-${uuidv4()}`;
+            const workerName = `wk-${Math.random().toString(36).slice(2, 8)}`;
+            const a = await target.getOrCreateWorker(user.id, {
+                appUid,
+                workerName,
+            });
+            const b = await target.getOrCreateWorker(user.id, {
+                appUid,
+                workerName,
+            });
+            expect(a.uuid).toBe(b.uuid);
+        });
+
+        it('is idempotent on (user, worker_name) when app_uid is null (user-scoped)', async () => {
+            // The partial unique index uses IFNULL(app_uid, '') so two
+            // user-scoped (app_uid=null) workers with the same worker_name
+            // still dedupe. Without IFNULL, SQLite would treat the NULLs as
+            // distinct per the SQL standard and let duplicates through.
+            const user = await makeUser();
+            const workerName = `wk-${Math.random().toString(36).slice(2, 8)}`;
+            const a = await target.getOrCreateWorker(user.id, {
+                appUid: null,
+                workerName,
+            });
+            const b = await target.getOrCreateWorker(user.id, {
+                appUid: null,
+                workerName,
+            });
+            expect(a.uuid).toBe(b.uuid);
+            expect(a.app_uid).toBeNull();
+        });
+
+        it('mints distinct rows for different worker_names under the same (user, app)', async () => {
+            const user = await makeUser();
+            const appUid = `app-${uuidv4()}`;
+            const a = await target.getOrCreateWorker(user.id, {
+                appUid,
+                workerName: `wk-${Math.random().toString(36).slice(2, 8)}-a`,
+            });
+            const b = await target.getOrCreateWorker(user.id, {
+                appUid,
+                workerName: `wk-${Math.random().toString(36).slice(2, 8)}-b`,
+            });
+            expect(a.uuid).not.toBe(b.uuid);
+        });
+
+        it('does NOT collide with an interactive kind="app" row for the same (user, app)', async () => {
+            // Worker rows are intentionally carved out of the
+            // idx_sessions_user_app_active index (which is WHERE kind='app').
+            // An app session and a worker session for the same (user, app)
+            // must coexist.
+            const user = await makeUser();
+            const appUid = `app-${uuidv4()}`;
+            const appRow = await target.getOrCreateApp(user.id, appUid);
+            const workerRow = await target.getOrCreateWorker(user.id, {
+                appUid,
+                workerName: `wk-${Math.random().toString(36).slice(2, 8)}`,
+            });
+            expect(appRow.uuid).not.toBe(workerRow.uuid);
+            expect(appRow.kind).toBe('app');
+            expect(workerRow.kind).toBe('worker');
+        });
+
+        it('converges to a single row under concurrent racers', async () => {
+            const user = await makeUser();
+            const appUid = `app-${uuidv4()}`;
+            const workerName = `wk-${Math.random().toString(36).slice(2, 8)}`;
+            const results = await Promise.all(
+                Array.from({ length: 10 }, () =>
+                    target.getOrCreateWorker(user.id, { appUid, workerName }),
+                ),
+            );
+            const uuids = new Set(results.map((r: { uuid: string }) => r.uuid));
+            expect(uuids.size).toBe(1);
+
+            // And only one row ever made it into the table.
+            const rows = await server.clients.db.read(
+                "SELECT `uuid` FROM `sessions` WHERE `user_id` = ? AND `kind` = 'worker' AND `app_uid` = ?",
+                [user.id, appUid],
+            );
+            expect(rows).toHaveLength(1);
+        });
+
+        it('returns null when called with falsy inputs', async () => {
+            expect(
+                await target.getOrCreateWorker(null, { workerName: 'wk' }),
+            ).toBeNull();
+            expect(await target.getOrCreateWorker(1, {})).toBeNull();
+            expect(
+                await target.getOrCreateWorker(1, { workerName: '' }),
+            ).toBeNull();
+        });
+
+        it('mints a new row after the previous one was revoked', async () => {
+            // After revoke, the partial-unique index has no active row
+            // for (user_id, app_uid, worker_name), so the next call mints
+            // a fresh uuid instead of being short-circuited by the
+            // composite cache or by re-SELECTing the revoked row.
+            const user = await makeUser();
+            const appUid = `app-${uuidv4()}`;
+            const workerName = `wk-${Math.random().toString(36).slice(2, 8)}`;
+            const first = await target.getOrCreateWorker(user.id, {
+                appUid,
+                workerName,
+            });
+            await target.removeByUuid(first.uuid);
+            const second = await target.getOrCreateWorker(user.id, {
+                appUid,
+                workerName,
+            });
+            expect(second.uuid).not.toBe(first.uuid);
+            expect(second.kind).toBe('worker');
+        });
+
+        it('revokeCascade invalidates the worker composite cache', async () => {
+            // Mirrors the app cascade-invalidation test. First call primes
+            // the worker composite cache; cascading revoke must drop it so
+            // the next call doesn't serve the revoked row.
+            const user = await makeUser();
+            const appUid = `app-${uuidv4()}`;
+            const workerName = `wk-${Math.random().toString(36).slice(2, 8)}`;
+            const first = await target.getOrCreateWorker(user.id, {
+                appUid,
+                workerName,
+            });
+            await target.revokeCascade(first.uuid);
+            const second = await target.getOrCreateWorker(user.id, {
+                appUid,
+                workerName,
+            });
+            expect(second.uuid).not.toBe(first.uuid);
+        });
+    });
+
+    describe('error propagation (no silent swallow)', () => {
+        // INSERT-IGNORE used to mask every constraint violation, not just
+        // the partial-unique-index conflict the `getOrCreate*` paths rely
+        // on for idempotency. These tests pin the post-fix behavior: real
+        // schema errors throw, the unique-key conflict path still no-ops.
+
+        it('create() with an unsupported kind throws (CHECK constraint surfaces)', async () => {
+            // The `sessions.kind` column carries a CHECK constraint
+            // restricting it to the known set. A bogus kind must throw
+            // rather than be silently coerced or swallowed.
+            const user = await makeUser();
+            await expect(
+                target.create(user.id, { kind: 'not-a-real-kind' }),
+            ).rejects.toThrow();
+        });
+
+        it('create() accepts kind="worker" (regression: post-migration the CHECK allows it)', async () => {
+            // Sanity check that migration 0056 actually relaxed the CHECK.
+            // Pre-migration this threw `CHECK constraint failed`.
+            const user = await makeUser();
+            const session = await target.create(user.id, {
+                kind: 'worker',
+                meta: { worker: true, worker_name: 'direct' },
+            });
+            expect(session.kind).toBe('worker');
+        });
+
+        it('create() with a duplicate (user_id, app_uid) on kind="app" throws (UNIQUE surfaces)', async () => {
+            // `create()` runs with ignoreConflict=false, so the partial
+            // unique index `idx_sessions_user_app_active` fires loudly.
+            // This is the path that pre-fix `INSERT IGNORE` was silently
+            // collapsing — verify it now throws as expected.
+            const user = await makeUser();
+            const appUid = `app-${uuidv4()}`;
+            await target.create(user.id, { kind: 'app', app_uid: appUid });
+            await expect(
+                target.create(user.id, { kind: 'app', app_uid: appUid }),
+            ).rejects.toThrow();
+        });
+
+        it('getOrCreateApp swallows the partial-unique conflict (idempotent get-or-create)', async () => {
+            // Counterpart to the previous test. The same INSERT path
+            // routed through getOrCreateApp (ignoreConflict=true) must
+            // still no-op the unique-key conflict and return the existing
+            // row instead of throwing.
+            const user = await makeUser();
+            const appUid = `app-${uuidv4()}`;
+            const first = await target.getOrCreateApp(user.id, appUid);
+            await expect(
+                target.getOrCreateApp(user.id, appUid),
+            ).resolves.toMatchObject({ uuid: first.uuid });
         });
     });
 

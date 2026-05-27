@@ -1180,6 +1180,108 @@ describe('AuthService (integration)', () => {
                 ),
             ).rejects.toMatchObject({ statusCode: 400 });
         });
+
+        // ── Revocation flow ────────────────────────────────────────
+
+        it('revokeSession on a worker session — authenticate returns reauth.session_revoked', async () => {
+            const user = await makeUser();
+            const workerName = `wk-${Math.random().toString(36).slice(2, 8)}`;
+            const { token, session } =
+                await authService.createWorkerSessionToken(user, workerName);
+            const sessionUuid = (session as { uuid: string }).uuid;
+
+            await authService.revokeSession(sessionUuid);
+
+            const result = await authService.authenticate(token);
+            expect(result.actor).toBeUndefined();
+            expect(result.reauth).toEqual({
+                reason: 'session_revoked',
+                auth_id: user.uuid,
+            });
+        });
+
+        it('createWorkerSessionToken after revoke mints a new session uuid (composite cache invalidates)', async () => {
+            // Pre-fix, the worker composite cache could short-circuit
+            // back to the revoked row. Verify cache invalidation runs on
+            // revoke so the re-create produces a fresh row.
+            const user = await makeUser();
+            const workerName = `wk-${Math.random().toString(36).slice(2, 8)}`;
+            const first = await authService.createWorkerSessionToken(
+                user,
+                workerName,
+            );
+            const firstUuid = (first.session as { uuid: string }).uuid;
+            await authService.revokeSession(firstUuid);
+
+            const second = await authService.createWorkerSessionToken(
+                user,
+                workerName,
+            );
+            const secondUuid = (second.session as { uuid: string }).uuid;
+            expect(secondUuid).not.toBe(firstUuid);
+
+            // The new JWT authenticates; the old one does not.
+            const oldResult = await authService.authenticate(first.token);
+            const newResult = await authService.authenticate(second.token);
+            expect(oldResult.actor).toBeUndefined();
+            expect(newResult.actor?.user.uuid).toBe(user.uuid);
+        });
+
+        it('createWorkerAppToken after revoke mints a new session uuid', async () => {
+            const user = await makeUser();
+            const appUid = `app-${uuidv4()}`;
+            const workerName = `wk-${Math.random().toString(36).slice(2, 8)}`;
+            const actor = {
+                user: { id: user.id, uuid: user.uuid, username: user.username },
+            } as Actor;
+            const firstJwt = await authService.createWorkerAppToken(
+                actor,
+                appUid,
+                workerName,
+            );
+            const firstDecoded = server.services.token.verify(
+                'auth',
+                firstJwt,
+            ) as { session_uid: string };
+            await authService.revokeSession(firstDecoded.session_uid);
+
+            const secondJwt = await authService.createWorkerAppToken(
+                actor,
+                appUid,
+                workerName,
+            );
+            const secondDecoded = server.services.token.verify(
+                'auth',
+                secondJwt,
+            ) as { session_uid: string };
+            expect(secondDecoded.session_uid).not.toBe(
+                firstDecoded.session_uid,
+            );
+        });
+
+        it('removeSessionByToken on a worker token soft-revokes the row', async () => {
+            // The logout / signout path lands here. Worker JWTs carry
+            // type='session' so the same code path applies; verify it
+            // flips revoked_at and authenticate stops resolving the actor.
+            const user = await makeUser();
+            const workerName = `wk-${Math.random().toString(36).slice(2, 8)}`;
+            const { token, session } =
+                await authService.createWorkerSessionToken(user, workerName);
+            const sessionUuid = (session as { uuid: string }).uuid;
+
+            await authService.removeSessionByToken(token);
+
+            const result = await authService.authenticate(token);
+            expect(result.actor).toBeUndefined();
+            expect(result.reauth?.reason).toBe('session_revoked');
+
+            // Row still present, just soft-revoked.
+            const rows = (await server.clients.db.read(
+                'SELECT `revoked_at` FROM `sessions` WHERE `uuid` = ? LIMIT 1',
+                [sessionUuid],
+            )) as Array<{ revoked_at: number | null }>;
+            expect(rows[0]?.revoked_at).not.toBeNull();
+        });
     });
 
     describe('appUidFromOrigin', () => {
