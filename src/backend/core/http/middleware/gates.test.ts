@@ -137,7 +137,7 @@ describe('requireAuthGate', () => {
         expectHttpError(got, 403, 'forbidden');
     });
 
-    // ── AUTH-4 reauth signal ────────────────────────────────────────
+    // ── Reauth signal ───────────────────────────────────────────────
 
     it('returns 401 reauth_required for a legacy v1 token', () => {
         const got = runGate(requireAuthGate(), {

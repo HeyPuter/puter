@@ -15,7 +15,7 @@
 -- You should have received a copy of the GNU Affero General Public License
 -- along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
--- AUTH-5 (PUT-1019) — mirrors SQLite migration 0053. Adds the
+-- Mirrors SQLite migration 0053. Adds the
 -- `access_token_uid` reverse-lookup column on `sessions` so raw-uuid
 -- revoke can find the matching session row when only the v2 token_uid
 -- (no JWT) is presented.

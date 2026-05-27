@@ -3408,10 +3408,10 @@ describe('AuthController.handleRevokeSession additional branches', () => {
     });
 
     it('refuses to revoke the caller’s OWN current session row (400)', async () => {
-        // PUT-1019 invariant: a self-revoke leaves the client in an
-        // ambiguous identity state because the response can't write
-        // fresh auth state. /logout is the only path that should end
-        // the session you're currently authenticated under.
+        // Invariant: a self-revoke leaves the client in an ambiguous
+        // identity state because the response can't write fresh auth
+        // state. /logout is the only path that should end the session
+        // you're currently authenticated under.
         const { user, actor } = await makeUserAndActor();
         const sessionRes = await server.services.auth.createSessionToken(
             user,
@@ -3464,7 +3464,7 @@ describe('AuthController.handleRevokeSession additional branches', () => {
     });
 });
 
-// ── handleMigrateToken (PUT-1021 SDK-1) ─────────────────────────────
+// ── handleMigrateToken ──────────────────────────────────────────────
 
 describe('AuthController.handleMigrateToken', () => {
     const TEST_ORIGIN = 'https://migrate.test.local';
@@ -3572,10 +3572,10 @@ describe('AuthController.handleMigrateToken', () => {
     });
 
     it('returns 409 reauth_required for v1 web/session tokens', async () => {
-        // Web tokens never migrate silently — they always go through the
-        // interactive reauth flow (PUT-1023). The body code is what
-        // puter.js / GUI key on; the 409 status is what tells SDK code
-        // "this isn't a generic auth failure, route through reauth".
+        // Web tokens never migrate silently — they always go through
+        // the interactive reauth flow. The body code is what puter.js /
+        // GUI key on; the 409 status is what tells SDK code "this
+        // isn't a generic auth failure, route through reauth".
         const { user } = await makeUserAndActor();
         const v1 = mintV1Token({
             type: 'session',

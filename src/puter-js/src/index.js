@@ -92,11 +92,11 @@ class Lock {
 //       (using defaultGUIOrigin breaks locally-hosted apps)
 const PROD_ORIGIN = 'https://puter.com';
 
-// localStorage keys for the auth token. v1 is the legacy key. v2 is the new
-// key written after the token rotation in the v1→v2 cutover (PUT-1024).
-// Reads prefer v2; v1 is only consulted to drive the silent-migration path
-// (SDK access_token / app kinds) or — for kind='web' — to fail over to the
-// interactive reauth flow.
+// localStorage keys for the auth token. v1 is the legacy key. v2 is
+// the new key written after the token rotation in the v1→v2 cutover.
+// Reads prefer v2; v1 is only consulted to drive the silent-migration
+// path (access_token / app kinds) or — for kind='web' — to fail over
+// to the interactive reauth flow.
 const STORAGE_KEY_V1 = 'puter.auth.token';
 const STORAGE_KEY_V2 = 'puter.auth.token.v2';
 
@@ -152,7 +152,7 @@ const puterInit = (function () {
         // Event handling properties
         eventHandlers = {};
 
-        // Reauth coordinator state (PUT-1022 PJS-1). When the backend signals
+        // Reauth coordinator state. When the backend signals
         // `401 { code: 'reauth_required' }`, in-flight requests await this
         // promise; the first caller drives the interactive flow, everyone
         // else replays after it resolves.
@@ -476,11 +476,11 @@ const puterInit = (function () {
                         // URL-param tokens may still be v1 (host apps that
                         // haven't rebuilt yet). Set immediately so submodules
                         // can run, then attempt silent migration in the
-                        // background — PJS-2.
+                        // background.
                         this.setAuthToken(bootstrapAuthToken);
                         needsSilentMigration = true;
                     } else {
-                        // Prefer the v2 storage key (PJS-2). Fall back to v1
+                        // Prefer the v2 storage key. Fall back to v1
                         // and queue a silent migrate-token call.
                         const v2 = this.normalizeAuthTokenCandidate(
                             localStorage.getItem(STORAGE_KEY_V2),
@@ -527,7 +527,7 @@ const puterInit = (function () {
                 // initialize submodules
                 this.initSubmodules();
                 try {
-                    // Prefer the v2 storage key (PJS-2). Fall back to v1 and
+                    // Prefer the v2 storage key. Fall back to v1 and
                     // run a silent migration in the background.
                     const v2 = this.normalizeAuthTokenCandidate(
                         localStorage.getItem(STORAGE_KEY_V2),
@@ -774,8 +774,8 @@ const puterInit = (function () {
         };
 
         /**
-         * PUT-1022 (PJS-1) — reauth coordinator. Called by the network layer
-         * (lib/utils.js) when the backend returns
+         * Reauth coordinator. Called by the network layer (lib/utils.js)
+         * when the backend returns
          * `401 { code: 'reauth_required', reason, auth_id }`.
          *
          * Behavior is environment-specific:
@@ -784,7 +784,7 @@ const puterInit = (function () {
          *     that resolves when the user signs in (so callers can replay)
          *     or rejects if reauth fails / is canceled.
          *   - `gui`: no-op — the GUI environment renders its own modal
-         *     (PUT-1023 GUI-1) and host code is responsible for the flow.
+         *     and host code is responsible for the flow.
          *   - workers / nodejs: there's no UI surface to drive, so reject
          *     with a structured error and let worker code react.
          *
@@ -902,7 +902,7 @@ const puterInit = (function () {
 
         /**
          * Register a listener for SDK events. Used by host apps to react
-         * to `puter.auth.reauth_required` (PUT-1022 PJS-1).
+         * to `puter.auth.reauth_required`.
          */
         on = function (eventName, handler) {
             if ( ! this.eventHandlers[eventName] ) this.eventHandlers[eventName] = [];
@@ -918,8 +918,8 @@ const puterInit = (function () {
         };
 
         /**
-         * PUT-1024 (PJS-2) — best-effort silent v1→v2 token migration via
-         * the backend `/auth/migrate-token` endpoint (SDK-1). Used at boot
+         * Best-effort silent v1→v2 token migration via the backend
+         * `/auth/migrate-token` endpoint. Used at boot
          * when only a legacy `puter.auth.token` is present; on success the
          * v2 token is set via setAuthToken (which clears the v1 key).
          *

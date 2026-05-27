@@ -125,11 +125,11 @@ async function UIDesktop (options) {
         console.error('GUI Socket Error:', error);
     });
 
-    // PUT-1023 (GUI-1) — pick up reauth_required signals delivered via the
-    // socket.io handshake. SocketService emits `Error { data: { code:
+    // Pick up reauth_required signals delivered via the socket.io
+    // handshake. SocketService emits `Error { data: { code:
     // 'reauth_required', reason, auth_id } }` for legacy/revoked/expired
-    // tokens. Without this branch the disconnect would look like a silent
-    // network failure to the user.
+    // tokens. Without this branch the disconnect would look like a
+    // silent network failure to the user.
     window.socket.on('connect_error', (err) => {
         const signal = err?.data;
         if ( signal?.code === 'reauth_required' ) {

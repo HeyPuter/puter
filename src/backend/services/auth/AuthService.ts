@@ -514,10 +514,10 @@ export class AuthService extends PuterService {
             return this.#migrateAccessToken(decoded as AccessTokenPayload);
         }
         if (decoded.type === 'app-under-user') {
-            // Per ROLLOUT-1, app-token migration is the kind that
-            // ultimately retires — flag-gated independently from the
-            // top-level `allow_v1_tokens` so access-token migration
-            // can stay on indefinitely.
+            // App-token migration is the kind that ultimately retires
+            // — flag-gated independently from the top-level
+            // `allow_v1_tokens` so access-token migration can stay on
+            // indefinitely.
             const allowAppMigration =
                 (this.config as { allow_v1_app_migration?: boolean })
                     .allow_v1_app_migration !== false;
@@ -1372,7 +1372,7 @@ export class AuthService extends PuterService {
             }
         }
 
-        // Permissions rows still DELETE — the AUTH-5 "no DELETE on revoke"
+        // Permissions rows still DELETE — the "no DELETE on revoke"
         // rule scoped to the `sessions` table (where the audit trail of
         // when a session existed/was revoked is load-bearing for forensic
         // queries and the cascade graph). `access_token_permissions`

@@ -100,8 +100,8 @@ function initXhr (endpoint, APIOrigin, authToken, method = 'post', contentType =
     xhr.setRequestHeader('Content-Type', contentType);
     xhr.responseType = responseType ?? '';
 
-    // Capture enough request shape to replay this XHR after a reauth_required
-    // (PUT-1022 PJS-1). The body is captured below by intercepting send().
+    // Capture enough request shape to replay this XHR after a
+    // reauth_required. The body is captured below by intercepting send().
     xhr._puterReq = {
         endpoint,
         APIOrigin,
@@ -176,12 +176,12 @@ async function handle_resp (success_cb, error_cb, resolve_func, reject_func, res
     const resp = await parseResponse(response);
     // error - unauthorized
     if ( response.status === 401 ) {
-        // PUT-1022 (PJS-1) — v2 reauth signal. The backend `authProbe`
-        // middleware returns `401 { code: 'reauth_required', reason, auth_id }`
-        // for legacy v1 tokens, revoked sessions, and expired sessions
-        // beyond the silent re-mint window. Drive the env-specific reauth
-        // flow on the Puter class, then replay the original request with
-        // the new token.
+        // v2 reauth signal. The backend `authProbe` middleware returns
+        // `401 { code: 'reauth_required', reason, auth_id }` for legacy
+        // v1 tokens, revoked sessions, and expired sessions beyond the
+        // silent re-mint window. Drive the env-specific reauth flow on
+        // the Puter class, then replay the original request with the
+        // new token.
         if ( resp?.code === 'reauth_required' ) {
             try {
                 await puter.triggerReauth({
@@ -595,8 +595,8 @@ async function driverCall_ (
 
         // HTTP Error - unauthorized
         if ( response.target.status === 401 || resp?.code === 'token_auth_failed' ) {
-            // PUT-1022 (PJS-1) — v2 reauth signal. Replay the driver
-            // call by re-entering driverCall_ rather than using the
+            // v2 reauth signal. Replay the driver call by re-entering
+            // driverCall_ rather than using the
             // generic replayXhrAfterReauth helper: the generic helper
             // wires the retried XHR through setupXhrEventHandlers, which
             // resolves with the parsed response and skips driverCall_'s

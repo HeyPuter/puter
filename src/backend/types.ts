@@ -481,7 +481,7 @@ interface IConfigOptional {
     /**
      * Legacy HMAC secret for v1 JWTs. New tokens are always signed with
      * `jwt_secret_v2`; this value is verify-only and accepted as long as
-     * `allow_v1_tokens` is true (flipped off in ROLLOUT-1 to retire v1).
+     * `allow_v1_tokens` is true (flipped off to retire v1).
      */
     jwt_secret: string;
     /** HMAC secret used to sign and verify v2 auth JWTs (`kid: 'v2'`). */
@@ -493,10 +493,10 @@ interface IConfigOptional {
     allow_v1_tokens: boolean;
     /**
      * When false, `POST /auth/migrate-token` returns 410 Gone for v1
-     * `app-under-user` tokens. Per ROLLOUT-1, app-token migration is
-     * retired ahead of access-token migration — keeping these on
-     * separate flags lets ops kill apps first and keep API-key
-     * migration on indefinitely. Default true.
+     * `app-under-user` tokens. App-token migration is retired ahead
+     * of access-token migration — keeping these on separate flags
+     * lets ops kill apps first and keep API-key migration on
+     * indefinitely. Default true.
      */
     allow_v1_app_migration: boolean;
     /**

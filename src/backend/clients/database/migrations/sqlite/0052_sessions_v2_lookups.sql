@@ -15,14 +15,14 @@
 -- You should have received a copy of the GNU Affero General Public License
 -- along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
--- AUTH-2 (PUT-1014) — composite-key lookups + audit columns.
+-- Composite-key lookups + audit columns.
 --   - `app_uid`           : binds `kind='app'` rows to their app authorization
 --                           target. (user_id, app_uid) is the idempotency key.
 --   - `legacy_token_uid`  : keys lazy-backfilled rows to the v1 token_uid that
 --                           originally minted them.
 --   - `created_via`       : audit sentinel (e.g. 'legacy_backfill').
---   - `auth_id`           : stable per-user identity that survives re-login
---                           (PUT-1010); lets manage-sessions group by identity.
+--   - `auth_id`           : stable per-user identity that survives re-login;
+--                           lets manage-sessions group by identity.
 
 ALTER TABLE `sessions` ADD COLUMN `app_uid` TEXT;
 ALTER TABLE `sessions` ADD COLUMN `legacy_token_uid` TEXT;

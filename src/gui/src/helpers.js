@@ -31,9 +31,9 @@ import UIWindowLogin from './UI/UIWindowLogin.js';
 import UIWindowProgress from './UI/UIWindowProgress.js';
 import UIWindowSaveAccount from './UI/UIWindowSaveAccount.js';
 
-// PUT-1023 (GUI-1) — localStorage keys for the GUI session token. v2 is the
-// new key written after the v1→v2 cutover. Reads prefer v2; v1 is only kept
-// to drive the reauth-modal path when a stale legacy session is found.
+// localStorage keys for the GUI session token. v2 is the new key written
+// after the v1→v2 cutover. Reads prefer v2; v1 is only kept to drive the
+// reauth-modal path when a stale legacy session is found.
 window.AUTH_TOKEN_KEY_V1 = 'auth_token';
 window.AUTH_TOKEN_KEY_V2 = 'auth_token_v2';
 
@@ -51,16 +51,16 @@ window.is_auth = () => {
 };
 
 /**
- * PUT-1023 (GUI-1) — central handler for `401 { code: 'reauth_required' }`.
+ * Central handler for `401 { code: 'reauth_required' }`.
  *
- * The backend `authProbe` middleware (AUTH-4) emits this 401 shape whenever
- * a token is legacy/revoked/expired. The GUI must NOT silently logout: that
- * loses window/URL state and surprises the user. Instead we:
+ * The backend `authProbe` middleware emits this 401 shape whenever a
+ * token is legacy/revoked/expired. The GUI must NOT silently logout:
+ * that loses window/URL state and surprises the user. Instead we:
  *   1. Snapshot enough state to land back where we were after sign-in.
  *   2. Clear both the v1 and v2 token keys.
  *   3. Show a soft modal explaining what happened.
- *   4. Re-open UIWindowLogin, forwarding `auth_id` so temp users (and
- *      pending GUI-2 work) can re-attach to the same identity.
+ *   4. Re-open UIWindowLogin, forwarding `auth_id` so temp users can
+ *      re-attach to the same identity.
  *
  * Idempotent: parallel 401s while the modal is already open are dropped.
  */
@@ -84,8 +84,7 @@ window.handleReauthRequired = async (signal = {}) => {
         } catch ( e ) { /* ignore */ }
         window.auth_token = null;
 
-        // Soft modal. UIAlert is the lightest-weight existing surface; the
-        // copy is the one specified by GUI-1's spec.
+        // Soft modal. UIAlert is the lightest-weight existing surface.
         try {
             await UIAlert({
                 message: i18n('reauth_required_message') || 'Your session was updated for security — please sign in again.',
@@ -102,7 +101,7 @@ window.handleReauthRequired = async (signal = {}) => {
             // fall through to UIWindowLogin directly.
         }
 
-        // Open the login window, forwarding auth_id (consumed in GUI-2).
+        // Open the login window, forwarding auth_id.
         try {
             const login = await UIWindowLogin({
                 reload_on_success: true,
@@ -580,8 +579,8 @@ window.refresh_user_data = async (auth_token) => {
 
 window.update_auth_data = async (auth_token, user, api_origin) => {
     window.auth_token = auth_token;
-    // PUT-1023 (GUI-1) — write the v2 key going forward and clear any
-    // lingering v1 key so a single localStorage source-of-truth is used.
+    // Write the v2 key going forward and clear any lingering v1 key so
+    // a single localStorage source-of-truth is used.
     localStorage.setItem(window.AUTH_TOKEN_KEY_V2, auth_token);
     localStorage.removeItem(window.AUTH_TOKEN_KEY_V1);
 
@@ -741,8 +740,8 @@ window.sendWindowWillCloseMsg = function (iframe_element) {
 window.logout = () => {
     // clear cache
     puter._cache.flushall();
-    // PUT-1023 (GUI-1) — clear both old and new token keys. Cookie clear
-    // is handled by the backend logout endpoint.
+    // Clear both old and new token keys. Cookie clear is handled by
+    // the backend logout endpoint.
     try {
         localStorage.removeItem(window.AUTH_TOKEN_KEY_V2);
         localStorage.removeItem(window.AUTH_TOKEN_KEY_V1);
@@ -751,10 +750,10 @@ window.logout = () => {
     // document.dispatchEvent(new Event("logout", { bubbles: true}));
 };
 
-// PUT-1023 (GUI-1) — global jQuery ajax error interceptor. Catches any
-// `401 { code: 'reauth_required' }` that wasn't already handled by a more
-// specific `statusCode[401]` callback on the call site, so we don't have
-// to audit every legacy `$.ajax` call when AUTH-4 rolls out.
+// Global jQuery ajax error interceptor. Catches any `401 { code:
+// 'reauth_required' }` that wasn't already handled by a more specific
+// `statusCode[401]` callback on the call site, so we don't have to
+// audit every legacy `$.ajax` call when the reauth signal rolls out.
 if ( typeof $ !== 'undefined' && $.fn ) {
     $(document).ajaxError(function (event, jqxhr, settings, thrownError) {
         if ( jqxhr?.status !== 401 ) return;
@@ -769,9 +768,9 @@ if ( typeof $ !== 'undefined' && $.fn ) {
     });
 }
 
-// PUT-1023 (GUI-1) — multi-tab propagation. If another tab signs in (sets
-// the v2 token) or signs out (clears it), reflect that here without forcing
-// a full page reload when we can avoid it.
+// Multi-tab propagation. If another tab signs in (sets the v2 token) or
+// signs out (clears it), reflect that here without forcing a full page
+// reload when we can avoid it.
 if ( typeof window !== 'undefined' && window.addEventListener ) {
     window.addEventListener('storage', (event) => {
         if ( event.key !== window.AUTH_TOKEN_KEY_V2 ) return;
