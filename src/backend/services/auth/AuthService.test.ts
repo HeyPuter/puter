@@ -670,46 +670,85 @@ describe('AuthService (integration)', () => {
             >;
         };
 
-        it('createWorkerSessionToken mints a kind="web" row tagged meta.worker, with the WORKER_WINDOW_SECONDS expiry', async () => {
+        const readMeta = (row: Record<string, unknown>) =>
+            (typeof row.meta === 'string'
+                ? (JSON.parse(row.meta as string) as Record<string, unknown>)
+                : (row.meta as Record<string, unknown>)) ?? {};
+
+        it('createWorkerSessionToken mints a kind="worker" row tagged meta.worker_name with the WORKER_WINDOW_SECONDS expiry', async () => {
             const user = await makeUser();
             const before = Math.floor(Date.now() / 1000);
+            const workerName = `wk-${Math.random().toString(36).slice(2, 8)}`;
             const { session, token, gui_token } =
-                await authService.createWorkerSessionToken(user, {
+                await authService.createWorkerSessionToken(user, workerName, {
                     user_agent: 'worker-agent',
                 });
 
             const row = (await server.stores.session.getByUuid(
                 (session as { uuid: string }).uuid,
             )) as Record<string, unknown>;
-            expect(row.kind).toBe('web');
+            expect(row.kind).toBe('worker');
+            expect(row.app_uid).toBeNull();
             // expires_at lands in the ~99-year window — assert lower
             // bound only so the test isn't fragile to small drift or a
             // future constant adjustment.
             expect(row.expires_at as number).toBeGreaterThanOrEqual(
                 before + 50 * 365 * 24 * 60 * 60,
             );
-            const meta =
-                typeof row.meta === 'string'
-                    ? (JSON.parse(row.meta as string) as Record<
-                          string,
-                          unknown
-                      >)
-                    : (row.meta as Record<string, unknown>);
+            const meta = readMeta(row);
             expect(meta.worker).toBe(true);
+            expect(meta.worker_name).toBe(workerName);
 
-            // Both JWTs carry the worker claim so downstream code can
-            // distinguish without re-reading the session row.
+            // Both JWTs carry the worker + worker_name claims so
+            // downstream code can distinguish without a DB hit.
             expect(decodeAuth(token).worker).toBe(true);
+            expect(decodeAuth(token).worker_name).toBe(workerName);
             expect(decodeAuth(gui_token).worker).toBe(true);
+            expect(decodeAuth(gui_token).worker_name).toBe(workerName);
         });
 
-        it('createWorkerAppToken mints a kind="app" row tagged meta.worker, with the WORKER_WINDOW_SECONDS expiry', async () => {
+        it('createWorkerSessionToken is idempotent on (user, worker_name) — redeploys reuse the row', async () => {
             const user = await makeUser();
-            // Existing AuthService surfaces (e.g. getUserAppToken in the
-            // tests below) shape app_uid as `app-${uuid}` — keep the
-            // same shape here so any downstream validator that asserts
-            // on the hyphenated form doesn't reject the row.
+            const workerName = `wk-${Math.random().toString(36).slice(2, 8)}`;
+            const a = await authService.createWorkerSessionToken(
+                user,
+                workerName,
+            );
+            const b = await authService.createWorkerSessionToken(
+                user,
+                workerName,
+            );
+            expect((a.session as { uuid: string }).uuid).toBe(
+                (b.session as { uuid: string }).uuid,
+            );
+        });
+
+        it('createWorkerSessionToken with different worker_names mints distinct rows for the same user', async () => {
+            const user = await makeUser();
+            const a = await authService.createWorkerSessionToken(
+                user,
+                `wk-${Math.random().toString(36).slice(2, 8)}-a`,
+            );
+            const b = await authService.createWorkerSessionToken(
+                user,
+                `wk-${Math.random().toString(36).slice(2, 8)}-b`,
+            );
+            expect((a.session as { uuid: string }).uuid).not.toBe(
+                (b.session as { uuid: string }).uuid,
+            );
+        });
+
+        it('createWorkerSessionToken rejects an empty workerName (400)', async () => {
+            const user = await makeUser();
+            await expect(
+                authService.createWorkerSessionToken(user, ''),
+            ).rejects.toMatchObject({ statusCode: 400 });
+        });
+
+        it('createWorkerAppToken mints a kind="worker" row with worker_name + WORKER_WINDOW_SECONDS expiry', async () => {
+            const user = await makeUser();
             const appUid = `app-${uuidv4()}`;
+            const workerName = `wk-${Math.random().toString(36).slice(2, 8)}`;
             const actor = {
                 user: { id: user.id, uuid: user.uuid, username: user.username },
             } as Actor;
@@ -717,31 +756,112 @@ describe('AuthService (integration)', () => {
             const token = await authService.createWorkerAppToken(
                 actor,
                 appUid,
+                workerName,
             );
 
             const decoded = decodeAuth(token);
             expect(decoded.type).toBe('app-under-user');
             expect(decoded.worker).toBe(true);
+            expect(decoded.worker_name).toBe(workerName);
             expect(decoded.app_uid).toBe(appUid);
             expect(decoded.user_uid).toBe(user.uuid);
 
-            const sessionUid = decoded.session_uid as string;
             const row = (await server.stores.session.getByUuid(
-                sessionUid,
+                decoded.session_uid as string,
             )) as Record<string, unknown>;
-            expect(row.kind).toBe('app');
+            expect(row.kind).toBe('worker');
             expect(row.app_uid).toBe(appUid);
             expect(row.expires_at as number).toBeGreaterThanOrEqual(
                 before + 50 * 365 * 24 * 60 * 60,
             );
-            const meta =
-                typeof row.meta === 'string'
-                    ? (JSON.parse(row.meta as string) as Record<
-                          string,
-                          unknown
-                      >)
-                    : (row.meta as Record<string, unknown>);
+            const meta = readMeta(row);
             expect(meta.worker).toBe(true);
+            expect(meta.worker_name).toBe(workerName);
+        });
+
+        it('createWorkerAppToken is idempotent on (user, app, worker_name)', async () => {
+            const user = await makeUser();
+            const appUid = `app-${uuidv4()}`;
+            const workerName = `wk-${Math.random().toString(36).slice(2, 8)}`;
+            const actor = {
+                user: { id: user.id, uuid: user.uuid, username: user.username },
+            } as Actor;
+            const a = await authService.createWorkerAppToken(
+                actor,
+                appUid,
+                workerName,
+            );
+            const b = await authService.createWorkerAppToken(
+                actor,
+                appUid,
+                workerName,
+            );
+            expect((decodeAuth(a) as { session_uid: string }).session_uid).toBe(
+                (decodeAuth(b) as { session_uid: string }).session_uid,
+            );
+        });
+
+        it('createWorkerAppToken coexists with an interactive app session for the same (user, app)', async () => {
+            // The point of `kind="worker"` is precisely to avoid the
+            // `idx_sessions_user_app_active` collision that bit us
+            // pre-schema-carve-out. Verify: getUserAppToken creates the
+            // interactive `kind="app"` row, then createWorkerAppToken
+            // for the SAME (user, app) succeeds and yields a distinct
+            // row with kind="worker".
+            const user = await makeUser();
+            const appUid = `app-${uuidv4()}`;
+            const workerName = `wk-${Math.random().toString(36).slice(2, 8)}`;
+            const actor = {
+                user: { id: user.id, uuid: user.uuid, username: user.username },
+            } as Actor;
+            const interactiveJwt = await authService.getUserAppToken(
+                actor,
+                appUid,
+            );
+            const interactiveDecoded = decodeAuth(interactiveJwt);
+            const interactiveSessionUid =
+                interactiveDecoded.session_uid as string;
+
+            const workerJwt = await authService.createWorkerAppToken(
+                actor,
+                appUid,
+                workerName,
+            );
+            const workerDecoded = decodeAuth(workerJwt);
+            const workerSessionUid = workerDecoded.session_uid as string;
+
+            expect(workerSessionUid).not.toBe(interactiveSessionUid);
+
+            const interactiveRow = (await server.stores.session.getByUuid(
+                interactiveSessionUid,
+            )) as Record<string, unknown>;
+            const workerRow = (await server.stores.session.getByUuid(
+                workerSessionUid,
+            )) as Record<string, unknown>;
+            expect(interactiveRow.kind).toBe('app');
+            expect(workerRow.kind).toBe('worker');
+            expect(workerRow.app_uid).toBe(appUid);
+        });
+
+        it('createWorkerAppToken with different worker_names under the same (user, app) mints distinct rows', async () => {
+            const user = await makeUser();
+            const appUid = `app-${uuidv4()}`;
+            const actor = {
+                user: { id: user.id, uuid: user.uuid, username: user.username },
+            } as Actor;
+            const a = await authService.createWorkerAppToken(
+                actor,
+                appUid,
+                `wk-${Math.random().toString(36).slice(2, 8)}-a`,
+            );
+            const b = await authService.createWorkerAppToken(
+                actor,
+                appUid,
+                `wk-${Math.random().toString(36).slice(2, 8)}-b`,
+            );
+            expect((decodeAuth(a) as { session_uid: string }).session_uid).not.toBe(
+                (decodeAuth(b) as { session_uid: string }).session_uid,
+            );
         });
 
         it('createWorkerAppToken refuses an actor with no user (403)', async () => {
@@ -749,8 +869,23 @@ describe('AuthService (integration)', () => {
                 authService.createWorkerAppToken(
                     { user: undefined } as unknown as Actor,
                     'app-x',
+                    'wk-x',
                 ),
             ).rejects.toMatchObject({ statusCode: 403 });
+        });
+
+        it('createWorkerAppToken rejects an empty workerName (400)', async () => {
+            const user = await makeUser();
+            const actor = {
+                user: { id: user.id, uuid: user.uuid, username: user.username },
+            } as Actor;
+            await expect(
+                authService.createWorkerAppToken(
+                    actor,
+                    `app-${uuidv4()}`,
+                    '',
+                ),
+            ).rejects.toMatchObject({ statusCode: 400 });
         });
     });
 
