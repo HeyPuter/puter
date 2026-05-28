@@ -27,6 +27,7 @@
     "js-yaml": "^4.1.0",
     "jsdom": "^26.1.0",
     "marked": "^11.1.1",
+    "minisearch": "^7.2.0",
     "nwsapi": "^2.2.23"
   },
   "devDependencies": {

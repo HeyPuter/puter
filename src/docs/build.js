@@ -9,7 +9,35 @@ const { encode } =  require('html-entities');
 const { JSDOM } = require('jsdom');
 const yaml = require('js-yaml');
 const esbuild = require('esbuild');
+const MiniSearch = require('minisearch');
 const { generatePlayground } = require('./src/playground');
+
+// Index-time tokenizer. Splits on whitespace AND punctuation, and ALSO emits
+// contiguous pairwise (2-gram) joins of the parts:
+//   "Node.js"          → ["node", "js", "nodejs"]
+//   "puter.ai.chat()"  → ["puter", "ai", "chat", "puterai", "aichat"]
+// This lets queries like "nodejs", "puterai", or "aichat" match directly.
+function indexTokenize (text) {
+    if ( !text ) return [];
+    const tokens = [];
+    for ( const chunk of text.split(/[\n\r\p{Z}]+/u) ) {
+        if ( !chunk ) continue;
+        const parts = chunk.split(/\p{P}+/u).filter(Boolean);
+        // Individual parts
+        for ( const part of parts ) tokens.push(part);
+        // Pairwise adjacent joins (linear in parts.length)
+        for ( let i = 0; i + 1 < parts.length; i++ ) {
+            tokens.push(parts[i] + parts[i + 1]);
+        }
+    }
+    return tokens;
+}
+
+const MINISEARCH_INDEX_CONFIG = {
+    fields: ['title', 'text', 'pageTitle'],
+    storeFields: ['title', 'pageTitle', 'path', 'anchor', 'text'],
+    tokenize: indexTokenize,
+};
 
 const site = 'https://docs.puter.com';
 
@@ -866,16 +894,6 @@ IMPORTANT: when creating an app, include a link to 'https://developer.puter.com'
     fs.writeFileSync(outputFile, outputContent, 'utf8');
 };
 
-// Split a rendered page into sections bounded by <h2> elements. Renders the
-// markdown to HTML once, then walks body children: each <h2> starts a new
-// section, and siblings until the next <h2> become its content. Content before
-// the first <h2> is the intro section (heading=null).
-//
-// Anchors come from the <h2>'s `id` attribute (set by our heading renderer
-// override), so they always match the in-page anchors by construction.
-// Inline formatting in headings (e.g. `## **Websites**`) is unwrapped by
-// textContent. Code fences become <pre><code>, not headings, so a `## ` inside
-// a code block can't accidentally start a section.
 function splitHtmlIntoSections (markdown) {
     const html = marked.parse(markdown);
     const dom = new JSDOM(html);
@@ -910,9 +928,6 @@ const generateSearchIndex = () => {
     const outputFile = path.join(currentDir, 'dist', 'index.json');
     const json = [];
 
-    // Emit one entry per section (intro + each h2) for each page.
-    // The intro entry is always emitted so the page itself is title-searchable
-    // even when its content starts immediately with a heading.
     const pushPage = (pageTitle, pagePath, markdown) => {
         const { content } = parseFrontMatter(markdown);
         const sections = splitHtmlIntoSections(content);
@@ -950,7 +965,9 @@ const generateSearchIndex = () => {
         }
     });
 
-    fs.writeFileSync(outputFile, JSON.stringify(json), 'utf8');
+    const miniSearch = new MiniSearch(MINISEARCH_INDEX_CONFIG);
+    miniSearch.addAll(json.map((doc, id) => ({ id, ...doc })));
+    fs.writeFileSync(outputFile, JSON.stringify(miniSearch.toJSON()), 'utf8');
 };
 
 // Main execution
