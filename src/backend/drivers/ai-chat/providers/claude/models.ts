@@ -61,7 +61,6 @@ export const CLAUDE_MODELS: IChatModel[] = [
         knowledge: '2026-01',
         release_date: '2026-04-16',
         aliases: [
-            'claude-opus',
             'claude-opus-4-7-latest',
             'claude-opus-4.7',
             'claude-opus-4-7',
