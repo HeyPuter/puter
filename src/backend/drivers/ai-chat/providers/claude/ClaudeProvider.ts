@@ -229,10 +229,13 @@ export class ClaudeProvider implements IChatProvider {
             reasoningEffort: requestedReasoningEffort,
             maxTokens: max_tokens,
         });
-        // Opus 4.7 errors on non-default sampling params; omit temperature entirely.
+        // Opus 4.7 and 4.8 error on non-default sampling params; omit temperature entirely.
         // Other models require temperature=1 when thinking is enabled.
-        const isOpus47 = modelUsed.id === 'claude-opus-4-7';
-        const resolvedTemperature = isOpus47
+        const omitsTemperature = [
+            'claude-opus-4-7',
+            'claude-opus-4-8',
+        ].includes(modelUsed.id);
+        const resolvedTemperature = omitsTemperature
             ? undefined
             : thinkingConfig
               ? 1
