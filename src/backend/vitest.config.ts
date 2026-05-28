@@ -27,6 +27,16 @@ const isCi = process.env.CI === 'true';
 const backendDir = __dirname;
 const repoRoot = path.resolve(backendDir, '../..');
 
+// pgmock boots a WASM-emulated Postgres on every `setupTestServer()` call —
+// migrations alone take ~60s, and the WASM VM serializes badly across
+// concurrent emulator instances. So in pgmock mode we (a) bump hook/test
+// timeouts well beyond the 10s default and (b) disable file parallelism so
+// only one pgmock VM runs at a time. Tests still race their own logic
+// internally; we only serialize the *files*.
+const isPgmockMode =
+    (process.env.PUTER_TEST_DB_ENGINE ?? '').toLowerCase() === 'postgres';
+const pgmockTimeoutMs = 600_000;
+
 // Vite 8's oxc transform leaves TC39 stage-3 decorators in place
 // (used by `@Controller`/`@Post`), so they reach Node verbatim and
 // crash with "SyntaxError: Invalid or unexpected token". Pre-transform
@@ -72,6 +82,13 @@ export default defineConfig(({ mode }) => ({
     },
     test: {
         globals: true,
+        ...(isPgmockMode
+            ? {
+                  testTimeout: pgmockTimeoutMs,
+                  hookTimeout: pgmockTimeoutMs,
+                  fileParallelism: false,
+              }
+            : {}),
         coverage: {
             provider: 'v8',
             reporter: isCi

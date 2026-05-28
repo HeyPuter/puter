@@ -161,6 +161,15 @@
     "database": {
         // `sqlite` for single-node/dev, `mysql` for MariaDB/MySQL,
         // or `postgres` for PostgreSQL.
+        //
+        // NOTE: `postgres` support is a community contribution and is not
+        // exercised by Puter.com production. It boots, passes its own
+        // integration tests against pgmock, and runs the common user/app/
+        // fsentry/session/permission/OIDC flows — but less-traveled code
+        // paths may surface MySQL/SQLite-isms that haven't been ported yet.
+        // Expect rough edges and please file issues if you hit one. For
+        // production self-hosting today, `mysql` (MariaDB) and `sqlite` are
+        // the supported defaults.
         "engine": "sqlite",
         // sqlite — file path on disk
         "path": "volatile/runtime/puter-database.sqlite",

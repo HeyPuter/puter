@@ -66,6 +66,28 @@ export const createPgMockPostgresDatabaseClient = async (
     };
 };
 
+/**
+ * When `PUTER_TEST_DB_ENGINE=postgres` is set, `setupTestServer` swaps its
+ * default sqlite test database for an in-memory Postgres backed by pgmock
+ * (with the bundled Postgres migrations applied on boot). Tests that
+ * explicitly override `database` still win — the env var only affects the
+ * implicit default used by callers that don't pass any DB overrides.
+ *
+ * Recognized values: `postgres` → pgmock. Anything else (including unset) →
+ * the original sqlite-in-memory default.
+ */
+const testDatabaseDefault = (): IConfig['database'] => {
+    const engine = (process.env.PUTER_TEST_DB_ENGINE ?? '').toLowerCase();
+    if (engine === 'postgres') {
+        return {
+            engine: 'postgres',
+            inMemory: true,
+            migrationPaths: [POSTGRES_TEST_MIGRATIONS_PATH],
+        };
+    }
+    return { engine: 'sqlite', inMemory: true };
+};
+
 export const setupTestServer = async (
     configOverrides?: IConfig,
 ): Promise<PuterServer> => {
@@ -80,7 +102,7 @@ export const setupTestServer = async (
         deepMerge(defaultConfig, {
             extensions: [],
             port: 0,
-            database: { engine: 'sqlite', inMemory: true },
+            database: testDatabaseDefault(),
             dynamo: { inMemory: true, bootstrapTables: true },
             redis: { useMock: true },
             s3: { localConfig: { inMemory: true } },

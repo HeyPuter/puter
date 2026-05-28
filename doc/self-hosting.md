@@ -234,6 +234,8 @@ All optional. Drop any of the blocks below into `puter/config/config.json` and `
 
 ### PostgreSQL database
 
+> **Community contribution — expect rough edges.** PostgreSQL support was contributed by the community and is not run by Puter.com production. It boots, applies the bundled schema, and exercises the common user/app/fsentry/session/permission/OIDC flows in the integration tests, but less-traveled SQL call sites may still need porting. If you hit a query that doesn't work on Postgres, please open an issue. For production self-hosting today, MariaDB/MySQL and SQLite are the supported defaults.
+
 The bundled Docker Compose stack still defaults to MariaDB. To use PostgreSQL instead, run a PostgreSQL service yourself, point Puter at it, and use the PostgreSQL migration path:
 
 ```json
