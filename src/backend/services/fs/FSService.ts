@@ -206,6 +206,51 @@ export class FSService extends PuterService {
             },
         });
 
+        // -- app-owns-appdata -----------------------------------------
+        // Mirror of the ACLService short-circuit at ACLService.check:
+        // an app-under-user actor implicitly holds fs:<uuid>:* on any
+        // entry inside its own /<username>/AppData/<appUid> subtree.
+        // ACL paths (fs.read etc.) already accept these via that
+        // short-circuit, but permissionService.checkMany — used by
+        // createAccessToken's issuer-subset gate — bypasses ACL, so
+        // without this implicator an app can fs.read its appdata but
+        // can't mint a token for the same fs:<uuid>:read it just read.
+        permissions.registerImplicator({
+            id: 'app-owns-appdata',
+            shortcut: true,
+            matches: (permission: string): boolean => {
+                return (
+                    permission.startsWith('fs:') ||
+                    permission.startsWith(`${MANAGE_PERM_PREFIX}:fs:`) ||
+                    permission.startsWith(
+                        `${MANAGE_PERM_PREFIX}:${MANAGE_PERM_PREFIX}:fs:`,
+                    )
+                );
+            },
+            check: async ({ actor, permission }): Promise<unknown> => {
+                if (!actor.app || actor.accessToken) return undefined;
+                const username = actor.user?.username;
+                const appUid = actor.app.uid;
+                if (!username || !appUid) return undefined;
+
+                const stripped = permission.replaceAll(
+                    `${MANAGE_PERM_PREFIX}:`,
+                    '',
+                );
+                const uid = PermissionUtil.split(stripped)[1];
+                if (!uid) return undefined;
+
+                const entry = await fsEntryStore.getEntryByUuid(uid);
+                if (!entry) return undefined;
+
+                const root = `/${username}/AppData/${appUid}`;
+                if (entry.path === root || entry.path.startsWith(`${root}/`)) {
+                    return {};
+                }
+                return undefined;
+            },
+        });
+
         // -- fs-access-levels exploder ----------------------------------
         // `fs:UUID:see` implies `[list, read, write, manage:fs:UUID]`.
         // ACLService.check already expands the same-family chain
