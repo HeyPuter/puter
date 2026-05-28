@@ -655,7 +655,7 @@ describe('MistralAIProvider.complete streaming', () => {
     });
 });
 
-// ── Mistral image_url coercion ──────────────────────────────────────
+// -- Mistral image_url coercion --
 
 describe('MistralAIProvider image_url coercion', () => {
     const baseCompletion = {
