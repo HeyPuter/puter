@@ -253,6 +253,7 @@ export const create_chat_stream_handler =
         const tool_call_blocks = [];
 
         let last_usage = null;
+        let last_extra_content = null;
         for await (let chunk of completion) {
             chunk = deviations.chunk_but_like_actually(chunk);
             const chunk_usage = deviations.index_usage_from_stream_chunk(chunk);
@@ -285,6 +286,7 @@ export const create_chat_stream_handler =
                 // Apps have to choose to handle extra_content themselves, it doesn't seem like theres a way we can do it in a backwards
                 // compatible fashion since most streaming apps will handle chat history by continuously updating content themselves
                 // This doesn't present us a chance to add in an extra object for gemini's chat continuing features
+                last_extra_content = choice.delta.extra_content;
                 textblock.addExtraContent(choice.delta.extra_content);
             }
 
@@ -315,7 +317,10 @@ export const create_chat_stream_handler =
         }
 
         // TODO DS: this is a bit too abstracted... this is basically just doing the metering now
-        const usage = usage_calculator({ usage: last_usage });
+        const usage = usage_calculator({
+            usage: last_usage,
+            extra_content: last_extra_content,
+        });
 
         if (mode === 'text') textblock.end();
         if (mode === 'tool') toolblock.end();

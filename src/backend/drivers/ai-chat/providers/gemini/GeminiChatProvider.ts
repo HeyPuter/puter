@@ -102,24 +102,52 @@ export class GeminiChatProvider implements IChatProvider {
         }
 
         return handle_completion_output({
-            usage_calculator: ({ usage }) => {
+            usage_calculator: (args) => {
+                // Cast to access Gemini-specific extras passed alongside usage:
+                // - choices: non-stream grounding metadata lives in choices[0].message.extra_content
+                // - extra_content: streaming grounding metadata accumulated by the stream handler
+                const { usage, choices, extra_content } = args as {
+                    usage: typeof args.usage;
+                    choices?: Array<{
+                        message?: {
+                            extra_content?: { grounding_metadata?: unknown };
+                        };
+                    }>;
+                    extra_content?: { grounding_metadata?: unknown };
+                };
+
+                const cached_tokens =
+                    usage?.prompt_tokens_details?.cached_tokens ?? 0;
+
+                // Thinking tokens are a subset of completion_tokens billed at a different rate
+                const thinking_tokens =
+                    usage?.completion_tokens_details?.reasoning_tokens ?? 0;
+
                 const trackedUsage = {
-                    prompt_tokens:
-                        (usage.prompt_tokens ?? 0) -
-                        (usage.prompt_tokens_details?.cached_tokens ?? 0),
-                    completion_tokens: usage.completion_tokens ?? 0,
-                    cached_tokens:
-                        usage.prompt_tokens_details?.cached_tokens ?? 0,
+                    prompt_tokens: (usage?.prompt_tokens ?? 0) - cached_tokens,
+                    completion_tokens: Math.max(
+                        0,
+                        (usage?.completion_tokens ?? 0) - thinking_tokens,
+                    ),
+                    cached_tokens,
+                    thinking_tokens,
+                    // Grounding search is a per-request fee not reflected in token counts
+                    grounding_requests:
+                        (choices?.[0]?.message?.extra_content
+                            ?.grounding_metadata ??
+                        extra_content?.grounding_metadata)
+                            ? 1
+                            : 0,
                 };
 
                 const costsOverrideFromModel = Object.fromEntries(
                     Object.entries(trackedUsage).map(([k, v]) => {
-                        return [k, v * modelUsed.costs[k]];
+                        return [k, v * (modelUsed.costs[k] ?? 0)];
                     }),
                 );
                 this.meteringService.utilRecordUsageObject(
                     trackedUsage,
-                    actor,
+                    actor!,
                     `gemini:${modelUsed?.id}`,
                     costsOverrideFromModel,
                 );
