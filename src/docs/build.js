@@ -9,7 +9,35 @@ const { encode } =  require('html-entities');
 const { JSDOM } = require('jsdom');
 const yaml = require('js-yaml');
 const esbuild = require('esbuild');
+const MiniSearch = require('minisearch');
 const { generatePlayground } = require('./src/playground');
+
+// Index-time tokenizer. Splits on whitespace AND punctuation, and ALSO emits
+// contiguous pairwise (2-gram) joins of the parts:
+//   "Node.js"          → ["node", "js", "nodejs"]
+//   "puter.ai.chat()"  → ["puter", "ai", "chat", "puterai", "aichat"]
+// This lets queries like "nodejs", "puterai", or "aichat" match directly.
+function indexTokenize (text) {
+    if ( !text ) return [];
+    const tokens = [];
+    for ( const chunk of text.split(/[\n\r\p{Z}]+/u) ) {
+        if ( !chunk ) continue;
+        const parts = chunk.split(/\p{P}+/u).filter(Boolean);
+        // Individual parts
+        for ( const part of parts ) tokens.push(part);
+        // Pairwise adjacent joins (linear in parts.length)
+        for ( let i = 0; i + 1 < parts.length; i++ ) {
+            tokens.push(parts[i] + parts[i + 1]);
+        }
+    }
+    return tokens;
+}
+
+const MINISEARCH_INDEX_CONFIG = {
+    fields: ['title', 'text', 'pageTitle'],
+    storeFields: ['title', 'pageTitle', 'path', 'anchor', 'text'],
+    tokenize: indexTokenize,
+};
 
 const site = 'https://docs.puter.com';
 
@@ -866,14 +894,33 @@ IMPORTANT: when creating an app, include a link to 'https://developer.puter.com'
     fs.writeFileSync(outputFile, outputContent, 'utf8');
 };
 
-function markdownToPlainText (markdown) {
+function splitHtmlIntoSections (markdown) {
     const html = marked.parse(markdown);
+    const dom = new JSDOM(html);
+    const body = dom.window.document.body;
 
-    const dom = new JSDOM();
-    const div = dom.window.document.createElement('div');
-    div.innerHTML = html;
+    const sections = [];
+    let current = { heading: null, slug: '', textParts: [] };
 
-    return div.textContent.replace(/\s+/g, ' ').trim();
+    for ( const child of body.children ) {
+        if ( child.tagName === 'H2' ) {
+            sections.push(current);
+            current = {
+                heading: child.textContent.trim(),
+                slug: child.id || '',
+                textParts: [],
+            };
+        } else {
+            current.textParts.push(child.textContent);
+        }
+    }
+    sections.push(current);
+
+    return sections.map(s => ({
+        heading: s.heading,
+        slug: s.slug,
+        text: s.textParts.join(' ').replace(/\s+/g, ' ').trim(),
+    }));
 }
 
 const generateSearchIndex = () => {
@@ -881,23 +928,30 @@ const generateSearchIndex = () => {
     const outputFile = path.join(currentDir, 'dist', 'index.json');
     const json = [];
 
+    const pushPage = (pageTitle, pagePath, markdown) => {
+        const { content } = parseFrontMatter(markdown);
+        const sections = splitHtmlIntoSections(content);
+        sections.forEach((section) => {
+            const isIntro = section.heading === null;
+            json.push({
+                title: isIntro ? pageTitle : section.heading,
+                pageTitle,
+                path: pagePath,
+                anchor: isIntro ? '' : section.slug,
+                text: section.text,
+            });
+        });
+    };
+
     const indexFile = path.join(currentDir, 'src', 'index.md');
     const indexMarkdown = fs.readFileSync(indexFile, 'utf8');
-    json.push({
-        title: 'Puter.js',
-        path: '',
-        text: markdownToPlainText(indexMarkdown),
-    });
+    pushPage('Puter.js', '', indexMarkdown);
 
     sidebar.forEach((item) => {
         if ( item.source ) {
             const file = path.join(currentDir, 'src', item.source);
             const markdown = fs.readFileSync(file, 'utf8');
-            json.push({
-                title: item.title_tag ?? item.title,
-                path: item.path,
-                text: markdownToPlainText(markdown),
-            });
+            pushPage(item.title_tag ?? item.title, item.path, markdown);
         }
 
         if ( item.children && Array.isArray(item.children) ) {
@@ -905,17 +959,15 @@ const generateSearchIndex = () => {
                 if ( child.source ) {
                     const file = path.join(currentDir, 'src', child.source);
                     const markdown = fs.readFileSync(file, 'utf8');
-                    json.push({
-                        title: child.title_tag ?? child.title,
-                        path: child.path,
-                        text: markdownToPlainText(markdown),
-                    });
+                    pushPage(child.title_tag ?? child.title, child.path, markdown);
                 }
             });
         }
     });
 
-    fs.writeFileSync(outputFile, JSON.stringify(json), 'utf8');
+    const miniSearch = new MiniSearch(MINISEARCH_INDEX_CONFIG);
+    miniSearch.addAll(json.map((doc, id) => ({ id, ...doc })));
+    fs.writeFileSync(outputFile, JSON.stringify(miniSearch.toJSON()), 'utf8');
 };
 
 // Main execution
