@@ -22,6 +22,37 @@ import type { IChatModel } from '../../types.js';
 // Hardcoded from https://models.dev/api.json
 export const CLAUDE_MODELS: IChatModel[] = [
     {
+        puterId: 'anthropic:anthropic/claude-opus-4-8',
+        id: 'claude-opus-4-8',
+        modalities: { input: ['text', 'image', 'pdf'], output: ['text'] },
+        open_weights: false,
+        tool_call: true,
+        knowledge: '2026-01',
+        release_date: '2026-05-28',
+        aliases: [
+            'claude-opus',
+            'claude-opus-latest',
+            'claude-opus-4-8-latest',
+            'claude-opus-4.8',
+            'claude-opus-4-8',
+            'anthropic/claude-opus-4-8',
+        ],
+        name: 'Claude Opus 4.8',
+        costs_currency: 'usd-cents',
+        input_cost_key: 'input_tokens',
+        output_cost_key: 'output_tokens',
+        costs: {
+            tokens: 1_000_000,
+            input_tokens: 500,
+            ephemeral_5m_input_tokens: 500 * 1.25,
+            ephemeral_1h_input_tokens: 500 * 2,
+            cache_read_input_tokens: 500 * 0.1,
+            output_tokens: 2500,
+        },
+        context: 1000000,
+        max_tokens: 128000,
+    },
+    {
         puterId: 'anthropic:anthropic/claude-opus-4-7',
         id: 'claude-opus-4-7',
         modalities: { input: ['text', 'image', 'pdf'], output: ['text'] },
@@ -30,8 +61,6 @@ export const CLAUDE_MODELS: IChatModel[] = [
         knowledge: '2026-01',
         release_date: '2026-04-16',
         aliases: [
-            'claude-opus',
-            'claude-opus-latest',
             'claude-opus-4-7-latest',
             'claude-opus-4.7',
             'claude-opus-4-7',
