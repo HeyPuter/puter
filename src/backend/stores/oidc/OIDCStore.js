@@ -20,6 +20,15 @@
 import { PuterStore } from '../types';
 import { HttpError } from '../../core/http/HttpError.js';
 
+const isUniqueConstraintError = (e) => {
+    return (
+        e?.message?.includes('UNIQUE') ||
+        e?.code === 'SQLITE_CONSTRAINT' ||
+        e?.code === 'ER_DUP_ENTRY' ||
+        e?.code === '23505'
+    );
+};
+
 /**
  * CRUD over the `user_oidc_providers` table.
  *
@@ -54,11 +63,7 @@ export class OIDCStore extends PuterStore {
             );
             return;
         } catch (e) {
-            const isUnique =
-                e.message?.includes('UNIQUE') ||
-                e.code === 'SQLITE_CONSTRAINT' ||
-                e.code === 'ER_DUP_ENTRY';
-            if (!isUnique) throw e;
+            if (!isUniqueConstraintError(e)) throw e;
         }
 
         // UNIQUE(provider, provider_sub) collision — either we're re-linking

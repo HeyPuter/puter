@@ -55,14 +55,15 @@ export const WORKER_WINDOW_SECONDS = 99 * 365 * 24 * 60 * 60; // 99y (virtually 
 // FK / type violations must bubble up; otherwise the caller caches a
 // row that was never inserted.
 //   better-sqlite3 surfaces SqliteError.code; mysql2 surfaces .code and
-//   .errno (1062 = ER_DUP_ENTRY).
+//   .errno (1062 = ER_DUP_ENTRY); pg surfaces SQLSTATE 23505.
 function isUniqueViolation(err) {
     if (!err) return false;
     const code = err.code;
     if (
         code === 'SQLITE_CONSTRAINT_UNIQUE' ||
         code === 'SQLITE_CONSTRAINT_PRIMARYKEY' ||
-        code === 'ER_DUP_ENTRY'
+        code === 'ER_DUP_ENTRY' ||
+        code === '23505'
     ) {
         return true;
     }
@@ -462,7 +463,7 @@ export class SessionStore extends PuterStore {
      *
      * `appUid` is allowed null for user-scoped workers — the partial
      * unique index treats those distinctly (SQLite via NULL-distinct
-     * semantics, MySQL via IFNULL in the generated key).
+     * semantics, MySQL/Postgres via COALESCE in the generated key).
      *
      * @param userId - User row id (numeric).
      * @param opts.appUid - App UID or null for user-scoped workers.
@@ -598,9 +599,16 @@ export class SessionStore extends PuterStore {
             return cached;
         }
 
+        const coalesceLastIp = this.clients.db.nullCoalesce('`last_ip`', "''");
+        const coalesceBoundIp = this.clients.db.nullCoalesce('?', "''");
+        const coalesceLastUserAgent = this.clients.db.nullCoalesce(
+            '`last_user_agent`',
+            "''",
+        );
+        const coalesceBoundUserAgent = this.clients.db.nullCoalesce('?', "''");
         const selectOldest = () =>
             this.clients.db.read(
-                "SELECT * FROM `sessions` WHERE `kind` = 'web' AND `user_id` = ? AND `created_via` = 'legacy_backfill' AND IFNULL(`last_ip`, '') = IFNULL(?, '') AND IFNULL(`last_user_agent`, '') = IFNULL(?, '') AND `revoked_at` IS NULL AND (`expires_at` IS NULL OR `expires_at` > ?) ORDER BY `id` ASC LIMIT 1",
+                `SELECT * FROM \`sessions\` WHERE \`kind\` = 'web' AND \`user_id\` = ? AND \`created_via\` = 'legacy_backfill' AND ${coalesceLastIp} = ${coalesceBoundIp} AND ${coalesceLastUserAgent} = ${coalesceBoundUserAgent} AND \`revoked_at\` IS NULL AND (\`expires_at\` IS NULL OR \`expires_at\` > ?) ORDER BY \`id\` ASC LIMIT 1`,
                 [opts.userId, ip, ua, now],
             );
 
@@ -713,7 +721,7 @@ export class SessionStore extends PuterStore {
     /** Update user-level last activity timestamp. */
     async updateUserActivity(userId, lastActivityTs) {
         await this.clients.db.write(
-            'UPDATE `user` SET `last_activity_ts` = ? WHERE `id` = ? AND (`last_activity_ts` IS NULL OR `last_activity_ts` < ?) LIMIT 1',
+            'UPDATE `user` SET `last_activity_ts` = ? WHERE `id` = ? AND (`last_activity_ts` IS NULL OR `last_activity_ts` < ?)',
             [lastActivityTs, userId, lastActivityTs],
         );
     }
@@ -915,23 +923,18 @@ export class SessionStore extends PuterStore {
     /**
      * Active worker session for (userId, appUid, workerName). Matches
      * the partial unique index `idx_sessions_user_worker_active`.
-     * `appUid` is allowed null for user-scoped workers; IFNULL keeps
+     * `appUid` is allowed null for user-scoped workers; COALESCE keeps
      * the comparison correct since SQL `= NULL` doesn't match.
-     *
-     * MySQL's `JSON_EXTRACT` returns a JSON-typed value with embedded
-     * quoting (`"name"` rather than `name`), which never equals a
-     * plain string bind. Use `JSON_UNQUOTE(JSON_EXTRACT(...))` on
-     * MySQL to strip that. SQLite's `json_extract` already returns the
-     * unwrapped scalar so the literal form works there.
      */
     async #selectWorkerRow(userId, appUid, workerName) {
         const now = nowSeconds();
-        const workerNameExpr = this.clients.db.case({
-            sqlite: "json_extract(`meta`, '$.worker_name')",
-            otherwise: "JSON_UNQUOTE(JSON_EXTRACT(`meta`, '$.worker_name'))",
-        });
+        const workerNameExpr = this.clients.db.jsonTextExtract('`meta`', [
+            'worker_name',
+        ]);
+        const appUidExpr = this.clients.db.nullCoalesce('`app_uid`', "''");
+        const appUidBound = this.clients.db.nullCoalesce('?', "''");
         const rows = await this.clients.db.read(
-            `SELECT * FROM \`sessions\` WHERE \`kind\` = 'worker' AND \`user_id\` = ? AND IFNULL(\`app_uid\`, '') = IFNULL(?, '') AND ${workerNameExpr} = ? AND \`revoked_at\` IS NULL AND (\`expires_at\` IS NULL OR \`expires_at\` > ?) LIMIT 1`,
+            `SELECT * FROM \`sessions\` WHERE \`kind\` = 'worker' AND \`user_id\` = ? AND ${appUidExpr} = ${appUidBound} AND ${workerNameExpr} = ? AND \`revoked_at\` IS NULL AND (\`expires_at\` IS NULL OR \`expires_at\` > ?) LIMIT 1`,
             [userId, appUid ?? null, workerName, now],
         );
         return this.#normalizeRow(rows[0]);

@@ -81,10 +81,11 @@ export async function generateDefaultFsentries(
         ]),
     ];
 
-    // Each row: uuid, parent_uid, user_id, name, path, created, modified
-    // is_dir and immutable are hardcoded to 1.
+    // Each row: uuid, parent_uid, user_id, name, path, created, modified.
+    // is_dir and immutable are hardcoded to the database's true literal.
+    const trueLiteral = db.booleanLiteral(true);
     const placeholders = rows
-        .map(() => '(?, ?, ?, ?, ?, 1, ?, ?, 1)')
+        .map(() => `(?, ?, ?, ?, ?, ${trueLiteral}, ?, ?, ${trueLiteral})`)
         .join(', ');
     const params: unknown[] = [];
     for (const [uuid, parent, name, path] of rows) {

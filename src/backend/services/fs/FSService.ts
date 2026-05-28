@@ -3125,11 +3125,12 @@ export class FSService extends PuterService {
      */
     async removeAllForUser(userId: number): Promise<void> {
         const pageSize = 5000;
+        const falseLiteral = this.clients.db.booleanLiteral(false);
         // Files-first loop: delete backing S3 objects in batches, then DB rows.
         for (;;) {
             const files = (await this.clients.db.read(
                 `SELECT uuid, bucket, bucket_region FROM fsentries
-                 WHERE user_id = ? AND is_dir = 0 AND (is_shortcut = 0 OR is_shortcut IS NULL) AND (is_symlink = 0 OR is_symlink IS NULL)
+                 WHERE user_id = ? AND is_dir = ${falseLiteral} AND (is_shortcut = ${falseLiteral} OR is_shortcut IS NULL) AND (is_symlink = ${falseLiteral} OR is_symlink IS NULL)
                  LIMIT ${pageSize}`,
                 [userId],
             )) as Array<{

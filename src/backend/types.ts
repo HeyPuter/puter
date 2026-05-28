@@ -306,7 +306,7 @@ export interface IS3Config {
 }
 
 export interface IDatabaseConfig {
-    engine: 'sqlite' | 'mysql';
+    engine: 'sqlite' | 'mysql' | 'postgres';
     // sqlite
     /**
      * SQLite database file path. Defaults to `':memory:'` (the
@@ -317,7 +317,8 @@ export interface IDatabaseConfig {
     /**
      * Force in-memory SQLite (ignores `path`). Equivalent to
      * `path: ':memory:'`. Intended for tests so each suite gets a
-     * pristine in-process database.
+     * pristine in-process database. Test utilities also use
+     * `engine: 'postgres'` with `inMemory: true` to run against pgmock.
      */
     inMemory?: boolean;
     targetVersion?: number;
@@ -327,17 +328,21 @@ export interface IDatabaseConfig {
     user?: string;
     password?: string;
     database?: string;
+    connectionString?: string;
+    url?: string;
     replica?: {
         host?: string;
         port?: number;
         user?: string;
         password?: string;
         database?: string;
+        connectionString?: string;
+        url?: string;
     };
     /**
      * Ordered list of directories whose `.sql` files are run sequentially at
-     * server start (mysql engine only). Files within a directory are sorted
-     * lexically; directories are processed in array order. Files MUST be
+     * server start (mysql/postgres engines). Numbered migration filenames sort
+     * numerically; directories are processed in array order. Files MUST be
      * idempotent — there is no per-file applied-state tracking.
      * Relative paths resolve from `process.cwd()`.
      */

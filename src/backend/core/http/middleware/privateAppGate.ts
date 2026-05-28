@@ -243,7 +243,9 @@ export async function resolveOwnedAppForHostedSite(opts: {
     const uniqueCandidates = [...new Set(urlCandidates)];
     if (uniqueCandidates.length === 0) return null;
 
-    const privateFilter = opts.requirePrivate ? 'AND `is_private` = 1 ' : '';
+    const privateFilter = opts.requirePrivate
+        ? `AND \`is_private\` = ${opts.db.booleanLiteral(true)} `
+        : '';
     const placeholders = uniqueCandidates.map(() => '?').join(', ');
     const rows = await opts.db.read(
         `SELECT * FROM apps WHERE owner_user_id = ? ${privateFilter}AND index_url IN (${placeholders}) LIMIT 2`,

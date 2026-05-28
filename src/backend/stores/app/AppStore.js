@@ -106,6 +106,16 @@ const READ_ONLY_COLUMNS = new Set([
     'protected',
     'is_private',
 ]);
+const APP_BOOLEAN_COLUMNS = new Set([
+    'godmode',
+    'maximize_on_start',
+    'approved_for_listing',
+    'approved_for_opening_items',
+    'approved_for_incentive_program',
+    'background',
+    'protected',
+    'is_private',
+]);
 
 export class AppStore extends PuterStore {
     #appStatsInterval;
@@ -341,7 +351,7 @@ export class AppStore extends PuterStore {
         const colList = columns.map((c) => `\`${c}\``).join(', ');
 
         const result = await this.clients.db.write(
-            `INSERT INTO \`apps\` (${colList}) VALUES (${placeholders})`,
+            `INSERT INTO \`apps\` (${colList}) VALUES (${placeholders})${this.clients.db.returningIdClause()}`,
             values,
         );
         const insertId = result?.insertId;
@@ -380,7 +390,7 @@ export class AppStore extends PuterStore {
         const colList = columns.map((c) => `\`${c}\``).join(', ');
 
         const result = await this.clients.db.write(
-            `INSERT INTO \`apps\` (${colList}) VALUES (${placeholders})`,
+            `INSERT INTO \`apps\` (${colList}) VALUES (${placeholders})${this.clients.db.returningIdClause()}`,
             values,
         );
         const insertId = result?.insertId;
@@ -698,6 +708,7 @@ export class AppStore extends PuterStore {
     async #resolveByOldName(name) {
         const cutoffClause = this.clients.db.case({
             sqlite: `datetime('now', '-${OLD_APP_NAME_TTL_MONTHS} months')`,
+            postgres: `(NOW() - INTERVAL '${OLD_APP_NAME_TTL_MONTHS} months')`,
             otherwise: `(NOW() - INTERVAL ${OLD_APP_NAME_TTL_MONTHS} MONTH)`,
         });
 
@@ -842,7 +853,10 @@ export class AppStore extends PuterStore {
         const out = {};
         for (const [k, v] of Object.entries(fields)) {
             if (READ_ONLY_COLUMNS.has(k)) continue;
-            out[k] = v;
+            out[k] =
+                APP_BOOLEAN_COLUMNS.has(k) && v !== null && v !== undefined
+                    ? this.clients.db.booleanValue(Boolean(v))
+                    : v;
         }
         return out;
     }
@@ -1136,6 +1150,7 @@ export class AppStore extends PuterStore {
         const periodExpr = this.clients.db.case({
             mysql: `DATE_FORMAT(FROM_UNIXTIME(ts), '${timeFormat}')`,
             sqlite: `STRFTIME('${timeFormat}', datetime(ts, 'unixepoch'))`,
+            postgres: `TO_CHAR(TO_TIMESTAMP(ts), '${this.#postgresDateFormat(grouping)}')`,
             otherwise: `DATE_FORMAT(FROM_UNIXTIME(ts), '${timeFormat}')`,
         });
         const rows = await this.clients.db.read(
@@ -1154,6 +1169,23 @@ export class AppStore extends PuterStore {
             user_count: parseInt(r.user_count, 10) || 0,
         }));
         return this.#assembleGroupedResult(processed, allPeriods, grouping);
+    }
+
+    #postgresDateFormat(grouping) {
+        switch (grouping) {
+            case 'hour':
+                return 'YYYY-MM-DD HH24:00:00';
+            case 'day':
+                return 'YYYY-MM-DD';
+            case 'week':
+                return 'YYYY-WW';
+            case 'month':
+                return 'YYYY-MM';
+            case 'year':
+                return 'YYYY';
+            default:
+                return 'YYYY-MM-DD';
+        }
     }
 
     #assembleGroupedResult(rows, allPeriods, grouping) {

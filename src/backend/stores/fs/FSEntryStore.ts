@@ -60,10 +60,7 @@ export class FSEntryStore extends PuterStore {
     declare protected stores: LayerInstances<typeof puterStores>;
 
     #insertIgnoreIntoFsentriesSql(): string {
-        return this.clients.db.case({
-            sqlite: 'INSERT OR IGNORE INTO fsentries',
-            otherwise: 'INSERT IGNORE INTO fsentries',
-        });
+        return this.clients.db.insertIgnoreInto('fsentries');
     }
 
     // JSON aggregation of associated subdomain rows, keyed on fsentries.id.
@@ -82,6 +79,16 @@ export class FSEntryStore extends PuterStore {
             otherwise: `(
                 SELECT JSON_ARRAYAGG(
                     JSON_OBJECT('uuid', sd.uuid, 'subdomain', sd.subdomain)
+                )
+                FROM subdomains sd
+                WHERE sd.root_dir_id = fsentries.id
+            )`,
+            postgres: `(
+                SELECT COALESCE(
+                    json_agg(
+                        json_build_object('uuid', sd.uuid, 'subdomain', sd.subdomain)
+                    ),
+                    '[]'::json
                 )
                 FROM subdomains sd
                 WHERE sd.root_dir_id = fsentries.id
@@ -659,6 +666,8 @@ export class FSEntryStore extends PuterStore {
                 const insertRows: unknown[] = [];
                 const valuePlaceholders: string[] = [];
                 const expectedUuidByPath = new Map<string, string>();
+                const trueLiteral = this.clients.db.booleanLiteral(true);
+                const falseLiteral = this.clients.db.booleanLiteral(false);
                 for (const dirPath of pathsAtDepth) {
                     const parentPath = pathPosix.dirname(dirPath);
                     const parentEntry =
@@ -679,7 +688,7 @@ export class FSEntryStore extends PuterStore {
                     const expectedUuid = uuidv4();
                     expectedUuidByPath.set(dirPath, expectedUuid);
                     valuePlaceholders.push(
-                        '(?, ?, ?, ?, ?, ?, 1, ?, ?, ?, 0, 0)',
+                        `(?, ?, ?, ?, ?, ?, ${trueLiteral}, ?, ?, ?, ${falseLiteral}, 0)`,
                     );
                     insertRows.push(
                         expectedUuid,
@@ -709,7 +718,7 @@ export class FSEntryStore extends PuterStore {
                             accessed,
                             immutable,
                             size
-                        ) VALUES ${valuePlaceholders.join(', ')}`,
+                        ) VALUES ${valuePlaceholders.join(', ')}${this.clients.db.insertIgnoreSuffix()}`,
                         insertRows,
                     );
                 } catch {
@@ -812,6 +821,8 @@ export class FSEntryStore extends PuterStore {
                 : await this.#ensureDirectoryPath(parentPath, userId, true);
         const dirName = pathPosix.basename(normalizedPath);
         const now = Math.floor(Date.now() / 1000);
+        const trueLiteral = this.clients.db.booleanLiteral(true);
+        const falseLiteral = this.clients.db.booleanLiteral(false);
 
         let insertError: unknown = null;
         try {
@@ -829,7 +840,7 @@ export class FSEntryStore extends PuterStore {
                     accessed,
                     immutable,
                     size
-                ) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, 0, 0)`,
+                ) VALUES (?, ?, ?, ?, ?, ?, ${trueLiteral}, ?, ?, ?, ${falseLiteral}, 0)${this.clients.db.insertIgnoreSuffix()}`,
                 [
                     uuidv4(),
                     userId,
@@ -1765,11 +1776,13 @@ export class FSEntryStore extends PuterStore {
                                 entry.input.associatedAppId ?? null,
                                 entry.input.isPublic === undefined
                                     ? null
-                                    : entry.input.isPublic
-                                      ? 1
-                                      : 0,
+                                    : this.clients.db.booleanValue(
+                                          entry.input.isPublic,
+                                      ),
                                 entry.input.thumbnail ?? null,
-                                entry.input.immutable ? 1 : 0,
+                                this.clients.db.booleanValue(
+                                    Boolean(entry.input.immutable),
+                                ),
                                 entry.fileName,
                                 entry.targetPath,
                                 entry.metadataJson,
@@ -1850,7 +1863,7 @@ export class FSEntryStore extends PuterStore {
                         }
 
                         valuePlaceholders.push(
-                            '(?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                            `(?, ?, ?, ?, ?, ?, ?, ${this.clients.db.booleanLiteral(false)}, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                         );
                         values.push(
                             entry.input.uuid,
@@ -1862,11 +1875,13 @@ export class FSEntryStore extends PuterStore {
                             entry.input.associatedAppId ?? null,
                             entry.input.isPublic === undefined
                                 ? null
-                                : entry.input.isPublic
-                                  ? 1
-                                  : 0,
+                                : this.clients.db.booleanValue(
+                                      entry.input.isPublic,
+                                  ),
                             entry.input.thumbnail ?? null,
-                            entry.input.immutable ? 1 : 0,
+                            this.clients.db.booleanValue(
+                                Boolean(entry.input.immutable),
+                            ),
                             entry.fileName,
                             entry.targetPath,
                             entry.metadataJson,
@@ -1903,7 +1918,7 @@ export class FSEntryStore extends PuterStore {
                             created,
                             accessed,
                             size
-                        ) VALUES ${valuePlaceholders.join(', ')}`,
+                        ) VALUES ${valuePlaceholders.join(', ')}${this.clients.db.insertIgnoreSuffix()}`,
                         values,
                     );
                 },
@@ -2055,11 +2070,13 @@ export class FSEntryStore extends PuterStore {
                             entry.input.associatedAppId ?? null,
                             entry.input.isPublic === undefined
                                 ? null
-                                : entry.input.isPublic
-                                  ? 1
-                                  : 0,
+                                : this.clients.db.booleanValue(
+                                      entry.input.isPublic,
+                                  ),
                             entry.input.thumbnail ?? null,
-                            entry.input.immutable ? 1 : 0,
+                            this.clients.db.booleanValue(
+                                Boolean(entry.input.immutable),
+                            ),
                             entry.fileName,
                             entry.targetPath,
                             entry.metadataJson,
@@ -2273,9 +2290,13 @@ export class FSEntryStore extends PuterStore {
                 ? `/${input.name}`
                 : `${parentPath}/${input.name}`;
 
-        const isDir = input.kind === 'directory' ? 1 : 0;
-        const isShortcut = input.kind === 'shortcut' ? 1 : 0;
-        const isSymlink = input.kind === 'symlink' ? 1 : 0;
+        const isDir = this.clients.db.booleanValue(input.kind === 'directory');
+        const isShortcut = this.clients.db.booleanValue(
+            input.kind === 'shortcut',
+        );
+        const isSymlink = this.clients.db.booleanValue(
+            input.kind === 'symlink',
+        );
 
         await this.clients.db.write(
             `INSERT INTO fsentries (
@@ -2315,12 +2336,10 @@ export class FSEntryStore extends PuterStore {
                 input.associatedAppId ?? null,
                 input.metadata ?? null,
                 input.thumbnail ?? null,
-                input.immutable ? 1 : 0,
+                this.clients.db.booleanValue(Boolean(input.immutable)),
                 input.isPublic === undefined || input.isPublic === null
                     ? null
-                    : input.isPublic
-                      ? 1
-                      : 0,
+                    : this.clients.db.booleanValue(input.isPublic),
                 now,
                 now,
                 now,
@@ -2578,10 +2597,12 @@ export class FSEntryStore extends PuterStore {
         if (patch.isPublic !== undefined)
             push(
                 'is_public',
-                patch.isPublic === null ? null : patch.isPublic ? 1 : 0,
+                patch.isPublic === null
+                    ? null
+                    : this.clients.db.booleanValue(patch.isPublic),
             );
         if (patch.immutable !== undefined)
-            push('immutable', patch.immutable ? 1 : 0);
+            push('immutable', this.clients.db.booleanValue(patch.immutable));
         if (patch.associatedAppId !== undefined)
             push('associated_app_id', patch.associatedAppId);
         if (patch.layout !== undefined) push('layout', patch.layout);
@@ -2629,7 +2650,7 @@ export class FSEntryStore extends PuterStore {
     async getRootEntryForUser(userId: number): Promise<FSEntry | null> {
         const rows = (await this.clients.db.read(
             `SELECT ${this.#selectFsentriesColumns()} FROM fsentries
-             WHERE user_id = ? AND parent_uid IS NULL AND is_dir = 1
+             WHERE user_id = ? AND parent_uid IS NULL AND is_dir = ${this.clients.db.booleanLiteral(true)}
              ORDER BY id ASC LIMIT 1`,
             [userId],
         )) as unknown as FSEntryRow[];
@@ -2669,9 +2690,13 @@ export class FSEntryStore extends PuterStore {
         if (oldPath && oldPath !== '/' && oldPath !== newPath) {
             const likePattern = `${this.#escapeLikePattern(oldPath)}/%`;
             const oldLen = oldPath.length;
+            const rewrittenPath = this.clients.db.case({
+                postgres: '? || SUBSTR(path, ?)',
+                otherwise: 'CONCAT(?, SUBSTR(path, ?))',
+            });
             await this.clients.db.write(
                 `UPDATE fsentries
-                 SET path = CONCAT(?, SUBSTR(path, ?)),
+                 SET path = ${rewrittenPath},
                      modified = ?
                  WHERE user_id = ? AND path LIKE ? ESCAPE '!'`,
                 [newPath, oldLen + 1, now, userId, likePattern],
@@ -2720,9 +2745,13 @@ export class FSEntryStore extends PuterStore {
 
         // CONCAT(?, SUBSTR(path, ? + 1)) to rewrite just the prefix portion.
         const oldPrefixLen = normalizedOld.length;
+        const rewrittenPath = this.clients.db.case({
+            postgres: '? || SUBSTR(path, ?)',
+            otherwise: 'CONCAT(?, SUBSTR(path, ?))',
+        });
         const result = await this.clients.db.write(
             `UPDATE fsentries
-             SET path = CONCAT(?, SUBSTR(path, ?)),
+             SET path = ${rewrittenPath},
                  modified = ?
              WHERE user_id = ? AND path LIKE ? ESCAPE '!'`,
             [normalizedNew, oldPrefixLen + 1, now, userId, likePattern],
@@ -2771,11 +2800,11 @@ export class FSEntryStore extends PuterStore {
     ): Promise<{ curr: number; max: number }> {
         const [usageRows, userRows] = await Promise.all([
             this.clients.db.read(
-                'SELECT COALESCE(SUM(size), 0) AS totalUsage FROM fsentries WHERE user_id = ?',
+                `SELECT COALESCE(SUM(size), 0) AS ${this.clients.db.quoteIdentifier('totalUsage')} FROM fsentries WHERE user_id = ?`,
                 [userId],
             ) as Promise<{ totalUsage: number }[]>,
             this.clients.db.read(
-                'SELECT free_storage AS freeStorage FROM user WHERE id = ? LIMIT 1',
+                `SELECT free_storage AS ${this.clients.db.quoteIdentifier('freeStorage')} FROM ${this.clients.db.quoteIdentifier('user')} WHERE id = ? LIMIT 1`,
                 [userId],
             ) as Promise<{ freeStorage: number | null }[]>,
         ]);

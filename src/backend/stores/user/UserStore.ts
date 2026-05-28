@@ -85,6 +85,15 @@ const LATIN1_USER_COLUMNS: ReadonlySet<string> = new Set([
     'username',
     'clean_email',
 ]);
+const USER_BOOLEAN_COLUMNS: ReadonlySet<string> = new Set([
+    'requires_email_confirmation',
+    'email_confirmed',
+    'dev_approved_for_incentive_program',
+    'dev_joined_incentive_program',
+    'suspended',
+    'unsubscribed',
+    'otp_enabled',
+]);
 
 const assertLatin1Writable = (fields: Record<string, unknown>): void => {
     for (const [key, value] of Object.entries(fields)) {
@@ -336,7 +345,7 @@ export class UserStore extends PuterStore {
              signup_server,
              referrer,
              last_activity_ts)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)${this.clients.db.returningIdClause()}`,
             [
                 fields.username,
                 fields.email,
@@ -344,7 +353,9 @@ export class UserStore extends PuterStore {
                 fields.password,
                 fields.uuid,
                 fields.free_storage ?? null,
-                fields.requires_email_confirmation ? 1 : 0,
+                this.clients.db.booleanValue(
+                    Boolean(fields.requires_email_confirmation),
+                ),
                 fields.email_confirm_code ?? null,
                 fields.email_confirm_token ?? null,
                 fields.audit_metadata
@@ -380,13 +391,23 @@ export class UserStore extends PuterStore {
         userId: number,
         patch: Record<string, unknown>,
     ): Promise<void> {
-        const keys = Object.keys(patch);
+        const dbPatch: Record<string, unknown> = {};
+        for (const [key, value] of Object.entries(patch)) {
+            dbPatch[key] =
+                USER_BOOLEAN_COLUMNS.has(key) &&
+                value !== null &&
+                value !== undefined
+                    ? this.clients.db.booleanValue(Boolean(value))
+                    : value;
+        }
+
+        const keys = Object.keys(dbPatch);
         if (keys.length === 0) return;
 
-        assertLatin1Writable(patch);
+        assertLatin1Writable(dbPatch);
 
         const setClause = keys.map((k) => `\`${k}\` = ?`).join(', ');
-        const values = keys.map((k) => patch[k]);
+        const values = keys.map((k) => dbPatch[k]);
 
         await this.clients.db.write(
             `UPDATE \`user\` SET ${setClause} WHERE \`id\` = ?`,
@@ -395,7 +416,7 @@ export class UserStore extends PuterStore {
 
         const fresh = await this.getByProperty('id', userId, { force: true });
         if (fresh) {
-            await this.#refreshCache({ ...fresh, ...patch });
+            await this.#refreshCache(fresh);
         } else {
             await this.invalidateById(userId);
         }
@@ -428,13 +449,19 @@ export class UserStore extends PuterStore {
             `UPDATE \`user\`
                 SET \`email\` = NULL,
                     \`clean_email\` = NULL,
-                    \`email_confirmed\` = 0,
-                    \`requires_email_confirmation\` = 0,
+                    \`email_confirmed\` = ?,
+                    \`requires_email_confirmation\` = ?,
                     \`email_confirm_code\` = NULL,
                     \`email_confirm_token\` = NULL
               WHERE \`id\` != ?
                 AND (\`email\` = ? OR \`clean_email\` = ?)`,
-            [userId, email, cleanEmailValue],
+            [
+                this.clients.db.booleanValue(false),
+                this.clients.db.booleanValue(false),
+                userId,
+                email,
+                cleanEmailValue,
+            ],
         );
     }
 

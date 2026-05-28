@@ -2335,8 +2335,8 @@ export class AuthController extends PuterController {
             }
 
             await this.clients.db.write(
-                'UPDATE `user` SET `otp_enabled` = 1 WHERE `uuid` = ?',
-                [user.uuid],
+                'UPDATE `user` SET `otp_enabled` = ? WHERE `uuid` = ?',
+                [this.clients.db.booleanValue(true), user.uuid],
             );
             await this.stores.user.invalidateById(user.id);
 
@@ -2371,8 +2371,8 @@ export class AuthController extends PuterController {
             });
 
         await this.clients.db.write(
-            'UPDATE `user` SET `otp_enabled` = 0, `otp_recovery_codes` = NULL, `otp_secret` = NULL WHERE `uuid` = ?',
-            [user.uuid],
+            'UPDATE `user` SET `otp_enabled` = ?, `otp_recovery_codes` = NULL, `otp_secret` = NULL WHERE `uuid` = ?',
+            [this.clients.db.booleanValue(false), user.uuid],
         );
         await this.stores.user.invalidateById(user.id);
 

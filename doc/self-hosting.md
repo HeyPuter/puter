@@ -136,7 +136,7 @@ Why these knobs:
 
 - `jwt_secret` + `jwt_secret_v2` — Puter signs new auth tokens with `jwt_secret_v2` (v2 token format, `kid: 'v2'` JWT header). `jwt_secret` is verify-only and lets tokens minted before this version (cookies still in users' browsers, stored API tokens) keep working. `allow_v1_tokens: true` keeps that fallback enabled. Fresh installs can leave it as-is; future versions will flip the flag to `false` and retire `jwt_secret` entirely once legacy tokens have drained.
 - `env: "prod"` — the bundled `config.default.json` ships with `env: "dev"` (matches the source-tree `npm run start=gui` workflow, which expects webpack-dev-server emitting a CSS manifest). Self-host runs against pre-built static bundles, so `env: "prod"` makes the homepage emit the `/dist/bundle.min.css` `<link>` tag instead of waiting on a manifest that doesn't exist.
-- `database.migrationPaths` — Puter applies the bundled MySQL schema on boot. `mysql_mig_1.sql` (tables) and `mysql_mig_2.sql` (default apps: editor, viewer, pdf, camera, player, recorder, git, dev-center, puter-linux). Idempotent — safe to re-run.
+- `database.migrationPaths` — Puter applies the bundled MySQL/MariaDB schema on boot. The migration files are idempotent, so it is safe to leave this configured across restarts.
 - `dynamo.bootstrapTables: true` — Puter creates its KV table on boot. **Only set against a local emulator**, never real AWS.
 - `dynamo.aws` keys are dummies; DynamoDB-local doesn't validate them but the AWS SDK requires _something_. **Note:** DynamoDB uses `access_key` / `secret_key` (snake_case); S3 below uses `accessKeyId` / `secretAccessKey` (camelCase). Not interchangeable.
 - `providers.ollama.enabled: false` — Puter auto-probes a local Ollama at `127.0.0.1:11434` by default; without one running you'd see `ECONNREFUSED` on every boot. To run a bundled Ollama, see [Optional: local LLM (Ollama)](#optional-local-llm-ollama) below.
@@ -231,6 +231,26 @@ Change it in Settings after first login.
 ## Additional configuration
 
 All optional. Drop any of the blocks below into `puter/config/config.json` and `docker compose restart puter`. See [config.template.jsonc](../config.template.jsonc) for the full list. Per-key documentation lives in [src/backend/types.ts](../src/backend/types.ts).
+
+### PostgreSQL database
+
+> **Community contribution — expect rough edges.** PostgreSQL support was contributed by the community and is not run by Puter.com production. It boots, applies the bundled schema, and exercises the common user/app/fsentry/session/permission/OIDC flows in the integration tests, but less-traveled SQL call sites may still need porting. If you hit a query that doesn't work on Postgres, please open an issue. For production self-hosting today, MariaDB/MySQL and SQLite are the supported defaults.
+
+The bundled Docker Compose stack still defaults to MariaDB. To use PostgreSQL instead, run a PostgreSQL service yourself, point Puter at it, and use the PostgreSQL migration path:
+
+```json
+"database": {
+    "engine": "postgres",
+    "host": "postgres",
+    "port": 5432,
+    "user": "puter",
+    "password": "...",
+    "database": "puter",
+    "migrationPaths": ["/opt/puter/dist/src/backend/clients/database/migrations/postgres"]
+}
+```
+
+You may use `"connectionString": "postgres://puter:...@postgres:5432/puter"` instead of the host/user/password fields. Puter only needs normal PostgreSQL connection details and the migration path; CloudNativePG is one possible Kubernetes operator, but no operator-specific manifests are required by Puter.
 
 ### Email (SMTP)
 

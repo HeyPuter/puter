@@ -169,11 +169,10 @@ export class PermissionStore extends PuterStore {
         permission: string,
         extra: Record<string, unknown>,
     ): Promise<void> {
-        const upsertClause = this.clients.db.case<string>({
-            mysql: 'ON DUPLICATE KEY UPDATE `extra` = ?',
-            otherwise:
-                'ON CONFLICT(`holder_user_id`, `issuer_user_id`, `permission`) DO UPDATE SET `extra` = ?',
-        });
+        const upsertClause = this.clients.db.upsertClause(
+            ['holder_user_id', 'issuer_user_id', 'permission'],
+            ['extra'],
+        );
         await this.clients.db.write(
             'INSERT INTO `user_to_user_permissions` (`holder_user_id`, `issuer_user_id`, `permission`, `extra`) ' +
                 `VALUES (?, ?, ?, ?) ${upsertClause}`,
@@ -262,11 +261,10 @@ export class PermissionStore extends PuterStore {
         permission: string,
         extra: Record<string, unknown>,
     ): Promise<void> {
-        const upsertClause = this.clients.db.case<string>({
-            mysql: 'ON DUPLICATE KEY UPDATE `extra` = ?',
-            otherwise:
-                'ON CONFLICT(`user_id`, `app_id`, `permission`) DO UPDATE SET `extra` = ?',
-        });
+        const upsertClause = this.clients.db.upsertClause(
+            ['user_id', 'app_id', 'permission'],
+            ['extra'],
+        );
         await this.clients.db.write(
             'INSERT INTO `user_to_app_permissions` (`user_id`, `app_id`, `permission`, `extra`) ' +
                 `VALUES (?, ?, ?, ?) ${upsertClause}`,
@@ -353,11 +351,10 @@ export class PermissionStore extends PuterStore {
         permission: string,
         extra: Record<string, unknown>,
     ): Promise<void> {
-        const upsertClause = this.clients.db.case<string>({
-            mysql: 'ON DUPLICATE KEY UPDATE `extra` = ?',
-            otherwise:
-                'ON CONFLICT(`user_id`, `app_id`, `permission`) DO UPDATE SET `extra` = ?',
-        });
+        const upsertClause = this.clients.db.upsertClause(
+            ['user_id', 'app_id', 'permission'],
+            ['extra'],
+        );
         await this.clients.db.write(
             'INSERT INTO `dev_to_app_permissions` (`user_id`, `app_id`, `permission`, `extra`) ' +
                 `VALUES (?, ?, ?, ?) ${upsertClause}`,
@@ -443,11 +440,10 @@ export class PermissionStore extends PuterStore {
         permission: string,
         extra: Record<string, unknown>,
     ): Promise<void> {
-        const upsertClause = this.clients.db.case<string>({
-            mysql: 'ON DUPLICATE KEY UPDATE `extra` = ?',
-            otherwise:
-                'ON CONFLICT(`user_id`, `group_id`, `permission`) DO UPDATE SET `extra` = ?',
-        });
+        const upsertClause = this.clients.db.upsertClause(
+            ['user_id', 'group_id', 'permission'],
+            ['extra'],
+        );
         await this.clients.db.write(
             'INSERT INTO `user_to_group_permissions` (`user_id`, `group_id`, `permission`, `extra`) ' +
                 `VALUES (?, ?, ?, ?) ${upsertClause}`,
