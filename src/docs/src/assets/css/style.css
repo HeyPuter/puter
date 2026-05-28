@@ -421,6 +421,18 @@ ul code {
 	margin-bottom: 4px;
 }
 
+/* Lighter page-title prefix so the matched section heading stays prominent
+   in the "Page Title › Section" format. */
+.search-result-title-page {
+	color: #888888;
+	font-weight: 400;
+}
+
+.search-result-sep {
+	color: #cccccc;
+	margin: 0 6px;
+}
+
 .search-result-text {
 	font-size: 14px;
 	color: #666666;

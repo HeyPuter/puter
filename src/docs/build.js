@@ -866,14 +866,43 @@ IMPORTANT: when creating an app, include a link to 'https://developer.puter.com'
     fs.writeFileSync(outputFile, outputContent, 'utf8');
 };
 
-function markdownToPlainText (markdown) {
+// Split a rendered page into sections bounded by <h2> elements. Renders the
+// markdown to HTML once, then walks body children: each <h2> starts a new
+// section, and siblings until the next <h2> become its content. Content before
+// the first <h2> is the intro section (heading=null).
+//
+// Anchors come from the <h2>'s `id` attribute (set by our heading renderer
+// override), so they always match the in-page anchors by construction.
+// Inline formatting in headings (e.g. `## **Websites**`) is unwrapped by
+// textContent. Code fences become <pre><code>, not headings, so a `## ` inside
+// a code block can't accidentally start a section.
+function splitHtmlIntoSections (markdown) {
     const html = marked.parse(markdown);
+    const dom = new JSDOM(html);
+    const body = dom.window.document.body;
 
-    const dom = new JSDOM();
-    const div = dom.window.document.createElement('div');
-    div.innerHTML = html;
+    const sections = [];
+    let current = { heading: null, slug: '', textParts: [] };
 
-    return div.textContent.replace(/\s+/g, ' ').trim();
+    for ( const child of body.children ) {
+        if ( child.tagName === 'H2' ) {
+            sections.push(current);
+            current = {
+                heading: child.textContent.trim(),
+                slug: child.id || '',
+                textParts: [],
+            };
+        } else {
+            current.textParts.push(child.textContent);
+        }
+    }
+    sections.push(current);
+
+    return sections.map(s => ({
+        heading: s.heading,
+        slug: s.slug,
+        text: s.textParts.join(' ').replace(/\s+/g, ' ').trim(),
+    }));
 }
 
 const generateSearchIndex = () => {
@@ -881,23 +910,33 @@ const generateSearchIndex = () => {
     const outputFile = path.join(currentDir, 'dist', 'index.json');
     const json = [];
 
+    // Emit one entry per section (intro + each h2) for each page.
+    // The intro entry is always emitted so the page itself is title-searchable
+    // even when its content starts immediately with a heading.
+    const pushPage = (pageTitle, pagePath, markdown) => {
+        const { content } = parseFrontMatter(markdown);
+        const sections = splitHtmlIntoSections(content);
+        sections.forEach((section) => {
+            const isIntro = section.heading === null;
+            json.push({
+                title: isIntro ? pageTitle : section.heading,
+                pageTitle,
+                path: pagePath,
+                anchor: isIntro ? '' : section.slug,
+                text: section.text,
+            });
+        });
+    };
+
     const indexFile = path.join(currentDir, 'src', 'index.md');
     const indexMarkdown = fs.readFileSync(indexFile, 'utf8');
-    json.push({
-        title: 'Puter.js',
-        path: '',
-        text: markdownToPlainText(indexMarkdown),
-    });
+    pushPage('Puter.js', '', indexMarkdown);
 
     sidebar.forEach((item) => {
         if ( item.source ) {
             const file = path.join(currentDir, 'src', item.source);
             const markdown = fs.readFileSync(file, 'utf8');
-            json.push({
-                title: item.title_tag ?? item.title,
-                path: item.path,
-                text: markdownToPlainText(markdown),
-            });
+            pushPage(item.title_tag ?? item.title, item.path, markdown);
         }
 
         if ( item.children && Array.isArray(item.children) ) {
@@ -905,11 +944,7 @@ const generateSearchIndex = () => {
                 if ( child.source ) {
                     const file = path.join(currentDir, 'src', child.source);
                     const markdown = fs.readFileSync(file, 'utf8');
-                    json.push({
-                        title: child.title_tag ?? child.title,
-                        path: child.path,
-                        text: markdownToPlainText(markdown),
-                    });
+                    pushPage(child.title_tag ?? child.title, child.path, markdown);
                 }
             });
         }

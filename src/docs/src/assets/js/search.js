@@ -119,12 +119,29 @@ function escapeHtml (text) {
         .replace(/'/g, '&#39;');
 }
 
+// Returns the bare `text=...` portion of a text fragment, without the
+// `#:~:` prefix. The caller composes the full fragment depending on whether
+// an `#anchor` is already present in the URL (combined form: `#anchor:~:text=`
+// vs anchor-less: `#:~:text=`).
 function generateTextFragment (matchedText, prefix = '', suffix = '') {
     const encodedText = encodeURIComponent(matchedText);
     const encodedPrefix = prefix ? `${encodeURIComponent(prefix) }-,` : '';
     const encodedSuffix = suffix ? `,-${ encodeURIComponent(suffix)}` : '';
 
-    return `#:~:text=${encodedPrefix}${encodedText}${encodedSuffix}`;
+    return `text=${encodedPrefix}${encodedText}${encodedSuffix}`;
+}
+
+// Build the final href for a search result, combining the page path with
+// optional section anchor and optional text fragment per the WICG spec.
+function buildResultUrl (result) {
+    let url = `${result.path}/`;
+    if ( result.anchor ) url += `#${result.anchor}`;
+    if ( result.textFragment ) {
+        url += result.anchor
+            ? `:~:${result.textFragment}`
+            : `#:~:${result.textFragment}`;
+    }
+    return url;
 }
 
 function performSearch (query) {
@@ -147,7 +164,9 @@ function performSearch (query) {
 
             titleResults.push({
                 title: highlightedTitle,
+                pageTitle: item.pageTitle,
                 path: item.path,
+                anchor: item.anchor,
                 text: escapeHtml(item.text.substring(0, 60) + (item.text.length > 60 ? '...' : '')),
                 textFragment: '',
             });
@@ -226,7 +245,9 @@ function performSearch (query) {
 
             textResults.push({
                 title: item.title,
+                pageTitle: item.pageTitle,
                 path: item.path,
+                anchor: item.anchor,
                 text: highlightedChunk,
                 textFragment: textFragment,
             });
@@ -248,11 +269,20 @@ function updateSearchResults (results) {
 
     let html = '';
     results.slice(0, 15).forEach((result, index) => {
-        const url = `${result.path }/${ result.textFragment || ''}`;
+        const url = buildResultUrl(result);
+        // For section entries, show "Page Title › Section Heading" inline. For
+        // intro entries (no anchor), the result IS the page, so just the title.
+        // `result.title` may already contain <mark> from title-match highlighting,
+        // so it's not escaped here; pageTitle is plain text and must be escaped.
+        const titleHtml = result.anchor && result.pageTitle
+            ? `<span class="search-result-title-page">${escapeHtml(result.pageTitle)}</span>`
+                + '<span class="search-result-sep">›</span>'
+                + result.title
+            : result.title;
         html += `
             <div class="search-result" data-index="${index}">
                 <a href="${url}" class="search-result-link skip-insta-load">
-                    <div class="search-result-title">${result.title}</div>
+                    <div class="search-result-title">${titleHtml}</div>
                     <div class="search-result-text">${result.text}</div>
                 </a>
             </div>
