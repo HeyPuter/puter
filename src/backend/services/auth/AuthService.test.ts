@@ -23,6 +23,7 @@ import { v4 as uuidv4 } from 'uuid';
 import type { Actor } from '../../core/actor.js';
 import { PuterServer } from '../../server.js';
 import { setupTestServer } from '../../testUtil.js';
+import { generateDefaultFsentries } from '../../util/userProvisioning.js';
 import { AuthService } from './AuthService.js';
 
 function createAuthService(): AuthService {
@@ -1448,6 +1449,114 @@ describe('AuthService (integration)', () => {
                     'whatever',
                 ),
             ).rejects.toMatchObject({ statusCode: 403 });
+        });
+
+        // Regression for the post-#1001 token-inval check: an
+        // app-under-user actor must be able to mint a token for a file
+        // inside its own AppData. Without the `app-owns-appdata`
+        // implicator the issuer-subset gate 403s these — even though
+        // ACLService already allows the equivalent fs.read via its own
+        // short-circuit. puter-js getReadURL is the canonical caller.
+        it('app-under-user actor can mint fs:<uuid>:read for a file inside its own AppData', async () => {
+            const user = await makeUser();
+            await generateDefaultFsentries(
+                server.clients.db,
+                server.stores.user,
+                user,
+            );
+            const appUid = `app-${uuidv4()}`;
+            await server.clients.db.write(
+                'INSERT INTO `apps` (`uid`, `name`, `title`, `index_url`, `owner_user_id`) VALUES (?, ?, ?, ?, ?)',
+                [
+                    appUid,
+                    `n-${appUid}`,
+                    `t-${appUid}`,
+                    `https://${appUid}.example/`,
+                    user.id,
+                ],
+            );
+
+            const appDataPath = `/${user.username}/AppData/${appUid}`;
+            await server.services.fs.mkdir(user.id, {
+                path: appDataPath,
+                createMissingParents: true,
+            } as never);
+            const body = Buffer.from('hello');
+            await server.services.fs.write(user.id, {
+                fileMetadata: {
+                    path: `${appDataPath}/note.txt`,
+                    size: body.byteLength,
+                    contentType: 'text/plain',
+                },
+                fileContent: body,
+            } as never);
+            const fileEntry = await server.stores.fsEntry.getEntryByPath(
+                `${appDataPath}/note.txt`,
+            );
+            expect(fileEntry).not.toBeNull();
+
+            const appActor: Actor = {
+                user: { id: user.id, uuid: user.uuid, username: user.username },
+                app: { id: 0, uid: appUid },
+            } as Actor;
+
+            const jwt = await authService.createAccessToken(appActor, [
+                [`fs:${fileEntry!.uuid}:read`],
+            ]);
+            expect(typeof jwt).toBe('string');
+        });
+
+        // Negative side of the implicator: a file the user owns but
+        // that lives *outside* the app's AppData must still be
+        // rejected — the issuer-subset gate is the only thing
+        // preventing an authorized app from minting a token over
+        // arbitrary user-owned uuids.
+        it('app-under-user actor cannot mint fs:<uuid>:read for a user-owned file outside its AppData', async () => {
+            const user = await makeUser();
+            await generateDefaultFsentries(
+                server.clients.db,
+                server.stores.user,
+                user,
+            );
+            const appUid = `app-${uuidv4()}`;
+            await server.clients.db.write(
+                'INSERT INTO `apps` (`uid`, `name`, `title`, `index_url`, `owner_user_id`) VALUES (?, ?, ?, ?, ?)',
+                [
+                    appUid,
+                    `n-${appUid}`,
+                    `t-${appUid}`,
+                    `https://${appUid}.example/`,
+                    user.id,
+                ],
+            );
+
+            const body = Buffer.from('secret');
+            await server.services.fs.write(user.id, {
+                fileMetadata: {
+                    path: `/${user.username}/Documents/secret.txt`,
+                    size: body.byteLength,
+                    contentType: 'text/plain',
+                },
+                fileContent: body,
+            } as never);
+            const fileEntry = await server.stores.fsEntry.getEntryByPath(
+                `/${user.username}/Documents/secret.txt`,
+            );
+            expect(fileEntry).not.toBeNull();
+
+            const appActor: Actor = {
+                user: { id: user.id, uuid: user.uuid, username: user.username },
+                app: { id: 0, uid: appUid },
+            } as Actor;
+
+            await expect(
+                authService.createAccessToken(appActor, [
+                    [`fs:${fileEntry!.uuid}:read`],
+                ]),
+            ).rejects.toMatchObject({
+                statusCode: 403,
+                legacyCode: 'forbidden',
+            });
         });
     });
 
