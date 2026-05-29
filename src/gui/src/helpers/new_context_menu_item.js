@@ -163,8 +163,12 @@ const new_context_menu_item = function (dirname, append_to_element) {
                 await window.create_file({
                     dirname: dirname,
                     append_to_element: append_to_element,
-                    name: 'New Worker.js',
-                    content: `// This is an example application for Puter Workers
+                    name: 'New Worker.worker.js',
+                    content: `/// <reference types="@heyputer/worker-types" />
+// This is an example application for Puter Workers.
+// The reference above gives editors like VS Code autocomplete for the
+// \`router\`, \`me\`, and other globals injected by the Workers runtime.
+// Install the types with: npm install --save-dev @heyputer/worker-types
 
 router.get('/', ({request}) => {
     return 'Hello World'; // returns a string
