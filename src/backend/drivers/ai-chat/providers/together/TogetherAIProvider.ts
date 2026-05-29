@@ -21,8 +21,8 @@ import { Together } from 'together-ai';
 import { Context } from '../../../../core/context.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import { kv } from '../../../../util/kvSingleton.js';
-import * as OpenAIUtil from '../../utils/OpenAIUtil.js';
 import { IChatModel, IChatProvider, ICompleteArguments } from '../../types.js';
+import * as OpenAIUtil from '../../utils/OpenAIUtil.js';
 
 const TOGETHER_AI_CHAT_COST_MAP = {
     prompt_tokens: 'input',
@@ -51,7 +51,9 @@ export class TogetherAIProvider implements IChatProvider {
         let models: IChatModel[] | undefined = kv.get(this.#kvKey);
         if (models) return models;
 
-        const apiModels = await this.#together.models.list();
+        const apiModels = await this.#together.models.list({
+            query: { serverless: 'true' },
+        });
         models = [];
         for (const model of apiModels) {
             if (
