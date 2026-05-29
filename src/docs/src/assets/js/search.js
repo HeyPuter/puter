@@ -128,6 +128,13 @@ $(document).ready(function () {
             clearTimeout(searchTimeout);
         }
 
+        // Synchronously drop any pending replay when the input is too
+        // short, so a late index load can't resurrect stale results
+        // after the user clears the field within the debounce window.
+        if ( !query || query.length < 2 ) {
+            pendingQuery = null;
+        }
+
         // Set new timeout for debouncing. performSearch handles the
         // not-yet-loaded case itself, so the input handler stays sync.
         searchTimeout = setTimeout(() => {
@@ -158,8 +165,7 @@ async function fetchSearchIndex () {
         indexLoadFailed = true;
         if ( pendingQuery !== null ) {
             pendingQuery = null;
-            $('.search-results').html(
-                            '<div class="search-no-results">Failed to load search index. Please refresh.</div>');
+            renderSearchStatus('failed');
         }
     }
 }
@@ -197,27 +203,37 @@ function buildResultUrl (result) {
     return url;
 }
 
+// Single source of truth for the empty-state UI so the idle / loading /
+// failed copy can only drift in one place.
+function renderSearchStatus (kind) {
+    const messages = {
+        idle: 'Start typing to search...',
+        loading: 'Loading search index...',
+        failed: 'Failed to load search index. Please refresh.',
+    };
+    $('.search-results').html(
+        `<div class="search-no-results">${messages[kind]}</div>`
+    );
+}
+
 function performSearch (query) {
     if ( !query || query.length < 2 ) {
         // Drop any pending replay so the user isn't surprised by a stale
         // search firing after they cleared the input.
         pendingQuery = null;
-        $('.search-results').html(
-                        '<div class="search-no-results">Start typing to search...</div>');
+        renderSearchStatus('idle');
         return;
     }
 
     if ( !miniSearch ) {
         if ( indexLoadFailed ) {
-            $('.search-results').html(
-                            '<div class="search-no-results">Failed to load search index. Please refresh.</div>');
+            renderSearchStatus('failed');
             return;
         }
         // Index still loading; remember the query so fetchSearchIndex
         // can replay it on success.
         pendingQuery = query;
-        $('.search-results').html(
-                        '<div class="search-no-results">Loading search index...</div>');
+        renderSearchStatus('loading');
         return;
     }
 
