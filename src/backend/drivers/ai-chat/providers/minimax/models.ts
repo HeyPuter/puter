@@ -18,26 +18,14 @@
  */
 
 import type { IChatModel } from '../../types.js';
+import { usdPerMToken } from '../../utils/pricing.js';
 
-const CENTS_PER_USD = 100;
-const MTOK = 1_000_000;
 const CONTEXT_WINDOW = 204_800;
 const MAX_OUTPUT_TOKENS = 196_608;
 
 type MiniMaxChatModel = IChatModel & {
     apiModel: string;
 };
-
-const usdPerMToken = (
-    inputUsd: number,
-    outputUsd: number,
-    cachedReadUsd = 0,
-) => ({
-    tokens: MTOK,
-    prompt_tokens: inputUsd * CENTS_PER_USD,
-    completion_tokens: outputUsd * CENTS_PER_USD,
-    cached_tokens: cachedReadUsd * CENTS_PER_USD,
-});
 
 const minimaxModel = (
     apiModel: string,
