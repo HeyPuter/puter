@@ -18,21 +18,9 @@
  */
 
 import type { IChatModel } from '../../types.js';
+import { usdPerMToken } from '../../utils/pricing.js';
 
-const CENTS_PER_USD = 100;
-const MTOK = 1_000_000;
 const K = 1_000;
-
-const usdPerMToken = (
-    inputUsd: number,
-    outputUsd: number,
-    cachedInputUsd = 0,
-) => ({
-    tokens: MTOK,
-    prompt_tokens: inputUsd * CENTS_PER_USD,
-    completion_tokens: outputUsd * CENTS_PER_USD,
-    cached_tokens: cachedInputUsd * CENTS_PER_USD,
-});
 
 const textModel = (
     id: string,
