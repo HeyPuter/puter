@@ -1391,6 +1391,20 @@ export class LegacyFSController extends PuterController {
             'read',
         );
 
+        // Downgrade the envelope when the caller only proved read.
+        // `/writeFile`'s ACL re-check would still block the write, but
+        // returning `write_url` to a read-only caller is the same
+        // privilege-leak shape that `/sign` and `/readdir` strip.
+        const writeOk = await this.services.acl.check(
+            actor,
+            {
+                path: entry.path,
+                resolveAncestors: () =>
+                    this.services.fs.getAncestorChain(entry.path),
+            },
+            'write',
+        );
+
         const suggested =
             (await this.services.suggestedApps?.getSuggestedApps({
                 name: entry.name,
@@ -1417,7 +1431,13 @@ export class LegacyFSController extends PuterController {
         }
 
         const signingCfg = signingConfigFromAppConfig(this.config);
-        const signature = { ...signEntry(entry, signingCfg), path: entry.path };
+        const signed = signEntry(entry, signingCfg);
+        const signature = writeOk
+            ? { ...signed, path: entry.path }
+            : (() => {
+                  const { write_url: _, ...rest } = signed;
+                  return { ...rest, path: entry.path };
+              })();
         res.json({
             signature,
             token,
