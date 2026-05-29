@@ -5,6 +5,15 @@ let miniSearch = null;
 let searchTimeout = null;
 let selectedSearchResult = -1;
 
+// Last query the user typed while the index was still loading; replayed by
+// fetchSearchIndex() once the index becomes available so the user doesn't
+// have to retype. Cleared on success, failure, or when the query falls
+// below the minimum length.
+let pendingQuery = null;
+// True after fetchSearchIndex() has thrown at least once; lets performSearch
+// distinguish "still loading" from "load failed" without waiting forever.
+let indexLoadFailed = false;
+
 // Query-time tokenizer. Splits on whitespace AND punctuation only — does
 // NOT emit the joined-without-punctuation form. The index (built in
 // build.js's indexTokenize) already pre-baked the joined variants, so
@@ -119,11 +128,16 @@ $(document).ready(function () {
             clearTimeout(searchTimeout);
         }
 
-        // Set new timeout for debouncing
-        searchTimeout = setTimeout(async () => {
-            if ( !miniSearch ) {
-                await fetchSearchIndex();
-            }
+        // Synchronously drop any pending replay when the input is too
+        // short, so a late index load can't resurrect stale results
+        // after the user clears the field within the debounce window.
+        if ( !query || query.length < 2 ) {
+            pendingQuery = null;
+        }
+
+        // Set new timeout for debouncing. performSearch handles the
+        // not-yet-loaded case itself, so the input handler stays sync.
+        searchTimeout = setTimeout(() => {
             performSearch(query);
         }, 300);
     });
@@ -133,14 +147,26 @@ $(document).ready(function () {
 });
 
 async function fetchSearchIndex () {
+    indexLoadFailed = false;
     try {
         const response = await fetch('/index.json');
         const text = await response.text();
         miniSearch = MiniSearch.loadJSON(text, MINISEARCH_CONFIG);
         console.log('Search index loaded:', `${miniSearch.documentCount } items`);
+        // Replay the query the user typed while we were still loading.
+        if ( pendingQuery !== null ) {
+            const q = pendingQuery;
+            pendingQuery = null;
+            performSearch(q);
+        }
     } catch ( error ) {
         console.error('Failed to load search index:', error);
         miniSearch = null;
+        indexLoadFailed = true;
+        if ( pendingQuery !== null ) {
+            pendingQuery = null;
+            renderSearchStatus('failed');
+        }
     }
 }
 function escapeHtml (text) {
@@ -177,16 +203,37 @@ function buildResultUrl (result) {
     return url;
 }
 
+// Single source of truth for the empty-state UI so the idle / loading /
+// failed copy can only drift in one place.
+function renderSearchStatus (kind) {
+    const messages = {
+        idle: 'Start typing to search...',
+        loading: 'Loading search index...',
+        failed: 'Failed to load search index. Please refresh.',
+    };
+    $('.search-results').html(
+        `<div class="search-no-results">${messages[kind]}</div>`
+    );
+}
+
 function performSearch (query) {
     if ( !query || query.length < 2 ) {
-        $('.search-results').html(
-                        '<div class="search-no-results">Start typing to search...</div>');
+        // Drop any pending replay so the user isn't surprised by a stale
+        // search firing after they cleared the input.
+        pendingQuery = null;
+        renderSearchStatus('idle');
         return;
     }
 
     if ( !miniSearch ) {
-        // Index hasn't finished loading yet; show empty state.
-        updateSearchResults([]);
+        if ( indexLoadFailed ) {
+            renderSearchStatus('failed');
+            return;
+        }
+        // Index still loading; remember the query so fetchSearchIndex
+        // can replay it on success.
+        pendingQuery = query;
+        renderSearchStatus('loading');
         return;
     }
 
