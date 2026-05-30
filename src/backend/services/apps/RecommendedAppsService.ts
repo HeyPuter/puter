@@ -32,6 +32,7 @@ const RECOMMENDED_APP_NAMES = [
     'camera',
     'music-player',
     'recorder',
+    'browser',
     'memos',
     'word-processor',
     'spreadsheet',
