@@ -59,6 +59,7 @@ const DEFAULT_TASKBAR_ITEMS: TaskbarEntry[] = [
     { name: 'code', type: 'app' },
     { name: 'camera', type: 'app' },
     { name: 'recorder', type: 'app' },
+    { name: 'browser', type: 'app' },
 ];
 
 export async function getTaskbarItems(
