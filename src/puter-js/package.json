@@ -41,7 +41,7 @@
         "prepublishOnly": "npm run build && mv dist/puter.js dist/puter.cjs && npm version patch"
     },
     "author": "Puter Technologies Inc.",
-    "license": "Apache-2.0",
+    "license": "AGPL-3.0-only",
     "devDependencies": {
         "@playwright/test": "^1.49.0",
         "concurrently": "^8.2.2",

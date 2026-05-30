@@ -351,6 +351,14 @@ let sidebar = [
                 path: '/Workers/router',
             },
             {
+                title: 'TypeScript Types',
+                page_title: 'TypeScript Types for Workers',
+                title_tag: 'TypeScript Types',
+                icon: '/assets/img/object.svg',
+                source: '/Workers/types.md',
+                path: '/Workers/types',
+            },
+            {
                 title: '<code>create()</code>',
                 page_title: '<code>puter.workers.create()</code>',
                 title_tag: 'puter.workers.create()',
