@@ -13,18 +13,18 @@ import type { PuterContext } from './types/event.d.ts';
 declare global {
     /** The deployer's Puter context, authenticated with the worker's own credentials. */
     const me: PuterContext;
-    /** Alias for {@link me}. */
+    /** @deprecated Alias for {@link me}. Will be removed at a future date. */
     const my: PuterContext;
-    /** Alias for {@link me}. */
+    /** @deprecated Alias for {@link me}. Will be removed at a future date. */
     const myself: PuterContext;
 
     /** The router used to register HTTP route handlers. */
     const router: Router;
 
-    /** The deployer's Puter auth token, provided as a Cloudflare secret binding. */
+    /** @deprecated The deployer's Puter auth token, provided as a Cloudflare secret binding. Will be removed at a future date. Use me.puter.authToken */
     const puter_auth: string;
 
-    /** The Puter API endpoint, provided as a Cloudflare plaintext binding. Defaults to `https://api.puter.com`. */
+    /** @deprecated The Puter API endpoint, provided as a Cloudflare plaintext binding. Defaults to `https://api.puter.com`. Will be removed at a future date. use me.puter.APIOrigin */
     const puter_endpoint: string;
 }
 

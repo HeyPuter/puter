@@ -16,7 +16,7 @@ export interface PuterContext {
  * methods infer it from the path literal so handlers get precisely-typed
  * `params` automatically.
  */
-export interface WorkerEvent<TParams extends Params = Params> {
+export interface WorkerEvent<TParams extends Params = Params> extends Extendable{
     request: Request;
     params: TParams;
 
@@ -27,8 +27,15 @@ export interface WorkerEvent<TParams extends Params = Params> {
      */
     user?: PuterContext;
 
-    /** Alias for {@link WorkerEvent.user}. */
+    /** @deprecated Alias for {@link WorkerEvent.user}. May be removed at a future date. */
     requestor?: PuterContext;
+
+    /**
+     * The **`WorkerEvent.waitUntil()`** method tells the event dispatcher that work is ongoing. It can also be used to detect whether that work was successful. In puter workers, waitUntil() tells the worker that work is ongoing until the promise settles, and it shouldn't terminate the worker if it wants that work to complete.
+     *
+     * [MDN Reference](https://developer.mozilla.org/docs/Web/API/ExtendableEvent/waitUntil)
+     */
+    waitUntil(f: Promise<any>): void;
 }
 
 /**
