@@ -1704,8 +1704,10 @@ export class FSEntryStore extends PuterStore {
             for (const entry of userEntries) {
                 const parentEntry = parentByPath.get(entry.parentPath);
                 if (!parentEntry) {
-                    throw new Error(
-                        `Failed to resolve parent directory for ${entry.targetPath}`,
+                    throw new HttpError(
+                        404,
+                        `Parent directory not found for ${entry.targetPath}`,
+                        { legacyCode: 'dest_does_not_exist' },
                     );
                 }
 
@@ -1857,8 +1859,10 @@ export class FSEntryStore extends PuterStore {
                     for (const entry of insertChunk) {
                         const parentEntry = parentByPath.get(entry.parentPath);
                         if (!parentEntry) {
-                            throw new Error(
-                                `Failed to resolve parent directory for ${entry.targetPath}`,
+                            throw new HttpError(
+                                404,
+                                `Parent directory not found for ${entry.targetPath}`,
+                                { legacyCode: 'dest_does_not_exist' },
                             );
                         }
 
@@ -1989,8 +1993,10 @@ export class FSEntryStore extends PuterStore {
                 for (const entry of racedCandidates) {
                     const parentEntry = parentByPath.get(entry.parentPath);
                     if (!parentEntry) {
-                        throw new Error(
-                            `Failed to resolve parent directory for ${entry.targetPath}`,
+                        throw new HttpError(
+                            404,
+                            `Parent directory not found for ${entry.targetPath}`,
+                            { legacyCode: 'dest_does_not_exist' },
                         );
                     }
                     const existing = racedExistingByPath.get(entry.targetPath);
