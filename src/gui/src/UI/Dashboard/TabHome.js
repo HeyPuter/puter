@@ -281,7 +281,9 @@ const TabHome = {
 
             $el_window.find('.bento-plan-upgrade').off('click.billing').on('click.billing', (e) => {
                 e.preventDefault();
-                window.puterLegacyBilling?.openSubscriptionsDialog?.();
+                if (typeof window.UIUpgradeAccount === 'function') {
+                    (new window.UIUpgradeAccount()).open_as_window();
+                }
             });
         } catch (e) {
             console.error('Failed to load plan data:', e);
