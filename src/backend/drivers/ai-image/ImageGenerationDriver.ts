@@ -146,7 +146,10 @@ export class ImageGenerationDriver extends PuterDriver {
             await this.#assertWriteAccess(actor, resolvedOutputPath);
         }
 
-        let modelId = args.model?.trim().toLowerCase();
+        let modelId =
+            typeof args.model === 'string'
+                ? args.model.trim().toLowerCase()
+                : undefined;
         let intendedProvider =
             args.provider ?? (Context.get('driverName') as string | undefined);
 
