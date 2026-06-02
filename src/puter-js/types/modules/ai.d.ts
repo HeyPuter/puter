@@ -1,9 +1,17 @@
 export type AIMessageContent = string | { image_url?: { url: string } } | { video_url?: { url: string } } | Record<string, unknown>;
 
+export interface ImageContent {
+    type: string;
+    image_url: { url: string };
+}
+
 export interface ChatMessage {
     role?: string;
     content: AIMessageContent | AIMessageContent[];
     tool_calls?: ToolCall[];
+    tool_call_id?: string;
+    cache_control?: { type: string };
+    images: ImageContent[];
 }
 
 export interface ToolCall {
@@ -11,18 +19,55 @@ export interface ToolCall {
     function: { name: string, arguments: string };
 }
 
+export interface Tool {
+    type: string;
+    function: { name: string, description: string, parameters: object, strict?: boolean };
+}
+
+/**
+ * Options for a chat completion request.
+ */
 export interface ChatOptions {
+    /** The model to use for the completion. Defaults to `gpt-5-nano` if not specified. */
     model?: string;
+    /** Sampling temperature between 0 and 2. Lower values are more focused and deterministic, higher values more random. Defaults to the model's own default. */
     temperature?: number;
     max_tokens?: number;
     vision?: boolean;
     driver?: string;
-    tools?: unknown;
+    /** The provider to route the request through. */
+    provider?: string;
+    /** Function/tool definitions the model can call. See Function Calling. */
+    tools?: Tool[];
     response?: unknown;
-    reasoning?: unknown;
+    /**
+     * Controls how much effort reasoning models spend thinking. Flat form.
+     * Accepted values: `none`, `minimal`, `low`, `medium`, `high`, `xhigh`
+     * (availability varies by model; default `medium` on newer GPT-5.x models).
+     * Reasoning models only.
+     */
     reasoning_effort?: string;
-    text?: unknown;
-    verbosity?: unknown;
+    /**
+     * Nested form of `reasoning_effort`. The `effort` value accepts the same
+     * values as `reasoning_effort`. Reasoning models only.
+     */
+    reasoning?: { effort: string};
+    /**
+     * Controls how long or short responses are. Flat form. Accepted values:
+     * `low`, `medium`, `high`. Reasoning models only.
+     */
+    verbosity?: string;
+    /**
+     * Nested form of `verbosity` — it lives under `text`. The `verbosity` value
+     * accepts the same values as `verbosity`. Reasoning models only.
+     */
+    text?: { verbosity: string};
+    /**
+     * Controls image output for image-capable models.
+     * - `aspect_ratio`: aspect ratio of the generated image, e.g. `"16:9"`, `"1:1"`, `"9:16"`.
+     * - `image_size`: output quality/resolution; must be one of the model's supported quality levels.
+     */
+    image_config?: { aspect_ratio: string, image_size: string };
 }
 
 export interface StreamingChatOptions extends ChatOptions {
@@ -34,9 +79,27 @@ export interface ChatResponse {
     choices?: unknown;
 }
 
+/**
+ * A single chunk of a streaming chat response. Each chunk has a `type`
+ * discriminator; which other fields are present depends on that `type`.
+ */
 export interface ChatResponseChunk {
+    /** The kind of chunk: `"text"`, `"reasoning"`, `"tool_use"`, `"extra_content"`, or `"usage"`. */
+    type: string;
+    /** Text delta. Present on `"text"` chunks. */
     text?: string;
+    /** Reasoning/thinking delta. Present on `"reasoning"` chunks. */
     reasoning?: string;
+    /** Tool call id. Present on `"tool_use"` chunks. */
+    id?: string;
+    /** Tool/function name. Present on `"tool_use"` chunks. */
+    name?: string;
+    /** Parsed tool call arguments. Present on `"tool_use"` chunks. */
+    input?: unknown;
+    /** Provider-specific extra metadata. */
+    extra_content?: unknown;
+    /** Token usage totals. Present on the final `"usage"` chunk. */
+    usage?: Record<string, number>;
 }
 
 export interface Img2TxtOptions {
