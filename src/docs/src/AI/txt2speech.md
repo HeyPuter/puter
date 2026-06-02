@@ -96,7 +96,7 @@ Available when `provider: 'xai'`:
 | `language` | `String` | BCP-47 language code. Defaults to `'en'`. Supports `'auto'` for auto-detection and 20+ languages |
 | `output_format` | `String` | Output codec. Available: `'mp3'` (default), `'wav'`, `'pcm'`, `'mulaw'`, `'alaw'` |
 
-Text supports inline speech tags like `[pause]`, `[laugh]` and wrapping tags like `<whisper>text</whisper>` for expressive delivery. Maximum 15,000 characters per request.
+Text supports inline speech tags like `[pause]`, `[laugh]` and wrapping tags like `<whisper>text</whisper>` for expressive delivery.
 
 For more details, see the [xAI TTS documentation](https://x.ai/news/grok-stt-and-tts-apis).
 

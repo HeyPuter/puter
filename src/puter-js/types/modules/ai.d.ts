@@ -174,17 +174,29 @@ export interface Txt2VidOptions {
 }
 
 export interface Txt2SpeechOptions {
+    /** Text to synthesize. Must be less than 3000 characters. */
     text?: string;
+    /** Language code. For AWS Polly defaults to `'en-US'`; for xAI a BCP-47 code defaulting to `'en'` (supports `'auto'`). */
     language?: string;
+    /** Voice ID used for synthesis (provider-specific). Defaults to `'Joanna'` (aws-polly), `'alloy'` (openai), `'21m00Tcm4TlvDq8ikWAM'` (elevenlabs), `'Kore'` (gemini), `'eve'` (xai). */
     voice?: string;
+    /** AWS Polly synthesis engine: `'standard'` (default), `'neural'`, `'long-form'`, or `'generative'`. */
     engine?: string;
+    /** TTS provider: `'aws-polly'` (default), `'openai'`, `'elevenlabs'`, `'gemini'`, or `'xai'`. */
     provider?: string;
+    /** Model identifier (provider-specific). */
     model?: string;
+    /** OpenAI output format: `'mp3'` (default), `'wav'`, `'opus'`, `'aac'`, `'flac'`, or `'pcm'`. */
     response_format?: string;
+    /** Output format for ElevenLabs (defaults to `'mp3_44100_128'`) and xAI (`'mp3'` default, `'wav'`, `'pcm'`, `'mulaw'`, `'alaw'`). */
     output_format?: string;
+    /** Natural-language guidance for voice style such as tone, speed, and mood (OpenAI and Gemini). */
     instructions?: string;
+    /** ElevenLabs voice tuning options (e.g. stability, similarity boost, speed). */
     voice_settings?: Record<string, unknown>;
+    /** When `true`, AWS Polly treats `text` as SSML markup. */
     ssml?: boolean;
+    /** When `true`, returns a sample audio without using credits. */
     test_mode?: boolean;
 }
 
