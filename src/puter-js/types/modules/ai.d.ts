@@ -266,10 +266,22 @@ export interface Txt2Speech {
     listVoices (options?: ListTTSVoicesOptions): Promise<TTSVoice[]>;
 }
 
+export interface Speech2TxtWord {
+    text: string;
+    start: number;
+    end: number;
+    /** Detected speaker, present when `diarize: true` (xAI). */
+    speaker?: string;
+}
+
 export interface Speech2TxtResult {
     text: string;
     language: string;
     segments?: Record<string, unknown>[];
+    /** Duration of the audio in seconds (provider-dependent, e.g. xAI). */
+    duration?: number;
+    /** Per-word timestamps (provider-dependent, e.g. xAI). */
+    words?: Speech2TxtWord[];
 }
 
 interface BaseSpeech2TxtOptions {
@@ -352,7 +364,7 @@ export class AI {
     txt2vid (prompt: string, options: Txt2VidOptions): Promise<HTMLVideoElement>;
     txt2vid (options: Txt2VidOptions, testMode?: boolean): Promise<HTMLVideoElement>;
 
-    speech2txt (source: string | File | Blob, testMode?: boolean): Promise<string>;
+    speech2txt (source: string | File | Blob, testMode?: boolean): Promise<Speech2TxtResult>;
     speech2txt (source: string | File | Blob, options: TextFormatSpeech2TxtOptions, testMode?: boolean): Promise<string>;
     speech2txt (source: string | File | Blob, options: Speech2TxtOptions, testMode?: boolean): Promise<Speech2TxtResult>;
     speech2txt (options: TextFormatSpeech2TxtOptions, testMode?: boolean): Promise<string>;

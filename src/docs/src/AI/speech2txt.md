@@ -44,7 +44,7 @@ Fine-tune how transcription runs.
 - `chunking_strategy` (String): Required for `gpt-4o-transcribe-diarize` inputs longer than 30 seconds (recommend `"auto"`).
 - `known_speaker_names` / `known_speaker_references` (Array): Optional diarization references encoded as data URLs.
 - `extra_body` (Object): Forwarded verbatim to the OpenAI API for experimental flags.
-- `stream` (Boolean): Reserved for future streaming support. Currently rejected when `true`.
+- `stream` (Boolean): Reserved for future streaming support. Streaming is not currently supported.
 - `test_mode` (Boolean): When `true`, returns a sample response without using credits. Defaults to `false`.
 
 **xAI-specific options** (when `provider: 'xai'`):
@@ -65,8 +65,8 @@ When `true`, skips the live API call and returns a static sample transcript so y
 
 Returns a `Promise` that resolves to either:
 
-- A string (when `response_format: "text"` or you pass a shorthand `source` with no options), or
-- An object of [`Speech2TxtResult`](/Objects/speech2txtresult) containing the transcription payload (including diarization segments, timestamps, etc., depending on the selected model and format).
+- A string (when `response_format: "text"`), or
+- An object of [`Speech2TxtResult`](/Objects/speech2txtresult) containing the transcription payload (including diarization segments, timestamps, etc., depending on the selected model and format). This is the default, including when you pass a bare `source` with no options.
 
 ## Examples
 
@@ -79,7 +79,7 @@ Returns a `Promise` that resolves to either:
     <script>
         (async () => {
             const transcript = await puter.ai.speech2txt('https://assets.puter.site/example.mp3');
-            puter.print('Transcript:', transcript.text ?? transcript);
+            puter.print('Transcript:', transcript.text);
         })();
     </script>
 </body>
