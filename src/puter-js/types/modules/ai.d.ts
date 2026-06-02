@@ -116,30 +116,88 @@ export interface Img2TxtOptions {
 }
 
 export interface Txt2ImgOptions {
+    /** Text description of the image to generate. */
     prompt?: string;
+    /**
+     * Image model to use (provider-specific). Defaults to `'gpt-image-1-mini'`
+     * (OpenAI), or `'grok-2-image'` when `provider` is `'xai'`.
+     */
     model?: string;
+    /**
+     * Image quality / output size tier. Interpretation is provider- and
+     * model-specific:
+     * - OpenAI GPT models: `'high'` | `'medium'` | `'low'` (default `'low'`);
+     *   `gpt-image-2` also accepts `'auto'`.
+     * - OpenAI DALL-E 3: `'hd'` | `'standard'` (default `'standard'`).
+     * - Gemini: output size tier `'512'` | `'1K'` | `'2K'` | `'4K'`
+     *   (availability varies by model).
+     */
     quality?: string;
+    /**
+     * An input image for image-to-image generation. Replicate expects a URL;
+     * Gemini expects a base64-encoded image.
+     */
     input_image?: string;
+    /**
+     * Multiple input images for image-to-image / multi-image generation.
+     * Gemini expects base64-encoded images; Replicate expects image URLs.
+     */
+    input_images?: string[];
+    /**
+     * MIME type of the input image(s), e.g. `'image/png'`. Used as a fallback
+     * when the type cannot be auto-detected (Gemini).
+     */
     input_image_mime_type?: string;
     driver?: string;
     provider?: string;
     service?: string;
+    /**
+     * Aspect ratio as `{ w, h }` (e.g. `{ w: 16, h: 9 }`). Supported by OpenAI,
+     * Gemini, and Replicate.
+     */
     ratio?: { w: number; h: number };
+    /** Width of the image to generate, in pixels (Together). Default `1024`. */
     width?: number;
+    /** Height of the image to generate, in pixels (Together). Default `1024`. */
     height?: number;
+    /** Alternative way to specify the aspect ratio (Together). */
     aspect_ratio?: string;
+    /**
+     * Number of generation/inference steps (Together, default `20`; Replicate
+     * `flux-schnell`).
+     */
     steps?: number;
+    /** Seed used for generation; reuse to reproduce results (Together, Replicate). */
     seed?: number;
+    /** Prompt describing what NOT to guide the image generation toward (Together). */
     negative_prompt?: string;
+    /** Number of image results to generate (Together). Default `1`. */
     n?: number;
+    /** URL of an input image for models that support it (Together). */
     image_url?: string;
+    /** Base64-encoded input image for image-to-image generation (Together). */
     image_base64?: string;
+    /** URL of a mask image for inpainting (Together). */
     mask_image_url?: string;
+    /** Base64-encoded mask image for inpainting (Together). */
     mask_image_base64?: string;
+    /** How strongly the prompt influences the output (Together). */
     prompt_strength?: number;
+    /** When `true`, disables the safety checker (Together, Replicate). */
     disable_safety_checker?: boolean;
+    /**
+     * Format of the image response. Together: `'base64'` | `'url'`. Replicate:
+     * output format, e.g. `'webp'` | `'jpg'` | `'png'`.
+     */
     response_format?: string;
+    /** When `true`, returns a sample image without using credits. */
     test_mode?: boolean;
+    /**
+     * When set, the generated image is saved to this path on the Puter
+     * filesystem. Relative paths resolve against the app's data directory
+     * (`~/AppData/<appID>/`) when called from an app, or `~/` otherwise. The
+     * caller must have write permission to the destination.
+     */
     puter_output_path?: string;
 }
 
