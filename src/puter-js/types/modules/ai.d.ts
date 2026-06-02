@@ -188,6 +188,72 @@ export interface Txt2SpeechOptions {
     test_mode?: boolean;
 }
 
+export interface ListTTSEnginesOptions {
+    /** TTS provider to query. Defaults to `'aws-polly'`. */
+    provider?: string;
+}
+
+/** A TTS engine/model as returned by `txt2speech.listEngines()`. */
+export interface TTSEngine {
+    /** Engine/model identifier. */
+    id: string;
+    /** Human-readable engine name. */
+    name: string;
+    /** Provider this engine belongs to. */
+    provider: string;
+    /** Cost per million characters (may be absent). */
+    pricing_per_million_chars?: number;
+}
+
+export interface ListTTSVoicesOptions {
+    /** TTS provider to query. Defaults to `'aws-polly'`. */
+    provider?: string;
+    /** Engine/model filter (provider-specific, ignored by some providers). */
+    engine?: string;
+}
+
+/** A TTS voice as returned by `txt2speech.listVoices()`. */
+export interface TTSVoice {
+    /** Voice identifier to pass to `txt2speech()`. */
+    id: string;
+    /** Human-readable voice name. */
+    name: string;
+    /** Provider this voice belongs to. */
+    provider: string;
+    /** Language info (may be absent). */
+    language?: { name: string; code: string };
+    /** Short description of the voice (may be absent). */
+    description?: string;
+    /** Voice category, e.g. `'premade'` (may be absent). */
+    category?: string;
+    /** Provider-specific labels (may be absent). */
+    labels?: Record<string, unknown>;
+    /** Model IDs this voice works with (may be absent). */
+    supported_models?: string[];
+    /** Engine types this voice supports (may be absent). */
+    supported_engines?: string[];
+}
+
+/**
+ * Converts text to speech. Callable directly, with `listEngines` and
+ * `listVoices` helpers attached for discovering available engines and voices.
+ */
+export interface Txt2Speech {
+    (text: string, testMode?: boolean): Promise<HTMLAudioElement>;
+    (text: string, options: Txt2SpeechOptions, testMode?: boolean): Promise<HTMLAudioElement>;
+    (text: string, language: string, testMode?: boolean): Promise<HTMLAudioElement>;
+    (text: string, language: string, voice: string, testMode?: boolean): Promise<HTMLAudioElement>;
+    (text: string, language: string, voice: string, engine: string, testMode?: boolean): Promise<HTMLAudioElement>;
+
+    /** List available TTS engines/models with pricing information. */
+    listEngines (provider?: string): Promise<TTSEngine[]>;
+    listEngines (options?: ListTTSEnginesOptions): Promise<TTSEngine[]>;
+
+    /** List available TTS voices, optionally filtered by provider/engine. */
+    listVoices (engine?: string): Promise<TTSVoice[]>;
+    listVoices (options?: ListTTSVoicesOptions): Promise<TTSVoice[]>;
+}
+
 export interface Speech2TxtResult {
     text: string;
     language: string;
@@ -284,11 +350,7 @@ export class AI {
     speech2speech (source: string | File | Blob, options: Speech2SpeechOptions, testMode?: boolean): Promise<HTMLAudioElement>;
     speech2speech (options: Speech2SpeechOptions, testMode?: boolean): Promise<HTMLAudioElement>;
 
-    txt2speech (text: string, testMode?: boolean): Promise<HTMLAudioElement>;
-    txt2speech (text: string, options: Txt2SpeechOptions, testMode?: boolean): Promise<HTMLAudioElement>;
-    txt2speech (text: string, language: string, testMode?: boolean): Promise<HTMLAudioElement>;
-    txt2speech (text: string, language: string, voice: string, testMode?: boolean): Promise<HTMLAudioElement>;
-    txt2speech (text: string, language: string, voice: string, engine: string, testMode?: boolean): Promise<HTMLAudioElement>;
+    txt2speech: Txt2Speech;
 }
 
 // NOTE: AI responses contain provider-specific payloads that are not fully typed here because

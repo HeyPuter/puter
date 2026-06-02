@@ -26,19 +26,7 @@ When `options` is a plain string it is treated as an `engine` filter for the def
 
 ## Return value
 
-A `Promise` that resolves to an array of voice objects. Each object contains:
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `id` | `String` | Voice identifier to pass to `txt2speech()` |
-| `name` | `String` | Human-readable voice name |
-| `provider` | `String` | Provider this voice belongs to |
-| `language` | `Object` | `{ name, code }` language info (may be absent) |
-| `description` | `String` | Short description of the voice (may be absent) |
-| `category` | `String` | Voice category, e.g. `'premade'` (may be absent) |
-| `labels` | `Object` | Provider-specific labels (may be absent) |
-| `supported_models` | `Array` | Model IDs this voice works with (may be absent) |
-| `supported_engines` | `Array` | Engine types this voice supports (may be absent) |
+A `Promise` that resolves to an array of [`TTSVoice`](/Objects/ttsvoice) objects.
 
 Example response:
 
