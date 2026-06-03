@@ -12,7 +12,15 @@ compatibility_date = "2025-01-01"
 # statement"). Uploading the script as-is keeps it a sloppy-mode service worker.
 no_bundle = true
 
-# Optional: point the server at a self-hosted Puter API instead of the public
-# one. The router reads globalThis.puter_endpoint; bind it as a var to override.
+# Optional vars (exposed as globals in the service-worker script):
+#   puter_endpoint   - Puter API origin for fs/subdomain calls (default https://api.puter.com)
+#   puter_gui_origin - Puter GUI origin for the OAuth "Sign in with Puter"
+#                      (authme) redirect (default https://puter.com)
 # [vars]
 # puter_endpoint = "https://api.puter.com"
+# puter_gui_origin = "https://puter.com"
+
+# OAuth bridge secret — used to seal the stateless authorization-flow / code
+# blobs (AES-GCM). REQUIRED in production; set it as a secret, do NOT commit it:
+#   wrangler secret put OAUTH_SECRET
+# (Local `wrangler dev` falls back to an insecure default if unset.)

@@ -148,6 +148,25 @@ function jsonResponse(body) {
 async function mcpPost(event) {
     const userPuter = event.user && event.user.puter;
 
+    // No bearer token: this is a protected resource, so reply 401 with a
+    // WWW-Authenticate pointing at our resource metadata. That's the signal an
+    // MCP client (e.g. Claude Code) uses to start the OAuth flow (/authorize).
+    // Clients that pass Authorization: Bearer never hit this branch.
+    if (!userPuter) {
+        const origin = new URL(event.request.url).origin;
+        return new Response(
+            JSON.stringify(rpcError(null, INVALID_REQUEST, 'Authentication required')),
+            {
+                status: 401,
+                headers: {
+                    'content-type': 'application/json',
+                    'Access-Control-Allow-Origin': '*',
+                    'WWW-Authenticate': `Bearer resource_metadata="${origin}/.well-known/oauth-protected-resource"`,
+                },
+            },
+        );
+    }
+
     let payload;
     try {
         payload = await event.request.json();

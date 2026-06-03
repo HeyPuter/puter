@@ -4,9 +4,10 @@ An [MCP](https://modelcontextprotocol.io) server that runs on Cloudflare Workers
 and lets **anyone use their own Puter auth token** to drive their Puter account's
 filesystem and subdomains from an MCP client (Claude, Cursor, etc.).
 
-The Worker stores **no credentials of its own**. Every request carries the
-caller's token via a standard `Authorization: Bearer <token>` header, and all
-operations run as that user.
+The Worker stores **no credentials of its own**. Every request runs as the
+caller, authenticated either by a `Authorization: Bearer <token>` header or by an
+OAuth "Sign in with Puter" flow the Worker hosts itself (see
+[Authentication](#authentication)).
 
 ## Tools
 
@@ -76,8 +77,9 @@ registered onto the forked router as routes.
 | Path | Role |
 | --- | --- |
 | [`src/s2w-router.js`](src/s2w-router.js) | Forked router: builds `event.user.puter` from the bearer token (no `me.puter`). |
-| [`src/index.js`](src/index.js) | Entry: `initS2w()` + registers MCP routes. |
-| [`src/mcp.js`](src/mcp.js) | MCP JSON-RPC dispatch (initialize / tools.list / tools.call). |
+| [`src/index.js`](src/index.js) | Entry: `initS2w()` + registers MCP and OAuth routes. |
+| [`src/mcp.js`](src/mcp.js) | MCP JSON-RPC dispatch; 401 + `WWW-Authenticate` when unauthenticated. |
+| [`src/oauth.js`](src/oauth.js) | OAuth bridge: discovery, `/register`, `/authorize`→authme, `/oauth/callback`, `/token`. |
 | [`src/tools.js`](src/tools.js) | The 12 tools, calling real `puter.fs.*` / `puter.hosting.*`. |
 | [`template/puter-portable.template`](template/puter-portable.template) | Preamble template (defines `init_puter_portable`, inlines puter.js). |
 
@@ -95,18 +97,44 @@ npm run dev        # builds, then wrangler dev — serves on http://localhost:87
 npm run deploy     # builds, then wrangler deploy
 ```
 
-To target a self-hosted Puter instance, set `puter_endpoint` (uncomment the
-`[vars]` block in `wrangler.toml`). The router reads `globalThis.puter_endpoint`
-and defaults to `https://api.puter.com`.
+To target a self-hosted Puter instance, set `puter_endpoint` / `puter_gui_origin`
+(uncomment the `[vars]` block in `wrangler.toml`). They default to
+`https://api.puter.com` and `https://puter.com`.
 
-## Getting a Puter token
+If you use the OAuth flow (below), also set the sealing secret in production:
 
-In a browser logged into Puter, open the devtools console and run
-`puter.authToken`. Treat it like a password.
+```bash
+wrangler secret put OAUTH_SECRET
+```
+
+## Authentication
+
+Two ways, both running as the caller — the Worker holds no credentials of its own:
+
+1. **OAuth "Sign in with Puter"** (no token to copy). For clients that support
+   OAuth over HTTP (e.g. Claude Code), the Worker *is* the authorization server:
+   on first use the client opens a browser, you sign into Puter and approve, and
+   the Worker hands the client your Puter token. See
+   [`src/oauth.js`](src/oauth.js). Under the hood it redirects to Puter's
+   `?action=authme` page and catches the returned token on its `/oauth/callback`;
+   the short-lived flow/code blobs are AES-GCM sealed with `OAUTH_SECRET`, so the
+   Worker stays stateless.
+2. **Bearer token** (copy/paste). Get it from a logged-in Puter browser tab's
+   devtools console: `puter.authToken`. Treat it like a password. Pass it as an
+   `Authorization: Bearer <token>` header (or the `.mcpb` token field).
 
 ## Connecting a client
 
-### Option A — one-click `.mcpb` bundle (Claude Desktop etc.)
+### Option A — Claude Code (OAuth, no token)
+
+```bash
+claude mcp add --transport http puter https://puter-mcp.<your-subdomain>.workers.dev/
+```
+
+On first use Claude Code opens a browser to sign in with Puter; approve, and it's
+connected. (If you'd rather skip OAuth, add `-H "Authorization: Bearer YOUR_PUTER_TOKEN"`.)
+
+### Option B — one-click `.mcpb` bundle (Claude Desktop etc.)
 
 [`puter-mcp-connector.mcpb`](puter-mcp-connector.mcpb) is a prebuilt [MCP
 Bundle](https://github.com/anthropics/mcpb). Import it into a host that supports
@@ -131,7 +159,7 @@ npm run pack:mcpb     # -> puter-mcp-connector.mcpb
 The `.mcpb` is unsigned; hosts may warn it's from an unknown developer. To
 self-sign: `npx @anthropic-ai/mcpb sign --self-signed puter-mcp-connector.mcpb`.
 
-### Option B — direct HTTP
+### Option C — direct HTTP
 
 Point any MCP client that supports HTTP transport at the Worker URL and add your
 token as a bearer header. Example (`mcp.json`-style):
