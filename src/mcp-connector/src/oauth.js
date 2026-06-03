@@ -29,7 +29,14 @@ const guiOrigin = () => globalThis.puter_gui_origin || DEFAULT_GUI_ORIGIN;
 const secretString = () =>
     globalThis.OAUTH_SECRET || 'puter-mcp-dev-insecure-secret-change-me';
 
-const originOf = (request) => new URL(request.url).origin;
+const originOf = (request) => {
+    let originalOrigin = new URL(request.url).origin;
+    if (originalOrigin.includes('workers.dev') && globalThis.OVERRIDE_ORIGIN) {
+        return globalThis.OVERRIDE_ORIGIN;
+    }
+    return originalOrigin;
+    
+};
 
 // ---- base64url + AES-GCM sealing ------------------------------------------
 
