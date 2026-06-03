@@ -1,0 +1,63 @@
+{
+  "manifest_version": "0.3",
+  "name": "puter-mcp-connector",
+  "display_name": "Puter",
+  "version": "0.1.0",
+  "description": "Use your own Puter account's filesystem and subdomains over MCP.",
+  "long_description": "Connects an MCP client to a deployed Puter MCP Worker. Authenticates with your own Puter token (no shared credentials) and exposes tools to read/write/stat files, make directories, delete entries, and manage subdomains. The bundle runs a tiny local stdio<->HTTP proxy that forwards JSON-RPC to your Worker with your token attached.",
+  "author": {
+    "name": "Puter Technologies Inc.",
+    "url": "https://puter.com"
+  },
+  "homepage": "https://puter.com",
+  "documentation": "https://github.com/HeyPuter/puter/tree/main/src/mcp-connector",
+  "license": "AGPL-3.0-only",
+  "keywords": ["puter", "filesystem", "hosting", "subdomains", "fs"],
+  "server": {
+    "type": "node",
+    "entry_point": "server/index.cjs",
+    "mcp_config": {
+      "command": "node",
+      "args": ["${__dirname}/server/index.cjs"],
+      "env": {
+        "PUTER_MCP_URL": "${user_config.server_url}",
+        "PUTER_TOKEN": "${user_config.puter_token}"
+      }
+    }
+  },
+  "tools_generated": false,
+  "tools": [
+    { "name": "fs_read_file", "description": "Read a file (UTF-8 or base64; optional offset/length)." },
+    { "name": "fs_stat", "description": "Stat a file or directory (size, type, timestamps, uid)." },
+    { "name": "fs_write_file", "description": "Create or overwrite a file (UTF-8 or base64 content)." },
+    { "name": "fs_mkdir", "description": "Create a directory (optionally creating missing parents)." },
+    { "name": "fs_delete", "description": "Delete a file or directory (recursive by default)." },
+    { "name": "fs_readdir", "description": "List the entries of a directory." },
+    { "name": "subdomains_list", "description": "List the caller's subdomains." },
+    { "name": "subdomains_get", "description": "Get a subdomain by name." },
+    { "name": "subdomains_create", "description": "Create a subdomain (optionally pointing at a root_dir)." },
+    { "name": "subdomains_update", "description": "Update a subdomain's root directory." },
+    { "name": "subdomains_delete", "description": "Delete a subdomain." }
+  ],
+  "user_config": {
+    "server_url": {
+      "type": "string",
+      "title": "Server URL",
+      "description": "URL of your deployed Puter MCP Worker, e.g. https://puter-mcp.<your-subdomain>.workers.dev/ (use http://127.0.0.1:8799/ for local `wrangler dev`).",
+      "required": true,
+      "default": "https://puter-mcp.example.workers.dev/"
+    },
+    "puter_token": {
+      "type": "string",
+      "title": "Puter Auth Token",
+      "description": "Your personal Puter token. Get it from a logged-in Puter browser tab: open the devtools console and run `puter.authToken`. Treated as a secret.",
+      "required": true,
+      "sensitive": true
+    }
+  },
+  "compatibility": {
+    "runtimes": {
+      "node": ">=18.0.0"
+    }
+  }
+}

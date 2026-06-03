@@ -1,0 +1,18 @@
+name = "puter-mcp"
+# The build inlines puter.js + the bundled router into a single service-worker
+# script (built by `npm run build` before dev/deploy).
+main = "dist/workerPreamble.js"
+compatibility_date = "2025-01-01"
+
+# The preamble is assembled with a C-style #include preprocessor (see
+# scripts/buildPreamble.mjs) specifically so puter.js is concatenated RAW and
+# never touched by a bundler. wrangler bundles `main` by default, and that pass
+# transpiles to strict-mode ESM which forbids the `with` statement used by the
+# init_puter_portable sandbox ("Strict mode code may not include a with
+# statement"). Uploading the script as-is keeps it a sloppy-mode service worker.
+no_bundle = true
+
+# Optional: point the server at a self-hosted Puter API instead of the public
+# one. The router reads globalThis.puter_endpoint; bind it as a var to override.
+# [vars]
+# puter_endpoint = "https://api.puter.com"
