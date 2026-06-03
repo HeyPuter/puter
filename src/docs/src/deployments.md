@@ -9,7 +9,7 @@ Puter.js is a regular JavaScript library, so your app deploys like any other web
 
 ## Deploy anywhere
 
-Because Puter.js runs entirely on the client, there's no special backend to provision. Build your app as you normally would and deploy the output to any static or web hosting provider, such as [Vercel](https://vercel.com), [Cloudflare Pages](https://pages.cloudflare.com), [Netlify](https://www.netlify.com), or [GitHub Pages](https://pages.github.com).
+Because Puter.js runs entirely on the client, there's no special backend to provision. Build your app as you normally would and deploy the output to any static or web hosting provider, such as <a href="https://vercel.com" rel="nofollow">Vercel</a>, <a href="https://pages.cloudflare.com" rel="nofollow">Cloudflare Pages</a>, <a href="https://www.netlify.com" rel="nofollow">Netlify</a>, or <a href="https://pages.github.com" rel="nofollow">GitHub Pages</a>.
 
 No extra configuration is required. Your app keeps talking to Puter's services from the browser, wherever it's hosted.
 
