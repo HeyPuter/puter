@@ -11,6 +11,11 @@ OAuth "Sign in with Puter" flow the Worker hosts itself (see
 
 ## Tools
 
+### Account
+| Tool | Description |
+| --- | --- |
+| `whoami` | Get the authenticated user's info (username, uuid, home directory). |
+
 ### Filesystem
 | Tool | Description |
 | --- | --- |
@@ -55,9 +60,12 @@ its associated file (there is no separate update call).
 | `puter_docs_get` | Fetch a specific docs page as Markdown by topic path (e.g. `Workers/router`). |
 
 ### Paths
-Tools pass paths straight to puter.js, so the usual conventions apply: absolute
+Every path lives under your home directory (`/<username>`). Tools pass paths
+straight to puter.js, so the usual conventions apply: absolute
 (`/your-username/Desktop/file.txt`), home-relative (`~/Desktop/file.txt`), or
-relative (`Desktop/file.txt`, resolved against your home directory).
+relative (`Desktop/file.txt`, resolved against your home directory). Bare root
+paths like `/portfolio/index.html` are **not** valid — call `whoami` to get your
+username, then use `~/...` or `/<username>/...`.
 
 ## How it works
 

@@ -87,7 +87,31 @@ async function fetchDocText(url) {
     return resp.text();
 }
 
+// Every Puter path lives under the user's home directory (/<username>). Agents
+// routinely guess bare root paths like "/portfolio/index.html", which do NOT
+// exist — this note steers them to valid forms.
+const HOME_PATH_NOTE =
+    'Paths must live under your home directory: use "~/..." or "/<username>/..." ' +
+    '(call whoami to get your <username>). Bare root paths like "/portfolio/index.html" are INVALID. Also, don\'t pollute the home directory. Create subpaths and folders for your projects.';
+
 export const TOOLS = [
+    // ----- account / identity ----------------------------------------------
+    {
+        name: 'whoami',
+        description:
+            'Get the authenticated Puter user\'s account info — including username, uuid, and the ' +
+            'home_directory (/<username>) that ALL filesystem paths must live under. Call this first ' +
+            'to learn your username so you can build valid absolute paths (e.g. "/<username>/portfolio/' +
+            'index.html") instead of invalid bare root paths. Equivalent to PuterJS puter.auth.getUser().',
+        inputSchema: { type: 'object', properties: {} },
+        async handler(puter) {
+            const user = await puter.auth.getUser();
+            return user && user.username
+                ? { ...user, home_directory: `/${user.username}` }
+                : user;
+        },
+    },
+
     // ----- filesystem ------------------------------------------------------
     {
         name: 'fs_read_file',
@@ -98,7 +122,7 @@ export const TOOLS = [
         inputSchema: {
             type: 'object',
             properties: {
-                path: { type: 'string', description: 'File path. Absolute (/user/...), ~/relative, or relative to home.' },
+                path: { type: 'string', description: `File path to read. ${HOME_PATH_NOTE}` },
                 encoding: { type: 'string', enum: ['utf8', 'base64'], default: 'utf8' },
                 offset: { type: 'integer', minimum: 0, description: 'Byte offset to start reading from.' },
                 length: { type: 'integer', minimum: 1, description: 'Maximum number of bytes to read.' },
@@ -120,7 +144,7 @@ export const TOOLS = [
         inputSchema: {
             type: 'object',
             properties: {
-                path: { type: 'string', description: 'Path to a file or directory.' },
+                path: { type: 'string', description: `Path to a file or directory. ${HOME_PATH_NOTE}` },
                 return_size: { type: 'boolean', default: true, description: 'Compute size for directories.' },
             },
             required: ['path'],
@@ -137,7 +161,7 @@ export const TOOLS = [
         inputSchema: {
             type: 'object',
             properties: {
-                path: { type: 'string', description: 'Destination file path.' },
+                path: { type: 'string', description: `Destination file path. ${HOME_PATH_NOTE}` },
                 content: { type: 'string', description: 'File contents (UTF-8, or base64 if encoding=base64).' },
                 encoding: { type: 'string', enum: ['utf8', 'base64'], default: 'utf8' },
                 overwrite: { type: 'boolean', default: true, description: 'Overwrite an existing file.' },
@@ -171,7 +195,7 @@ export const TOOLS = [
         inputSchema: {
             type: 'object',
             properties: {
-                path: { type: 'string', description: 'Directory path to create.' },
+                path: { type: 'string', description: `Directory path to create. ${HOME_PATH_NOTE}` },
                 create_missing_parents: {
                     type: 'boolean',
                     default: true,
@@ -191,7 +215,7 @@ export const TOOLS = [
             type: 'object',
             properties: {
                 path: {
-                    description: 'Path (string) or list of paths to delete.',
+                    description: `Path (string) or list of paths to delete. ${HOME_PATH_NOTE}`,
                     anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }],
                 },
                 recursive: { type: 'boolean', default: true, description: 'Recurse into directories.' },
@@ -209,7 +233,7 @@ export const TOOLS = [
         inputSchema: {
             type: 'object',
             properties: {
-                path: { type: 'string', description: 'Directory path to list.' },
+                path: { type: 'string', description: `Directory path to list. ${HOME_PATH_NOTE}` },
             },
             required: ['path'],
         },
@@ -271,7 +295,7 @@ export const TOOLS = [
                 },
                 root_dir: {
                     type: 'string',
-                    description: 'Puter directory path whose files are served as the website (e.g. "/me/my-site"). Omit to create the subdomain without content for now.',
+                    description: 'Puter directory path whose files are served as the website (e.g. "~/my-site" or "/<username>/my-site"). Omit to create the subdomain without content for now.',
                 },
             },
             required: ['subdomain'],
@@ -339,7 +363,7 @@ export const TOOLS = [
             '(`puter`) for storage, KV, AI, and more — authenticated as you, the deployer. Puter Workers ' +
             'are designed to be used WITH puter.js and Puter authentication, so BEFORE writing worker ' +
             'code load the router guide and examples via puter_docs_get with path "Workers/router". ' +
-            'Typical flow: fs_write_file the worker code to a path (e.g. "/me/workers/api.js"), then ' +
+            'Typical flow: fs_write_file the worker code to a path (e.g. "~/workers/api.js"), then ' +
             'workers_create with that file_path. TO UPDATE a deployed worker, simply write the new code ' +
             'to the SAME file with fs_write_file — there is no separate update call; the worker serves ' +
             'the current contents of its associated file (propagation takes ~5-30s). Requires a Puter ' +
@@ -353,7 +377,7 @@ export const TOOLS = [
                 },
                 file_path: {
                     type: 'string',
-                    description: 'Path to the worker JS file in Puter (e.g. "/me/workers/api.js"). The file must define handlers on the global `router` object. Max 10MB. Writing to this same path later updates the deployed worker.',
+                    description: 'Path to the worker JS file in Puter (e.g. "~/workers/api.js" or "/<username>/workers/api.js"). The file must define handlers on the global `router` object. Max 10MB. Writing to this same path later updates the deployed worker.',
                 },
             },
             required: ['worker_name', 'file_path'],
