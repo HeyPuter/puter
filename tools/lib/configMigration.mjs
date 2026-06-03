@@ -258,17 +258,36 @@ export const transformToV2 = (source) => {
         copyIfSet(h, 'gui_css', out);
     }
 
-    // Legacy billing consolidation (stripe/offerings/__subs-serve → legacyBilling).
-    const legacyBilling = {};
+    // Billing / Stripe consolidation. v1 split these across `stripe`,
+    // `offerings`, and `__subs-serve`; v2 lands everything under the
+    // `appStoreAndPurchases` extension (puter-paid subscriptions, the
+    // marketplace, and webhook handling all share one Stripe client).
+    const appStoreAndPurchases = (out.appStoreAndPurchases ?? {});
     if ( svc.stripe ) {
-        if ( svc.stripe.api_secret )      legacyBilling.api_secret = svc.stripe.api_secret;
-        if ( svc.stripe.endpoint_secret ) legacyBilling.endpoint_secret = svc.stripe.endpoint_secret;
+        if ( svc.stripe.api_secret )      appStoreAndPurchases.api_secret = svc.stripe.api_secret;
+        if ( svc.stripe.endpoint_secret ) appStoreAndPurchases.endpoint_secret = svc.stripe.endpoint_secret;
     }
     if ( svc['__subs-serve']?.stripe_publishable_key ) {
-        legacyBilling.stripe_publishable_key = svc['__subs-serve'].stripe_publishable_key;
+        appStoreAndPurchases.stripe_publishable_key = svc['__subs-serve'].stripe_publishable_key;
     }
-    if ( svc.offerings?.price_ids ) legacyBilling.price_ids = svc.offerings.price_ids;
-    if ( Object.keys(legacyBilling).length ) out.legacyBilling = legacyBilling;
+    if ( svc.offerings?.price_ids ) {
+        appStoreAndPurchases.puterPaid = appStoreAndPurchases.puterPaid ?? {};
+        appStoreAndPurchases.puterPaid.price_ids = svc.offerings.price_ids;
+    }
+    // Forward an already-migrated `legacyBilling` block too, in case the
+    // input config was migrated against an older version of this tool.
+    if ( source.legacyBilling ) {
+        if ( source.legacyBilling.api_secret )      appStoreAndPurchases.api_secret ??= source.legacyBilling.api_secret;
+        if ( source.legacyBilling.endpoint_secret ) appStoreAndPurchases.endpoint_secret ??= source.legacyBilling.endpoint_secret;
+        if ( source.legacyBilling.stripe_publishable_key ) {
+            appStoreAndPurchases.stripe_publishable_key ??= source.legacyBilling.stripe_publishable_key;
+        }
+        if ( source.legacyBilling.price_ids ) {
+            appStoreAndPurchases.puterPaid = appStoreAndPurchases.puterPaid ?? {};
+            appStoreAndPurchases.puterPaid.price_ids ??= source.legacyBilling.price_ids;
+        }
+    }
+    if ( Object.keys(appStoreAndPurchases).length ) out.appStoreAndPurchases = appStoreAndPurchases;
 
     // Abuse / clickhouse / cf_file_cache pass through if already top-level.
     if ( source.abuse )         out.abuse = source.abuse;
@@ -465,7 +484,7 @@ export const transformToV2 = (source) => {
         'allow_no_host_header', 'allow_nipio_domains', 'custom_domains_enabled',
         'enable_ip_validation',
         'default_user_group', 'default_temp_group',
-        'abuse', 'clickhouse', 'cf_file_cache', 'legacyBilling',
+        'abuse', 'clickhouse', 'cf_file_cache', 'legacyBilling', 'appStoreAndPurchases',
         'providers', 'thumbnailStore',
         'redis', 'extension',
         ...droppedTopKeys,

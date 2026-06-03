@@ -33,7 +33,7 @@ import type { DriverController } from './DriverController.js';
 // The DriverController under test is the same instance the live request
 // pipeline uses, so its iface→driver registry is populated from real
 // drivers (puter-kvstore, puter-apps, puter-subdomains, …). The HTTP
-// handlers (`#handleCall`, `#handleListInterfaces`, `#handleXd`) are
+// handlers (`#handleCall`, `#handleListInterfaces`) are
 // private — we exercise the public lookup API (`resolve` / list / get
 // default) which the handlers themselves delegate to.
 
@@ -116,7 +116,7 @@ describe('DriverController.resolve', () => {
     });
 });
 
-// ── Route handlers (#handleCall, #handleListInterfaces, #handleXd) ─
+// ── Route handlers (#handleCall, #handleListInterfaces) ─────────────
 
 // The handlers are private class fields. We capture references to them by
 // invoking `registerRoutes` with a fake router whose `post`/`get` save the
@@ -189,10 +189,7 @@ const makeRes = (): MockRes => {
     return res;
 };
 
-const makeReq = (
-    body: Record<string, unknown> = {},
-    actor?: Actor,
-): Request =>
+const makeReq = (body: Record<string, unknown> = {}, actor?: Actor): Request =>
     ({
         body,
         actor,
@@ -338,11 +335,7 @@ describe('DriverController.#handleCall (via captured router)', () => {
             actor,
         );
         await runWithContext({ actor }, () =>
-            routes['POST /call'](
-                req,
-                res as unknown as Response,
-                () => {},
-            ),
+            routes['POST /call'](req, res as unknown as Response, () => {}),
         );
         const body = res.body as {
             success: boolean;
@@ -374,11 +367,9 @@ describe('DriverController.#handleCall (via captured router)', () => {
         // Register it through the controller's private map by re-running
         // its #buildIfaceMap path: easier to just stash it into the
         // existing iface map directly via TypeScript-defeating cast.
-        const internalDrivers = (
-            controller as unknown as {
-                ['#drivers']: Map<string, Map<string, unknown>>;
-            }
-        );
+        const internalDrivers = controller as unknown as {
+            ['#drivers']: Map<string, Map<string, unknown>>;
+        };
         // Access the actual private slot via the well-known getter
         // pattern doesn't work for `#`-private fields; instead, re-run
         // registerRoutes after stashing on the bag — but that's already
@@ -413,13 +404,12 @@ describe('DriverController.#handleCall (via captured router)', () => {
         >;
         const original = kv.set;
         kv.set = async function (...args: unknown[]) {
-            const { Context } = await import(
-                '../../core/context.js'
-            );
+            const { Context } = await import('../../core/context.js');
             Context.set('driverMetadata', { providerUsed: 'kv-direct' });
-            return (
-                original as (...x: unknown[]) => Promise<unknown>
-            ).apply(this, args);
+            return (original as (...x: unknown[]) => Promise<unknown>).apply(
+                this,
+                args,
+            );
         };
         try {
             const res = makeRes();
@@ -432,11 +422,7 @@ describe('DriverController.#handleCall (via captured router)', () => {
                 actor,
             );
             await runWithContext({ actor }, () =>
-                routes['POST /call'](
-                    req,
-                    res as unknown as Response,
-                    () => {},
-                ),
+                routes['POST /call'](req, res as unknown as Response, () => {}),
             );
             const body = res.body as {
                 metadata?: Record<string, unknown>;
@@ -497,31 +483,11 @@ describe('DriverController.#handleListInterfaces', () => {
     });
 });
 
-describe('DriverController.#handleXd', () => {
-    let routes: Captured;
-    beforeAll(() => {
-        routes = captureRoutes(controller);
-    });
-
-    it('serves the iframe-bridge HTML with text/html content-type', () => {
-        const res = makeRes();
-        routes['GET /xd'](
-            makeReq(),
-            res as unknown as Response,
-            () => {},
-        );
-        expect(res.contentType).toBe('text/html');
-        expect(res.sentBody).toMatch(/<!DOCTYPE html>/);
-        expect(res.sentBody).toMatch(/\/drivers\/call/);
-    });
-});
-
 describe('DriverController.registerRoutes', () => {
-    it('registers POST /call, GET /list-interfaces, and GET /xd', () => {
+    it('registers POST /call and GET /list-interfaces', () => {
         const routes = captureRoutes(controller);
         expect(routes['POST /call']).toBeInstanceOf(Function);
         expect(routes['GET /list-interfaces']).toBeInstanceOf(Function);
-        expect(routes['GET /xd']).toBeInstanceOf(Function);
     });
 });
 

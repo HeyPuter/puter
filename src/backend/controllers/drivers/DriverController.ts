@@ -26,8 +26,6 @@ import {
     checkDriverRateLimit,
 } from '../../core/http/middleware/rateLimit.js';
 import type { PuterRouter } from '../../core/http/PuterRouter.js';
-import type { PermissionService } from '../../services/permission/PermissionService.js';
-import type { WithLifecycle } from '../../types';
 import type { DriverMeta } from '../../drivers/meta.js';
 import {
     isDriverStreamResult,
@@ -35,120 +33,12 @@ import {
     resolveDriverMethodConcurrent,
     resolveDriverMethodRateLimit,
 } from '../../drivers/meta.js';
+import type { PermissionService } from '../../services/permission/PermissionService.js';
+import type { WithLifecycle } from '../../types';
 import { PuterController } from '../types.js';
 
 type DriverInstance = WithLifecycle & Record<string, unknown>;
 
-// -- /drivers/xd payload ---------------------------------------------
-//
-// Self-contained HTML/JS shipped to the iframe consumer. Listens for
-// postMessage events shaped as `{ id, interface, method, params }`,
-// forwards to `/drivers/call`, and posts `{ id, result }` back to the
-// originating window.
-//
-// Wire-shape note: the postMessage uses `params` (puter-js's historical
-// name) but `/drivers/call` expects `args`; this bridge translates.
-
-const XD_SCRIPT = /* js */ `
-(function () {
-    const call = async ({ interface_name, method_name, params }) => {
-        const response = await fetch('/drivers/call', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                interface: interface_name,
-                method: method_name,
-                args: params,
-            }),
-        });
-        return await response.json();
-    };
-
-    const fcall = async ({ interface_name, method_name, params }) => {
-        const form = new FormData();
-        form.append('interface', interface_name);
-        form.append('method', method_name);
-        for (const k in params) {
-            form.append(k, params[k]);
-        }
-        const response = await fetch('/drivers/call', {
-            method: 'POST',
-            body: form,
-        });
-        return await response.json();
-    };
-
-    window.addEventListener('message', async (event) => {
-        const { id, interface: iface, method, params } = event.data || {};
-        let has_file = false;
-        for (const k in params) {
-            if (params[k] instanceof File) {
-                has_file = true;
-                break;
-            }
-        }
-        const result = has_file
-            ? await fcall({ interface_name: iface, method_name: method, params })
-            : await call({ interface_name: iface, method_name: method, params });
-        if (event.source) {
-            event.source.postMessage({ id, result }, event.origin);
-        }
-    });
-})();
-`;
-
-const XD_HTML = `<!DOCTYPE html>
-<html>
-    <head>
-        <title>Puter Driver API</title>
-        <script>
-            document.addEventListener('DOMContentLoaded', function () {
-                ${XD_SCRIPT}
-            });
-        </script>
-    </head>
-    <body></body>
-</html>`;
-
-// -- Controller ------------------------------------------------------
-
-/**
- * Routes driver RPC calls through a unified HTTP surface.
- *
- * - `POST /drivers/call` — invoke `<iface>.<method>(args)` on the
- *   registered driver after a per-actor permission + rate-limit check.
- *   Stream-shaped results are piped directly; everything else is
- *   returned as JSON.
- * - `GET /drivers/list-interfaces` — enumerate registered driver
- *   interfaces with their default + alternate implementations.
- * - `GET /drivers/xd` — legacy iframe bridge; serves an HTML page that
- *   proxies `postMessage` RPCs to `/drivers/call` on the same origin.
- *
- * Holds an internal iface → driverName → instance map built at
- * construction time from `this.drivers`. Extensions that register
- * additional drivers end up in that bag before this controller is
- * instantiated, so they show up here automatically.
- */
-/**
- * Catch-all upstream-error translator for the driver boundary.
- *
- * Drivers that wrap a third-party SDK (OpenAI, Anthropic, etc.) often
- * let the SDK's own error class bubble — those carry an HTTP `.status`
- * but are plain `Error` subclasses, not `HttpError`s, so they would
- * otherwise hit the global error handler as unexpected 500s and page
- * PagerDuty. Repackage them with `upstream_*` legacy codes so the
- * alarm gate (server.ts) treats them as upstream failures and only
- * pages on the two we actually care about (rate-limit / auth).
- *
- * Status extraction covers the shapes we've seen in the wild:
- *  - `.status` / `.statusCode` (OpenAI / Anthropic / Together / Google GenAI)
- *  - `.response.status` (Replicate's `ApiError`)
- *  - `.$metadata.httpStatusCode` (AWS SDK v3, e.g. Polly)
- *  - status sniffed from the message string (last resort, for providers
- *    that re-wrap their SDK error in `new Error(msg)` and lose the field)
- *
- * `HttpError`s thrown by drivers pass through untouched.
- */
 const extractUpstreamStatus = (e: {
     status?: number;
     statusCode?: number;
@@ -272,11 +162,6 @@ export class DriverController extends PuterController {
             '/list-interfaces',
             { subdomain: 'api', requireAuth: true },
             this.#handleListInterfaces,
-        );
-        router.get(
-            '/xd',
-            { subdomain: 'api', requireAuth: true },
-            this.#handleXd,
         );
     }
 
@@ -487,11 +372,6 @@ export class DriverController extends PuterController {
             };
         }
         res.json(out);
-    };
-
-    #handleXd = (_req: Request, res: Response): void => {
-        res.type('text/html');
-        res.send(XD_HTML);
     };
 
     // -- Internals ---------------------------------------------------

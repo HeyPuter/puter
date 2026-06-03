@@ -1473,6 +1473,28 @@ input.myapps-search::placeholder {
     border: 1px solid var(--dashboard-success-border);
 }
 
+.dashboard .bento-plan-badge.past-due {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--dashboard-danger-text);
+    background: var(--dashboard-danger-background);
+    border: 1px solid var(--dashboard-danger-border);
+}
+
+.dashboard .bento-plan-warning {
+    margin-top: 10px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    color: var(--dashboard-danger-text);
+    background: var(--dashboard-danger-background);
+    border: 1px solid var(--dashboard-danger-border);
+    font-size: 12px;
+    line-height: 1.4;
+}
+
 .dashboard .bento-plan-upgrade {
     font-size: 14px;
     font-weight: 500;

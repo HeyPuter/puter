@@ -1089,6 +1089,85 @@ describe('LegacyFSController.openItem', () => {
     });
 });
 
+// ── openItem: write_url stripping for read-only callers ─────────────
+//
+// Mirrors `/sign` and `/readdir`, which already strip `write_url` when the
+// caller only proved read. Without these gates, /open_item handed out a
+// valid write signature to read-only sharees — `/writeFile`'s own ACL
+// re-check would still reject the write, but the leak shape (a signed
+// write URL escaping the access boundary) is the same one those other
+// endpoints already defend against.
+
+describe('LegacyFSController.openItem (write_url stripping)', () => {
+    beforeAll(() => {
+        (
+            controller as unknown as { config: { api_base_url?: string } }
+        ).config.api_base_url = 'http://api.test.local';
+    });
+
+    it('returns write_url for the owner (who has write)', async () => {
+        const { actor } = await makeUser();
+        const target = `/${actor.user!.username}/Documents/owned.txt`;
+        await withActor(actor, () =>
+            controller.touch(
+                makeReq({ body: { path: target }, actor }),
+                makeRes().res,
+            ),
+        );
+
+        const { res, captured } = makeRes();
+        await withActor(actor, () =>
+            controller.openItem(
+                makeReq({ body: { path: target }, actor }),
+                res,
+            ),
+        );
+        const body = captured.body as {
+            signature: { read_url?: string; write_url?: string };
+        };
+        expect(body.signature.read_url).toBeDefined();
+        expect(body.signature.write_url).toBeDefined();
+        expect(body.signature.write_url).toContain('writeFile');
+    });
+
+    it('strips write_url for a read-only sharee (the fix)', async () => {
+        const victim = await makeUser();
+        const attacker = await makeUser();
+        const target = `/${victim.actor.user!.username}/Documents/shared-ro.txt`;
+        await withActor(victim.actor, () =>
+            controller.touch(
+                makeReq({ body: { path: target }, actor: victim.actor }),
+                makeRes().res,
+            ),
+        );
+        const entry = await server.stores.fsEntry.getEntryByPath(target);
+        await server.services.permission.grantUserUserPermission(
+            victim.actor,
+            attacker.actor.user!.username!,
+            `fs:${entry!.uuid}:read`,
+            {},
+        );
+
+        const { res, captured } = makeRes();
+        await withActor(attacker.actor, () =>
+            controller.openItem(
+                makeReq({
+                    body: { uid: entry!.uuid },
+                    actor: attacker.actor,
+                }),
+                res,
+            ),
+        );
+        const body = captured.body as {
+            signature: { read_url?: string; write_url?: string };
+        };
+        // Sharee still gets read_url (they have read).
+        expect(body.signature.read_url).toBeDefined();
+        // …but write_url is stripped (they don't have write).
+        expect(body.signature.write_url).toBeUndefined();
+    });
+});
+
 // ── requestAppRootDir ───────────────────────────────────────────────
 
 describe('LegacyFSController.requestAppRootDir', () => {
