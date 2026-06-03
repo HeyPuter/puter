@@ -16,7 +16,8 @@ no_bundle = true
 #   puter_endpoint   - Puter API origin for fs/subdomain calls (default https://api.puter.com)
 #   puter_gui_origin - Puter GUI origin for the OAuth "Sign in with Puter"
 #                      (authme) redirect (default https://puter.com)
-# [vars]
+[vars]
+# OVERRIDE_ORIGIN = "https://mcp.puter.com"
 # puter_endpoint = "https://api.puter.com"
 # puter_gui_origin = "https://puter.com"
 
