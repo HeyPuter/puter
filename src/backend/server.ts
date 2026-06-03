@@ -601,6 +601,8 @@ export class PuterServer {
             'Content-Type',
             'Accept',
             'Authorization',
+            'Cache-Control',
+            'Pragma',
             'sentry-trace',
             'baggage',
             'Depth',
