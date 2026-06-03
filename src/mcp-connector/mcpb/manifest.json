@@ -27,6 +27,7 @@
   },
   "tools_generated": false,
   "tools": [
+    { "name": "whoami", "description": "Get the authenticated user's info (username, uuid, home directory). Use it to build valid paths." },
     { "name": "fs_read_file", "description": "Read a file (UTF-8 or base64; optional offset/length)." },
     { "name": "fs_stat", "description": "Stat a file or directory (size, type, timestamps, uid)." },
     { "name": "fs_write_file", "description": "Create or overwrite a file (UTF-8 or base64 content)." },
