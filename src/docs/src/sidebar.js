@@ -29,6 +29,11 @@ let sidebar = [
                 path: '/frameworks',
             },
             {
+                title: 'Deployments',
+                source: '/deployments.md',
+                path: '/deployments',
+            },
+            {
                 title: 'Examples',
                 source: '/examples.md',
                 path: '/examples',

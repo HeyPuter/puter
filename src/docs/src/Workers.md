@@ -139,3 +139,60 @@ You can see various Puter.js workers management features in action from the foll
 - [Get a worker](/playground/workers-get/)
 - [Workers Management](/playground/workers-management/)
 - [Authenticated Worker Requests](/playground/workers-exec/)
+
+## Deployment
+
+Once your worker is ready, you can put it online on a free `*.puter.work` subdomain. You can publish it manually in a few clicks, or automatically from your GitHub repository.
+
+### Publish from puter.com
+
+The quickest way to publish a worker is to create it on [puter.com](https://puter.com) and publish it.
+
+1. Create a `.js` file containing your worker code.
+
+<figure style="margin: 30px 0;">
+    <img src="https://developer.puter.com/assets/img/workers/code.webp" style="width: 100%; max-width: 600px; margin: 0 auto; display: block; border-radius: 6px;">
+</figure>
+
+2. Right-click the file and choose **Publish as Worker**.
+
+<figure style="margin: 30px 0;">
+    <img src="https://developer.puter.com/assets/img/workers/publish-workers.webp" style="width: 100%; max-width: 600px; margin: 0 auto; display: block; border-radius: 6px;">
+</figure>
+
+3. Pick a name and click **Publish**. Your worker is live at `https://your-worker.puter.work`.
+
+<figure style="margin: 30px 0;">
+    <img src="https://developer.puter.com/assets/img/workers/published.webp" style="width: 100%; max-width: 600px; margin: 0 auto; display: block; border-radius: 6px;">
+</figure>
+
+<!-- ### Automate with GitHub Actions
+
+If your worker's code lives on GitHub, you can redeploy it automatically on every push using the [Puter Worker Deploy Action](https://github.com/HeyPuter/puter-worker-deploy-action).
+
+Add a workflow file at `.github/workflows/deploy-worker.yml`:
+
+```yaml
+name: Deploy Worker to Puter
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy worker
+        uses: HeyPuter/puter-worker-deploy-action@v1
+        with:
+          worker_name: my-api             # publishes to my-api.puter.work
+          source_path: worker             # the folder containing your worker
+          entry_file: index.js            # the worker's entry file
+          puter_path: ~/workers/my-api    # where to store the files on Puter
+          puter_token: ${{ secrets.PUTER_TOKEN }}
+```
+
+<div class="info">Store your Puter auth token as a GitHub Actions secret named <code>PUTER_TOKEN</code>. See the <a href="https://github.com/HeyPuter/puter-worker-deploy-action">action's README</a> for how to obtain a token and for the full list of options.</div> -->
