@@ -54,13 +54,47 @@ async function decodeReadResult(result, encoding) {
     return { content: new TextDecoder().decode(bytes), encoding: 'utf8', bytes: bytes.length };
 }
 
+// ----- puter.js documentation fetching -------------------------------------
+// The puter_docs_* tools pull authoritative docs straight from docs.puter.com so
+// an agent writes correct worker / SDK code instead of guessing the API.
+const DOCS_HOST = 'docs.puter.com';
+const DOCS_INDEX_URL = `https://${DOCS_HOST}/llms.txt`;
+
+/** Resolve a docs topic/path to a canonical https://docs.puter.com/.../index.md URL. */
+function resolveDocUrl(pathOrTopic) {
+    let p = String(pathOrTopic || '').trim();
+    if (!p || p === 'llms' || p === 'llms.txt') return DOCS_INDEX_URL;
+    // Accept a full URL, but only on the docs host (avoid SSRF to arbitrary hosts).
+    if (/^https?:\/\//i.test(p)) {
+        const u = new URL(p);
+        if (u.hostname !== DOCS_HOST) {
+            throw new Error(`Only ${DOCS_HOST} documentation URLs are allowed.`);
+        }
+        return u.toString();
+    }
+    // Normalize a topic slug like "Workers/router" or "Workers/router/index.md".
+    p = p.replace(/^\/+|\/+$/g, '').replace(/\/index\.md$/i, '').replace(/\.md$/i, '');
+    if (!p) return DOCS_INDEX_URL;
+    return `https://${DOCS_HOST}/${p}/index.md`;
+}
+
+/** Fetch a docs page as text, throwing a readable error on failure. */
+async function fetchDocText(url) {
+    const resp = await fetch(url, { headers: { accept: 'text/markdown, text/plain, */*' } });
+    if (!resp.ok) {
+        throw new Error(`Failed to fetch Puter docs (HTTP ${resp.status}) from ${url}`);
+    }
+    return resp.text();
+}
+
 export const TOOLS = [
     // ----- filesystem ------------------------------------------------------
     {
         name: 'fs_read_file',
         description:
             'Read the contents of a file in Puter. Returns UTF-8 text by default; ' +
-            'pass encoding="base64" for binary files. Supports optional byte offset/length.',
+            'pass encoding="base64" for binary files. Supports optional byte offset/length. ' +
+            'Equivalent to PuterJS puter.fs.read(path).',
         inputSchema: {
             type: 'object',
             properties: {
@@ -82,7 +116,7 @@ export const TOOLS = [
     },
     {
         name: 'fs_stat',
-        description: 'Get metadata (name, size, type, timestamps, uid) for a file or directory in Puter.',
+        description: 'Get metadata (name, size, type, timestamps, uid) for a file or directory in Puter. Equivalent to PuterJS puter.fs.stat(path).',
         inputSchema: {
             type: 'object',
             properties: {
@@ -99,7 +133,7 @@ export const TOOLS = [
         name: 'fs_write_file',
         description:
             'Write (create or overwrite) a file in Puter. Provide content as UTF-8 text, ' +
-            'or set encoding="base64" to write binary data.',
+            'or set encoding="base64" to write binary data. Equivalent to PuterJS puter.fs.write(path, data).',
         inputSchema: {
             type: 'object',
             properties: {
@@ -133,7 +167,7 @@ export const TOOLS = [
     },
     {
         name: 'fs_mkdir',
-        description: 'Create a directory in Puter (optionally creating missing parents).',
+        description: 'Create a directory in Puter (optionally creating missing parents). Equivalent to PuterJS puter.fs.mkdir(path).',
         inputSchema: {
             type: 'object',
             properties: {
@@ -152,7 +186,7 @@ export const TOOLS = [
     },
     {
         name: 'fs_delete',
-        description: 'Delete a file or directory in Puter. Directories are removed recursively by default.',
+        description: 'Delete a file or directory in Puter. Directories are removed recursively by default. Equivalent to PuterJS puter.fs.delete(path).',
         inputSchema: {
             type: 'object',
             properties: {
@@ -171,7 +205,7 @@ export const TOOLS = [
     },
     {
         name: 'fs_readdir',
-        description: 'List the entries (files and subdirectories) of a directory in Puter.',
+        description: 'List the entries (files and subdirectories) of a directory in Puter. Equivalent to PuterJS puter.fs.readdir(path).',
         inputSchema: {
             type: 'object',
             properties: {
@@ -184,22 +218,34 @@ export const TOOLS = [
         },
     },
 
-    // ----- subdomains (puter.hosting) --------------------------------------
+    // ----- hosting / static websites (puter.hosting) -----------------------
+    // In Puter, "hosting" means publishing a static website. Each website lives
+    // at a subdomain of puter.site (e.g. "my-site" -> https://my-site.puter.site)
+    // and is backed by a directory in the user's Puter filesystem. These tools
+    // are how an agent puts files online: write the site's files with fs_write_file,
+    // then hosting_create a subdomain pointing at that directory.
     {
-        name: 'subdomains_list',
-        description: 'List all subdomains owned by the authenticated Puter user.',
+        name: 'hosting_list',
+        description:
+            'List all websites (hosting subdomains) the authenticated Puter user has published. ' +
+            'Each entry includes the subdomain (served at https://<subdomain>.puter.site) and the ' +
+            'Puter directory it is hosted from. Use this to discover existing sites before creating ' +
+            'or updating one. Equivalent to PuterJS puter.hosting.list().',
         inputSchema: { type: 'object', properties: {} },
         async handler(puter) {
             return puter.hosting.list();
         },
     },
     {
-        name: 'subdomains_get',
-        description: 'Get a single subdomain (and its root directory) by name.',
+        name: 'hosting_get',
+        description:
+            'Get a single published website (hosting subdomain) by its subdomain label, including ' +
+            'the Puter directory it serves from. The live site is reachable at ' +
+            'https://<subdomain>.puter.site. Equivalent to PuterJS puter.hosting.get(subdomain).',
         inputSchema: {
             type: 'object',
             properties: {
-                subdomain: { type: 'string', description: 'The subdomain label, e.g. "my-site".' },
+                subdomain: { type: 'string', description: 'The subdomain label, e.g. "my-site" (without the .puter.site suffix).' },
             },
             required: ['subdomain'],
         },
@@ -208,19 +254,24 @@ export const TOOLS = [
         },
     },
     {
-        name: 'subdomains_create',
+        name: 'hosting_create',
         description:
-            'Create a new subdomain. Optionally point it at a Puter directory (root_dir) to host a static site.',
+            'Publish a new static website by creating a hosting subdomain. The site goes live at ' +
+            'https://<subdomain>.puter.site. Point it at a Puter directory (root_dir) to serve that ' +
+            "directory's files (e.g. an index.html) as a website; omit root_dir to reserve the " +
+            'subdomain and attach a directory later with hosting_update. Typical flow: fs_mkdir a ' +
+            'directory, fs_write_file your index.html into it, then hosting_create with that root_dir. ' +
+            'Equivalent to PuterJS puter.hosting.create(subdomain, root_dir).',
         inputSchema: {
             type: 'object',
             properties: {
                 subdomain: {
                     type: 'string',
-                    description: 'Subdomain label (lowercase letters, digits, hyphens; max 64 chars).',
+                    description: 'Subdomain label for the site (lowercase letters, digits, hyphens; max 64 chars). The site will be served at https://<subdomain>.puter.site.',
                 },
                 root_dir: {
                     type: 'string',
-                    description: 'Optional Puter directory path the subdomain serves from.',
+                    description: 'Puter directory path whose files are served as the website (e.g. "/me/my-site"). Omit to create the subdomain without content for now.',
                 },
             },
             required: ['subdomain'],
@@ -232,15 +283,18 @@ export const TOOLS = [
         },
     },
     {
-        name: 'subdomains_update',
-        description: "Update an existing subdomain's root directory.",
+        name: 'hosting_update',
+        description:
+            'Re-point an existing website (hosting subdomain) at a different Puter directory, changing ' +
+            'which files https://<subdomain>.puter.site serves. Use this to attach content to a bare ' +
+            'subdomain or to swap the served directory. Equivalent to PuterJS puter.hosting.update(subdomain, root_dir).',
         inputSchema: {
             type: 'object',
             properties: {
-                subdomain: { type: 'string', description: 'The subdomain label to update.' },
+                subdomain: { type: 'string', description: 'The subdomain label of the site to update.' },
                 root_dir: {
                     type: 'string',
-                    description: 'New Puter directory path to serve from.',
+                    description: 'New Puter directory path to serve the website from.',
                 },
             },
             required: ['subdomain', 'root_dir'],
@@ -250,17 +304,184 @@ export const TOOLS = [
         },
     },
     {
-        name: 'subdomains_delete',
-        description: 'Delete a subdomain by name.',
+        name: 'hosting_delete',
+        description:
+            'Unpublish a website by deleting its hosting subdomain. This takes ' +
+            'https://<subdomain>.puter.site offline but does NOT delete the underlying Puter directory ' +
+            'or its files. Equivalent to PuterJS puter.hosting.delete(subdomain).',
         inputSchema: {
             type: 'object',
             properties: {
-                subdomain: { type: 'string', description: 'The subdomain label to delete.' },
+                subdomain: { type: 'string', description: 'The subdomain label of the site to unpublish.' },
             },
             required: ['subdomain'],
         },
         async handler(puter, { subdomain }) {
             return puter.hosting.delete(subdomain);
+        },
+    },
+
+    // ----- serverless workers (puter.workers) ------------------------------
+    // Puter Workers are serverless JavaScript functions deployed from a file in
+    // the user's Puter filesystem. The worker file defines handlers on the global
+    // `router` object (router.get/router.post/...) and has the full puter.js SDK
+    // available as `puter`, authenticated as the deployer (`me.puter`) or, when
+    // invoked via puter.workers.exec(), the calling user (`user.puter`). Workers
+    // are designed to be used WITH puter.js and Puter authentication, NOT as plain
+    // standalone HTTP handlers — always read the router guide (puter_docs_get
+    // "Workers/router") before writing worker code.
+    {
+        name: 'workers_create',
+        description:
+            'Deploy a serverless Puter Worker from a JavaScript file in the Puter filesystem and ' +
+            'return its public URL. The worker file MUST define handlers on the global `router` object ' +
+            '(router.get/router.post/router.put/router.delete) and may use the global puter.js SDK ' +
+            '(`puter`) for storage, KV, AI, and more — authenticated as you, the deployer. Puter Workers ' +
+            'are designed to be used WITH puter.js and Puter authentication, so BEFORE writing worker ' +
+            'code load the router guide and examples via puter_docs_get with path "Workers/router". ' +
+            'Typical flow: fs_write_file the worker code to a path (e.g. "/me/workers/api.js"), then ' +
+            'workers_create with that file_path. TO UPDATE a deployed worker, simply write the new code ' +
+            'to the SAME file with fs_write_file — there is no separate update call; the worker serves ' +
+            'the current contents of its associated file (propagation takes ~5-30s). Requires a Puter ' +
+            'account with a verified email. Equivalent to PuterJS puter.workers.create(worker_name, file_path).',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                worker_name: {
+                    type: 'string',
+                    description: 'Worker name (letters, digits, hyphens, underscores). Lowercased automatically.',
+                },
+                file_path: {
+                    type: 'string',
+                    description: 'Path to the worker JS file in Puter (e.g. "/me/workers/api.js"). The file must define handlers on the global `router` object. Max 10MB. Writing to this same path later updates the deployed worker.',
+                },
+            },
+            required: ['worker_name', 'file_path'],
+        },
+        async handler(puter, { worker_name, file_path }) {
+            return puter.workers.create(worker_name, file_path);
+        },
+    },
+    {
+        name: 'workers_list',
+        description:
+            'List all serverless Workers deployed by the authenticated Puter user, including each ' +
+            "worker's name, public URL, and the source file it is deployed from (write to that file to " +
+            'update the worker). Equivalent to PuterJS puter.workers.list().',
+        inputSchema: { type: 'object', properties: {} },
+        async handler(puter) {
+            return puter.workers.list();
+        },
+    },
+    {
+        name: 'workers_get',
+        description:
+            'Get a single deployed Worker by name, including its public URL and the source file path it ' +
+            'serves (write new code to that file with fs_write_file to update it). ' +
+            'Equivalent to PuterJS puter.workers.get(worker_name).',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                worker_name: { type: 'string', description: 'The worker name to look up.' },
+            },
+            required: ['worker_name'],
+        },
+        async handler(puter, { worker_name }) {
+            return puter.workers.get(worker_name);
+        },
+    },
+    {
+        name: 'workers_exec',
+        description:
+            'Call a deployed Puter Worker over HTTP as the authenticated user, automatically attaching ' +
+            "the Puter auth header so the worker can act on the caller's resources via `user.puter`. " +
+            'Use this to invoke or test a worker endpoint. Equivalent to PuterJS puter.workers.exec(url, options).',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                url: {
+                    type: 'string',
+                    description: 'Full worker URL including any path, e.g. "https://my-worker.puter.work/api/hello" (get the base URL from workers_get/workers_list).',
+                },
+                method: {
+                    type: 'string',
+                    enum: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS', 'HEAD'],
+                    default: 'GET',
+                },
+                headers: {
+                    type: 'object',
+                    description: 'Optional request headers.',
+                    additionalProperties: { type: 'string' },
+                },
+                body: { type: 'string', description: 'Optional request body (for POST/PUT/PATCH).' },
+            },
+            required: ['url'],
+        },
+        async handler(puter, { url, method = 'GET', headers, body }) {
+            const init = { method };
+            if (headers) init.headers = headers;
+            if (body != null && method !== 'GET' && method !== 'HEAD') init.body = body;
+            const resp = await puter.workers.exec(url, init);
+            const text = await resp.text();
+            return { _meta: { status: resp.status, content_type: resp.headers.get('content-type') }, text };
+        },
+    },
+    {
+        name: 'workers_delete',
+        description:
+            'Delete (undeploy) a Puter Worker by name, stopping its execution and releasing its URL. Does ' +
+            "NOT delete the worker's source file in the filesystem. Equivalent to PuterJS puter.workers.delete(worker_name).",
+        inputSchema: {
+            type: 'object',
+            properties: {
+                worker_name: { type: 'string', description: 'The worker name to delete.' },
+            },
+            required: ['worker_name'],
+        },
+        async handler(puter, { worker_name }) {
+            const ok = await puter.workers.delete(worker_name);
+            return { success: ok === true, deleted: worker_name };
+        },
+    },
+
+    // ----- puter.js documentation ------------------------------------------
+    {
+        name: 'puter_docs_index',
+        description:
+            'Load the index of Puter / puter.js documentation (from docs.puter.com/llms.txt): a list of ' +
+            'every topic and its doc path, spanning the whole puter.js SDK — Workers (serverless ' +
+            'functions), Hosting, FS, KV, AI (500+ models), Auth, and more. Call this FIRST to discover ' +
+            'which doc to read, then fetch the page with puter_docs_get. Puter Workers and the tools in ' +
+            'this server are designed to be used WITH puter.js and Puter authentication, so consult ' +
+            'these docs before writing any worker or SDK code.',
+        inputSchema: { type: 'object', properties: {} },
+        async handler() {
+            const text = await fetchDocText(DOCS_INDEX_URL);
+            return { _meta: { source: DOCS_INDEX_URL }, text };
+        },
+    },
+    {
+        name: 'puter_docs_get',
+        description:
+            'Fetch a specific Puter / puter.js documentation page as Markdown by the topic path listed in ' +
+            'puter_docs_index. Examples: "Workers/router" (the Worker router guide + canonical examples — ' +
+            'read this before writing a worker), "Workers/create", "AI/chat", "KV/set", "FS/write", ' +
+            '"Hosting/create". Use it to read the exact API and copy working examples before writing ' +
+            'worker or puter.js code.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                path: {
+                    type: 'string',
+                    description: 'Doc topic path from the index, e.g. "Workers/router" or "AI/chat". A trailing "/index.md" is optional. Must be a docs.puter.com topic.',
+                },
+            },
+            required: ['path'],
+        },
+        async handler(puter, { path }) {
+            const url = resolveDocUrl(path);
+            const text = await fetchDocText(url);
+            return { _meta: { source: url }, text };
         },
     },
 ];

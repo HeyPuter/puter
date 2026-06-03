@@ -2,7 +2,7 @@
 
 An [MCP](https://modelcontextprotocol.io) server that runs on Cloudflare Workers
 and lets **anyone use their own Puter auth token** to drive their Puter account's
-filesystem and subdomains from an MCP client (Claude, Cursor, etc.).
+filesystem and static website hosting from an MCP client (Claude, Cursor, etc.).
 
 The Worker stores **no credentials of its own**. Every request runs as the
 caller, authenticated either by a `Authorization: Bearer <token>` header or by an
@@ -21,14 +21,38 @@ OAuth "Sign in with Puter" flow the Worker hosts itself (see
 | `fs_delete` | Delete a file or directory (recursive by default). |
 | `fs_readdir` | List the entries of a directory. |
 
-### Subdomains
+### Hosting (static websites)
+Publishing a website in Puter means creating a hosting subdomain served at
+`https://<subdomain>.puter.site`, backed by a directory in your Puter filesystem.
+
 | Tool | Description |
 | --- | --- |
-| `subdomains_list` | List the caller's subdomains. |
-| `subdomains_get` | Get a subdomain by name. |
-| `subdomains_create` | Create a subdomain (optionally pointing at a `root_dir`). |
-| `subdomains_update` | Update a subdomain's `root_dir`. |
-| `subdomains_delete` | Delete a subdomain. |
+| `hosting_list` | List the caller's published websites (hosting subdomains). |
+| `hosting_get` | Get a website by its subdomain. |
+| `hosting_create` | Publish a website on a subdomain (optionally pointing at a `root_dir`). |
+| `hosting_update` | Re-point a website at a different `root_dir`. |
+| `hosting_delete` | Unpublish a website (deletes the subdomain, not the files). |
+
+### Workers (serverless functions)
+Puter Workers are serverless JavaScript functions deployed from a file in your
+Puter filesystem. The worker file defines handlers on the global `router` object
+and has the full puter.js SDK available as `puter` — they are designed to be used
+**with puter.js and Puter authentication**. Update a worker by writing new code to
+its associated file (there is no separate update call).
+
+| Tool | Description |
+| --- | --- |
+| `workers_create` | Deploy a worker from a JS file; returns its public URL. |
+| `workers_list` | List the caller's deployed workers. |
+| `workers_get` | Get a worker (name, URL, source file) by name. |
+| `workers_exec` | Call a worker over HTTP as the authenticated user. |
+| `workers_delete` | Undeploy a worker (leaves its source file in place). |
+
+### Documentation
+| Tool | Description |
+| --- | --- |
+| `puter_docs_index` | Load the puter.js docs index (every topic + path) from `docs.puter.com/llms.txt`. |
+| `puter_docs_get` | Fetch a specific docs page as Markdown by topic path (e.g. `Workers/router`). |
 
 ### Paths
 Tools pass paths straight to puter.js, so the usual conventions apply: absolute
@@ -203,7 +227,7 @@ curl -s $URL -H "Authorization: Bearer $TOKEN" -H 'content-type: application/jso
   "params":{"name":"fs_write_file","arguments":{"path":"~/Desktop/hello.txt","content":"hi from MCP"}}
 }'
 
-# list subdomains
+# list hosted websites
 curl -s $URL -H "Authorization: Bearer $TOKEN" -H 'content-type: application/json' \
-  -d '{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"subdomains_list","arguments":{}}}'
+  -d '{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"hosting_list","arguments":{}}}'
 ```

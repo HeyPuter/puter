@@ -3,8 +3,8 @@
   "name": "puter-mcp-connector",
   "display_name": "Puter",
   "version": "0.1.0",
-  "description": "Use your own Puter account's filesystem and subdomains over MCP.",
-  "long_description": "Connects an MCP client to a deployed Puter MCP Worker. Authenticates with your own Puter token (no shared credentials) and exposes tools to read/write/stat files, make directories, delete entries, and manage subdomains. The bundle runs a tiny local stdio<->HTTP proxy that forwards JSON-RPC to your Worker with your token attached.",
+  "description": "Use your own Puter account's filesystem, website hosting, and serverless workers over MCP.",
+  "long_description": "Connects an MCP client to a deployed Puter MCP Worker. Authenticates with your own Puter token (no shared credentials) and exposes tools to read/write/stat files, make directories, delete entries, host static websites, and deploy/run serverless Puter Workers (which are built with puter.js and Puter authentication). It also ships puter.js documentation tools so an agent can look up the exact API before writing worker or SDK code. The bundle runs a tiny local stdio<->HTTP proxy that forwards JSON-RPC to your Worker with your token attached.",
   "author": {
     "name": "Puter Technologies Inc.",
     "url": "https://puter.com"
@@ -12,7 +12,7 @@
   "homepage": "https://puter.com",
   "documentation": "https://github.com/HeyPuter/puter/tree/main/src/mcp-connector",
   "license": "AGPL-3.0-only",
-  "keywords": ["puter", "filesystem", "hosting", "subdomains", "fs"],
+  "keywords": ["puter", "filesystem", "hosting", "subdomains", "workers", "serverless", "puter.js", "fs"],
   "server": {
     "type": "node",
     "entry_point": "server/index.cjs",
@@ -33,11 +33,18 @@
     { "name": "fs_mkdir", "description": "Create a directory (optionally creating missing parents)." },
     { "name": "fs_delete", "description": "Delete a file or directory (recursive by default)." },
     { "name": "fs_readdir", "description": "List the entries of a directory." },
-    { "name": "subdomains_list", "description": "List the caller's subdomains." },
-    { "name": "subdomains_get", "description": "Get a subdomain by name." },
-    { "name": "subdomains_create", "description": "Create a subdomain (optionally pointing at a root_dir)." },
-    { "name": "subdomains_update", "description": "Update a subdomain's root directory." },
-    { "name": "subdomains_delete", "description": "Delete a subdomain." }
+    { "name": "hosting_list", "description": "List the caller's published websites (hosting subdomains, served at <subdomain>.puter.site)." },
+    { "name": "hosting_get", "description": "Get a published website by its subdomain." },
+    { "name": "hosting_create", "description": "Publish a static website on a subdomain (optionally pointing at a root_dir)." },
+    { "name": "hosting_update", "description": "Re-point a website at a different root directory." },
+    { "name": "hosting_delete", "description": "Unpublish a website (deletes the subdomain, not the files)." },
+    { "name": "workers_create", "description": "Deploy a serverless Puter Worker from a JS file (uses the global router + puter.js); returns its public URL. Update by writing to the same file." },
+    { "name": "workers_list", "description": "List the caller's deployed serverless workers." },
+    { "name": "workers_get", "description": "Get a deployed worker (name, URL, source file) by name." },
+    { "name": "workers_exec", "description": "Call a deployed worker over HTTP as the authenticated user." },
+    { "name": "workers_delete", "description": "Undeploy a worker (leaves its source file in place)." },
+    { "name": "puter_docs_index", "description": "Load the puter.js documentation index (topics + paths) from docs.puter.com/llms.txt." },
+    { "name": "puter_docs_get", "description": "Fetch a specific puter.js documentation page as Markdown by topic path (e.g. Workers/router)." }
   ],
   "user_config": {
     "server_url": {
