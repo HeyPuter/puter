@@ -166,7 +166,7 @@ The quickest way to publish a worker is to create it on [puter.com](https://pute
     <img src="https://developer.puter.com/assets/img/workers/published.webp" style="width: 100%; max-width: 600px; margin: 0 auto; display: block; border-radius: 6px;">
 </figure>
 
-### Automate with GitHub Actions
+<!-- ### Automate with GitHub Actions
 
 If your worker's code lives on GitHub, you can redeploy it automatically on every push using the [Puter Worker Deploy Action](https://github.com/HeyPuter/puter-worker-deploy-action).
 
@@ -195,4 +195,4 @@ jobs:
           puter_token: ${{ secrets.PUTER_TOKEN }}
 ```
 
-<div class="info">Store your Puter auth token as a GitHub Actions secret named <code>PUTER_TOKEN</code>. See the <a href="https://github.com/HeyPuter/puter-worker-deploy-action">action's README</a> for how to obtain a token and for the full list of options.</div>
+<div class="info">Store your Puter auth token as a GitHub Actions secret named <code>PUTER_TOKEN</code>. See the <a href="https://github.com/HeyPuter/puter-worker-deploy-action">action's README</a> for how to obtain a token and for the full list of options.</div> -->

@@ -45,7 +45,7 @@ The quickest way to publish a website is to upload it on [puter.com](https://put
     <img src="https://developer.puter.com/assets/img/free-hosting/published.webp" style="width: 100%; max-width: 600px; margin: 0 auto; display: block; border-radius: 6px;">
 </figure>
 
-### Automate with GitHub Actions
+<!-- ### Automate with GitHub Actions
 
 If your code lives on GitHub, you can redeploy your site automatically on every push using the [Puter Subdomain Deploy Action](https://github.com/HeyPuter/puter-subdomain-deploy-action).
 
@@ -75,4 +75,4 @@ jobs:
 
 <div class="info">Store your Puter auth token as a GitHub Actions secret named <code>PUTER_TOKEN</code>. See the <a href="https://github.com/HeyPuter/puter-subdomain-deploy-action">action's README</a> for how to obtain a token and for the full list of options.</div>
 
-If your project has a build step, run it before the deploy step (for example `npm ci && npm run build`) and point `source_path` at the build output.
+If your project has a build step, run it before the deploy step (for example `npm ci && npm run build`) and point `source_path` at the build output. -->
