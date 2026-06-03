@@ -1,7 +1,7 @@
 import path from '../../../lib/path.js';
 import * as utils from '../../../lib/utils.js';
-import getAbsolutePathForApp from '../utils/getAbsolutePathForApp.js';
 import { showUsageLimitDialog } from '../../../modules/UsageLimitDialog.js';
+import getAbsolutePathForApp from '../utils/getAbsolutePathForApp.js';
 
 /* eslint-disable */
 const MAX_THUMBNAIL_BYTES = 2 * 1024 * 1024;
@@ -13,6 +13,7 @@ const SIGNED_BATCH_CHUNK_PIPELINE_CONCURRENCY = 4;
 const SIGNED_BATCH_FILE_UPLOAD_CONCURRENCY = 8;
 const SIGNED_MULTIPART_PART_UPLOAD_CONCURRENCY = 8;
 const SIGNED_BATCH_WRITE_UNAVAILABLE_STATUSES = new Set([404, 405, 501]);
+const SIGNED_BATCH_SUPPORTED_ENVS = ['web', 'gui', 'app'];
 
 const isLikelyImageFile = (file) => {
     if ( ! file ) return false;
@@ -605,6 +606,7 @@ const upload = async function (items, dirPath, options = {}) {
 
 
         const shouldAttemptSignedBatchWrite = (
+            SIGNED_BATCH_SUPPORTED_ENVS.includes(puter.env) && 
             !options.shortcutTo &&
             (files.length > 0 || signedDirectories.length > 0) &&
             signedBatchWriteAllowed
