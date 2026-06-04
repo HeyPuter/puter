@@ -2789,7 +2789,6 @@ export class AuthController extends PuterController {
         router.post(
             '/auth/migrate-token',
             {
-                subdomain: 'api',
                 rateLimit: {
                     scope: 'migrate-token',
                     limit: 20,
