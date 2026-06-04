@@ -897,18 +897,26 @@ export class MeteringService extends PuterService {
         // No metered allowance to exceed (e.g. unlimited policies) — nothing to flag.
         if (!(allowance > 0)) return;
 
-        // Only alarm if the actor was ALREADY at or past their allowance before
-        // this expense arrived. A single large request that crosses the limit in
-        // one shot (previous usage still under the allowance) is legitimate and
-        // shouldn't page — we only flag sustained overuse, i.e. the next expense
-        // that lands while they're already over.
         const previousUsage = actorUsages.total - incrementCost;
+        const allowedMultiple = Math.floor(actorUsages.total / allowance);
+        const previousMultiple = Math.floor(previousUsage / allowance);
+
+        // Only alarm if the actor was ALREADY at or past their allowance before
+        // this expense arrived. A single large request that jumps past the limit
+        // in one shot (previous usage still under the allowance) is legitimate
+        // and shouldn't page.
         const wasAlreadyOverLimit = previousUsage >= allowance;
+        // And only when this expense crosses into a new whole multiple of the
+        // allowance (2x, 3x, …) rather than on every expense once over — that
+        // first-over multiple is 2x, since being already over means the previous
+        // multiple was at least 1.
+        const crossedMultiple = previousMultiple < allowedMultiple;
         const hasNoAddonCredit =
             (actorAddons.purchasedCredits || 0) <=
             (actorAddons.consumedPurchaseCredits || 0);
 
-        if (!(wasAlreadyOverLimit && hasNoAddonCredit)) return;
+        if (!(wasAlreadyOverLimit && crossedMultiple && hasNoAddonCredit))
+            return;
 
         this.clients.alarm.create(
             `metering usage exceeded by user: ${actor.user?.username}`,

@@ -21,13 +21,16 @@ Out-of-scope:
 
 The following have already been reviewed and determined **not to be vulnerabilities**. Reports that only re-describe one of these are **not eligible for a reward** and will be closed as non-issues — even if they include new code references. Please review this list before submitting:
 
-* **XSS / CORS / token issues scoped to `api.puter.com`.** The API origin holds no sensitive session cookies; the user session lives on `puter.com`.
+* **XSS / CORS / token issues scoped to `api.puter.com`.** The primary user session cookie lives on `puter.com`, not on the API origin, so reflected/stored XSS, CORS, or token handling on `api.puter.com` is generally out of scope. Two exceptions we *do* evaluate on their merits — please report these: (a) attacker-controlled content served **inline** (e.g. an HTML `Content-Type`) from API file/response endpoints, and (b) anything that abuses the app-scoped `puter_token_v2` companion cookie set on the API host.
 * **SSRF via `secureFetch`.** Production routes outbound requests through an isolated proxy that has no access to internal/SSRF-sensitive resources.
 * **Attacks that depend on guessing an `appInstanceID` or app UID.** These are random 128-bit secret values and are not considered guessable.
 * **Apps invoking drivers, creating workers, or using KV.** Applications are intended to do this; worker permissions are scoped to the owning app. This is by design.
 * **App metadata or app user-count "leaks".** This information is currently public by design.
 * **General "token in a URL" / token-lifetime designs** — signed directory URLs exposing children, a write signature implying read, or app tokens outliving a web session. These are current intended behaviors.
-* **Missing PKCE or other OIDC hardening** where the provider's token is already verified over TLS. Please open a GitHub issue/PR for hardening suggestions.
+* **Missing PKCE, unverified `id_token` signatures, or other OIDC hardening.** Provider tokens are obtained through a server-to-server authorization-code exchange with the provider's token endpoint over TLS, so the resulting `id_token` / userinfo claims are trusted from that channel rather than from local JWKS signature verification — the callback never accepts a caller-supplied `id_token`. Adding local signature / `aud` / `iss` / `exp` checks is welcome defense-in-depth (please open a GitHub issue/PR), but their absence is not an account-takeover vector on its own.
+* **JWT "algorithm confusion" / unpinned `algorithms` in `jwt.verify`.** Puter's session tokens are HMAC-signed (HS256) with a server-side secret, and there is no asymmetric public key anywhere in the verification path, so `alg`-substitution attacks do not apply. Explicitly pinning `algorithms` is a fine hardening PR, but it is not a vulnerability.
+* **Static-source "SQL injection" in internal pagination.** Findings such as `LIMIT ${limit}` in list/notification queries: the limit is numerically coerced and clamped before it reaches the query, so it is not reachable with attacker-controlled string input. Hardening PRs to the internal stores are welcome, but these are not exploitable as reported.
+* **Deprecated `saveTo*` GUI app messages.** The legacy `saveToDesktop` / `saveToDocuments` / etc. app-IPC handlers can create — never overwrite — new files in standard user folders. The behavior is non-destructive, path-traversal-safe, and deprecated (slated for removal); it is not treated as a sandbox escape.
 * **Best-practice suggestions** such as login/registration username enumeration (kept intentionally for UX) or unauthenticated unsubscribe links (industry norm).
 * **Rate-limiting suggestions for TURN credential issuance** (intentional; not billed per tunnel).
 
