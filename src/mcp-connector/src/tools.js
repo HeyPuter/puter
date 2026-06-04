@@ -468,6 +468,201 @@ export const TOOLS = [
         },
     },
 
+    // ----- apps (puter.apps) -----------------------------------------------
+    // A Puter "app" is a registered application in the user's account: it shows
+    // up in their Puter app list, can be launched in the Puter desktop UI, and
+    // (once approved) listed in the app marketplace. The core of an app is its
+    // `index_url` — the URL Puter loads when the app runs. That URL is usually a
+    // static site published with hosting_create (https://<subdomain>.puter.site)
+    // or a serverless worker, but can be any allowed https URL. Typical flow:
+    // fs_write_file the app's files -> hosting_create to publish them and get a
+    // URL -> apps_create with index_url set to that URL so it becomes a
+    // launchable Puter app. These tools manage only apps the user owns/can edit.
+    {
+        name: 'apps_list',
+        description:
+            'List the Puter apps the authenticated user owns / can edit. Each entry includes the app ' +
+            'name, title, uid, index_url (the URL the app loads), icon, filetype associations, and ' +
+            'aggregate usage stats (open_count, user_count). Use this to discover existing apps before ' +
+            'creating or updating one. Equivalent to PuterJS puter.apps.list().',
+        inputSchema: { type: 'object', properties: {} },
+        async handler(puter) {
+            return puter.apps.list();
+        },
+    },
+    {
+        name: 'apps_get',
+        description:
+            'Get a single Puter app the user owns / can edit, by its app name, including its title, uid, ' +
+            'index_url, icon, and usage stats. Pass stats_period for detailed open/user counts over a ' +
+            'specific window. Equivalent to PuterJS puter.apps.get(name).',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                name: { type: 'string', description: 'The app name (the unique slug, not the display title).' },
+                stats_period: {
+                    type: 'string',
+                    enum: ['today', 'yesterday', '7d', '30d', 'this_week', 'last_week', 'this_month', 'last_month', 'this_year', 'last_year', '12m', 'all'],
+                    description: 'Optional time window for detailed usage stats. Omit for default aggregate stats.',
+                },
+            },
+            required: ['name'],
+        },
+        async handler(puter, { name, stats_period }) {
+            const params = {};
+            if (stats_period != null) params.stats_period = stats_period;
+            return puter.apps.get(name, params);
+        },
+    },
+    {
+        name: 'apps_create',
+        description:
+            'Register a new Puter app so it appears in the user\'s app list and can be launched in Puter. ' +
+            'You MUST provide a unique name and an index_url (the URL Puter loads when the app runs). ' +
+            'The index_url is typically a static site you published with hosting_create ' +
+            '(https://<subdomain>.puter.site) or a serverless worker URL, but can be any allowed https URL. ' +
+            'Typical flow: fs_write_file the app files -> hosting_create to publish them -> apps_create with ' +
+            'index_url set to the resulting URL. Equivalent to PuterJS puter.apps.create(spec).',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                name: {
+                    type: 'string',
+                    description: 'Unique app name / slug (letters, digits, hyphens, underscores; max 100 chars). Used to identify the app.',
+                },
+                index_url: {
+                    type: 'string',
+                    description: 'The https URL Puter loads when the app runs (e.g. "https://my-site.puter.site"). Get one by publishing a site with hosting_create or deploying a worker.',
+                },
+                title: { type: 'string', description: 'Human-friendly display title (max 100 chars). Defaults to name if omitted.' },
+                description: { type: 'string', description: 'Longer description of the app (max 7000 chars).' },
+                icon: {
+                    type: 'string',
+                    description: 'App icon as a base64 image string or a data:image/<type>;base64,... URL. Arbitrary http(s) icon URLs are NOT accepted.',
+                },
+                maximize_on_start: { type: 'boolean', description: 'Open the app maximized when launched.' },
+                background: { type: 'boolean', description: 'Run the app in the background (no visible window).' },
+                filetype_associations: {
+                    type: 'array',
+                    items: { type: 'string' },
+                    description: 'File extensions or MIME types this app can open (e.g. [".txt", ".md", "image/png"]).',
+                },
+                metadata: {
+                    type: 'object',
+                    description: 'Arbitrary developer metadata stored with the app.',
+                    additionalProperties: true,
+                },
+                dedupe_name: {
+                    type: 'boolean',
+                    default: false,
+                    description: 'If an app with this name exists, auto-rename the new app instead of failing.',
+                },
+            },
+            required: ['name', 'index_url'],
+        },
+        async handler(puter, {
+            name, index_url, title, description, icon,
+            maximize_on_start, background, filetype_associations, metadata, dedupe_name,
+        }) {
+            return puter.apps.create({
+                name,
+                indexURL: index_url,
+                title,
+                description,
+                icon,
+                maximizeOnStart: maximize_on_start,
+                background,
+                filetypeAssociations: filetype_associations,
+                metadata,
+                dedupeName: dedupe_name,
+            });
+        },
+    },
+    {
+        name: 'apps_update',
+        description:
+            'Update an existing Puter app, found by its current name. Only the fields you pass are changed; ' +
+            'omitted fields keep their current values. Pass new_name to rename the app. Equivalent to ' +
+            'PuterJS puter.apps.update(name, spec).',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                name: { type: 'string', description: 'The current name of the app to update.' },
+                new_name: { type: 'string', description: 'New name / slug to rename the app to (letters, digits, hyphens, underscores; max 100 chars).' },
+                index_url: { type: 'string', description: 'New https URL the app loads (e.g. a hosting_create or worker URL).' },
+                title: { type: 'string', description: 'New display title (max 100 chars).' },
+                description: { type: 'string', description: 'New description (max 7000 chars).' },
+                icon: {
+                    type: 'string',
+                    description: 'New icon: base64 image string or data:image/<type>;base64,... URL. Arbitrary http(s) URLs are NOT accepted.',
+                },
+                maximize_on_start: { type: 'boolean', description: 'Open the app maximized when launched.' },
+                background: { type: 'boolean', description: 'Run the app in the background (no visible window).' },
+                filetype_associations: {
+                    type: 'array',
+                    items: { type: 'string' },
+                    description: 'File extensions or MIME types this app can open.',
+                },
+                metadata: {
+                    type: 'object',
+                    description: 'Arbitrary developer metadata to store with the app.',
+                    additionalProperties: true,
+                },
+            },
+            required: ['name'],
+        },
+        async handler(puter, {
+            name, new_name, index_url, title, description, icon,
+            maximize_on_start, background, filetype_associations, metadata,
+        }) {
+            return puter.apps.update(name, {
+                name: new_name,
+                indexURL: index_url,
+                title,
+                description,
+                icon,
+                maximizeOnStart: maximize_on_start,
+                background,
+                filetypeAssociations: filetype_associations,
+                metadata,
+            });
+        },
+    },
+    {
+        name: 'apps_delete',
+        description:
+            'Delete a Puter app by name, removing it from the user\'s app list. This unregisters the app ' +
+            'but does NOT delete the website/worker its index_url points to. Equivalent to ' +
+            'PuterJS puter.apps.delete(name).',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                name: { type: 'string', description: 'The name of the app to delete.' },
+            },
+            required: ['name'],
+        },
+        async handler(puter, { name }) {
+            const result = await puter.apps.delete(name);
+            return { success: true, deleted: name, result };
+        },
+    },
+    {
+        name: 'apps_check_name',
+        description:
+            'Check whether a Puter app name is available (not already taken) before creating an app with it. ' +
+            'Equivalent to PuterJS puter.apps.checkName(name).',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                name: { type: 'string', description: 'The candidate app name to check.' },
+            },
+            required: ['name'],
+        },
+        async handler(puter, { name }) {
+            return puter.apps.checkName(name);
+        },
+    },
+
     // ----- puter.js documentation ------------------------------------------
     {
         name: 'puter_docs_index',

@@ -70,7 +70,8 @@ async function handleMessage(msg, userPuter) {
                         'Puter MCP server. Authenticate with your own Puter token via the ' +
                         'Authorization: Bearer <token> header. Provides filesystem tools (fs_*), ' +
                         'static website hosting tools (hosting_*, served at <subdomain>.puter.site), ' +
-                        'serverless worker tools (workers_*), and puter.js documentation tools ' +
+                        'serverless worker tools (workers_*), app registration tools (apps_*, register a ' +
+                        'launchable Puter app pointing at a URL), and puter.js documentation tools ' +
                         '(puter_docs_*). Puter Workers are built WITH puter.js and Puter authentication: ' +
                         'before writing worker code, call puter_docs_get with path "Workers/router".',
                 });
@@ -197,7 +198,7 @@ function mcpInfo() {
     return {
         name: 'puter-mcp',
         description:
-            'MCP server for Puter filesystem, static website hosting, and serverless worker operations. POST JSON-RPC to ' +
+            'MCP server for Puter filesystem, static website hosting, serverless worker, and app registration operations. POST JSON-RPC to ' +
             'this endpoint with your Puter token in the Authorization: Bearer <token> header.',
         transport: 'streamable-http',
         tools: listTools().map((t) => t.name),
