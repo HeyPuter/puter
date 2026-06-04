@@ -37,6 +37,7 @@ import type { EventClient } from '../../clients/event/EventClient.js';
 import type { Actor } from '../../core/actor.js';
 import { runWithContext } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
+import { requireUserActorGate } from '../../core/http/middleware/gates.js';
 import { PuterServer } from '../../server.js';
 import { setupTestServer } from '../../testUtil.js';
 
@@ -791,6 +792,65 @@ describe('AuthController.handleLogout', () => {
         );
         expect(res.clearedCookies).toContain('puter_auth_token');
         expect(res.sent).toBe('logged out');
+    });
+});
+
+describe('AuthController account-lifecycle route gating', () => {
+    const routeOptions = (method: string, path: string) => {
+        const proto = Object.getPrototypeOf(controller) as {
+            __puterRoutes?: Array<{
+                method: string;
+                path: string;
+                options?: Record<string, unknown>;
+            }>;
+        };
+        const route = (proto.__puterRoutes ?? []).find(
+            (r) =>
+                r.method.toLowerCase() === method.toLowerCase() &&
+                r.path === path,
+        );
+        expect(route, `route ${method} ${path} not found`).toBeDefined();
+        return route!.options ?? {};
+    };
+
+    it('POST /logout requires a human user actor', () => {
+        const opts = routeOptions('post', '/logout');
+        expect(opts.requireUserActor).toBe(true);
+        expect(opts.antiCsrf).toBe(true);
+    });
+
+    it('GET /get-anticsrf-token requires a human user actor', () => {
+        const opts = routeOptions('get', '/get-anticsrf-token');
+        expect(opts.requireUserActor).toBe(true);
+    });
+
+    it('requireUserActorGate rejects app-under-user and access-token actors', () => {
+        const gate = requireUserActorGate();
+        const run = (actor: Partial<Actor>) =>
+            new Promise<unknown>((resolve) => {
+                gate(
+                    { actor } as never,
+                    {} as never,
+                    (err?: unknown) => resolve(err),
+                );
+            });
+
+        return (async () => {
+            const appActor = await run({
+                user: { uuid: 'u1' },
+                app: { uid: 'app-1' },
+            } as Partial<Actor>);
+            expect(appActor).toMatchObject({ statusCode: 403 });
+
+            const tokenActor = await run({
+                user: { uuid: 'u1' },
+                accessToken: { uid: 'tok-1' },
+            } as Partial<Actor>);
+            expect(tokenActor).toMatchObject({ statusCode: 403 });
+
+            const human = await run({ user: { uuid: 'u1' } } as Partial<Actor>);
+            expect(human).toBeUndefined();
+        })();
     });
 });
 

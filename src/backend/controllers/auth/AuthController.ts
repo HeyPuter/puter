@@ -764,7 +764,7 @@ export class AuthController extends PuterController {
     // -- Logout ------------------------------------------------------
 
     @Post('/logout', {
-        requireAuth: true,
+        requireUserActor: true,
         allowUnconfirmed: true,
         antiCsrf: true,
     })
@@ -1634,7 +1634,9 @@ export class AuthController extends PuterController {
     // -- Anti-CSRF token generation ----------------------------------
 
     @Get('/get-anticsrf-token', {
-        requireAuth: true,
+        // Anti-CSRF tokens are only consumed by `requireUserActor` routes,
+        // so issuance is scoped to the same actor kind for consistency.
+        requireUserActor: true,
         allowUnconfirmed: true,
     })
     async handleGetAntiCsrfToken(req: Request, res: Response): Promise<void> {

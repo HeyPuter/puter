@@ -1010,6 +1010,76 @@ describe('LegacyFSController.sign', () => {
             ),
         ).rejects.toMatchObject({ statusCode: 404 });
     });
+
+    it('refuses an app actor signing for a different app (403)', async () => {
+        // An app-under-user actor may only mint a token for its own app;
+        // requesting a different app's UID is rejected.
+        const { actor: userActor } = await makeUser();
+        const targetApp = await (
+            server.stores.app.create as unknown as (
+                fields: Record<string, unknown>,
+                opts: { ownerUserId: number },
+            ) => Promise<{ uid: string; id: number }>
+        )(
+            {
+                name: `victim-${uuidv4()}`,
+                title: 'Victim app',
+                index_url: 'https://example.test/victim.html',
+            },
+            { ownerUserId: userActor.user!.id! },
+        );
+        const attackerActor: Actor = {
+            ...userActor,
+            app: { uid: `attacker-${uuidv4()}` },
+        };
+
+        const { res } = makeRes();
+        await expect(
+            withActor(attackerActor, () =>
+                controller.sign(
+                    makeReq({
+                        body: {
+                            items: [{}],
+                            app_uid: targetApp.uid,
+                        },
+                        actor: attackerActor,
+                    }),
+                    res,
+                ),
+            ),
+        ).rejects.toMatchObject({ statusCode: 403, legacyCode: 'forbidden' });
+    });
+
+    it('lets an app actor sign for its own app', async () => {
+        const { actor: userActor } = await makeUser();
+        const ownApp = await (
+            server.stores.app.create as unknown as (
+                fields: Record<string, unknown>,
+                opts: { ownerUserId: number },
+            ) => Promise<{ uid: string; id: number }>
+        )(
+            {
+                name: `self-${uuidv4()}`,
+                title: 'Self app',
+                index_url: 'https://example.test/self.html',
+            },
+            { ownerUserId: userActor.user!.id! },
+        );
+        const appActor: Actor = { ...userActor, app: { uid: ownApp.uid } };
+
+        const { res, captured } = makeRes();
+        await withActor(appActor, () =>
+            controller.sign(
+                makeReq({
+                    body: { items: [{}], app_uid: ownApp.uid },
+                    actor: appActor,
+                }),
+                res,
+            ),
+        );
+        const body = captured.body as { token?: string };
+        expect(typeof body.token).toBe('string');
+    });
 });
 
 // ── writeFile (validation paths) ────────────────────────────────────

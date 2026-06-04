@@ -1182,6 +1182,24 @@ describe('AuthService (integration)', () => {
             ).rejects.toMatchObject({ statusCode: 400 });
         });
 
+        it('createWorkerAppToken refuses an app actor targeting a different app (403)', async () => {
+            const user = await makeUser();
+            const actor = {
+                user: { id: user.id, uuid: user.uuid, username: user.username },
+                app: { uid: `app-${uuidv4()}` },
+            } as Actor;
+            await expect(
+                authService.createWorkerAppToken(
+                    actor,
+                    `app-${uuidv4()}`,
+                    'wk-x',
+                ),
+            ).rejects.toMatchObject({
+                statusCode: 403,
+                legacyCode: 'forbidden',
+            });
+        });
+
         // ── Revocation flow ────────────────────────────────────────
 
         it('revokeSession on a worker session — authenticate returns reauth.session_revoked', async () => {
@@ -1361,6 +1379,67 @@ describe('AuthService (integration)', () => {
             // Idempotent per (user_id, app_uid) — both tokens reference the
             // same app session row.
             expect(decodedFirst.session_uid).toBe(decodedSecond.session_uid);
+        });
+
+        // Delegation scope: a scoped actor (app-under-user or access-token)
+        // may only mint a token for its own app; only a root user session
+        // may request a token for an arbitrary app.
+        it('lets an app actor mint a token for its own app', async () => {
+            const user = await makeUser();
+            const ownApp = `app-${uuidv4()}`;
+            const actor = {
+                user: { id: user.id, uuid: user.uuid, username: user.username },
+                app: { uid: ownApp },
+            } as Actor;
+            const token = await authService.getUserAppToken(actor, ownApp);
+            const decoded = server.services.token.verify('auth', token) as {
+                app_uid: string;
+            };
+            expect(decoded.app_uid).toBe(ownApp);
+        });
+
+        it('refuses an app actor minting a token for a different app (403)', async () => {
+            const user = await makeUser();
+            const actor = {
+                user: { id: user.id, uuid: user.uuid, username: user.username },
+                app: { uid: `app-${uuidv4()}` },
+            } as Actor;
+            await expect(
+                authService.getUserAppToken(actor, `app-${uuidv4()}`),
+            ).rejects.toMatchObject({
+                statusCode: 403,
+                legacyCode: 'forbidden',
+            });
+        });
+
+        it('refuses an access-token actor minting an app token (403)', async () => {
+            const user = await makeUser();
+            const issuer = {
+                user: { id: user.id, uuid: user.uuid, username: user.username },
+            } as Actor;
+            const actor = {
+                user: { id: user.id, uuid: user.uuid, username: user.username },
+                accessToken: { uid: `tok-${uuidv4()}`, issuer, authorized: null },
+            } as Actor;
+            await expect(
+                authService.getUserAppToken(actor, `app-${uuidv4()}`),
+            ).rejects.toMatchObject({
+                statusCode: 403,
+                legacyCode: 'forbidden',
+            });
+        });
+
+        it('lets a root user session mint a token for any app', async () => {
+            const user = await makeUser();
+            const actor = {
+                user: { id: user.id, uuid: user.uuid, username: user.username },
+            } as Actor;
+            const anyApp = `app-${uuidv4()}`;
+            const token = await authService.getUserAppToken(actor, anyApp);
+            const decoded = server.services.token.verify('auth', token) as {
+                app_uid: string;
+            };
+            expect(decoded.app_uid).toBe(anyApp);
         });
     });
 
