@@ -20,6 +20,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { PuterStore } from '../types';
 import { HttpError } from '../../core/http/HttpError.js';
+import { validateUrl } from '../../util/validation.js';
 
 /**
  * Persistence + cache for the `apps` table.
@@ -375,6 +376,13 @@ export class AppStore extends PuterStore {
      * `#isOriginBootstrapApp` checks.
      */
     async createFromOrigin(uid, origin) {
+        // Bootstrap apps persist `origin` straight into `index_url`, which is
+        // later loaded as `iframe.src`. Enforce the same http(s) scheme
+        // allow-list as the AppDriver create/update path so a caller-supplied
+        // `javascript:`/`data:`/`file:` origin can never become a stored,
+        // launchable code-execution vector.
+        validateUrl(origin, { key: 'origin' });
+
         const fields = {
             name: uid,
             title: uid,

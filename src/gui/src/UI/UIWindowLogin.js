@@ -356,7 +356,7 @@ async function UIWindowLogin (options) {
             },
             onAppend: function (this_window) {
                 if ( options.authError ) {
-                    $(this_window).find('.login-error-msg').html(options.authError).fadeIn();
+                    $(this_window).find('.login-error-msg').html(html_encode(options.authError)).fadeIn();
                 }
                 if ( ! window.disable_login_autofocus )
                 {

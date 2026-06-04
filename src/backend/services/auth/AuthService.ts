@@ -1633,6 +1633,16 @@ export class AuthService extends PuterService {
     #originFromUrl(url: string): string | null {
         try {
             const parsed = new URL(url);
+            // A real web origin is always http(s). `new URL()` happily parses
+            // `javascript:`, `data:`, `file:`, `vbscript:`, etc.; if one of
+            // those slips through it ends up persisted as an app `index_url`
+            // (see AppStore.createFromOrigin) and later loaded as `iframe.src`
+            // — an XSS/code-execution primitive. Reject anything that isn't
+            // http(s) so the bootstrap path matches AppDriver's validateUrl
+            // allow-list.
+            if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+                return null;
+            }
             return `${parsed.protocol}//${parsed.hostname}${parsed.port ? `:${parsed.port}` : ''}`;
         } catch {
             return null;
