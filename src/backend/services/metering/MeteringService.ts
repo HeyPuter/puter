@@ -184,7 +184,7 @@ export class MeteringService extends PuterService {
                 PERIOD_ESCAPE,
             );
             const appId = actor.app?.uid || GLOBAL_APP_KEY;
-            const userId = actor.user.uuid;
+            const userId = actor.user.uuid!;
             const pathAndAmountMap = {
                 total: totalCost,
                 [`${escapedUsageType}.units`]: usageAmount,
@@ -360,7 +360,7 @@ export class MeteringService extends PuterService {
             }
 
             const appId = actor.app?.uid || GLOBAL_APP_KEY;
-            const userId = actor.user.uuid;
+            const userId = actor.user.uuid!;
 
             const actorUsageKey = `${METRICS_PREFIX}:actor:${userId}:${currentMonth}`;
             const actorUsagesPromise = this.stores.kv
@@ -933,6 +933,8 @@ export class MeteringService extends PuterService {
                 totalUsage: actorUsages.total,
                 monthUsageAllowance: actorSubscription.monthUsageAllowance,
             },
+            // Expected-but-worth-tracking signal — record/de-dupe it but don't page on-call.
+            'warning',
         );
     }
 
