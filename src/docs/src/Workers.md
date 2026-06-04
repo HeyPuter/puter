@@ -142,29 +142,32 @@ You can see various Puter.js workers management features in action from the foll
 
 ## Deployment
 
-Once your worker is ready, you can put it online on a free `*.puter.work` subdomain. You can publish it manually in a few clicks, or automatically from your GitHub repository.
+Once your worker is ready, you can put it online on a free `*.puter.work` subdomain.
 
 ### Publish from puter.com
 
 The quickest way to publish a worker is to create it on [puter.com](https://puter.com) and publish it.
 
-1. Create a `.js` file containing your worker code.
-
-<figure style="margin: 30px 0;">
-    <img src="https://developer.puter.com/assets/img/workers/code.webp" style="width: 100%; max-width: 600px; margin: 0 auto; display: block; border-radius: 6px;">
-</figure>
-
-2. Right-click the file and choose **Publish as Worker**.
-
-<figure style="margin: 30px 0;">
-    <img src="https://developer.puter.com/assets/img/workers/publish-workers.webp" style="width: 100%; max-width: 600px; margin: 0 auto; display: block; border-radius: 6px;">
-</figure>
-
-3. Pick a name and click **Publish**. Your worker is live at `https://your-worker.puter.work`.
-
-<figure style="margin: 30px 0;">
-    <img src="https://developer.puter.com/assets/img/workers/published.webp" style="width: 100%; max-width: 600px; margin: 0 auto; display: block; border-radius: 6px;">
-</figure>
+<ol>
+    <li>
+        Create a <code>.js</code> file containing your worker code.
+        <figure style="margin: 30px 0;">
+            <img src="https://developer.puter.com/assets/img/workers/code.webp" style="width: 100%; max-width: 600px; margin: 0 auto; display: block; border-radius: 6px;">
+        </figure>
+    </li>
+    <li>
+        Right-click the file and choose <strong>Publish as Worker</strong>.
+        <figure style="margin: 30px 0;">
+            <img src="https://developer.puter.com/assets/img/workers/publish-workers.webp" style="width: 100%; max-width: 600px; margin: 0 auto; display: block; border-radius: 6px;">
+        </figure>
+    </li>
+    <li>
+        Pick a name and click <strong>Publish</strong>. Your worker is live at <code>https://your-worker.puter.work</code>.
+        <figure style="margin: 30px 0;">
+            <img src="https://developer.puter.com/assets/img/workers/published.webp" style="width: 100%; max-width: 600px; margin: 0 auto; display: block; border-radius: 6px;">
+        </figure>
+    </li>
+</ol>
 
 <!-- ### Automate with GitHub Actions
 
