@@ -138,7 +138,7 @@ function UIWindowSignup (options) {
             center: true,
             onAppend: function (el_window) {
                 if ( options.authError ) {
-                    $(el_window).find('.signup-error-msg').html(options.authError).fadeIn();
+                    $(el_window).find('.signup-error-msg').html(html_encode(options.authError)).fadeIn();
                 }
                 if ( ! window.disable_signup_autofocus )
                 {

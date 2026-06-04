@@ -1299,6 +1299,20 @@ describe('AuthService (integration)', () => {
             expect(a).toBe(b);
             expect(a).toMatch(/^app-/);
         });
+
+        it.each([
+            'javascript:alert(document.domain)',
+            'data:text/html,<script>alert(1)</script>',
+            'file:///etc/passwd',
+            'vbscript:msgbox(1)',
+        ])('throws 400 for non-http(s) scheme %s', async (origin) => {
+            // These parse fine via `new URL()` but must never become a
+            // bootstrap app `index_url` — that would be a stored XSS /
+            // code-execution vector when launched as `iframe.src`.
+            await expect(
+                authService.appUidFromOrigin(origin),
+            ).rejects.toMatchObject({ statusCode: 400 });
+        });
     });
 
     describe('getUserAppToken', () => {
