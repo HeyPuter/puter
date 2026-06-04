@@ -395,6 +395,8 @@ describe('MeteringService', () => {
                 expect.stringContaining('usage exceeded'),
                 expect.stringContaining('exceeded their usage allowance'),
                 expect.objectContaining({ totalUsage: expect.any(Number) }),
+                // Non-paging severity — records and de-dupes but doesn't page on-call.
+                'warning',
             );
             alarmSpy.mockRestore();
         });
