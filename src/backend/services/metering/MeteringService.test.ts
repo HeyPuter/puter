@@ -337,7 +337,7 @@ describe('MeteringService', () => {
             const alarmSpy = vi.spyOn(server.clients.alarm, 'create');
 
             // Previous usage was 0 (under the allowance) — one big request that
-            // blows past the limit is legitimate and shouldn't page.
+            // blows straight past several multiples is legitimate, not abuse.
             await target.incrementUsage(
                 bigActor,
                 'ai:chat',
@@ -349,11 +349,11 @@ describe('MeteringService', () => {
             alarmSpy.mockRestore();
         });
 
-        it('alarms on the next expense once already at or past the limit', async () => {
+        it('does not alarm on further usage past the limit until the next multiple is crossed', async () => {
             const overActor: Actor = { user: makeUser() };
             const sub = await target.getActorSubscription(overActor);
 
-            // First expense takes them exactly to the limit — no alarm yet.
+            // Take them just over the allowance (into the 1x–2x band).
             await target.incrementUsage(
                 overActor,
                 'ai:chat',
@@ -361,10 +361,35 @@ describe('MeteringService', () => {
                 sub.monthUsageAllowance,
             );
 
-            // Spy only on the *second* expense, which lands while already at
-            // the limit — this is the one that should flag.
+            // A small further expense stays within the same band — no new
+            // multiple crossed, so it shouldn't page.
             const alarmSpy = vi.spyOn(server.clients.alarm, 'create');
             await target.incrementUsage(overActor, 'ai:chat', 1, 1_000);
+
+            expect(wasOveruseAlarmed(alarmSpy)).toBe(false);
+            alarmSpy.mockRestore();
+        });
+
+        it('alarms when a whole multiple of the allowance is crossed while already over', async () => {
+            const overActor: Actor = { user: makeUser() };
+            const sub = await target.getActorSubscription(overActor);
+
+            // First expense takes them to the limit (1x) — no alarm yet.
+            await target.incrementUsage(
+                overActor,
+                'ai:chat',
+                1,
+                sub.monthUsageAllowance,
+            );
+
+            // Spy only on the expense that crosses into 2x while already over.
+            const alarmSpy = vi.spyOn(server.clients.alarm, 'create');
+            await target.incrementUsage(
+                overActor,
+                'ai:chat',
+                1,
+                sub.monthUsageAllowance,
+            );
 
             expect(alarmSpy).toHaveBeenCalledWith(
                 expect.stringContaining('usage exceeded'),
@@ -377,8 +402,12 @@ describe('MeteringService', () => {
         it('does not alarm while purchased credits still cover the overage', async () => {
             const creditActor: Actor = { user: makeUser() };
             const sub = await target.getActorSubscription(creditActor);
-            await target.updateAddonCredit(creditActor.user.uuid, 5_000_000);
+            await target.updateAddonCredit(
+                creditActor.user.uuid,
+                5_000_000_000,
+            );
 
+            // Cross to 2x — would page if not for the credits covering it.
             await target.incrementUsage(
                 creditActor,
                 'ai:chat',
@@ -387,7 +416,12 @@ describe('MeteringService', () => {
             );
 
             const alarmSpy = vi.spyOn(server.clients.alarm, 'create');
-            await target.incrementUsage(creditActor, 'ai:chat', 1, 1_000);
+            await target.incrementUsage(
+                creditActor,
+                'ai:chat',
+                1,
+                sub.monthUsageAllowance,
+            );
 
             expect(wasOveruseAlarmed(alarmSpy)).toBe(false);
             alarmSpy.mockRestore();
