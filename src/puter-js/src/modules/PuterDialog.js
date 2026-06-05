@@ -440,6 +440,16 @@ class PuterDialog extends (globalThis.HTMLElement || Object) { // It will fall b
 
         // Event listener for the 'message' event
         this.messageListener = async (event) => {
+            // Only accept the token from the Puter GUI origin AND from the
+            // popup we opened. Origin alone is insufficient (any frame on the
+            // GUI domain could post), so also pin event.source. Mirrors the
+            // validated handler in index.js.
+            if ( event.origin !== puter.defaultGUIOrigin ) {
+                return;
+            }
+            if ( this.authPopup && event.source !== this.authPopup ) {
+                return;
+            }
             if ( event.data.msg === 'puter.token' ) {
                 this.close();
                 // Set the authToken property
@@ -519,6 +529,8 @@ class PuterDialog extends (globalThis.HTMLElement || Object) { // It will fall b
         // safe from being popup-blocked because it happens inside a click.
         this.shadowRoot.querySelector('#launch-auth-popup')?.addEventListener('click', () => {
             const popup = openAuthPopup(this.#popupURL());
+            // Pinned as the expected event.source in messageListener.
+            this.authPopup = popup;
 
             // Launcher mode: hand the popup back to the caller and close the
             // consent dialog — its only job was to provide the user gesture.
@@ -544,6 +556,8 @@ class PuterDialog extends (globalThis.HTMLElement || Object) { // It will fall b
     open () {
         if ( hasUserActivation() ) {
             const popup = openAuthPopup(this.#popupURL());
+            // Pinned as the expected event.source in messageListener.
+            this.authPopup = popup;
             if ( this.options.popupURL && typeof this.options.onLaunch === 'function' ) {
                 this.options.onLaunch(popup);
             }
