@@ -99,13 +99,15 @@ router.options("/*path", async () => {
     headers: {
       "Access-Control-Allow-Origin": "*",
       "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type, Authorization",
+      "Access-Control-Allow-Headers": "Content-Type, Authorization, puter-auth",
     },
   });
 });
 ```
 
 This answers the preflight for any path with the CORS headers the browser expects, so your other routes work cross-origin.
+
+<div class="info">The <code>puter-auth</code> header is important: when you call your worker with <a href="/Workers/exec/"><code>puter.workers.exec()</code></a>, it attaches the user's Puter token in a <code>puter-auth</code> header so the worker can act on the calling user's behalf (this is what populates <code>user.puter</code>). Because that's a custom header, the browser runs a preflight first — so <code>puter-auth</code> must be listed in <code>Access-Control-Allow-Headers</code>, otherwise the preflight fails and the request never reaches your worker.</div>
 
 If you need different CORS rules per endpoint — for example, restricting the allowed methods or headers on a specific route — define an `OPTIONS` handler on that individual path instead of using the wildcard.
 

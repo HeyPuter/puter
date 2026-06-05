@@ -9,6 +9,8 @@ It supports various operations such as set, get, delete, list keys, increment an
 
 Puter.js handles all the infrastructure for you, so you don't need to set up servers, handle scaling, or manage backups. And thanks to the [User-Pays Model](/user-pays-model/), you don't have to worry about storage, read, or write costs, as users of your application cover their own usage.
 
+<div class="info"><strong>Need to share data across users?</strong> Each user's key-value store lives in their own account, so one user can't read another's data. To keep a single, centralized store that every user reads from and writes to, use a <a href="/Workers/">Serverless Worker</a> — its code can act on the worker owner's resources, giving all users one shared backend.</div>
+
 ## Features
 
 <div style="overflow:hidden; margin-bottom: 30px;">

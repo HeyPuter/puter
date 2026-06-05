@@ -5,9 +5,11 @@ description: Run and manage serverless JavaScript funcitons in the cloud.
 
 Serverless Workers are serverless functions that run JavaScript code in the cloud.
 
+Workers run server-side, which makes them a good fit for centralized application data and backend logic. See [Integration with Puter.js](/Workers/router/#integration-with-puterjs) for how worker code accesses Puter resources.
+
 ## Router
 
-Workers use a router-based system to handle HTTP requests and can integrate with Puter's cloud services like file storage, key-value databases, and AI APIs. Workers are perfect for building backend services, REST APIs, webhooks, and data processing pipelines.
+Workers use a router-based system to handle HTTP requests and can integrate with Puter's cloud services like file storage, key-value databases, and AI APIs. Workers are perfect for building backend services, REST APIs, webhooks, shared data stores, and data processing pipelines.
 
 ### Examples
 

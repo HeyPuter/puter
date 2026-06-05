@@ -9,6 +9,8 @@ It comes with a comprehensive but familiar file system operations including writ
 
 With Puter.js, you don't need to worry about setting up storage infrastructure such as configuring buckets, managing CDNs, or ensuring availability, since everything is handled for you. Additionally, with the [User-Pays Model](/user-pays-model/), you don't have to worry about storage or bandwidth costs, as users of your application cover their own usage.
 
+<div class="info"><strong>Need to share data across users?</strong> Each user's files live in their own account, so one user can't read another's data. To keep centralized files that every user reads from and writes to, use a <a href="/Workers/">Serverless Worker</a> — its code can act on the worker owner's resources, giving all users one shared backend.</div>
+
 ## Features
 
 <div style="overflow:hidden; margin-bottom: 30px;">
