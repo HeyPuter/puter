@@ -357,6 +357,7 @@ export class AuthService extends PuterService {
                 legacyCode: 'bad_request',
             });
         }
+        this.#assertAppDelegationAllowed(actor, appUid);
         const auth_id = this.#authIdFor(actor.user as UserRow);
         const session = await this.stores.session.getOrCreateWorker(
             actor.user.id,
@@ -382,6 +383,22 @@ export class AuthService extends PuterService {
 
     #authIdFor(user: UserRow): string {
         return user.uuid;
+    }
+
+    /**
+     * Scope app token delegation by actor kind. An app-under-user or
+     * access-token actor is bound to a single app and may only mint a token
+     * for that same app; only a root user session may request a token for an
+     * arbitrary app (the GUI's app-launch delegation).
+     */
+    #assertAppDelegationAllowed(actor: Actor, appUid: string): void {
+        if ((actor.app || actor.accessToken) && actor.app?.uid !== appUid) {
+            throw new HttpError(
+                403,
+                'Actor cannot mint a token for another app',
+                { legacyCode: 'forbidden' },
+            );
+        }
     }
 
     /**
@@ -1057,6 +1074,7 @@ export class AuthService extends PuterService {
             throw new HttpError(403, 'Actor must be a user', {
                 legacyCode: 'forbidden',
             });
+        this.#assertAppDelegationAllowed(actor, appUid);
 
         // Request-context (IP / UA) isn't available on the Actor shape —
         // the app row's `last_ip` / `last_user_agent` start NULL and get

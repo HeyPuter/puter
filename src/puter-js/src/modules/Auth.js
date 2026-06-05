@@ -56,6 +56,9 @@ class Auth {
             let settled = false;
             // Interval id for polling whether the user closed the popup.
             let checkClosed = null;
+            // The auth popup window we opened. Pinned as the expected
+            // `event.source` when validating the token message.
+            let popupWindow = null;
 
             const cleanup = () => {
                 if ( checkClosed ) {
@@ -66,6 +69,20 @@ class Auth {
             };
 
             function messageHandler (e) {
+                // Only accept the token from the Puter GUI origin AND from the
+                // popup window we opened. Origin alone is insufficient (any
+                // frame on the GUI domain could post), so also pin
+                // event.source. Mirrors the validated handler in index.js.
+                // msg_id binds the message to this attempt.
+                if ( e.origin !== puter.defaultGUIOrigin ) {
+                    return;
+                }
+                if ( popupWindow && e.source !== popupWindow ) {
+                    return;
+                }
+                if ( e.data?.msg !== 'puter.token' ) {
+                    return;
+                }
                 if ( e.data?.msg_id != msg_id ) {
                     return;
                 }
@@ -101,6 +118,8 @@ class Auth {
                     reject({ error: 'popup_blocked', msg: 'The sign-in popup was blocked by the browser.' });
                     return;
                 }
+                // Record the popup so messageHandler can pin event.source.
+                popupWindow = popup;
                 checkClosed = setInterval(() => {
                     if ( ! popup.closed ) {
                         return;
