@@ -1039,13 +1039,15 @@ export class FSController extends PuterController {
                 legacyCode: 'bad_request',
             });
 
+        const dedupeName =
+            this.#toBoolean(body.dedupe_name ?? body.dedupeName) ?? false;
         await this.#assertCanCreate(actor, path);
+        if (dedupeName) await this.#assertCanDedupeCreate(actor, path);
 
         const entry = await this.services.fs.mkdir(userId, {
             path,
             overwrite: this.#toBoolean(body.overwrite) ?? false,
-            dedupeName:
-                this.#toBoolean(body.dedupe_name ?? body.dedupeName) ?? false,
+            dedupeName,
             createMissingParents:
                 this.#toBoolean(
                     body.create_missing_parents ??
@@ -1308,6 +1310,17 @@ export class FSController extends PuterController {
             return;
         }
         await this.#assertAccess(actor, parentForCheck, 'write');
+    }
+
+    async #assertCanDedupeCreate(actor: Actor, targetPath: string) {
+        const existing = await this.stores.fsEntry.getEntryByPath(targetPath);
+        if (!existing) return;
+        const parent = pathPosix.dirname(targetPath);
+        await this.#assertAccess(
+            actor,
+            parent === '/' ? targetPath : parent,
+            'write',
+        );
     }
 
     async #assertAccess(
