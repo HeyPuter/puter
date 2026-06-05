@@ -133,32 +133,26 @@ export class PuterJSFileSystemModule {
 
         this.socket.on('item.renamed', (item) => {
             puter._cache.flushall();
-            console.log('Flushed cache for item.renamed');
         });
 
         this.socket.on('item.removed', (item) => {
             // check original_client_socket_id and if it matches this.socket.id, don't invalidate cache
             puter._cache.flushall();
-            console.log('Flushed cache for item.removed');
         });
 
         this.socket.on('item.added', (item) => {
             // remove readdir cache for parent
             puter._cache.del(`readdir:${ path.dirname(item.path)}`);
-            console.log(`deleted cache for readdir:${ path.dirname(item.path)}`);
             // remove item cache for parent directory
             puter._cache.del(`item:${ path.dirname(item.path)}`);
-            console.log(`deleted cache for item:${ path.dirname(item.path)}`);
         });
 
         this.socket.on('item.updated', (item) => {
             puter._cache.flushall();
-            console.log('Flushed cache for item.updated');
         });
 
         this.socket.on('item.moved', (item) => {
             puter._cache.flushall();
-            console.log('Flushed cache for item.moved');
         });
 
         this.socket.on('connect', () => {
@@ -295,7 +289,6 @@ export class PuterJSFileSystemModule {
             const localValidTs = parseInt(localStorage.getItem(LAST_VALID_TS)) || 0;
 
             if ( serverTimestamp - localValidTs > 2000 ) {
-                console.log('Cache is not up to date, purging cache');
                 // Server has newer data, purge local cache
                 puter._cache.flushall();
                 localStorage.setItem(LAST_VALID_TS, '0');
