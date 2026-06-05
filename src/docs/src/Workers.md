@@ -144,6 +144,8 @@ You can see various Puter.js workers management features in action from the foll
 
 Once your worker is ready, you can put it online on a free `*.puter.work` subdomain.
 
+<div class="info">A worker is created once and keeps its name and URL. To ship changes, overwrite its source file rather than creating a new worker — see <a href="/Workers/create/#updating-a-worker">Updating a worker</a>.</div>
+
 ### Publish from puter.com
 
 The quickest way to publish a worker is to create it on [puter.com](https://puter.com) and publish it.
