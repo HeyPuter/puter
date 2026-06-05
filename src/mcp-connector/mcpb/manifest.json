@@ -4,7 +4,7 @@
   "display_name": "Puter",
   "version": "0.1.0",
   "description": "Use your own Puter account's filesystem, website hosting, and serverless workers over MCP.",
-  "long_description": "Connects an MCP client to a deployed Puter MCP Worker. Authenticates with your own Puter token (no shared credentials) and exposes tools to read/write/stat files, make directories, delete entries, host static websites, and deploy/run serverless Puter Workers (which are built with puter.js and Puter authentication). It also ships puter.js documentation tools so an agent can look up the exact API before writing worker or SDK code. The bundle runs a tiny local stdio<->HTTP proxy that forwards JSON-RPC to your Worker with your token attached.",
+  "long_description": "Connects an MCP client to a deployed Puter MCP Worker. Authenticates with your own Puter token (no shared credentials) and exposes tools to read/write/stat files, make directories, delete entries, host static websites, deploy/run serverless Puter Workers (which are built with puter.js and Puter authentication), and register launchable Puter apps. It also ships puter.js documentation tools so an agent can look up the exact API before writing worker or SDK code. The bundle runs a tiny local stdio<->HTTP proxy that forwards JSON-RPC to your Worker with your token attached.",
   "author": {
     "name": "Puter Technologies Inc.",
     "url": "https://puter.com"
@@ -44,6 +44,12 @@
     { "name": "workers_get", "description": "Get a deployed worker (name, URL, source file) by name." },
     { "name": "workers_exec", "description": "Call a deployed worker over HTTP as the authenticated user." },
     { "name": "workers_delete", "description": "Undeploy a worker (leaves its source file in place)." },
+    { "name": "apps_list", "description": "List the Puter apps the caller owns / can edit (name, URL, icon, aggregate usage stats)." },
+    { "name": "apps_get", "description": "Get a Puter app by name; pass stats_period for detailed open/user counts over a window." },
+    { "name": "apps_create", "description": "Register a new Puter app (requires name and index_url, the URL the app loads)." },
+    { "name": "apps_update", "description": "Update a Puter app by name (only the fields you pass change; new_name renames)." },
+    { "name": "apps_delete", "description": "Delete a Puter app (leaves the site/worker its index_url points at in place)." },
+    { "name": "apps_check_name", "description": "Check whether a Puter app name is available before creating it." },
     { "name": "puter_docs_index", "description": "Load the puter.js documentation index (topics + paths) from docs.puter.com/llms.txt." },
     { "name": "puter_docs_get", "description": "Fetch a specific puter.js documentation page as Markdown by topic path (e.g. Workers/router)." }
   ],

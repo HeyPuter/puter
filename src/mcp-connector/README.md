@@ -53,6 +53,23 @@ its associated file (there is no separate update call).
 | `workers_exec` | Call a worker over HTTP as the authenticated user. |
 | `workers_delete` | Undeploy a worker (leaves its source file in place). |
 
+### Apps
+A Puter **app** is a registered application in your account: it shows up in your
+Puter app list, can be launched in the Puter desktop UI, and (once approved) be
+listed in the marketplace. The core of an app is its `index_url` — the URL Puter
+loads when the app runs, usually a site published with `hosting_create` or a
+worker URL. Typical flow: `fs_write_file` the files → `hosting_create` to publish
+and get a URL → `apps_create` pointing `index_url` at that URL.
+
+| Tool | Description |
+| --- | --- |
+| `apps_list` | List the apps the caller owns / can edit (name, URL, icon, aggregate usage stats). |
+| `apps_get` | Get an app by name; pass `stats_period` for detailed open/user counts over a window. |
+| `apps_create` | Register a new app (requires `name` and `index_url`). |
+| `apps_update` | Update an app by name (only the fields you pass change; `new_name` renames). |
+| `apps_delete` | Delete an app (leaves the site/worker its `index_url` points at in place). |
+| `apps_check_name` | Check whether an app name is available before creating it. |
+
 ### Documentation
 | Tool | Description |
 | --- | --- |
@@ -112,7 +129,7 @@ registered onto the forked router as routes.
 | [`src/index.js`](src/index.js) | Entry: `initS2w()` + registers MCP and OAuth routes. |
 | [`src/mcp.js`](src/mcp.js) | MCP JSON-RPC dispatch; 401 + `WWW-Authenticate` when unauthenticated. |
 | [`src/oauth.js`](src/oauth.js) | OAuth bridge: discovery, `/register`, `/authorize`→authme, `/oauth/callback`, `/token`. |
-| [`src/tools.js`](src/tools.js) | The 12 tools, calling real `puter.fs.*` / `puter.hosting.*`. |
+| [`src/tools.js`](src/tools.js) | The tool definitions, calling real `puter.fs.*` / `puter.hosting.*` / `puter.workers.*` / `puter.apps.*`. |
 | [`template/puter-portable.template`](template/puter-portable.template) | Preamble template (defines `init_puter_portable`, inlines puter.js). |
 
 ## Running locally
