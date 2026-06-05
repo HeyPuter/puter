@@ -28,6 +28,8 @@ Once the user has been authenticated, your app will get a few things by default:
 
 <div class="info"><strong>Apps are sandboxed by default!</strong> Apps are not able to access any files, directories, or data outside of their own directory and key-value store within a user's account. This is to ensure that apps can't access any data or resources that they shouldn't have access to.</div>
 
+<div class="info"><strong>Need to share data across users?</strong> Because each user's storage lives in their own account, one user can't see another's data. To keep a single, centralized store that every user reads from and writes to, use a <a href="/Workers/">Serverless Worker</a> — its code can act on the worker owner's resources, giving all users one shared backend.</div>
+
 Your app will also be able to use the following services by default:
 
 - **AI**: Your app will be able to use the AI services provided by Puter.com. This includes chat, txt2img, img2txt, and more.
