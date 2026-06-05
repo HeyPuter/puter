@@ -84,15 +84,13 @@ router.get("/files/*path", async ({ params }) => {
 
 A common use is a catch-all route for unmatched paths — define it last so it only runs when nothing else matched (see the [404 Handler](#examples) example below).
 
-<div class="info">A wildcard does not match the root path. A route like <code>/*path</code> matches <code>/files</code>, <code>/a/b/c</code>, and so on, but not <code>/</code> itself — define a separate route for <code>/</code> if you need to handle it.</div>
-
 ## CORS
 
-Every response from your worker automatically includes `Access-Control-Allow-Origin: *`, so simple cross-origin requests work out of the box.
+Every response from your worker automatically includes `Access-Control-Allow-Origin: *`, so **simple cross-origin requests work out of the box** — a basic `GET` or `POST` from another origin just works, no extra code.
 
-What the router does *not* do automatically is answer **preflight requests**. Before certain cross-origin requests (anything with a custom header, or methods like `PUT`/`DELETE`), the browser sends an `OPTIONS` request first and expects the CORS headers in return. If you don't handle `OPTIONS`, that preflight fails and the real request never happens.
+Some requests need a **CORS preflight** first: the browser sends an `OPTIONS` request and waits for the allowed methods and headers before sending the real one. This happens when the request uses a method like `PUT` or `DELETE`, or carries custom headers (e.g. `Authorization`).
 
-For example:
+To handle this, you can add an `OPTIONS` handler that returns the methods and headers you want to allow:
 
 ```js
 router.options("/*path", async () => {
@@ -107,7 +105,7 @@ router.options("/*path", async () => {
 });
 ```
 
-This catches the preflight `OPTIONS` request for any path and responds with the CORS headers the browser is looking for, so your other routes work cross-origin.
+This answers the preflight for any path with the CORS headers the browser expects, so your other routes work cross-origin.
 
 If you need different CORS rules per endpoint — for example, restricting the allowed methods or headers on a specific route — define an `OPTIONS` handler on that individual path instead of using the wildcard.
 
