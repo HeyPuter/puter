@@ -48,11 +48,11 @@ const OLD_APP_NAME_TTL_MONTHS = 3;
 // backends without splitting the cap by driver.
 const BULK_QUERY_CHUNK_SIZE = 200;
 
-// Top-level all-time open/user counts: hot path, slow to compute, refreshed
-// periodically by one instance and read via MGET on every app list/read.
+// Top-level all-time open/user counts: hot path, slow to compute. Cached
+// lazily on read (pipelined MGET on every app list/read; misses query the
+// analytics source once and backfill) and left to autoexpire — these counts
+// tolerate being slightly stale, so there's no background refresh.
 const STATS_CACHE_TTL_SECONDS = 30 * 60;
-const STATS_REFRESH_INTERVAL_MS = 15 * 60 * 1000;
-const STATS_REFRESH_LOCK_KEY = 'appStatsLastRefresh';
 
 // Period helpers for detailed/grouped stats. Ported from v1
 // AppInformationService — queries go straight to ClickHouse/MySQL on demand
@@ -119,7 +119,6 @@ const APP_BOOLEAN_COLUMNS = new Set([
 ]);
 
 export class AppStore extends PuterStore {
-    #appStatsInterval;
     // -- Reads --------------------------------------------------------
 
     async getByUid(uid) {
@@ -998,7 +997,7 @@ export class AppStore extends PuterStore {
         const period = options.period ?? 'all';
         const grouping = options.grouping;
         const timeRange = this.#computeTimeRange(period, options.createdAt);
-        const clickhouse = globalThis.clickhouseClient;
+        const clickhouse = this.clients.clickhouse;
 
         if (grouping) {
             if (!MYSQL_DATE_FORMATS[grouping]) {
@@ -1025,7 +1024,7 @@ export class AppStore extends PuterStore {
         const out = new Map();
         if (uids.length === 0) return out;
 
-        const clickhouse = globalThis.clickhouseClient;
+        const clickhouse = this.clients.clickhouse;
         if (clickhouse) {
             const res = await clickhouse.query({
                 query: `
@@ -1373,104 +1372,5 @@ export class AppStore extends PuterStore {
             target.setMonth(0, 1 + ((4 - target.getDay() + 7) % 7));
         }
         return 1 + Math.ceil((firstThursday - target) / 604800000);
-    }
-
-    // -- Refresh loop -------------------------------------------------
-
-    async #refreshAppStats() {
-        // Cross-instance lock: if another node refreshed within the window,
-        // skip. TTL slightly longer than the interval so the guard survives
-        // jitter in the setInterval drift.
-        try {
-            const last = parseInt(
-                (await this.clients.redis.get(STATS_REFRESH_LOCK_KEY)) || '0',
-                10,
-            );
-            const now = Date.now();
-            if (now - last < STATS_REFRESH_INTERVAL_MS) return;
-            await this.clients.redis.set(
-                STATS_REFRESH_LOCK_KEY,
-                String(now),
-                'EX',
-                Math.floor(STATS_REFRESH_INTERVAL_MS / 1000) + 60,
-            );
-        } catch {
-            // Keep going — better to over-refresh than miss updates entirely.
-        }
-
-        const clickhouse = globalThis.clickhouseClient;
-        let rows;
-        try {
-            if (clickhouse) {
-                const res = await clickhouse.query({
-                    query: `
-                        SELECT app_uid,
-                               count(_id) AS open_count,
-                               count(DISTINCT user_id) AS user_count
-                        FROM app_opens
-                        GROUP BY app_uid
-                    `,
-                    format: 'JSONEachRow',
-                });
-                rows = await res.json();
-            } else {
-                rows = await this.clients.db.read(
-                    `SELECT app_uid,
-                            COUNT(_id) AS open_count,
-                            COUNT(DISTINCT user_id) AS user_count
-                     FROM app_opens
-                     GROUP BY app_uid`,
-                );
-            }
-        } catch (e) {
-            console.warn('[AppStore] refresh app stats failed:', e);
-            return;
-        }
-
-        if (!rows?.length) return;
-
-        try {
-            const pipeline = this.clients.redis.pipeline();
-            for (const row of rows) {
-                if (!row.app_uid) continue;
-                pipeline.set(
-                    this.#openCountCacheKey(row.app_uid),
-                    String(parseInt(row.open_count, 10) || 0),
-                    'EX',
-                    STATS_CACHE_TTL_SECONDS,
-                );
-                pipeline.set(
-                    this.#userCountCacheKey(row.app_uid),
-                    String(parseInt(row.user_count, 10) || 0),
-                    'EX',
-                    STATS_CACHE_TTL_SECONDS,
-                );
-            }
-            await pipeline.exec();
-        } catch (e) {
-            console.warn('[AppStore] refresh app stats cache write failed:', e);
-        }
-    }
-
-    onServerStart() {
-        // Kick off one refresh immediately so the cache is warm before the
-        // first client request (failing silently is fine — getAppsStats
-        // falls back to an on-demand query).
-        this.#refreshAppStats().catch(() => {});
-        // Jitter prevents every node refreshing on the same tick when a
-        // cluster boots together.
-        this.#appStatsInterval = setInterval(
-            () => {
-                this.#refreshAppStats().catch(() => {});
-            },
-            STATS_REFRESH_INTERVAL_MS + Math.floor(Math.random() * 500),
-        );
-    }
-
-    onServerShutdown() {
-        if (this.#appStatsInterval) {
-            clearInterval(this.#appStatsInterval);
-            this.#appStatsInterval = undefined;
-        }
     }
 }

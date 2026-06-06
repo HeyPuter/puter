@@ -565,7 +565,8 @@ interface IConfigOptional {
     redis: IRedisConfig;
     pager: IPagerConfig;
     email: IEmailConfig;
-    clickhouse: IClickhouseConfig;
+    /** Optional — only set when a ClickHouse analytics client is wired in. */
+    clickhouse?: IClickhouseConfig;
     cf_file_cache: ICfFileCacheConfig;
 
     // -- Rate limiting -----------------------------------------------
