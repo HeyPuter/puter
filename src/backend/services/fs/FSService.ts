@@ -2840,10 +2840,13 @@ export class FSService extends PuterService {
         const existing = await this.stores.fsEntry.getEntryByPath(targetPath);
         if (existing) {
             if (existing.isDir) {
-                // A directory already exists at path: idempotent success.
-                return existing;
-            }
-            if (input.overwrite) {
+                if (input.dedupeName) {
+                    name = await this.#findDedupedName(parent, name);
+                } else {
+                    // A directory already exists at path: idempotent success.
+                    return existing;
+                }
+            } else if (input.overwrite) {
                 // Remove the non-directory occupant then create the dir.
                 await this.remove(userId, {
                     entry: existing,

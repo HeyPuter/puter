@@ -206,6 +206,78 @@ describe('LegacyFSController.mkdir', () => {
         expect(fetched?.isDir).toBe(true);
     });
 
+    it('dedupes an existing directory when dedupe_name is true', async () => {
+        const { actor } = await makeUser();
+        const username = actor.user!.username!;
+        const parent = `/${username}/Documents`;
+
+        await withActor(actor, () =>
+            controller.mkdir(
+                makeReq({
+                    body: { parent, path: 'hello' },
+                    actor,
+                }),
+                makeRes().res,
+            ),
+        );
+
+        const { res, captured } = makeRes();
+        await withActor(actor, () =>
+            controller.mkdir(
+                makeReq({
+                    body: { parent, path: 'hello', dedupe_name: true },
+                    actor,
+                }),
+                res,
+            ),
+        );
+
+        const body = captured.body as Record<string, unknown>;
+        expect(body).toMatchObject({
+            path: `${parent}/hello (1)`,
+            name: 'hello (1)',
+            is_dir: true,
+        });
+        expect(
+            await server.stores.fsEntry.getEntryByPath(`${parent}/hello (1)`),
+        ).toMatchObject({ isDir: true });
+    });
+
+    it('requires parent write when deduping an existing directory', async () => {
+        const { actor: userActor } = await makeUser();
+        const username = userActor.user!.username!;
+        const appUid = `app-legacy-mkdir-${uuidv4()}`;
+        const appActor: Actor = { ...userActor, app: { uid: appUid } };
+        const parent = `/${username}/AppData`;
+
+        await withActor(userActor, () =>
+            controller.mkdir(
+                makeReq({
+                    body: { parent, path: appUid },
+                    actor: userActor,
+                }),
+                makeRes().res,
+            ),
+        );
+
+        await expect(
+            withActor(appActor, () =>
+                controller.mkdir(
+                    makeReq({
+                        body: { parent, path: appUid, dedupe_name: true },
+                        actor: appActor,
+                    }),
+                    makeRes().res,
+                ),
+            ),
+        ).rejects.toMatchObject({ statusCode: 404 });
+        expect(
+            await server.stores.fsEntry.getEntryByPath(
+                `${parent}/${appUid} (1)`,
+            ),
+        ).toBeNull();
+    });
+
     it("rejects writing into another user's home with a 4xx", async () => {
         const a = await makeUser();
         const b = await makeUser();

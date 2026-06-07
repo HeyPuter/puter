@@ -953,6 +953,82 @@ describe('FSController.mkdirEntry', () => {
         expect(body.isDir).toBe(true);
     });
 
+    it('dedupes an existing directory when dedupe_name is true', async () => {
+        const { actor } = await makeUser();
+        const username = actor.user!.username!;
+        const target = `/${username}/Documents/hello`;
+
+        await withActor(actor, () =>
+            controller.mkdirEntry(
+                makeReq({
+                    body: { path: target },
+                    actor,
+                }),
+                makeRes().res,
+            ),
+        );
+
+        const { res, captured } = makeRes();
+        await withActor(actor, () =>
+            controller.mkdirEntry(
+                makeReq({
+                    body: { path: target, dedupe_name: true },
+                    actor,
+                }),
+                res,
+            ),
+        );
+
+        const body = captured.body as {
+            path: string;
+            name: string;
+            isDir: boolean;
+        };
+        expect(body.path).toBe(`/${username}/Documents/hello (1)`);
+        expect(body.name).toBe('hello (1)');
+        expect(body.isDir).toBe(true);
+        expect(
+            await server.stores.fsEntry.getEntryByPath(
+                `/${username}/Documents/hello (1)`,
+            ),
+        ).toMatchObject({ isDir: true });
+    });
+
+    it('requires parent write when deduping an existing directory', async () => {
+        const { actor: userActor } = await makeUser();
+        const username = userActor.user!.username!;
+        const appUid = `app-mkdir-${uuidv4()}`;
+        const appActor: Actor = { ...userActor, app: { uid: appUid } };
+        const target = `/${username}/AppData/${appUid}`;
+
+        await withActor(userActor, () =>
+            controller.mkdirEntry(
+                makeReq({
+                    body: { path: target },
+                    actor: userActor,
+                }),
+                makeRes().res,
+            ),
+        );
+
+        await expect(
+            withActor(appActor, () =>
+                controller.mkdirEntry(
+                    makeReq({
+                        body: { path: target, dedupe_name: true },
+                        actor: appActor,
+                    }),
+                    makeRes().res,
+                ),
+            ),
+        ).rejects.toMatchObject({ statusCode: 404 });
+        expect(
+            await server.stores.fsEntry.getEntryByPath(
+                `/${username}/AppData/${appUid} (1)`,
+            ),
+        ).toBeNull();
+    });
+
     it('expands ~/ in the path to the user home', async () => {
         const { actor } = await makeUser();
         const username = actor.user!.username!;

@@ -427,17 +427,33 @@ export class LegacyFSController extends PuterController {
         const normalizedTarget = targetPath.startsWith('/')
             ? targetPath
             : `/${targetPath}`;
+        const dedupeName =
+            getBoolean(body, 'dedupe_name', 'change_name') ?? false;
         await assertCanCreate(
             this.services.acl,
             this.services.fs,
             actor,
             normalizedTarget,
         );
+        if (dedupeName) {
+            const existing =
+                await this.stores.fsEntry.getEntryByPath(normalizedTarget);
+            if (existing) {
+                const parent = pathPosix.dirname(normalizedTarget);
+                await assertAccess(
+                    this.services.acl,
+                    this.services.fs,
+                    actor,
+                    parent === '/' ? normalizedTarget : parent,
+                    'write',
+                );
+            }
+        }
 
         const entry = await this.services.fs.mkdir(userId, {
             path: targetPath,
             overwrite: getBoolean(body, 'overwrite') ?? false,
-            dedupeName: getBoolean(body, 'dedupe_name', 'change_name') ?? false,
+            dedupeName,
             createMissingParents:
                 getBoolean(
                     body,
