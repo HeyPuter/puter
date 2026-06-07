@@ -18,6 +18,7 @@
  */
 
 import type { IConfig, WithLifecycle } from '../types';
+import type { ClickhouseClient } from './clickhouse/ClickhouseClient';
 
 /**
  * Extension-augmentable client registry. Extensions add their own client
@@ -40,6 +41,14 @@ export interface IExtensionClientInstances {
      * override this for that name.
      */
     [key: string]: unknown;
+
+    /**
+     * Optional ClickHouse analytics client. Absent by default — a production
+     * deployment registers it via an extension to speed up the app-stats path
+     * at scale (see {@link ClickhouseClient}). Always branch on its presence
+     * and fall back to SQL.
+     */
+    clickhouse?: ClickhouseClient;
 }
 
 export interface IPuterClient<T extends WithLifecycle = WithLifecycle> {
