@@ -50,7 +50,7 @@ The quickest way to publish a website is to upload it on [puter.com](https://put
     </li>
 </ol>
 
-<!-- ### Automate with GitHub Actions
+### Automate with GitHub Actions
 
 If your code lives on GitHub, you can redeploy your site automatically on every push using the [Puter Subdomain Deploy Action](https://github.com/HeyPuter/puter-subdomain-deploy-action).
 
@@ -70,7 +70,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Deploy website
-        uses: HeyPuter/puter-subdomain-deploy-action@v1
+        uses: HeyPuter/puter-subdomain-deploy-action@v1.0.6
         with:
           subdomain: my-site            # publishes to my-site.puter.site
           source_path: dist             # the folder to deploy (e.g. your build output)
@@ -78,6 +78,6 @@ jobs:
           puter_token: ${{ secrets.PUTER_TOKEN }}
 ```
 
-<div class="info">Store your Puter auth token as a GitHub Actions secret named <code>PUTER_TOKEN</code>. See the <a href="https://github.com/HeyPuter/puter-subdomain-deploy-action">action's README</a> for how to obtain a token and for the full list of options.</div>
+<div class="info">Create a new repository secret named <code>PUTER_TOKEN</code> and set its value to your Puter auth token (see <a href="https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/use-secrets#creating-secrets-for-a-repository">creating secrets for a repository</a>). To get your auth token, follow the <a href="https://developer.puter.com/tutorials/puter-auth-token/">Puter auth token tutorial</a>.</div>
 
-If your project has a build step, run it before the deploy step (for example `npm ci && npm run build`) and point `source_path` at the build output. -->
+If your project has a build step, run it before the deploy step (for example `npm ci && npm run build`) and point `source_path` at the build output.
