@@ -2212,11 +2212,23 @@ export class AuthController extends PuterController {
         requireAuth: true,
     })
     async handleCreateAccessToken(req: Request, res: Response): Promise<void> {
-        const { permissions, expiresIn } = req.body;
+        const { permissions, expiresIn, label } = req.body;
         if (!Array.isArray(permissions) || permissions.length === 0) {
             throw new HttpError(400, 'Missing or empty `permissions` array', {
                 legacyCode: 'bad_request',
             });
+        }
+
+        // Optional user-facing name for the manage-sessions UI. Trim and clamp
+        // to the same 64-char limit the rename endpoint enforces.
+        let normalizedLabel: string | null = null;
+        if (label !== undefined && label !== null) {
+            if (typeof label !== 'string') {
+                throw new HttpError(400, '`label` must be a string', {
+                    legacyCode: 'bad_request',
+                });
+            }
+            normalizedLabel = label.trim().slice(0, 64) || null;
         }
 
         // Normalize specs: string → [string], [string] → [string, {}], [string, extra] → as-is
@@ -2233,7 +2245,10 @@ export class AuthController extends PuterController {
         const token = await this.services.auth.createAccessToken(
             req.actor!,
             normalized as never,
-            expiresIn ? { expiresIn } : {},
+            {
+                ...(expiresIn ? { expiresIn } : {}),
+                ...(normalizedLabel ? { label: normalizedLabel } : {}),
+            },
         );
         res.json({ token });
     }

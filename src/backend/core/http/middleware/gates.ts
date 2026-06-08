@@ -99,8 +99,18 @@ export const requireAuthGate = (): RequestHandler => {
  * Reject app-under-user and access-token actors with 403. Use on endpoints
  * that should only be exercised by a human session — settings changes,
  * admin-style actions on the user's own account.
+ *
+ * `allowFullAccess` (set per-route via the `allowFullAccessToken` route option)
+ * relaxes ONLY the access-token half: a full-access ("personal access token")
+ * actor is admitted, because it represents the user's own full API reach.
+ * Third-party apps are ALWAYS rejected, and scoped access tokens are always
+ * rejected. This opt-in is for user-resource / inference endpoints (AI proxy,
+ * etc.) that use this gate purely to keep apps out — NEVER for account or
+ * security management, which must stay closed to every access token.
  */
-export const requireUserActorGate = (): RequestHandler => {
+export const requireUserActorGate = (
+    opts: { allowFullAccess?: boolean } = {},
+): RequestHandler => {
     return (req, _res, next) => {
         const actor = req.actor;
         // requireAuth runs first; this gate just narrows the actor type.
@@ -108,7 +118,14 @@ export const requireUserActorGate = (): RequestHandler => {
             next(rejectAuth(req));
             return;
         }
-        if (actor.app || actor.accessToken) {
+        // Third-party apps are never allowed through this gate.
+        const appBlocked = !!actor.app;
+        // Access tokens are blocked unless the route opted in AND this is a
+        // full-access PAT (the user's own credential). Scoped tokens: blocked.
+        const tokenBlocked =
+            !!actor.accessToken &&
+            !(opts.allowFullAccess && actor.accessToken.fullAccess);
+        if (appBlocked || tokenBlocked) {
             next(
                 new HttpError(
                     403,
@@ -129,7 +146,13 @@ export const requireNonAccessTokenGate = (): RequestHandler => {
             next(rejectAuth(req));
             return;
         }
-        if (actor.accessToken) {
+        // Full-access ("personal access token") access tokens are admitted here:
+        // they carry the user's full API reach by design. They remain blocked
+        // from account management because those routes also use
+        // `requireUserActorGate`, which rejects ALL access tokens. Normal
+        // (scoped) access tokens stay blocked from non-`allowAccessToken`
+        // routes.
+        if (actor.accessToken && !actor.accessToken.fullAccess) {
             next(
                 new HttpError(
                     403,

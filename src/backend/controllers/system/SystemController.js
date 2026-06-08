@@ -77,6 +77,7 @@ export class SystemController extends PuterController {
             {
                 subdomain: 'api',
                 requireUserActor: true,
+                allowFullAccessToken: true,
                 rateLimit: {
                     scope: 'contact-us',
                     limit: 10,

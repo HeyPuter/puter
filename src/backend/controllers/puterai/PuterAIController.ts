@@ -52,6 +52,12 @@ export class PuterAIController extends PuterController {
         const apiAuthOpts = {
             subdomain: 'api',
             requireUserActor: true,
+            // These are the user's own programmatic AI surface (OpenAI/Anthropic
+            // wire). `requireUserActor` here exists to keep third-party apps
+            // out, not to block the user's own credential — so admit full-access
+            // personal access tokens (CLI/MCP/scripts). Apps and scoped tokens
+            // stay blocked.
+            allowFullAccessToken: true,
         } as RouteOptions;
         const publicOpts = { subdomain: 'api', requireAuth: false } as const;
 

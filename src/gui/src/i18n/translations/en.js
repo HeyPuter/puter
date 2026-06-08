@@ -613,6 +613,26 @@ const en = {
         copy_token_message: 'Your authentication token is shown below. Keep it secret \u2014 anyone with this token can access your account.',
         copy_token_description: 'View and copy your authentication token',
 
+        // API tokens (named, revocable, full API access \u2014 no account management)
+        api_token: 'API Token',
+        api_token_description: 'Create a named token for scripts, CLIs, and integrations',
+        create_api_token: 'Create API Token',
+        create_token: 'Create token',
+        create_token_message: 'Create a named token to use the Puter API from scripts, CLIs, agents, and integrations. It can do anything you can through the API, but cannot change your password or email, or delete your account.',
+        token_label: 'Label',
+        token_label_placeholder: 'e.g. My CLI, GitHub Actions',
+        token_label_required: 'Please enter a label for this token.',
+        token_label_external_app: 'External app',
+        token_expiry: 'Expiration',
+        token_expiry_never: 'Never',
+        token_expiry_7d: '7 days',
+        token_expiry_30d: '30 days',
+        token_expiry_90d: '90 days',
+        token_shown_once_warning: 'Copy this token now \u2014 it won\u2019t be shown again. Keep it secret; anyone with it can access your account\u2019s data through the API.',
+        token_manage_hint: 'You can revoke this token any time under',
+        shared_api_token: 'A restricted API token',
+        shared_api_token_note: 'The app can use the Puter API on your behalf, but cannot change your password or email, or delete your account. You can revoke it any time under Settings \u2192 Security \u2192 Manage sessions.',
+
         // AuthMe dialog
         authorization_required: 'Authorization Required',
         external_site_auth_request: 'An app is requesting access to your account.',

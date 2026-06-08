@@ -431,6 +431,29 @@ export class PermissionService extends PuterService {
     ): Promise<void> {
         if (!actor.accessToken) return;
         const issuerActor = actor.accessToken.issuer;
+
+        // Full-API-access token: it may do anything its issuing user can do.
+        // Resolve every requested option directly against the issuer (the
+        // owner FS implicator, group/service grants, and user-to-user grants
+        // all apply to the user actor), with no per-permission grant row
+        // required. The marker is the signed `full_access` claim surfaced on
+        // the actor (single source of truth, set only for user-issued tokens).
+        // Account-management endpoints stay closed because they gate on actor
+        // type (requireUserActor / session cookie), not permissions.
+        if (actor.accessToken.fullAccess) {
+            for (const permission of options) {
+                const issuerReading = await this.scan(issuerActor, permission);
+                reading.push({
+                    $: 'path',
+                    via: 'access-token',
+                    has_terminal: readingHasTerminal(issuerReading),
+                    permission,
+                    reading: issuerReading,
+                });
+            }
+            return;
+        }
+
         for (const permission of options) {
             const hasTokenPerm =
                 await this.stores.permission.hasAccessTokenPerm(

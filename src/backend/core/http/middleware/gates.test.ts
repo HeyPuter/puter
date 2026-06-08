@@ -26,6 +26,7 @@ import {
     allowedAppIdsGate,
     requireAuthGate,
     requireEmailConfirmedGate,
+    requireNonAccessTokenGate,
     requireUserActorGate,
     requireVerifiedGate,
     subdomainGate,
@@ -222,6 +223,110 @@ describe('requireUserActorGate', () => {
         // requireAuth runs first, so this is rare — but the gate handles
         // it anyway rather than dereferencing undefined.
         const got = runGate(requireUserActorGate(), {});
+        expectHttpError(got, 401, 'token_missing');
+    });
+
+    it('rejects a FULL-ACCESS access token too — account routes stay closed', () => {
+        // The account wall is actor-type based: even a full-access PAT (which
+        // the resource wall lets through) is rejected here, so it can never
+        // reach change-password/email/2FA/token-minting/etc.
+        const got = runGate(requireUserActorGate(), {
+            actor: {
+                user: { uuid: 'u-1' },
+                accessToken: {
+                    uid: 'tok-1',
+                    issuer: { user: { uuid: 'u-1' } },
+                    fullAccess: true,
+                },
+            },
+        });
+        expectHttpError(got, 403, 'forbidden');
+    });
+
+    // allowFullAccess opt-in: relaxes ONLY the access-token half, for
+    // user-resource/inference routes (e.g. the AI proxy).
+    it('admits a full-access PAT when allowFullAccess is set', () => {
+        const got = runGate(requireUserActorGate({ allowFullAccess: true }), {
+            actor: {
+                user: { uuid: 'u-1' },
+                accessToken: {
+                    uid: 'tok-1',
+                    issuer: { user: { uuid: 'u-1' } },
+                    fullAccess: true,
+                },
+            },
+        });
+        expect(got).toBeUndefined();
+    });
+
+    it('still rejects a SCOPED access token even when allowFullAccess is set', () => {
+        const got = runGate(requireUserActorGate({ allowFullAccess: true }), {
+            actor: {
+                user: { uuid: 'u-1' },
+                accessToken: {
+                    uid: 'tok-1',
+                    issuer: { user: { uuid: 'u-1' } },
+                    // no fullAccess
+                },
+            },
+        });
+        expectHttpError(got, 403, 'forbidden');
+    });
+
+    it('still rejects a third-party app even when allowFullAccess is set', () => {
+        const got = runGate(requireUserActorGate({ allowFullAccess: true }), {
+            actor: { user: { uuid: 'u-1' }, app: { uid: 'app-1' } },
+        });
+        expectHttpError(got, 403, 'forbidden');
+    });
+});
+
+// -- requireNonAccessTokenGate --
+
+describe('requireNonAccessTokenGate', () => {
+    it('passes through for plain user actors', () => {
+        const got = runGate(requireNonAccessTokenGate(), {
+            actor: { user: { uuid: 'u-1' } },
+        });
+        expect(got).toBeUndefined();
+    });
+
+    it('passes through for app-under-user actors (only access tokens are gated)', () => {
+        const got = runGate(requireNonAccessTokenGate(), {
+            actor: { user: { uuid: 'u-1' }, app: { uid: 'app-1' } },
+        });
+        expect(got).toBeUndefined();
+    });
+
+    it('rejects a normal (scoped) access token with 403', () => {
+        const got = runGate(requireNonAccessTokenGate(), {
+            actor: {
+                user: { uuid: 'u-1' },
+                accessToken: {
+                    uid: 'tok-1',
+                    issuer: { user: { uuid: 'u-1' } },
+                },
+            },
+        });
+        expectHttpError(got, 403, 'forbidden');
+    });
+
+    it('admits a FULL-ACCESS access token (the resource-wall carve-out)', () => {
+        const got = runGate(requireNonAccessTokenGate(), {
+            actor: {
+                user: { uuid: 'u-1' },
+                accessToken: {
+                    uid: 'tok-1',
+                    issuer: { user: { uuid: 'u-1' } },
+                    fullAccess: true,
+                },
+            },
+        });
+        expect(got).toBeUndefined();
+    });
+
+    it("falls back to 401 if there's no actor at all (defensive)", () => {
+        const got = runGate(requireNonAccessTokenGate(), {});
         expectHttpError(got, 401, 'token_missing');
     });
 });

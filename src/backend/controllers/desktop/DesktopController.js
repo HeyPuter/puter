@@ -51,6 +51,7 @@ export class DesktopController extends PuterController {
             {
                 subdomain: 'api',
                 requireUserActor: true,
+                allowFullAccessToken: true,
             },
             async (req, res) => {
                 const { url, color, fit } = req.body ?? {};
@@ -105,6 +106,7 @@ export class DesktopController extends PuterController {
             {
                 subdomain: 'api',
                 requireUserActor: true,
+                allowFullAccessToken: true,
             },
             async (req, res) => {
                 const { items } = req.body ?? {};
@@ -130,6 +132,7 @@ export class DesktopController extends PuterController {
             {
                 subdomain: 'api',
                 requireUserActor: true,
+                allowFullAccessToken: true,
             },
             async (req, res) => {
                 const { item_uid, item_path, layout } = req.body ?? {};
@@ -156,6 +159,7 @@ export class DesktopController extends PuterController {
             {
                 subdomain: 'api',
                 requireUserActor: true,
+                allowFullAccessToken: true,
             },
             async (req, res) => {
                 const { item_uid, item_path, sort_by, sort_order } =

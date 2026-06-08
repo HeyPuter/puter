@@ -35,6 +35,7 @@ import UIWindowSessionList from './UI/UIWindowSessionList.js';
 import UIWindowSignup from './UI/UIWindowSignup.js';
 import UIWindowRecoverPassword from './UI/UIWindowRecoverPassword.js';
 import { PROCESS_RUNNING } from './definitions.js';
+import create_access_token from './helpers/create_access_token.js';
 import item_icon from './helpers/item_icon.js';
 import update_last_touch_coordinates from './helpers/update_last_touch_coordinates.js';
 import update_mouse_position from './helpers/update_mouse_position.js';
@@ -855,8 +856,24 @@ window.initgui = async function (options) {
                         redirect_url: redirectURL,
                     });
                     if ( approved ) {
+                        // Hand the app a named, revocable full-API-access
+                        // token instead of the raw GUI/session token: it can
+                        // use the whole API but can't manage the account.
+                        let host = '';
+                        try { host = new URL(redirectURL).host; } catch ( e ) { /* ignore */ }
+                        let token;
+                        try {
+                            token = await create_access_token({
+                                label: host
+                                    ? `${i18n('token_label_external_app')} (${host})`
+                                    : i18n('token_label_external_app'),
+                            });
+                        } catch ( e ) {
+                            await UIAlert({ message: e?.message ?? String(e) });
+                            return;
+                        }
                         const url = new URL(redirectURL);
-                        url.searchParams.set('token', window.auth_token);
+                        url.searchParams.set('token', token);
                         window.location.href = url.href;
                         return;
                     }
@@ -1412,8 +1429,24 @@ window.initgui = async function (options) {
                     redirect_url: redirectURL,
                 });
                 if ( approved ) {
+                    // Hand the app a named, revocable full-API-access token
+                    // instead of the raw GUI/session token: it can use the
+                    // whole API but can't manage the account.
+                    let host = '';
+                    try { host = new URL(redirectURL).host; } catch ( e ) { /* ignore */ }
+                    let token;
+                    try {
+                        token = await create_access_token({
+                            label: host
+                                ? `${i18n('token_label_external_app')} (${host})`
+                                : i18n('token_label_external_app'),
+                        });
+                    } catch ( e ) {
+                        await UIAlert({ message: e?.message ?? String(e) });
+                        return;
+                    }
                     const url = new URL(redirectURL);
-                    url.searchParams.set('token', window.auth_token);
+                    url.searchParams.set('token', token);
                     window.location.href = url.href;
                     return;
                 }

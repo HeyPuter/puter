@@ -33,6 +33,15 @@ export interface ActorAccessToken {
     uid: string;
     issuer: Actor;
     authorized?: Actor | null;
+    /**
+     * Full-API-access ("personal access token") flag, set from the signed
+     * `full_access` JWT claim. Such a token may exercise everything its issuing
+     * user can do via the API and is admitted past `requireNonAccessTokenGate`
+     * — but is still rejected by `requireUserActor` / web-session gates, so it
+     * can never manage the account. Normal (scoped) access tokens leave this
+     * false and remain blocked from non-`allowAccessToken` routes.
+     */
+    fullAccess?: boolean;
 }
 
 export interface Actor {

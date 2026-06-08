@@ -146,6 +146,11 @@ export class LegacyFSController extends PuterController {
             {
                 subdomain: ['api', ''],
                 requireUserActor: true,
+                // The user's own credential may download their files; apps and
+                // scoped tokens stay blocked. antiCsrf still protects the
+                // cookie-authed GUI path — a bearer-token PAT is exempt below
+                // (CSRF can't forge a header-credentialed request).
+                allowFullAccessToken: true,
                 requireVerified: true,
                 antiCsrf: true,
             },

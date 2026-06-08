@@ -56,6 +56,7 @@ export class AppController extends PuterController {
             {
                 subdomain: 'api',
                 requireUserActor: true,
+                allowFullAccessToken: true,
             },
             async (req, res) => {
                 const apps = await this.appDriver.select({
@@ -71,6 +72,7 @@ export class AppController extends PuterController {
             {
                 subdomain: 'api',
                 requireUserActor: true,
+                allowFullAccessToken: true,
             },
             async (req, res) => {
                 const name = req.query?.name;
@@ -185,6 +187,7 @@ export class AppController extends PuterController {
             {
                 subdomain: 'api',
                 requireUserActor: true,
+                allowFullAccessToken: true,
             },
             async (req, res) => {
                 const raw = req.params.name;

@@ -73,6 +73,19 @@ export const antiCsrf = {
 export function requireAntiCsrf() {
     return async (req, _res, next) => {
         try {
+            // CSRF only applies to ambient credentials the browser attaches
+            // automatically (the session cookie). A full-access personal access
+            // token travels in the Authorization header — it can't be forged
+            // cross-origin — so it needs no anti-CSRF token, which is what makes
+            // routes like `/fs/down` reachable by a PAT. We deliberately scope
+            // this to full-access tokens (the only access tokens routed onto
+            // antiCsrf-protected endpoints): anything else — cookie-authed user
+            // actors, app actors, or a scoped token that somehow reaches here —
+            // still goes through the check below and fails closed.
+            if (req.actor?.accessToken?.fullAccess) {
+                return next();
+            }
+
             const sessionId = req.actor?.user?.uuid;
             if (!sessionId) {
                 return next(

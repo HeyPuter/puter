@@ -44,6 +44,7 @@ export class HostingController extends PuterController {
             {
                 subdomain: 'api',
                 requireUserActor: true,
+                allowFullAccessToken: true,
                 requireVerified: true,
             },
             async (req, res) => {

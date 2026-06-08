@@ -87,6 +87,12 @@ export interface AccessTokenPayload extends TokenPayloadBase {
     token_uid: string;
     user_uid: string;
     app_uid?: string;
+    /**
+     * Full-API-access ("personal access token") marker. Only ever set on
+     * user-issued tokens (never app-issued). Drives `actor.accessToken
+     * .fullAccess` — see ActorAccessToken in core/actor.ts.
+     */
+    full_access?: boolean;
 }
 
 export type AnyTokenPayload =

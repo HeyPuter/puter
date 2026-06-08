@@ -86,6 +86,17 @@ export interface RouteOptions {
     /** Reject app/access-token actors. Implies `requireAuth`. */
     requireUserActor?: boolean;
 
+    /**
+     * Only meaningful alongside `requireUserActor`. Relaxes the access-token
+     * half of that gate so a FULL-ACCESS personal access token (the user's own
+     * credential) is admitted — third-party apps and scoped tokens stay
+     * blocked. Use ONLY on user-resource / inference endpoints that gate with
+     * `requireUserActor` purely to keep apps out (e.g. the AI proxy). NEVER set
+     * on account/security/credential routes — those must stay closed to every
+     * access token. Default-deny: omitting this keeps PATs blocked.
+     */
+    allowFullAccessToken?: boolean;
+
     /** Allows access-tokens */
     allowAccessToken?: boolean;
 

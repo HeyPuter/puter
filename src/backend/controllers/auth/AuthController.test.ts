@@ -39,6 +39,7 @@ import { runWithContext } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { requireUserActorGate } from '../../core/http/middleware/gates.js';
 import { PuterServer } from '../../server.js';
+import { FULL_API_ACCESS } from '../../services/permission/consts.js';
 import { setupTestServer } from '../../testUtil.js';
 
 // ── Test harness ────────────────────────────────────────────────────
@@ -1285,6 +1286,78 @@ describe('AuthController.handleCreateAccessToken + handleRevokeAccessToken', () 
             user_uid: string;
         };
         expect(decoded.user_uid).toBe(actor.user.uuid);
+    });
+
+    // -- Full-API-access + labels --
+
+    it('mints a full-access token and stores a trimmed label on the session row', async () => {
+        const res = makeRes();
+        await controller.handleCreateAccessToken(
+            makeReq(
+                { permissions: [FULL_API_ACCESS], label: '  My CLI  ' },
+                { actor },
+            ),
+            res,
+        );
+        const decoded = server.services.token.verify(
+            'auth',
+            (res.body as { token: string }).token,
+        ) as {
+            type: string;
+            token_uid: string;
+            session_uid: string;
+            full_access?: boolean;
+        };
+        expect(decoded.type).toBe('access-token');
+
+        // Full access is a signed claim, not a stored permission row.
+        expect(decoded.full_access).toBe(true);
+        const permRows = (await server.clients.db.read(
+            'SELECT `permission` FROM `access_token_permissions` WHERE `token_uid` = ?',
+            [decoded.token_uid],
+        )) as Array<{ permission: string }>;
+        expect(permRows).toHaveLength(0);
+
+        const sessRows = (await server.clients.db.read(
+            'SELECT `label` FROM `sessions` WHERE `uuid` = ?',
+            [decoded.session_uid],
+        )) as Array<{ label: string }>;
+        expect(sessRows[0]?.label).toBe('My CLI');
+    });
+
+    it('caps an over-long label at 64 characters', async () => {
+        const res = makeRes();
+        await controller.handleCreateAccessToken(
+            makeReq(
+                { permissions: [FULL_API_ACCESS], label: 'x'.repeat(120) },
+                { actor },
+            ),
+            res,
+        );
+        const decoded = server.services.token.verify(
+            'auth',
+            (res.body as { token: string }).token,
+        ) as { session_uid: string };
+        const sessRows = (await server.clients.db.read(
+            'SELECT `label` FROM `sessions` WHERE `uuid` = ?',
+            [decoded.session_uid],
+        )) as Array<{ label: string }>;
+        expect(sessRows[0]?.label.length).toBe(64);
+    });
+
+    it('rejects a non-string label with 400', async () => {
+        await expect(
+            controller.handleCreateAccessToken(
+                makeReq(
+                    {
+                        permissions: [FULL_API_ACCESS],
+                        label: 123 as unknown as string,
+                    },
+                    { actor },
+                ),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
     });
 
     it('revoke-access-token: requires tokenOrUuid and returns ok:true on success', async () => {
