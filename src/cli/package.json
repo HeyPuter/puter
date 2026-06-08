@@ -1,6 +1,6 @@
 {
   "name": "@heyputer/cli",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "description": "CLI for Puter Platform - manage your sites and workers from the terminal.",
   "license": "MIT",
   "author": "Puter Technologies Inc.",
@@ -23,7 +23,7 @@
   },
   "dependencies": {
     "@clack/prompts": "^0.7.0",
-    "@heyputer/puter.js": "latest",
+    "@heyputer/puter.js": "^2.5.1",
     "chalk": "^5.3.0",
     "commander": "^12.1.0",
     "conf": "^13.0.0"
