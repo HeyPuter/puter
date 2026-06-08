@@ -140,6 +140,8 @@ export interface IAIProviderConfig {
     apiToken?: string;
     /** Override the provider's HTTP base URL (OpenRouter, Cloudflare, ElevenLabs, Ollama). */
     apiBaseUrl?: string;
+    /** Azure AI Foundry deployment endpoint (azure-openai). Required alongside `apiKey`. */
+    apiURL?: string;
     /** Cloudflare account id. */
     accountId?: string;
     /** ElevenLabs default voice id. */

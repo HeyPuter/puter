@@ -199,6 +199,66 @@ export const XAI_MODELS: IChatModel[] = [
         max_tokens: 30_000,
     },
     {
+        puterId: 'x-ai:x-ai/grok-4-20-reasoning',
+        // xAI exposes this as the dated snapshot id; `grok-4-20-reasoning`
+        // (and dotted forms) are accepted as aliases by callers.
+        id: 'grok-4.20-0309-reasoning',
+        modalities: { input: ['text', 'image', 'pdf'], output: ['text'] },
+        open_weights: false,
+        tool_call: true,
+        knowledge: '2025-07',
+        release_date: '2026-03-09',
+        name: 'Grok 4.20 (Reasoning)',
+        aliases: [
+            'x-ai/grok-4-20-reasoning',
+            'grok-4-20-reasoning',
+            'grok-4.20-reasoning',
+            'x-ai/grok-4.20-reasoning',
+        ],
+        context: 2_000_000,
+        costs_currency: 'usd-cents',
+        input_cost_key: 'prompt_tokens',
+        output_cost_key: 'completion_tokens',
+        costs: {
+            tokens: 1_000_000,
+            // models.dev xai: input $1.25 / output $2.5 / cache_read $0.2 per 1M.
+            prompt_tokens: 125,
+            completion_tokens: 250,
+            cached_tokens: 20,
+        },
+        max_tokens: 30_000,
+    },
+    {
+        puterId: 'x-ai:x-ai/grok-4-20-non-reasoning',
+        // xAI exposes this as the dated snapshot id; `grok-4-20-non-reasoning`
+        // (and dotted forms) are accepted as aliases by callers.
+        id: 'grok-4.20-0309-non-reasoning',
+        modalities: { input: ['text', 'image', 'pdf'], output: ['text'] },
+        open_weights: false,
+        tool_call: true,
+        knowledge: '2025-07',
+        release_date: '2026-03-09',
+        name: 'Grok 4.20 (Non-Reasoning)',
+        aliases: [
+            'x-ai/grok-4-20-non-reasoning',
+            'grok-4-20-non-reasoning',
+            'grok-4.20-non-reasoning',
+            'x-ai/grok-4.20-non-reasoning',
+        ],
+        context: 2_000_000,
+        costs_currency: 'usd-cents',
+        input_cost_key: 'prompt_tokens',
+        output_cost_key: 'completion_tokens',
+        costs: {
+            tokens: 1_000_000,
+            // models.dev xai: input $1.25 / output $2.5 / cache_read $0.2 per 1M.
+            prompt_tokens: 125,
+            completion_tokens: 250,
+            cached_tokens: 20,
+        },
+        max_tokens: 30_000,
+    },
+    {
         puterId: 'x-ai:x-ai/grok-4-1-fast',
         id: 'grok-4-1-fast',
         modalities: { input: ['text', 'image'], output: ['text'] },

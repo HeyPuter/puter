@@ -364,6 +364,30 @@ export const OPEN_AI_MODELS: IChatModel[] = [
         max_tokens: 128000,
     },
     {
+        puterId: 'openai:openai/gpt-5-codex',
+        id: 'gpt-5-codex',
+        modalities: { input: ['text', 'image'], output: ['text'] },
+        open_weights: false,
+        tool_call: true,
+        knowledge: '2024-09-30',
+        release_date: '2025-09-15',
+        aliases: ['openai/gpt-5-codex'],
+        costs_currency: 'usd-cents',
+        input_cost_key: 'prompt_tokens',
+        output_cost_key: 'completion_tokens',
+        costs: {
+            // models.dev openai: input $1.25 / output $10 / cache_read $0.125
+            // per 1M — identical to gpt-5.
+            tokens: 1_000_000,
+            prompt_tokens: 125,
+            cached_tokens: 13,
+            completion_tokens: 1000,
+        },
+        context: 128_000,
+        max_tokens: 128000,
+        responses_api_only: true,
+    },
+    {
         puterId: 'openai:openai/gpt-5-mini',
         id: 'gpt-5-mini-2025-08-07',
         modalities: { input: ['text', 'image'], output: ['text'] },
