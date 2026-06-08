@@ -116,8 +116,9 @@ async function UIWindowAuthMe (options = {}) {
         h += `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#6b7280" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/>
         </svg>`;
-        h += `<span style="font-size: 13px; color: #374151;">${i18n('your_auth_token')}</span>`;
+        h += `<span style="font-size: 13px; color: #374151;">${i18n('shared_api_token')}</span>`;
         h += '</div>';
+        h += `<p style="margin: 8px 0 0; font-size: 12px; color: #6b7280; line-height: 1.4;">${i18n('shared_api_token_note')}</p>`;
         h += '</div>';
 
         // Buttons
