@@ -18,7 +18,14 @@
  */
 
 import UIWindow from './UIWindow.js';
+import UIWindowManageSessions from './UIWindowManageSessions.js';
+import create_access_token from '../helpers/create_access_token.js';
 
+// Creates a named, revocable full-API-access token and shows it once.
+// Replaces the old "copy your raw GUI/session token" behaviour: the copied
+// token used to be a session-equivalent credential that could escalate to
+// full account control; the minted access token can use the whole API but is
+// locked out of account management (see create_access_token.js).
 function UIWindowCopyToken (options = {}) {
     return new Promise(async (resolve) => {
         let h = '';
@@ -46,29 +53,49 @@ function UIWindowCopyToken (options = {}) {
                         <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/>
                     </svg>`;
             h += '</div>';
-            h += `<h2 style="margin: 0; font-size: 17px; font-weight: 600; color: white;">${i18n('auth_token')}</h2>`;
-            h += `<p style="margin: 6px 0 0; font-size: 13px; color: rgba(255,255,255,0.8); text-align: center; line-height: 1.4;">${i18n('copy_token_message')}</p>`;
+            h += `<h2 style="margin: 0; font-size: 17px; font-weight: 600; color: white;">${i18n('create_api_token')}</h2>`;
+            h += `<p style="margin: 6px 0 0; font-size: 13px; color: rgba(255,255,255,0.8); text-align: center; line-height: 1.4;">${i18n('create_token_message')}</p>`;
             h += '</div>';
         }
 
         h += '<div class="copy-token" style="padding: 20px; border-bottom: 1px solid #ced7e1;">';
-        if ( ! options.show_header ) {
-            h += `<div class="form-label" style="margin-bottom: 5px; font-size: 13px; color: #666;">${i18n('copy_token_message')}</div>`;
-        }
         if ( options.show_close_button ) {
             h += '<div class="qr-code-window-close-btn generic-close-window-button"> &times; </div>';
         }
-        h += `<div style="display: flex; gap: 8px; margin-top: ${options.show_header ? '0' : '15'}px; margin-bottom: 15px;">`;
-        h += `<input type="text" class="token-input" readonly value="${html_encode(window.auth_token)}" style="flex: 1; font-family: monospace; font-size: 13px;" />`;
+
+        // -- Phase A: create form --
+        h += '<div class="create-token-form">';
+        if ( ! options.show_header ) {
+            h += `<div class="form-label" style="margin-bottom: 12px; font-size: 13px; color: #666;">${i18n('create_token_message')}</div>`;
+        }
+        h += '<div class="form-error-msg" style="display:none; margin-bottom: 12px;"></div>';
+        h += `<label class="form-label" style="font-size: 13px;" for="token-label-input">${i18n('token_label')}</label>`;
+        h += `<input id="token-label-input" type="text" class="token-label-input" maxlength="64" autocomplete="off" placeholder="${i18n('token_label_placeholder')}" style="width: 100%; box-sizing: border-box; margin: 5px 0 15px;" />`;
+        h += `<label class="form-label" style="font-size: 13px;" for="token-expiry-select">${i18n('token_expiry')}</label>`;
+        h += `<select id="token-expiry-select" class="token-expiry-select" style="width: 100%; box-sizing: border-box; margin: 5px 0 15px;">`;
+        h += `<option value="">${i18n('token_expiry_never')}</option>`;
+        h += `<option value="7d">${i18n('token_expiry_7d')}</option>`;
+        h += `<option value="30d">${i18n('token_expiry_30d')}</option>`;
+        h += `<option value="90d">${i18n('token_expiry_90d')}</option>`;
+        h += '</select>';
+        h += `<button class="button button-primary button-block create-token-btn">${i18n('create_token')}</button>`;
+        h += '</div>';
+
+        // -- Phase B: result (shown once, after mint) --
+        h += '<div class="token-result" style="display:none;">';
+        h += `<div class="token-result-warning" style="margin-bottom: 12px; font-size: 13px; color: #b54708; background: #fffaeb; border: 1px solid #fedf89; border-radius: 6px; padding: 10px;">${i18n('token_shown_once_warning')}</div>`;
+        h += '<div style="display: flex; gap: 8px; margin-bottom: 12px;">';
+        h += '<input type="text" class="token-input" readonly value="" style="flex: 1; font-family: monospace; font-size: 13px;" />';
         h += `<button class="button button-primary copy-token-btn">${i18n('copy')}</button>`;
         h += '</div>';
-        h += '<div class="token-copied-msg form-success-msg" style="display: none; text-align: center;">';
-        h += i18n('token_copied');
+        h += `<div class="token-copied-msg form-success-msg" style="display: none; text-align: center; margin-bottom: 8px;">${i18n('token_copied')}</div>`;
+        h += `<div style="font-size: 12px; color: #666;">${i18n('token_manage_hint')} <a href="#" class="token-manage-sessions-link">${i18n('ui_manage_sessions')}</a>.</div>`;
         h += '</div>';
+
         h += '</div>';
 
         const el_window = await UIWindow({
-            title: i18n('auth_token'),
+            title: i18n('create_api_token'),
             app: 'copy-token',
             single_instance: true,
             icon: null,
@@ -99,19 +126,71 @@ function UIWindowCopyToken (options = {}) {
             ...options.window_options,
         });
 
-        $(el_window).find('.copy-token-btn').on('click', function () {
+        const $win = $(el_window);
+
+        const showError = (msg) => {
+            $win.find('.form-error-msg').text(msg).show();
+        };
+
+        const doCreate = async (label) => {
+            const $btn = $win.find('.create-token-btn');
+            const expiresIn = $win.find('.token-expiry-select').val() || null;
+            $win.find('.form-error-msg').hide();
+            $btn.addClass('disabled').prop('disabled', true);
+            try {
+                const token = await create_access_token({ label, expiresIn });
+                $win.find('.create-token-form').hide();
+                $win.find('.token-input').val(token);
+                $win.find('.token-result').show();
+            } catch ( e ) {
+                showError(e?.message ?? String(e));
+                $btn.removeClass('disabled').prop('disabled', false);
+            }
+        };
+
+        $win.find('.create-token-btn').on('click', function () {
+            const label = ($win.find('.token-label-input').val() || '').trim();
+            if ( ! label ) {
+                showError(i18n('token_label_required'));
+                $win.find('.token-label-input').focus();
+                return;
+            }
+            doCreate(label);
+        });
+
+        // Enter in the label field submits.
+        $win.find('.token-label-input').on('keydown', function (e) {
+            if ( e.key === 'Enter' ) {
+                e.preventDefault();
+                $win.find('.create-token-btn').trigger('click');
+            }
+        });
+
+        $win.find('.copy-token-btn').on('click', function () {
             const $btn = $(this);
-            navigator.clipboard.writeText(window.auth_token).then(() => {
-                $(el_window).find('.token-copied-msg').fadeIn();
+            navigator.clipboard.writeText($win.find('.token-input').val()).then(() => {
+                $win.find('.token-copied-msg').fadeIn();
                 $btn.text(i18n('token_copied'));
                 setTimeout(() => {
-                    $(el_window).find('.token-copied-msg').fadeOut();
+                    $win.find('.token-copied-msg').fadeOut();
                     $btn.text(i18n('copy'));
                 }, 2000);
             });
         });
 
-        $(el_window).on('close', () => {
+        $win.find('.token-manage-sessions-link').on('click', function (e) {
+            e.preventDefault();
+            UIWindowManageSessions({
+                window_options: {
+                    parent_uuid: $win.attr('data-element_uuid'),
+                    backdrop: true,
+                    close_on_backdrop_click: true,
+                    stay_on_top: true,
+                },
+            });
+        });
+
+        $win.on('close', () => {
             resolve();
         });
     });

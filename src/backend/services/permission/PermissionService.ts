@@ -23,6 +23,7 @@ import { Context } from '../../core/context';
 import { HttpError } from '../../core/http/HttpError.js';
 import { PuterService } from '../types';
 import {
+    FULL_API_ACCESS,
     MANAGE_PERM_PREFIX,
     PERMISSION_SCAN_CACHE_TTL_SECONDS,
 } from './consts';
@@ -431,6 +432,31 @@ export class PermissionService extends PuterService {
     ): Promise<void> {
         if (!actor.accessToken) return;
         const issuerActor = actor.accessToken.issuer;
+
+        // Full-API-access token: it may do anything its issuing user can do.
+        // Resolve every requested option directly against the issuer (the
+        // owner FS implicator, group/service grants, and user-to-user grants
+        // all apply to the user actor), with no per-permission grant row
+        // required. Account-management endpoints stay closed because they gate
+        // on actor type (requireUserActor / session cookie), not permissions.
+        const hasFullAccess = await this.stores.permission.hasAccessTokenPerm(
+            actor.accessToken.uid,
+            FULL_API_ACCESS,
+        );
+        if (hasFullAccess) {
+            for (const permission of options) {
+                const issuerReading = await this.scan(issuerActor, permission);
+                reading.push({
+                    $: 'path',
+                    via: 'access-token',
+                    has_terminal: readingHasTerminal(issuerReading),
+                    permission,
+                    reading: issuerReading,
+                });
+            }
+            return;
+        }
+
         for (const permission of options) {
             const hasTokenPerm =
                 await this.stores.permission.hasAccessTokenPerm(
