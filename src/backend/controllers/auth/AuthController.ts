@@ -2820,6 +2820,22 @@ export class AuthController extends PuterController {
     // -- Private helpers ----------------------------------------------
 
     async #cascadeDeleteUser(userId: number): Promise<void> {
+        // Capture the identifiers downstream teardown needs before the row is
+        // gone — the marketplace extension cancels the user's Stripe
+        // subscriptions off `user.delete`, keyed by uuid / customer id.
+        let userUuid: string | undefined;
+        let stripeCustomerId: string | null = null;
+        try {
+            const rows = (await this.clients.db.read(
+                'SELECT `uuid`, `stripe_customer_id` FROM `user` WHERE `id` = ?',
+                [userId],
+            )) as Array<{ uuid?: string; stripe_customer_id?: string | null }>;
+            userUuid = rows[0]?.uuid;
+            stripeCustomerId = rows[0]?.stripe_customer_id ?? null;
+        } catch (e) {
+            console.warn('[cascade-delete-user] identifier lookup failed:', e);
+        }
+
         try {
             await this.services.fs.removeAllForUser(userId);
         } catch (e) {
@@ -2837,6 +2853,24 @@ export class AuthController extends PuterController {
             userId,
         ]);
         await this.stores.user.invalidateById(userId);
+
+        // Fire-and-forget: let listeners purge external state tied to the
+        // account (Stripe subscriptions are cancelled immediately, without
+        // proration). Emitted after the row delete — listeners key off the
+        // payload, not the DB row.
+        try {
+            this.clients.event?.emit(
+                'user.delete',
+                {
+                    user_id: userId,
+                    user_uuid: userUuid,
+                    stripe_customer_id: stripeCustomerId,
+                },
+                {},
+            );
+        } catch {
+            // ignore — event emission shouldn't block deletion
+        }
     }
 
     async #generateRandomUsername(): Promise<string> {

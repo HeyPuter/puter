@@ -160,6 +160,15 @@ export type EventMap = {
         new_username: string;
     };
     'user.email-changed': { user_id: number; new_email: string };
+    // Fired after an account is torn down (self-serve, admin, or temp-user
+    // logout cleanup). Listeners purge external state tied to the account —
+    // e.g. the marketplace extension cancels the user's Stripe subscriptions.
+    // The row is already gone by emit time, so identifiers ride the payload.
+    'user.delete': {
+        user_id: number;
+        user_uuid?: string;
+        stripe_customer_id?: string | null;
+    };
 
     // ---- Filesystem ----
     'fs.copy.node': {

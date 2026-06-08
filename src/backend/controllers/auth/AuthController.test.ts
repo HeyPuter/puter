@@ -74,6 +74,7 @@ type SignupValidateOverride = (data: {
 
 let signupValidateOverride: SignupValidateOverride | null = null;
 const heardSignupSuccess: Array<Record<string, unknown>> = [];
+const heardUserDelete: Array<Record<string, unknown>> = [];
 
 const installSharedListeners = () => {
     eventClient.on('puter.signup.validate', (_k: unknown, data: unknown) => {
@@ -85,6 +86,9 @@ const installSharedListeners = () => {
     });
     eventClient.on('puter.signup.success', (_k: unknown, data: unknown) => {
         heardSignupSuccess.push(data as Record<string, unknown>);
+    });
+    eventClient.on('user.delete', (_k: unknown, data: unknown) => {
+        heardUserDelete.push(data as Record<string, unknown>);
     });
 };
 
@@ -2681,6 +2685,35 @@ describe('AuthController.handleDeleteOwnUser', () => {
             force: true,
         });
         expect(after).toBeFalsy();
+    });
+
+    it('emits user.delete with the uuid + stripe customer id for downstream teardown', async () => {
+        // `stripe_customer_id` ships in the MySQL/Postgres migrations but not
+        // the sqlite ones the test harness runs — add it so the delete path
+        // captures it (it's how the marketplace extension cancels the sub).
+        try {
+            await server.clients.db.write(
+                'ALTER TABLE user ADD COLUMN stripe_customer_id TEXT',
+                [],
+            );
+        } catch {
+            /* already exists */
+        }
+        const { user, actor } = await makeUserAndActor();
+        await server.clients.db.write(
+            'UPDATE user SET stripe_customer_id = ? WHERE id = ?',
+            ['cus_delete_test', user.id],
+        );
+
+        heardUserDelete.length = 0;
+        await controller.handleDeleteOwnUser(makeReq({}, { actor }), makeRes());
+
+        const evt = heardUserDelete.find((e) => e.user_id === user.id);
+        expect(evt).toMatchObject({
+            user_id: user.id,
+            user_uuid: user.uuid,
+            stripe_customer_id: 'cus_delete_test',
+        });
     });
 });
 
