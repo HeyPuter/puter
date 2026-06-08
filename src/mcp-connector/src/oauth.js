@@ -87,17 +87,27 @@ async function sha256b64url(str) {
 
 // ---- response helpers ------------------------------------------------------
 
+// Every OAuth response is per-request (sealed flow/code blobs, one-time auth
+// codes, tokens) and MUST NOT be cached. Without this, a caching layer in front
+// of the worker (e.g. the puter.com zone) can replay one user's /authorize
+// redirect — and thus their stale callback port / code — to everyone.
+// RFC 6749 §5.1 also mandates no-store on the token endpoint.
+const NO_STORE = {
+    'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
+    Pragma: 'no-cache',
+};
+
 function json(status, obj) {
     return new Response(JSON.stringify(obj), {
         status,
-        headers: { 'content-type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+        headers: { 'content-type': 'application/json', 'Access-Control-Allow-Origin': '*', ...NO_STORE },
     });
 }
 
 function redirect(location) {
     return new Response(null, {
         status: 302,
-        headers: { Location: location, 'Access-Control-Allow-Origin': '*' },
+        headers: { Location: location, 'Access-Control-Allow-Origin': '*', ...NO_STORE },
     });
 }
 

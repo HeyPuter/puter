@@ -145,7 +145,10 @@ function formatPuterError(err) {
 function jsonResponse(body) {
     return new Response(JSON.stringify(body), {
         status: 200,
-        headers: { 'content-type': 'application/json' },
+        // Per-user MCP results must never be cached by any CDN in front of the
+        // worker. (POST isn't cached by default, but be explicit — a misconfigured
+        // edge cache that ignores method/query could otherwise leak responses.)
+        headers: { 'content-type': 'application/json', 'Cache-Control': 'no-store' },
     });
 }
 
@@ -166,6 +169,7 @@ async function mcpPost(event) {
                 headers: {
                     'content-type': 'application/json',
                     'Access-Control-Allow-Origin': '*',
+                    'Cache-Control': 'no-store',
                     'WWW-Authenticate': `Bearer resource_metadata="${origin}/.well-known/oauth-protected-resource"`,
                 },
             },
@@ -193,9 +197,12 @@ async function mcpPost(event) {
     return jsonResponse(response);
 }
 
-// Discovery / health.
+// Discovery / health. This is the ONLY endpoint safe to cache: it's public,
+// identical for every caller, and hammered by clients polling for the tool list.
+// It's explicitly marked cacheable so a "respect-origin" CDN policy caches this
+// and nothing else (every other response sends no-store).
 function mcpInfo() {
-    return {
+    const body = {
         name: 'puter-mcp',
         description:
             'MCP server for Puter filesystem, static website hosting, serverless worker, and app registration operations. POST JSON-RPC to ' +
@@ -203,6 +210,14 @@ function mcpInfo() {
         transport: 'streamable-http',
         tools: listTools().map((t) => t.name),
     };
+    return new Response(JSON.stringify(body), {
+        status: 200,
+        headers: {
+            'content-type': 'application/json',
+            'Access-Control-Allow-Origin': '*',
+            'Cache-Control': 'public, max-age=300',
+        },
+    });
 }
 
 /** Attach the MCP routes to the (already-initialized) router. */
