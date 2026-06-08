@@ -17,8 +17,9 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { PassThrough } from 'node:stream';
 import crypto from 'node:crypto';
+import { PassThrough } from 'node:stream';
+import { EventMap } from '../../clients/event/types.js';
 import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import {
@@ -28,12 +29,17 @@ import {
 import type { DriverStreamResult } from '../meta.js';
 import { PuterDriver } from '../types.js';
 import { AI_CONCURRENT, AI_RATE_LIMIT } from '../util/aiLimits.js';
+import { AlibabaProvider } from './providers/alibaba/AlibabaProvider.js';
+import { AzureChatProvider } from './providers/azure/AzureChatProvider.js';
+import { AzureResponsesProvider } from './providers/azure/AzureResponsesProvider.js';
 import { ClaudeProvider } from './providers/claude/ClaudeProvider.js';
 import { DeepSeekProvider } from './providers/deepseek/DeepSeekProvider.js';
 import { FakeChatProvider } from './providers/FakeChatProvider.js';
 import { GeminiChatProvider } from './providers/gemini/GeminiChatProvider.js';
 import { GroqAIProvider } from './providers/groq/GroqAIProvider.js';
+import { MiniMaxProvider } from './providers/minimax/MiniMaxProvider.js';
 import { MistralAIProvider } from './providers/mistral/MistralAiProvider.js';
+import { MoonshotProvider } from './providers/moonshot/MoonshotProvider.js';
 import { OllamaChatProvider } from './providers/ollama/OllamaProvider.js';
 import { OpenAiChatProvider } from './providers/openai/OpenAiChatCompletionsProvider.js';
 import { OpenAiResponsesChatProvider } from './providers/openai/OpenAiChatResponsesProvider.js';
@@ -41,9 +47,6 @@ import { OpenRouterProvider } from './providers/openrouter/OpenRouterProvider.js
 import { TogetherAIProvider } from './providers/together/TogetherAIProvider.js';
 import { XAIProvider } from './providers/xai/XAIProvider.js';
 import { ZAIProvider } from './providers/zai/ZAIProvider.js';
-import { AlibabaProvider } from './providers/alibaba/AlibabaProvider.js';
-import { MoonshotProvider } from './providers/moonshot/MoonshotProvider.js';
-import { MiniMaxProvider } from './providers/minimax/MiniMaxProvider.js';
 import type {
     IChatCompleteResult,
     IChatModel,
@@ -57,7 +60,6 @@ import {
     normalize_single_message,
 } from './utils/Messages.js';
 import { AIChatStream } from './utils/Streaming.js';
-import { EventMap } from '../../clients/event/types.js';
 
 const MAX_FALLBACKS = 4; // includes first attempt
 
@@ -794,6 +796,43 @@ export class ChatCompletionDriver extends PuterDriver {
                 this.services.fs,
                 { apiKey: claudeKey },
             );
+        }
+
+        // Azure AI Foundry (OpenAI + xAI Grok). Registered before the regular
+        // OpenAI/xAI providers so that since its costs mirror theirs but
+        // Azure is preferred for us, it takes precedence in the per-model
+        // bucket
+        const azureOpenai = providers['azure-openai'];
+        const azureOpenaiKey = readKey(azureOpenai);
+        const azureOpenaiURL = azureOpenai?.apiURL as string | undefined;
+        if (azureOpenaiKey && azureOpenaiURL) {
+            const azureStores = {
+                fsEntry: this.stores.fsEntry,
+                s3Object: this.stores.s3Object,
+            };
+            const azureConfig = {
+                apiKey: azureOpenaiKey,
+                apiURL: azureOpenaiURL,
+            };
+            const azureCompletions = new AzureChatProvider(
+                metering,
+                azureStores,
+                this.services.fs,
+                azureConfig,
+            );
+            // Codex / Responses-API-only models can't use Chat Completions, so
+            // they route through a sibling Responses provider pointed at the
+            // same Azure endpoint. web_search (also Responses-only) delegates
+            // here too.
+            const azureResponses = new AzureResponsesProvider(
+                metering,
+                azureStores,
+                this.services.fs,
+                azureConfig,
+            );
+            azureCompletions.setResponsesProvider(azureResponses);
+            this.#providers['azure-openai'] = azureCompletions;
+            this.#providers['azure-openai-responses'] = azureResponses;
         }
 
         const openaiKey = readKey(providers['openai-completion']);

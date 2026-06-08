@@ -260,6 +260,10 @@
         // ─ Chat / completion ─
         "claude": { "apiKey": "" },
         "openai-completion": { "apiKey": "" },
+        "azure-openai": {
+            "apiKey": "",
+            "apiURL": ""
+        },
         "gemini": { "apiKey": "" },
         "groq": { "apiKey": "" },
         "deepseek": { "apiKey": "" },
