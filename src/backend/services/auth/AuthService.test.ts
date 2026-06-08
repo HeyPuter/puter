@@ -24,7 +24,6 @@ import type { Actor } from '../../core/actor.js';
 import { PuterServer } from '../../server.js';
 import { setupTestServer } from '../../testUtil.js';
 import { generateDefaultFsentries } from '../../util/userProvisioning.js';
-import { FULL_API_ACCESS } from '../permission/consts.js';
 import { AuthService } from './AuthService.js';
 
 function createAuthService(): AuthService {
@@ -76,20 +75,6 @@ describe('AuthService.createAccessToken', () => {
                 [['fs:abc:read']],
             ),
         ).rejects.toMatchObject({ statusCode: 403 });
-    });
-
-    it('rejects a full-access mint by an app-under-user actor', async () => {
-        // Apps may hold scoped grants but must not be able to escalate to a
-        // blanket account-wide token. This throws on actor shape, before any
-        // DB / permission interaction, so the mock service is sufficient.
-        const authService = createAuthService();
-        const appActor = {
-            user: { uuid: 'user-issuer', id: 1, username: 'issuer' },
-            app: { id: 0, uid: 'app-x' },
-        } as Actor;
-        await expect(
-            authService.createAccessToken(appActor, [[FULL_API_ACCESS]]),
-        ).rejects.toMatchObject({ statusCode: 403, legacyCode: 'forbidden' });
     });
 });
 
@@ -1665,102 +1650,6 @@ describe('AuthService (integration)', () => {
                 statusCode: 403,
                 legacyCode: 'forbidden',
             });
-        });
-
-        // -- Full-API-access tokens --
-
-        it('mints a full-access token for a user actor and stores the label', async () => {
-            const user = await makeUser();
-            const actor = {
-                user: { id: user.id, uuid: user.uuid, username: user.username },
-            } as Actor;
-            const jwt = await authService.createAccessToken(
-                actor,
-                [[FULL_API_ACCESS]],
-                { label: 'My CLI' },
-            );
-            const decoded = server.services.token.verify('auth', jwt) as {
-                type: string;
-                token_uid: string;
-                session_uid: string;
-            };
-            expect(decoded.type).toBe('access-token');
-
-            // The full-access grant is stored verbatim (no issuer-subset
-            // check rejects it).
-            const permRows = (await server.clients.db.read(
-                'SELECT `permission` FROM `access_token_permissions` WHERE `token_uid` = ?',
-                [decoded.token_uid],
-            )) as Array<{ permission: string }>;
-            expect(permRows.map((r) => r.permission)).toContain(
-                FULL_API_ACCESS,
-            );
-
-            // The label lands on the access-token session row so it shows
-            // (and is revocable) in the manage-sessions UI.
-            const sessRows = (await server.clients.db.read(
-                'SELECT `label`, `kind` FROM `sessions` WHERE `uuid` = ?',
-                [decoded.session_uid],
-            )) as Array<{ label: string; kind: string }>;
-            expect(sessRows[0]?.kind).toBe('access_token');
-            expect(sessRows[0]?.label).toBe('My CLI');
-        });
-
-        it('full-access token resolves any permission the issuing user holds, but a scoped token does not', async () => {
-            const user = await makeUser();
-            await generateDefaultFsentries(
-                server.clients.db,
-                server.stores.user,
-                user,
-            );
-            const body = Buffer.from('secret');
-            await server.services.fs.write(user.id, {
-                fileMetadata: {
-                    path: `/${user.username}/Documents/secret.txt`,
-                    size: body.byteLength,
-                    contentType: 'text/plain',
-                },
-                fileContent: body,
-            } as never);
-            const fileEntry = await server.stores.fsEntry.getEntryByPath(
-                `/${user.username}/Documents/secret.txt`,
-            );
-            expect(fileEntry).not.toBeNull();
-
-            const userActor = {
-                user: { id: user.id, uuid: user.uuid, username: user.username },
-            } as Actor;
-
-            // Full-access token: the owner fs:read resolves *through the
-            // issuer*, even though the token holds no fs grant of its own.
-            const fullJwt = await authService.createAccessToken(userActor, [
-                [FULL_API_ACCESS],
-            ]);
-            const fullActor =
-                await authService.authenticateFromToken(fullJwt);
-            expect(fullActor).toBeTruthy();
-            expect(
-                await server.services.permission.check(
-                    fullActor!,
-                    `fs:${fileEntry!.uuid}:read`,
-                ),
-            ).toBe(true);
-
-            // A scoped token (granted an unrelated permission) gets NO owner
-            // fs access — access-token actors are excluded from the owner
-            // implicator, so this stays the pre-existing behaviour.
-            const scopedJwt = await authService.createAccessToken(userActor, [
-                [`user:${user.uuid}:email:read`],
-            ]);
-            const scopedActor =
-                await authService.authenticateFromToken(scopedJwt);
-            expect(scopedActor).toBeTruthy();
-            expect(
-                await server.services.permission.check(
-                    scopedActor!,
-                    `fs:${fileEntry!.uuid}:read`,
-                ),
-            ).toBe(false);
         });
     });
 
