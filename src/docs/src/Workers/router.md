@@ -82,6 +82,8 @@ router.get("/files/*path", async ({ params }) => {
 });
 ```
 
+A wildcard **must be named** — write `*path` (or any name you like), not a bare `*`. A pattern like `/files/*` won't act as a wildcard: with no name after it, the `*` is treated as a literal character, so the route only matches the exact path `/files/*`. The name is what gives the router a key to expose the captured value on `params`.
+
 A common use is a catch-all route for unmatched paths — define it last so it only runs when nothing else matched (see the [404 Handler](#examples) example below).
 
 ## CORS
