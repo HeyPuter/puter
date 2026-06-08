@@ -97,9 +97,17 @@ $(document).on('click', 'a:not(.skip-insta-load):not([target="_blank"])', functi
             // top of the page. The browser only does this natively on a full
             // page load, so the insta-loader has to handle it here.
             const hash = window.location.hash;
-            const target = hash.length > 1
-                ? document.getElementById(decodeURIComponent(hash.slice(1)))
-                : null;
+            let target = null;
+            if ( hash.length > 1 ) {
+                const id = hash.slice(1);
+                try {
+                    // Pasted/hand-typed URLs may contain malformed
+                    // percent-encoding, which makes decodeURIComponent throw.
+                    target = document.getElementById(decodeURIComponent(id));
+                } catch ( e ) {
+                    target = document.getElementById(id);
+                }
+            }
             if ( target ) {
                 target.scrollIntoView();
             } else {
