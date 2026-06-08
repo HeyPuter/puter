@@ -93,9 +93,20 @@ $(document).on('click', 'a:not(.skip-insta-load):not([target="_blank"])', functi
         $('#toc-wrapper').html($(data).find('#toc-wrapper').html());
 
         setTimeout(() => {
-            $('body').animate({
-                scrollTop: 0,
-            }, 100);
+            // If the URL has a hash, scroll to that heading instead of the
+            // top of the page. The browser only does this natively on a full
+            // page load, so the insta-loader has to handle it here.
+            const hash = window.location.hash;
+            const target = hash.length > 1
+                ? document.getElementById(decodeURIComponent(hash.slice(1)))
+                : null;
+            if ( target ) {
+                target.scrollIntoView();
+            } else {
+                $('body').animate({
+                    scrollTop: 0,
+                }, 100);
+            }
         }, 30);
 
         //set title of page
