@@ -8,7 +8,7 @@ Creates and deploys a new worker from a JavaScript file containing [router](../r
 
 A worker is tied to its **name**: you create it **once** and keep that name. To deploy changes, don't call `create()` again with a new name — instead overwrite the worker's source file (see [Updating a worker](#updating-a-worker) below). Recreating under a different name leaves the old worker live at its old URL while your callers end up pointing at an orphaned one.
 
-<div class="info">To create a worker, you'll need a <a href="https://puter.com/">Puter account</a> with a verified email address. After a worker is created or updated, full propagation may take between 5 to 30 seconds to take effect across all edge servers.</div>
+<div class="info">To create a worker, you'll need a <a href="https://puter.com/">Puter account</a> with a verified email address. After a worker is created or updated, full propagation may take between 5 and 30 seconds to take effect across all edge servers.</div>
 
 ## Syntax
 
