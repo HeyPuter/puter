@@ -6,7 +6,7 @@
 ## Install
 
 ```sh
-npm install @heyputer/cli
+npm install -g @heyputer/cli
 ```
 
 Requires Node 18+.
