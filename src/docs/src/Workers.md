@@ -173,7 +173,7 @@ The quickest way to publish a worker is to create it on [puter.com](https://pute
     </li>
 </ol>
 
-<!-- ### Automate with GitHub Actions
+### Automate with GitHub Actions
 
 If your worker's code lives on GitHub, you can redeploy it automatically on every push using the [Puter Worker Deploy Action](https://github.com/HeyPuter/puter-worker-deploy-action).
 
@@ -193,13 +193,13 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Deploy worker
-        uses: HeyPuter/puter-worker-deploy-action@v1
+        uses: HeyPuter/puter-worker-deploy-action@v1.0.1
         with:
           worker_name: my-api             # publishes to my-api.puter.work
+          puter_path: ~/Workers/my-api/   # where to store the files on Puter
           source_path: worker             # the folder containing your worker
           entry_file: index.js            # the worker's entry file
-          puter_path: ~/workers/my-api    # where to store the files on Puter
           puter_token: ${{ secrets.PUTER_TOKEN }}
 ```
 
-<div class="info">Store your Puter auth token as a GitHub Actions secret named <code>PUTER_TOKEN</code>. See the <a href="https://github.com/HeyPuter/puter-worker-deploy-action">action's README</a> for how to obtain a token and for the full list of options.</div> -->
+<div class="info">Create a new repository secret named <code>PUTER_TOKEN</code> and set its value to your Puter auth token (see <a href="https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/use-secrets#creating-secrets-for-a-repository">creating secrets for a repository</a>). To get your auth token, follow the <a href="https://developer.puter.com/tutorials/puter-auth-token/">Puter auth token tutorial</a>.</div>
