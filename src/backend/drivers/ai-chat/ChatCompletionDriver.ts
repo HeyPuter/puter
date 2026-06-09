@@ -279,7 +279,7 @@ export class ChatCompletionDriver extends PuterDriver {
 
         let intendedProvider = args.provider || '';
         if (!args.model && !intendedProvider) {
-            intendedProvider = 'claude'; // default provider
+            intendedProvider = 'azure-openai'; // default provider
         }
         if (
             !args.model &&
