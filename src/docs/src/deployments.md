@@ -72,9 +72,9 @@ jobs:
       - name: Deploy website
         uses: HeyPuter/puter-subdomain-deploy-action@v1.0.6
         with:
-          subdomain: my-site            # publishes to my-site.puter.site
-          source_path: dist             # the folder to deploy (e.g. your build output)
-          puter_path: ~/sites/my-site   # where to store the files on Puter
+          subdomain: my-site                        # publishes to my-site.puter.site
+          puter_path: ~/Sites/my-site/deployment/   # where to store the files on Puter
+          source_path: dist                         # the folder to deploy (e.g. your build output)
           puter_token: ${{ secrets.PUTER_TOKEN }}
 ```
 

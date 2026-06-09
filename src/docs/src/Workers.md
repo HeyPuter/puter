@@ -196,9 +196,9 @@ jobs:
         uses: HeyPuter/puter-worker-deploy-action@v1.0.1
         with:
           worker_name: my-api             # publishes to my-api.puter.work
+          puter_path: ~/Workers/my-api/   # where to store the files on Puter
           source_path: worker             # the folder containing your worker
           entry_file: index.js            # the worker's entry file
-          puter_path: ~/workers/my-api    # where to store the files on Puter
           puter_token: ${{ secrets.PUTER_TOKEN }}
 ```
 
