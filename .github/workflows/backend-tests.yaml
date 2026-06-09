@@ -3,6 +3,8 @@ name: Backend Tests
 on:
   pull_request:
     types: [opened, synchronize, reopened]
+    paths-ignore:
+      - 'src/docs/**'
 
 permissions:
   contents: read
