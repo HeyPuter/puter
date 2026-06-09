@@ -51,7 +51,7 @@ export class AzureChatProvider implements IChatProvider {
      */
     #openAi: OpenAI;
 
-    #defaultModel = 'gpt-5-nano';
+    #defaultModel = 'gpt-5.4-nano';
 
     #meteringService: MeteringService;
 
@@ -220,13 +220,21 @@ export class AzureChatProvider implements IChatProvider {
 
         return OpenAiUtil.handle_completion_output({
             usage_calculator: ({ usage }) => {
+                const cachedTokens =
+                    usage.prompt_tokens_details?.cached_tokens ?? 0;
                 const trackedUsage = {
-                    prompt_tokens:
-                        (usage.prompt_tokens ?? 0) -
-                        (usage.prompt_tokens_details?.cached_tokens ?? 0),
+                    // OpenAI includes cached tokens in `prompt_tokens`, so we
+                    // subtract them out to meter the non-cached remainder. Grok
+                    // reports `prompt_tokens` already excluding cached tokens
+                    // (they're additive, not a subset) — subtracting there
+                    // underflows to a negative count, which bills a negative
+                    // (crediting) cost. Match xAI's `extractMeteredUsage` and
+                    // take Grok's `prompt_tokens` as-is.
+                    prompt_tokens: isGrok
+                        ? (usage.prompt_tokens ?? 0)
+                        : (usage.prompt_tokens ?? 0) - cachedTokens,
                     completion_tokens: usage.completion_tokens ?? 0,
-                    cached_tokens:
-                        usage.prompt_tokens_details?.cached_tokens ?? 0,
+                    cached_tokens: cachedTokens,
                 };
 
                 const costsOverrideFromModel = Object.fromEntries(
