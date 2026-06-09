@@ -22,6 +22,35 @@ import type { IChatModel } from '../../types.js';
 // Hardcoded from https://models.dev/api.json
 export const CLAUDE_MODELS: IChatModel[] = [
     {
+        puterId: 'anthropic:anthropic/claude-fable-5',
+        id: 'claude-fable-5',
+        modalities: { input: ['text', 'image', 'pdf'], output: ['text'] },
+        open_weights: false,
+        tool_call: true,
+        release_date: '2026-06-09',
+        aliases: [
+            'claude-fable',
+            'claude-fable-latest',
+            'claude-fable-5-latest',
+            'claude-fable-5',
+            'anthropic/claude-fable-5',
+        ],
+        name: 'Claude Fable 5',
+        costs_currency: 'usd-cents',
+        input_cost_key: 'input_tokens',
+        output_cost_key: 'output_tokens',
+        costs: {
+            tokens: 1_000_000,
+            input_tokens: 1000,
+            ephemeral_5m_input_tokens: 1000 * 1.25,
+            ephemeral_1h_input_tokens: 1000 * 2,
+            cache_read_input_tokens: 1000 * 0.1,
+            output_tokens: 5000,
+        },
+        context: 1000000,
+        max_tokens: 128000,
+    },
+    {
         puterId: 'anthropic:anthropic/claude-opus-4-8',
         id: 'claude-opus-4-8',
         modalities: { input: ['text', 'image', 'pdf'], output: ['text'] },
