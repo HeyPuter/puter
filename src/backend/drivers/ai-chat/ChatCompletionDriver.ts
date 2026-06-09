@@ -400,16 +400,25 @@ export class ChatCompletionDriver extends PuterDriver {
                     remainingCredits - approximateInputCost;
                 const maxAllowedOutputTokens =
                     maxAllowedOutputUcents / outputTokenCost;
-                if (maxAllowedOutputTokens) {
-                    const cap = Math.floor(
-                        Math.min(
-                            args.max_tokens ?? Number.POSITIVE_INFINITY,
-                            maxAllowedOutputTokens,
-                            model.max_tokens - approximateTokenCount,
-                        ),
-                    );
-                    args.max_tokens = cap < 1 ? undefined : cap;
+                const cap = Math.floor(
+                    Math.min(
+                        args.max_tokens ?? Number.POSITIVE_INFINITY,
+                        maxAllowedOutputTokens,
+                        model.max_tokens - approximateTokenCount,
+                    ),
+                );
+                // `cap` is the credit-bounded ceiling on output tokens. When
+                // it drops below 1 the user can't afford even a single output
+                // token, so reject the request. Crucially we must NOT leave
+                // `max_tokens` unset here: an undefined max_tokens lets the
+                // provider run to the model's full output limit (e.g. 128k for
+                // Claude), billing far past the user's remaining balance.
+                if (cap < 1) {
+                    throw new HttpError(402, 'No usage left for request.', {
+                        legacyCode: 'insufficient_funds',
+                    });
                 }
+                args.max_tokens = cap;
             }
         }
 
