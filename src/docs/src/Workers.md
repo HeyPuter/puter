@@ -173,6 +173,26 @@ The quickest way to publish a worker is to create it on [puter.com](https://pute
     </li>
 </ol>
 
+### Deploy with the Puter CLI
+
+You can also deploy straight from the terminal with the [Puter CLI](https://www.npmjs.com/package/@heyputer/cli).
+
+Install it globally:
+
+```
+npm install -g @heyputer/cli
+```
+
+Then deploy your worker's JavaScript file to a `*.puter.work` subdomain:
+
+```
+puter worker deploy [file] [name]
+```
+
+Both arguments are optional — run `puter worker deploy` with no arguments and the CLI prompts you for the file and worker name.
+
+<div class="info">The Puter CLI is currently in beta (0.x), so commands and behavior may change.</div>
+
 ### Automate with GitHub Actions
 
 If your worker's code lives on GitHub, you can redeploy it automatically on every push using the [Puter Worker Deploy Action](https://github.com/HeyPuter/puter-worker-deploy-action).

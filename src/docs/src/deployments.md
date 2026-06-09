@@ -50,6 +50,26 @@ The quickest way to publish a website is to upload it on [puter.com](https://put
     </li>
 </ol>
 
+### Deploy with the Puter CLI
+
+You can also deploy straight from the terminal with the [Puter CLI](https://www.npmjs.com/package/@heyputer/cli).
+
+Install it globally:
+
+```
+npm install -g @heyputer/cli
+```
+
+Then deploy your site's directory to a `*.puter.site` subdomain:
+
+```
+puter site deploy [dir] [subdomain]
+```
+
+Both arguments are optional — run `puter site deploy` with no arguments and the CLI prompts you for the directory and subdomain.
+
+<div class="info">The Puter CLI is currently in beta (0.x), so commands and behavior may change.</div>
+
 ### Automate with GitHub Actions
 
 If your code lives on GitHub, you can redeploy your site automatically on every push using the [Puter Subdomain Deploy Action](https://github.com/HeyPuter/puter-subdomain-deploy-action).
