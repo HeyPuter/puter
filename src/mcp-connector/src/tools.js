@@ -78,6 +78,24 @@ function resolveDocUrl(pathOrTopic) {
     return `https://${DOCS_HOST}/${p}/index.md`;
 }
 
+// Worker public URLs live on subdomains of this suffix; workers_exec attaches
+// the caller's Puter auth header, so it must never be sent to any other host.
+const WORKER_HOST_SUFFIX = '.puter.work';
+
+/** Validate that a workers_exec target is an https URL on a *.puter.work host. */
+function assertWorkerUrl(url) {
+    let u;
+    try {
+        u = new URL(url);
+    } catch {
+        throw new Error(`Invalid worker URL: ${url}`);
+    }
+    if (u.protocol !== 'https:' || !u.hostname.endsWith(WORKER_HOST_SUFFIX)) {
+        throw new Error(`workers_exec can only call Puter Worker URLs (https://<worker>${WORKER_HOST_SUFFIX}/...).`);
+    }
+    return u;
+}
+
 /** Fetch a docs page as text, throwing a readable error on failure. */
 async function fetchDocText(url) {
     const resp = await fetch(url, { headers: { accept: 'text/markdown, text/plain, */*' } });
@@ -425,7 +443,7 @@ export const TOOLS = [
             properties: {
                 url: {
                     type: 'string',
-                    description: 'Full worker URL including any path, e.g. "https://my-worker.puter.work/api/hello" (get the base URL from workers_get/workers_list).',
+                    description: 'Full worker URL including any path, e.g. "https://my-worker.puter.work/api/hello" (get the base URL from workers_get/workers_list). Must be an https URL on a *.puter.work host.',
                 },
                 method: {
                     type: 'string',
@@ -442,6 +460,7 @@ export const TOOLS = [
             required: ['url'],
         },
         async handler(puter, { url, method = 'GET', headers, body }) {
+            assertWorkerUrl(url);
             const init = { method };
             if (headers) init.headers = headers;
             if (body != null && method !== 'GET' && method !== 'HEAD') init.body = body;
