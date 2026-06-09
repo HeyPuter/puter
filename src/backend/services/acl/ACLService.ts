@@ -172,6 +172,11 @@ export class ACLService extends PuterService {
             const authorizer = actor.accessToken.issuer;
             if (!(await this.check(authorizer, resource, mode))) return false;
 
+            // Full-access tokens inherit every permission the issuer holds,
+            // with no per-permission grant required (these are not stored as
+            // access_token_permissions rows; the flag lives on the JWT).
+            if (actor.accessToken.fullAccess) return true;
+
             for (const ancestor of ancestors) {
                 const permissions =
                     mode === MANAGE_PERM_PREFIX
