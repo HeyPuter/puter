@@ -54,12 +54,14 @@ export class NotificationStore extends PuterStore {
         } else if (filter === 'acknowledged') {
             extraWhere = 'AND `acknowledged` IS NOT NULL';
         }
+        const n = Number(limit);
+        const safeLimit = Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 200;
         const rows = await this.clients.db.read(
             `SELECT * FROM \`notification\`
              WHERE \`user_id\` = ? ${extraWhere}
              ORDER BY \`created_at\` DESC
-             LIMIT ${limit}`,
-            [userId],
+             LIMIT ?`,
+            [userId, safeLimit],
         );
         return rows.map((r) => this.#normalizeRow(r));
     }
