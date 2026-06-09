@@ -847,7 +847,11 @@ export class PuterServer {
         // `actor.user.username`, which is populated for access-token and
         // app-under-user actors alike.
         if (opts.requireUserActor) {
-            mwChain.push(requireUserActorGate());
+            mwChain.push(
+                requireUserActorGate({
+                    allowFullAccess: opts.allowFullAccessToken,
+                }),
+            );
         }
 
         if (opts.adminOnly) {

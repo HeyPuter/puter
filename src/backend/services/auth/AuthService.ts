@@ -30,6 +30,7 @@ import type { LayerInstances } from '../../types';
 import { sessionCookieFlags } from '../../util/cookieFlags.js';
 import type { puterServices } from '../index';
 import { PuterService } from '../types';
+import { FULL_API_ACCESS } from '../permission/consts';
 import { V1TokensDisabledError } from './TokenService';
 import type {
     AccessTokenPayload,
@@ -1441,7 +1442,7 @@ export class AuthService extends PuterService {
         // '30d'). `#hardExpiryFromExpiresIn` supports both, and existing
         // callers / tests pass the string form, so narrowing to `number`
         // here would force unsafe casts at every call site.
-        options: { expiresIn?: string | number } = {},
+        options: { expiresIn?: string | number; label?: string | null } = {},
     ): Promise<string> {
         if (!actor.user)
             throw new HttpError(403, 'Actor must be a user', {
@@ -1457,6 +1458,20 @@ export class AuthService extends PuterService {
             );
         }
 
+        // Full-API-access sentinel: a token that may do anything its issuing
+        // user can do via the API (resolved against the issuer at check time —
+        // see PermissionService.#scanAccessToken). Only a plain user actor may
+        // mint one; an app-under-user actor must not be able to escalate the
+        // scoped access it was granted into blanket account-wide access.
+        const wantsFullAccess = permissions.some(
+            ([p]) => p === FULL_API_ACCESS,
+        );
+        if (wantsFullAccess && actor.app) {
+            throw new HttpError(403, 'Apps may not mint full-access tokens', {
+                legacyCode: 'forbidden',
+            });
+        }
+
         // Permission-subset enforcement: an access token can only carry
         // permissions the issuer itself holds. Without this, an
         // app-under-user actor (third-party app authorized by the user)
@@ -1465,12 +1480,19 @@ export class AuthService extends PuterService {
         // returned verbatim at check-time, with no re-validation against
         // the authorizer. `checkMany` is one pipelined MGET against the
         // per-actor permission cache so the cost is small even for
-        // many-permission mints.
+        // many-permission mints. The full-access sentinel is excluded — it
+        // isn't a real permission the issuer "holds"; its gate is the
+        // user-actor check above.
         const requestedPerms = [
             ...new Set(
                 permissions
                     .map(([p]) => p)
-                    .filter((p): p is string => typeof p === 'string' && !!p),
+                    .filter(
+                        (p): p is string =>
+                            typeof p === 'string' &&
+                            !!p &&
+                            p !== FULL_API_ACCESS,
+                    ),
             ),
         ];
         if (requestedPerms.length > 0) {
@@ -1509,6 +1531,9 @@ export class AuthService extends PuterService {
             actor.user.id as number,
             {
                 kind: 'access_token',
+                // User-facing name shown (and editable) in the manage-sessions
+                // UI. Trimmed/clamped by the caller; null when unnamed.
+                label: options.label ?? null,
                 parent_session_id,
                 expires_at: expiresAt,
                 auth_id,
@@ -1530,6 +1555,14 @@ export class AuthService extends PuterService {
         if (actor.app) {
             jwtPayload.app_uid = actor.app.uid;
         }
+        // Full-access is carried as a signed claim (not a stored permission
+        // row): it's the single source of truth read at auth time into
+        // `actor.accessToken.fullAccess`, which both `requireNonAccessTokenGate`
+        // and the permission scan consult. The `actor.app` block above already
+        // rejected app-issued full-access mints.
+        if (wantsFullAccess) {
+            jwtPayload.full_access = true;
+        }
 
         // jsonwebtoken's SignOptions.expiresIn is typed as `number |
         // ${number}${unit}` (template literal), so a plain string can't
@@ -1539,7 +1572,11 @@ export class AuthService extends PuterService {
         const jwt = this.services.token.sign(
             'auth',
             jwtPayload,
-            options as { expiresIn?: number },
+            // Only `expiresIn` is a valid jsonwebtoken sign option; `label` is
+            // ours (stored on the session row above), so don't forward it.
+            options.expiresIn !== undefined
+                ? { expiresIn: options.expiresIn as number }
+                : {},
         );
 
         // Store each permission grant
@@ -1550,6 +1587,9 @@ export class AuthService extends PuterService {
         };
         for (const spec of permissions) {
             const [permission, extra] = spec;
+            // The full-access sentinel is not a real grant — it lives in the
+            // signed `full_access` claim, not `access_token_permissions`.
+            if (permission === FULL_API_ACCESS) continue;
             await (db.clients?.db ?? this.clients.db).write(
                 'INSERT INTO `access_token_permissions` (`token_uid`, `authorizer_user_id`, `authorizer_app_id`, `permission`, `extra`) VALUES (?, ?, ?, ?, ?)',
                 [
@@ -1836,6 +1876,12 @@ export class AuthService extends PuterService {
                     uid: decoded.token_uid,
                     issuer: authorizer,
                     authorized: null,
+                    // Honor the signed full-access claim only for user-issued
+                    // tokens. App-issued tokens (`app_uid` present) can never be
+                    // full-access — mirrors the mint-time block — so even a
+                    // claim on one is ignored here.
+                    fullAccess:
+                        !decoded.app_uid && decoded.full_access === true,
                 },
             },
         };

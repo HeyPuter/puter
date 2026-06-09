@@ -118,6 +118,51 @@ describe('requireAntiCsrf middleware', () => {
         expect(arg).toBeUndefined();
     });
 
+    it('exempts a FULL-ACCESS access token (no anti_csrf token needed)', async () => {
+        // A full-access PAT is header-credentialed (bearer), so it can't be
+        // CSRF-forged — the middleware lets it through without a token. This is
+        // what makes antiCsrf routes like /fs/down reachable by a PAT.
+        const arg = await runMiddleware({
+            actor: {
+                user: { uuid: 'user-uuid-1' },
+                accessToken: {
+                    uid: 'tok-1',
+                    issuer: { user: { uuid: 'user-uuid-1' } },
+                    fullAccess: true,
+                },
+            },
+            body: {},
+        });
+        expect(arg).toBeUndefined();
+    });
+
+    it('does NOT exempt a scoped (non-full-access) access token — fails closed', async () => {
+        // Scoped tokens are never deliberately routed onto antiCsrf endpoints;
+        // if one reaches here it must still present a token (which it can't get)
+        // rather than getting a free pass.
+        const arg = await runMiddleware({
+            actor: {
+                user: { uuid: 'user-uuid-1' },
+                accessToken: {
+                    uid: 'tok-1',
+                    issuer: { user: { uuid: 'user-uuid-1' } },
+                },
+            },
+            body: {},
+        });
+        expect(isHttpError(arg)).toBe(true);
+        expect(arg.statusCode).toBe(400);
+    });
+
+    it('still enforces the token for cookie-authed user actors (no accessToken)', async () => {
+        const arg = await runMiddleware({
+            actor: { user: { uuid: 'user-uuid-1' } },
+            body: {},
+        });
+        expect(isHttpError(arg)).toBe(true);
+        expect(arg.statusCode).toBe(400);
+    });
+
     it('returns 401 unauthorized when no actor is attached', async () => {
         const arg = await runMiddleware({ body: { anti_csrf: 'whatever' } });
         expect(isHttpError(arg)).toBe(true);

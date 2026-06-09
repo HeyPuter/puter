@@ -188,10 +188,11 @@ describe('PuterAIController.registerRoutes', () => {
             ]),
         );
 
-        // The four upstream-proxy routes are user-only: app actors must
-        // call puter-chat-completion directly. The `requireUserActor`
-        // route option wires up the gate that enforces this, so each
-        // proxy route gets the assertion (not just chat/completions).
+        // The four upstream-proxy routes reject third-party apps (they must
+        // call puter-chat-completion directly), but admit the user's own
+        // full-access personal access token: `requireUserActor` keeps apps out
+        // and `allowFullAccessToken` opens the gate to a full-access PAT. Each
+        // proxy route carries both flags.
         const userOnlyPaths = [
             '/puterai/openai/v1/chat/completions',
             '/puterai/openai/v1/completions',
@@ -203,6 +204,7 @@ describe('PuterAIController.registerRoutes', () => {
             expect(route?.opts).toEqual({
                 subdomain: 'api',
                 requireUserActor: true,
+                allowFullAccessToken: true,
             });
         }
         const modelsRoute = calls.find(
