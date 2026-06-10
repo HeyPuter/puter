@@ -3828,27 +3828,60 @@ describe('AuthController.handleMigrateToken', () => {
         ).rejects.toMatchObject({ statusCode: 403 });
     });
 
-    it('rejects when the Origin header is not in config.origin or the allowlist', async () => {
+    it('allows the exchange from an unlisted origin (apps live on arbitrary domains)', async () => {
+        // puter.js apps run on any third-party domain; the v1 bearer
+        // token is the credential, so the exchange itself is not
+        // origin-gated — only cookie issuance is (next test).
         const { user } = await makeUserAndActor();
         const v1 = mintV1Token({
             type: 'access-token',
             token_uid: uuidv4(),
             user_uid: user.uuid,
         });
-        await expect(
-            controller.handleMigrateToken(
-                makeReq(
-                    {},
-                    {
-                        headers: {
-                            origin: 'https://not-allowed.example',
-                            authorization: `Bearer ${v1}`,
-                        },
+        const res = makeRes();
+        await controller.handleMigrateToken(
+            makeReq(
+                {},
+                {
+                    headers: {
+                        origin: 'https://some-app.example',
+                        authorization: `Bearer ${v1}`,
                     },
-                ),
-                makeRes(),
+                },
             ),
-        ).rejects.toMatchObject({ statusCode: 403 });
+            res,
+        );
+        expect((res.body as { kind: string }).kind).toBe('access_token');
+        expect((res.body as { token: string }).token).toBeTruthy();
+    });
+
+    it('does NOT set the puter_token_v2 cookie for an app token from an untrusted origin', async () => {
+        // Cookie planting on the GUI origin is what the allowlist
+        // prevents: an attacker page may exchange a token it already
+        // holds, but must not be able to set a session cookie.
+        const { user } = await makeUserAndActor();
+        const appUid = `app-${uuidv4()}`;
+        const v1 = mintV1Token({
+            type: 'app-under-user',
+            user_uid: user.uuid,
+            app_uid: appUid,
+        });
+        const res = makeRes();
+        await controller.handleMigrateToken(
+            makeReq(
+                {},
+                {
+                    headers: {
+                        origin: 'https://some-app.example',
+                        authorization: `Bearer ${v1}`,
+                    },
+                },
+            ),
+            res,
+        );
+        expect((res.body as { kind: string }).kind).toBe('app');
+        expect((res.body as { token: string }).token).toBeTruthy();
+        expect(res.cookies.puter_token_v2).toBeUndefined();
     });
 
     it('normalizes trailing slash on the request Origin (B4)', async () => {
