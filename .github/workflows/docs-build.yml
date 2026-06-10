@@ -1,0 +1,27 @@
+name: Docs Build
+
+on:
+  pull_request:
+    paths:
+      - 'src/docs/**'
+
+jobs:
+  build-docs:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build docs
+        run: npm run build
+        working-directory: src/docs
