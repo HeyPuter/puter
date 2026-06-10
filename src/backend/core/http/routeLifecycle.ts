@@ -74,7 +74,14 @@ export const createRouteLifecycleMiddleware = (
     return async (req: Request, res, next) => {
         const actor = req.actor ? actorUid(req.actor) : undefined;
         const startedAt = Date.now();
-        const base = { method, path: pathLabel, req, res, actor };
+        const base = {
+            method,
+            path: pathLabel,
+            req,
+            res,
+            actor: req.actor,
+            actorUid: actor,
+        };
 
         const beforeEvent = {
             phase: 'before' as const,

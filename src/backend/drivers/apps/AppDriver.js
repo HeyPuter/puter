@@ -912,7 +912,9 @@ export class AppDriver extends PuterDriver {
     // `#ensure_puter_site_subdomain_is_owned`, `#ensureIndexUrlNotAlreadyInUse`,
     // and the `app:canonicalUidAlias:*` kvstore pair). When a user creates
     // or repoints an app at a puter-hosted subdomain (`*.puter.site`,
-    // `*.puter.app`, …) we want exactly one app row to back that URL:
+    // `*.puter.app`, …) — or at a custom host claimed by an
+    // `app_origin_aliases` group — we want exactly one app row to back
+    // that URL:
     //   • If a no-owner row exists (origin-bootstrap stub auto-created
     //     when an unknown origin first hit Puter) → claim it for the
     //     user, merge the new fields into it.
@@ -1219,7 +1221,8 @@ export class AppDriver extends PuterDriver {
 
     /**
      * Merge an incoming create/update into an existing app row that
-     * already owns the same puter-hosted index_url. Returns the joined
+     * already owns the same puter-hosted or alias-group index_url.
+     * Returns the joined
      * (client-shaped) app on success, or `null` when no merge applied.
      * Throws `app_index_url_already_in_use` when a conflict exists but
      * cannot be merged (different owner, or same-owner non-bootstrap).
@@ -1236,7 +1239,18 @@ export class AppDriver extends PuterDriver {
         excludeAppId,
     } = {}) {
         const indexUrl = object?.index_url;
-        if (!this.#isPuterHostedIndexUrl(indexUrl)) return null;
+        // Alias-group hosts (`app_origin_aliases`) get the same merge
+        // treatment as puter-hosted subdomains. Without this, a bootstrap
+        // stub on a custom domain could never be absorbed — and since
+        // `#findIndexUrlConflictRow` *does* honor alias groups, the
+        // uniqueness check below would hard-reject the owner's own
+        // create/update instead of merging into the stub.
+        if (
+            !this.#isPuterHostedIndexUrl(indexUrl) &&
+            !this.#findOriginAliasGroupForIndexUrl(indexUrl)
+        ) {
+            return null;
+        }
 
         const conflictRow = await this.#findIndexUrlConflictRow({
             indexUrl,

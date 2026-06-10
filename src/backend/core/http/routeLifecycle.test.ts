@@ -119,7 +119,8 @@ describe('createRouteLifecycleMiddleware', () => {
             phase: 'before',
             method: 'post',
             path: PATH,
-            actor: 'user:u-1',
+            actor: { user: { uuid: 'u-1' } },
+            actorUid: 'user:u-1',
         });
         // The live req/res are exposed so listeners can read the body or
         // respond themselves.
