@@ -501,11 +501,12 @@ describe('DriverController driver-method lifecycle events', () => {
             },
         );
 
+        const key = `lc-${uuidv4()}`;
         const req = makeReq(
             {
                 interface: 'puter-kvstore',
                 method: 'set',
-                args: { key: `lc-${uuidv4()}`, value: 'v' },
+                args: { key, value: 'v' },
             },
             actor,
         );
@@ -525,6 +526,7 @@ describe('DriverController driver-method lifecycle events', () => {
         });
         expect(after).toHaveLength(1);
         expect(after[0].phase).toBe('after');
+        expect(after[0].args).toMatchObject({ key, value: 'v' });
         expect(typeof after[0].durationMs).toBe('number');
     });
 
@@ -574,6 +576,7 @@ describe('DriverController driver-method lifecycle events', () => {
         expect(reject[0]).toMatchObject({
             phase: 'reject',
             method: 'set',
+            args: { key, value: 'v' },
             rejectReason: 'blocked in test',
         });
     });

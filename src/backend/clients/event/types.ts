@@ -298,7 +298,7 @@ export type LifecyclePhase = 'before' | 'after' | 'error' | 'reject';
 /**
  * Payload for `driver.<iface>.<method>.<phase>` events.
  *
- * One shape across all three phases; read `phase` (or the key suffix) to
+ * One shape across all phases; read `phase` (or the key suffix) to
  * branch. `allow`/`rejectReason` are only meaningful on the `before` phase
  * (emitted via `emitAndWait`).
  */
@@ -310,7 +310,7 @@ export type DriverMethodLifecycleEvent = {
     driver: string;
     /** Stable actor id (see `actorUid`), if the request is authenticated. */
     actor?: string;
-    /** Call arguments. Present on `before`. */
+    /** Call arguments. Present on every phase. */
     args?: unknown;
     /** Return value. Present on `after`. */
     result?: unknown;
