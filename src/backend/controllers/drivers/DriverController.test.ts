@@ -21,7 +21,8 @@ import { Readable } from 'node:stream';
 import type { Request, RequestHandler, Response } from 'express';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
-import type { Actor } from '../../core/actor.js';
+import { actorUid, type Actor } from '../../core/actor.js';
+import type { DriverMethodLifecycleEvent } from '../../clients/event/types.js';
 import { runWithContext } from '../../core/context.js';
 import { PuterServer } from '../../server.js';
 import { setupTestServer } from '../../testUtil.js';
@@ -456,6 +457,124 @@ describe('DriverController.#handleCall (via captured router)', () => {
         // verify the error isn't a 403 from the permission gate.
         await promise.catch((e: { statusCode?: number }) => {
             expect(e.statusCode).not.toBe(403);
+        });
+    });
+});
+
+describe('DriverController driver-method lifecycle events', () => {
+    let routes: Captured;
+    beforeAll(() => {
+        routes = captureRoutes(controller);
+    });
+
+    const grantKvPerm = async (actor: Actor) => {
+        await server.stores.permission.setFlatUserPerm(
+            actor.user!.id!,
+            'service:puter-kvstore:ii:puter-kvstore',
+            {
+                permission: 'service:puter-kvstore:ii:puter-kvstore',
+                deleted: false,
+                issuer_user_id: actor.user!.id!,
+            } as never,
+        );
+    };
+
+    it('emits before then after around a successful driver method', async () => {
+        const actor = await makeUserActor();
+        await grantKvPerm(actor);
+
+        // Correlate on the actor: each test creates a fresh user, so this
+        // isolates our call from any other traffic on the shared event bus.
+        const who = actorUid(actor);
+        const before: DriverMethodLifecycleEvent[] = [];
+        const after: DriverMethodLifecycleEvent[] = [];
+        server.clients.event.on(
+            'driver.puter-kvstore.set.before',
+            (_k, data) => {
+                if (data.actor === who) before.push(data);
+            },
+        );
+        server.clients.event.on(
+            'driver.puter-kvstore.set.after',
+            (_k, data) => {
+                if (data.actor === who) after.push(data);
+            },
+        );
+
+        const req = makeReq(
+            {
+                interface: 'puter-kvstore',
+                method: 'set',
+                args: { key: `lc-${uuidv4()}`, value: 'v' },
+            },
+            actor,
+        );
+        await runWithContext({ actor }, () =>
+            routes['POST /call'](
+                req,
+                makeRes() as unknown as Response,
+                () => {},
+            ),
+        );
+
+        expect(before).toHaveLength(1);
+        expect(before[0]).toMatchObject({
+            phase: 'before',
+            iface: 'puter-kvstore',
+            method: 'set',
+        });
+        expect(after).toHaveLength(1);
+        expect(after[0].phase).toBe('after');
+        expect(typeof after[0].durationMs).toBe('number');
+    });
+
+    it('emits reject and answers 403 when a before listener vetoes', async () => {
+        const actor = await makeUserActor();
+        await grantKvPerm(actor);
+
+        // Scope the veto to a sentinel key so it doesn't affect other calls
+        // sharing this server's event bus.
+        const key = `veto-${uuidv4()}`;
+        const reject: DriverMethodLifecycleEvent[] = [];
+        server.clients.event.on(
+            'driver.puter-kvstore.set.before',
+            (_k, data) => {
+                if ((data.args as { key?: string })?.key === key) {
+                    data.allow = false;
+                    data.rejectReason = 'blocked in test';
+                }
+            },
+        );
+        server.clients.event.on(
+            'driver.puter-kvstore.set.reject',
+            (_k, data) => {
+                if (data.rejectReason === 'blocked in test') reject.push(data);
+            },
+        );
+
+        const req = makeReq(
+            {
+                interface: 'puter-kvstore',
+                method: 'set',
+                args: { key, value: 'v' },
+            },
+            actor,
+        );
+        await expect(
+            runWithContext({ actor }, () =>
+                routes['POST /call'](
+                    req,
+                    makeRes() as unknown as Response,
+                    () => {},
+                ),
+            ),
+        ).rejects.toMatchObject({ statusCode: 403 });
+
+        expect(reject).toHaveLength(1);
+        expect(reject[0]).toMatchObject({
+            phase: 'reject',
+            method: 'set',
+            rejectReason: 'blocked in test',
         });
     });
 });

@@ -26,6 +26,7 @@ import { generate_identifier } from '../../util/identifier.js';
 import { generateDefaultFsentries } from '../../util/userProvisioning.js';
 import { Context } from '../../core';
 import crypto from 'node:crypto';
+import { verifyOidcIdToken, type JwksCacheEntry } from './oidcIdToken';
 
 const GOOGLE_DISCOVERY_URL =
     'https://accounts.google.com/.well-known/openid-configuration';
@@ -48,6 +49,11 @@ interface ProviderConfig {
     userinfo_endpoint: string;
     scopes: string;
     response_mode?: string;
+    // From OIDC discovery — used to verify the id_token signature when there
+    // is no userinfo endpoint (e.g. Apple). Absent for custom providers
+    // configured without discovery (those use the userinfo path instead).
+    jwks_uri?: string;
+    issuer?: string;
 }
 
 interface OIDCUserInfo {
@@ -71,6 +77,7 @@ export class OIDCService extends PuterService {
     declare protected services: LayerInstances<typeof puterServices>;
 
     #discoveryCache: Map<string, Record<string, string>> = new Map();
+    #jwksCache: Map<string, JwksCacheEntry> = new Map();
     #providers: Record<string, Record<string, string>> = {};
 
     override onServerStart(): void {
@@ -109,6 +116,8 @@ export class OIDCService extends PuterService {
                 userinfo_endpoint: '',
                 scopes: raw.scopes ?? APPLE_SCOPES,
                 response_mode: 'form_post',
+                jwks_uri: discovery.jwks_uri,
+                issuer: discovery.issuer,
             };
         }
 
@@ -133,6 +142,8 @@ export class OIDCService extends PuterService {
                 token_endpoint: discovery.token_endpoint,
                 userinfo_endpoint: discovery.userinfo_endpoint,
                 scopes: raw.scopes ?? MICROSOFT_SCOPES,
+                jwks_uri: discovery.jwks_uri,
+                issuer: discovery.issuer,
             };
         }
 
@@ -149,6 +160,8 @@ export class OIDCService extends PuterService {
                 token_endpoint: discovery.token_endpoint,
                 userinfo_endpoint: discovery.userinfo_endpoint,
                 scopes: raw.scopes ?? GOOGLE_SCOPES,
+                jwks_uri: discovery.jwks_uri,
+                issuer: discovery.issuer,
             };
         }
 
@@ -296,9 +309,10 @@ export class OIDCService extends PuterService {
             return (await res.json()) as OIDCUserInfo;
         }
 
-        // No userinfo endpoint — decode claims from the id_token (e.g. Apple).
-        if (idToken) {
-            return this.#decodeIdToken(idToken);
+        // No userinfo endpoint — verify the id_token signature against the
+        // provider's JWKS and read claims from it (e.g. Apple).
+        if (idToken && config) {
+            return this.#verifyIdToken(idToken, config);
         }
 
         return null;
@@ -642,20 +656,30 @@ export class OIDCService extends PuterService {
         return `${signingInput}.${signature.toString('base64url')}`;
     }
 
-    #decodeIdToken(idToken: string): OIDCUserInfo | null {
-        try {
-            const parts = idToken.split('.');
-            if (parts.length !== 3) return null;
-            const payload = JSON.parse(
-                Buffer.from(parts[1], 'base64url').toString(),
-            );
-            return {
-                sub: payload.sub,
-                email: payload.email,
-                email_verified: payload.email_verified,
-            };
-        } catch {
-            return null;
-        }
+    /**
+     * Verify an id_token against the provider's JWKS and return its claims.
+     * Used for providers without a userinfo endpoint (e.g. Apple). Delegates
+     * to the standalone verifier, passing this service's JWKS cache so keys
+     * are reused across calls. See {@link verifyOidcIdToken} for semantics.
+     */
+    async #verifyIdToken(
+        idToken: string,
+        config: ProviderConfig,
+    ): Promise<OIDCUserInfo | null> {
+        const claims = await verifyOidcIdToken(
+            idToken,
+            {
+                jwksUri: config.jwks_uri,
+                issuer: config.issuer,
+                audience: config.client_id,
+            },
+            { cache: this.#jwksCache },
+        );
+        if (!claims) return null;
+        return {
+            sub: claims.sub,
+            email: claims.email,
+            email_verified: claims.email_verified,
+        };
     }
 }

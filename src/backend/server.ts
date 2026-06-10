@@ -61,6 +61,7 @@ import {
 } from './core/http/middleware/hostRedirects';
 import { createPuterSiteMiddleware } from './core/http/middleware/puterSite';
 import { PuterRouter } from './core/http/PuterRouter';
+import { createRouteLifecycleMiddleware } from './core/http/routeLifecycle';
 import { PREFIX_METADATA_KEY, type RouteDescriptor } from './core/http/types';
 import type { AuthService } from './services/auth/AuthService';
 import { puterDrivers } from './drivers';
@@ -958,6 +959,20 @@ export class PuterServer {
             route.path !== undefined
                 ? PuterServer.#joinPath(routerPrefix, route.path)
                 : undefined;
+
+        // 5. Per-endpoint lifecycle events. Skipped for `use` middleware
+        // (those aren't endpoints). Pushed last so the `before` hook sees a
+        // fully-authenticated request, and only when the event client is
+        // wired (minimal test harnesses may omit it).
+        if (route.method !== 'use' && this.clients.event) {
+            mwChain.push(
+                createRouteLifecycleMiddleware(
+                    this.clients.event,
+                    route.method,
+                    fullPath,
+                ),
+            );
+        }
 
         if (route.method === 'use') {
             // Subdomain check for `use` middleware lives INSIDE the handler
