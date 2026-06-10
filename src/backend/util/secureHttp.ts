@@ -108,9 +108,23 @@ export function isPublicResolvedAddress(address: string): boolean {
 // a validate-then-fetch design re-resolves at connect time, so checking
 // here (rather than before fetch) is what defeats DNS rebinding.
 const guardedLookup: net.LookupFunction = (hostname, options, callback) => {
-    dnsLookup(hostname, { ...options, all: true }, (err, addresses) => {
-        if (err) {
+    // `net`'s lookup hook can be handed `options` as either an object or a
+    // bare address-family number. Normalize so we can both resolve all
+    // addresses and report errors back in the arity the caller expects:
+    // `(err, addresses[])` when `all` was requested, `(err, address, family)`
+    // otherwise.
+    const opts = typeof options === 'number' ? { family: options } : options;
+    const wantAll = opts.all === true;
+    const fail = (err: Error) => {
+        if (wantAll) {
             callback(err, []);
+        } else {
+            callback(err, '', 0);
+        }
+    };
+    dnsLookup(hostname, { ...opts, all: true }, (err, addresses) => {
+        if (err) {
+            fail(err);
             return;
         }
         const list = addresses as LookupAddress[];
@@ -118,16 +132,17 @@ const guardedLookup: net.LookupFunction = (hostname, options, callback) => {
             list.length === 0 ||
             list.some((a) => !isPublicResolvedAddress(a.address))
         ) {
-            const e = Object.assign(
-                new Error(
-                    `refusing to connect: ${hostname} resolves to a private or reserved address`,
+            fail(
+                Object.assign(
+                    new Error(
+                        `refusing to connect: ${hostname} resolves to a private or reserved address`,
+                    ),
+                    { code: 'ERR_SSRF_BLOCKED' },
                 ),
-                { code: 'ERR_SSRF_BLOCKED' },
             );
-            callback(e, []);
             return;
         }
-        if (options.all) {
+        if (wantAll) {
             callback(null, list);
         } else {
             callback(null, list[0].address, list[0].family);

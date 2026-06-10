@@ -99,6 +99,25 @@ describe('TokenService.onServerStart', () => {
         );
     });
 
+    it('allows a real non-dev secret that merely contains "change-me"', () => {
+        // The guard matches the exact shipped placeholders, not the
+        // "change-me" substring, so an operator's high-entropy secret that
+        // happens to include those characters must not be refused.
+        const config = {
+            env: 'prod',
+            jwt_secret: 'a-real-v1-secret',
+            jwt_secret_v2: 'kf83-change-me-not-the-placeholder-9af2',
+            url_signature_secret: 'another-real-secret',
+        } as ConstructorParameters<typeof TokenService>[0];
+        const [clients, stores, services] = [{}, {}, {}] as [
+            ConstructorParameters<typeof TokenService>[1],
+            ConstructorParameters<typeof TokenService>[2],
+            ConstructorParameters<typeof TokenService>[3],
+        ];
+        const svc = new TokenService(config, clients, stores, services);
+        expect(() => svc.onServerStart()).not.toThrow();
+    });
+
     it('allows the placeholder secrets in dev', () => {
         const config = {
             env: 'dev',

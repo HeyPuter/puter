@@ -31,6 +31,30 @@ export const PERMISSION_FOR_NOTHING_IN_PARTICULAR =
 export const PERMISSION_SCAN_CACHE_TTL_SECONDS = 20;
 
 /**
+ * TTL (seconds) for the per-actor cache-generation counter. A grant/revoke
+ * bumps this counter, which is folded into the scan/check cache keys so all
+ * of that actor's cached readings are orphaned at once (cluster-safe — a
+ * single-key INCR, no pattern scan). Must be comfortably longer than
+ * {@link PERMISSION_SCAN_CACHE_TTL_SECONDS} so the counter never lapses back
+ * to 0 while same-generation cache entries are still live (which would
+ * revive stale readings). Refreshed on every bump.
+ */
+export const PERMISSION_CACHE_GENERATION_TTL_SECONDS = 24 * 60 * 60;
+
+/**
+ * TTL (seconds) for the per-node in-process cache of the generation
+ * counter. Permission checks are very hot, so reading the counter from
+ * Redis on every check would add a round-trip to the hottest path. A tiny
+ * local cache collapses repeated reads (including the recursive
+ * issuer-scan and `checkMany` fan-out) to in-memory lookups. The authoritative
+ * counter still lives in Redis: a bump on any node propagates to the others
+ * within this window, so this is the cross-node revocation lag (the bumping
+ * node itself updates its local copy immediately and is consistent at once).
+ * Keep it short.
+ */
+export const PERMISSION_CACHE_GENERATION_LOCAL_TTL_SECONDS = 2;
+
+/**
  * Sentinel grant for a "full API access" access token: the token may do
  * anything its issuing user can do via the API (filesystem, drivers, KV, AI,
  * apps, workers — resolved against the issuer at check time in

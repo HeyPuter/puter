@@ -35,6 +35,7 @@ import {
     resolveDriverMethodRateLimit,
 } from '../../drivers/meta.js';
 import type { PermissionService } from '../../services/permission/PermissionService.js';
+import { PermissionUtil } from '../../services/permission/permissionUtil.js';
 import type { WithLifecycle } from '../../types';
 import { PuterController } from '../types.js';
 
@@ -222,7 +223,16 @@ export class DriverController extends PuterController {
                 | PermissionService
                 | undefined;
             if (permService) {
-                const permKey = `service:${resolvedDriverName}:ii:${ifaceName}`;
+                // Build via PermissionUtil.join so any `:` in a driver or
+                // interface name is escaped — raw interpolation would let a
+                // crafted name shift permission-segment boundaries and match
+                // a broader/narrower parent than intended in the scan logic.
+                const permKey = PermissionUtil.join(
+                    'service',
+                    String(resolvedDriverName),
+                    'ii',
+                    ifaceName,
+                );
                 const hasPermission = await permService.check(
                     req.actor,
                     permKey,

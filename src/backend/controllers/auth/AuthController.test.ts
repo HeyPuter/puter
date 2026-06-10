@@ -1685,6 +1685,43 @@ describe('AuthController password recovery', () => {
             ),
         ).rejects.toMatchObject({ statusCode: 400 });
     });
+
+    it('set-pass-using-token: revokes all of the user’s interactive sessions', async () => {
+        // A password reset is the "someone may have my account" flow, so
+        // existing sessions must not survive it.
+        const { user } = await makeUserAndActor();
+        const recoveryToken = uuidv4();
+        await server.stores.user.update(user.id, {
+            pass_recovery_token: recoveryToken,
+        });
+        const jwt = server.services.token.sign(
+            'otp',
+            {
+                token: recoveryToken,
+                user_uid: user.uuid,
+                email: user.email,
+                purpose: 'pass-recovery',
+            },
+            { expiresIn: '1h' },
+        );
+
+        const s1 = await server.services.auth.createSessionToken(user, {});
+        const s2 = await server.services.auth.createSessionToken(user, {});
+        const uuid1 = (s1.session as { uuid: string }).uuid;
+        const uuid2 = (s2.session as { uuid: string }).uuid;
+        // Both are live before the reset.
+        expect(await server.stores.session.getByUuid(uuid1)).not.toBeNull();
+        expect(await server.stores.session.getByUuid(uuid2)).not.toBeNull();
+
+        await controller.handleSetPassUsingToken(
+            makeReq({ token: jwt, password: 'a-brand-new-password' }),
+            makeRes(),
+        );
+
+        // Every interactive session is revoked (getByUuid gates on revoked_at).
+        expect(await server.stores.session.getByUuid(uuid1)).toBeNull();
+        expect(await server.stores.session.getByUuid(uuid2)).toBeNull();
+    });
 });
 
 // ── User-protected change-* (skipping middleware-driven setup) ─────
@@ -1729,6 +1766,34 @@ describe('AuthController user-protected mutations (validation paths)', () => {
         expect(
             await bcrypt.compare('correct-horse-battery-2', after!.password!),
         ).toBe(true);
+    });
+
+    it('change-password: revokes the user’s other web sessions but keeps the current one', async () => {
+        const { user, actor } = await makeUserAndActor();
+        // Two web sessions for this user; one is the session performing the
+        // change (the "current" one, identified via actor.session.uid).
+        const current = await server.services.auth.createSessionToken(user, {});
+        const other = await server.services.auth.createSessionToken(user, {});
+        const currentUuid = (current.session as { uuid: string }).uuid;
+        const otherUuid = (other.session as { uuid: string }).uuid;
+
+        const req = makeReq(
+            { new_pass: 'a-fresh-password-123' },
+            {
+                actor: {
+                    ...actor,
+                    session: { uid: currentUuid },
+                } as typeof actor,
+            },
+        );
+        (req as unknown as { userProtected: unknown }).userProtected = { user };
+        await controller.handleChangePassword(req, makeRes());
+
+        // The other session is revoked; the one that made the change survives.
+        expect(await server.stores.session.getByUuid(otherUuid)).toBeNull();
+        expect(
+            await server.stores.session.getByUuid(currentUuid),
+        ).not.toBeNull();
     });
 
     it('change-username: 400 on missing/invalid/reserved/already-taken usernames', async () => {

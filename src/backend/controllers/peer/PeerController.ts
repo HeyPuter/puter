@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { createHmac, timingSafeEqual } from 'node:crypto';
+import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { Request, Response } from 'express';
 import type { Actor } from '../../core/actor.js';
 import { HttpError } from '../../core/http/HttpError.js';
@@ -33,9 +33,7 @@ import { PEER_COSTS } from './costs.js';
  * inputs. The key need not persist — it only has to be unknown to the
  * attacker for the duration of the comparison.
  */
-const COMPARE_KEY = createHmac('sha256', 'peer-auth-compare')
-    .update(String(process.pid))
-    .digest();
+const COMPARE_KEY = randomBytes(32);
 const secretsEqual = (a: string, b: string): boolean => {
     const ha = createHmac('sha256', COMPARE_KEY).update(a).digest();
     const hb = createHmac('sha256', COMPARE_KEY).update(b).digest();

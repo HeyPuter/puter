@@ -2515,6 +2515,9 @@ export class AuthController extends PuterController {
             });
 
         await this.stores.group.addUsers(uid, users);
+        // New members inherit the group's permissions immediately, not
+        // after the permission-cache TTL.
+        await this.services.permission.bumpPermissionCacheForUsernames(users);
         res.json({});
     }
 
@@ -2544,6 +2547,9 @@ export class AuthController extends PuterController {
             });
 
         await this.stores.group.removeUsers(uid, users);
+        // Removed members must lose the group's permissions immediately,
+        // not after the permission-cache TTL.
+        await this.services.permission.bumpPermissionCacheForUsernames(users);
         res.json({});
     }
 

@@ -23,10 +23,12 @@ import type { Actor } from '../../core/actor.js';
 import { runWithContext } from '../../core/context.js';
 import { PuterServer } from '../../server.js';
 import { setupTestServer } from '../../testUtil.js';
+import { kv } from '../../util/kvSingleton.js';
 import { PermissionService } from './PermissionService.js';
 
 function createPermissionService(): PermissionService {
     const permissionStore = {
+        getCacheGeneration: async () => 0,
         getMultiCheckCache: async () => new Map<string, boolean>(),
         setMultiCheckCache: async () => undefined,
     };
@@ -622,16 +624,109 @@ describe('PermissionService (integration)', () => {
         });
     });
 
-    describe('invalidatePermissionScanCacheForAppUnderUser', () => {
-        it('runs to completion against the real permission store', async () => {
-            const { user } = await makeUserActor();
-            await expect(
-                permService.invalidatePermissionScanCacheForAppUnderUser(
-                    user.uuid,
-                    `app-${uuidv4()}`,
-                    'service:foo:ii:read',
+    describe('cache-generation invalidation on grant/revoke', () => {
+        // The grant/revoke paths bump the holder's per-actor cache
+        // generation so a change takes effect on the very next check
+        // rather than after the scan-cache TTL. These exercise the real
+        // Redis-backed (ioredis-mock) cache via the live permission store.
+        const grantManage = async (
+            issuer: { id: number },
+            permission: string,
+        ) => {
+            await server.stores.permission.setFlatUserPerm(
+                issuer.id,
+                `manage:${permission}`,
+                {
+                    permission: `manage:${permission}`,
+                    deleted: false,
+                    issuer_user_id: issuer.id,
+                } as never,
+            );
+        };
+
+        it('revoke is visible immediately — a cached "granted" reading is not served', async () => {
+            const { user: issuer, actor: issuerActor } =
+                await makeUserActor();
+            const { user: target, actor: targetActor } =
+                await makeUserActor();
+            const permission = `service:revoke-now-${uuidv4()}:ii:read`;
+            await grantManage(issuer, permission);
+
+            await runWithContext({ actor: issuerActor }, () =>
+                permService.grantUserUserPermission(
+                    issuerActor,
+                    target.username,
+                    permission,
                 ),
-            ).resolves.toBeUndefined();
+            );
+
+            // Prime the cache: the holder sees the grant (this writes the
+            // scan/check cache under the current generation).
+            expect(await permService.check(targetActor, permission)).toBe(
+                true,
+            );
+
+            await runWithContext({ actor: issuerActor }, () =>
+                permService.revokeUserUserPermission(
+                    issuerActor,
+                    target.username,
+                    permission,
+                ),
+            );
+
+            // Without the generation bump this would still read `true` from
+            // the primed cache for up to the TTL.
+            expect(await permService.check(targetActor, permission)).toBe(
+                false,
+            );
+        });
+
+        it('caches the generation in-process so repeat reads skip Redis, and a bump updates the local copy at once', async () => {
+            const { user } = await makeUserActor();
+            const aUid = `user:${user.uuid}`;
+            const localKey = `permgen-local:${aUid}`;
+
+            // Cold: nothing cached locally yet.
+            expect(kv.get(localKey)).toBeUndefined();
+
+            // First read populates the in-process cache (avoids a Redis GET
+            // on every subsequent permission check for this actor).
+            const g = await server.stores.permission.getCacheGeneration(aUid);
+            expect(kv.get(localKey)).toBe(g);
+
+            // A bump makes this node consistent immediately — no waiting for
+            // the local TTL — so single-node revocation is instant.
+            await server.stores.permission.bumpCacheGeneration(aUid);
+            expect(kv.get(localKey)).toBe(g + 1);
+            expect(await server.stores.permission.getCacheGeneration(aUid)).toBe(
+                g + 1,
+            );
+        });
+
+        it('grant is visible immediately — a cached "denied" reading is not served', async () => {
+            const { user: issuer, actor: issuerActor } =
+                await makeUserActor();
+            const { user: target, actor: targetActor } =
+                await makeUserActor();
+            const permission = `service:grant-now-${uuidv4()}:ii:read`;
+            await grantManage(issuer, permission);
+
+            // Prime a "denied" reading into the cache.
+            expect(await permService.check(targetActor, permission)).toBe(
+                false,
+            );
+
+            await runWithContext({ actor: issuerActor }, () =>
+                permService.grantUserUserPermission(
+                    issuerActor,
+                    target.username,
+                    permission,
+                ),
+            );
+
+            expect(await permService.check(targetActor, permission)).toBe(
+                true,
+            );
         });
     });
 });

@@ -179,6 +179,16 @@ export class V1TokensDisabledError extends Error {
 
 // -- TokenService ----------------------------------------------------
 
+// The exact secret values shipped in config.default.json. Matched exactly
+// (not by substring) so the boot guard refuses only these known-insecure
+// defaults and never a legitimate operator secret that happens to contain
+// "change-me".
+const SHIPPED_PLACEHOLDER_SECRETS = new Set([
+    'dev-jwt-secret-change-me',
+    'dev-jwt-secret-v2-change-me',
+    'dev-url-signature-secret-change-me',
+]);
+
 export class TokenService extends PuterService {
     #secretV2: string = '';
     #secretLegacy: string = '';
@@ -209,7 +219,7 @@ export class TokenService extends PuterService {
                     this.config.url_signature_secret ?? '',
                 ],
             ] as const) {
-                if (/change-me/.test(value)) {
+                if (SHIPPED_PLACEHOLDER_SECRETS.has(value)) {
                     throw new Error(
                         `\`${name}\` is still the dev placeholder from config.default.json; ` +
                             'set a real secret before running with env != "dev"',
