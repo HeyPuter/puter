@@ -922,22 +922,6 @@ class UI extends EventListener {
                     uuid: msg_id,
                 }, '*');
             } else {
-                window.addEventListener('message', async (e) => {
-                    if ( e.data?.msg === 'sendMeFileData' ) {
-                        // Send the blob URL to the host environment
-                        e.source.postMessage({
-                            msg: 'showSaveFilePickerPopup',
-                            content: url ? undefined : content,
-                            url: url ? url.toString() : undefined,
-                            suggestedName: suggestedName ?? '',
-                            env: this.env,
-                            uuid: msg_id,
-                        }, '*');
-
-                        // remove the event listener
-                        window.removeEventListener('message', this);
-                    }
-                });
                 // Create a Blob from your binary data
                 let blob = new Blob([content], { type: 'application/octet-stream' });
 
@@ -949,11 +933,39 @@ class UI extends EventListener {
                 let title = 'Puter: Save File';
                 var left = (screen.width / 2) - (w / 2);
                 var top = (screen.height / 2) - (h / 2);
-                window.open(
+
+                // Open the picker popup first so we can bind the data handler to the
+                // exact window we opened. window.open() returns synchronously and the
+                // popup cannot post back until this function yields, so there is no race.
+                const popup = window.open(
                     `${puter.defaultGUIOrigin}/action/show-save-file-picker?embedded_in_popup=true&msg_id=${msg_id}&appInstanceID=${this.appInstanceID}&env=${this.env}&blobUrl=${encodeURIComponent(objectUrl)}`,
                     title,
                     `toolbar=no, location=no, directories=no, status=no, menubar=no, scrollbars=no, resizable=no, copyhistory=no, width=${w}, height=${h}, top=${top}, left=${left}`,
                 );
+
+                // Only hand the file content to the trusted Puter GUI popup we just
+                // opened. Without this, any framing parent or sibling iframe could post
+                // { msg: 'sendMeFileData' } and receive the content the page meant to save.
+                const onSendMeFileData = (e) => {
+                    if ( e.data?.msg !== 'sendMeFileData' ) return;
+                    // Reject anything that isn't our popup on the trusted GUI origin.
+                    if ( e.origin !== puter.defaultGUIOrigin ) return;
+                    if ( ! popup || e.source !== popup ) return;
+
+                    // Send the file data to the popup, targeting the trusted origin only.
+                    e.source.postMessage({
+                        msg: 'showSaveFilePickerPopup',
+                        content: url ? undefined : content,
+                        url: url ? url.toString() : undefined,
+                        suggestedName: suggestedName ?? '',
+                        env: this.env,
+                        uuid: msg_id,
+                    }, puter.defaultGUIOrigin);
+
+                    // The trusted popup has the data; remove this exact listener.
+                    window.removeEventListener('message', onSendMeFileData);
+                };
+                window.addEventListener('message', onSendMeFileData);
             }
             //register callback
             this.#callbackFunctions[msg_id] = (maybe_result) => {
