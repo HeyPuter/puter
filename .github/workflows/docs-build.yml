@@ -4,10 +4,6 @@ on:
   pull_request:
     paths:
       - 'src/docs/**'
-      - '.github/workflows/docs-build.yml'
-
-permissions:
-  contents: read
 
 jobs:
   build-docs:
