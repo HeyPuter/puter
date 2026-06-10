@@ -9,9 +9,9 @@ Puter.js is a regular JavaScript library, so your app deploys like any other web
 
 ## Deploy anywhere
 
-Because Puter.js runs entirely in the browser, there's no special backend to provision. Build your app as you normally would and serve the output from any static or web hosting provider, such as <a href="https://vercel.com" rel="nofollow">Vercel</a>, <a href="https://pages.cloudflare.com" rel="nofollow">Cloudflare Pages</a>, <a href="https://www.netlify.com" rel="nofollow">Netlify</a>, or <a href="https://pages.github.com" rel="nofollow">GitHub Pages</a>.
+Because Puter.js runs entirely in the browser, there's no special backend to provision. Build and serve your app the same way you would any other website, on any hosting provider, such as <a href="https://vercel.com" rel="nofollow">Vercel</a>, <a href="https://pages.cloudflare.com" rel="nofollow">Cloudflare Pages</a>, <a href="https://www.netlify.com" rel="nofollow">Netlify</a>, or <a href="https://pages.github.com" rel="nofollow">GitHub Pages</a>.
 
-<div class="info">Your app should be served by a web server, like any of the hosting providers above.</div>
+<div class="info">The only requirement is that the app is served by a web server. A hosting provider, a self-hosted server, and a local development server are all valid. Opening the HTML file directly from disk does not work.</div>
 
 No extra configuration is required. Your app keeps talking to Puter's services from the browser, wherever it's hosted.
 
@@ -66,7 +66,7 @@ Then deploy your site's directory to a `*.puter.site` subdomain:
 puter site deploy [dir] [subdomain]
 ```
 
-Both arguments are optional — run `puter site deploy` with no arguments and the CLI prompts you for the directory and subdomain.
+Both arguments are optional: run `puter site deploy` with no arguments and the CLI prompts you for the directory and subdomain.
 
 <div class="info">The Puter CLI is currently in beta (0.x), so commands and behavior may change.</div>
 
