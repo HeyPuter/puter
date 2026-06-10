@@ -964,8 +964,23 @@ export class FSController extends PuterController {
             range,
         });
 
-        if (download.contentType)
+        if (download.contentType) {
             res.setHeader('Content-Type', download.contentType);
+            // The stored content type is uploader-controlled and this
+            // response is served inline on the api origin. For types a
+            // browser will execute as a document (HTML, SVG, XML), apply
+            // the same sandbox CSP as app icons so embedded scripts never
+            // run with the api origin. `<img>`/download consumers are
+            // unaffected — the sandbox only applies to document loads.
+            const activeContent =
+                /^(text\/html|image\/svg\+xml|application\/xhtml\+xml|application\/xml|text\/xml)\b/i;
+            if (activeContent.test(download.contentType)) {
+                res.setHeader(
+                    'Content-Security-Policy',
+                    "default-src 'none'; sandbox;",
+                );
+            }
+        }
         if (download.contentLength !== null)
             res.setHeader('Content-Length', String(download.contentLength));
         if (download.contentRange)

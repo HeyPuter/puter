@@ -91,6 +91,15 @@ const ipc_listener = async (event, handled) => {
         return handled.resolve(false);
     }
 
+    // The sender must be the iframe that owns this appInstanceID — instance
+    // IDs are disclosed to other apps (e.g. via `messageToApp`), so knowing
+    // one must not be enough to act as that app.
+    const owner_iframe = window.iframe_for_app_instance(event.data.appInstanceID);
+    if ( ! owner_iframe || event.source !== owner_iframe.contentWindow ) {
+        console.error('appInstanceID does not match message source');
+        return handled.resolve(false);
+    }
+
     handled.resolve(true);
 
     const $el_parent_window = $(window.window_for_app_instance(event.data.appInstanceID));

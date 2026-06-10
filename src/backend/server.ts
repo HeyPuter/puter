@@ -380,6 +380,14 @@ export class PuterServer {
         this.#app.use(helmet.ieNoOpen());
         this.#app.use(helmet.permittedCrossDomainPolicies());
         this.#app.use(helmet.xssFilter());
+        // Don't leak full URLs (which can carry signed tokens / file paths)
+        // to cross-origin destinations. Per-user hosted sites tighten this
+        // further to `no-referrer` in the puterSite middleware.
+        this.#app.use(
+            helmet.referrerPolicy({
+                policy: 'strict-origin-when-cross-origin',
+            }),
+        );
         this.#app.disable('x-powered-by');
 
         // Cross-Origin-Resource-Policy: always allow cross-origin reads.
@@ -875,11 +883,15 @@ export class PuterServer {
         }
 
         // 2b. Rate limiting. Runs after auth so 'user' key strategy
-        // has access to req.actor.
+        // has access to req.actor. An array applies each limit as its
+        // own gate — a request must pass all of them.
         if (opts.rateLimit) {
-            mwChain.push(
-                rateLimitGate(opts.rateLimit) as unknown as RequestHandler,
-            );
+            const limits = Array.isArray(opts.rateLimit)
+                ? opts.rateLimit
+                : [opts.rateLimit];
+            for (const rl of limits) {
+                mwChain.push(rateLimitGate(rl) as unknown as RequestHandler);
+            }
         }
 
         // 2b'. Concurrent in-flight limiting. Same auth-ordering reason

@@ -140,6 +140,67 @@ describe('rateLimitGate — memory backend (default)', () => {
         expect(isHttpError(re)).toBe(true);
     });
 
+    // Stacked gates, mirroring the materializer's handling of a
+    // `rateLimit: [...]` array (each entry is its own gate; a rejection
+    // short-circuits the chain). This is the credential-endpoint pattern:
+    // per-fingerprint budget for fairness on shared IPs, per-IP backstop
+    // against header rotation.
+    const runStack = async (stack, req) => {
+        for (const opts of stack) {
+            const err = await runGate(opts, req);
+            if (err) return err;
+        }
+        return undefined;
+    };
+
+    it('stacked gates: per-IP backstop catches header rotation that escapes the fingerprint key', async () => {
+        const stack = [
+            { limit: 3, window: 60_000, scope: 'stack-fp' },
+            { limit: 6, window: 60_000, key: 'ip', scope: 'stack-ip' },
+        ];
+        // Rotating the User-Agent mints a fresh fingerprint bucket every
+        // request, so the fingerprint gate admits all of these — the IP
+        // backstop must cap the total anyway.
+        for (let i = 0; i < 6; i++) {
+            const arg = await runStack(
+                stack,
+                makeReq({ headers: { 'user-agent': `rotated-ua-${i}` } }),
+            );
+            expect(arg).toBeUndefined();
+        }
+        const rejected = await runStack(
+            stack,
+            makeReq({ headers: { 'user-agent': 'rotated-ua-final' } }),
+        );
+        expect(isHttpError(rejected)).toBe(true);
+        expect(rejected.statusCode).toBe(429);
+    });
+
+    it('stacked gates: clients sharing an IP each get their own fingerprint budget under the IP cap', async () => {
+        const stack = [
+            { limit: 2, window: 60_000, scope: 'stack2-fp' },
+            { limit: 10, window: 60_000, key: 'ip', scope: 'stack2-ip' },
+        ];
+        // Two clients (distinct UAs) behind one NAT IP: each gets the
+        // full per-fingerprint budget, and each is cut off by its own
+        // fingerprint bucket — not starved by the other's traffic.
+        for (const ua of ['alice-browser', 'bob-browser']) {
+            for (let i = 0; i < 2; i++) {
+                expect(
+                    await runStack(
+                        stack,
+                        makeReq({ headers: { 'user-agent': ua } }),
+                    ),
+                ).toBeUndefined();
+            }
+            const rejected = await runStack(
+                stack,
+                makeReq({ headers: { 'user-agent': ua } }),
+            );
+            expect(isHttpError(rejected)).toBe(true);
+        }
+    });
+
     it("falls back to fingerprint when 'user' strategy is selected but no actor present", async () => {
         // The fallback prevents anonymous traffic from sharing a single
         // bucket (which would invite trivial DoS via global rate-limit).

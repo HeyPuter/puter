@@ -191,6 +191,23 @@ export class TokenService extends PuterService {
                 'TokenService requires `jwt_secret_v2` in config — v2 signing cannot proceed without it',
             );
         }
+        // The dev placeholders ship in config.default.json (a public repo) and
+        // survive a deep-merge when an override config omits them — anyone who
+        // knows the placeholder can forge a session token for any user. Refuse
+        // to boot a non-dev deployment on a placeholder secret.
+        if (this.config.env !== 'dev') {
+            for (const [name, value] of [
+                ['jwt_secret_v2', secretV2],
+                ['jwt_secret', this.config.jwt_secret ?? ''],
+            ] as const) {
+                if (/change-me/.test(value)) {
+                    throw new Error(
+                        `\`${name}\` is still the dev placeholder from config.default.json; ` +
+                            'set a real secret before running with env != "dev"',
+                    );
+                }
+            }
+        }
         this.#secretV2 = secretV2;
         // Legacy secret is optional in fresh installs (no v1 tokens to verify),
         // but every existing deployment carries one. Don't fail boot if it's
@@ -241,6 +258,8 @@ export class TokenService extends PuterService {
         if (kid === 'v2') {
             const payload = jwt.verify(token, this.#secretV2, {
                 clockTolerance: CLOCK_TOLERANCE_SECONDS,
+                // Secrets are symmetric; never accept asymmetric algs here.
+                algorithms: ['HS256'],
             }) as Record<string, unknown>;
             return this.#decompressPayload(context, payload) as unknown as T;
         }
@@ -269,6 +288,7 @@ export class TokenService extends PuterService {
         }
         const payload = jwt.verify(token, this.#secretLegacy, {
             clockTolerance: CLOCK_TOLERANCE_SECONDS,
+            algorithms: ['HS256'],
         }) as Record<string, unknown>;
         const decompressed = this.#decompressPayload(
             context,

@@ -65,6 +65,36 @@ describe('TokenService.onServerStart', () => {
         const svc = new TokenService(config, clients, stores, services);
         expect(() => svc.onServerStart()).toThrow(/jwt_secret_v2/);
     });
+
+    it('refuses to start outside dev with the placeholder secrets from config.default.json', () => {
+        const config = {
+            env: 'prod',
+            jwt_secret: V1_SECRET,
+            jwt_secret_v2: 'dev-jwt-secret-v2-change-me',
+        } as ConstructorParameters<typeof TokenService>[0];
+        const [clients, stores, services] = [{}, {}, {}] as [
+            ConstructorParameters<typeof TokenService>[1],
+            ConstructorParameters<typeof TokenService>[2],
+            ConstructorParameters<typeof TokenService>[3],
+        ];
+        const svc = new TokenService(config, clients, stores, services);
+        expect(() => svc.onServerStart()).toThrow(/placeholder/);
+    });
+
+    it('allows the placeholder secrets in dev', () => {
+        const config = {
+            env: 'dev',
+            jwt_secret: 'dev-jwt-secret-change-me',
+            jwt_secret_v2: 'dev-jwt-secret-v2-change-me',
+        } as ConstructorParameters<typeof TokenService>[0];
+        const [clients, stores, services] = [{}, {}, {}] as [
+            ConstructorParameters<typeof TokenService>[1],
+            ConstructorParameters<typeof TokenService>[2],
+            ConstructorParameters<typeof TokenService>[3],
+        ];
+        const svc = new TokenService(config, clients, stores, services);
+        expect(() => svc.onServerStart()).not.toThrow();
+    });
 });
 
 describe('TokenService.sign', () => {
@@ -233,5 +263,47 @@ describe('TokenService.verify — v1 fallback', () => {
         const token = jwt.sign({ t: 's' }, V1_SECRET, { keyid: 'v99' });
         const payload = svc.verify<Record<string, unknown>>('auth', token);
         expect(payload).toMatchObject({ type: 'session', legacy: true });
+    });
+});
+
+describe('TokenService.verify — algorithm pinning', () => {
+    // jsonwebtoken has always defaulted to HS256 for string secrets, so
+    // every token ever minted by Puter (v1 and v2) is HS256 — pinning
+    // `algorithms: ['HS256']` must not invalidate any existing token.
+    it('existing tokens keep working: minted v2 and default-signed v1 tokens are HS256 and verify', () => {
+        const svc = createTokenService();
+        const v2 = svc.sign('auth', {
+            type: 'session',
+            user_uid: 'uu',
+            session_uid: 'su',
+            auth_id: 'ai',
+        });
+        expect(jwt.decode(v2, { complete: true })).toMatchObject({
+            header: { alg: 'HS256' },
+        });
+        expect(() => svc.verify('auth', v2)).not.toThrow();
+
+        const v1 = mintV1Token({ t: 's', uu: 'user-uuid' });
+        expect(jwt.decode(v1, { complete: true })).toMatchObject({
+            header: { alg: 'HS256' },
+        });
+        expect(svc.verify<Record<string, unknown>>('auth', v1)).toMatchObject({
+            legacy: true,
+        });
+    });
+
+    it('rejects a v2-routed token signed with a non-HS256 algorithm, even with the right secret', () => {
+        const svc = createTokenService();
+        const token = jwt.sign({ t: 's' }, V2_SECRET, {
+            algorithm: 'HS384',
+            keyid: 'v2',
+        });
+        expect(() => svc.verify('auth', token)).toThrow(/algorithm/);
+    });
+
+    it('rejects a v1-routed token signed with a non-HS256 algorithm, even with the right secret', () => {
+        const svc = createTokenService();
+        const token = jwt.sign({ t: 's' }, V1_SECRET, { algorithm: 'HS512' });
+        expect(() => svc.verify('auth', token)).toThrow(/algorithm/);
     });
 });

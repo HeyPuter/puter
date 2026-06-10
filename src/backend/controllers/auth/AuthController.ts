@@ -99,7 +99,16 @@ export class AuthController extends PuterController {
 
     @Post('/login', {
         captcha: true,
-        rateLimit: { scope: 'login', limit: 10, window: 15 * 60_000 },
+        // Two limits: per-fingerprint keeps users behind a shared IP
+        // (offices, campuses) from throttling each other, while the
+        // coarser per-IP backstop stops an attacker from minting fresh
+        // fingerprint buckets by rotating client-controlled headers
+        // (User-Agent etc.). Same pattern on the other unauthenticated
+        // credential endpoints below.
+        rateLimit: [
+            { scope: 'login', limit: 10, window: 15 * 60_000 },
+            { scope: 'login-ip', limit: 50, window: 15 * 60_000, key: 'ip' },
+        ],
     })
     async handleLogin(req: Request, res: Response): Promise<void> {
         const { username, email, password } = req.body;
@@ -206,11 +215,15 @@ export class AuthController extends PuterController {
 
     @Post('/login/otp', {
         captcha: true,
-        rateLimit: {
-            scope: 'login-otp',
-            limit: 15,
-            window: 30 * 60_000,
-        },
+        rateLimit: [
+            { scope: 'login-otp', limit: 15, window: 30 * 60_000 },
+            {
+                scope: 'login-otp-ip',
+                limit: 60,
+                window: 30 * 60_000,
+                key: 'ip',
+            },
+        ],
     })
     async handleLoginOtp(req: Request, res: Response): Promise<void> {
         const { token, code } = req.body;
@@ -266,11 +279,15 @@ export class AuthController extends PuterController {
 
     @Post('/login/recovery-code', {
         captcha: true,
-        rateLimit: {
-            scope: 'login-recovery',
-            limit: 10,
-            window: 60 * 60_000,
-        },
+        rateLimit: [
+            { scope: 'login-recovery', limit: 10, window: 60 * 60_000 },
+            {
+                scope: 'login-recovery-ip',
+                limit: 40,
+                window: 60 * 60_000,
+                key: 'ip',
+            },
+        ],
     })
     async handleLoginRecoveryCode(req: Request, res: Response): Promise<void> {
         const { token, code } = req.body;
@@ -339,7 +356,10 @@ export class AuthController extends PuterController {
 
     @Post('/signup', {
         captcha: true,
-        rateLimit: { scope: 'signup', limit: 10, window: 15 * 60_000 },
+        rateLimit: [
+            { scope: 'signup', limit: 10, window: 15 * 60_000 },
+            { scope: 'signup-ip', limit: 50, window: 15 * 60_000, key: 'ip' },
+        ],
     })
     async handleSignup(req: Request, res: Response): Promise<void> {
         const body = req.body ?? {};
@@ -1129,6 +1149,12 @@ export class AuthController extends PuterController {
         }
         await this.stores.user.invalidateById(user.id);
 
+        // A password reset is the "I think someone else has access" flow —
+        // evict every interactive session so a hijacked one doesn't survive.
+        await this.services.auth.revokeInteractiveSessionsForUserId(
+            user.id as number,
+        );
+
         res.send('Password successfully updated.');
     }
 
@@ -1164,6 +1190,10 @@ export class AuthController extends PuterController {
             pass_recovery_token: null,
             change_email_confirm_token: null,
         });
+
+        // Sign out every other web session (cascading to their derived
+        // rows); only the session that changed the password survives.
+        await this.services.auth.revokeAllSessions(req.actor!);
 
         if (this.clients.email && user.email) {
             try {
