@@ -42,6 +42,18 @@ export const PERMISSION_SCAN_CACHE_TTL_SECONDS = 20;
 export const PERMISSION_CACHE_GENERATION_TTL_SECONDS = 24 * 60 * 60;
 
 /**
+ * TTL (seconds) for flat user-permission entries written by the scan-path
+ * cache warm (`validateUserPerms`), as opposed to entries written by an
+ * explicit grant, which are authoritative and permanent. A warm is derived
+ * from a SQL traversal, so a warm that races a concurrent revoke (its KV
+ * write landing after the revoke's flat delete) can re-materialize a
+ * just-revoked grant. The expiry bounds that failure to this window —
+ * after it lapses the next scan re-derives from SQL, which the revoke
+ * deletes synchronously — instead of letting it persist indefinitely.
+ */
+export const FLAT_PERM_WARM_TTL_SECONDS = 60;
+
+/**
  * TTL (seconds) for the per-node in-process cache of the generation
  * counter. Permission checks are very hot, so reading the counter from
  * Redis on every check would add a round-trip to the hottest path. A tiny

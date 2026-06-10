@@ -127,18 +127,26 @@ export class PermissionStore extends PuterStore {
         );
     }
 
-    /** Write a single flat user-to-user permission entry to KV. */
+    /**
+     * Write a single flat user-to-user permission entry to KV.
+     *
+     * `opts.expireAt` (epoch seconds) marks the entry as a derived cache
+     * warm rather than an authoritative grant: warms self-expire so a warm
+     * that raced a concurrent revoke cannot re-materialize the grant
+     * indefinitely. Grant-path writes omit it and are permanent.
+     */
     async setFlatUserPerm(
         holderUserId: number,
         permission: string,
         value: FlatPermValue,
+        opts: { expireAt?: number } = {},
     ): Promise<void> {
         const key = PermissionUtil.join(
             PERM_KEY_PREFIX,
             String(holderUserId),
             permission,
         );
-        await this.stores.kv.set({ key, value });
+        await this.stores.kv.set({ key, value, expireAt: opts.expireAt });
     }
 
     /** Delete a single flat user-to-user permission entry from KV. */
@@ -563,6 +571,11 @@ export class PermissionStore extends PuterStore {
     // no CROSSSLOT pattern scan) instantly orphans every cached reading for
     // that actor: subsequent lookups compute a new key and miss.
     //
+    // Derived actors (app-under-user, access-token) fold the generations of
+    // every actor they act through into their cache keys — see
+    // PermissionService's cacheGenerationTag — so a bump of `user:<uuid>`
+    // also orphans that user's app and token actors' readings.
+    //
     // The authoritative counter lives in shared Redis. Permission checks are
     // extremely hot, so each node keeps a tiny in-process cache (the kv.js
     // singleton, ~2s TTL) in front of the Redis read — this collapses the
@@ -632,7 +645,7 @@ export class PermissionStore extends PuterStore {
     buildScanCacheKey(
         actorUid: string,
         permissionOptions: string[],
-        generation = 0,
+        generation: number | string = 0,
     ): string {
         return PermissionUtil.join(
             'permission-scan',
@@ -680,7 +693,7 @@ export class PermissionStore extends PuterStore {
     #checkCacheKey(
         actorUid: string,
         permission: string,
-        generation = 0,
+        generation: number | string = 0,
     ): string {
         return PermissionUtil.join(
             'permission-check',
@@ -694,7 +707,7 @@ export class PermissionStore extends PuterStore {
     async getMultiCheckCache(
         actorUid: string,
         permissions: string[],
-        generation = 0,
+        generation: number | string = 0,
     ): Promise<Map<string, boolean>> {
         const out = new Map<string, boolean>();
         if (permissions.length === 0) return out;
@@ -720,7 +733,7 @@ export class PermissionStore extends PuterStore {
     async setMultiCheckCache(
         actorUid: string,
         entries: Array<{ permission: string; granted: boolean }>,
-        generation = 0,
+        generation: number | string = 0,
         ttlSeconds: number = PERMISSION_SCAN_CACHE_TTL_SECONDS,
     ): Promise<void> {
         if (entries.length === 0) return;
