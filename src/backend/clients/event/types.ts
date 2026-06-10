@@ -224,6 +224,8 @@ export type EventMap = {
         entry: unknown;
         host: string;
         requestPath: string;
+        requestUrl?: string;
+        requestHash?: string;
         mime: string;
     };
 
@@ -308,8 +310,10 @@ export type DriverMethodLifecycleEvent = {
     method: string;
     /** Resolved concrete driver name. */
     driver: string;
+    /** Full actor object, if the request is authenticated. */
+    actor?: Actor;
     /** Stable actor id (see `actorUid`), if the request is authenticated. */
-    actor?: string;
+    actorUid?: string;
     /** Call arguments. Present on every phase. */
     args?: unknown;
     /** Return value. Present on `after`. */
@@ -342,8 +346,10 @@ export type RouteLifecycleEvent = {
      */
     req: ExpressRequest;
     res: ExpressResponse;
+    /** Full actor object, if the request is authenticated. */
+    actor?: Actor;
     /** Stable actor id (see `actorUid`), if the request is authenticated. */
-    actor?: string;
+    actorUid?: string;
     /** Response status code. Present on `after`/`error`. */
     statusCode?: number;
     /** Wall-clock duration from `before` to terminal phase. */

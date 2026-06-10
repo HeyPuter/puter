@@ -491,13 +491,13 @@ describe('DriverController driver-method lifecycle events', () => {
         server.clients.event.on(
             'driver.puter-kvstore.set.before',
             (_k, data) => {
-                if (data.actor === who) before.push(data);
+                if (data.actorUid === who) before.push(data);
             },
         );
         server.clients.event.on(
             'driver.puter-kvstore.set.after',
             (_k, data) => {
-                if (data.actor === who) after.push(data);
+                if (data.actorUid === who) after.push(data);
             },
         );
 
@@ -523,6 +523,8 @@ describe('DriverController driver-method lifecycle events', () => {
             phase: 'before',
             iface: 'puter-kvstore',
             method: 'set',
+            actor,
+            actorUid: who,
         });
         expect(after).toHaveLength(1);
         expect(after[0].phase).toBe('after');
