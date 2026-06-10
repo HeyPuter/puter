@@ -948,3 +948,136 @@ describe('AppDriver.isNameAvailable additional branches', () => {
         );
     });
 });
+
+// ── alias-group custom domains (`app_origin_aliases`) ──────────────
+//
+// Custom hosts claimed by an alias group get the same bootstrap-stub
+// merge treatment as puter-hosted subdomains: creating or repointing
+// an app at an aliased host absorbs the unowned origin-bootstrap row
+// instead of rejecting with `app_index_url_already_in_use`.
+
+describe('AppDriver alias-group index_url merge', () => {
+    const aliasHostA = `alias-a-${Math.random().toString(36).slice(2, 10)}.test`;
+    const aliasHostB = `alias-b-${Math.random().toString(36).slice(2, 10)}.test`;
+
+    // `config` is protected on PuterDriver; reach in to toggle the alias
+    // groups for this block only. `#getOriginAliasGroups` reads config at
+    // call time, so runtime mutation takes effect immediately.
+    const driverConfig = () =>
+        (driver as unknown as { config: Record<string, unknown> }).config;
+
+    beforeAll(() => {
+        driverConfig().app_origin_aliases = [[aliasHostA], [aliasHostB]];
+    });
+
+    afterAll(() => {
+        delete driverConfig().app_origin_aliases;
+    });
+
+    const makeBootstrapStub = async (host: string) => {
+        const stubUid = `app-${uuidv4()}`;
+        // Mirrors AuthController's get-user-app-token bootstrap path:
+        // origin persisted as index_url, no owner, name === uid.
+        await server.stores.app.createFromOrigin(stubUid, `https://${host}`);
+        return stubUid;
+    };
+
+    it('create at an aliased host absorbs the unowned bootstrap stub', async () => {
+        const { actor, userId } = await makeUser();
+        const stubUid = await makeBootstrapStub(aliasHostA);
+        const name = uniqueName('alias-create');
+
+        const result = await withActor(actor, () =>
+            driver.create({
+                object: {
+                    name,
+                    title: 'Aliased',
+                    index_url: `https://${aliasHostA}/`,
+                },
+            }),
+        );
+
+        // The stub row survives as the canonical app, claimed + merged.
+        expect(result.uid).toBe(stubUid);
+        expect(result.name).toBe(name);
+        const stored = await server.stores.app.getByUid(stubUid);
+        expect(stored?.owner_user_id).toBe(userId);
+    });
+
+    it('rejects another user registering an app under a reserved aliased host', async () => {
+        const other = await makeUser();
+        await expect(
+            withActor(other.actor, () =>
+                driver.create({
+                    object: {
+                        name: uniqueName('squatter'),
+                        title: 't',
+                        index_url: `https://${aliasHostA}/index.html`,
+                    },
+                }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('update repointing to an aliased host merges and aliases the old uid', async () => {
+        const { actor, userId } = await makeUser();
+        const stubUid = await makeBootstrapStub(aliasHostB);
+
+        const created = await withActor(actor, () =>
+            driver.create({
+                object: {
+                    name: uniqueName('alias-upd'),
+                    title: 't',
+                    index_url: uniqueIndexUrl(),
+                },
+            }),
+        );
+
+        const updated = await withActor(actor, () =>
+            driver.update({
+                uid: created.uid,
+                object: { index_url: `https://${aliasHostB}/` },
+            }),
+        );
+
+        // Merged into the stub; source row deleted; old uid still resolves
+        // via the canonical-uid alias.
+        expect(updated.uid).toBe(stubUid);
+        expect(await server.stores.app.getByUid(created.uid as string)).toBeNull();
+        const stored = await server.stores.app.getByUid(stubUid);
+        expect(stored?.owner_user_id).toBe(userId);
+
+        const viaOldUid = await withActor(actor, () =>
+            driver.read({ uid: created.uid }),
+        );
+        expect(viaOldUid.uid).toBe(stubUid);
+    });
+
+    it('leaves unrelated custom domains untouched (no alias group, no conflict check)', async () => {
+        const a = await makeUser();
+        const b = await makeUser();
+        const sharedUrl = uniqueIndexUrl();
+
+        // Non-puter, non-aliased hosts keep their historical behavior:
+        // no uniqueness enforcement, both creates succeed.
+        const first = await withActor(a.actor, () =>
+            driver.create({
+                object: {
+                    name: uniqueName('plain-a'),
+                    title: 't',
+                    index_url: sharedUrl,
+                },
+            }),
+        );
+        const second = await withActor(b.actor, () =>
+            driver.create({
+                object: {
+                    name: uniqueName('plain-b'),
+                    title: 't',
+                    index_url: sharedUrl,
+                },
+            }),
+        );
+        expect(first.uid).not.toBe(second.uid);
+    });
+});
