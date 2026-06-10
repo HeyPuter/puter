@@ -29,6 +29,11 @@ let sidebar = [
                 path: '/frameworks',
             },
             {
+                title: 'MCP Server',
+                source: '/mcp.md',
+                path: '/mcp',
+            },
+            {
                 title: 'Deployments',
                 source: '/deployments.md',
                 path: '/deployments',
