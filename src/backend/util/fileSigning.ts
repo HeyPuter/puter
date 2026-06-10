@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { createHash } from 'node:crypto';
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { HttpError } from '../core/http/HttpError.js';
 import type { FSEntry } from '../stores/fs/FSEntry.js';
 
@@ -64,6 +64,23 @@ function computeSignature(
     expires: number,
 ): string {
     return sha256(`${uid}/${action}/${secret}/${expires}`);
+}
+
+/**
+ * Constant-time equality for the hex signature strings. A plain `===`
+ * short-circuits on the first differing character, leaking a byte-by-byte
+ * timing oracle on the one value an attacker controls and submits
+ * repeatedly. Length mismatch (or non-hex input) returns false without
+ * a timing-variable compare.
+ */
+function signaturesEqual(provided: string, expected: string): boolean {
+    if (provided.length !== expected.length) return false;
+    const a = Buffer.from(provided, 'hex');
+    const b = Buffer.from(expected, 'hex');
+    // Malformed hex yields a shorter buffer than the hex length implies;
+    // timingSafeEqual requires equal lengths, so guard before comparing.
+    if (a.length !== b.length) return false;
+    return timingSafeEqual(a, b);
 }
 
 /**
@@ -152,9 +169,19 @@ export function verifySignature(
     }
 
     // Write signature satisfies any action.
-    if (signature === computeSignature(uid, 'write', config.secret, expires))
+    if (
+        signaturesEqual(
+            signature,
+            computeSignature(uid, 'write', config.secret, expires),
+        )
+    )
         return;
-    if (signature === computeSignature(uid, action, config.secret, expires))
+    if (
+        signaturesEqual(
+            signature,
+            computeSignature(uid, action, config.secret, expires),
+        )
+    )
         return;
 
     throw new HttpError(403, 'Authentication failed', {

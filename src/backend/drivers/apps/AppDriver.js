@@ -52,6 +52,12 @@ const INDEX_URL_UNIQUENESS_EXEMPTION_CANDIDATES = [
     'https://dev-center.puter.com/coming-soon',
 ];
 
+// Sentinel host for builtin apps. The GUI rewrites index_urls on this
+// host to `<gui origin>/builtin/<name>` (see launch_app.js), so rows
+// carrying it are reserved for migration-seeded builtins — a user app
+// claiming it would load its code same-origin with the desktop.
+const BUILTIN_APPS_HOST = 'builtins.namespaces.puter.com';
+
 // Canonical-uid alias namespace. When a user-created app is merged into
 // an existing origin-bootstrap row, the source uid is mapped to the
 // canonical (kept) uid so any client that still holds the old uid keeps
@@ -465,7 +471,7 @@ export class AppDriver extends PuterDriver {
 
     // -- Validation ---------------------------------------------------
 
-    async #validateInput(object, { isCreate }) {
+    async #validateInput(object, { isCreate, existing }) {
         const out = {};
 
         if (isCreate || object.name !== undefined) {
@@ -497,6 +503,15 @@ export class AppDriver extends PuterDriver {
                 maxLen: 3000,
                 required: isCreate,
             });
+            // Only enforce on new/changed values so rows that already
+            // carry a reserved host (migration-seeded builtins) can still
+            // have their other fields updated.
+            if (
+                out.index_url !== undefined &&
+                out.index_url !== existing?.index_url
+            ) {
+                this.#assertIndexUrlHostAllowed(out.index_url);
+            }
         }
         if (object.icon !== undefined) {
             validateString(object.icon, {
@@ -579,6 +594,54 @@ export class AppDriver extends PuterDriver {
         }
 
         return out;
+    }
+
+    /**
+     * App iframes run with `allow-same-origin allow-scripts`, so an
+     * index_url loading from the GUI host would execute third-party code
+     * same-origin with the desktop — a full sandbox escape. The API host
+     * is reserved for the same reason, and the builtin sentinel host is
+     * rewritten by the GUI to `<gui origin>/builtin/…` (see
+     * BUILTIN_APPS_HOST above). Host comparison (rather than full origin)
+     * deliberately also catches scheme/port variants of these hosts.
+     */
+    #assertIndexUrlHostAllowed(indexUrl) {
+        let hostname;
+        try {
+            hostname = new URL(indexUrl).hostname;
+        } catch {
+            // Unparseable values are rejected by `validateUrl` upstream.
+            return;
+        }
+
+        const config = this.config ?? {};
+        const reserved = new Set([BUILTIN_APPS_HOST]);
+        // `origin`/`api_base_url` are computed at boot from `domain`; the
+        // domain-based fallbacks cover callers (tests, embedders) that
+        // construct a server without that normalization step.
+        const candidates = [config.origin, config.api_base_url];
+        if (config.domain) {
+            candidates.push(
+                `http://${config.domain}`,
+                `http://api.${config.domain}`,
+            );
+        }
+        for (const candidate of candidates) {
+            if (!candidate) continue;
+            try {
+                reserved.add(new URL(candidate).hostname);
+            } catch {
+                // Malformed config value — nothing to reserve from it.
+            }
+        }
+
+        if (reserved.has(hostname)) {
+            throw new HttpError(
+                400,
+                '`index_url` cannot point at a Puter system host',
+                { legacyCode: 'bad_request' },
+            );
+        }
     }
 
     // -- Permission checks --------------------------------------------

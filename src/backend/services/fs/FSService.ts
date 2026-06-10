@@ -2133,6 +2133,46 @@ export class FSService extends PuterService {
                 );
             }
 
+            // The size recorded so far is the client-declared value from the
+            // start-write request. On a signed (direct-to-S3) upload the
+            // client could declare `1` and PUT gigabytes — the presigned URL
+            // doesn't bound the body — so reconcile against the object's true
+            // size before persisting. Without this, storage accounting is
+            // understated permanently (quota is SUM(size)) and the free-tier
+            // limit is bypassable. Mirrors the server-proxied /write path.
+            const reconcileBucket =
+                session.bucket ?? createInput.bucket ?? this.#resolveBucket();
+            const reconcileRegion =
+                session.bucketRegion ??
+                createInput.bucketRegion ??
+                this.#resolveBucketRegion();
+            let trueSize: number | null = null;
+            try {
+                trueSize = await this.stores.s3Object.headObjectSize(
+                    reconcileBucket,
+                    session.objectKey,
+                    reconcileRegion,
+                );
+            } catch {
+                // HEAD failed (e.g. object never uploaded) — leave the
+                // declared size; don't block completion on a metadata read.
+                trueSize = null;
+            }
+            if (typeof trueSize === 'number' && trueSize >= 0) {
+                // Record the true size only — do not re-assert the quota here.
+                // The bytes are already in S3, so a completion-time reject
+                // can't reclaim them; it only false-rejects (the start-check
+                // may have used a higher storageAllowanceMax override that
+                // isn't persisted in the session) and deletes within-quota
+                // uploads. Recording real bytes is what closes the bypass:
+                // the user's SUM(size) becomes accurate so their next signed
+                // -write start-check (#assertStorageAllowance via
+                // getUserStorageAllowance) blocks them. The residual is a
+                // single in-flight upload over quota — the same bounded
+                // check-then-act window the start-check already has.
+                createInput.size = trueSize;
+            }
+
             const fsEntry = await this.stores.fsEntry.completePendingEntry(
                 session.sessionId,
                 createInput,
@@ -2311,6 +2351,49 @@ export class FSService extends PuterService {
                 throw firstReason;
             }
             throw new Error('Failed to complete multipart upload');
+        }
+
+        // Reconcile client-declared sizes against the true uploaded object
+        // sizes before persisting — see completeUrlWrite for the rationale.
+        // Without this the batch endpoint is a parallel bypass of the same
+        // storage-quota check.
+        const reconcileBucketRegion = (
+            item: (typeof completionItems)[number],
+        ) => ({
+            bucket:
+                item.session.bucket ??
+                item.finalData.bucket ??
+                this.#resolveBucket(),
+            region:
+                item.session.bucketRegion ??
+                item.finalData.bucketRegion ??
+                this.#resolveBucketRegion(),
+        });
+        const headSizes = await Promise.all(
+            completionItems.map(async (item) => {
+                const { bucket, region } = reconcileBucketRegion(item);
+                try {
+                    return await this.stores.s3Object.headObjectSize(
+                        bucket,
+                        item.session.objectKey,
+                        region,
+                    );
+                } catch {
+                    return null;
+                }
+            }),
+        );
+        // Record the true sizes only — do not re-assert the quota here. See
+        // completeUrlWrite: the bytes are already in S3 so a completion-time
+        // reject can't reclaim them, and per-item deletes would destroy the
+        // bytes of correctly-declared, within-quota siblings in the batch.
+        // Recording real sizes keeps SUM(size) accurate so the next
+        // signed-write start-check blocks an over-quota user.
+        for (let index = 0; index < completionItems.length; index++) {
+            const item = completionItems[index];
+            const trueSize = headSizes[index];
+            if (typeof trueSize !== 'number' || trueSize < 0) continue;
+            item.finalData.size = trueSize;
         }
 
         const completedEntries =

@@ -179,6 +179,16 @@ export class V1TokensDisabledError extends Error {
 
 // -- TokenService ----------------------------------------------------
 
+// The exact secret values shipped in config.default.json. Matched exactly
+// (not by substring) so the boot guard refuses only these known-insecure
+// defaults and never a legitimate operator secret that happens to contain
+// "change-me".
+const SHIPPED_PLACEHOLDER_SECRETS = new Set([
+    'dev-jwt-secret-change-me',
+    'dev-jwt-secret-v2-change-me',
+    'dev-url-signature-secret-change-me',
+]);
+
 export class TokenService extends PuterService {
     #secretV2: string = '';
     #secretLegacy: string = '';
@@ -190,6 +200,32 @@ export class TokenService extends PuterService {
             throw new Error(
                 'TokenService requires `jwt_secret_v2` in config — v2 signing cannot proceed without it',
             );
+        }
+        // The dev placeholders ship in config.default.json (a public repo) and
+        // survive a deep-merge when an override config omits them — anyone who
+        // knows the placeholder can forge with that secret. For the JWT secrets
+        // that means forging a session token for any user; for
+        // `url_signature_secret` it means forging file read/write capability
+        // URLs for any file uid. Refuse to boot a non-dev deployment on any
+        // placeholder secret. (`url_signature_secret` is guarded here, with the
+        // other shipped placeholder secrets, even though it's consumed
+        // elsewhere — this is the one hook guaranteed to run before any request.)
+        if (this.config.env !== 'dev') {
+            for (const [name, value] of [
+                ['jwt_secret_v2', secretV2],
+                ['jwt_secret', this.config.jwt_secret ?? ''],
+                [
+                    'url_signature_secret',
+                    this.config.url_signature_secret ?? '',
+                ],
+            ] as const) {
+                if (SHIPPED_PLACEHOLDER_SECRETS.has(value)) {
+                    throw new Error(
+                        `\`${name}\` is still the dev placeholder from config.default.json; ` +
+                            'set a real secret before running with env != "dev"',
+                    );
+                }
+            }
         }
         this.#secretV2 = secretV2;
         // Legacy secret is optional in fresh installs (no v1 tokens to verify),
@@ -241,6 +277,8 @@ export class TokenService extends PuterService {
         if (kid === 'v2') {
             const payload = jwt.verify(token, this.#secretV2, {
                 clockTolerance: CLOCK_TOLERANCE_SECONDS,
+                // Secrets are symmetric; never accept asymmetric algs here.
+                algorithms: ['HS256'],
             }) as Record<string, unknown>;
             return this.#decompressPayload(context, payload) as unknown as T;
         }
@@ -269,6 +307,7 @@ export class TokenService extends PuterService {
         }
         const payload = jwt.verify(token, this.#secretLegacy, {
             clockTolerance: CLOCK_TOLERANCE_SECONDS,
+            algorithms: ['HS256'],
         }) as Record<string, unknown>;
         const decompressed = this.#decompressPayload(
             context,

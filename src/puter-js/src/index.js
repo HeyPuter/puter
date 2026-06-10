@@ -997,6 +997,15 @@ const puterInit = function () {
         _silentMigrateV1Token = async function (v1Token) {
             if (!v1Token) return false;
             try {
+                // The `puter_token_v2` companion cookie set by this
+                // endpoint is only consumed by same-origin requests to
+                // the GUI origin, and the main domain doesn't serve
+                // credentialed CORS — `include` from a third-party app
+                // origin fails the preflight outright. Only ask for
+                // credentials when we're actually on the GUI origin;
+                // everywhere else the JSON token response is all we need.
+                const sameOrigin =
+                    globalThis.location?.origin === this.defaultGUIOrigin;
                 const resp = await fetch(
                     `${this.defaultGUIOrigin}/auth/migrate-token`,
                     {
@@ -1005,7 +1014,7 @@ const puterInit = function () {
                             Authorization: `Bearer ${v1Token}`,
                             'Content-Type': 'application/json',
                         },
-                        credentials: 'include',
+                        credentials: sameOrigin ? 'include' : 'omit',
                         body: JSON.stringify({}),
                     },
                 );

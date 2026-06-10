@@ -143,6 +143,57 @@ describe('AppDriver.create', () => {
         ).rejects.toMatchObject({ statusCode: 400 });
     });
 
+    // App iframes get `allow-same-origin allow-scripts`, so an index_url
+    // on a Puter system host would run third-party code same-origin with
+    // the GUI. The test server's domain is `puter.localhost` (from
+    // config.default.json).
+    it.each([
+        ['the GUI host', 'https://puter.localhost/evil.html'],
+        ['the GUI host on another port/scheme', 'http://puter.localhost:4100/evil.html'],
+        ['the API host', 'https://api.puter.localhost/evil.html'],
+        ['the builtin sentinel host', 'https://builtins.namespaces.puter.com/emulator'],
+    ])('rejects an index_url on %s with 400', async (_label, index_url) => {
+        const { actor } = await makeUser();
+        await expect(
+            withActor(actor, () =>
+                driver.create({
+                    object: {
+                        name: uniqueName('sys-host'),
+                        title: 't',
+                        index_url,
+                    },
+                }),
+            ),
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            message: /system host/,
+        });
+    });
+
+    it('rejects updating an index_url to a Puter system host with 400', async () => {
+        const { actor } = await makeUser();
+        const created = await withActor(actor, () =>
+            driver.create({
+                object: {
+                    name: uniqueName('sys-host-upd'),
+                    title: 't',
+                    index_url: uniqueIndexUrl(),
+                },
+            }),
+        );
+        await expect(
+            withActor(actor, () =>
+                driver.update({
+                    uid: created.uid,
+                    object: { index_url: 'https://puter.localhost/evil.html' },
+                }),
+            ),
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            message: /system host/,
+        });
+    });
+
     it('rejects a duplicate app name with 400', async () => {
         const a = await makeUser();
         const b = await makeUser();

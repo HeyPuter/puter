@@ -37,6 +37,7 @@ import {
     runWithConcurrencyLimit,
     runWithConcurrencyLimitSettled,
 } from '../../util/concurrency.js';
+import { applyInlineContentSecurity } from '../../util/inlineContentSecurity.js';
 import { PuterController } from '../types.js';
 import { FS_COSTS } from './costs.js';
 import type {
@@ -964,8 +965,13 @@ export class FSController extends PuterController {
             range,
         });
 
-        if (download.contentType)
+        if (download.contentType) {
             res.setHeader('Content-Type', download.contentType);
+            // Stored type is uploader-controlled and served inline on the
+            // api origin — sandbox active-document types (HTML/SVG/XML) so
+            // embedded scripts can't run here. Inert types are untouched.
+            applyInlineContentSecurity(res, download.contentType);
+        }
         if (download.contentLength !== null)
             res.setHeader('Content-Length', String(download.contentLength));
         if (download.contentRange)

@@ -434,6 +434,65 @@ describe('FSController.completeBatchWrites', () => {
         expect(finalized?.wasOverwrite).toBe(true);
     });
 
+    // Regression: a signed (direct-to-S3) upload could declare a tiny size
+    // and PUT far more — the presigned URL doesn't bound the body. The
+    // completion path must reconcile the recorded size against the object's
+    // true size, or storage accounting is permanently understated and the
+    // quota is bypassable.
+    it('reconciles the recorded size to the real uploaded bytes (ignores under-declared size)', async () => {
+        const { actor, userId } = await makeUser();
+        const username = actor.user!.username!;
+        const target = `/${username}/Documents/under-declared.bin`;
+
+        // Declare 1 byte.
+        const start = makeRes();
+        await withActor(actor, () =>
+            controller.startBatchWrites(
+                makeReq<SignedWriteRequest[]>({
+                    body: [{ fileMetadata: { path: target, size: 1 } }],
+                    actor,
+                }),
+                start.res,
+            ),
+        );
+        const [started] = start.captured.body as SignedWriteResponse[];
+
+        // Actually upload 4096 bytes to the session's object key (simulating
+        // a client that PUTs more than it declared via the signed URL).
+        const realBytes = Buffer.alloc(4096, 0x41);
+        await server.stores.s3Object.uploadFromServer(
+            {
+                bucket: started!.bucket,
+                objectKey: started!.objectKey,
+                contentType: 'application/octet-stream',
+                body: realBytes,
+                contentLength: realBytes.byteLength,
+            },
+            started!.bucketRegion,
+        );
+
+        const complete = makeRes();
+        await withActor(actor, () =>
+            controller.completeBatchWrites(
+                makeReq<CompleteWriteRequest[]>({
+                    body: [{ uploadId: started!.sessionId }],
+                    actor,
+                }),
+                complete.res,
+            ),
+        );
+
+        const entry = await server.stores.fsEntry.getEntryByPath(target);
+        expect(entry).not.toBeNull();
+        // Recorded size is the true 4096 bytes, not the declared 1.
+        expect(entry?.size).toBe(4096);
+
+        // And the user's accounted usage reflects the real bytes.
+        const allowance =
+            await server.stores.fsEntry.getUserStorageAllowance(userId);
+        expect(allowance.curr).toBeGreaterThanOrEqual(4096);
+    });
+
     it('emits updated events with GUI metadata when overwriting via batch completion', async () => {
         const { actor, userId } = await makeUser();
         const username = actor.user!.username!;

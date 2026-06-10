@@ -48,7 +48,10 @@ export class DefaultUserService extends PuterService {
         let tmpPassword: string;
 
         if (!user) {
-            tmpPassword = crypto.randomBytes(4).toString('hex');
+            // 16 bytes (128 bits) — the old 4 bytes was only 32 bits,
+            // brute-forceable if the box is reachable before the admin
+            // rotates the printed bootstrap password.
+            tmpPassword = crypto.randomBytes(16).toString('hex');
             user = await this.#createAdminUser(tmpPassword);
             // AppIconService is registered before us, so its own onServerStart
             // bailed on its first-boot bootstrap (admin didn't exist yet).

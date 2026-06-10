@@ -17,12 +17,28 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { Request, Response } from 'express';
 import type { Actor } from '../../core/actor.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import type { PuterRouter } from '../../core/http/PuterRouter.js';
 import { PuterController } from '../types.js';
 import { PEER_COSTS } from './costs.js';
+
+/**
+ * Constant-time secret comparison for the internal-auth header. HMAC both
+ * sides under a random per-process key to a fixed 32-byte digest first:
+ * this avoids leaking length via an early-return and sidesteps
+ * `timingSafeEqual`'s equal-length requirement for arbitrary-length
+ * inputs. The key need not persist — it only has to be unknown to the
+ * attacker for the duration of the comparison.
+ */
+const COMPARE_KEY = randomBytes(32);
+const secretsEqual = (a: string, b: string): boolean => {
+    const ha = createHmac('sha256', COMPARE_KEY).update(a).digest();
+    const hb = createHmac('sha256', COMPARE_KEY).update(b).digest();
+    return timingSafeEqual(ha, hb);
+};
 
 /**
  * Encode a UUID (or `app-<uuid>` UID) as base64url with no padding.
@@ -170,7 +186,11 @@ export class PeerController extends PuterController {
         }
         const expectedSecret = cfg.internal_auth_secret;
         const header = req.headers['x-puter-internal-auth'];
-        if (!expectedSecret || header !== expectedSecret) {
+        if (
+            !expectedSecret ||
+            typeof header !== 'string' ||
+            !secretsEqual(header, expectedSecret)
+        ) {
             throw new HttpError(403, 'Forbidden', { legacyCode: 'forbidden' });
         }
 

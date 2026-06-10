@@ -215,9 +215,12 @@ export class PermissionService extends PuterService {
 
         // -- Cache pass: one pipelined MGET --
         const aUid = actorUid(actor);
+        const generation =
+            await this.stores.permission.getCacheGeneration(aUid);
         const cached = await this.stores.permission.getMultiCheckCache(
             aUid,
             dedup,
+            generation,
         );
         const missing: string[] = [];
         for (const p of dedup) {
@@ -251,8 +254,13 @@ export class PermissionService extends PuterService {
 
         // Backfill cache (best-effort, fire-and-forget would also be
         // fine — keeping it awaited so callers see deterministic state
-        // in tests).
-        await this.stores.permission.setMultiCheckCache(aUid, writeBack);
+        // in tests). Use the same generation read above so a concurrent
+        // bump doesn't get masked by this write.
+        await this.stores.permission.setMultiCheckCache(
+            aUid,
+            writeBack,
+            generation,
+        );
 
         return out;
     }
@@ -286,9 +294,15 @@ export class PermissionService extends PuterService {
         const workingState: ScanState = state ?? { antiCycleActors: [actor] };
 
         // -- Redis scan cache --
+        // The per-actor cache generation is folded into the key so a
+        // grant/revoke bump orphans this actor's cached readings at once.
+        const aUid = actorUid(actor);
+        const generation =
+            await this.stores.permission.getCacheGeneration(aUid);
         const cacheKey = this.stores.permission.buildScanCacheKey(
-            actorUid(actor),
+            aUid,
             options,
+            generation,
         );
         if (!scanOptions.noCache) {
             const cached = await this.stores.permission.getScanCache(cacheKey);
@@ -907,6 +921,9 @@ export class PermissionService extends PuterService {
                 reason: meta.reason ?? 'granted via PermissionService',
             })
             .catch(() => {});
+
+        // Bust any cached "denied" reading so the grant is live immediately.
+        if (user.uuid) await this.#bumpUserCacheGeneration(user.uuid);
     }
 
     async revokeUserUserPermission(
@@ -946,6 +963,9 @@ export class PermissionService extends PuterService {
                 reason: meta.reason ?? 'revoked via PermissionService',
             })
             .catch(() => {});
+
+        // The holder loses access on their next check, not after the TTL.
+        if (user.uuid) await this.#bumpUserCacheGeneration(user.uuid);
     }
 
     async grantUserAppPermission(
@@ -1002,12 +1022,9 @@ export class PermissionService extends PuterService {
             })
             .catch(() => {});
 
-        // Invalidate app-under-user scan cache so the grant takes effect immediately
-        await this.invalidatePermissionScanCacheForAppUnderUser(
-            actor.user.uuid!,
-            app.uid,
-            permission,
-        );
+        // Bump the app-under-user cache generation so the grant takes
+        // effect on the next check rather than after the cache TTL.
+        await this.#bumpAppUnderUserCacheGeneration(actor.user.uuid!, app.uid);
     }
 
     async revokeUserAppPermission(
@@ -1045,6 +1062,13 @@ export class PermissionService extends PuterService {
                 reason: meta.reason ?? 'revoked via PermissionService',
             })
             .catch(() => {});
+
+        if (actor.user.uuid) {
+            await this.#bumpAppUnderUserCacheGeneration(
+                actor.user.uuid,
+                app.uid,
+            );
+        }
     }
 
     async revokeUserAppAll(
@@ -1076,6 +1100,13 @@ export class PermissionService extends PuterService {
                 reason: meta.reason ?? 'revoked all via PermissionService',
             })
             .catch(() => {});
+
+        if (actor.user.uuid) {
+            await this.#bumpAppUnderUserCacheGeneration(
+                actor.user.uuid,
+                app.uid,
+            );
+        }
     }
 
     async grantDevAppPermission(
@@ -1217,6 +1248,8 @@ export class PermissionService extends PuterService {
                 reason: meta.reason ?? 'granted via PermissionService',
             })
             .catch(() => {});
+
+        await this.#bumpGroupMembersCacheGeneration(group.uid);
     }
 
     async revokeUserGroupPermission(
@@ -1245,6 +1278,8 @@ export class PermissionService extends PuterService {
                 reason: meta.reason ?? 'revoked via PermissionService',
             })
             .catch(() => {});
+
+        await this.#bumpGroupMembersCacheGeneration(group.uid);
     }
 
     // -- Issuer queries (share discovery et al) -----------------------
@@ -1334,17 +1369,56 @@ export class PermissionService extends PuterService {
     }
 
     // -- Cache invalidation -------------------------------------------
+    //
+    // Grants and revokes bump the affected holder's per-actor cache
+    // generation (see PermissionStore), which orphans all of that actor's
+    // cached scan/check readings at once. This is cluster-safe (a single
+    // INCR, no pattern scan) and makes a grant/revoke take effect on the
+    // holder's very next check rather than after the cache TTL.
 
-    async invalidatePermissionScanCacheForAppUnderUser(
+    /** Bump a plain user holder (`user:<uuid>`). */
+    async #bumpUserCacheGeneration(userUuid: string): Promise<void> {
+        await this.stores.permission.bumpCacheGeneration(`user:${userUuid}`);
+    }
+
+    /** Bump an app-under-user holder (`app-under-user:<uuid>:<appUid>`). */
+    async #bumpAppUnderUserCacheGeneration(
         userUuid: string,
         appUid: string,
-        permission: string,
     ): Promise<void> {
-        const actorUid = `app-under-user:${userUuid}:${appUid}`;
-        const cacheKey = this.stores.permission.buildScanCacheKey(actorUid, [
-            permission,
-        ]);
-        await this.stores.permission.invalidateScanCache(cacheKey);
+        await this.stores.permission.bumpCacheGeneration(
+            `app-under-user:${userUuid}:${appUid}`,
+        );
+    }
+
+    /**
+     * Bump every current member of a group. Used when a group grant
+     * changes — each member's readings may have resolved through the group,
+     * so each member's `user:<uuid>` cache must be orphaned.
+     */
+    async #bumpGroupMembersCacheGeneration(groupUid: string): Promise<void> {
+        const memberUuids =
+            await this.stores.group.listMemberUserUuids(groupUid);
+        await Promise.all(
+            memberUuids.map((uuid) => this.#bumpUserCacheGeneration(uuid)),
+        );
+    }
+
+    /**
+     * Public: bump the permission cache for a set of users by username.
+     * Used by group add/remove-users — membership changes a user's
+     * effective permissions, so their cached readings must be orphaned
+     * (a removed user must lose the group's grants on their next check,
+     * not after the TTL).
+     */
+    async bumpPermissionCacheForUsernames(usernames: string[]): Promise<void> {
+        const unique = Array.from(new Set(usernames.filter(Boolean)));
+        await Promise.all(
+            unique.map(async (username) => {
+                const user = await this.stores.user.getByUsername(username);
+                if (user?.uuid) await this.#bumpUserCacheGeneration(user.uuid);
+            }),
+        );
     }
 
     // -- Internals ----------------------------------------------------

@@ -609,6 +609,24 @@ export class AuthService extends PuterService {
         }
     }
 
+    /**
+     * Password-reset cascade: revoke every interactive (web/app) session
+     * for the user, so a hijacked session doesn't outlive a password
+     * reset. No actor context — the recovery flow has no authenticated
+     * caller. Leaves workers and standalone access tokens alone: those
+     * are managed credentials rather than sign-ins, and a routine
+     * forgot-password reset shouldn't break deployments.
+     */
+    async revokeInteractiveSessionsForUserId(userId: number): Promise<void> {
+        if (!userId) return;
+        const rows = await this.stores.session.getByUserId(userId);
+        for (const row of rows) {
+            if (row.kind === 'web' || row.kind === 'app') {
+                await this.stores.session.revokeCascade(row.uuid as string);
+            }
+        }
+    }
+
     async revokeAllSessions(
         actor: Actor,
         opts: { includeCurrent?: boolean; includeApps?: boolean } = {},

@@ -99,7 +99,16 @@ export class AuthController extends PuterController {
 
     @Post('/login', {
         captcha: true,
-        rateLimit: { scope: 'login', limit: 10, window: 15 * 60_000 },
+        // Two limits: per-fingerprint keeps users behind a shared IP
+        // (offices, campuses) from throttling each other, while the
+        // coarser per-IP backstop stops an attacker from minting fresh
+        // fingerprint buckets by rotating client-controlled headers
+        // (User-Agent etc.). Same pattern on the other unauthenticated
+        // credential endpoints below.
+        rateLimit: [
+            { scope: 'login', limit: 10, window: 15 * 60_000 },
+            { scope: 'login-ip', limit: 50, window: 15 * 60_000, key: 'ip' },
+        ],
     })
     async handleLogin(req: Request, res: Response): Promise<void> {
         const { username, email, password } = req.body;
@@ -206,11 +215,15 @@ export class AuthController extends PuterController {
 
     @Post('/login/otp', {
         captcha: true,
-        rateLimit: {
-            scope: 'login-otp',
-            limit: 15,
-            window: 30 * 60_000,
-        },
+        rateLimit: [
+            { scope: 'login-otp', limit: 15, window: 30 * 60_000 },
+            {
+                scope: 'login-otp-ip',
+                limit: 60,
+                window: 30 * 60_000,
+                key: 'ip',
+            },
+        ],
     })
     async handleLoginOtp(req: Request, res: Response): Promise<void> {
         const { token, code } = req.body;
@@ -266,11 +279,15 @@ export class AuthController extends PuterController {
 
     @Post('/login/recovery-code', {
         captcha: true,
-        rateLimit: {
-            scope: 'login-recovery',
-            limit: 10,
-            window: 60 * 60_000,
-        },
+        rateLimit: [
+            { scope: 'login-recovery', limit: 10, window: 60 * 60_000 },
+            {
+                scope: 'login-recovery-ip',
+                limit: 40,
+                window: 60 * 60_000,
+                key: 'ip',
+            },
+        ],
     })
     async handleLoginRecoveryCode(req: Request, res: Response): Promise<void> {
         const { token, code } = req.body;
@@ -339,7 +356,10 @@ export class AuthController extends PuterController {
 
     @Post('/signup', {
         captcha: true,
-        rateLimit: { scope: 'signup', limit: 10, window: 15 * 60_000 },
+        rateLimit: [
+            { scope: 'signup', limit: 10, window: 15 * 60_000 },
+            { scope: 'signup-ip', limit: 50, window: 15 * 60_000, key: 'ip' },
+        ],
     })
     async handleSignup(req: Request, res: Response): Promise<void> {
         const body = req.body ?? {};
@@ -1129,6 +1149,12 @@ export class AuthController extends PuterController {
         }
         await this.stores.user.invalidateById(user.id);
 
+        // A password reset is the "I think someone else has access" flow —
+        // evict every interactive session so a hijacked one doesn't survive.
+        await this.services.auth.revokeInteractiveSessionsForUserId(
+            user.id as number,
+        );
+
         res.send('Password successfully updated.');
     }
 
@@ -1164,6 +1190,10 @@ export class AuthController extends PuterController {
             pass_recovery_token: null,
             change_email_confirm_token: null,
         });
+
+        // Sign out every other web session (cascading to their derived
+        // rows); only the session that changed the password survives.
+        await this.services.auth.revokeAllSessions(req.actor!);
 
         if (this.clients.email && user.email) {
             try {
@@ -2140,12 +2170,15 @@ export class AuthController extends PuterController {
     // -- Access tokens -----------------------------------------------
 
     async handleMigrateToken(req: Request, res: Response): Promise<void> {
-        // 1. Origin lock. Reject anything that isn't same-origin to
-        // `config.origin` or in the explicit per-deployment allowlist.
-        // No Origin header → reject (this endpoint is browser-only by
-        // design; server-side callers should re-auth properly).
+        // 1. Browser-only gate. No Origin header → reject (server-side
+        // callers should re-auth properly). The exchange itself is open
+        // to any browser origin: puter.js apps live on arbitrary
+        // third-party domains, the v1 bearer token is the credential,
+        // and cookies are never read here — so a hostile page learns
+        // nothing it doesn't already hold. Origin *trust* only decides
+        // whether the `puter_token_v2` companion cookie is set below.
         const reqOrigin = req.headers.origin;
-        if (!reqOrigin || !this.#isMigrateTokenOriginAllowed(reqOrigin)) {
+        if (!reqOrigin) {
             throw new HttpError(403, 'Origin not allowed', {
                 legacyCode: 'forbidden',
             });
@@ -2175,12 +2208,19 @@ export class AuthController extends PuterController {
                     : undefined,
         });
         // `puter_token_v2` is the cookie companion to v2 app tokens —
-        // the app runs in-browser (we already gated on Origin above) so
-        // the GUI's cookie-only middleware can authenticate subsequent
-        // calls from the same iframe without the client having to
-        // forward Authorization headers. Access tokens are programmatic
-        // (no browser cookie surface) so we deliberately skip them here.
-        if (result.kind === 'app') {
+        // it lets the GUI's cookie-only middleware authenticate
+        // subsequent same-origin calls without the client forwarding
+        // Authorization headers. Issuing it is gated on the trusted
+        // origin allowlist: an arbitrary attacker page must not be able
+        // to plant a session cookie on the GUI origin (login CSRF).
+        // Untrusted origins still get the token in the JSON body — the
+        // cookie is only consumed same-origin (see authProbe) so they
+        // lose nothing. Access tokens are programmatic (no browser
+        // cookie surface) so we deliberately skip them here.
+        if (
+            result.kind === 'app' &&
+            this.#isMigrateTokenOriginAllowed(reqOrigin)
+        ) {
             res.cookie('puter_token_v2', result.token, {
                 ...sessionCookieFlags(this.config),
                 httpOnly: true,
@@ -2485,6 +2525,9 @@ export class AuthController extends PuterController {
             });
 
         await this.stores.group.addUsers(uid, users);
+        // New members inherit the group's permissions immediately, not
+        // after the permission-cache TTL.
+        await this.services.permission.bumpPermissionCacheForUsernames(users);
         res.json({});
     }
 
@@ -2514,6 +2557,9 @@ export class AuthController extends PuterController {
             });
 
         await this.stores.group.removeUsers(uid, users);
+        // Removed members must lose the group's permissions immediately,
+        // not after the permission-cache TTL.
+        await this.services.permission.bumpPermissionCacheForUsernames(users);
         res.json({});
     }
 
