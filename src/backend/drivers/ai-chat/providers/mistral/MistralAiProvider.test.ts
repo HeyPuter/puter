@@ -655,6 +655,123 @@ describe('MistralAIProvider.complete streaming', () => {
     });
 });
 
+// -- Mistral image_url coercion --
+
+describe('MistralAIProvider image_url coercion', () => {
+    const baseCompletion = {
+        choices: [
+            {
+                message: { content: 'ok', role: 'assistant' },
+                finishReason: 'stop',
+            },
+        ],
+        usage: { promptTokens: 1, completionTokens: 1 },
+    };
+
+    it('flattens image_url objects to plain strings before sending to Mistral', async () => {
+        const { provider } = makeProvider();
+        completeMock.mockResolvedValueOnce(baseCompletion);
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'mistral-small-2603',
+                messages: [
+                    {
+                        role: 'user',
+                        content: [
+                            { type: 'text', text: 'describe this image' },
+                            {
+                                type: 'image_url',
+                                image_url: { url: 'https://example.com/img.png' },
+                            },
+                        ],
+                    },
+                ],
+            }),
+        );
+
+        const [args] = completeMock.mock.calls[0]!;
+        const imagePart = (args.messages[0].content as unknown[]).find(
+            (p: unknown) => (p as { type: string }).type === 'image_url',
+        ) as { type: string; image_url: unknown };
+        // Mistral expects a plain string, not { url: string }.
+        expect(imagePart.image_url).toBe('https://example.com/img.png');
+    });
+
+    it('leaves image_url parts that are already plain strings unchanged', async () => {
+        const { provider } = makeProvider();
+        completeMock.mockResolvedValueOnce(baseCompletion);
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'mistral-small-2603',
+                messages: [
+                    {
+                        role: 'user',
+                        content: [
+                            {
+                                type: 'image_url',
+                                image_url: 'https://example.com/already-flat.png',
+                            },
+                        ],
+                    },
+                ],
+            }),
+        );
+
+        const [args] = completeMock.mock.calls[0]!;
+        const imagePart = (args.messages[0].content as unknown[]).find(
+            (p: unknown) => (p as { type: string }).type === 'image_url',
+        ) as { type: string; image_url: unknown };
+        expect(imagePart.image_url).toBe('https://example.com/already-flat.png');
+    });
+
+    it('leaves messages with plain string content untouched', async () => {
+        const { provider } = makeProvider();
+        completeMock.mockResolvedValueOnce(baseCompletion);
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'mistral-small-2603',
+                messages: [{ role: 'user', content: 'plain text message' }],
+            }),
+        );
+
+        const [args] = completeMock.mock.calls[0]!;
+        expect(args.messages[0].content).toBe('plain text message');
+    });
+
+    it('coerces only image_url parts and leaves other content parts intact', async () => {
+        const { provider } = makeProvider();
+        completeMock.mockResolvedValueOnce(baseCompletion);
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'mistral-small-2603',
+                messages: [
+                    {
+                        role: 'user',
+                        content: [
+                            { type: 'text', text: 'what is in this image?' },
+                            {
+                                type: 'image_url',
+                                image_url: { url: 'https://example.com/photo.jpg' },
+                            },
+                        ],
+                    },
+                ],
+            }),
+        );
+
+        const [args] = completeMock.mock.calls[0]!;
+        const parts = args.messages[0].content as { type: string; text?: string; image_url?: unknown }[];
+        const textPart = parts.find((p) => p.type === 'text');
+        const imgPart = parts.find((p) => p.type === 'image_url');
+        expect(textPart?.text).toBe('what is in this image?');
+        expect(imgPart?.image_url).toBe('https://example.com/photo.jpg');
+    });
+});
+
 // ── Error mapping ───────────────────────────────────────────────────
 
 describe('MistralAIProvider.complete error mapping', () => {
