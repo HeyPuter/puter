@@ -193,12 +193,21 @@ export class TokenService extends PuterService {
         }
         // The dev placeholders ship in config.default.json (a public repo) and
         // survive a deep-merge when an override config omits them — anyone who
-        // knows the placeholder can forge a session token for any user. Refuse
-        // to boot a non-dev deployment on a placeholder secret.
+        // knows the placeholder can forge with that secret. For the JWT secrets
+        // that means forging a session token for any user; for
+        // `url_signature_secret` it means forging file read/write capability
+        // URLs for any file uid. Refuse to boot a non-dev deployment on any
+        // placeholder secret. (`url_signature_secret` is guarded here, with the
+        // other shipped placeholder secrets, even though it's consumed
+        // elsewhere — this is the one hook guaranteed to run before any request.)
         if (this.config.env !== 'dev') {
             for (const [name, value] of [
                 ['jwt_secret_v2', secretV2],
                 ['jwt_secret', this.config.jwt_secret ?? ''],
+                [
+                    'url_signature_secret',
+                    this.config.url_signature_secret ?? '',
+                ],
             ] as const) {
                 if (/change-me/.test(value)) {
                     throw new Error(

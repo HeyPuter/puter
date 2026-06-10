@@ -29,6 +29,7 @@ import type { PuterRouter } from '../../core/http/PuterRouter.js';
 import type { ACLService } from '../../services/acl/ACLService.js';
 import type { SignedFile } from '../../util/fileSigning.js';
 import { verifySignature } from '../../util/fileSigning.js';
+import { applyInlineContentSecurity } from '../../util/inlineContentSecurity.js';
 import { PuterController } from '../types.js';
 import { FS_COSTS } from './costs.js';
 import {
@@ -1357,8 +1358,15 @@ export class LegacyFSController extends PuterController {
             query.download === '1' ||
             query.download === true;
 
-        if (download.contentType)
+        if (download.contentType) {
             res.setHeader('Content-Type', download.contentType);
+            // Uploader-controlled type served inline on the file origin —
+            // sandbox active-document types so an uploaded HTML/SVG can't
+            // execute scripts here. Mirrors FSController /fs/read.
+            if (!wantsAttachment) {
+                applyInlineContentSecurity(res, download.contentType);
+            }
+        }
         if (download.contentLength !== null)
             res.setHeader('Content-Length', String(download.contentLength));
         if (download.contentRange)

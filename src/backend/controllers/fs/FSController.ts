@@ -37,6 +37,7 @@ import {
     runWithConcurrencyLimit,
     runWithConcurrencyLimitSettled,
 } from '../../util/concurrency.js';
+import { applyInlineContentSecurity } from '../../util/inlineContentSecurity.js';
 import { PuterController } from '../types.js';
 import { FS_COSTS } from './costs.js';
 import type {
@@ -966,20 +967,10 @@ export class FSController extends PuterController {
 
         if (download.contentType) {
             res.setHeader('Content-Type', download.contentType);
-            // The stored content type is uploader-controlled and this
-            // response is served inline on the api origin. For types a
-            // browser will execute as a document (HTML, SVG, XML), apply
-            // the same sandbox CSP as app icons so embedded scripts never
-            // run with the api origin. `<img>`/download consumers are
-            // unaffected — the sandbox only applies to document loads.
-            const activeContent =
-                /^(text\/html|image\/svg\+xml|application\/xhtml\+xml|application\/xml|text\/xml)\b/i;
-            if (activeContent.test(download.contentType)) {
-                res.setHeader(
-                    'Content-Security-Policy',
-                    "default-src 'none'; sandbox;",
-                );
-            }
+            // Stored type is uploader-controlled and served inline on the
+            // api origin — sandbox active-document types (HTML/SVG/XML) so
+            // embedded scripts can't run here. Inert types are untouched.
+            applyInlineContentSecurity(res, download.contentType);
         }
         if (download.contentLength !== null)
             res.setHeader('Content-Length', String(download.contentLength));

@@ -81,11 +81,30 @@ describe('TokenService.onServerStart', () => {
         expect(() => svc.onServerStart()).toThrow(/placeholder/);
     });
 
+    it('refuses to start outside dev with the placeholder url_signature_secret', () => {
+        const config = {
+            env: 'prod',
+            jwt_secret: 'a-real-v1-secret',
+            jwt_secret_v2: 'a-real-v2-secret',
+            url_signature_secret: 'dev-url-signature-secret-change-me',
+        } as ConstructorParameters<typeof TokenService>[0];
+        const [clients, stores, services] = [{}, {}, {}] as [
+            ConstructorParameters<typeof TokenService>[1],
+            ConstructorParameters<typeof TokenService>[2],
+            ConstructorParameters<typeof TokenService>[3],
+        ];
+        const svc = new TokenService(config, clients, stores, services);
+        expect(() => svc.onServerStart()).toThrow(
+            /url_signature_secret.*placeholder/,
+        );
+    });
+
     it('allows the placeholder secrets in dev', () => {
         const config = {
             env: 'dev',
             jwt_secret: 'dev-jwt-secret-change-me',
             jwt_secret_v2: 'dev-jwt-secret-v2-change-me',
+            url_signature_secret: 'dev-url-signature-secret-change-me',
         } as ConstructorParameters<typeof TokenService>[0];
         const [clients, stores, services] = [{}, {}, {}] as [
             ConstructorParameters<typeof TokenService>[1],
