@@ -34,6 +34,11 @@ let sidebar = [
                 path: '/mcp',
             },
             {
+                title: 'CLI',
+                source: '/cli.md',
+                path: '/cli',
+            },
+            {
                 title: 'Deployments',
                 source: '/deployments.md',
                 path: '/deployments',
