@@ -130,7 +130,7 @@ export type EventMap = {
         req?: unknown;
         data?: unknown;
         abuse?: unknown;
-        custom?: unknown;
+        trail?: Array<string>;
         [key: string]: unknown;
     };
     'puter.signup.success': {

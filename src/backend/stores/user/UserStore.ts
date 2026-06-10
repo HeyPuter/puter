@@ -43,6 +43,8 @@ export interface UserRow {
     requires_email_confirmation?: boolean;
     /** Metadata JSON blob; decoded on read when the DB returns it as a string. */
     metadata?: Record<string, unknown>;
+    /** Abuse v2 reputation score recorded at signup (DB default 100). */
+    reputation?: number;
     password?: string;
     [k: string]: unknown;
 }
@@ -324,6 +326,7 @@ export class UserStore extends PuterStore {
         signup_server?: string | null;
         referrer?: string | null;
         last_activity_ts?: string | null;
+        reputation?: number | null;
     }): Promise<UserRow> {
         assertLatin1Writable(fields as Record<string, unknown>);
         const result = await this.clients.db.write(
@@ -344,8 +347,9 @@ export class UserStore extends PuterStore {
              signup_origin,
              signup_server,
              referrer,
-             last_activity_ts)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)${this.clients.db.returningIdClause()}`,
+             last_activity_ts,
+             reputation)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)${this.clients.db.returningIdClause()}`,
             [
                 fields.username,
                 fields.email,
@@ -368,6 +372,8 @@ export class UserStore extends PuterStore {
                 fields.signup_server ?? null,
                 fields.referrer ?? null,
                 fields.last_activity_ts ?? null,
+                // Default matches the DB column default + v2's STARTING_REPUTATION.
+                fields.reputation ?? 100,
             ],
         );
 
@@ -577,6 +583,8 @@ export class UserStore extends PuterStore {
             requires_email_confirmation: asBool(
                 rest.requires_email_confirmation,
             ),
+            reputation:
+                rest.reputation == null ? undefined : Number(rest.reputation),
             metadata,
         };
     }
