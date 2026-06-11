@@ -130,7 +130,7 @@ export type EventMap = {
         req?: unknown;
         data?: unknown;
         abuse?: unknown;
-        custom?: unknown;
+        trail?: Array<string>;
         [key: string]: unknown;
     };
     'puter.signup.success': {
@@ -224,6 +224,8 @@ export type EventMap = {
         entry: unknown;
         host: string;
         requestPath: string;
+        requestUrl?: string;
+        requestHash?: string;
         mime: string;
     };
 
@@ -298,7 +300,7 @@ export type LifecyclePhase = 'before' | 'after' | 'error' | 'reject';
 /**
  * Payload for `driver.<iface>.<method>.<phase>` events.
  *
- * One shape across all three phases; read `phase` (or the key suffix) to
+ * One shape across all phases; read `phase` (or the key suffix) to
  * branch. `allow`/`rejectReason` are only meaningful on the `before` phase
  * (emitted via `emitAndWait`).
  */
@@ -308,9 +310,11 @@ export type DriverMethodLifecycleEvent = {
     method: string;
     /** Resolved concrete driver name. */
     driver: string;
+    /** Full actor object, if the request is authenticated. */
+    actor?: Actor;
     /** Stable actor id (see `actorUid`), if the request is authenticated. */
-    actor?: string;
-    /** Call arguments. Present on `before`. */
+    actorUid?: string;
+    /** Call arguments. Present on every phase. */
     args?: unknown;
     /** Return value. Present on `after`. */
     result?: unknown;
@@ -342,8 +346,10 @@ export type RouteLifecycleEvent = {
      */
     req: ExpressRequest;
     res: ExpressResponse;
+    /** Full actor object, if the request is authenticated. */
+    actor?: Actor;
     /** Stable actor id (see `actorUid`), if the request is authenticated. */
-    actor?: string;
+    actorUid?: string;
     /** Response status code. Present on `after`/`error`. */
     statusCode?: number;
     /** Wall-clock duration from `before` to terminal phase. */

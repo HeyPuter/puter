@@ -623,6 +623,9 @@ export class AuthController extends PuterController {
             message: null,
             code: null,
             user_agent: req?.headers?.['user-agent'] ?? null,
+            // Populated by the abuse extension's v2 harness; persisted to the
+            // user row below so the signup-time reputation is referable later.
+            reputation: null as number | null,
         };
         try {
             await this.clients.event?.emitAndWait(
@@ -688,6 +691,11 @@ export class AuthController extends PuterController {
                 // stays hardcoded here.
                 requires_email_confirmation: 1,
                 last_activity_ts: signupSqlTs,
+                // Record the v2 reputation from this claim (skip if unset so we
+                // don't clobber an existing score with a placeholder).
+                ...(validateEvent.reputation != null
+                    ? { reputation: validateEvent.reputation }
+                    : {}),
             });
 
             // Move from temp group to regular user group
@@ -744,6 +752,7 @@ export class AuthController extends PuterController {
                 signup_server: (this.config as { serverId?: string }).serverId,
                 referrer: req.body.referrer ?? null,
                 last_activity_ts: signupSqlTs,
+                reputation: validateEvent.reputation,
             } as never);
 
             // Add to default group

@@ -17,6 +17,9 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+// Must be imported before 'undici' — see the module comment in the guard.
+import './nodeFetchDispatcherGuard.js';
+
 import { lookup as dnsLookup, type LookupAddress } from 'node:dns';
 import net, { BlockList } from 'node:net';
 import { Agent as UndiciAgent, fetch as undiciFetch } from 'undici';
@@ -154,6 +157,12 @@ const ssrfGuardDispatcher = new UndiciAgent({
     connect: { lookup: guardedLookup },
 });
 
+// Proxied requests skip the SSRF lookup guard (the only locally-resolved
+// host is the admin-configured proxy itself) but still get an explicit
+// dispatcher: undici's fetch would otherwise fall back to the global
+// dispatcher slot it shares with Node's built-in fetch.
+const proxyDispatcher = new UndiciAgent();
+
 function proxyConfig(): ISecureCorsProxyConfig | undefined {
     const cfg = configContainer.secureCorsProxy;
     if (cfg?.url && cfg?.secret) return cfg;
@@ -219,7 +228,7 @@ export async function secureFetch(
         ...rest,
         headers,
         redirect: 'manual',
-        ...(proxied ? {} : { dispatcher: ssrfGuardDispatcher }),
+        dispatcher: proxied ? proxyDispatcher : ssrfGuardDispatcher,
     } as unknown as Parameters<typeof undiciFetch>[1])) as unknown as Response;
 
     if (response.status >= 300 && response.status < 400) {

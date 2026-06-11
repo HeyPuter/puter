@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { Agent as UndiciAgent } from 'undici';
 import { describe, expect, it, vi } from 'vitest';
 import { configContainer } from '../exports.js';
 import {
@@ -50,6 +51,94 @@ vi.mock('node:dns', async importOriginal => {
             );
         }) as typeof actual.lookup,
     };
+});
+
+describe('global fetch dispatcher isolation', () => {
+    // Importing secureHttp pulls in npm undici, whose module initializer
+    // installs its own Agent into the dispatcher slot shared with Node's
+    // built-in fetch if nothing claimed it first — silently rerouting every
+    // plain fetch() in the process through the npm copy of undici, and
+    // irreversibly so (once npm undici loads, the bundled copy can no longer
+    // claim the slot). nodeFetchDispatcherGuard claims the slot for Node's
+    // bundled dispatcher before the undici import runs. That race is won at
+    // backend boot, but not necessarily under test runners (this very file
+    // imports undici for assertions), so the universal invariants to assert
+    // are: the slot is never left empty and plain fetch() always works.
+    it('leaves global fetch in a working state after the guard runs', async () => {
+        const slot = (globalThis as unknown as Record<symbol, unknown>)[
+            Symbol.for('undici.globalDispatcher.1')
+        ];
+        expect(slot).toBeDefined();
+        const response = await fetch('data:text/plain,ok');
+        expect(await response.text()).toBe('ok');
+    });
+
+    it('wraps an already-claimed slot exactly once and keeps fetch working', async () => {
+        // Re-run the guard with an Agent already in the slot (as when the
+        // guard loses the import race): it must not reclaim the slot, only
+        // wrap it with the outbound timeouts — and re-running again must not
+        // wrap a second time.
+        const globalSlots = globalThis as unknown as Record<symbol, unknown>;
+        const SLOT = Symbol.for('undici.globalDispatcher.1');
+        const before = globalSlots[SLOT];
+        const planted = new UndiciAgent();
+        globalSlots[SLOT] = planted;
+        try {
+            vi.resetModules();
+            await import('./nodeFetchDispatcherGuard.js');
+            const wrapped = globalSlots[SLOT];
+            expect(wrapped).not.toBe(planted);
+            expect(wrapped).toBeDefined();
+
+            vi.resetModules();
+            await import('./nodeFetchDispatcherGuard.js');
+            expect(globalSlots[SLOT]).toBe(wrapped);
+
+            const response = await fetch('data:text/plain,ok');
+            expect(await response.text()).toBe('ok');
+        } finally {
+            globalSlots[SLOT] = before;
+        }
+    });
+
+    it('injects 10-minute header/body timeouts into dispatched requests', async () => {
+        // Plant a fake composable dispatcher recording what reaches its
+        // dispatch, re-run the guard, and dispatch through the wrapper.
+        const globalSlots = globalThis as unknown as Record<symbol, unknown>;
+        const SLOT = Symbol.for('undici.globalDispatcher.1');
+        const before = globalSlots[SLOT];
+        const seen: Record<string, unknown>[] = [];
+        type DispatchFn = (
+            opts: Record<string, unknown>,
+            handler: unknown,
+        ) => boolean;
+        globalSlots[SLOT] = {
+            compose(interceptor: (dispatch: DispatchFn) => DispatchFn) {
+                const record: DispatchFn = (opts) => {
+                    seen.push(opts);
+                    return true;
+                };
+                return { dispatch: interceptor(record) };
+            },
+        };
+        try {
+            vi.resetModules();
+            await import('./nodeFetchDispatcherGuard.js');
+            const wrapped = globalSlots[SLOT] as { dispatch: DispatchFn };
+            wrapped.dispatch({ origin: 'https://example.com' }, {});
+            expect(seen).toHaveLength(1);
+            expect(seen[0].headersTimeout).toBe(10 * 60 * 1000);
+            expect(seen[0].bodyTimeout).toBe(10 * 60 * 1000);
+            // A per-request value must win over the injected default.
+            wrapped.dispatch(
+                { origin: 'https://example.com', headersTimeout: 1234 },
+                {},
+            );
+            expect(seen[1].headersTimeout).toBe(1234);
+        } finally {
+            globalSlots[SLOT] = before;
+        }
+    });
 });
 
 describe('secureHttp URL validation', () => {

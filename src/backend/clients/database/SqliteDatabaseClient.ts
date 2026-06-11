@@ -85,6 +85,7 @@ const AVAILABLE_MIGRATIONS: [number, string[]][] = [
     [50, ['0054_sessions_workers.sql']],
     [50, ['0055_username_nocase_unique.sql']],
     [51, ['0056_sessions_kind_worker.sql']],
+    [52, ['0057_add_user_reputation.sql']],
 ];
 
 export class SqliteDatabaseClient extends AbstractDatabaseClient {

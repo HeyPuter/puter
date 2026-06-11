@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 import type { Actor } from '../../core/actor.js';
 import { runWithContext } from '../../core/context.js';
@@ -727,6 +727,278 @@ describe('PermissionService (integration)', () => {
             expect(await permService.check(targetActor, permission)).toBe(
                 true,
             );
+        });
+    });
+
+    describe('derived-actor cache invalidation (app-under-user)', () => {
+        // An app-under-user actor's reading embeds its user's reading, and
+        // its cache keys fold in the user's generation counter — so a
+        // user-level grant/revoke must take effect for the user's app
+        // actors on their very next check, not after the scan-cache TTL.
+        const grantManage = async (
+            issuer: { id: number },
+            permission: string,
+        ) => {
+            await server.stores.permission.setFlatUserPerm(
+                issuer.id,
+                `manage:${permission}`,
+                {
+                    permission: `manage:${permission}`,
+                    deleted: false,
+                    issuer_user_id: issuer.id,
+                } as never,
+            );
+        };
+
+        const makeApp = async (ownerUserId: number) =>
+            (server.stores.app.create as unknown as (
+                fields: Record<string, unknown>,
+                opts: { ownerUserId: number },
+            ) => Promise<{ uid: string; id: number }>)(
+                {
+                    name: `dac-${uuidv4()}`,
+                    title: 'Derived-actor cache app',
+                    index_url: `https://dac-${uuidv4()}.test/`,
+                },
+                { ownerUserId },
+            );
+
+        it('a user-level revoke is visible immediately to the user\'s app actors', async () => {
+            const { user: issuer, actor: issuerActor } =
+                await makeUserActor();
+            const { user: target, actor: targetActor } =
+                await makeUserActor();
+            const app = await makeApp(target.id);
+            const permission = `service:app-revoke-now-${uuidv4()}:ii:read`;
+            await grantManage(issuer, permission);
+
+            await runWithContext({ actor: issuerActor }, () =>
+                permService.grantUserUserPermission(
+                    issuerActor,
+                    target.username,
+                    permission,
+                ),
+            );
+            // The user lets the app act with this permission, so the app
+            // actor resolves it through the user's own reading.
+            await runWithContext({ actor: targetActor }, () =>
+                permService.grantUserAppPermission(
+                    targetActor,
+                    app.uid,
+                    permission,
+                ),
+            );
+
+            const appActor = {
+                user: targetActor.user,
+                app: { id: app.id, uid: app.uid },
+            } as unknown as Actor;
+
+            // Prime the app actor's cache with a "granted" reading.
+            expect(await permService.check(appActor, permission)).toBe(true);
+
+            await runWithContext({ actor: issuerActor }, () =>
+                permService.revokeUserUserPermission(
+                    issuerActor,
+                    target.username,
+                    permission,
+                ),
+            );
+
+            // Without the user generation folded into the app actor's
+            // cache keys this would still read `true` for up to the TTL.
+            expect(await permService.check(appActor, permission)).toBe(false);
+        });
+
+        it('a user-level grant busts an app actor\'s cached denial immediately', async () => {
+            const { user: issuer, actor: issuerActor } =
+                await makeUserActor();
+            const { user: target, actor: targetActor } =
+                await makeUserActor();
+            const app = await makeApp(target.id);
+            const permission = `service:app-grant-now-${uuidv4()}:ii:read`;
+            await grantManage(issuer, permission);
+
+            // App is allowed to act with the permission, but the user does
+            // not hold it yet — primes a "denied" reading for the app actor.
+            await runWithContext({ actor: targetActor }, () =>
+                permService.grantUserAppPermission(
+                    targetActor,
+                    app.uid,
+                    permission,
+                ),
+            );
+            const appActor = {
+                user: targetActor.user,
+                app: { id: app.id, uid: app.uid },
+            } as unknown as Actor;
+            expect(await permService.check(appActor, permission)).toBe(false);
+
+            await runWithContext({ actor: issuerActor }, () =>
+                permService.grantUserUserPermission(
+                    issuerActor,
+                    target.username,
+                    permission,
+                ),
+            );
+
+            expect(await permService.check(appActor, permission)).toBe(true);
+        });
+    });
+
+    describe('revoke durability (flat/linked consistency)', () => {
+        const grantManage = async (
+            issuer: { id: number },
+            permission: string,
+        ) => {
+            await server.stores.permission.setFlatUserPerm(
+                issuer.id,
+                `manage:${permission}`,
+                {
+                    permission: `manage:${permission}`,
+                    deleted: false,
+                    issuer_user_id: issuer.id,
+                } as never,
+            );
+        };
+
+        it('revokeUserUserPermission deletes the linked SQL row before resolving', async () => {
+            const { user: issuer, actor: issuerActor } =
+                await makeUserActor();
+            const { user: target } = await makeUserActor();
+            const permission = `service:rvk-sync-${uuidv4()}:ii:read`;
+            await grantManage(issuer, permission);
+            await runWithContext({ actor: issuerActor }, () =>
+                permService.grantUserUserPermission(
+                    issuerActor,
+                    target.username,
+                    permission,
+                ),
+            );
+
+            await runWithContext({ actor: issuerActor }, () =>
+                permService.revokeUserUserPermission(
+                    issuerActor,
+                    target.username,
+                    permission,
+                ),
+            );
+
+            // The linked row must be gone the moment the revoke resolves —
+            // a fire-and-forget delete could lose the race against the
+            // post-bump rescan, which would re-warm the flat view from the
+            // surviving SQL row and resurrect the grant.
+            const rows = await server.stores.permission.readLinkedUserUserPerms(
+                target.id,
+                [permission],
+            );
+            expect(rows).toHaveLength(0);
+        });
+
+        it('revokeUserUserPermission surfaces a failed SQL delete instead of swallowing it', async () => {
+            const { user: issuer, actor: issuerActor } =
+                await makeUserActor();
+            const { user: target } = await makeUserActor();
+            const permission = `service:rvk-fail-${uuidv4()}:ii:read`;
+            await grantManage(issuer, permission);
+            await runWithContext({ actor: issuerActor }, () =>
+                permService.grantUserUserPermission(
+                    issuerActor,
+                    target.username,
+                    permission,
+                ),
+            );
+
+            const spy = vi
+                .spyOn(server.stores.permission, 'deleteUserUserPermByHolder')
+                .mockRejectedValue(new Error('simulated db failure'));
+            try {
+                await expect(
+                    runWithContext({ actor: issuerActor }, () =>
+                        permService.revokeUserUserPermission(
+                            issuerActor,
+                            target.username,
+                            permission,
+                        ),
+                    ),
+                ).rejects.toThrow('simulated db failure');
+            } finally {
+                spy.mockRestore();
+            }
+
+            // Retry once the store works again — the revoke completes.
+            await runWithContext({ actor: issuerActor }, () =>
+                permService.revokeUserUserPermission(
+                    issuerActor,
+                    target.username,
+                    permission,
+                ),
+            );
+        });
+
+        it('scan-path warms of the flat view carry an expiry (grants are permanent)', async () => {
+            const { user: issuer, actor: issuerActor } =
+                await makeUserActor();
+            const { user: target, actor: targetActor } =
+                await makeUserActor();
+            const permission = `service:warm-ttl-${uuidv4()}:ii:read`;
+            await grantManage(issuer, permission);
+            // The linked (SQL) path is a delegation chain: it only grants
+            // if the issuer holds the permission themselves. Give the
+            // issuer a terminal flat grant so the fallback below resolves.
+            await server.stores.permission.setFlatUserPerm(
+                issuer.id,
+                permission,
+                {
+                    permission,
+                    deleted: false,
+                    issuer_user_id: issuer.id,
+                } as never,
+            );
+            await runWithContext({ actor: issuerActor }, () =>
+                permService.grantUserUserPermission(
+                    issuerActor,
+                    target.username,
+                    permission,
+                ),
+            );
+            // The grant's linked-row upsert is fire-and-forget — wait for
+            // it so the linked fallback below has something to find.
+            await vi.waitFor(async () => {
+                const rows =
+                    await server.stores.permission.readLinkedUserUserPerms(
+                        target.id,
+                        [permission],
+                    );
+                expect(rows.length).toBeGreaterThan(0);
+            });
+            // Drop the flat entry so the next check takes the linked SQL
+            // fallback and re-warms the flat view.
+            await server.stores.permission.delFlatUserPerm(
+                target.id,
+                permission,
+            );
+
+            const spy = vi.spyOn(server.stores.permission, 'setFlatUserPerm');
+            try {
+                expect(await permService.check(targetActor, permission)).toBe(
+                    true,
+                );
+                // The warm is fire-and-forget; wait for it to land.
+                await vi.waitFor(() => {
+                    const warmCall = spy.mock.calls.find(
+                        (c) => c[1] === permission,
+                    );
+                    expect(warmCall).toBeDefined();
+                    // Derived warms must self-expire so one that races a
+                    // concurrent revoke cannot persist indefinitely.
+                    expect(warmCall![3]?.expireAt).toBeGreaterThan(
+                        Math.floor(Date.now() / 1000),
+                    );
+                });
+            } finally {
+                spy.mockRestore();
+            }
         });
     });
 });

@@ -534,6 +534,51 @@ describe('createPuterSiteMiddleware — file serving', () => {
         expect(piped!.equals(body)).toBe(true);
     });
 
+    it('emits site.htmlServed with the original URL target including query string', async () => {
+        const owner = await makeUserWithHome();
+        const homePath = `/${owner.username}`;
+        const homeEntry = await server.stores.fsEntry.getEntryByPath(homePath);
+        const sub = `serveq-${Math.random().toString(36).slice(2, 8)}`;
+        await server.stores.subdomain.create({
+            userId: owner.id,
+            subdomain: sub,
+            rootDirId: homeEntry!.id,
+        });
+        await writeFile(
+            owner.id,
+            `${homePath}/index.html`,
+            Buffer.from('<html>hi</html>'),
+            'text/html',
+        );
+
+        const emitSpy = vi.spyOn(server.clients.event, 'emit');
+        try {
+            const mw = buildMiddleware();
+            const { res } = makeRes();
+            await mw(
+                makeReq({
+                    hostname: `${sub}.site.puter.localhost`,
+                    path: '/index.html',
+                    originalUrl: '/index.html?brand=paypal',
+                }),
+                res,
+                vi.fn(),
+            );
+
+            const htmlServedCall = emitSpy.mock.calls.find(
+                (call) => call[0] === 'site.htmlServed',
+            );
+            expect(htmlServedCall?.[1]).toMatchObject({
+                subdomain: sub,
+                requestPath: '/index.html',
+                requestUrl: '/index.html?brand=paypal',
+                mime: 'text/html',
+            });
+        } finally {
+            emitSpy.mockRestore();
+        }
+    });
+
     it('returns 206 status when a Range header is supplied', async () => {
         const owner = await makeUserWithHome();
         const homePath = `/${owner.username}`;
