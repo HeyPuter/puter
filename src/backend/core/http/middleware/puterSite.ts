@@ -555,8 +555,12 @@ export const createPuterSiteMiddleware = (
         res.setHeader('Content-Type', mime);
 
         // Fire-and-forget signal for downstream extensions
-        if (mime === 'text/html' || mime === 'application/xhtml+xml') {
+        const mimeBase = mime.split(';', 1)[0].trim().toLowerCase();
+        if (mimeBase === 'text/html' || mimeBase === 'application/xhtml+xml') {
             try {
+                const requestUrl = (req.originalUrl || '/').startsWith('/')
+                    ? req.originalUrl || '/'
+                    : `/${req.originalUrl}`;
                 layers.clients.event.emit(
                     'site.htmlServed',
                     {
@@ -564,7 +568,8 @@ export const createPuterSiteMiddleware = (
                         entry,
                         host,
                         requestPath: req.path,
-                        mime,
+                        requestUrl,
+                        mime: mimeBase,
                     },
                     {},
                 );
