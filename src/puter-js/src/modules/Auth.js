@@ -48,8 +48,9 @@ class Auth {
         options = options || {};
 
         return new Promise((resolve, reject) => {
+            const signinsession = crypto.randomUUID();
             const msg_id = this.#messageID++;
-            const url = `${puter.defaultGUIOrigin}/action/sign-in?embedded_in_popup=true&msg_id=${msg_id}${window.crossOriginIsolated ? '&cross_origin_isolated=true' : ''}${options.attempt_temp_user_creation ? '&attempt_temp_user_creation=true' : ''}`;
+            const url = `${puter.defaultGUIOrigin}/action/sign-in?embedded_in_popup=true&msg_id=${msg_id}${window.crossOriginIsolated ? `&cross_origin_isolated=true&signin_session=${signinsession}` : ''}${options.attempt_temp_user_creation ? '&attempt_temp_user_creation=true' : ''}`;
 
             // Guards against settling the promise more than once across the
             // message, popup-closed, and dialog-cancel code paths.
@@ -68,6 +69,29 @@ class Auth {
                 window.removeEventListener('message', messageHandler);
             };
 
+            if ( window.crossOriginIsolated ) {
+                (async () => {
+                    for ( let i = 0; i < 5; i++ ) {
+                        try {
+                            const result = await fetch(`${this.APIOrigin}/login/wait`, {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                },
+                                body: JSON.stringify({ session: signinsession }),
+                            });
+
+                            if ( result.ok ) {
+                                const { auth_token } = await result.json();
+                                puter.setAuthToken(auth_token);
+                                resolve({ success: true, token: auth_token });
+                                return '';
+                            }
+                        } catch {}
+                        await new Promise(r => setTimeout(r, 1000));
+                    }
+                })();
+            }
             function messageHandler (e) {
                 // Only accept the token from the Puter GUI origin AND from the
                 // popup window we opened. Origin alone is insufficient (any
