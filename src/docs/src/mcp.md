@@ -12,7 +12,7 @@ The Puter MCP server is hosted at [mcp.puter.com](https://mcp.puter.com). There'
 <div style="overflow:hidden; margin-top: 30px;">
     <div class="example-group active" data-section="claude-code"><span>Claude Code</span></div>
     <div class="example-group" data-section="codex"><span>Codex</span></div>
-    <div class="example-group" data-section="opencode"><span>opencode</span></div>
+    <div class="example-group" data-section="opencode"><span>OpenCode</span></div>
 </div>
 
 <div class="example-content" data-section="claude-code" style="display:block;">
@@ -41,7 +41,7 @@ You'll be sent to authenticate with Puter automatically.
 
 <div class="example-content" data-section="opencode">
 
-Add Puter to the `mcp` section of your [opencode config](https://opencode.ai/docs/mcp-servers/) (`opencode.json` in your project, or `~/.config/opencode/opencode.json` globally):
+Add Puter to the `mcp` section of your [OpenCode config](https://opencode.ai/docs/mcp-servers/) (`opencode.json` in your project, or `~/.config/opencode/opencode.json` globally):
 
 ```json
 {
@@ -56,7 +56,7 @@ Add Puter to the `mcp` section of your [opencode config](https://opencode.ai/doc
 }
 ```
 
-opencode handles the OAuth flow automatically, so it'll send you to authenticate with Puter the first time it needs access. You can re-run it anytime with `opencode mcp auth puter`.
+OpenCode handles the OAuth flow automatically, so it'll send you to authenticate with Puter the first time it needs access. You can re-run it anytime with `opencode mcp auth puter`.
 
 </div>
 
