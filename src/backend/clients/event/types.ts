@@ -131,6 +131,9 @@ export type EventMap = {
         data?: unknown;
         abuse?: unknown;
         trail?: Array<string>;
+        /** Device signals forwarded verbatim from the signup request body. */
+        fingerprint?: string | null;
+        dfp_telemetry_id?: string | null;
         [key: string]: unknown;
     };
     'puter.signup.success': {
@@ -139,6 +142,9 @@ export type EventMap = {
         email: string;
         username: string;
         ip?: string | null;
+        fingerprint?: string | null;
+        /** True when the created account is a temp user (no email/password). */
+        is_temp?: boolean;
         [key: string]: unknown;
     };
     'email.validate': {

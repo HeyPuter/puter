@@ -57,6 +57,8 @@ import { PuterController } from '../types.js';
 
 const USERNAME_REGEX = /^\w{1,}$/;
 const USERNAME_MAX_LENGTH = 45;
+const FINGERPRINT_MAX_LENGTH = 128;
+const DFP_TELEMETRY_ID_MAX_LENGTH = 64;
 const RESERVED_USERNAMES = new Set([
     'admin',
     'administrator',
@@ -375,6 +377,43 @@ export class AuthController extends PuterController {
             return;
         }
 
+        // Optional device signals (browser fingerprint hash, DFP telemetry
+        // id). Core only enforces shape and forwards the values verbatim —
+        // signup-abuse policy built on them lives in extensions. Checked
+        // before the reauth short-circuit so a malformed value is rejected
+        // on every /signup path.
+        if (body.fingerprint !== undefined && body.fingerprint !== null) {
+            if (typeof body.fingerprint !== 'string')
+                throw new HttpError(400, 'fingerprint must be a string.', {
+                    legacyCode: 'bad_request',
+                });
+            if (body.fingerprint.length > FINGERPRINT_MAX_LENGTH)
+                throw new HttpError(
+                    400,
+                    `fingerprint cannot be longer than ${FINGERPRINT_MAX_LENGTH} characters.`,
+                    { legacyCode: 'bad_request' },
+                );
+        }
+        if (
+            body.dfp_telemetry_id !== undefined &&
+            body.dfp_telemetry_id !== null
+        ) {
+            if (typeof body.dfp_telemetry_id !== 'string')
+                throw new HttpError(400, 'dfp_telemetry_id must be a string.', {
+                    legacyCode: 'bad_request',
+                });
+            if (body.dfp_telemetry_id.length > DFP_TELEMETRY_ID_MAX_LENGTH)
+                throw new HttpError(
+                    400,
+                    `dfp_telemetry_id cannot be longer than ${DFP_TELEMETRY_ID_MAX_LENGTH} characters.`,
+                    { legacyCode: 'bad_request' },
+                );
+        }
+        // Empty strings are treated as absent — a signal that wasn't
+        // collected, not a malformed request.
+        const fingerprint: string | null = body.fingerprint || null;
+        const dfp_telemetry_id: string | null = body.dfp_telemetry_id || null;
+
         // Temp-user reauth short-circuit: when an existing temp user is
         // forced through the reauth flow, the GUI re-submits /signup with
         // is_temp=true plus the server-signed reauth_token from the 401.
@@ -557,6 +596,8 @@ export class AuthController extends PuterController {
             message: null,
             code: null,
             user_agent: req?.headers?.['user-agent'] ?? null,
+            fingerprint,
+            dfp_telemetry_id,
             // Populated by the abuse extension's v2 harness; persisted to the
             // user row below so the signup-time reputation is referable later.
             reputation: null as number | null,
@@ -678,6 +719,8 @@ export class AuthController extends PuterController {
                     ip_fwd: proxyIpChain,
                     user_agent: req.headers?.['user-agent'],
                     origin: req.headers?.origin,
+                    fingerprint,
+                    dfp_telemetry_id,
                 },
                 signup_ip: clientIp,
                 signup_ip_forwarded: proxyIpChain,
@@ -757,6 +800,11 @@ export class AuthController extends PuterController {
                     user_uuid: user!.uuid,
                     email: user!.email,
                     username: user!.username,
+                    fingerprint,
+                    // Reflects the row that was actually created/claimed —
+                    // a pseudo-user claim ends up with credentials, so it
+                    // reports false here. Same signal completeLogin uses.
+                    is_temp: user!.password === null && user!.email === null,
                     ip:
                         (req?.headers?.['x-forwarded-for'] as
                             | string

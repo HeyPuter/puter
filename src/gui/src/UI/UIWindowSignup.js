@@ -269,7 +269,7 @@ function UIWindowSignup (options) {
             }
         });
 
-        $(el_window).find('.signup-btn').on('click', function (e) {
+        $(el_window).find('.signup-btn').on('click', async function (e) {
             // Clear previous error states
             $(el_window).find('.signup-error-msg').hide();
 
@@ -351,6 +351,18 @@ function UIWindowSignup (options) {
                 headers = window.custom_headers;
             }
 
+            // Device signals for abuse prevention; omitted when unavailable
+            let fingerprint = null;
+            let dfpTelemetryId = null;
+            try {
+                [fingerprint, dfpTelemetryId] = await Promise.all([
+                    window.getDeviceFingerprint?.(),
+                    window.getDfpTelemetryId?.(),
+                ]);
+            } catch (_) {
+                // signup must never block or fail because of device signals
+            }
+
             // Include captcha in request only if required
             const requestData = {
                 username: username,
@@ -361,6 +373,12 @@ function UIWindowSignup (options) {
                 p102xyzname: p102xyzname,
                 'cf-turnstile-response': turnstileToken,
             };
+            if ( fingerprint ) {
+                requestData.fingerprint = fingerprint;
+            }
+            if ( dfpTelemetryId ) {
+                requestData.dfp_telemetry_id = dfpTelemetryId;
+            }
 
             $.ajax({
                 url: `${window.gui_origin }/signup`,
