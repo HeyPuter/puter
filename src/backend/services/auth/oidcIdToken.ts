@@ -37,6 +37,14 @@ export interface IdTokenClaims {
     sub: string;
     email?: string;
     email_verified?: boolean;
+    /** Microsoft: tenant id of the account's home tenant. */
+    tid?: string;
+    /**
+     * Microsoft: "email domain owner verified" — true when the email's
+     * domain is a verified domain of the issuing tenant. Opt-in claim,
+     * configured on the Azure app registration.
+     */
+    xms_edov?: boolean;
 }
 
 export interface VerifyIdTokenOptions {
@@ -149,6 +157,27 @@ export const verifyOidcIdToken = async (
             : null;
     if (!kid) return null;
 
+    // Multi-tenant Microsoft discovery returns the issuer as a template
+    // ('https://login.microsoftonline.com/{tenantid}/v2.0'). Substitute the
+    // token's own `tid` before verification — `jwt.verify` then enforces
+    // that `iss` agrees with `tid`, and the signature check pins both to
+    // the IdP.
+    let issuer = opts.issuer;
+    if (issuer?.includes('{tenantid}')) {
+        const unverified =
+            decoded && typeof decoded.payload === 'object'
+                ? (decoded.payload as Record<string, unknown>)
+                : null;
+        const tid = unverified?.tid;
+        if (
+            typeof tid !== 'string' ||
+            !/^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(tid)
+        ) {
+            return null;
+        }
+        issuer = issuer.replace('{tenantid}', tid);
+    }
+
     const pem = await getSigningKey(opts.jwksUri, kid, deps);
     if (!pem) return null;
 
@@ -156,12 +185,22 @@ export const verifyOidcIdToken = async (
         const payload = jwt.verify(idToken, pem, {
             algorithms: ['RS256', 'ES256'],
             audience: opts.audience,
-            issuer: opts.issuer,
+            issuer,
         }) as Record<string, unknown>;
         return {
             sub: payload.sub as string,
             email: payload.email as string | undefined,
             email_verified: payload.email_verified as boolean | undefined,
+            tid: payload.tid as string | undefined,
+            // Documented as boolean; normalize string encodings defensively
+            // so a representation change can't silently flip accounts to
+            // unverified.
+            xms_edov:
+                payload.xms_edov === undefined
+                    ? undefined
+                    : payload.xms_edov === true ||
+                      payload.xms_edov === 'true' ||
+                      payload.xms_edov === '1',
         };
     } catch (e) {
         console.warn('[oidc] id_token verification failed', e);

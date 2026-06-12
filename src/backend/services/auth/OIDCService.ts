@@ -37,6 +37,10 @@ const MICROSOFT_DISCOVERY_URL_TEMPLATE =
 const GOOGLE_SCOPES = 'openid email profile';
 const APPLE_SCOPES = 'openid email';
 const MICROSOFT_SCOPES = 'openid email profile';
+// Home tenant of personal Microsoft accounts (outlook.com, hotmail, …).
+// Microsoft verifies those emails itself; work/school (Entra) emails are
+// admin-editable and only attested via the opt-in `xms_edov` claim.
+const MICROSOFT_CONSUMER_TENANT = '9188040d-6c67-4c5b-b112-36a304b66dad';
 const STATE_EXPIRY_SEC = 600; // 10 minutes
 const VALID_OIDC_FLOWS = ['login', 'signup', 'revalidate'] as const;
 const REVALIDATION_EXPIRY_SEC = 300; // 5 minutes
@@ -300,8 +304,29 @@ export class OIDCService extends PuterService {
         idToken?: string,
     ): Promise<OIDCUserInfo | null> {
         const config = await this.getProviderConfig(providerId);
+        if (!config) return null;
 
-        if (config?.userinfo_endpoint) {
+        // Microsoft: Graph's userinfo endpoint omits `email` for many Entra
+        // accounts and never returns `email_verified`, so read claims from
+        // the verified id_token instead. The email only counts as verified
+        // for personal accounts (Microsoft verifies those itself) or when
+        // the `xms_edov` claim attests the email's domain belongs to the
+        // issuing tenant — an Entra admin can put any address in `mail`
+        // (nOAuth), so everything else is unverified.
+        if (providerId === 'microsoft') {
+            if (!idToken) return null;
+            const claims = await this.#verifyIdToken(idToken, config);
+            if (!claims) return null;
+            return {
+                sub: claims.sub,
+                email: claims.email,
+                email_verified:
+                    claims.tid === MICROSOFT_CONSUMER_TENANT ||
+                    claims.xms_edov === true,
+            };
+        }
+
+        if (config.userinfo_endpoint) {
             const res = await fetch(config.userinfo_endpoint, {
                 headers: { Authorization: `Bearer ${accessToken}` },
             });
@@ -311,7 +336,7 @@ export class OIDCService extends PuterService {
 
         // No userinfo endpoint — verify the id_token signature against the
         // provider's JWKS and read claims from it (e.g. Apple).
-        if (idToken && config) {
+        if (idToken) {
             return this.#verifyIdToken(idToken, config);
         }
 
@@ -407,6 +432,17 @@ export class OIDCService extends PuterService {
             };
         }
 
+        // No email, no account. Providers can legitimately omit the claim
+        // (e.g. Entra accounts with an empty `mail` attribute); refuse
+        // rather than mint an account we can never contact or recover.
+        const email = claims.email;
+        if (!email) {
+            return {
+                success: false,
+                error: 'Provider did not supply an email address.',
+            };
+        }
+
         // Generate a unique username
         let username: string;
         let attempts = 0;
@@ -434,7 +470,7 @@ export class OIDCService extends PuterService {
             // IdP already authenticated the user, so captcha listeners
             // (e.g. Turnstile) should skip — abuse/IP/email checks still run.
             source: 'oidc' as const,
-            data: { username, email: claims.email ?? '' },
+            data: { username, email },
             ip:
                 (req?.headers?.['x-forwarded-for'] as string | undefined) ||
                 req?.connection?.remoteAddress ||
@@ -442,7 +478,7 @@ export class OIDCService extends PuterService {
                 req?.socket?.remoteAddress ||
                 null,
             user_agent: req?.headers?.['user-agent'] ?? null,
-            email: claims.email ?? '',
+            email,
             allow: true,
             no_temp_user: false,
             requires_email_confirmation: false,
@@ -466,46 +502,42 @@ export class OIDCService extends PuterService {
             };
         }
 
-        // Email validation — mirrors AuthController#validateEmail. Skipped
-        // when the IdP didn't return an email (createUserFromOIDC is
-        // reachable with `email` undefined).
-        if (claims.email) {
-            if (isBlockedEmail(claims.email, this.config.blockedEmailDomains)) {
-                return {
-                    success: false,
-                    error: 'This email is not allowed.',
-                };
-            }
-            const emailEvent = {
-                email: cleanEmail(claims.email),
-                allow: true,
-                message: null as string | null,
+        // Email validation — mirrors AuthController#validateEmail.
+        if (isBlockedEmail(email, this.config.blockedEmailDomains)) {
+            return {
+                success: false,
+                error: 'This email is not allowed.',
             };
-            try {
-                await this.clients.event?.emitAndWait(
-                    'email.validate',
-                    emailEvent,
-                    {},
-                );
-            } catch (e) {
-                console.warn('[oidc] email validate hook failed:', e);
-            }
-            if (!emailEvent.allow) {
-                return {
-                    success: false,
-                    error:
-                        emailEvent.message ??
-                        'This email cannot be used. Please try a different email address.',
-                };
-            }
+        }
+        const emailEvent = {
+            email: cleanEmail(email),
+            allow: true,
+            message: null as string | null,
+        };
+        try {
+            await this.clients.event?.emitAndWait(
+                'email.validate',
+                emailEvent,
+                {},
+            );
+        } catch (e) {
+            console.warn('[oidc] email validate hook failed:', e);
+        }
+        if (!emailEvent.allow) {
+            return {
+                success: false,
+                error:
+                    emailEvent.message ??
+                    'This email cannot be used. Please try a different email address.',
+            };
         }
 
         const created = await this.stores.user.create({
             username,
             uuid: uuidv4(),
             password: null,
-            email: claims.email ?? null,
-            clean_email: claims.email ? cleanEmail(claims.email) : null,
+            email,
+            clean_email: cleanEmail(email),
             free_storage: this.config.storage_capacity ?? null,
             requires_email_confirmation: false,
             audit_metadata: {
@@ -680,6 +712,8 @@ export class OIDCService extends PuterService {
             sub: claims.sub,
             email: claims.email,
             email_verified: claims.email_verified,
+            tid: claims.tid,
+            xms_edov: claims.xms_edov,
         };
     }
 }
