@@ -10,9 +10,9 @@ description: Connect your AI tools to Puter with the Puter MCP server, and let t
 The Puter MCP server is hosted at [mcp.puter.com](https://mcp.puter.com). There's nothing to install or run yourself. Just point your AI tool at it and authenticate with your Puter account.
 
 <div style="overflow:hidden; margin-top: 30px;">
-    <div class="example-group active" data-section="claude-code"><span>Claude Code</span></div>
-    <div class="example-group" data-section="codex"><span>Codex</span></div>
-    <div class="example-group" data-section="opencode"><span>OpenCode</span></div>
+    <div class="example-group active" data-section="claude-code" data-icon="claude_code_outline" data-icon-active="claude_code_active"><i class="icon"></i><span>Claude Code</span></div>
+    <div class="example-group" data-section="codex" data-icon="codex_outline" data-icon-active="codex_active"><i class="icon"></i><span>Codex</span></div>
+    <div class="example-group" data-section="opencode" data-icon="opencode_outline" data-icon-active="opencode_active"><i class="icon"></i><span>OpenCode</span></div>
 </div>
 
 <div class="example-content" data-section="claude-code" style="display:block;">
