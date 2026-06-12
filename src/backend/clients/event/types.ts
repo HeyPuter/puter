@@ -134,6 +134,8 @@ export type EventMap = {
         /** Device signals forwarded verbatim from the signup request body. */
         fingerprint?: string | null;
         dfp_telemetry_id?: string | null;
+        /** Set by the abuse harness — require SMS phone verification post-signup. */
+        requires_phone_verification?: boolean;
         [key: string]: unknown;
     };
     'puter.signup.success': {
@@ -163,6 +165,11 @@ export type EventMap = {
         user_id: number;
         user_uid: string;
         email: string;
+    };
+    'user.phone-verified': {
+        user_id: number;
+        user_uid: string;
+        phone: string;
     };
     'user.username-changed': {
         user_id: number;

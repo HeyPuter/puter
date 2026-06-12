@@ -112,6 +112,14 @@ export interface IEmailConfig {
     [key: string]: unknown;
 }
 
+/** Prelude (https://prelude.so) Verify v2 — SMS phone verification provider. */
+export interface IPreludeConfig {
+    /** Prelude v2 API key (sent as `Authorization: Bearer <apiKey>`). */
+    apiKey?: string;
+    /** Default region for parsing local-format phone numbers (e.g. 'US'). */
+    defaultCountry?: string;
+}
+
 /**
  * S3-compatible bucket the thumbnails extension uses for storing generated
  * thumbnails. When unset, the extension falls back to the main `S3Client`
@@ -569,6 +577,8 @@ interface IConfigOptional {
     redis: IRedisConfig;
     pager: IPagerConfig;
     email: IEmailConfig;
+    /** Optional — only set when SMS phone verification (Prelude) is wired in. */
+    prelude: IPreludeConfig;
     /** Optional — only set when a ClickHouse analytics client is wired in. */
     clickhouse?: IClickhouseConfig;
     cf_file_cache: ICfFileCacheConfig;

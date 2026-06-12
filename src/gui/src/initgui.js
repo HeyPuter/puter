@@ -26,6 +26,7 @@ import UIWindowAuthMe from './UI/UIWindowAuthMe.js';
 import UIWindowChangeUsername from './UI/UIWindowChangeUsername.js';
 import UIWindowCopyToken from './UI/UIWindowCopyToken.js';
 import UIWindowEmailConfirmationRequired from './UI/UIWindowEmailConfirmationRequired.js';
+import UIWindowPhoneVerificationRequired from './UI/UIWindowPhoneVerificationRequired.js';
 import UIWindowLogin from './UI/UIWindowLogin.js';
 import UIWindowLoginInProgress from './UI/UIWindowLoginInProgress.js';
 import UIWindowNewPassword from './UI/UIWindowNewPassword.js';
@@ -665,6 +666,21 @@ window.initgui = async function (options) {
         }
 
         if ( whoami ) {
+            // is phone verification required? (hard gate for low-rep signups)
+            if ( whoami.requires_phone_verification ) {
+                let is_verified;
+                do {
+                    is_verified = await UIWindowPhoneVerificationRequired({
+                        show_close_button: false,
+                        stay_on_top: true,
+                        has_head: false,
+                        window_options: {
+                            is_draggable: false,
+                        },
+                    });
+                }
+                while ( !is_verified );
+            }
             if ( whoami.requires_email_confirmation ) {
                 let is_verified;
                 do {
@@ -833,6 +849,23 @@ window.initgui = async function (options) {
         }
         // update local user data
         if ( whoami ) {
+            // is phone verification required? (hard gate for low-rep signups)
+            if ( whoami.requires_phone_verification ) {
+                let is_verified;
+                do {
+                    is_verified = await UIWindowPhoneVerificationRequired({
+                        show_close_button: false,
+                        stay_on_top: true,
+                        has_head: false,
+                        logout_in_footer: true,
+                        window_options: {
+                            is_draggable: false,
+                            cover_page: window.is_embedded,
+                        },
+                    });
+                }
+                while ( !is_verified );
+            }
             // is email confirmation required?
             if ( whoami.requires_email_confirmation ) {
                 let is_verified;

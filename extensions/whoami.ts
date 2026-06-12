@@ -72,6 +72,8 @@ export const handleWhoami = async (
         unconfirmed_email: user.email,
         email_confirmed: user.email_confirmed || user.username === 'admin',
         requires_email_confirmation: user.requires_email_confirmation,
+        phone: user.phone,
+        requires_phone_verification: user.requires_phone_verification,
         desktop_bg_url: user.desktop_bg_url,
         desktop_bg_color: user.desktop_bg_color,
         desktop_bg_fit: user.desktop_bg_fit,

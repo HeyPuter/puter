@@ -1919,6 +1919,9 @@ export class AuthService extends PuterService {
             email_confirmed: user.email_confirmed ?? false,
             requires_email_confirmation:
                 user.requires_email_confirmation ?? false,
+            phone: user.phone ?? null,
+            requires_phone_verification:
+                user.requires_phone_verification ?? false,
         };
     }
 

@@ -24,6 +24,7 @@ import { EventClient } from './event/EventClient';
 import { DDBClient } from './dynamodb/DDBClient';
 import { RedisClient } from './redis/RedisClient';
 import { S3Client } from './s3/S3Client';
+import { PreludeClient } from './prelude/PreludeClient';
 import type { IPuterClientRegistry } from './types';
 
 export const puterClients = {
@@ -34,4 +35,5 @@ export const puterClients = {
     dynamo: DDBClient,
     redis: RedisClient,
     s3: S3Client,
+    prelude: PreludeClient,
 } satisfies IPuterClientRegistry;

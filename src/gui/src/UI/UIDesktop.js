@@ -505,6 +505,16 @@ async function UIDesktop (options) {
         window.refresh_user_data(window.auth_token);
     });
 
+    window.socket.on('user.phone_verified', (msg) => {
+        // don't update if this is the original client that initiated the action
+        if ( msg.original_client_socket_id === window.socket.id )
+        {
+            return;
+        }
+
+        window.refresh_user_data(window.auth_token);
+    });
+
     window.socket.on('user.email_changed', (msg) => {
         // don't update if this is the original client that initiated the action
         if ( msg.original_client_socket_id === window.socket.id )
