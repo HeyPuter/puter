@@ -12,6 +12,7 @@ The Puter MCP server is hosted at [mcp.puter.com](https://mcp.puter.com). There'
 <div style="overflow:hidden; margin-top: 30px;">
     <div class="example-group active" data-section="claude-code" data-icon="claude_code_outline" data-icon-active="claude_code_active"><i class="icon"></i><span>Claude Code</span></div>
     <div class="example-group" data-section="codex" data-icon="codex_outline" data-icon-active="codex_active"><i class="icon"></i><span>Codex</span></div>
+    <div class="example-group" data-section="cursor" data-icon="cursor_outline" data-icon-active="cursor_active"><i class="icon"></i><span>Cursor</span></div>
     <div class="example-group" data-section="opencode" data-icon="opencode_outline" data-icon-active="opencode_active"><i class="icon"></i><span>OpenCode</span></div>
 </div>
 
@@ -36,6 +37,24 @@ codex mcp add puter --url https://mcp.puter.com/
 ```
 
 You'll be sent to authenticate with Puter automatically.
+
+</div>
+
+<div class="example-content" data-section="cursor">
+
+Add Puter to the `mcpServers` section of your [Cursor MCP config](https://cursor.com/docs/mcp). Use `~/.cursor/mcp.json` to enable it everywhere, or `.cursor/mcp.json` in a project to scope it there:
+
+```json
+{
+  "mcpServers": {
+    "puter": {
+      "url": "https://mcp.puter.com/"
+    }
+  }
+}
+```
+
+Cursor handles the OAuth flow automatically. Open **Cursor Settings → MCP** and click the login button next to the `puter` server to authenticate with Puter.
 
 </div>
 
