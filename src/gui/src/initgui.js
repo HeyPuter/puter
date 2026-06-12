@@ -36,6 +36,7 @@ import UIWindowSignup from './UI/UIWindowSignup.js';
 import UIWindowRecoverPassword from './UI/UIWindowRecoverPassword.js';
 import { PROCESS_RUNNING } from './definitions.js';
 import create_access_token from './helpers/create_access_token.js';
+import init_device_signals from './helpers/device_signals.js';
 import item_icon from './helpers/item_icon.js';
 import update_last_touch_coordinates from './helpers/update_last_touch_coordinates.js';
 import update_mouse_position from './helpers/update_mouse_position.js';
@@ -301,6 +302,11 @@ window.initgui = async function (options) {
     window.url = url;
     const url_paths = window.location.pathname.split('/').filter(element => element);
     window.url_paths = url_paths;
+
+    // Install device signal helpers; collection is lazy. The fingerprint is
+    // on by default (gui_params.thumbmarkEnabled = false kills it); the Stytch
+    // telemetry id needs gui_params.stytchPublicToken.
+    init_device_signals();
 
     let picked_a_user_for_sdk_login = false;
 
@@ -1238,7 +1244,7 @@ window.initgui = async function (options) {
         }
 
         // Function to create temp user after captcha completion
-        const createTempUser = (turnstileToken) => {
+        const createTempUser = async (turnstileToken) => {
             // if this is a popup, show a spinner
             let spinner_init_ts = Date.now();
             const requestData = {
@@ -1249,6 +1255,22 @@ window.initgui = async function (options) {
             // Add Turnstile token if available
             if ( turnstileToken ) {
                 requestData['cf-turnstile-response'] = turnstileToken;
+            }
+
+            // Device signals for abuse prevention; omitted when unavailable
+            try {
+                const [fingerprint, dfpTelemetryId] = await Promise.all([
+                    window.getDeviceFingerprint?.(),
+                    window.getDfpTelemetryId?.(),
+                ]);
+                if ( fingerprint ) {
+                    requestData.fingerprint = fingerprint;
+                }
+                if ( dfpTelemetryId ) {
+                    requestData.dfp_telemetry_id = dfpTelemetryId;
+                }
+            } catch (e) {
+                // signup must never block or fail because of device signals
             }
 
             $.ajax({
