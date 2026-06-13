@@ -18,6 +18,7 @@
  */
 
 import type { Request, Response } from 'express';
+import type { Readable } from 'node:stream';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 import type { Actor } from '../../core/actor.js';
@@ -123,6 +124,14 @@ const makeRes = () => {
 
 const withActor = async <T>(actor: Actor, fn: () => Promise<T>): Promise<T> =>
     runWithContext({ actor }, fn);
+
+const streamToString = async (stream: Readable): Promise<string> => {
+    const chunks: Buffer[] = [];
+    for await (const chunk of stream) {
+        chunks.push(Buffer.from(chunk as Buffer));
+    }
+    return Buffer.concat(chunks).toString('utf8');
+};
 
 // ── /startBatchWrite ────────────────────────────────────────────────
 
@@ -549,9 +558,7 @@ describe('FSController.completeBatchWrites', () => {
             .body as SignedWriteResponse[];
 
         const emitSpy = vi.spyOn(server.clients.event, 'emit');
-        let updatedCall:
-            | (typeof emitSpy.mock.calls)[number]
-            | undefined;
+        let updatedCall: (typeof emitSpy.mock.calls)[number] | undefined;
         try {
             await withActor(actor, () =>
                 controller.completeBatchWrites(
@@ -726,9 +733,9 @@ describe('FSController.statEntry', () => {
             ...makeReq({ body: { path: '/x' }, actor }),
             actor: undefined,
         } as unknown as Request;
-        await expect(
-            controller.statEntry(req, res),
-        ).rejects.toMatchObject({ statusCode: 401 });
+        await expect(controller.statEntry(req, res)).rejects.toMatchObject({
+            statusCode: 401,
+        });
     });
 });
 
@@ -898,9 +905,7 @@ describe('FSController.searchEntries', () => {
             ).toBe(true);
         }
         expect(
-            results.some(
-                (r) => r.path === `/${username}/Documents/${needle}`,
-            ),
+            results.some((r) => r.path === `/${username}/Documents/${needle}`),
         ).toBe(false);
     });
 
@@ -1318,10 +1323,6 @@ describe('FSController.copyEntry', () => {
 // ── /read (readEntry, full read) ────────────────────────────────────
 
 describe('FSController.readEntry (file streaming)', () => {
-    // makeRes here adds a real Writable surface so that
-    // `pipeline(download.body, res)` inside the controller can pipe
-    // the in-memory S3 stream into the test's response and capture
-    // bytes for assertions.
     const makeStreamingRes = () => {
         const captured = {
             statusCode: 200,
@@ -1329,7 +1330,8 @@ describe('FSController.readEntry (file streaming)', () => {
             bodyChunks: [] as Buffer[],
         };
         // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const { Writable } = require('node:stream') as typeof import('node:stream');
+        const { Writable } =
+            require('node:stream') as typeof import('node:stream');
         const writable = new Writable({
             write(chunk: Buffer, _enc, cb) {
                 captured.bodyChunks.push(chunk);
@@ -1389,7 +1391,9 @@ describe('FSController.readEntry (file streaming)', () => {
         // Pipeline awaits the stream-end on success.
         expect(captured.statusCode).toBe(200);
         expect(captured.headers['Content-Type']).toMatch(/text\/plain/);
-        expect(captured.headers['Content-Length']).toBe(String(body.byteLength));
+        expect(captured.headers['Content-Length']).toBe(
+            String(body.byteLength),
+        );
         expect(captured.headers['Content-Disposition']).toMatch(
             /inline; filename=/,
         );
@@ -1831,5 +1835,160 @@ describe('FSController.mkshortcutEntry', () => {
         };
         expect(body.name).toBe('my-shortcut');
         expect(body.isShortcut).toBe(true);
+    });
+});
+
+describe('FSController metadata.objectKey injection', () => {
+    const writeFile = async (
+        actor: Actor,
+        path: string,
+        content: string,
+        metadata?: Record<string, unknown>,
+    ) => {
+        await withActor(actor, () =>
+            controller.write(
+                makeReq({
+                    body: {
+                        fileMetadata: {
+                            path,
+                            size: Buffer.byteLength(content),
+                            contentType: 'text/plain',
+                            overwrite: true,
+                            ...(metadata ? { metadata } : {}),
+                        },
+                        fileContent: content,
+                        encoding: 'utf8',
+                    },
+                    actor,
+                }) as unknown as Request<
+                    Record<string, never>,
+                    null,
+                    import('./requestTypes.js').WriteRequest
+                >,
+                makeRes().res,
+            ),
+        );
+        const entry = await server.stores.fsEntry.getEntryByPath(path, {
+            skipCache: true,
+        });
+        if (!entry) throw new Error(`entry not found after write: ${path}`);
+        return entry;
+    };
+
+    it("does not stream another user's file when a client injects metadata.objectKey on write", async () => {
+        const victim = await makeUser();
+        const attacker = await makeUser();
+        const victimSecret = 'VICTIM-TOP-SECRET-PAYLOAD';
+        const attackerDecoy = 'attacker-own-decoy-bytes';
+
+        const victimEntry = await writeFile(
+            victim.actor,
+            `/${victim.actor.user!.username}/Documents/secret.txt`,
+            victimSecret,
+        );
+
+        const victimRead = await server.services.fs.readContent(victimEntry);
+        expect(await streamToString(victimRead.body)).toBe(victimSecret);
+
+        const attackerEntry = await writeFile(
+            attacker.actor,
+            `/${attacker.actor.user!.username}/Documents/loot.txt`,
+            attackerDecoy,
+            { objectKey: victimEntry.uuid },
+        );
+
+        const persisted = attackerEntry.metadata
+            ? (JSON.parse(attackerEntry.metadata) as Record<string, unknown>)
+            : {};
+        expect(persisted.objectKey).toBeUndefined();
+
+        const attackerRead =
+            await server.services.fs.readContent(attackerEntry);
+        const got = await streamToString(attackerRead.body);
+        expect(got).toBe(attackerDecoy);
+        expect(got).not.toBe(victimSecret);
+    });
+
+    it('read path ignores a divergent metadata.objectKey on an already-poisoned row', async () => {
+        const victim = await makeUser();
+        const attacker = await makeUser();
+        const victimSecret = 'VICTIM-SECRET-FOR-POISON-TEST';
+        const attackerDecoy = 'attacker-decoy-for-poison-test';
+
+        const victimEntry = await writeFile(
+            victim.actor,
+            `/${victim.actor.user!.username}/Documents/secret2.txt`,
+            victimSecret,
+        );
+        const attackerEntry = await writeFile(
+            attacker.actor,
+            `/${attacker.actor.user!.username}/Documents/loot2.txt`,
+            attackerDecoy,
+        );
+
+        await server.stores.fsEntry.updateEntry(attackerEntry.uuid, {
+            metadata: JSON.stringify({ objectKey: victimEntry.uuid }),
+        });
+        const poisoned = await server.stores.fsEntry.getEntryByPath(
+            attackerEntry.path,
+            { skipCache: true },
+        );
+        if (!poisoned) throw new Error('poisoned entry not found');
+        expect(
+            (JSON.parse(poisoned.metadata!) as { objectKey: string }).objectKey,
+        ).toBe(victimEntry.uuid);
+
+        const read = await server.services.fs.readContent(poisoned);
+        expect(await streamToString(read.body)).toBe(attackerDecoy);
+    });
+
+    it('scrubs objectKey from move newMetadata while preserving legit trash metadata', async () => {
+        const victim = await makeUser();
+        const attacker = await makeUser();
+        const victimSecret = 'VICTIM-SECRET-FOR-MOVE-TEST';
+        const attackerDecoy = 'attacker-decoy-for-move-test';
+        const username = attacker.actor.user!.username!;
+
+        const victimEntry = await writeFile(
+            victim.actor,
+            `/${victim.actor.user!.username}/Documents/secret3.txt`,
+            victimSecret,
+        );
+        const attackerEntry = await writeFile(
+            attacker.actor,
+            `/${username}/Documents/loot3.txt`,
+            attackerDecoy,
+        );
+        const documents = await server.stores.fsEntry.getEntryByPath(
+            `/${username}/Documents`,
+            { skipCache: true },
+        );
+        if (!documents) throw new Error('Documents dir not found');
+
+        const moved = await withActor(attacker.actor, () =>
+            server.services.fs.move(attacker.userId, {
+                source: attackerEntry,
+                destinationParent: documents,
+                newName: 'loot3-moved.txt',
+                newMetadata: {
+                    original_path: `/${username}/Documents/loot3.txt`,
+                    trashed_ts: 1700000000,
+                    objectKey: victimEntry.uuid,
+                },
+            }),
+        );
+
+        const persisted = JSON.parse(moved.metadata!) as Record<
+            string,
+            unknown
+        >;
+        expect(persisted.objectKey).toBeUndefined();
+        expect(persisted.original_path).toBe(
+            `/${username}/Documents/loot3.txt`,
+        );
+        expect(persisted.trashed_ts).toBe(1700000000);
+
+        const read = await server.services.fs.readContent(moved);
+        expect(await streamToString(read.body)).toBe(attackerDecoy);
     });
 });

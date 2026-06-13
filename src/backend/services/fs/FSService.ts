@@ -70,8 +70,8 @@ import { AclMode } from '../acl/ACLService.js';
 const DEFAULT_CONTENT_TYPE = 'application/octet-stream';
 const DEFAULT_SIGNED_UPLOAD_EXPIRY_SECONDS = 60 * 15;
 
-// AWS SDK v3 surfaces missing-key errors with both `name` and `Code` set to
-// "NoSuchKey". Check both — `Code` is the wire field, `name` is the JS class.
+const RESERVED_METADATA_KEYS: readonly string[] = ['objectKey'];
+
 const isNoSuchKeyError = (err: unknown): boolean => {
     if (!err || typeof err !== 'object') return false;
     const e = err as { name?: unknown; Code?: unknown };
@@ -377,7 +377,7 @@ export class FSService extends PuterService {
             size,
             contentType: metadata.contentType ?? DEFAULT_CONTENT_TYPE,
             checksumSha256: metadata.checksumSha256,
-            metadata: metadata.metadata,
+            metadata: this.#sanitizeClientMetadata(metadata.metadata),
             thumbnail: metadata.thumbnail,
             associatedAppId: metadata.associatedAppId,
             overwrite: Boolean(metadata.overwrite),
@@ -389,6 +389,50 @@ export class FSService extends PuterService {
             bucket: this.#resolveBucket(),
             bucketRegion: this.#resolveBucketRegion(),
         };
+    }
+
+    #sanitizeClientMetadata(
+        metadata: FSEntryWriteInput['metadata'],
+    ): FSEntryWriteInput['metadata'] {
+        if (metadata === null || metadata === undefined) {
+            return metadata;
+        }
+        if (typeof metadata === 'string') {
+            let parsed: unknown;
+            try {
+                parsed = JSON.parse(metadata);
+            } catch {
+                return metadata;
+            }
+            if (
+                !parsed ||
+                typeof parsed !== 'object' ||
+                Array.isArray(parsed)
+            ) {
+                return metadata;
+            }
+            return JSON.stringify(
+                this.#stripReservedMetadataKeys(
+                    parsed as Record<string, unknown>,
+                ),
+            );
+        }
+        if (typeof metadata === 'object' && !Array.isArray(metadata)) {
+            return this.#stripReservedMetadataKeys(
+                metadata as Record<string, unknown>,
+            );
+        }
+        return metadata;
+    }
+
+    #stripReservedMetadataKeys(
+        record: Record<string, unknown>,
+    ): Record<string, unknown> {
+        const cleaned: Record<string, unknown> = { ...record };
+        for (const key of RESERVED_METADATA_KEYS) {
+            delete cleaned[key];
+        }
+        return cleaned;
     }
 
     async #findDedupedPath(
@@ -2762,10 +2806,7 @@ export class FSService extends PuterService {
                 { legacyCode: 'shortcut_target_not_found' },
             );
         }
-        // Derive the S3 object key from entry metadata if present, else fall
-        // back to the uuid convention used elsewhere (objectKey defaults to
-        // uuid during write when no metadata override is set).
-        const objectKey = this.#deriveObjectKeyFromEntry(entry);
+        const objectKey = entry.uuid;
         try {
             return await this.stores.s3Object.getObjectStream(
                 {
@@ -2813,27 +2854,6 @@ export class FSService extends PuterService {
                 cleanupErr,
             );
         }
-    }
-
-    // Objects written by fsv2 use the pending-session's objectKey, which is
-    // persisted in FSEntry.metadata JSON under `objectKey`. Falls back to the
-    // entry uuid for entries that didn't record it (older data).
-    #deriveObjectKeyFromEntry(entry: FSEntry): string {
-        if (entry.metadata) {
-            try {
-                const parsed = JSON.parse(entry.metadata);
-                if (
-                    parsed &&
-                    typeof parsed.objectKey === 'string' &&
-                    parsed.objectKey.length > 0
-                ) {
-                    return parsed.objectKey;
-                }
-            } catch {
-                // Not JSON — fall through.
-            }
-        }
-        return entry.uuid;
     }
 
     // -- Mutation: mkdir / touch / rename / mkshortcut ---------
@@ -3186,7 +3206,7 @@ export class FSService extends PuterService {
             try {
                 await this.stores.s3Object.deleteObject(
                     entry.bucket,
-                    this.#deriveObjectKeyFromEntry(entry),
+                    entry.uuid,
                     entry.bucketRegion,
                 );
             } catch {
@@ -3280,7 +3300,7 @@ export class FSService extends PuterService {
                 region: child.bucketRegion,
                 keys: [],
             };
-            group.keys.push(this.#deriveObjectKeyFromEntry(child));
+            group.keys.push(child.uuid);
             grouped.set(groupKey, group);
             // Fire individual removal events so thumbnail extension can clean up.
             this.#emitRemoveEvent(child);
@@ -3420,13 +3440,12 @@ export class FSService extends PuterService {
                 ? `/${name}`
                 : `${destinationParent.path}/${name}`;
 
-        // `metadata` column is a TEXT field; serialize when the caller sends
-        // an object, pass-through a bare string, and `null` clears it.
-        // `undefined` leaves the column untouched.
         let metadataPatch: string | null | undefined;
         if (input.newMetadata === null) metadataPatch = null;
-        else if (typeof input.newMetadata === 'object')
-            metadataPatch = JSON.stringify(input.newMetadata);
+        else if (input.newMetadata && typeof input.newMetadata === 'object')
+            metadataPatch = JSON.stringify(
+                this.#stripReservedMetadataKeys(input.newMetadata),
+            );
 
         const updated = await this.stores.fsEntry.updateEntry(source.uuid, {
             name,
@@ -3627,10 +3646,8 @@ export class FSService extends PuterService {
             });
         }
 
-        // Regular file: duplicate the S3 object under a new key (the new
-        // entry's uuid), then insert the DB row pointing at it.
         const newUuid = uuidv4();
-        const sourceObjectKey = this.#deriveObjectKeyFromEntry(source);
+        const sourceObjectKey = source.uuid;
         const resolvedBucket = this.stores.s3Object.resolveBucket(
             source.bucket,
         );
@@ -3644,14 +3661,8 @@ export class FSService extends PuterService {
             this.stores.s3Object.resolveRegion(source.bucketRegion),
         );
 
-        // Re-serialize metadata, swapping in the new objectKey.
-        const nextMetadata = this.#metadataWithObjectKey(
-            source.metadata,
-            newUuid,
-        );
+        const nextMetadata = this.#sanitizeClientMetadata(source.metadata);
 
-        // Insert as a file row. We reuse the files INSERT path (batchCreateEntries)
-        // since it handles bucket/metadata correctly. A single-row call is fine.
         const [created] = await this.stores.fsEntry.batchCreateEntries(
             [
                 {
@@ -3695,27 +3706,6 @@ export class FSService extends PuterService {
             // ignore — non-critical.
         }
         return created;
-    }
-
-    // Preserves existing metadata JSON fields, overriding only objectKey.
-    #metadataWithObjectKey(metadata: string | null, objectKey: string): string {
-        let parsed: Record<string, unknown> = {};
-        if (metadata) {
-            try {
-                const tentative = JSON.parse(metadata);
-                if (
-                    tentative &&
-                    typeof tentative === 'object' &&
-                    !Array.isArray(tentative)
-                ) {
-                    parsed = tentative as Record<string, unknown>;
-                }
-            } catch {
-                // Non-JSON legacy metadata — drop and replace.
-            }
-        }
-        parsed.objectKey = objectKey;
-        return JSON.stringify(parsed);
     }
 
     /**
