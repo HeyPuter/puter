@@ -175,9 +175,7 @@ export async function loadFileInput(
     // `path`/`uid`/`uuid` (e.g. AI chat `puter_path` content parts) could
     // exfiltrate any user's file. Must run before the S3 read below.
     await fsService.checkFSAccess(entry, actor, 'read');
-    // S3 object key is recorded in entry.metadata.objectKey when written by
-    // fsv2; older rows fall back to the entry uuid.
-    const objectKey = deriveObjectKey(entry);
+    const objectKey = entry.uuid;
     const { body, contentType, contentLength } =
         await stores.s3Object.getObjectStream(
             {
@@ -242,29 +240,6 @@ function assertMax(buffer: Buffer, maxBytes?: number): void {
 function filenameFromMime(mime: string): string {
     const ext = mime.split('/')[1]?.split('+')[0] ?? 'bin';
     return `input.${ext}`;
-}
-
-// Mirrors FSService's private deriveObjectKeyFromEntry helper. fsv2-era
-// rows persist an `objectKey` in metadata; older rows simply use the uuid.
-function deriveObjectKey(entry: {
-    uuid: string;
-    metadata: string | null;
-}): string {
-    if (entry.metadata) {
-        try {
-            const parsed = JSON.parse(entry.metadata);
-            if (
-                parsed &&
-                typeof parsed.objectKey === 'string' &&
-                parsed.objectKey.length > 0
-            ) {
-                return parsed.objectKey;
-            }
-        } catch {
-            // Not JSON — fall through.
-        }
-    }
-    return entry.uuid;
 }
 
 export function inferFilenameFromUrlOrPath(
