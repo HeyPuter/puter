@@ -54,9 +54,10 @@ const signToken = (
         audience?: string;
         issuer?: string;
         key?: crypto.KeyObject;
+        payload?: Record<string, unknown>;
     } = {},
 ): string =>
-    jwt.sign({ email: 'a@b.com', email_verified: true }, overrides.key ?? privateKey, {
+    jwt.sign({ email: 'a@b.com', email_verified: true, ...overrides.payload }, overrides.key ?? privateKey, {
         algorithm: 'RS256',
         keyid: overrides.kid ?? KID,
         subject: 'user-123',
@@ -208,5 +209,89 @@ describe('verifyOidcIdToken', () => {
             deps(fetchImpl, cache, () => 2 * 60 * 60 * 1000),
         );
         expect(calls()).toBe(1);
+    });
+});
+
+// Multi-tenant Microsoft discovery returns the issuer as a template with a
+// literal '{tenantid}' placeholder; the verifier substitutes the token's own
+// `tid` claim so that `iss` and `tid` must agree.
+describe('verifyOidcIdToken with a {tenantid} issuer template', () => {
+    const TEMPLATE_ISSUER = 'https://login.microsoftonline.com/{tenantid}/v2.0';
+    const TID = '3a8757eb-bf01-4b5d-83b2-90e0eaf21d10';
+    const tenantIssuer = `https://login.microsoftonline.com/${TID}/v2.0`;
+    const templateOpts = {
+        jwksUri: JWKS_URI,
+        issuer: TEMPLATE_ISSUER,
+        audience: AUDIENCE,
+    };
+
+    it('accepts a token whose iss matches its own tid, and passes tid/xms_edov through', async () => {
+        const { fetchImpl } = makeFetch([jwk]);
+        const claims = await verifyOidcIdToken(
+            signToken({
+                issuer: tenantIssuer,
+                payload: { tid: TID, xms_edov: true },
+            }),
+            templateOpts,
+            deps(fetchImpl),
+        );
+        expect(claims).toEqual({
+            sub: 'user-123',
+            email: 'a@b.com',
+            email_verified: true,
+            tid: TID,
+            xms_edov: true,
+        });
+    });
+
+    it('rejects a token whose iss names a different tenant than its tid', async () => {
+        const { fetchImpl } = makeFetch([jwk]);
+        const claims = await verifyOidcIdToken(
+            signToken({
+                issuer:
+                    'https://login.microsoftonline.com/00000000-0000-0000-0000-000000000000/v2.0',
+                payload: { tid: TID },
+            }),
+            templateOpts,
+            deps(fetchImpl),
+        );
+        expect(claims).toBeNull();
+    });
+
+    it('rejects a token whose tid is not a UUID (no substitution into the issuer)', async () => {
+        const { fetchImpl, calls } = makeFetch([jwk]);
+        const claims = await verifyOidcIdToken(
+            signToken({
+                issuer: 'https://login.microsoftonline.com/evil/v2.0',
+                payload: { tid: 'evil' },
+            }),
+            templateOpts,
+            deps(fetchImpl),
+        );
+        expect(claims).toBeNull();
+        expect(calls()).toBe(0);
+    });
+
+    it('rejects a token with no tid claim at all', async () => {
+        const { fetchImpl } = makeFetch([jwk]);
+        const claims = await verifyOidcIdToken(
+            signToken({ issuer: tenantIssuer }),
+            templateOpts,
+            deps(fetchImpl),
+        );
+        expect(claims).toBeNull();
+    });
+
+    it('normalizes a string-encoded xms_edov to boolean', async () => {
+        const { fetchImpl } = makeFetch([jwk]);
+        const claims = await verifyOidcIdToken(
+            signToken({
+                issuer: tenantIssuer,
+                payload: { tid: TID, xms_edov: 'true' },
+            }),
+            templateOpts,
+            deps(fetchImpl),
+        );
+        expect(claims?.xms_edov).toBe(true);
     });
 });
