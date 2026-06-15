@@ -26,6 +26,23 @@ const REQUEST_TIMEOUT_MS = 8000;
 /** OTP length — matches the 6-box code UI. Prelude allows 4–8. */
 const PRELUDE_CODE_SIZE = 6;
 /**
+ * Channel Prelude prioritizes for delivery. RCS is far cheaper than SMS, so we
+ * prefer it by default; Prelude routes to the next reachable channel (SMS) when
+ * RCS isn't available on the destination. (Requires an RCS agent provisioned in
+ * the Prelude account to actually use RCS — otherwise it just falls through to
+ * SMS.) Override with `config.prelude.preferredChannel`.
+ */
+const DEFAULT_PREFERRED_CHANNEL: PreludeChannel = 'rcs';
+
+/** Delivery channels Prelude can prioritize via `options.preferred_channel`. */
+export type PreludeChannel =
+    | 'sms'
+    | 'rcs'
+    | 'whatsapp'
+    | 'viber'
+    | 'zalo'
+    | 'telegram';
+/**
  * Default per-SMS cost ceiling (EUR). Countries whose Prelude SMS rate exceeds
  * this — or that have no SMS channel — are not offered phone verification. The
  * cap covers every realistic revenue market (priciest are Germany €0.0598 and
@@ -110,9 +127,13 @@ export class PreludeClient extends PuterClient {
         signals: { ip?: string } = {},
     ): Promise<{ id?: string; status: PreludeCreateStatus }> {
         // Match the 6-box code UI (UIWindowPhoneVerificationRequired). Without
-        // code_size Prelude uses the dashboard default (4).
+        // code_size Prelude uses the dashboard default (4). preferred_channel
+        // prioritizes RCS (cheaper); Prelude falls back to SMS when unavailable.
         const options: Record<string, unknown> = {
             code_size: PRELUDE_CODE_SIZE,
+            preferred_channel:
+                this.config.prelude?.preferredChannel ??
+                DEFAULT_PREFERRED_CHANNEL,
         };
         // Branding lives in the Prelude dashboard (the message text is a
         // template); these just select a Puter-branded template / sender when

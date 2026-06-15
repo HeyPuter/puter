@@ -135,6 +135,18 @@ export interface IPreludeConfig {
      * (notably US long/short codes). Omit to use Prelude's default sender.
      */
     senderId?: string;
+    /**
+     * Channel Prelude prioritizes for delivery. Defaults to 'rcs' (much cheaper
+     * than SMS); Prelude falls back to SMS when RCS isn't reachable. Requires an
+     * RCS agent provisioned in the Prelude account to actually use RCS.
+     */
+    preferredChannel?:
+        | 'sms'
+        | 'rcs'
+        | 'whatsapp'
+        | 'viber'
+        | 'zalo'
+        | 'telegram';
 }
 
 /**
