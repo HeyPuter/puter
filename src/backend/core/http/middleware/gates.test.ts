@@ -25,7 +25,7 @@ import {
     adminOnlyGate,
     allowedAppIdsGate,
     requireAuthGate,
-    requireEmailConfirmedGate,
+    requireVerifiedAccount,
     requireNonAccessTokenGate,
     requireUserActorGate,
     requireVerifiedGate,
@@ -440,11 +440,11 @@ describe('requireVerifiedGate', () => {
     });
 });
 
-// ── requireEmailConfirmedGate ───────────────────────────────────────
+// ── requireVerifiedAccount ──────────────────────────────────────────
 
-describe('requireEmailConfirmedGate', () => {
+describe('requireVerifiedAccount', () => {
     it('passes through users that do not require confirmation (e.g. legacy/temp)', () => {
-        const got = runGate(requireEmailConfirmedGate(), {
+        const got = runGate(requireVerifiedAccount(), {
             actor: {
                 user: {
                     uuid: 'u-1',
@@ -457,7 +457,7 @@ describe('requireEmailConfirmedGate', () => {
     });
 
     it('passes through confirmed users even when confirmation is required', () => {
-        const got = runGate(requireEmailConfirmedGate(), {
+        const got = runGate(requireVerifiedAccount(), {
             actor: {
                 user: {
                     uuid: 'u-1',
@@ -470,7 +470,7 @@ describe('requireEmailConfirmedGate', () => {
     });
 
     it('returns 403 email_confirmation_required for pending-confirmation users', () => {
-        const got = runGate(requireEmailConfirmedGate(), {
+        const got = runGate(requireVerifiedAccount(), {
             actor: {
                 user: {
                     uuid: 'u-1',
@@ -482,8 +482,51 @@ describe('requireEmailConfirmedGate', () => {
         expectHttpError(got, 403, 'email_confirmation_required');
     });
 
+    it('returns 403 phone_verification_required while the phone gate is set', () => {
+        const got = runGate(requireVerifiedAccount(), {
+            actor: {
+                user: {
+                    uuid: 'u-1',
+                    requires_email_confirmation: false,
+                    email_confirmed: true,
+                    requires_phone_verification: true,
+                },
+            },
+        });
+        expectHttpError(got, 403, 'phone_verification_required');
+    });
+
+    it('returns 403 card_verification_required while the card gate is set', () => {
+        const got = runGate(requireVerifiedAccount(), {
+            actor: {
+                user: {
+                    uuid: 'u-1',
+                    requires_email_confirmation: false,
+                    email_confirmed: true,
+                    requires_card_verification: true,
+                },
+            },
+        });
+        expectHttpError(got, 403, 'card_verification_required');
+    });
+
+    it('passes through once every gate is cleared', () => {
+        const got = runGate(requireVerifiedAccount(), {
+            actor: {
+                user: {
+                    uuid: 'u-1',
+                    requires_email_confirmation: true,
+                    email_confirmed: true,
+                    requires_phone_verification: false,
+                    requires_card_verification: false,
+                },
+            },
+        });
+        expect(got).toBeUndefined();
+    });
+
     it("passes through when there's no actor (auth gate handled it)", () => {
-        const got = runGate(requireEmailConfirmedGate(), {});
+        const got = runGate(requireVerifiedAccount(), {});
         expect(got).toBeUndefined();
     });
 });

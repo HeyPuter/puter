@@ -23,6 +23,7 @@ import { posix as pathPosix } from 'node:path';
 import { EventMap } from '../../clients/event/types.js';
 import type { Actor } from '../../core/actor.js';
 import { HttpError } from '../../core/http/HttpError.js';
+import { assertVerifiedAccount } from '../../core/http/middleware/gates.js';
 import type { PuterRouter } from '../../core/http/PuterRouter.js';
 import { verify as verifyOtp } from '../../services/auth/OTPUtil.js';
 import { expandTildePath } from '../../services/fs/resolveNode.js';
@@ -88,6 +89,16 @@ export class WebDAVController extends PuterController {
         // Authenticate
         const actor = await this.#resolveActor(req, res);
         if (!actor) return; // 401 already sent
+
+        // Apply the same pending-verification gate every other authenticated
+        // route gets from `requireVerifiedAccount`. WebDAV dispatches every
+        // method off a single `router.use` with no route options, so that
+        // middleware is never inserted into its chain — without this call an
+        // account still pending email / phone / card verification could read,
+        // write, and delete its entire filesystem over the `dav` subdomain,
+        // bypassing the gate. Throws a 403 HttpError, surfaced by the catch in
+        // registerRoutes.
+        assertVerifiedAccount(actor.user);
 
         // Expand `~`/`~/...` against the authenticated actor's username.
         // WebDAV doesn't standardize `~`, but some clients do — and the
@@ -233,6 +244,15 @@ export class WebDAVController extends PuterController {
                 email_confirmed: user.email_confirmed ?? false,
                 requires_email_confirmation:
                     user.requires_email_confirmation ?? false,
+                // Carry the signup-time verification flags so the
+                // assertVerifiedAccount() gate in #dispatch can see them on
+                // the Basic-auth path too (the cookie / `-token` paths get
+                // them from AuthService#actorUserFromRow). Omitting these is
+                // what let phone/card-gated accounts through WebDAV.
+                requires_phone_verification:
+                    user.requires_phone_verification ?? false,
+                requires_card_verification:
+                    user.requires_card_verification ?? false,
             },
         };
     }

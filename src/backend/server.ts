@@ -37,7 +37,7 @@ import {
     adminOnlyGate,
     allowedAppIdsGate,
     requireAuthGate,
-    requireEmailConfirmedGate,
+    requireVerifiedAccount,
     requireNonAccessTokenGate,
     requireUserActorGate,
     requireVerifiedGate,
@@ -830,13 +830,16 @@ export class PuterServer {
             mwChain.push(requireAuthGate());
         }
 
-        // Default-on email confirmation gate. Every authenticated route
-        // rejects users pending confirmation unless `allowUnconfirmed`
-        // opts out. This prevents unconfirmed accounts from accessing
-        // AI, FS, driver, etc. endpoints while still allowing essential
-        // flows (logout, confirm-email, whoami, save-account, …).
+        // Default-on account-verification gate. Every authenticated route
+        // rejects accounts still pending any signup-time verification —
+        // email confirmation, SMS phone verification, or card verification —
+        // unless `allowUnconfirmed` opts out. This is what keeps low-reputation
+        // signups (which the abuse harness flags instead of hard-blocking) out
+        // of AI, FS, driver, etc. endpoints server-side, not just behind the
+        // GUI modal, while still allowing essential flows (logout,
+        // confirm-email / -phone, card verification, whoami, save-account, …).
         if (needsAuth && !opts.allowUnconfirmed) {
-            mwChain.push(requireEmailConfirmedGate());
+            mwChain.push(requireVerifiedAccount());
         }
 
         // block access tokens by default

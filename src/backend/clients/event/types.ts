@@ -131,6 +131,12 @@ export type EventMap = {
         data?: unknown;
         abuse?: unknown;
         trail?: Array<string>;
+        /**
+         * Set by the abuse harness for flagged signups — the id under which the
+         * decision trail is persisted to KV (`abuse:trail:<id>`), shared back on
+         * the request for log / support correlation.
+         */
+        trail_id?: string;
         /** Device signals forwarded verbatim from the signup request body. */
         fingerprint?: string | null;
         dfp_telemetry_id?: string | null;
@@ -167,6 +173,27 @@ export type EventMap = {
         user_id: number;
         user_uid: string;
         email: string;
+    };
+    // Phone-reuse cap is pure mechanism here — the abuse extension answers
+    // (emitted via `emitAndWait`) by counting how many OTHER accounts have
+    // already verified this number and flipping `allowed` to false when the
+    // cross-account limit is hit. No extension listening → `allowed` stays
+    // true and the send proceeds.
+    'puter.phone-verification.check': {
+        user_id: number;
+        user_uid: string;
+        phone: string;
+        allowed: boolean;
+        reason: string | null;
+        [key: string]: unknown;
+    };
+    // Fire-and-forget signal that a code was actually sent — the abuse
+    // extension bumps its per-number / per-account send-velocity counters off
+    // this. No-op with no extension listening.
+    'puter.phone-verification.sent': {
+        user_id: number;
+        user_uid: string;
+        phone: string;
     };
     'user.phone-verified': {
         user_id: number;
