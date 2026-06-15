@@ -79,18 +79,20 @@ describe('PreludeClient', () => {
         expect(init.headers.Authorization).toBe('Bearer sk_test');
         expect(JSON.parse(init.body)).toEqual({
             target: { type: 'phone_number', value: '+14155550123' },
-            options: { code_size: 6 },
+            // Defaults to RCS (cheaper); Prelude falls back to SMS.
+            options: { code_size: 6, preferred_channel: 'rcs' },
             signals: { ip: '203.0.113.7' },
         });
     });
 
-    it('includes a configured template_id + sender_id in the options', async () => {
+    it('includes a configured template_id + sender_id + preferred channel', async () => {
         fetchMock.mockResolvedValue(okJson({ id: 'v', status: 'success' }));
         const client = new PreludeClient({
             prelude: {
                 apiKey: 'sk_test',
                 templateId: 'tmpl_puter',
                 senderId: 'Puter',
+                preferredChannel: 'sms',
             },
         } as unknown as IConfig);
 
@@ -99,6 +101,7 @@ describe('PreludeClient', () => {
         const [, init] = fetchMock.mock.calls[0];
         expect(JSON.parse(init.body).options).toEqual({
             code_size: 6,
+            preferred_channel: 'sms', // config override beats the rcs default
             template_id: 'tmpl_puter',
             sender_id: 'Puter',
         });
