@@ -22,21 +22,26 @@ import {
     type CountryCode,
 } from 'libphonenumber-js';
 
+export interface ParsedPhone {
+    /** E.164 form, e.g. "+14155550123" — the format Prelude requires. */
+    e164: string;
+    /** ISO 3166-1 alpha-2 region (e.g. 'US'), or undefined if undetermined. */
+    country?: string;
+}
+
 /**
- * Sanitize raw user-entered phone input to a validated E.164 string
- * (e.g. "+14155550123"), the format Prelude Verify v2 requires.
- *
- * Returns `null` when the input can't be parsed into a valid number — callers
- * should treat that as a 400 (bad phone). `defaultCountry` lets a local-format
- * number (no "+") be interpreted (e.g. "(415) 555-0123" with 'US').
+ * Parse + validate raw user-entered phone input, returning its E.164 form and
+ * country. Returns `null` when the input isn't a valid number — callers should
+ * treat that as a 400 (bad phone). `defaultCountry` lets a local-format number
+ * (no "+") be interpreted (e.g. "(415) 555-0123" with 'US').
  *
  * @param input Raw phone string from the client.
  * @param defaultCountry ISO 3166-1 alpha-2 region for local-format numbers.
  */
-export function sanitizePhone(
+export function parsePhone(
     input: unknown,
     defaultCountry?: string,
-): string | null {
+): ParsedPhone | null {
     if (typeof input !== 'string') return null;
     const trimmed = input.trim();
     if (!trimmed) return null;
@@ -47,5 +52,17 @@ export function sanitizePhone(
     );
     if (!parsed || !parsed.isValid()) return null;
 
-    return parsed.number; // E.164, e.g. "+14155550123"
+    return { e164: parsed.number, country: parsed.country };
+}
+
+/**
+ * Sanitize raw user-entered phone input to a validated E.164 string, or `null`
+ * if invalid. Thin wrapper over {@link parsePhone} for callers that only need
+ * the number.
+ */
+export function sanitizePhone(
+    input: unknown,
+    defaultCountry?: string,
+): string | null {
+    return parsePhone(input, defaultCountry)?.e164 ?? null;
 }

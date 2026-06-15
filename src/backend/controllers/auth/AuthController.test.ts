@@ -32,7 +32,7 @@
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import { v4 as uuidv4 } from 'uuid';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { EventClient } from '../../clients/event/EventClient.js';
 import type { Actor } from '../../core/actor.js';
 import { runWithContext } from '../../core/context.js';
@@ -326,6 +326,35 @@ describe('AuthController.handleSignup', () => {
         expect(
             await bcrypt.compare('correct-horse-battery', persisted!.password!),
         ).toBe(true);
+    });
+
+    it('forces phone verification on every signup when always_require_phone_verification is set', async () => {
+        const cfg = (controller as { config: Record<string, unknown> }).config;
+        const prev = cfg.always_require_phone_verification;
+        cfg.always_require_phone_verification = true;
+        try {
+            const username = `s_${uniq()}`;
+            const req = makeReq({
+                username,
+                email: `${username}@test.local`,
+                password: 'correct-horse-battery',
+            });
+            const res = makeRes();
+
+            await controller.handleSignup(req, res);
+
+            // The login envelope flags the gate so the GUI shows the dialog …
+            const body = res.body as {
+                user: { requires_phone_verification?: number | boolean };
+            };
+            expect(body.user.requires_phone_verification).toBeTruthy();
+
+            // … and it's persisted so the gate survives re-login.
+            const persisted = await server.stores.user.getByUsername(username);
+            expect(persisted!.requires_phone_verification).toBe(true);
+        } finally {
+            cfg.always_require_phone_verification = prev;
+        }
     });
 
     it('rejects a duplicate username with 400', async () => {
@@ -1720,6 +1749,71 @@ describe('AuthController.handleSendConfirmEmail', () => {
         });
         expect(after!.email_confirm_code).not.toBe(before!.email_confirm_code);
         expect(String(after!.email_confirm_code).length).toBe(6);
+    });
+});
+
+describe('AuthController.handleSendConfirmPhone attempt cap', () => {
+    it('allows two code sends, then hard-blocks the third (429)', async () => {
+        const { actor } = await makeUserAndActor();
+        // Stub the Prelude client: report configured + supported, and a
+        // successful send — so we exercise the KV-backed attempt cap, not the
+        // network or the country gate.
+        const ctrl = controller as { clients: { prelude: unknown } };
+        const realPrelude = ctrl.clients.prelude;
+        const createVerification = vi.fn(async () => ({ status: 'success' }));
+        ctrl.clients.prelude = {
+            isConfigured: () => true,
+            isCountrySupported: () => true,
+            defaultCountry: 'US',
+            createVerification,
+        };
+        try {
+            const send = () =>
+                controller.handleSendConfirmPhone(
+                    makeReq({ phone: '+14155550123' }, { actor }),
+                    makeRes(),
+                );
+            await send(); // 1st — allowed
+            await send(); // 2nd — allowed
+            expect(createVerification).toHaveBeenCalledTimes(2);
+            // 3rd — over the lifetime cap → 429, and no SMS dispatched.
+            await expect(send()).rejects.toMatchObject({ statusCode: 429 });
+            expect(createVerification).toHaveBeenCalledTimes(2);
+        } finally {
+            ctrl.clients.prelude = realPrelude;
+        }
+    });
+
+    it('does not burn an attempt when the send fails upstream', async () => {
+        const { actor } = await makeUserAndActor();
+        const ctrl = controller as { clients: { prelude: unknown } };
+        const realPrelude = ctrl.clients.prelude;
+        // First call throws (upstream error), second succeeds.
+        const createVerification = vi
+            .fn()
+            .mockRejectedValueOnce(new Error('prelude down'))
+            .mockResolvedValue({ status: 'success' });
+        ctrl.clients.prelude = {
+            isConfigured: () => true,
+            isCountrySupported: () => true,
+            defaultCountry: 'US',
+            createVerification,
+        };
+        try {
+            const send = () =>
+                controller.handleSendConfirmPhone(
+                    makeReq({ phone: '+14155550123' }, { actor }),
+                    makeRes(),
+                );
+            // Upstream failure → 502, attempt NOT counted.
+            await expect(send()).rejects.toMatchObject({ statusCode: 502 });
+            // Two real sends still available afterwards.
+            await send();
+            await send();
+            await expect(send()).rejects.toMatchObject({ statusCode: 429 });
+        } finally {
+            ctrl.clients.prelude = realPrelude;
+        }
     });
 });
 

@@ -36,25 +36,80 @@ function UIWindowPhoneVerificationRequired (options) {
         const send_btn_txt = 'Send Code';
         const verify_btn_txt = 'Verify Phone';
 
+        const phoneIcon =
+            '<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="#3b82f6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"></path></svg>';
+
         let h = '';
+        // Scoped styling for this dialog.
+        h += `<style>
+            .window-confirm-phone-using-code .phone-icon-badge {
+                width: 56px; height: 56px; border-radius: 50%;
+                background: #e8f1fe; display: flex; align-items: center;
+                justify-content: center; margin: 4px auto 16px;
+            }
+            .window-confirm-phone-using-code .phone-title {
+                text-align: center; font-weight: 600; font-size: 21px;
+                margin: 0 0 8px;
+            }
+            .window-confirm-phone-using-code .phone-subtitle {
+                text-align: center; color: #6b7c8c; font-size: 14px;
+                line-height: 1.5; margin: 0 0 22px; padding: 0 8px;
+            }
+            .window-confirm-phone-using-code .phone-field-label {
+                display: block; font-size: 12px; font-weight: 600;
+                text-transform: uppercase; letter-spacing: .04em;
+                color: #8a99a8; margin: 0 0 6px;
+            }
+            .window-confirm-phone-using-code .phone-input {
+                width: 100%; box-sizing: border-box; padding: 12px 14px;
+                font-size: 16px; color: #2c3e50;
+                border: 1.5px solid #d4dde6; border-radius: 9px;
+                outline: none; transition: border-color .15s, box-shadow .15s;
+                background: #fff;
+            }
+            .window-confirm-phone-using-code .phone-input::placeholder { color: #aebac6; }
+            .window-confirm-phone-using-code .phone-input:focus {
+                border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59,130,246,.15);
+            }
+            .window-confirm-phone-using-code .phone-send-btn,
+            .window-confirm-phone-using-code .phone-verify-btn {
+                margin-top: 18px; height: 42px; font-size: 15px; font-weight: 500;
+            }
+            .window-confirm-phone-using-code .phone-footer {
+                text-align: center; font-size: 13px; margin-top: 18px;
+                padding-top: 16px; border-top: 1px solid #e9eef3; color: #8a99a8;
+            }
+            .window-confirm-phone-using-code .phone-footer a {
+                color: #3b82f6; cursor: pointer; text-decoration: none;
+            }
+            .window-confirm-phone-using-code .phone-footer a:hover { text-decoration: underline; }
+            .window-confirm-phone-using-code .error {
+                color: #c0392b; font-size: 13px; text-align: center; margin-bottom: 10px;
+            }
+        </style>`;
         if ( options.show_close_button !== false ) {
             h += '<div class="qr-code-window-close-btn generic-close-window-button"> &times; </div>';
         }
-        h += '<div style="-webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; color: #3e5362; max-width: 350px; margin: 0 auto;">';
-        h += `<img src="${html_encode(window.icons['phone.svg'] ?? window.icons['mail.svg'])}" style="display:block; margin:10px auto 10px; width:50px;">`;
-        h += '<h3 style="text-align:center; font-weight: 500; font-size: 20px;">Verify Your Phone Number</h3>';
-        h += '<div class="error"></div>';
+        h += '<div style="-webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; color: #3e5362; max-width: 330px; margin: 0 auto;">';
+        h += `<div class="phone-icon-badge">${phoneIcon}</div>`;
+        h += '<h3 class="phone-title">Verify your phone number</h3>';
 
         // -- Step 1: phone number --
         h += '<form class="phone-step phone-step-1">';
-        h += '<p style="text-align:center; padding: 0 20px;">To continue, enter your phone number and we\'ll text you a verification code.</p>';
-        h += '<input class="phone-input" type="tel" autocomplete="tel" placeholder="+1 (555) 123-4567" style="width:100%; box-sizing:border-box; padding:10px; font-size:16px; text-align:center; border:1px solid #ced7e1; border-radius:6px;" />';
-        h += `<button type="submit" class="button button-block button-primary phone-send-btn" style="margin-top:10px;">${send_btn_txt}</button>`;
+        h += '<p class="phone-subtitle">We\'ll text you a verification code to confirm it\'s really you.</p>';
+        h += '<div class="error"></div>';
+        h += '<label class="phone-field-label" for="phone-verif-input">Phone number</label>';
+        h += '<input id="phone-verif-input" class="phone-input" type="tel" autocomplete="tel" placeholder="+1 (555) 123-4567" />';
+        h += `<button type="submit" class="button button-block button-primary phone-send-btn">${send_btn_txt}</button>`;
+        if ( options.logout_in_footer ) {
+            h += `<div class="phone-footer"><a class="phone-log-out">${i18n('log_out')}</a></div>`;
+        }
         h += '</form>';
 
         // -- Step 2: 6-digit code (hidden until a code is sent) --
         h += '<form class="phone-step phone-step-2" style="display:none;">';
-        h += '<p style="text-align:center; padding: 0 20px;">Enter the 6-digit code sent to <strong style="font-weight: 500;" class="phone-target"></strong></p>';
+        h += '<p class="phone-subtitle">Enter the 6-digit code sent to <strong style="font-weight: 600; color:#3e5362;" class="phone-target"></strong></p>';
+        h += '<div class="error"></div>';
         h += `  <fieldset name="number-code" style="border: none; padding:0;" data-number-code-form>
                 <input class="digit-input" type="number" min='0' max='9' name='number-code-0' data-number-code-input='0' required />
                 <input class="digit-input" type="number" min='0' max='9' name='number-code-1' data-number-code-input='1' required />
@@ -64,18 +119,15 @@ function UIWindowPhoneVerificationRequired (options) {
                 <input class="digit-input" type="number" min='0' max='9' name='number-code-4' data-number-code-input='4' required />
                 <input class="digit-input" type="number" min='0' max='9' name='number-code-5' data-number-code-input='5' required />
               </fieldset>`;
-        h += `<button type="submit" class="button button-block button-primary phone-verify-btn" style="margin-top:10px;" disabled>${verify_btn_txt}</button>`;
-        h += '<div style="text-align:center; padding:10px; font-size:14px; margin-top:10px;">';
-        h += '<span class="phone-resend-code" style="cursor:pointer;">Re-send Code</span>';
-        h += '<span class="phone-change-number" style="cursor:pointer;"> &bull; Change Number</span>';
+        h += `<button type="submit" class="button button-block button-primary phone-verify-btn" disabled>${verify_btn_txt}</button>`;
+        h += '<div class="phone-footer">';
+        h += '<a class="phone-resend-code">Re-send code</a> &nbsp;&bull;&nbsp; <a class="phone-change-number">Change number</a>';
+        if ( options.logout_in_footer ) {
+            h += ' &nbsp;&bull;&nbsp; ';
+            h += `<a class="phone-log-out">${i18n('log_out')}</a>`;
+        }
         h += '</div>';
         h += '</form>';
-
-        if ( options.logout_in_footer ) {
-            h += '<div style="text-align:center; padding:0 10px 10px; font-size:14px;">';
-            h += `<span class="phone-log-out" style="cursor:pointer;">${i18n('log_out')}</span>`;
-            h += '</div>';
-        }
         h += '</div>';
 
         const el_window = await UIWindow({

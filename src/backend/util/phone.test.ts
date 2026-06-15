@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { sanitizePhone } from './phone';
+import { parsePhone, sanitizePhone } from './phone';
 
 describe('sanitizePhone', () => {
     it('normalizes a valid E.164 number unchanged', () => {
@@ -30,5 +30,31 @@ describe('sanitizePhone', () => {
         expect(sanitizePhone(undefined)).toBeNull();
         expect(sanitizePhone(null)).toBeNull();
         expect(sanitizePhone(14155550123)).toBeNull();
+    });
+});
+
+describe('parsePhone', () => {
+    it('returns E.164 + ISO country for a valid number', () => {
+        expect(parsePhone('+14155550123')).toEqual({
+            e164: '+14155550123',
+            country: 'US',
+        });
+        expect(parsePhone('+442079460958')).toEqual({
+            e164: '+442079460958',
+            country: 'GB',
+        });
+    });
+
+    it('infers country from the default region for local format', () => {
+        expect(parsePhone('(415) 555-0123', 'US')).toEqual({
+            e164: '+14155550123',
+            country: 'US',
+        });
+    });
+
+    it('returns null for invalid input', () => {
+        expect(parsePhone('not a phone')).toBeNull();
+        expect(parsePhone('')).toBeNull();
+        expect(parsePhone(undefined)).toBeNull();
     });
 });

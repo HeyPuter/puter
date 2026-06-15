@@ -47,7 +47,7 @@ import {
 } from '../../services/auth/OTPUtil.js';
 import { sessionCookieFlags } from '../../util/cookieFlags.js';
 import { cleanEmail, isBlockedEmail } from '../../util/email.js';
-import { sanitizePhone } from '../../util/phone.js';
+import { parsePhone } from '../../util/phone.js';
 import { generate_identifier } from '../../util/identifier.js';
 import { getTaskbarItems } from '../../util/taskbarItems.js';
 import {
@@ -642,9 +642,11 @@ export class AuthController extends PuterController {
         const force_email_confirmation = Boolean(
             validateEvent.requires_email_confirmation,
         );
-        const force_phone_verification = Boolean(
-            validateEvent.requires_phone_verification,
-        );
+        const force_phone_verification =
+            Boolean(validateEvent.requires_phone_verification) ||
+            // Test/QA switch: force the SMS gate on every signup regardless of
+            // reputation (see config.always_require_phone_verification).
+            Boolean(this.config.always_require_phone_verification);
 
         // Prepare shared fields
         const user_uuid = uuidv4();
@@ -1050,23 +1052,58 @@ export class AuthController extends PuterController {
                 legacyCode: 'service_unavailable' as never,
             });
 
-        // Sanitize to E.164 — Prelude requires it and it's the stored form.
-        const e164 = sanitizePhone(
+        // Parse to E.164 (Prelude's required form + the stored form) and the
+        // country, so we can apply the per-country cost cap.
+        const parsed = parsePhone(
             req.body?.phone,
             this.clients.prelude.defaultCountry,
         );
-        if (!e164)
+        if (!parsed)
             throw new HttpError(400, 'Invalid phone number.', {
                 legacyCode: 'bad_request',
             });
 
-        await this.stores.user.update(user.id, { phone: e164 });
+        // Cost cap: skip countries with no SMS channel or rates above the cap
+        // (see PreludeClient / countries.ts). Avoids paying exorbitant per-SMS
+        // rates in low-revenue, high-fraud geographies.
+        if (!this.clients.prelude.isCountrySupported(parsed.country))
+            throw new HttpError(
+                400,
+                'Phone verification is not available for this country.',
+                { legacyCode: 'phone_country_not_supported' as never },
+            );
+
+        // Hard lifetime cap: at most MAX_PHONE_VERIFY_SENDS SMS codes per user,
+        // tracked in KV so it survives logout / re-login (unlike the per-window
+        // rate limit above). Once exhausted the user can't request another code
+        // — and so can't clear the gate. KV read failures fail open: this is
+        // abuse/cost control, not a security boundary, so a KV blip must not
+        // lock signups out. Only successful sends are counted (incremented
+        // below), so a bad number / upstream error doesn't burn an attempt.
+        const MAX_PHONE_VERIFY_SENDS = 2;
+        const attemptsKey = `phone-verify-attempts:${user.id}`;
+        let priorAttempts = 0;
+        try {
+            const { res } = await this.stores.kv.get({ key: attemptsKey });
+            if (typeof res === 'number') priorAttempts = res;
+        } catch (e) {
+            console.warn('[send-confirm-phone] attempt-count read failed:', e);
+        }
+        if (priorAttempts >= MAX_PHONE_VERIFY_SENDS)
+            throw new HttpError(
+                429,
+                'You have used all of your phone verification attempts.',
+                { legacyCode: 'phone_verify_attempts_exhausted' as never },
+            );
+
+        await this.stores.user.update(user.id, { phone: parsed.e164 });
 
         const ip = req.ip || req.socket?.remoteAddress || undefined;
         try {
-            const result = await this.clients.prelude.createVerification(e164, {
-                ip,
-            });
+            const result = await this.clients.prelude.createVerification(
+                parsed.e164,
+                { ip },
+            );
             // Prelude rejected the attempt as abusive — surface as rate-limit.
             if (
                 result.status === 'blocked' ||
@@ -1084,6 +1121,19 @@ export class AuthController extends PuterController {
             throw new HttpError(502, 'Could not send verification code.', {
                 legacyCode: 'upstream_error' as never,
             });
+        }
+
+        // Count the successful send against the lifetime cap (best-effort; a KV
+        // write failure shouldn't fail a code that was already sent). ~30d TTL
+        // so abandoned counters self-clean rather than living forever.
+        try {
+            await this.stores.kv.set({
+                key: attemptsKey,
+                value: priorAttempts + 1,
+                expireAt: Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60,
+            });
+        } catch (e) {
+            console.warn('[send-confirm-phone] attempt-count write failed:', e);
         }
         res.json({});
     }

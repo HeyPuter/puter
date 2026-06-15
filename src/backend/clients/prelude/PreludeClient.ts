@@ -19,9 +19,20 @@
 
 import type { IConfig } from '../../types';
 import { PuterClient } from '../types';
+import { COUNTRY_SMS_PRICES } from './countries.js';
 
 const PRELUDE_API_BASE = 'https://api.prelude.dev/v2';
 const REQUEST_TIMEOUT_MS = 8000;
+/** OTP length — matches the 6-box code UI. Prelude allows 4–8. */
+const PRELUDE_CODE_SIZE = 6;
+/**
+ * Default per-SMS cost ceiling (EUR). Countries whose Prelude SMS rate exceeds
+ * this — or that have no SMS channel — are not offered phone verification. The
+ * cap covers every realistic revenue market (priciest are Germany €0.0598 and
+ * Saudi Arabia €0.0638) while excluding the expensive, high-fraud long tail.
+ * Override per-deployment with `config.prelude.maxSmsCostEur`.
+ */
+const DEFAULT_MAX_SMS_COST_EUR = 0.07;
 
 /** Status returned by Prelude when creating/retrying a verification. */
 export type PreludeCreateStatus =
@@ -72,6 +83,23 @@ export class PreludeClient extends PuterClient {
         return this.config.prelude?.defaultCountry;
     }
 
+    /** Per-SMS cost ceiling in EUR (config override or the default cap). */
+    get maxSmsCostEur(): number {
+        return this.config.prelude?.maxSmsCostEur ?? DEFAULT_MAX_SMS_COST_EUR;
+    }
+
+    /**
+     * Whether SMS verification should be offered for a country. False when the
+     * country is unknown, has no SMS channel, or its rate exceeds the cost cap.
+     * @param iso ISO-3166 alpha-2 (e.g. 'US') — from the parsed phone number.
+     */
+    isCountrySupported(iso: string | undefined): boolean {
+        if (!iso) return false; // couldn't determine country → can't price it
+        const price = COUNTRY_SMS_PRICES[iso.toUpperCase()];
+        if (!price || price.sms == null) return false;
+        return price.sms <= this.maxSmsCostEur;
+    }
+
     /**
      * Create (or retry) a verification: Prelude sends an OTP to `target`.
      * @param target E.164 phone number, e.g. "+14155550123".
@@ -81,8 +109,21 @@ export class PreludeClient extends PuterClient {
         target: string,
         signals: { ip?: string } = {},
     ): Promise<{ id?: string; status: PreludeCreateStatus }> {
+        // Match the 6-box code UI (UIWindowPhoneVerificationRequired). Without
+        // code_size Prelude uses the dashboard default (4).
+        const options: Record<string, unknown> = {
+            code_size: PRELUDE_CODE_SIZE,
+        };
+        // Branding lives in the Prelude dashboard (the message text is a
+        // template); these just select a Puter-branded template / sender when
+        // configured. See IPreludeConfig.
+        const { templateId, senderId } = this.config.prelude ?? {};
+        if (templateId) options.template_id = templateId;
+        if (senderId) options.sender_id = senderId;
+
         const body: Record<string, unknown> = {
             target: { type: 'phone_number', value: target },
+            options,
         };
         if (signals.ip) body.signals = { ip: signals.ip };
         return this.#post('/verification', body) as Promise<{

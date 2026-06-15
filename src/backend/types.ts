@@ -118,6 +118,23 @@ export interface IPreludeConfig {
     apiKey?: string;
     /** Default region for parsing local-format phone numbers (e.g. 'US'). */
     defaultCountry?: string;
+    /**
+     * Per-SMS cost ceiling in EUR.
+     */
+    maxSmsCostEur?: number;
+    /**
+     * Verification template id (from the Prelude dashboard) that controls the
+     * SMS wording — e.g. a "Your Puter verification code is {{code}}" template.
+     * The message text itself is authored in Prelude, not here; this just
+     * selects it. Omit to use the dashboard default.
+     */
+    templateId?: string;
+    /**
+     * Alphanumeric Sender ID to brand who the SMS is "from" (e.g. "Puter").
+     * Must be pre-enabled by Prelude and isn't supported by all carriers/regions
+     * (notably US long/short codes). Omit to use Prelude's default sender.
+     */
+    senderId?: string;
 }
 
 /**
@@ -534,6 +551,13 @@ interface IConfigOptional {
     allow_system_login: boolean;
     /** Reject auth-gated routes unless the user has confirmed their email. */
     strict_email_verification_required: boolean;
+    /**
+     * Force SMS phone verification on every new signup, regardless of abuse
+     * reputation. Off by default; mainly a test/QA switch so the phone gate can
+     * be exercised on demand (it otherwise only triggers for low-reputation
+     * signups). Requires `prelude.apiKey` to actually deliver codes.
+     */
+    always_require_phone_verification: boolean;
     /** Captcha configuration. */
     captcha: { enabled: boolean; difficulty?: 'easy' | 'medium' | 'hard' };
     /** OIDC / OAuth2 providers (google + custom). */
