@@ -134,6 +134,10 @@ export type EventMap = {
         /** Device signals forwarded verbatim from the signup request body. */
         fingerprint?: string | null;
         dfp_telemetry_id?: string | null;
+        /** Set by the abuse harness — require SMS phone verification post-signup. */
+        requires_phone_verification?: boolean;
+        /** Set by the abuse harness — require card verification post-signup. */
+        requires_card_verification?: boolean;
         [key: string]: unknown;
     };
     'puter.signup.success': {
@@ -163,6 +167,43 @@ export type EventMap = {
         user_id: number;
         user_uid: string;
         email: string;
+    };
+    'user.phone-verified': {
+        user_id: number;
+        user_uid: string;
+        phone: string;
+    };
+    // Card verification is pure mechanism here — a payments extension fills
+    // these in (emitted via `emitAndWait`). `enabled` stays null when no
+    // extension is installed; the extension always sets it (true/false) so
+    // the endpoints can distinguish "disabled" from "not installed".
+    'puter.card-verification.setup': {
+        user_id: number;
+        user_uid: string;
+        ip?: string | null;
+        enabled: boolean | null;
+        client_secret: string | null;
+        publishable_key: string | null;
+        [key: string]: unknown;
+    };
+    'puter.card-verification.confirm': {
+        user_id: number;
+        user_uid: string;
+        setup_intent_id: string;
+        enabled: boolean | null;
+        verified: boolean;
+        reason: string | null;
+        fingerprint: string | null;
+        funding: string | null;
+        country: string | null;
+        [key: string]: unknown;
+    };
+    'user.card-verified': {
+        user_id: number;
+        user_uid: string;
+        fingerprint: string | null;
+        funding: string | null;
+        country: string | null;
     };
     'user.username-changed': {
         user_id: number;

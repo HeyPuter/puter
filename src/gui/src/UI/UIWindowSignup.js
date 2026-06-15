@@ -20,6 +20,8 @@
 import check_password_strength from '../helpers/check_password_strength.js';
 import UIWindow from './UIWindow.js';
 import UIWindowEmailConfirmationRequired from './UIWindowEmailConfirmationRequired.js';
+import UIWindowPhoneVerificationRequired from './UIWindowPhoneVerificationRequired.js';
+import UIWindowCardVerificationRequired from './UIWindowCardVerificationRequired.js';
 import UIWindowLogin from './UIWindowLogin.js';
 
 function UIWindowSignup (options) {
@@ -396,15 +398,46 @@ function UIWindowSignup (options) {
                         // either options.redirect_url or the current page
                         const redirectUrl = options.redirect_url || '/';
                         window.location.replace(redirectUrl);
-                    } else if ( options.send_confirmation_code || data.user?.requires_email_confirmation ) {
+                    } else if ( data.user?.requires_phone_verification || data.user?.requires_card_verification || options.send_confirmation_code || data.user?.requires_email_confirmation ) {
                         $(el_window).close();
-                        let is_verified = await UIWindowEmailConfirmationRequired({
-                            stay_on_top: true,
-                            has_head: true,
-                            reload_on_success: options.reload_on_success,
-                            window_options: options.window_options ?? {},
-                        });
-                        resolve(is_verified);
+                        // Low-reputation signups must clear every flagged gate.
+                        // Phone (SMS) and email come first; the card gate only
+                        // shows once those are cleared.
+                        if ( data.user?.requires_phone_verification ) {
+                            let phone_ok = false;
+                            do {
+                                phone_ok = await UIWindowPhoneVerificationRequired({
+                                    show_close_button: false,
+                                    stay_on_top: true,
+                                    has_head: true,
+                                    window_options: options.window_options ?? {},
+                                });
+                            }
+                            while ( !phone_ok );
+                        }
+                        let email_verified = true;
+                        if ( options.send_confirmation_code || data.user?.requires_email_confirmation ) {
+                            email_verified = await UIWindowEmailConfirmationRequired({
+                                stay_on_top: true,
+                                has_head: true,
+                                reload_on_success: options.reload_on_success,
+                                window_options: options.window_options ?? {},
+                            });
+                        }
+                        // Card verification is the last gate.
+                        if ( data.user?.requires_card_verification ) {
+                            let card_ok = false;
+                            do {
+                                card_ok = await UIWindowCardVerificationRequired({
+                                    show_close_button: false,
+                                    stay_on_top: true,
+                                    has_head: true,
+                                    window_options: options.window_options ?? {},
+                                });
+                            }
+                            while ( !card_ok );
+                        }
+                        resolve(email_verified);
                     } else {
                         resolve(true);
                     }

@@ -47,6 +47,7 @@ import {
 } from '../../services/auth/OTPUtil.js';
 import { sessionCookieFlags } from '../../util/cookieFlags.js';
 import { cleanEmail, isBlockedEmail } from '../../util/email.js';
+import { parsePhone } from '../../util/phone.js';
 import { generate_identifier } from '../../util/identifier.js';
 import { getTaskbarItems } from '../../util/taskbarItems.js';
 import {
@@ -593,6 +594,13 @@ export class AuthController extends PuterController {
             allow: true,
             no_temp_user: false,
             requires_email_confirmation: false,
+            // Set by the abuse harness for low-reputation signups: the account is
+            // created + logged in but gated behind SMS phone verification (in
+            // addition to email confirmation) instead of being blocked.
+            requires_phone_verification: false,
+            // Same idea, one rung up the ladder: gate the account behind
+            // credit-card verification (a $0 auth handled by an extension).
+            requires_card_verification: false,
             message: null,
             code: null,
             user_agent: req?.headers?.['user-agent'] ?? null,
@@ -637,6 +645,17 @@ export class AuthController extends PuterController {
         const force_email_confirmation = Boolean(
             validateEvent.requires_email_confirmation,
         );
+        const force_phone_verification =
+            Boolean(validateEvent.requires_phone_verification) ||
+            // Test/QA switch: force the SMS gate on every signup regardless of
+            // reputation (see config.always_require_phone_verification).
+            Boolean(this.config.always_require_phone_verification);
+        const force_card_verification = Boolean(
+            validateEvent.requires_card_verification ||
+            // Test/QA switch: force the card gate on every signup regardless of
+            // reputation (see config.always_require_card_verification).
+            this.config.always_require_card_verification,
+        );
 
         // Prepare shared fields
         const user_uuid = uuidv4();
@@ -670,6 +689,14 @@ export class AuthController extends PuterController {
                 // don't clobber an existing score with a placeholder).
                 ...(validateEvent.reputation != null
                     ? { reputation: validateEvent.reputation }
+                    : {}),
+                // Carry the phone gate onto the claimed account when required.
+                ...(force_phone_verification
+                    ? { requires_phone_verification: 1 }
+                    : {}),
+                // Likewise for the card gate.
+                ...(force_card_verification
+                    ? { requires_card_verification: 1 }
                     : {}),
             });
 
@@ -730,6 +757,10 @@ export class AuthController extends PuterController {
                 referrer: req.body.referrer ?? null,
                 last_activity_ts: signupSqlTs,
                 reputation: validateEvent.reputation,
+                // Phone collected later in the verification dialog (null now).
+                phone: null,
+                requires_phone_verification: force_phone_verification,
+                requires_card_verification: force_card_verification,
             } as never);
 
             // Add to default group
@@ -1003,6 +1034,421 @@ export class AuthController extends PuterController {
         }
 
         res.json({ email_confirmed: true, original_client_socket_id });
+    }
+
+    // -- Phone verification (SMS via Prelude) ------------------------
+
+    @Post('/send-confirm-phone', {
+        subdomain: ['api', ''],
+        requireUserActor: true,
+        allowUnconfirmed: true,
+        rateLimit: {
+            scope: 'send-confirm-phone',
+            limit: 10,
+            window: 60 * 60_000,
+            key: 'user',
+        },
+    })
+    async handleSendConfirmPhone(req: Request, res: Response): Promise<void> {
+        const user = await this.stores.user.getById(req.actor!.user.id!, {
+            force: true,
+        });
+        if (!user)
+            throw new HttpError(404, 'User not found.', {
+                legacyCode: 'user_not_found' as never,
+            });
+        if (user.suspended)
+            throw new HttpError(403, 'Account suspended.', {
+                legacyCode: 'account_suspended',
+            });
+        if (!this.clients.prelude?.isConfigured())
+            throw new HttpError(503, 'Phone verification is unavailable.', {
+                legacyCode: 'service_unavailable' as never,
+            });
+
+        // Parse to E.164 (Prelude's required form + the stored form) and the
+        // country, so we can apply the per-country cost cap.
+        const parsed = parsePhone(
+            req.body?.phone,
+            this.clients.prelude.defaultCountry,
+        );
+        if (!parsed)
+            throw new HttpError(400, 'Invalid phone number.', {
+                legacyCode: 'bad_request',
+            });
+
+        // Cost cap: skip countries with no SMS channel or rates above the cap
+        // (see PreludeClient / countries.ts). Avoids paying exorbitant per-SMS
+        // rates in low-revenue, high-fraud geographies.
+        if (!this.clients.prelude.isCountrySupported(parsed.country))
+            throw new HttpError(
+                400,
+                'Phone verification is not available for this country.',
+                { legacyCode: 'phone_country_not_supported' as never },
+            );
+
+        // Hard lifetime cap: at most MAX_PHONE_VERIFY_SENDS SMS codes per user,
+        // tracked in KV so it survives logout / re-login (unlike the per-window
+        // rate limit above). Once exhausted the user can't request another code
+        // — and so can't clear the gate. KV read failures fail open: this is
+        // abuse/cost control, not a security boundary, so a KV blip must not
+        // lock signups out. Only successful sends are counted (incremented
+        // below), so a bad number / upstream error doesn't burn an attempt.
+        const MAX_PHONE_VERIFY_SENDS = 2;
+        const attemptsKey = `phone-verify-attempts:${user.id}`;
+        let priorAttempts = 0;
+        try {
+            const { res } = await this.stores.kv.get({ key: attemptsKey });
+            if (typeof res === 'number') priorAttempts = res;
+        } catch (e) {
+            console.warn('[send-confirm-phone] attempt-count read failed:', e);
+        }
+        if (priorAttempts >= MAX_PHONE_VERIFY_SENDS)
+            throw new HttpError(
+                429,
+                'You have used all of your phone verification attempts.',
+                { legacyCode: 'phone_verify_attempts_exhausted' as never },
+            );
+
+        await this.stores.user.update(user.id, { phone: parsed.e164 });
+
+        const ip = req.ip || req.socket?.remoteAddress || undefined;
+        try {
+            const result = await this.clients.prelude.createVerification(
+                parsed.e164,
+                { ip },
+            );
+            // Prelude rejected the attempt as abusive — surface as rate-limit.
+            if (
+                result.status === 'blocked' ||
+                result.status === 'shadow_blocked'
+            ) {
+                throw new HttpError(
+                    429,
+                    'Phone verification is temporarily unavailable for this number.',
+                    { legacyCode: 'too_many_requests' as never },
+                );
+            }
+        } catch (e) {
+            if (e instanceof HttpError) throw e;
+            console.warn('[send-confirm-phone] createVerification failed:', e);
+            throw new HttpError(502, 'Could not send verification code.', {
+                legacyCode: 'upstream_error' as never,
+            });
+        }
+
+        // Count the successful send against the lifetime cap (best-effort; a KV
+        // write failure shouldn't fail a code that was already sent). ~30d TTL
+        // so abandoned counters self-clean rather than living forever.
+        try {
+            await this.stores.kv.set({
+                key: attemptsKey,
+                value: priorAttempts + 1,
+                expireAt: Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60,
+            });
+        } catch (e) {
+            console.warn('[send-confirm-phone] attempt-count write failed:', e);
+        }
+        res.json({});
+    }
+
+    @Post('/confirm-phone', {
+        subdomain: ['api', ''],
+        requireUserActor: true,
+        allowUnconfirmed: true,
+        rateLimit: {
+            scope: 'confirm-phone',
+            limit: 10,
+            window: 10 * 60_000,
+            key: 'user',
+        },
+    })
+    async handleConfirmPhone(req: Request, res: Response): Promise<void> {
+        const { code, original_client_socket_id } = req.body ?? {};
+        if (!code)
+            throw new HttpError(400, 'Missing `code`.', {
+                legacyCode: 'bad_request',
+            });
+
+        const user = await this.stores.user.getById(req.actor!.user.id!, {
+            force: true,
+        });
+        if (!user)
+            throw new HttpError(404, 'User not found.', {
+                legacyCode: 'not_found',
+            });
+        if (!user.requires_phone_verification) {
+            res.json({ phone_verified: true, original_client_socket_id });
+            return;
+        }
+        if (!user.phone)
+            throw new HttpError(
+                400,
+                'No phone number on file. Request a code first.',
+                { legacyCode: 'bad_request' },
+            );
+        if (!this.clients.prelude?.isConfigured())
+            throw new HttpError(503, 'Phone verification is unavailable.', {
+                legacyCode: 'service_unavailable' as never,
+            });
+
+        let status;
+        try {
+            ({ status } = await this.clients.prelude.checkVerification(
+                user.phone,
+                String(code),
+            ));
+        } catch (e) {
+            console.warn('[confirm-phone] checkVerification failed:', e);
+            throw new HttpError(502, 'Could not verify code.', {
+                legacyCode: 'upstream_error' as never,
+            });
+        }
+
+        if (status !== 'success') {
+            res.json({ phone_verified: false, original_client_socket_id });
+            return;
+        }
+
+        await this.stores.user.update(user.id, {
+            requires_phone_verification: 0,
+        });
+
+        try {
+            this.clients.event?.emit(
+                'user.phone-verified' as never,
+                {
+                    user_id: user.id,
+                    user_uid: user.uuid,
+                    phone: user.phone,
+                } as never,
+                {},
+            );
+        } catch {
+            // ignore — event is a side-channel signal, not load-bearing
+        }
+        // Notify other tabs/devices for this user so they refresh + drop the gate.
+        try {
+            await this.services.socket?.send(
+                { room: user.id },
+                'user.phone_verified',
+                { original_client_socket_id },
+            );
+        } catch {
+            // ignore — best-effort
+        }
+
+        res.json({ phone_verified: true, original_client_socket_id });
+    }
+
+    // -- Card verification ($0 auth via a payments extension) --------
+
+    /**
+     * Start card verification for the calling user. Pure mechanism: the
+     * endpoint emits `puter.card-verification.setup` and a payments
+     * extension fills in the client credentials — the OSS backend holds
+     * no provider knowledge or config. Phone verification (when required)
+     * must be completed first; the ordering is enforced here so a client
+     * can't skip the cheaper gate.
+     */
+    @Post('/card-verification/setup', {
+        subdomain: ['api', ''],
+        requireUserActor: true,
+        allowUnconfirmed: true,
+        rateLimit: {
+            scope: 'card-verification-setup',
+            limit: 5,
+            window: 60 * 60_000,
+            key: 'user',
+        },
+    })
+    async handleCardVerificationSetup(
+        req: Request,
+        res: Response,
+    ): Promise<void> {
+        const user = await this.stores.user.getById(req.actor!.user.id!, {
+            force: true,
+        });
+        if (!user)
+            throw new HttpError(404, 'User not found.', {
+                legacyCode: 'user_not_found' as never,
+            });
+        if (user.suspended)
+            throw new HttpError(403, 'Account suspended.', {
+                legacyCode: 'account_suspended',
+            });
+        if (!user.requires_card_verification) {
+            res.json({ card_verified: true });
+            return;
+        }
+        if (user.requires_phone_verification)
+            throw new HttpError(
+                409,
+                'Phone verification must be completed first.',
+                { legacyCode: 'conflict' },
+            );
+
+        // `enabled` stays null when no extension is listening; an installed
+        // extension always sets it (true/false) before doing any work.
+        const setupEvent = {
+            user_id: user.id,
+            user_uid: user.uuid,
+            ip: (req.ip || req.socket?.remoteAddress || null) as string | null,
+            enabled: null as boolean | null,
+            client_secret: null as string | null,
+            publishable_key: null as string | null,
+        };
+        try {
+            await this.clients.event?.emitAndWait(
+                'puter.card-verification.setup',
+                setupEvent,
+                {},
+            );
+        } catch (e) {
+            console.warn('[card-verification/setup] setup hook failed:', e);
+        }
+
+        // Kill switch: the extension reports the feature disabled — unstick
+        // any user still carrying the flag instead of dead-ending them.
+        if (setupEvent.enabled === false) {
+            await this.stores.user.update(user.id, {
+                requires_card_verification: 0,
+            });
+            res.json({ card_verified: true, disabled: true });
+            return;
+        }
+        if (!setupEvent.client_secret || !setupEvent.publishable_key)
+            throw new HttpError(503, 'Card verification is not available.', {
+                legacyCode: 'service_unavailable' as never,
+            });
+
+        res.json({
+            client_secret: setupEvent.client_secret,
+            publishable_key: setupEvent.publishable_key,
+        });
+    }
+
+    /**
+     * Complete card verification. The client confirms the setup intent with
+     * the payment provider directly, then posts the resulting id here; the
+     * payments extension checks it (and applies its own abuse limits) via
+     * `puter.card-verification.confirm`. On success the gate clears exactly
+     * like `/confirm-phone` clears the phone gate.
+     */
+    @Post('/card-verification/confirm', {
+        subdomain: ['api', ''],
+        requireUserActor: true,
+        allowUnconfirmed: true,
+        rateLimit: {
+            scope: 'card-verification-confirm',
+            limit: 10,
+            window: 10 * 60_000,
+            key: 'user',
+        },
+    })
+    async handleCardVerificationConfirm(
+        req: Request,
+        res: Response,
+    ): Promise<void> {
+        const { setup_intent_id, original_client_socket_id } = req.body ?? {};
+        if (
+            typeof setup_intent_id !== 'string' ||
+            setup_intent_id.length === 0 ||
+            setup_intent_id.length > 255
+        )
+            throw new HttpError(400, 'Invalid `setup_intent_id`.', {
+                legacyCode: 'bad_request',
+            });
+
+        const user = await this.stores.user.getById(req.actor!.user.id!, {
+            force: true,
+        });
+        if (!user)
+            throw new HttpError(404, 'User not found.', {
+                legacyCode: 'not_found',
+            });
+        if (!user.requires_card_verification) {
+            res.json({ card_verified: true });
+            return;
+        }
+        if (user.requires_phone_verification)
+            throw new HttpError(
+                409,
+                'Phone verification must be completed first.',
+                { legacyCode: 'conflict' },
+            );
+
+        const confirmEvent = {
+            user_id: user.id,
+            user_uid: user.uuid,
+            setup_intent_id,
+            enabled: null as boolean | null,
+            verified: false,
+            reason: null as string | null,
+            fingerprint: null as string | null,
+            funding: null as string | null,
+            country: null as string | null,
+        };
+        try {
+            await this.clients.event?.emitAndWait(
+                'puter.card-verification.confirm',
+                confirmEvent,
+                {},
+            );
+        } catch (e) {
+            console.warn('[card-verification/confirm] confirm hook failed:', e);
+        }
+
+        // Kill switch — same semantics as /card-verification/setup.
+        if (confirmEvent.enabled === false) {
+            await this.stores.user.update(user.id, {
+                requires_card_verification: 0,
+            });
+            res.json({ card_verified: true, disabled: true });
+            return;
+        }
+        // No extension listening — nothing could have verified anything.
+        if (confirmEvent.enabled === null)
+            throw new HttpError(503, 'Card verification is not available.', {
+                legacyCode: 'service_unavailable' as never,
+            });
+
+        if (confirmEvent.verified !== true) {
+            res.json({ card_verified: false, reason: confirmEvent.reason });
+            return;
+        }
+
+        await this.stores.user.update(user.id, {
+            requires_card_verification: 0,
+        });
+
+        try {
+            this.clients.event?.emit(
+                'user.card-verified' as never,
+                {
+                    user_id: user.id,
+                    user_uid: user.uuid,
+                    fingerprint: confirmEvent.fingerprint,
+                    funding: confirmEvent.funding,
+                    country: confirmEvent.country,
+                } as never,
+                {},
+            );
+        } catch {
+            // ignore — event is a side-channel signal, not load-bearing
+        }
+        // Notify other tabs/devices for this user so they refresh + drop the gate.
+        try {
+            await this.services.socket?.send(
+                { room: user.id },
+                'user.card_verified',
+                { original_client_socket_id },
+            );
+        } catch {
+            // ignore — best-effort
+        }
+
+        res.json({ card_verified: true });
     }
 
     // -- Password recovery -------------------------------------------
@@ -3133,6 +3579,9 @@ export class AuthController extends PuterController {
             password?: string | null;
             email_confirmed?: number | boolean;
             requires_email_confirmation?: number | boolean;
+            phone?: string | null;
+            requires_phone_verification?: number | boolean;
+            requires_card_verification?: number | boolean;
         },
     ): Promise<void> {
         const meta = {
@@ -3181,6 +3630,9 @@ export class AuthController extends PuterController {
                 email: user.email,
                 email_confirmed: user.email_confirmed,
                 requires_email_confirmation: user.requires_email_confirmation,
+                phone: user.phone,
+                requires_phone_verification: user.requires_phone_verification,
+                requires_card_verification: user.requires_card_verification,
                 is_temp: user.password === null && user.email === null,
                 taskbar_items,
             },

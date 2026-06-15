@@ -32,7 +32,7 @@
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import { v4 as uuidv4 } from 'uuid';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { EventClient } from '../../clients/event/EventClient.js';
 import type { Actor } from '../../core/actor.js';
 import { runWithContext } from '../../core/context.js';
@@ -76,6 +76,23 @@ let signupValidateOverride: SignupValidateOverride | null = null;
 const heardSignupSuccess: Array<Record<string, unknown>> = [];
 const heardUserDelete: Array<Record<string, unknown>> = [];
 
+// Card verification is pure mechanism in core: a payments extension fills in the
+// event fields via emitAndWait. These overrides let a test stand in for that
+// extension, using the same shared-listener pattern as the signup validate
+// override above (EventClient has no off()). null override => no extension.
+type CardSetupOverride = (data: {
+    enabled: boolean | null;
+    client_secret: string | null;
+    publishable_key: string | null;
+}) => void;
+type CardConfirmOverride = (data: {
+    enabled: boolean | null;
+    verified: boolean;
+    reason: string | null;
+}) => void;
+let cardSetupOverride: CardSetupOverride | null = null;
+let cardConfirmOverride: CardConfirmOverride | null = null;
+
 const installSharedListeners = () => {
     eventClient.on('puter.signup.validate', (_k: unknown, data: unknown) => {
         if (signupValidateOverride) {
@@ -90,6 +107,22 @@ const installSharedListeners = () => {
     eventClient.on('user.delete', (_k: unknown, data: unknown) => {
         heardUserDelete.push(data as Record<string, unknown>);
     });
+    eventClient.on(
+        'puter.card-verification.setup',
+        (_k: unknown, data: unknown) => {
+            if (cardSetupOverride) {
+                cardSetupOverride(data as Parameters<CardSetupOverride>[0]);
+            }
+        },
+    );
+    eventClient.on(
+        'puter.card-verification.confirm',
+        (_k: unknown, data: unknown) => {
+            if (cardConfirmOverride) {
+                cardConfirmOverride(data as Parameters<CardConfirmOverride>[0]);
+            }
+        },
+    );
 };
 
 const withSignupValidateOverride = async <T>(
@@ -101,6 +134,30 @@ const withSignupValidateOverride = async <T>(
         return await fn();
     } finally {
         signupValidateOverride = null;
+    }
+};
+
+const withCardSetupOverride = async <T>(
+    override: CardSetupOverride,
+    fn: () => Promise<T>,
+): Promise<T> => {
+    cardSetupOverride = override;
+    try {
+        return await fn();
+    } finally {
+        cardSetupOverride = null;
+    }
+};
+
+const withCardConfirmOverride = async <T>(
+    override: CardConfirmOverride,
+    fn: () => Promise<T>,
+): Promise<T> => {
+    cardConfirmOverride = override;
+    try {
+        return await fn();
+    } finally {
+        cardConfirmOverride = null;
     }
 };
 
@@ -326,6 +383,35 @@ describe('AuthController.handleSignup', () => {
         expect(
             await bcrypt.compare('correct-horse-battery', persisted!.password!),
         ).toBe(true);
+    });
+
+    it('forces phone verification on every signup when always_require_phone_verification is set', async () => {
+        const cfg = (controller as { config: Record<string, unknown> }).config;
+        const prev = cfg.always_require_phone_verification;
+        cfg.always_require_phone_verification = true;
+        try {
+            const username = `s_${uniq()}`;
+            const req = makeReq({
+                username,
+                email: `${username}@test.local`,
+                password: 'correct-horse-battery',
+            });
+            const res = makeRes();
+
+            await controller.handleSignup(req, res);
+
+            // The login envelope flags the gate so the GUI shows the dialog …
+            const body = res.body as {
+                user: { requires_phone_verification?: number | boolean };
+            };
+            expect(body.user.requires_phone_verification).toBeTruthy();
+
+            // … and it's persisted so the gate survives re-login.
+            const persisted = await server.stores.user.getByUsername(username);
+            expect(persisted!.requires_phone_verification).toBe(true);
+        } finally {
+            cfg.always_require_phone_verification = prev;
+        }
     });
 
     it('rejects a duplicate username with 400', async () => {
@@ -1720,6 +1806,534 @@ describe('AuthController.handleSendConfirmEmail', () => {
         });
         expect(after!.email_confirm_code).not.toBe(before!.email_confirm_code);
         expect(String(after!.email_confirm_code).length).toBe(6);
+    });
+});
+
+describe('AuthController.handleSendConfirmPhone attempt cap', () => {
+    it('allows two code sends, then hard-blocks the third (429)', async () => {
+        const { actor } = await makeUserAndActor();
+        // Stub the Prelude client: report configured + supported, and a
+        // successful send — so we exercise the KV-backed attempt cap, not the
+        // network or the country gate.
+        const ctrl = controller as { clients: { prelude: unknown } };
+        const realPrelude = ctrl.clients.prelude;
+        const createVerification = vi.fn(async () => ({ status: 'success' }));
+        ctrl.clients.prelude = {
+            isConfigured: () => true,
+            isCountrySupported: () => true,
+            defaultCountry: 'US',
+            createVerification,
+        };
+        try {
+            const send = () =>
+                controller.handleSendConfirmPhone(
+                    makeReq({ phone: '+14155550123' }, { actor }),
+                    makeRes(),
+                );
+            await send(); // 1st — allowed
+            await send(); // 2nd — allowed
+            expect(createVerification).toHaveBeenCalledTimes(2);
+            // 3rd — over the lifetime cap → 429, and no SMS dispatched.
+            await expect(send()).rejects.toMatchObject({ statusCode: 429 });
+            expect(createVerification).toHaveBeenCalledTimes(2);
+        } finally {
+            ctrl.clients.prelude = realPrelude;
+        }
+    });
+
+    it('does not burn an attempt when the send fails upstream', async () => {
+        const { actor } = await makeUserAndActor();
+        const ctrl = controller as { clients: { prelude: unknown } };
+        const realPrelude = ctrl.clients.prelude;
+        // First call throws (upstream error), second succeeds.
+        const createVerification = vi
+            .fn()
+            .mockRejectedValueOnce(new Error('prelude down'))
+            .mockResolvedValue({ status: 'success' });
+        ctrl.clients.prelude = {
+            isConfigured: () => true,
+            isCountrySupported: () => true,
+            defaultCountry: 'US',
+            createVerification,
+        };
+        try {
+            const send = () =>
+                controller.handleSendConfirmPhone(
+                    makeReq({ phone: '+14155550123' }, { actor }),
+                    makeRes(),
+                );
+            // Upstream failure → 502, attempt NOT counted.
+            await expect(send()).rejects.toMatchObject({ statusCode: 502 });
+            // Two real sends still available afterwards.
+            await send();
+            await send();
+            await expect(send()).rejects.toMatchObject({ statusCode: 429 });
+        } finally {
+            ctrl.clients.prelude = realPrelude;
+        }
+    });
+});
+
+describe('AuthController.handleSendConfirmPhone validation', () => {
+    // Stub the Prelude client (a real external boundary) so we exercise the
+    // controller's validation branches, not the network. Override per case.
+    const stubPrelude = (over: Record<string, unknown> = {}) => ({
+        isConfigured: () => true,
+        isCountrySupported: () => true,
+        defaultCountry: 'US',
+        createVerification: vi.fn(async () => ({ status: 'success' })),
+        ...over,
+    });
+    const withPrelude = async (
+        prelude: unknown,
+        fn: () => Promise<void>,
+    ): Promise<void> => {
+        const ctrl = controller as { clients: { prelude: unknown } };
+        const real = ctrl.clients.prelude;
+        ctrl.clients.prelude = prelude;
+        try {
+            await fn();
+        } finally {
+            ctrl.clients.prelude = real;
+        }
+    };
+
+    it('throws 400 for an unparseable phone number', async () => {
+        const { actor } = await makeUserAndActor();
+        await withPrelude(stubPrelude(), async () => {
+            await expect(
+                controller.handleSendConfirmPhone(
+                    makeReq({ phone: 'not a phone' }, { actor }),
+                    makeRes(),
+                ),
+            ).rejects.toMatchObject({ statusCode: 400 });
+        });
+    });
+
+    it('throws 400 (and sends nothing) when the country is over the cost cap', async () => {
+        const { actor } = await makeUserAndActor();
+        const createVerification = vi.fn(async () => ({ status: 'success' }));
+        await withPrelude(
+            stubPrelude({ isCountrySupported: () => false, createVerification }),
+            async () => {
+                await expect(
+                    controller.handleSendConfirmPhone(
+                        makeReq({ phone: '+14155550123' }, { actor }),
+                        makeRes(),
+                    ),
+                ).rejects.toMatchObject({ statusCode: 400 });
+                expect(createVerification).not.toHaveBeenCalled();
+            },
+        );
+    });
+
+    it('throws 503 when Prelude is not configured', async () => {
+        const { actor } = await makeUserAndActor();
+        await withPrelude(
+            stubPrelude({ isConfigured: () => false }),
+            async () => {
+                await expect(
+                    controller.handleSendConfirmPhone(
+                        makeReq({ phone: '+14155550123' }, { actor }),
+                        makeRes(),
+                    ),
+                ).rejects.toMatchObject({ statusCode: 503 });
+            },
+        );
+    });
+
+    it('surfaces a Prelude block as 429', async () => {
+        const { actor } = await makeUserAndActor();
+        await withPrelude(
+            stubPrelude({
+                createVerification: vi.fn(async () => ({ status: 'blocked' })),
+            }),
+            async () => {
+                await expect(
+                    controller.handleSendConfirmPhone(
+                        makeReq({ phone: '+14155550123' }, { actor }),
+                        makeRes(),
+                    ),
+                ).rejects.toMatchObject({ statusCode: 429 });
+            },
+        );
+    });
+});
+
+describe('AuthController.handleConfirmPhone', () => {
+    const stubPrelude = (over: Record<string, unknown> = {}) => ({
+        isConfigured: () => true,
+        checkVerification: vi.fn(async () => ({ status: 'success' })),
+        ...over,
+    });
+    const withPrelude = async (
+        prelude: unknown,
+        fn: () => Promise<void>,
+    ): Promise<void> => {
+        const ctrl = controller as { clients: { prelude: unknown } };
+        const real = ctrl.clients.prelude;
+        ctrl.clients.prelude = prelude;
+        try {
+            await fn();
+        } finally {
+            ctrl.clients.prelude = real;
+        }
+    };
+
+    it('throws 400 when code is missing', async () => {
+        const { actor } = await makeUserAndActor({
+            requires_phone_verification: 1,
+            phone: '+14155550123',
+        });
+        await expect(
+            controller.handleConfirmPhone(makeReq({}, { actor }), makeRes()),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('short-circuits to verified when the gate is not set (no Prelude call)', async () => {
+        const { actor } = await makeUserAndActor();
+        const checkVerification = vi.fn();
+        await withPrelude(stubPrelude({ checkVerification }), async () => {
+            const res = makeRes();
+            await controller.handleConfirmPhone(
+                makeReq({ code: '123456' }, { actor }),
+                res,
+            );
+            expect(res.body).toMatchObject({ phone_verified: true });
+            expect(checkVerification).not.toHaveBeenCalled();
+        });
+    });
+
+    it('throws 400 when the gate is set but no phone is on file', async () => {
+        const { actor } = await makeUserAndActor({
+            requires_phone_verification: 1,
+        });
+        await expect(
+            controller.handleConfirmPhone(
+                makeReq({ code: '123456' }, { actor }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('throws 503 when the gate is set but Prelude is not configured', async () => {
+        const { actor } = await makeUserAndActor({
+            requires_phone_verification: 1,
+            phone: '+14155550123',
+        });
+        await withPrelude(
+            stubPrelude({ isConfigured: () => false }),
+            async () => {
+                await expect(
+                    controller.handleConfirmPhone(
+                        makeReq({ code: '123456' }, { actor }),
+                        makeRes(),
+                    ),
+                ).rejects.toMatchObject({ statusCode: 503 });
+            },
+        );
+    });
+
+    it('returns phone_verified:false on a wrong code without clearing the gate', async () => {
+        const { user, actor } = await makeUserAndActor({
+            requires_phone_verification: 1,
+            phone: '+14155550123',
+        });
+        await withPrelude(
+            stubPrelude({
+                checkVerification: vi.fn(async () => ({ status: 'failure' })),
+            }),
+            async () => {
+                const res = makeRes();
+                await controller.handleConfirmPhone(
+                    makeReq({ code: '000000' }, { actor }),
+                    res,
+                );
+                expect(res.body).toMatchObject({ phone_verified: false });
+                const after = await server.stores.user.getById(user.id, {
+                    force: true,
+                });
+                expect(after!.requires_phone_verification).toBe(true);
+            },
+        );
+    });
+
+    it('clears the gate on a correct code and echoes the socket id', async () => {
+        const { user, actor } = await makeUserAndActor({
+            requires_phone_verification: 1,
+            phone: '+14155550123',
+        });
+        await withPrelude(
+            stubPrelude({
+                checkVerification: vi.fn(async () => ({ status: 'success' })),
+            }),
+            async () => {
+                const res = makeRes();
+                await controller.handleConfirmPhone(
+                    makeReq(
+                        { code: '123456', original_client_socket_id: 'sock_1' },
+                        { actor },
+                    ),
+                    res,
+                );
+                expect(res.body).toMatchObject({
+                    phone_verified: true,
+                    original_client_socket_id: 'sock_1',
+                });
+                const after = await server.stores.user.getById(user.id, {
+                    force: true,
+                });
+                expect(after!.requires_phone_verification).toBe(false);
+            },
+        );
+    });
+
+    it('throws 502 when the upstream check fails', async () => {
+        const { actor } = await makeUserAndActor({
+            requires_phone_verification: 1,
+            phone: '+14155550123',
+        });
+        await withPrelude(
+            stubPrelude({
+                checkVerification: vi.fn(async () => {
+                    throw new Error('prelude down');
+                }),
+            }),
+            async () => {
+                await expect(
+                    controller.handleConfirmPhone(
+                        makeReq({ code: '123456' }, { actor }),
+                        makeRes(),
+                    ),
+                ).rejects.toMatchObject({ statusCode: 502 });
+            },
+        );
+    });
+});
+
+describe('AuthController.handleCardVerificationSetup', () => {
+    it('short-circuits to verified when the gate is not set', async () => {
+        const { actor } = await makeUserAndActor();
+        const res = makeRes();
+        await controller.handleCardVerificationSetup(
+            makeReq({}, { actor }),
+            res,
+        );
+        expect(res.body).toMatchObject({ card_verified: true });
+    });
+
+    it('throws 403 when the account is suspended', async () => {
+        const { actor } = await makeUserAndActor({
+            requires_card_verification: 1,
+            suspended: 1,
+        });
+        await expect(
+            controller.handleCardVerificationSetup(
+                makeReq({}, { actor }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 403 });
+    });
+
+    it('throws 409 when phone verification must be completed first', async () => {
+        const { actor } = await makeUserAndActor({
+            requires_card_verification: 1,
+            requires_phone_verification: 1,
+            phone: '+14155550123',
+        });
+        await expect(
+            controller.handleCardVerificationSetup(
+                makeReq({}, { actor }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 409 });
+    });
+
+    it('throws 503 when no payments extension is listening', async () => {
+        const { actor } = await makeUserAndActor({
+            requires_card_verification: 1,
+        });
+        await expect(
+            controller.handleCardVerificationSetup(
+                makeReq({}, { actor }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 503 });
+    });
+
+    it('clears the gate when the extension reports the feature disabled', async () => {
+        const { user, actor } = await makeUserAndActor({
+            requires_card_verification: 1,
+        });
+        const res = makeRes();
+        await withCardSetupOverride(
+            (data) => {
+                data.enabled = false;
+            },
+            () =>
+                controller.handleCardVerificationSetup(
+                    makeReq({}, { actor }),
+                    res,
+                ),
+        );
+        expect(res.body).toMatchObject({ card_verified: true, disabled: true });
+        const after = await server.stores.user.getById(user.id, {
+            force: true,
+        });
+        expect(after!.requires_card_verification).toBe(false);
+    });
+
+    it('returns the provider credentials on success', async () => {
+        const { actor } = await makeUserAndActor({
+            requires_card_verification: 1,
+        });
+        const res = makeRes();
+        await withCardSetupOverride(
+            (data) => {
+                data.enabled = true;
+                data.client_secret = 'seti_secret';
+                data.publishable_key = 'pk_test';
+            },
+            () =>
+                controller.handleCardVerificationSetup(
+                    makeReq({}, { actor }),
+                    res,
+                ),
+        );
+        expect(res.body).toEqual({
+            client_secret: 'seti_secret',
+            publishable_key: 'pk_test',
+        });
+    });
+});
+
+describe('AuthController.handleCardVerificationConfirm', () => {
+    it('throws 400 for a missing or invalid setup_intent_id', async () => {
+        const { actor } = await makeUserAndActor({
+            requires_card_verification: 1,
+        });
+        for (const bad of [undefined, '', 123, 'x'.repeat(256)]) {
+            await expect(
+                controller.handleCardVerificationConfirm(
+                    makeReq({ setup_intent_id: bad }, { actor }),
+                    makeRes(),
+                ),
+            ).rejects.toMatchObject({ statusCode: 400 });
+        }
+    });
+
+    it('short-circuits to verified when the gate is not set', async () => {
+        const { actor } = await makeUserAndActor();
+        const res = makeRes();
+        await controller.handleCardVerificationConfirm(
+            makeReq({ setup_intent_id: 'seti_1' }, { actor }),
+            res,
+        );
+        expect(res.body).toMatchObject({ card_verified: true });
+    });
+
+    it('throws 409 when phone verification must be completed first', async () => {
+        const { actor } = await makeUserAndActor({
+            requires_card_verification: 1,
+            requires_phone_verification: 1,
+            phone: '+14155550123',
+        });
+        await expect(
+            controller.handleCardVerificationConfirm(
+                makeReq({ setup_intent_id: 'seti_1' }, { actor }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 409 });
+    });
+
+    it('throws 503 when no payments extension is listening', async () => {
+        const { actor } = await makeUserAndActor({
+            requires_card_verification: 1,
+        });
+        await expect(
+            controller.handleCardVerificationConfirm(
+                makeReq({ setup_intent_id: 'seti_1' }, { actor }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 503 });
+    });
+
+    it('clears the gate when the extension reports the feature disabled', async () => {
+        const { user, actor } = await makeUserAndActor({
+            requires_card_verification: 1,
+        });
+        const res = makeRes();
+        await withCardConfirmOverride(
+            (data) => {
+                data.enabled = false;
+            },
+            () =>
+                controller.handleCardVerificationConfirm(
+                    makeReq({ setup_intent_id: 'seti_1' }, { actor }),
+                    res,
+                ),
+        );
+        expect(res.body).toMatchObject({ card_verified: true, disabled: true });
+        const after = await server.stores.user.getById(user.id, {
+            force: true,
+        });
+        expect(after!.requires_card_verification).toBe(false);
+    });
+
+    it('returns card_verified:false with a reason when not verified', async () => {
+        const { user, actor } = await makeUserAndActor({
+            requires_card_verification: 1,
+        });
+        const res = makeRes();
+        await withCardConfirmOverride(
+            (data) => {
+                data.enabled = true;
+                data.verified = false;
+                data.reason = 'prepaid_not_allowed';
+            },
+            () =>
+                controller.handleCardVerificationConfirm(
+                    makeReq({ setup_intent_id: 'seti_1' }, { actor }),
+                    res,
+                ),
+        );
+        expect(res.body).toMatchObject({
+            card_verified: false,
+            reason: 'prepaid_not_allowed',
+        });
+        const after = await server.stores.user.getById(user.id, {
+            force: true,
+        });
+        expect(after!.requires_card_verification).toBe(true);
+    });
+
+    it('clears the gate when the extension verifies the card', async () => {
+        const { user, actor } = await makeUserAndActor({
+            requires_card_verification: 1,
+        });
+        const res = makeRes();
+        await withCardConfirmOverride(
+            (data) => {
+                data.enabled = true;
+                data.verified = true;
+            },
+            () =>
+                controller.handleCardVerificationConfirm(
+                    makeReq(
+                        {
+                            setup_intent_id: 'seti_1',
+                            original_client_socket_id: 'sock_1',
+                        },
+                        { actor },
+                    ),
+                    res,
+                ),
+        );
+        expect(res.body).toMatchObject({ card_verified: true });
+        const after = await server.stores.user.getById(user.id, {
+            force: true,
+        });
+        expect(after!.requires_card_verification).toBe(false);
     });
 });
 
