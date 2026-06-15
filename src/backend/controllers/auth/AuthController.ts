@@ -652,8 +652,8 @@ export class AuthController extends PuterController {
             Boolean(this.config.always_require_phone_verification);
         const force_card_verification = Boolean(
             validateEvent.requires_card_verification ||
-            // Test/QA switch: force the Credit Card gate on every signup regardless of
-            // reputation (see config.always_require_phone_verification).
+            // Test/QA switch: force the card gate on every signup regardless of
+            // reputation (see config.always_require_card_verification).
             this.config.always_require_card_verification,
         );
 

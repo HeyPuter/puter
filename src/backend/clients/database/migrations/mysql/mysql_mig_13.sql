@@ -20,8 +20,9 @@
 -- `requires_phone_verification` gates account use for low-reputation signups
 -- (not indexed, mirroring `requires_email_confirmation`).
 --
--- Idempotent: column adds use _puter_add_col (from mig_1); the index add is
--- guarded against INFORMATION_SCHEMA.STATISTICS so the directory replays safely.
+-- Idempotent: column adds use _puter_add_col (defined in mig_1, which leaves it
+-- resident for later migrations); the index add is guarded against
+-- INFORMATION_SCHEMA.STATISTICS so the directory replays safely.
 
 CALL _puter_add_col('user', 'phone', '`phone` varchar(20) DEFAULT NULL');
 CALL _puter_add_col('user', 'requires_phone_verification', '`requires_phone_verification` tinyint(1) NOT NULL DEFAULT ''0''');

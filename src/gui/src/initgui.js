@@ -682,11 +682,10 @@ window.initgui = async function (options) {
                 }
                 while ( !is_verified );
             }
-            // is card verification required? (second hard gate, after phone)
-            if ( whoami.requires_card_verification ) {
+            if ( whoami.requires_email_confirmation ) {
                 let is_verified;
                 do {
-                    is_verified = await UIWindowCardVerificationRequired({
+                    is_verified = await UIWindowEmailConfirmationRequired({
                         show_close_button: false,
                         stay_on_top: true,
                         has_head: false,
@@ -697,10 +696,12 @@ window.initgui = async function (options) {
                 }
                 while ( !is_verified );
             }
-            if ( whoami.requires_email_confirmation ) {
+            // Card verification is the last gate: only show it once the email and
+            // phone (SMS) gates are cleared, since those show up first.
+            if ( whoami.requires_card_verification ) {
                 let is_verified;
                 do {
-                    is_verified = await UIWindowEmailConfirmationRequired({
+                    is_verified = await UIWindowCardVerificationRequired({
                         show_close_button: false,
                         stay_on_top: true,
                         has_head: false,
@@ -882,11 +883,11 @@ window.initgui = async function (options) {
                 }
                 while ( !is_verified );
             }
-            // is card verification required? (second hard gate, after phone)
-            if ( whoami.requires_card_verification ) {
+            // is email confirmation required?
+            if ( whoami.requires_email_confirmation ) {
                 let is_verified;
                 do {
-                    is_verified = await UIWindowCardVerificationRequired({
+                    is_verified = await UIWindowEmailConfirmationRequired({
                         show_close_button: false,
                         stay_on_top: true,
                         has_head: false,
@@ -899,11 +900,12 @@ window.initgui = async function (options) {
                 }
                 while ( !is_verified );
             }
-            // is email confirmation required?
-            if ( whoami.requires_email_confirmation ) {
+            // Card verification is the last gate: only show it once the email and
+            // phone (SMS) gates are cleared, since those show up first.
+            if ( whoami.requires_card_verification ) {
                 let is_verified;
                 do {
-                    is_verified = await UIWindowEmailConfirmationRequired({
+                    is_verified = await UIWindowCardVerificationRequired({
                         show_close_button: false,
                         stay_on_top: true,
                         has_head: false,

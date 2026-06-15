@@ -78,7 +78,10 @@ function UIWindowCardVerificationRequired (options) {
 
         // -- Card entry: Stripe Payment Element (hidden until setup succeeds) --
         h += '<form class="card-step card-step-form" style="display:none;">';
-        h += '<p style="text-align:center; padding: 0 20px;">To continue, verify a credit or debit card. Your card will not be charged.</p>';
+        h += '<p style="text-align:center; padding: 0 20px; font-size:13px;">Verify a card to continue. You will <b><i>not</i></b> be charged.</p>';
+        // Reassure users who may have been flagged by mistake, and offer a human
+        // fallback so verification never becomes a dead end.
+        h += `<p style="text-align:center; font-size:12px; line-height:1.4; color:#8a99a8; margin:6px auto 14px; max-width:320px;">Flagged by mistake? If you'd rather not verify by phone or card, email <a href="mailto:hi@puter.com" style="color:#3b82f6; text-decoration:none;">hi@puter.com</a>.</p>`;
         h += '<div class="card-payment-element"></div>';
         h += `<button type="submit" class="button button-block button-primary card-verify-btn" style="margin-top:15px;">${verify_btn_txt}</button>`;
         h += '</form>';
@@ -95,7 +98,7 @@ function UIWindowCardVerificationRequired (options) {
         h += '</div>';
 
         if ( options.logout_in_footer ) {
-            h += '<div style="text-align:center; padding:0 10px 10px; font-size:14px;">';
+            h += '<div style="text-align:center; padding:14px 10px 4px; margin-top:6px; border-top:1px solid #e9eef3; font-size:14px;">';
             h += `<span class="card-log-out" style="cursor:pointer;">${i18n('log_out')}</span>`;
             h += '</div>';
         }
@@ -130,6 +133,10 @@ function UIWindowCardVerificationRequired (options) {
                 padding: '30px',
                 width: 'initial',
                 height: 'initial',
+                // The Stripe Payment Element can run tall; cap the dialog to the
+                // viewport and let the body scroll instead of overflowing it.
+                'max-height': '85vh',
+                'overflow-y': 'auto',
                 'background-color': 'rgb(247 251 255)',
                 'backdrop-filter': 'blur(3px)',
             },

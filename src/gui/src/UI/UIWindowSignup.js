@@ -400,9 +400,9 @@ function UIWindowSignup (options) {
                         window.location.replace(redirectUrl);
                     } else if ( data.user?.requires_phone_verification || data.user?.requires_card_verification || options.send_confirmation_code || data.user?.requires_email_confirmation ) {
                         $(el_window).close();
-                        // Low-reputation signups must verify a phone (hard gate)
-                        // first, then possibly a card, then still confirm email
-                        // — all flagged steps are required.
+                        // Low-reputation signups must clear every flagged gate.
+                        // Phone (SMS) and email come first; the card gate only
+                        // shows once those are cleared.
                         if ( data.user?.requires_phone_verification ) {
                             let phone_ok = false;
                             do {
@@ -415,6 +415,16 @@ function UIWindowSignup (options) {
                             }
                             while ( !phone_ok );
                         }
+                        let email_verified = true;
+                        if ( options.send_confirmation_code || data.user?.requires_email_confirmation ) {
+                            email_verified = await UIWindowEmailConfirmationRequired({
+                                stay_on_top: true,
+                                has_head: true,
+                                reload_on_success: options.reload_on_success,
+                                window_options: options.window_options ?? {},
+                            });
+                        }
+                        // Card verification is the last gate.
                         if ( data.user?.requires_card_verification ) {
                             let card_ok = false;
                             do {
@@ -427,17 +437,7 @@ function UIWindowSignup (options) {
                             }
                             while ( !card_ok );
                         }
-                        if ( options.send_confirmation_code || data.user?.requires_email_confirmation ) {
-                            let is_verified = await UIWindowEmailConfirmationRequired({
-                                stay_on_top: true,
-                                has_head: true,
-                                reload_on_success: options.reload_on_success,
-                                window_options: options.window_options ?? {},
-                            });
-                            resolve(is_verified);
-                        } else {
-                            resolve(true);
-                        }
+                        resolve(email_verified);
                     } else {
                         resolve(true);
                     }

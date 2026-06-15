@@ -558,6 +558,13 @@ interface IConfigOptional {
      * signups). Requires `prelude.apiKey` to actually deliver codes.
      */
     always_require_phone_verification: boolean;
+    /**
+     * Force credit-card verification on every new signup, regardless of abuse
+     * reputation. Off by default; mainly a test/QA switch so the card gate can
+     * be exercised on demand (it otherwise only triggers for low-reputation
+     * signups). Requires a payments extension to actually run the $0 auth.
+     */
+    always_require_card_verification: boolean;
     /** Captcha configuration. */
     captcha: { enabled: boolean; difficulty?: 'easy' | 'medium' | 'hard' };
     /** OIDC / OAuth2 providers (google + custom). */
