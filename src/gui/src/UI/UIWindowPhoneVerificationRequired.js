@@ -97,9 +97,9 @@ function UIWindowPhoneVerificationRequired (options) {
         // -- Step 1: phone number --
         h += '<form class="phone-step phone-step-1">';
         h += '<p class="phone-subtitle">We\'ll text you a verification code to confirm it\'s really you.</p>';
-        // Reassure users who may have been flagged by mistake, and offer a human
-        // fallback so verification never becomes a dead end.
-        h += `<p style="text-align:center; font-size:12px; line-height:1.4; color:#8a99a8; margin:-12px auto 18px; max-width:320px;">Flagged by mistake? If you'd rather not verify by phone or card, email <a href="mailto:hi@puter.com" style="color:#3b82f6; text-decoration:none;">hi@puter.com</a>.</p>`;
+        // Offer a friendly human fallback so verification is never a dead end —
+        // worded as help, not as an accusation.
+        h += `<p style="text-align:center; font-size:12px; line-height:1.4; color:#8a99a8; margin:-12px auto 18px; max-width:320px;">Need help? Email <a href="mailto:hi@puter.com" style="color:#3b82f6; text-decoration:none;">hi@puter.com</a> and we'll help you finish creating your account.</p>`;
         h += '<div class="error"></div>';
         h += '<label class="phone-field-label" for="phone-verif-input">Phone number</label>';
         h += '<input id="phone-verif-input" class="phone-input" type="tel" autocomplete="tel" placeholder="+1 (555) 123-4567" />';

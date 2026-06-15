@@ -79,9 +79,9 @@ function UIWindowCardVerificationRequired (options) {
         // -- Card entry: Stripe Payment Element (hidden until setup succeeds) --
         h += '<form class="card-step card-step-form" style="display:none;">';
         h += '<p style="text-align:center; padding: 0 20px; font-size:13px;">Verify a card to continue. You will <b><i>not</i></b> be charged.</p>';
-        // Reassure users who may have been flagged by mistake, and offer a human
-        // fallback so verification never becomes a dead end.
-        h += `<p style="text-align:center; font-size:12px; line-height:1.4; color:#8a99a8; margin:6px auto 14px; max-width:320px;">Flagged by mistake? If you'd rather not verify by phone or card, email <a href="mailto:hi@puter.com" style="color:#3b82f6; text-decoration:none;">hi@puter.com</a>.</p>`;
+        // Offer a friendly human fallback so verification is never a dead end —
+        // worded as help, not as an accusation.
+        h += `<p style="text-align:center; font-size:12px; line-height:1.4; color:#8a99a8; margin:6px auto 14px; max-width:320px;">Need help? Email <a href="mailto:hi@puter.com" style="color:#3b82f6; text-decoration:none;">hi@puter.com</a> and we'll help you finish creating your account.</p>`;
         h += '<div class="card-payment-element"></div>';
         h += `<button type="submit" class="button button-block button-primary card-verify-btn" style="margin-top:15px;">${verify_btn_txt}</button>`;
         h += '</form>';
@@ -128,8 +128,15 @@ function UIWindowCardVerificationRequired (options) {
             window_class: 'window-card-verification',
             window_css: {
                 height: 'initial',
+                // Dominant windows pin to 15vh from the top; with a tall Stripe
+                // iframe that drops the log-out below the viewport. Sit higher so
+                // the dialog always ends above the browser's bottom edge.
+                top: '5vh',
             },
             body_css: {
+                // border-box so max-height includes the padding — keeps the math
+                // exact: 5vh top + 85vh body = 90vh, always within the viewport.
+                'box-sizing': 'border-box',
                 padding: '30px',
                 width: 'initial',
                 height: 'initial',
