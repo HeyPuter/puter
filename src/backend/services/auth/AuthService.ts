@@ -1922,6 +1922,8 @@ export class AuthService extends PuterService {
             phone: user.phone ?? null,
             requires_phone_verification:
                 user.requires_phone_verification ?? false,
+            requires_card_verification:
+                user.requires_card_verification ?? false,
         };
     }
 

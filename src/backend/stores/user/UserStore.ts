@@ -49,6 +49,8 @@ export interface UserRow {
     phone?: string | null;
     /** True while the account must complete SMS phone verification before use. */
     requires_phone_verification?: boolean;
+    /** True while the account must complete credit-card verification before use. */
+    requires_card_verification?: boolean;
     password?: string;
     [k: string]: unknown;
 }
@@ -96,6 +98,7 @@ const USER_BOOLEAN_COLUMNS: ReadonlySet<string> = new Set([
     'requires_email_confirmation',
     'email_confirmed',
     'requires_phone_verification',
+    'requires_card_verification',
     'dev_approved_for_incentive_program',
     'dev_joined_incentive_program',
     'suspended',
@@ -335,6 +338,7 @@ export class UserStore extends PuterStore {
         reputation?: number | null;
         phone?: string | null;
         requires_phone_verification?: boolean;
+        requires_card_verification?: boolean;
     }): Promise<UserRow> {
         assertLatin1Writable(fields as Record<string, unknown>);
         const result = await this.clients.db.write(
@@ -358,8 +362,9 @@ export class UserStore extends PuterStore {
              last_activity_ts,
              reputation,
              phone,
-             requires_phone_verification)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)${this.clients.db.returningIdClause()}`,
+             requires_phone_verification,
+             requires_card_verification)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)${this.clients.db.returningIdClause()}`,
             [
                 fields.username,
                 fields.email,
@@ -387,6 +392,9 @@ export class UserStore extends PuterStore {
                 fields.phone ?? null,
                 this.clients.db.booleanValue(
                     Boolean(fields.requires_phone_verification),
+                ),
+                this.clients.db.booleanValue(
+                    Boolean(fields.requires_card_verification),
                 ),
             ],
         );
@@ -600,6 +608,7 @@ export class UserStore extends PuterStore {
             requires_phone_verification: asBool(
                 rest.requires_phone_verification,
             ),
+            requires_card_verification: asBool(rest.requires_card_verification),
             phone: rest.phone == null ? null : String(rest.phone),
             reputation:
                 rest.reputation == null ? undefined : Number(rest.reputation),

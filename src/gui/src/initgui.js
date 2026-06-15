@@ -27,6 +27,7 @@ import UIWindowChangeUsername from './UI/UIWindowChangeUsername.js';
 import UIWindowCopyToken from './UI/UIWindowCopyToken.js';
 import UIWindowEmailConfirmationRequired from './UI/UIWindowEmailConfirmationRequired.js';
 import UIWindowPhoneVerificationRequired from './UI/UIWindowPhoneVerificationRequired.js';
+import UIWindowCardVerificationRequired from './UI/UIWindowCardVerificationRequired.js';
 import UIWindowLogin from './UI/UIWindowLogin.js';
 import UIWindowLoginInProgress from './UI/UIWindowLoginInProgress.js';
 import UIWindowNewPassword from './UI/UIWindowNewPassword.js';
@@ -681,6 +682,21 @@ window.initgui = async function (options) {
                 }
                 while ( !is_verified );
             }
+            // is card verification required? (second hard gate, after phone)
+            if ( whoami.requires_card_verification ) {
+                let is_verified;
+                do {
+                    is_verified = await UIWindowCardVerificationRequired({
+                        show_close_button: false,
+                        stay_on_top: true,
+                        has_head: false,
+                        window_options: {
+                            is_draggable: false,
+                        },
+                    });
+                }
+                while ( !is_verified );
+            }
             if ( whoami.requires_email_confirmation ) {
                 let is_verified;
                 do {
@@ -854,6 +870,23 @@ window.initgui = async function (options) {
                 let is_verified;
                 do {
                     is_verified = await UIWindowPhoneVerificationRequired({
+                        show_close_button: false,
+                        stay_on_top: true,
+                        has_head: false,
+                        logout_in_footer: true,
+                        window_options: {
+                            is_draggable: false,
+                            cover_page: window.is_embedded,
+                        },
+                    });
+                }
+                while ( !is_verified );
+            }
+            // is card verification required? (second hard gate, after phone)
+            if ( whoami.requires_card_verification ) {
+                let is_verified;
+                do {
+                    is_verified = await UIWindowCardVerificationRequired({
                         show_close_button: false,
                         stay_on_top: true,
                         has_head: false,
