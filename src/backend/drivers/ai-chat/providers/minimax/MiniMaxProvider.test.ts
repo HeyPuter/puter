@@ -143,6 +143,11 @@ describe('MiniMaxProvider model catalog', () => {
 
     it('uses MiniMax completion-token limits instead of the context window', () => {
         for (const model of MINIMAX_MODELS) {
+            if (model.id === 'minimax-m3') {
+                expect(model.context).toBe(1_048_576);
+                expect(model.max_tokens).toBe(512_000);
+                continue;
+            }
             expect(model.context).toBe(204_800);
             expect(model.max_tokens).toBe(196_608);
         }

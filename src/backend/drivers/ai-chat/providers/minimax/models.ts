@@ -18,60 +18,215 @@
  */
 
 import type { IChatModel } from '../../types.js';
-import { usdPerMToken } from '../../utils/pricing.js';
-
-const CONTEXT_WINDOW = 204_800;
-const MAX_OUTPUT_TOKENS = 196_608;
 
 type MiniMaxChatModel = IChatModel & {
     apiModel: string;
-};
-
-const minimaxModel = (
-    apiModel: string,
-    name: string,
-    costs: IChatModel['costs'],
-): MiniMaxChatModel => {
-    const id = apiModel.toLowerCase();
-    return {
-        puterId: `minimax:minimax/${id}`,
-        id,
-        apiModel,
-        name,
-        aliases: [`minimax/${id}`, apiModel, `minimax/${apiModel}`],
-        modalities: { input: ['text'], output: ['text'] },
-        open_weights: false,
-        tool_call: true,
-        context: CONTEXT_WINDOW,
-        max_tokens: MAX_OUTPUT_TOKENS,
-        costs_currency: 'usd-cents',
-        input_cost_key: 'prompt_tokens',
-        output_cost_key: 'completion_tokens',
-        costs,
-    };
 };
 
 // Hardcoded from MiniMax OpenAI-compatible API docs and pay-as-you-go pricing:
 // https://platform.minimax.io/docs/api-reference/text-openai-api
 // https://platform.minimax.io/docs/guides/pricing-paygo
 export const MINIMAX_MODELS: MiniMaxChatModel[] = [
-    minimaxModel('MiniMax-M2.7', 'MiniMax M2.7', usdPerMToken(0.3, 1.2, 0.06)),
-    minimaxModel(
-        'MiniMax-M2.7-highspeed',
-        'MiniMax M2.7 Highspeed',
-        usdPerMToken(0.6, 2.4, 0.06),
-    ),
-    minimaxModel('MiniMax-M2.5', 'MiniMax M2.5', usdPerMToken(0.3, 1.2, 0.03)),
-    minimaxModel(
-        'MiniMax-M2.5-highspeed',
-        'MiniMax M2.5 Highspeed',
-        usdPerMToken(0.6, 2.4, 0.03),
-    ),
-    minimaxModel('MiniMax-M2.1', 'MiniMax M2.1', usdPerMToken(0.3, 1.2, 0.03)),
-    minimaxModel(
-        'MiniMax-M2.1-highspeed',
-        'MiniMax M2.1 Highspeed',
-        usdPerMToken(0.6, 2.4, 0.03),
-    ),
-    minimaxModel('MiniMax-M2', 'MiniMax M2', usdPerMToken(0.3, 1.2, 0.03)),
+    // -- MiniMax M3 (Flagship) --------------------------------------
+    // MiniMax Sparse Attention, 1M context, native multimodal input.
+    {
+        puterId: 'minimax:minimax/minimax-m3',
+        id: 'minimax-m3',
+        apiModel: 'MiniMax-M3',
+        name: 'MiniMax M3',
+        aliases: ['minimax/minimax-m3', 'MiniMax-M3', 'minimax/MiniMax-M3'],
+        modalities: { input: ['text', 'image', 'video'], output: ['text'] },
+        open_weights: false,
+        tool_call: true,
+        context: 1_048_576,
+        max_tokens: 512_000,
+        costs_currency: 'usd-cents',
+        input_cost_key: 'prompt_tokens',
+        output_cost_key: 'completion_tokens',
+        costs: {
+            tokens: 1_000_000,
+            prompt_tokens: 30, // $0.30 per 1M (input <= 512k tokens)
+            completion_tokens: 120, // $1.20 per 1M
+            cached_tokens: 6, // $0.06 per 1M
+        },
+    },
+
+    // -- MiniMax M2.7 -----------------------------------------------
+    {
+        puterId: 'minimax:minimax/minimax-m2.7',
+        id: 'minimax-m2.7',
+        apiModel: 'MiniMax-M2.7',
+        name: 'MiniMax M2.7',
+        aliases: [
+            'minimax/minimax-m2.7',
+            'MiniMax-M2.7',
+            'minimax/MiniMax-M2.7',
+        ],
+        modalities: { input: ['text'], output: ['text'] },
+        open_weights: false,
+        tool_call: true,
+        context: 204_800,
+        max_tokens: 196_608,
+        costs_currency: 'usd-cents',
+        input_cost_key: 'prompt_tokens',
+        output_cost_key: 'completion_tokens',
+        costs: {
+            tokens: 1_000_000,
+            prompt_tokens: 30, // $0.30 per 1M
+            completion_tokens: 120, // $1.20 per 1M
+            cached_tokens: 6, // $0.06 per 1M
+        },
+    },
+    {
+        puterId: 'minimax:minimax/minimax-m2.7-highspeed',
+        id: 'minimax-m2.7-highspeed',
+        apiModel: 'MiniMax-M2.7-highspeed',
+        name: 'MiniMax M2.7 Highspeed',
+        aliases: [
+            'minimax/minimax-m2.7-highspeed',
+            'MiniMax-M2.7-highspeed',
+            'minimax/MiniMax-M2.7-highspeed',
+        ],
+        modalities: { input: ['text'], output: ['text'] },
+        open_weights: false,
+        tool_call: true,
+        context: 204_800,
+        max_tokens: 196_608,
+        costs_currency: 'usd-cents',
+        input_cost_key: 'prompt_tokens',
+        output_cost_key: 'completion_tokens',
+        costs: {
+            tokens: 1_000_000,
+            prompt_tokens: 60, // $0.60 per 1M
+            completion_tokens: 240, // $2.40 per 1M
+            cached_tokens: 6, // $0.06 per 1M
+        },
+    },
+
+    // -- MiniMax M2.5 -----------------------------------------------
+    {
+        puterId: 'minimax:minimax/minimax-m2.5',
+        id: 'minimax-m2.5',
+        apiModel: 'MiniMax-M2.5',
+        name: 'MiniMax M2.5',
+        aliases: [
+            'minimax/minimax-m2.5',
+            'MiniMax-M2.5',
+            'minimax/MiniMax-M2.5',
+        ],
+        modalities: { input: ['text'], output: ['text'] },
+        open_weights: false,
+        tool_call: true,
+        context: 204_800,
+        max_tokens: 196_608,
+        costs_currency: 'usd-cents',
+        input_cost_key: 'prompt_tokens',
+        output_cost_key: 'completion_tokens',
+        costs: {
+            tokens: 1_000_000,
+            prompt_tokens: 30, // $0.30 per 1M
+            completion_tokens: 120, // $1.20 per 1M
+            cached_tokens: 3, // $0.03 per 1M
+        },
+    },
+    {
+        puterId: 'minimax:minimax/minimax-m2.5-highspeed',
+        id: 'minimax-m2.5-highspeed',
+        apiModel: 'MiniMax-M2.5-highspeed',
+        name: 'MiniMax M2.5 Highspeed',
+        aliases: [
+            'minimax/minimax-m2.5-highspeed',
+            'MiniMax-M2.5-highspeed',
+            'minimax/MiniMax-M2.5-highspeed',
+        ],
+        modalities: { input: ['text'], output: ['text'] },
+        open_weights: false,
+        tool_call: true,
+        context: 204_800,
+        max_tokens: 196_608,
+        costs_currency: 'usd-cents',
+        input_cost_key: 'prompt_tokens',
+        output_cost_key: 'completion_tokens',
+        costs: {
+            tokens: 1_000_000,
+            prompt_tokens: 60, // $0.60 per 1M
+            completion_tokens: 240, // $2.40 per 1M
+            cached_tokens: 3, // $0.03 per 1M
+        },
+    },
+
+    // -- MiniMax M2.1 -----------------------------------------------
+    {
+        puterId: 'minimax:minimax/minimax-m2.1',
+        id: 'minimax-m2.1',
+        apiModel: 'MiniMax-M2.1',
+        name: 'MiniMax M2.1',
+        aliases: [
+            'minimax/minimax-m2.1',
+            'MiniMax-M2.1',
+            'minimax/MiniMax-M2.1',
+        ],
+        modalities: { input: ['text'], output: ['text'] },
+        open_weights: false,
+        tool_call: true,
+        context: 204_800,
+        max_tokens: 196_608,
+        costs_currency: 'usd-cents',
+        input_cost_key: 'prompt_tokens',
+        output_cost_key: 'completion_tokens',
+        costs: {
+            tokens: 1_000_000,
+            prompt_tokens: 30, // $0.30 per 1M
+            completion_tokens: 120, // $1.20 per 1M
+            cached_tokens: 3, // $0.03 per 1M
+        },
+    },
+    {
+        puterId: 'minimax:minimax/minimax-m2.1-highspeed',
+        id: 'minimax-m2.1-highspeed',
+        apiModel: 'MiniMax-M2.1-highspeed',
+        name: 'MiniMax M2.1 Highspeed',
+        aliases: [
+            'minimax/minimax-m2.1-highspeed',
+            'MiniMax-M2.1-highspeed',
+            'minimax/MiniMax-M2.1-highspeed',
+        ],
+        modalities: { input: ['text'], output: ['text'] },
+        open_weights: false,
+        tool_call: true,
+        context: 204_800,
+        max_tokens: 196_608,
+        costs_currency: 'usd-cents',
+        input_cost_key: 'prompt_tokens',
+        output_cost_key: 'completion_tokens',
+        costs: {
+            tokens: 1_000_000,
+            prompt_tokens: 60, // $0.60 per 1M
+            completion_tokens: 240, // $2.40 per 1M
+            cached_tokens: 3, // $0.03 per 1M
+        },
+    },
+
+    // -- MiniMax M2 -------------------------------------------------
+    {
+        puterId: 'minimax:minimax/minimax-m2',
+        id: 'minimax-m2',
+        apiModel: 'MiniMax-M2',
+        name: 'MiniMax M2',
+        aliases: ['minimax/minimax-m2', 'MiniMax-M2', 'minimax/MiniMax-M2'],
+        modalities: { input: ['text'], output: ['text'] },
+        open_weights: false,
+        tool_call: true,
+        context: 204_800,
+        max_tokens: 196_608,
+        costs_currency: 'usd-cents',
+        input_cost_key: 'prompt_tokens',
+        output_cost_key: 'completion_tokens',
+        costs: {
+            tokens: 1_000_000,
+            prompt_tokens: 30, // $0.30 per 1M
+            completion_tokens: 120, // $1.20 per 1M
+            cached_tokens: 3, // $0.03 per 1M
+        },
+    },
 ];
