@@ -224,27 +224,82 @@ export const requireVerifiedGate = (strictFlag: boolean): RequestHandler => {
 };
 
 /**
- * Reject authenticated users whose account is pending email confirmation
- * (`requires_email_confirmation && !email_confirmed`). Runs on every
- * authenticated route by default; routes that set `allowUnconfirmed: true`
- * skip this gate.
+ * Reject authenticated users whose account is still pending any signup-time
+ * verification — email confirmation, SMS phone verification, or credit-card
+ * verification. The abuse harness sets the phone/card flags on low-reputation
+ * signups (in place of a hard block), and this gate is what actually keeps
+ * those accounts out of the product until the flag clears: the flags live on
+ * `req.actor.user`, so every authenticated route enforces them, not just the
+ * GUI modal.
  *
- * Returns 403 with `email_confirmation_required` so clients can show the
- * confirmation prompt instead of a generic error.
+ * Runs on every authenticated route by default; routes that set
+ * `allowUnconfirmed: true` opt out (the verification endpoints themselves,
+ * plus essential flows like whoami / logout / save-account so a pending
+ * account can still reach the screens that clear the gate).
+ *
+ * Returns 403 with a per-gate legacy code (`email_confirmation_required` /
+ * `phone_verification_required` / `card_verification_required`) so clients can
+ * show the right prompt instead of a generic error. There is no state where a
+ * user should be allowed in with one verification pending, so any pending gate
+ * rejects.
  */
-export const requireEmailConfirmedGate = (): RequestHandler => {
+export const requireVerifiedAccount = (): RequestHandler => {
     return (req, _res, next) => {
-        const user = req.actor?.user;
-        if (user?.requires_email_confirmation && !user?.email_confirmed) {
-            next(
-                new HttpError(403, 'Please confirm your email to continue', {
-                    legacyCode: 'email_confirmation_required',
-                }),
-            );
+        try {
+            assertVerifiedAccount(req.actor?.user);
+        } catch (err) {
+            next(err);
             return;
         }
         next();
     };
+};
+
+/**
+ * The pending-verification check, factored out of {@link requireVerifiedAccount}
+ * so auth paths that build their own actor outside the route-option machinery
+ * can enforce the exact same gate. The WebDAV controller is the motivating
+ * case: it dispatches every method off a single `router.use`, so
+ * `requireVerifiedAccount` is never wired into its chain — it has to call this
+ * directly. Keeping one implementation is the point: a verification gate added
+ * here is picked up by every caller, so the paths can't drift (which is how
+ * WebDAV came to bypass the phone/card gate to begin with).
+ *
+ * Throws 403 with a per-gate legacy code (`email_confirmation_required` /
+ * `phone_verification_required` / `card_verification_required`) so clients can
+ * show the right prompt instead of a generic error. There is no state where a
+ * user should be let in with any verification pending, so the first pending
+ * gate rejects.
+ */
+export const assertVerifiedAccount = (
+    user:
+        | {
+              requires_email_confirmation?: unknown;
+              email_confirmed?: unknown;
+              requires_phone_verification?: unknown;
+              requires_card_verification?: unknown;
+          }
+        | undefined,
+): void => {
+    if (user?.requires_email_confirmation && !user?.email_confirmed) {
+        throw new HttpError(403, 'Please confirm your email to continue', {
+            legacyCode: 'email_confirmation_required',
+        });
+    }
+    if (user?.requires_phone_verification) {
+        throw new HttpError(
+            403,
+            'Please verify your phone number to continue',
+            {
+                legacyCode: 'phone_verification_required' as never,
+            },
+        );
+    }
+    if (user?.requires_card_verification) {
+        throw new HttpError(403, 'Please verify your card to continue', {
+            legacyCode: 'card_verification_required' as never,
+        });
+    }
 };
 
 /**

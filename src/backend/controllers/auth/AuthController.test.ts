@@ -1809,70 +1809,13 @@ describe('AuthController.handleSendConfirmEmail', () => {
     });
 });
 
-describe('AuthController.handleSendConfirmPhone attempt cap', () => {
-    it('allows two code sends, then hard-blocks the third (429)', async () => {
-        const { actor } = await makeUserAndActor();
-        // Stub the Prelude client: report configured + supported, and a
-        // successful send — so we exercise the KV-backed attempt cap, not the
-        // network or the country gate.
-        const ctrl = controller as { clients: { prelude: unknown } };
-        const realPrelude = ctrl.clients.prelude;
-        const createVerification = vi.fn(async () => ({ status: 'success' }));
-        ctrl.clients.prelude = {
-            isConfigured: () => true,
-            isCountrySupported: () => true,
-            defaultCountry: 'US',
-            createVerification,
-        };
-        try {
-            const send = () =>
-                controller.handleSendConfirmPhone(
-                    makeReq({ phone: '+14155550123' }, { actor }),
-                    makeRes(),
-                );
-            await send(); // 1st — allowed
-            await send(); // 2nd — allowed
-            expect(createVerification).toHaveBeenCalledTimes(2);
-            // 3rd — over the lifetime cap → 429, and no SMS dispatched.
-            await expect(send()).rejects.toMatchObject({ statusCode: 429 });
-            expect(createVerification).toHaveBeenCalledTimes(2);
-        } finally {
-            ctrl.clients.prelude = realPrelude;
-        }
-    });
-
-    it('does not burn an attempt when the send fails upstream', async () => {
-        const { actor } = await makeUserAndActor();
-        const ctrl = controller as { clients: { prelude: unknown } };
-        const realPrelude = ctrl.clients.prelude;
-        // First call throws (upstream error), second succeeds.
-        const createVerification = vi
-            .fn()
-            .mockRejectedValueOnce(new Error('prelude down'))
-            .mockResolvedValue({ status: 'success' });
-        ctrl.clients.prelude = {
-            isConfigured: () => true,
-            isCountrySupported: () => true,
-            defaultCountry: 'US',
-            createVerification,
-        };
-        try {
-            const send = () =>
-                controller.handleSendConfirmPhone(
-                    makeReq({ phone: '+14155550123' }, { actor }),
-                    makeRes(),
-                );
-            // Upstream failure → 502, attempt NOT counted.
-            await expect(send()).rejects.toMatchObject({ statusCode: 502 });
-            // Two real sends still available afterwards.
-            await send();
-            await send();
-            await expect(send()).rejects.toMatchObject({ statusCode: 429 });
-        } finally {
-            ctrl.clients.prelude = realPrelude;
-        }
-    });
-});
+// The per-account / per-number SMS send caps used to live here as a hardcoded
+// `MAX_PHONE_VERIFY_SENDS` in the backend. They now live entirely in the abuse
+// extension (no abuse thresholds in the OSS repo): the backend only asks via
+// `puter.phone-verification.check` and reports sends via
+// `puter.phone-verification.sent`. The cap behavior is covered by the
+// extension's phoneVerification / phoneSendLog tests; the backend side (it
+// forwards a veto, and emits `sent` only on success) is covered below.
 
 describe('AuthController.handleSendConfirmPhone validation', () => {
     // Stub the Prelude client (a real external boundary) so we exercise the
@@ -1957,6 +1900,175 @@ describe('AuthController.handleSendConfirmPhone validation', () => {
                 ).rejects.toMatchObject({ statusCode: 429 });
             },
         );
+    });
+});
+
+describe('AuthController phone verification — staging & reuse', () => {
+    const stubPrelude = (over: Record<string, unknown> = {}) => ({
+        isConfigured: () => true,
+        isCountrySupported: () => true,
+        defaultCountry: 'US',
+        createVerification: vi.fn(async () => ({ status: 'success' })),
+        checkVerification: vi.fn(async () => ({ status: 'success' })),
+        ...over,
+    });
+    const withClients = async (
+        over: { prelude?: unknown; event?: unknown },
+        fn: () => Promise<void>,
+    ): Promise<void> => {
+        const ctrl = controller as {
+            clients: { prelude: unknown; event: unknown };
+        };
+        const realPrelude = ctrl.clients.prelude;
+        const realEvent = ctrl.clients.event;
+        if ('prelude' in over) ctrl.clients.prelude = over.prelude;
+        if ('event' in over) ctrl.clients.event = over.event;
+        try {
+            await fn();
+        } finally {
+            ctrl.clients.prelude = realPrelude;
+            ctrl.clients.event = realEvent;
+        }
+    };
+
+    it('stages the number in KV and does NOT write it to the user row before verification', async () => {
+        const { user, actor } = await makeUserAndActor();
+        await withClients({ prelude: stubPrelude() }, async () => {
+            await controller.handleSendConfirmPhone(
+                makeReq({ phone: '+14155550123' }, { actor }),
+                makeRes(),
+            );
+        });
+        const after = await server.stores.user.getById(user.id, {
+            force: true,
+        });
+        // The unverified number is not persisted to the indexed column …
+        expect(after!.phone ?? null).toBeNull();
+        // … it's staged in KV instead, for /confirm-phone to read back.
+        const { res: staged } = await server.stores.kv.get({
+            key: `phone-verify-pending:${user.id}`,
+        });
+        expect(staged).toBe('+14155550123');
+    });
+
+    it('forwards an abuse-extension veto as 429 with the opaque reason, and sends nothing', async () => {
+        const { user, actor } = await makeUserAndActor();
+        const emitAndWait = vi.fn(
+            async (
+                name: string,
+                ev: { allowed: boolean; reason: string | null },
+            ) => {
+                if (name === 'puter.phone-verification.check') {
+                    ev.allowed = false;
+                    ev.reason = 'phone_already_used';
+                }
+            },
+        );
+        const createVerification = vi.fn(async () => ({ status: 'success' }));
+        await withClients(
+            {
+                prelude: stubPrelude({ createVerification }),
+                event: { emitAndWait, emit: vi.fn() },
+            },
+            async () => {
+                // 429 (not 403), and the extension's reason is forwarded
+                // verbatim for the client to message on — the backend never
+                // interprets it.
+                await expect(
+                    controller.handleSendConfirmPhone(
+                        makeReq({ phone: '+14155550123' }, { actor }),
+                        makeRes(),
+                    ),
+                ).rejects.toMatchObject({
+                    statusCode: 429,
+                    fields: { reason: 'phone_already_used' },
+                });
+            },
+        );
+        // Vetoed before the send — no SMS dispatched, nothing staged.
+        expect(createVerification).not.toHaveBeenCalled();
+        const { res: staged } = await server.stores.kv.get({
+            key: `phone-verify-pending:${user.id}`,
+        });
+        expect(staged ?? null).toBeNull();
+    });
+
+    it('emits puter.phone-verification.sent after a successful send', async () => {
+        const { actor } = await makeUserAndActor();
+        const emit = vi.fn();
+        const emitAndWait = vi.fn(async () => {}); // no veto
+        await withClients(
+            { prelude: stubPrelude(), event: { emit, emitAndWait } },
+            async () => {
+                await controller.handleSendConfirmPhone(
+                    makeReq({ phone: '+14155550123' }, { actor }),
+                    makeRes(),
+                );
+            },
+        );
+        expect(emit).toHaveBeenCalledWith(
+            'puter.phone-verification.sent',
+            expect.objectContaining({ phone: '+14155550123' }),
+            expect.anything(),
+        );
+    });
+
+    it('does NOT emit the sent signal when the send fails upstream', async () => {
+        const { actor } = await makeUserAndActor();
+        const emit = vi.fn();
+        const emitAndWait = vi.fn(async () => {});
+        await withClients(
+            {
+                prelude: stubPrelude({
+                    createVerification: vi.fn(async () => {
+                        throw new Error('prelude down');
+                    }),
+                }),
+                event: { emit, emitAndWait },
+            },
+            async () => {
+                await expect(
+                    controller.handleSendConfirmPhone(
+                        makeReq({ phone: '+14155550123' }, { actor }),
+                        makeRes(),
+                    ),
+                ).rejects.toMatchObject({ statusCode: 502 });
+            },
+        );
+        const sentCalls = emit.mock.calls.filter(
+            (c) => c[0] === 'puter.phone-verification.sent',
+        );
+        expect(sentCalls).toHaveLength(0);
+    });
+
+    it('confirms against the staged number and persists it to the row only on success', async () => {
+        const { user, actor } = await makeUserAndActor({
+            requires_phone_verification: 1,
+        });
+        // No phone on the row; the number lives only in the KV staging slot.
+        await server.stores.kv.set({
+            key: `phone-verify-pending:${user.id}`,
+            value: '+14155550123',
+        });
+        const checkVerification = vi.fn(async () => ({ status: 'success' }));
+        await withClients(
+            { prelude: stubPrelude({ checkVerification }) },
+            async () => {
+                const res = makeRes();
+                await controller.handleConfirmPhone(
+                    makeReq({ code: '123456' }, { actor }),
+                    res,
+                );
+                expect(res.body).toMatchObject({ phone_verified: true });
+            },
+        );
+        expect(checkVerification).toHaveBeenCalledWith('+14155550123', '123456');
+        const after = await server.stores.user.getById(user.id, {
+            force: true,
+        });
+        expect(after!.requires_phone_verification).toBe(false);
+        // Persisted to the row only now, on success.
+        expect(after!.phone).toBe('+14155550123');
     });
 });
 

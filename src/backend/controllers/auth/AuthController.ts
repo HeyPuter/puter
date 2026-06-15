@@ -609,6 +609,11 @@ export class AuthController extends PuterController {
             // Populated by the abuse extension's v2 harness; persisted to the
             // user row below so the signup-time reputation is referable later.
             reputation: null as number | null,
+            // Stamped by the abuse harness for flagged signups — the id keying
+            // the `abuse:trail:<id>` decision trail (carrying both the live and
+            // shadow trails). Surfaced to a blocked user as the Request Code so
+            // the code they quote support leads straight to their trail.
+            trail_id: undefined as string | undefined,
         };
         try {
             await this.clients.event?.emitAndWait(
@@ -620,9 +625,14 @@ export class AuthController extends PuterController {
             console.warn('[signup] validate hook failed:', e);
         }
         if (!validateEvent.allow) {
+            // Pass the trail id back to a blocked user as the Request Code (when
+            // the harness stamped one), embedded in the message so the existing
+            // signup-block UI surfaces it without a GUI change.
+            const requestCode = validateEvent.trail_id;
             throw new HttpError(
                 403,
-                validateEvent.message ?? 'Signup blocked',
+                (validateEvent.message ?? 'Signup blocked') +
+                    (requestCode ? ` Request Code: ${requestCode}` : ''),
                 {
                     ...(validateEvent.code
                         ? { legacyCode: validateEvent.code as never }
@@ -1087,30 +1097,66 @@ export class AuthController extends PuterController {
                 { legacyCode: 'phone_country_not_supported' as never },
             );
 
-        // Hard lifetime cap: at most MAX_PHONE_VERIFY_SENDS SMS codes per user,
-        // tracked in KV so it survives logout / re-login (unlike the per-window
-        // rate limit above). Once exhausted the user can't request another code
-        // — and so can't clear the gate. KV read failures fail open: this is
-        // abuse/cost control, not a security boundary, so a KV blip must not
-        // lock signups out. Only successful sends are counted (incremented
-        // below), so a bad number / upstream error doesn't burn an attempt.
-        const MAX_PHONE_VERIFY_SENDS = 2;
-        const attemptsKey = `phone-verify-attempts:${user.id}`;
-        let priorAttempts = 0;
+        // Abuse caps live ENTIRELY in a listening abuse extension, consulted
+        // via `puter.phone-verification.check`. The backend ships no thresholds
+        // or detection of its own (so none of it is readable in the open-source
+        // repo): it forwards the user / number / ip, and the extension decides
+        // `allowed` plus an opaque `reason` (per-account + per-number send
+        // velocity, cross-account reuse, …). With no extension listening
+        // `allowed` stays true. Fail-open on a hook error — this is abuse/cost
+        // control, not a security boundary (the route rate limit and the country
+        // cost cap remain), so a flaky hook must not lock signups out.
+        const abuseCheck = {
+            user_id: user.id,
+            user_uid: user.uuid,
+            phone: parsed.e164,
+            allowed: true,
+            reason: null as string | null,
+        };
         try {
-            const { res } = await this.stores.kv.get({ key: attemptsKey });
-            if (typeof res === 'number') priorAttempts = res;
+            await this.clients.event?.emitAndWait(
+                'puter.phone-verification.check',
+                abuseCheck,
+                {},
+            );
         } catch (e) {
-            console.warn('[send-confirm-phone] attempt-count read failed:', e);
+            console.warn('[send-confirm-phone] abuse-check hook failed:', e);
         }
-        if (priorAttempts >= MAX_PHONE_VERIFY_SENDS)
+        // Forward the verdict verbatim: a generic 429 plus the opaque reason for
+        // the client to message on. The backend never interprets the reason —
+        // its meaning lives in the extension (which sets it) and the GUI (which
+        // displays it), so no abuse semantics leak into the OSS repo.
+        if (abuseCheck.allowed === false)
             throw new HttpError(
                 429,
-                'You have used all of your phone verification attempts.',
-                { legacyCode: 'phone_verify_attempts_exhausted' as never },
+                'Phone verification is unavailable for this number right now.',
+                {
+                    legacyCode: 'phone_verification_unavailable' as never,
+                    fields: abuseCheck.reason
+                        ? { reason: abuseCheck.reason }
+                        : {},
+                },
             );
 
-        await this.stores.user.update(user.id, { phone: parsed.e164 });
+        // Stage the parsed number as pending in KV (NOT on the user row) so a
+        // never-confirmed number is never written to the indexed `phone`
+        // column. /confirm-phone reads it back and persists it to the row only
+        // once Prelude confirms the code. ~1h TTL covers the code's lifetime.
+        // Stored before the send so we never dispatch an SMS we couldn't later
+        // confirm against.
+        const pendingPhoneKey = `phone-verify-pending:${user.id}`;
+        try {
+            await this.stores.kv.set({
+                key: pendingPhoneKey,
+                value: parsed.e164,
+                expireAt: Math.floor(Date.now() / 1000) + 60 * 60,
+            });
+        } catch (e) {
+            console.warn('[send-confirm-phone] pending-store failed:', e);
+            throw new HttpError(503, 'Could not start phone verification.', {
+                legacyCode: 'service_unavailable' as never,
+            });
+        }
 
         const ip = req.ip || req.socket?.remoteAddress || undefined;
         try {
@@ -1137,17 +1183,22 @@ export class AuthController extends PuterController {
             });
         }
 
-        // Count the successful send against the lifetime cap (best-effort; a KV
-        // write failure shouldn't fail a code that was already sent). ~30d TTL
-        // so abandoned counters self-clean rather than living forever.
+        // Tell the abuse extension a code was actually sent, so it can bump its
+        // send-velocity counters (per number + per account). Fire-and-forget;
+        // the backend keeps no send counts of its own. Only reached after a
+        // successful send, so an upstream error never burns quota.
         try {
-            await this.stores.kv.set({
-                key: attemptsKey,
-                value: priorAttempts + 1,
-                expireAt: Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60,
-            });
-        } catch (e) {
-            console.warn('[send-confirm-phone] attempt-count write failed:', e);
+            this.clients.event?.emit(
+                'puter.phone-verification.sent' as never,
+                {
+                    user_id: user.id,
+                    user_uid: user.uuid,
+                    phone: parsed.e164,
+                } as never,
+                {},
+            );
+        } catch {
+            // ignore — best-effort velocity signal
         }
         res.json({});
     }
@@ -1181,7 +1232,22 @@ export class AuthController extends PuterController {
             res.json({ phone_verified: true, original_client_socket_id });
             return;
         }
-        if (!user.phone)
+        // The number being verified is the one staged at send time (KV
+        // pending), not the user row — we don't persist an unverified number.
+        // Fall back to a row value for accounts that already have one on file
+        // (legacy / a number persisted by a prior verified flow).
+        const pendingPhoneKey = `phone-verify-pending:${user.id}`;
+        let pendingPhone: string | null = null;
+        try {
+            const { res: staged } = await this.stores.kv.get({
+                key: pendingPhoneKey,
+            });
+            if (typeof staged === 'string' && staged) pendingPhone = staged;
+        } catch (e) {
+            console.warn('[confirm-phone] pending read failed:', e);
+        }
+        if (!pendingPhone) pendingPhone = user.phone ?? null;
+        if (!pendingPhone)
             throw new HttpError(
                 400,
                 'No phone number on file. Request a code first.',
@@ -1195,7 +1261,7 @@ export class AuthController extends PuterController {
         let status;
         try {
             ({ status } = await this.clients.prelude.checkVerification(
-                user.phone,
+                pendingPhone,
                 String(code),
             ));
         } catch (e) {
@@ -1210,8 +1276,10 @@ export class AuthController extends PuterController {
             return;
         }
 
+        // Verified — persist the number now (and only now) and clear the gate.
         await this.stores.user.update(user.id, {
             requires_phone_verification: 0,
+            phone: pendingPhone,
         });
 
         try {
@@ -1220,7 +1288,7 @@ export class AuthController extends PuterController {
                 {
                     user_id: user.id,
                     user_uid: user.uuid,
-                    phone: user.phone,
+                    phone: pendingPhone,
                 } as never,
                 {},
             );

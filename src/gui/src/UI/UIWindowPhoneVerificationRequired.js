@@ -24,6 +24,17 @@ import UIWindow from './UIWindow.js';
 //   2. Enter the 6-digit code → POST /confirm-phone (Prelude validates it).
 // The 6-digit code UX mirrors UIWindowEmailConfirmationRequired.js. Used as a
 // hard gate for low-reputation signups, so by default it has no close button.
+
+// Friendly, non-accusatory messages for the abuse `reason` codes the backend
+// forwards on a refused send. The backend never interprets these (the abuse
+// policy lives in a private extension); the wording is presented here. Unknown
+// reasons fall back to the server's own message.
+const SEND_REASON_MESSAGES = {
+    phone_already_used: 'This phone number has already been used to verify the maximum number of accounts. Please use a different number, or email hi@puter.com for help.',
+    phone_send_limit: 'This phone number has received too many verification codes recently. Please try again later, or use a different number.',
+    phone_verify_attempts_exhausted: 'You\'ve used all of your phone verification attempts. Email hi@puter.com and we\'ll help you finish.',
+};
+
 function UIWindowPhoneVerificationRequired (options) {
     return new Promise(async (resolve) => {
         options = options ?? {};
@@ -205,8 +216,10 @@ function UIWindowPhoneVerificationRequired (options) {
                     $(el_window).find('.digit-input').first().focus();
                 },
                 error: function (xhr) {
+                    const reason = xhr.responseJSON?.reason;
                     showError(
-                        xhr.responseJSON?.error ??
+                        SEND_REASON_MESSAGES[reason] ??
+                            xhr.responseJSON?.error ??
                             'Could not send a code to that number.',
                     );
                 },
