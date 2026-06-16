@@ -14,9 +14,13 @@ A worker is tied to its **name**: you create it **once** and keep that name. To 
 
 ```js
 puter.workers.create(workerName, filePath)
+puter.workers.create(workerName, filePath, appName)
+puter.workers.create(workerName, filePath, options)
 ```
 
 ## Parameters
+
+<div class="info">Workers cannot be larger than <strong>10MB</strong>.</div>
 
 #### `workerName` (String)(Required)
 The name for the worker. It can contain letters, numbers, hyphens, and underscores.
@@ -24,7 +28,13 @@ The name for the worker. It can contain letters, numbers, hyphens, and underscor
 #### `filePath` (String)(Required)
 The path to a JavaScript file in your Puter account that contains your [router](../router) code.
 
-<div class="info">Workers cannot be larger than <strong>10MB</strong>.</div>
+#### `appName` (String)(Optional)
+The name of an existing app in your account to associate the worker with. When provided, the worker is bound to that app and no sandbox app is created.
+
+#### `options` (Object)(Optional)
+An alternative to `appName` for controlling the worker's sandbox.
+
+- `sandbox` (Boolean)(Optional) - Whether to run the worker inside an isolated sandbox app. Defaults to `true`. When omitted (or `true`) and you are authenticated with a user token, a dedicated `sandbox-<workerName>` app is created (or reused) to own the worker. Pass `false` to opt out.
 
 ## Return Value
 

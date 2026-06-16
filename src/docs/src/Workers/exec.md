@@ -18,9 +18,9 @@ puter.workers.exec(workerURL, options)
 
 ## Parameters
 
-#### `workerURL` (String)(Required)
+#### `workerURL` (String | URL | Request)(Required)
 
-The URL of the worker to execute.
+The worker to execute. Accepts the same input as the Fetch API's first argument: a URL string, a [`URL`](https://developer.mozilla.org/en-US/docs/Web/API/URL) object, or a [`Request`](https://developer.mozilla.org/en-US/docs/Web/API/Request) object. When a `Request` object is provided, its options (method, headers, body, etc.) are used and the `options` argument can be omitted.
 
 #### `options` (Object)
 

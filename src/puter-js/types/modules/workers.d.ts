@@ -14,6 +14,7 @@ export interface WorkerDeployment {
 
 export class WorkersHandler {
     create (workerName: string, filePath: string, appName?: string): Promise<WorkerDeployment>;
+    create (workerName: string, filePath: string, options?: { sandbox?: boolean }): Promise<WorkerDeployment>;
     delete (workerName: string): Promise<boolean>;
     exec (request: RequestInfo | URL, init?: RequestInit): Promise<Response>;
     get (workerName: string): Promise<WorkerInfo | undefined>;
