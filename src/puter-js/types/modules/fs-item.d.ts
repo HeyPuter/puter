@@ -1,5 +1,3 @@
-import type { ReaddirOptions, WriteOptions } from './filesystem.d.ts';
-
 export interface FileSignatureInfo {
     read_url?: string;
     write_url?: string;
@@ -35,7 +33,7 @@ export class FSItem {
     accessed?: number;
     modified?: number;
     created?: number;
-    isDirectory: boolean;
+    isDir: boolean;
     _internalProperties?: InternalFSProperties;
 
     write (data: Blob | File | ArrayBuffer | ArrayBufferView | string): Promise<FSItem>;
@@ -43,8 +41,8 @@ export class FSItem {
     move (destination: string, overwrite?: boolean, newName?: string): Promise<FSItem>;
     copy (destinationDirectory: string, autoRename?: boolean, overwrite?: boolean): Promise<FSItem>;
     delete (): Promise<void>;
-    mkdir (name: string, autoRename?: boolean): Promise<FSItem>;
-    readdir (options?: ReaddirOptions): Promise<FSItem[]>;
+    mkdir (name: string): Promise<FSItem>;
+    readdir (): Promise<FSItem[]>;
     read (): Promise<Blob>;
 
     // Placeholders that are not implemented in the runtime SDK yet.

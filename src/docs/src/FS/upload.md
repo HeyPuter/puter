@@ -29,7 +29,7 @@ The path of the directory to upload the items to. If not set, the items will be 
 A set of key/value pairs that configure the upload process. The following options are supported:
 
 - `overwrite` (Boolean) - Whether to overwrite the destination file if it already exists. Defaults to `false`.
-- `dedupeName` (Boolean) - Whether to deduplicate the file name if it already exists. Defaults to `false`.
+- `dedupeName` (Boolean) - Whether to deduplicate the file name if it already exists. Defaults to `true`. Ignored when `overwrite` is `true`.
 - `createMissingParents` (Boolean) - Whether to create missing parent directories. Defaults to `false`.
 
 ## Return value

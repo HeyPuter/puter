@@ -11,11 +11,7 @@ export interface CopyOptions extends RequestCallbacks<FSItem> {
     destination?: string;
     overwrite?: boolean;
     newName?: string;
-    createMissingParents?: boolean;
     dedupeName?: boolean;
-    newMetadata?: Record<string, unknown>;
-    excludeSocketID?: string;
-    original_client_socket_id?: string;
 }
 
 export interface MoveOptions extends RequestCallbacks<FSItem> {
@@ -154,5 +150,5 @@ export class FS {
 
     sign (appUid: string, items: unknown | unknown[], success?: (result: SignResult) => void, error?: (reason: unknown) => void): Promise<SignResult>;
 
-    getReadURL (path: string, expiresIn?: string): Promise<string>;
+    getReadURL (path: string, expiresIn?: string | number): Promise<string>;
 }
