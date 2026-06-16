@@ -5,7 +5,7 @@
         (async () => {
             // (1) Create a random website
             let subdomain = puter.randName();
-            const site = await puter.hosting.create(subdomain)
+            const site = await puter.hosting.create(subdomain, '.')
             puter.print(`Website hosted at: ${site.subdomain}.puter.site<br>`);
 
             // (2) Create a random directory
@@ -18,7 +18,7 @@
             puter.print(`Changed subdomain's root directory to "${dir.path}"<br>`);
 
             // (4) Delete the app (cleanup)
-            await puter.hosting.delete(updatedSite.subdomain)
+            await puter.hosting.delete(subdomain)
         })();
     </script>
 </body>

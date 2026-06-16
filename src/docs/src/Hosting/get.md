@@ -31,7 +31,7 @@ A `Promise` that will resolve to a [`Subdomain`](/Objects/subdomain/) object whe
         (async () => {
             // (1) Create a random website
             let subdomain = puter.randName();
-            const site = await puter.hosting.create(subdomain)
+            const site = await puter.hosting.create(subdomain, '.')
             puter.print(`Website hosted at: ${site.subdomain}.puter.site (This is an empty website with no files)<br>`);
 
             // (2) Retrieve the website using get()

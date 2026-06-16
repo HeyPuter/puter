@@ -9,12 +9,12 @@ export interface Subdomain {
 export class Hosting {
     list (): Promise<Subdomain[]>;
 
-    create (subdomain: string, dirPath?: string): Promise<Subdomain>;
-    create (options: { subdomain: string; root_dir?: string }): Promise<Subdomain>;
-    
-    update (subdomain: string, dirPath?: string | null): Promise<Subdomain>;
+    create (subdomain: string, dirPath: string): Promise<Subdomain>;
+    create (options: { subdomain: string; root_dir: string }): Promise<Subdomain>;
+
+    update (subdomain: string, dirPath: string): Promise<Subdomain>;
 
     get (subdomain: string): Promise<Subdomain>;
 
-    delete (subdomain: string): Promise<boolean>;
+    delete (subdomain: string): Promise<{ success: boolean; uid: string }>;
 }
