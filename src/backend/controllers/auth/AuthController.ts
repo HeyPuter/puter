@@ -1110,6 +1110,7 @@ export class AuthController extends PuterController {
             user_id: user.id,
             user_uid: user.uuid,
             phone: parsed.e164,
+            device_fingerprint: req.deviceFingerprint ?? null,
             allowed: true,
             reason: null as string | null,
         };
@@ -1194,6 +1195,7 @@ export class AuthController extends PuterController {
                     user_id: user.id,
                     user_uid: user.uuid,
                     phone: parsed.e164,
+                    device_fingerprint: req.deviceFingerprint ?? null,
                 } as never,
                 {},
             );
@@ -1362,7 +1364,10 @@ export class AuthController extends PuterController {
             user_id: user.id,
             user_uid: user.uuid,
             ip: (req.ip || req.socket?.remoteAddress || null) as string | null,
+            device_fingerprint: req.deviceFingerprint ?? null,
             enabled: null as boolean | null,
+            allowed: true,
+            reason: null as string | null,
             client_secret: null as string | null,
             publishable_key: null as string | null,
         };
@@ -1375,6 +1380,21 @@ export class AuthController extends PuterController {
         } catch (e) {
             console.warn('[card-verification/setup] setup hook failed:', e);
         }
+
+        // Abuse veto (e.g. per-device setup-velocity cap): the extension refused
+        // before any Stripe work. Forward the opaque reason verbatim as a 429,
+        // same as the phone gate — the backend never interprets it.
+        if (setupEvent.allowed === false)
+            throw new HttpError(
+                429,
+                'Card verification is unavailable right now.',
+                {
+                    legacyCode: 'too_many_requests' as never,
+                    fields: setupEvent.reason
+                        ? { reason: setupEvent.reason }
+                        : {},
+                },
+            );
 
         // Kill switch: the extension reports the feature disabled — unstick
         // any user still carrying the flag instead of dead-ending them.

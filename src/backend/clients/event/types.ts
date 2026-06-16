@@ -183,17 +183,22 @@ export type EventMap = {
         user_id: number;
         user_uid: string;
         phone: string;
+        // Client-supplied device fingerprint for this request, or null. Lets
+        // the abuse extension cap sends per device (across accounts) so a
+        // device farm can't dodge the per-account cap with fresh signups.
+        device_fingerprint: string | null;
         allowed: boolean;
         reason: string | null;
         [key: string]: unknown;
     };
     // Fire-and-forget signal that a code was actually sent — the abuse
-    // extension bumps its per-number / per-account send-velocity counters off
-    // this. No-op with no extension listening.
+    // extension bumps its per-number / per-account / per-device send-velocity
+    // counters off this. No-op with no extension listening.
     'puter.phone-verification.sent': {
         user_id: number;
         user_uid: string;
         phone: string;
+        device_fingerprint: string | null;
     };
     'user.phone-verified': {
         user_id: number;
@@ -208,7 +213,16 @@ export type EventMap = {
         user_id: number;
         user_uid: string;
         ip?: string | null;
+        // Client-supplied device fingerprint for this request, or null. Lets
+        // the abuse extension cap card-verification setups per device (across
+        // accounts) before any Stripe SetupIntent is created.
+        device_fingerprint: string | null;
         enabled: boolean | null;
+        // Set false by the extension to refuse this setup (e.g. the per-device
+        // setup-velocity cap); `reason` carries the opaque code. Stays true
+        // when allowed or with no extension listening.
+        allowed: boolean;
+        reason: string | null;
         client_secret: string | null;
         publishable_key: string | null;
         [key: string]: unknown;

@@ -31,6 +31,7 @@ import { puterClients } from './clients';
 import { puterControllers } from './controllers';
 import { createAuthProbe } from './core/http/middleware/authProbe';
 import { createRequestContextMiddleware } from './core/http/middleware/requestContext';
+import { createFingerprintMiddleware } from './core/http/middleware/fingerprint';
 import { createErrorHandler } from './core/http/middleware/errorHandler';
 import { isHttpError } from './core/http/HttpError';
 import {
@@ -484,6 +485,13 @@ export class PuterServer {
                 }),
             );
         }
+
+        // -- Request fingerprints ------------------------------------
+        // Stamp `req.networkFingerprint` (server-derived) and
+        // `req.deviceFingerprint` (client-supplied, from body/header). Runs
+        // AFTER body parsing so the body fingerprint is readable, and before
+        // the ALS context so the snapshot carries them.
+        this.#app.use(createFingerprintMiddleware());
 
         // -- Per-request ALS context ---------------------------------
         // Runs AFTER auth probe so `req.actor` is already populated when
