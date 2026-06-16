@@ -8,6 +8,8 @@ export interface AlertButton {
 
 export interface AlertOptions {
     type?: 'primary' | 'success' | 'info' | 'warning' | 'danger';
+    body_icon?: string;
+    icon?: string;
 }
 
 export interface PromptOptions {
@@ -102,6 +104,8 @@ export interface NotificationOptions {
     title?: string;
     text?: string;
     icon?: string;
+    type?: 'info' | 'success' | 'warning' | 'error' | 'default';
+    duration?: number;
     round_icon?: boolean;
     roundIcon?: boolean;
     uid?: string;
@@ -111,6 +115,12 @@ export interface NotificationOptions {
 export interface AppConnectionCloseEvent {
     appInstanceID: string;
     statusCode?: number;
+}
+
+export interface ConnectionEvent {
+    conn: AppConnection;
+    accept: (value?: unknown) => void;
+    reject: (value?: unknown) => void;
 }
 
 export interface LaunchAppResult {
@@ -146,12 +156,11 @@ export class AppConnection {
 
 export class UI {
     alert (message?: string, buttons?: AlertButton[], options?: AlertOptions): Promise<string>;
-    prompt (message?: string, placeholder?: string, options?: PromptOptions): Promise<string | null>;
+    prompt (message?: string, placeholder?: string, options?: PromptOptions): Promise<string | false>;
     notify (options?: NotificationOptions): Promise<string>;
     authenticateWithPuter (): Promise<void>;
     contextMenu (options: ContextMenuOptions): void;
     createWindow (options?: WindowOptions): Promise<WindowHandle>;
-    exit (statusCode?: number): void;
     getLanguage (): Promise<string>;
     hideSpinner (): void;
     hideWindow (): void;
@@ -166,6 +175,7 @@ export class UI {
     showSaveFilePicker (
         content?: unknown,
         suggestedName?: string,
+        type?: 'url' | 'move' | 'copy',
     ): CancelAwarePromise<FSItem>;
     socialShare (url: string, message?: string, options?: { left?: number; top?: number }): void;
     setMenubar (options: MenubarOptions): void;
@@ -180,23 +190,18 @@ export class UI {
     setWindowX (x: number, window_id?: WindowIdentifier): void;
     setWindowY (y: number, window_id?: WindowIdentifier): void;
     wasLaunchedWithItems (): boolean;
+    /** @deprecated Also fires when items are dropped on the app; new code should handle the `drop` event instead. */
     onItemsOpened (handler: (items: FSItem[]) => void): void;
     onLaunchedWithItems (handler: (items: FSItem[]) => void): void;
     onWindowClose (handler: () => void): void;
     on (eventName: 'localeChanged', handler: (data: { language: string }) => void): void;
     on (eventName: 'themeChanged', handler: (data: ThemeData) => void): void;
+    on (eventName: 'connection', handler: (data: ConnectionEvent) => void): void;
     parentApp (): AppConnection | null;
     launchApp (appName?: string, args?: Record<string, unknown>, callback?: (connection: AppConnection) => void): Promise<AppConnection>;
     launchApp (options: LaunchAppOptions): Promise<AppConnection>;
 
     getEntriesFromDataTransferItems (dataTransferItems: DataTransferItemList, options?: { raw?: boolean }): Promise<Array<File | FileSystemEntry>>;
-
-    // Broadcast helpers are only partially typed because the payloads are app-defined.
-    broadcast (name: string, data: unknown): void;
-    listenForBroadcast (name: string, handler: (data: unknown) => void): void;
-
-    get FILE_SAVE_CANCELLED (): symbol;
-    get FILE_OPEN_CANCELLED (): symbol;
 
     requestUpgrade (): Promise<unknown>;
 }

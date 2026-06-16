@@ -11,17 +11,25 @@ Presents the user with a file picker dialog allowing them to specify where and w
 ```js
 puter.ui.showSaveFilePicker()
 puter.ui.showSaveFilePicker(content, suggestedName)
+puter.ui.showSaveFilePicker(content, suggestedName, type)
 ```
 
 ## Parameters
 
-#### `content` (String) (Optional)
+#### `content` (Optional)
 
-The data to write to the chosen file.
+The data to write to the chosen file. The expected value depends on `type`:
+- When `type` is omitted, `content` is the file data to write.
+- When `type` is `'url'`, `content` is a URL (string or `URL`) whose contents are saved.
+- When `type` is `'move'` or `'copy'`, `content` is the source path of an existing file to move or copy.
 
 #### `suggestedName` (String) (Optional)
 
 The default file name to pre-fill in the dialog.
+
+#### `type` (String) (Optional)
+
+How `content` should be interpreted. One of `'url'`, `'move'`, or `'copy'`. If omitted and `content` is a `URL` object, it is auto-detected as `'url'`.
 
 ## Return value
 

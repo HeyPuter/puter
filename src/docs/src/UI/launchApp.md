@@ -29,6 +29,15 @@ Name of the app. If not provided, a new instance of the current app will be laun
 #### `options.args` (Object)
 Arguments to pass to the app.
 
+#### `options.file_paths` (Array&lt;String&gt;)
+Paths of existing files to open with the launched app.
+
+#### `options.items` (Array&lt;[`FSItem`](/Objects/fsitem)&gt;)
+`FSItem` objects to open with the launched app.
+
+#### `options.pseudonym` (String)
+A pseudonym to launch the app under.
+
 ## Return value 
 A `Promise` that will resolve to an [`AppConnection`](/Objects/AppConnection) once the app is launched.
 

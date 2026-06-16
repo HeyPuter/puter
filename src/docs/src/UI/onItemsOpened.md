@@ -6,6 +6,8 @@ platforms: [apps]
 
 Specify a function to execute when the one or more items have been opened. Items can be opened via a variety of methods such as: drag and dropping onto the app, double-clicking on an item, right-clicking on an item and choosing an app from the 'Open With...' submenu.
 
+**Deprecated** This handler also fires when items are dropped onto the app. New code should handle the `drop` event for drag-and-drop instead.
+
 **Note** `onItemsOpened` is not called when items are opened using `showOpenFilePicker()`.
 
 ## Syntax

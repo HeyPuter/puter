@@ -23,7 +23,7 @@ A string to be displayed as a placeholder in the input field. If not set, the in
 
 
 ## Return value 
-A `Promise` that resolves to the value of the input field when the user presses the OK button. If the user presses the Cancel button, the promise will resolve to `null`.
+A `Promise` that resolves to the value of the input field when the user presses the OK button. If the user presses the Cancel button, the promise will resolve to `false`.
 
 ## Examples
 ```html;ui-prompt
