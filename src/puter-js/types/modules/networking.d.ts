@@ -14,13 +14,16 @@ export class PSocket {
     close (): void;
     on (event: 'open', handler: () => void): void;
     on (event: 'data', handler: (buffer: Uint8Array) => void): void;
-    on (event: 'error', handler: (reason: string) => void): void;
+    on (event: 'error', handler: (error: Error) => void): void;
     on (event: 'close', handler: (hadError: boolean) => void): void;
     addListener (event: SocketEvent, handler: (...args: unknown[]) => void): void;
 }
 
 export class PTLSSocket extends PSocket {
     constructor (host: string, port: number);
+    on (event: 'tlsopen', handler: () => void): void;
+    on (event: 'tlsdata', handler: (buffer: Uint8Array) => void): void;
+    on (event: 'tlsclose', handler: (hadError: boolean) => void): void;
 }
 
 export interface Networking {
