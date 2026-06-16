@@ -203,7 +203,6 @@ export interface Txt2ImgOptions {
 
 export interface Txt2VidOptions {
     prompt?: string;
-    provider?: string;
     driver?: string;
     model?: string;
     seconds?: number;
@@ -213,7 +212,7 @@ export interface Txt2VidOptions {
     // OpenAI options
     size?: string;
     resolution?: string;
-    input_reference?: File;
+    input_reference?: File | string;
 
     // TogetherAI options
     width?: number;
@@ -229,6 +228,8 @@ export interface Txt2VidOptions {
     frame_images?: Array<{ input_image: string; frame: number }>;
     metadata?: Record<string, unknown>;
     puter_output_path?: string;
+
+    last_frame?: string;
 }
 
 export interface Txt2SpeechOptions {

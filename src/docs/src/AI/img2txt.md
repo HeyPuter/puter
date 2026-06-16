@@ -18,7 +18,7 @@ puter.ai.img2txt({ source: image, ...options })
 
 #### `image` / `source` (String|File|Blob) (required)
 
-A string containing the URL or Puter path, or a `File`/`Blob` object containing the source image or file. When calling with an options object, pass it as `{ source: ... }`.
+A string containing the URL or Puter path, or a `File`/`Blob` object containing the source image or file. When calling with an options object, pass it as `{ source: ... }`. Maximum input size at 10MB.
 
 #### `testMode` (Boolean) (Optional)
 
