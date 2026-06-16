@@ -10,7 +10,8 @@ Update one or more paths within the value stored at a key. You can update nested
 
 ```js
 puter.kv.update(key, pathAndValueMap)
-puter.kv.update(key, pathAndValueMap, ttlSeconds)
+puter.kv.update(key, pathAndValueMap, ttl)
+puter.kv.update({ key, pathAndValueMap, ttl })
 ```
 
 ## Parameters
@@ -23,7 +24,7 @@ The key to update.
 
 An object where each key is a dot-separated path (for example, `"profile.name"`) and each value is the new value for that path.
 
-#### `ttlSeconds` (Number) (optional)
+#### `ttl` (Number) (optional)
 
 Time-to-live for the key, in seconds.
 

@@ -21,7 +21,7 @@ The key to add values to.
 
 #### `value` (String | Number | Boolean | Object | Array) (optional)
 
-The value to add to the key.
+The value to add to the key. Defaults to `1` when omitted.
 
 #### `pathAndValue` (Object) (optional)
 

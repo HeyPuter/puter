@@ -7,12 +7,37 @@ export interface KVPair<T = unknown> {
     value: T;
 }
 
+export interface KVSetItem<T = KVScalar> {
+    key: string;
+    value: T;
+    expireAt?: number;
+}
+
+export interface KVSetObject<T = KVScalar> {
+    key: string;
+    value: T;
+    expireAt?: number;
+    optConfig?: KVOptConfig;
+}
+
+export interface KVSetBatch<T = KVScalar> {
+    items: KVSetItem<T>[];
+    optConfig?: KVOptConfig;
+}
+
 export interface KVIncrementPath {
     [path: string]: number;
 }
 
 export interface KVUpdatePath {
     [path: string]: KVValue;
+}
+
+export interface KVUpdateObject {
+    key: string;
+    pathAndValueMap: KVUpdatePath;
+    ttl?: number;
+    optConfig?: KVOptConfig;
 }
 
 export interface KVAddPath {
@@ -46,6 +71,9 @@ export class KV {
 
     set<T = KVScalar>(key: string, value: T, optConfig: KVOptConfig): Promise<boolean>;
     set<T = KVScalar>(key: string, value: T, expireAt?: number, optConfig?: KVOptConfig): Promise<boolean>;
+    set<T = KVScalar>(item: KVSetObject<T>): Promise<boolean>;
+    set<T = KVScalar>(items: KVSetItem<T>[], optConfig?: KVOptConfig): Promise<boolean>;
+    set<T = KVScalar>(batch: KVSetBatch<T>): Promise<boolean>;
     get<T = unknown>(key: string, optConfig?: KVOptConfig): Promise<T | undefined>;
     del (key: string, optConfig?: KVOptConfig): Promise<boolean>;
     incr (key: string, optConfig: KVOptConfig): Promise<number>;
@@ -56,7 +84,8 @@ export class KV {
     add (key: string, value?: KVValue | KVAddPath, optConfig?: KVOptConfig): Promise<KVValue>;
     remove (key: string, ...paths: Array<string | KVOptConfig>): Promise<KVValue>;
     update (key: string, pathAndValueMap: KVUpdatePath, optConfig: KVOptConfig): Promise<KVValue>;
-    update (key: string, pathAndValueMap: KVUpdatePath, ttlSeconds?: number, optConfig?: KVOptConfig): Promise<KVValue>;
+    update (key: string, pathAndValueMap: KVUpdatePath, ttl?: number, optConfig?: KVOptConfig): Promise<KVValue>;
+    update (item: KVUpdateObject): Promise<KVValue>;
     expire (key: string, ttlSeconds: number, optConfig?: KVOptConfig): Promise<boolean>;
     expireAt (key: string, timestampSeconds: number, optConfig?: KVOptConfig): Promise<boolean>;
     list (pattern?: string, returnValues?: false): Promise<string[]>;

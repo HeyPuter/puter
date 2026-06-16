@@ -15,7 +15,7 @@ puter.kv.flush()
 None
 
 ## Return value
-A `Promise` that will resolve to `true` when the key-value store has been flushed (emptied). The promise will never reject.
+A `Promise` that will resolve to `true` when the key-value store has been flushed (emptied), or reject with an error on failure.
 
 ## Examples
 
