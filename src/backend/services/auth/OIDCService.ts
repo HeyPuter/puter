@@ -482,6 +482,9 @@ export class OIDCService extends PuterService {
             allow: true,
             no_temp_user: false,
             requires_email_confirmation: false,
+            requires_phone_verification: false,
+            requires_card_verification: false,
+            reputation: null as number | null,
             message: null as string | null,
             code: null as string | null,
         };
@@ -532,6 +535,17 @@ export class OIDCService extends PuterService {
             };
         }
 
+        const cfg = this.config as {
+            always_require_phone_verification?: boolean;
+            always_require_card_verification?: boolean;
+        };
+        const force_phone_verification =
+            Boolean(validateEvent.requires_phone_verification) ||
+            Boolean(cfg.always_require_phone_verification);
+        const force_card_verification =
+            Boolean(validateEvent.requires_card_verification) ||
+            Boolean(cfg.always_require_card_verification);
+
         const created = await this.stores.user.create({
             username,
             uuid: uuidv4(),
@@ -539,7 +553,14 @@ export class OIDCService extends PuterService {
             email,
             clean_email: cleanEmail(email),
             free_storage: this.config.storage_capacity ?? null,
+            // Email is provider-verified, so the email step is always skipped;
+            // the phone/card gates still apply when the harness flagged them.
             requires_email_confirmation: false,
+            requires_phone_verification: force_phone_verification,
+            requires_card_verification: force_card_verification,
+            ...(validateEvent.reputation != null
+                ? { reputation: validateEvent.reputation }
+                : {}),
             audit_metadata: {
                 ip: clientIp,
                 ip_fwd: proxyIpChain,
