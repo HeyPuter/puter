@@ -690,24 +690,13 @@ export class AuthController extends PuterController {
                 email_confirm_code,
                 email_confirm_token,
                 email_confirmed: 0,
-                // Pseudo claims always require email confirmation — the
-                // validate hook can only tighten, not loosen, so `1`
-                // stays hardcoded here.
                 requires_email_confirmation: 1,
                 last_activity_ts: signupSqlTs,
-                // Record the v2 reputation from this claim (skip if unset so we
-                // don't clobber an existing score with a placeholder).
                 ...(validateEvent.reputation != null
                     ? { reputation: validateEvent.reputation }
                     : {}),
-                // Carry the phone gate onto the claimed account when required.
-                ...(force_phone_verification
-                    ? { requires_phone_verification: 1 }
-                    : {}),
-                // Likewise for the card gate.
-                ...(force_card_verification
-                    ? { requires_card_verification: 1 }
-                    : {}),
+                requires_phone_verification: force_phone_verification ? 1 : 0,
+                requires_card_verification: force_card_verification ? 1 : 0,
             });
 
             // Move from temp group to regular user group

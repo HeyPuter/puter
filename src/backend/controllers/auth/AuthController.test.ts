@@ -4086,6 +4086,77 @@ describe('AuthController.handleSignup additional branches', () => {
         expect(claimed!.password).not.toBeNull();
     });
 
+    it('claim clears stale phone/card gates on the placeholder when the decision no longer requires them', async () => {
+        // Placeholder seeded with both gates already set. A benign claim
+        // (no validate override → no requirements) must reset them rather
+        // than silently inheriting the stale requirement.
+        const targetEmail = `pseudo_${uniq()}@test.local`;
+        const placeholder = await server.stores.user.create({
+            username: `placeholder_${uniq()}`,
+            uuid: uuidv4(),
+            password: null,
+            email: targetEmail,
+            clean_email: targetEmail,
+            email_confirmed: 0,
+            requires_phone_verification: 1,
+            requires_card_verification: 1,
+        } as never);
+
+        const res = makeRes();
+        await controller.handleSignup(
+            makeReq({
+                username: `claim_${uniq()}`,
+                email: targetEmail,
+                password: 'correct-horse-battery',
+            }),
+            res,
+        );
+        expect(isCompleteLoginResponse(res.body)).toBe(true);
+
+        const claimed = await server.stores.user.getById(placeholder.id, {
+            force: true,
+        });
+        expect(claimed!.requires_phone_verification).toBe(false);
+        expect(claimed!.requires_card_verification).toBe(false);
+    });
+
+    it('claim carries the phone/card gates when the decision requires them', async () => {
+        const targetEmail = `pseudo_${uniq()}@test.local`;
+        const placeholder = await server.stores.user.create({
+            username: `placeholder_${uniq()}`,
+            uuid: uuidv4(),
+            password: null,
+            email: targetEmail,
+            clean_email: targetEmail,
+            email_confirmed: 0,
+        } as never);
+
+        await withSignupValidateOverride(
+            (event) => {
+                event.requires_phone_verification = true;
+                event.requires_card_verification = true;
+            },
+            async () => {
+                const res = makeRes();
+                await controller.handleSignup(
+                    makeReq({
+                        username: `claim_${uniq()}`,
+                        email: targetEmail,
+                        password: 'correct-horse-battery',
+                    }),
+                    res,
+                );
+                expect(isCompleteLoginResponse(res.body)).toBe(true);
+            },
+        );
+
+        const claimed = await server.stores.user.getById(placeholder.id, {
+            force: true,
+        });
+        expect(claimed!.requires_phone_verification).toBe(true);
+        expect(claimed!.requires_card_verification).toBe(true);
+    });
+
     it('extension hook can require email confirmation via requires_email_confirmation=true', async () => {
         await withSignupValidateOverride(
             (event) => {
