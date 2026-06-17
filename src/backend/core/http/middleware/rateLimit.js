@@ -392,7 +392,14 @@ function ip(req) {
     return req.ip || req.socket?.remoteAddress || 'unknown';
 }
 
-function fingerprint(req) {
+/**
+ * A coarse network fingerprint for a request: a short hash of the (proxy-aware)
+ * IP plus the headers a client can't trivially vary per-request without also
+ * changing how the request looks. Used as the default rate-limit key here, and
+ * exported so the global fingerprint middleware can stamp the identical value
+ * on `req.networkFingerprint` (one key space shared by both).
+ */
+export function computeNetworkFingerprint(req) {
     const parts = [
         ip(req),
         req.headers?.['user-agent'] || '',
@@ -404,6 +411,10 @@ function fingerprint(req) {
         .update(parts.join('|'))
         .digest('base64url')
         .slice(0, 16);
+}
+
+function fingerprint(req) {
+    return computeNetworkFingerprint(req);
 }
 
 // -- Route middleware ------------------------------------------------

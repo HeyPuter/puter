@@ -66,6 +66,21 @@ declare global {
             /** True when the request's Host is a custom domain (not one of the configured Puter domains). */
             is_custom_domain?: boolean;
 
+            /**
+             * Coarse server-derived request fingerprint (IP + UA + accept
+             * headers), populated by the global fingerprint middleware. Always
+             * present; the same value the rate limiter keys on.
+             */
+            networkFingerprint?: string;
+
+            /**
+             * Client-supplied device fingerprint (ThumbmarkJS hash) from the
+             * body or `x-puter-device-fingerprint` header, populated by the
+             * global fingerprint middleware. Present only when the client sent a
+             * well-shaped value; spoofable but stable per device across IPs.
+             */
+            deviceFingerprint?: string;
+
             /** Parsed cookies, populated by the global `cookie-parser` middleware. */
             cookies?: Record<string, string>;
         }
