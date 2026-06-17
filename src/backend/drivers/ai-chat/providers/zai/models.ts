@@ -70,6 +70,13 @@ const visionModel = (
 // https://docs.z.ai/guides/overview/pricing.
 export const ZAI_MODELS: IChatModel[] = [
     textModel(
+        'glm-5.2',
+        'GLM-5.2',
+        1_000 * K,
+        128 * K,
+        usdPerMToken(1.4, 4.4, 0.26),
+    ),
+    textModel(
         'glm-5.1',
         'GLM-5.1',
         200 * K,
