@@ -19,6 +19,7 @@
 
 import { statfs } from 'node:fs/promises';
 import { posix as pathPosix } from 'node:path';
+import { assertNormalized } from '../../services/fs/resolveNode.js';
 import { v4 as uuidv4 } from 'uuid';
 import { HttpError } from '../../core/http/HttpError.js';
 import type { LayerInstances } from '../../types.js';
@@ -59,10 +60,7 @@ export class FSEntryStore extends PuterStore {
     declare protected stores: LayerInstances<typeof puterStores>;
 
     #insertIgnoreIntoFsentriesSql(): string {
-        return this.clients.db.case({
-            sqlite: 'INSERT OR IGNORE INTO fsentries',
-            otherwise: 'INSERT IGNORE INTO fsentries',
-        });
+        return this.clients.db.insertIgnoreInto('fsentries');
     }
 
     // JSON aggregation of associated subdomain rows, keyed on fsentries.id.
@@ -81,6 +79,16 @@ export class FSEntryStore extends PuterStore {
             otherwise: `(
                 SELECT JSON_ARRAYAGG(
                     JSON_OBJECT('uuid', sd.uuid, 'subdomain', sd.subdomain)
+                )
+                FROM subdomains sd
+                WHERE sd.root_dir_id = fsentries.id
+            )`,
+            postgres: `(
+                SELECT COALESCE(
+                    json_agg(
+                        json_build_object('uuid', sd.uuid, 'subdomain', sd.subdomain)
+                    ),
+                    '[]'::json
                 )
                 FROM subdomains sd
                 WHERE sd.root_dir_id = fsentries.id
@@ -175,7 +183,8 @@ export class FSEntryStore extends PuterStore {
             });
         }
 
-        let normalized = pathPosix.normalize(trimmed);
+        assertNormalized(trimmed);
+        let normalized = trimmed;
         if (!normalized.startsWith('/')) {
             normalized = `/${normalized}`;
         }
@@ -657,6 +666,8 @@ export class FSEntryStore extends PuterStore {
                 const insertRows: unknown[] = [];
                 const valuePlaceholders: string[] = [];
                 const expectedUuidByPath = new Map<string, string>();
+                const trueLiteral = this.clients.db.booleanLiteral(true);
+                const falseLiteral = this.clients.db.booleanLiteral(false);
                 for (const dirPath of pathsAtDepth) {
                     const parentPath = pathPosix.dirname(dirPath);
                     const parentEntry =
@@ -677,7 +688,7 @@ export class FSEntryStore extends PuterStore {
                     const expectedUuid = uuidv4();
                     expectedUuidByPath.set(dirPath, expectedUuid);
                     valuePlaceholders.push(
-                        '(?, ?, ?, ?, ?, ?, 1, ?, ?, ?, 0, 0)',
+                        `(?, ?, ?, ?, ?, ?, ${trueLiteral}, ?, ?, ?, ${falseLiteral}, 0)`,
                     );
                     insertRows.push(
                         expectedUuid,
@@ -707,7 +718,7 @@ export class FSEntryStore extends PuterStore {
                             accessed,
                             immutable,
                             size
-                        ) VALUES ${valuePlaceholders.join(', ')}`,
+                        ) VALUES ${valuePlaceholders.join(', ')}${this.clients.db.insertIgnoreSuffix()}`,
                         insertRows,
                     );
                 } catch {
@@ -746,8 +757,12 @@ export class FSEntryStore extends PuterStore {
         for (const requiredPath of normalizedRequiredPaths) {
             const entry = allEntries.get(requiredPath);
             if (!entry) {
-                throw new Error(
-                    `Failed to resolve directory path: ${requiredPath}`,
+                // INSERT IGNORE silently dropped the row (see sibling
+                // path in #ensureDirectoryPath). Surface as 404.
+                throw new HttpError(
+                    404,
+                    `Parent path does not exist: ${requiredPath}`,
+                    { legacyCode: 'not_found' },
                 );
             }
             if (!entry.isDir) {
@@ -806,6 +821,8 @@ export class FSEntryStore extends PuterStore {
                 : await this.#ensureDirectoryPath(parentPath, userId, true);
         const dirName = pathPosix.basename(normalizedPath);
         const now = Math.floor(Date.now() / 1000);
+        const trueLiteral = this.clients.db.booleanLiteral(true);
+        const falseLiteral = this.clients.db.booleanLiteral(false);
 
         let insertError: unknown = null;
         try {
@@ -823,7 +840,7 @@ export class FSEntryStore extends PuterStore {
                     accessed,
                     immutable,
                     size
-                ) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, 0, 0)`,
+                ) VALUES (?, ?, ?, ?, ?, ?, ${trueLiteral}, ?, ?, ?, ${falseLiteral}, 0)${this.clients.db.insertIgnoreSuffix()}`,
                 [
                     uuidv4(),
                     userId,
@@ -860,8 +877,15 @@ export class FSEntryStore extends PuterStore {
                     }`,
                 );
             }
-            throw new Error(
-                `Failed to resolve directory path: ${normalizedPath}`,
+            // INSERT IGNORE silently dropped the row (typical cause:
+            // FK violation on parent_id/user_id — e.g. the user namespace
+            // doesn't exist). The path is unreachable from the client's
+            // perspective; surface as 404 rather than letting a generic
+            // Error become a 500 + page on-call.
+            throw new HttpError(
+                404,
+                `Parent path does not exist: ${normalizedPath}`,
+                { legacyCode: 'not_found' },
             );
         }
         if (!resolvedEntry.isDir) {
@@ -1680,8 +1704,10 @@ export class FSEntryStore extends PuterStore {
             for (const entry of userEntries) {
                 const parentEntry = parentByPath.get(entry.parentPath);
                 if (!parentEntry) {
-                    throw new Error(
-                        `Failed to resolve parent directory for ${entry.targetPath}`,
+                    throw new HttpError(
+                        404,
+                        `Parent directory not found for ${entry.targetPath}`,
+                        { legacyCode: 'dest_does_not_exist' },
                     );
                 }
 
@@ -1752,11 +1778,13 @@ export class FSEntryStore extends PuterStore {
                                 entry.input.associatedAppId ?? null,
                                 entry.input.isPublic === undefined
                                     ? null
-                                    : entry.input.isPublic
-                                      ? 1
-                                      : 0,
+                                    : this.clients.db.booleanValue(
+                                          entry.input.isPublic,
+                                      ),
                                 entry.input.thumbnail ?? null,
-                                entry.input.immutable ? 1 : 0,
+                                this.clients.db.booleanValue(
+                                    Boolean(entry.input.immutable),
+                                ),
                                 entry.fileName,
                                 entry.targetPath,
                                 entry.metadataJson,
@@ -1831,13 +1859,15 @@ export class FSEntryStore extends PuterStore {
                     for (const entry of insertChunk) {
                         const parentEntry = parentByPath.get(entry.parentPath);
                         if (!parentEntry) {
-                            throw new Error(
-                                `Failed to resolve parent directory for ${entry.targetPath}`,
+                            throw new HttpError(
+                                404,
+                                `Parent directory not found for ${entry.targetPath}`,
+                                { legacyCode: 'dest_does_not_exist' },
                             );
                         }
 
                         valuePlaceholders.push(
-                            '(?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                            `(?, ?, ?, ?, ?, ?, ?, ${this.clients.db.booleanLiteral(false)}, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                         );
                         values.push(
                             entry.input.uuid,
@@ -1849,11 +1879,13 @@ export class FSEntryStore extends PuterStore {
                             entry.input.associatedAppId ?? null,
                             entry.input.isPublic === undefined
                                 ? null
-                                : entry.input.isPublic
-                                  ? 1
-                                  : 0,
+                                : this.clients.db.booleanValue(
+                                      entry.input.isPublic,
+                                  ),
                             entry.input.thumbnail ?? null,
-                            entry.input.immutable ? 1 : 0,
+                            this.clients.db.booleanValue(
+                                Boolean(entry.input.immutable),
+                            ),
                             entry.fileName,
                             entry.targetPath,
                             entry.metadataJson,
@@ -1890,7 +1922,7 @@ export class FSEntryStore extends PuterStore {
                             created,
                             accessed,
                             size
-                        ) VALUES ${valuePlaceholders.join(', ')}`,
+                        ) VALUES ${valuePlaceholders.join(', ')}${this.clients.db.insertIgnoreSuffix()}`,
                         values,
                     );
                 },
@@ -1961,8 +1993,10 @@ export class FSEntryStore extends PuterStore {
                 for (const entry of racedCandidates) {
                     const parentEntry = parentByPath.get(entry.parentPath);
                     if (!parentEntry) {
-                        throw new Error(
-                            `Failed to resolve parent directory for ${entry.targetPath}`,
+                        throw new HttpError(
+                            404,
+                            `Parent directory not found for ${entry.targetPath}`,
+                            { legacyCode: 'dest_does_not_exist' },
                         );
                     }
                     const existing = racedExistingByPath.get(entry.targetPath);
@@ -2042,11 +2076,13 @@ export class FSEntryStore extends PuterStore {
                             entry.input.associatedAppId ?? null,
                             entry.input.isPublic === undefined
                                 ? null
-                                : entry.input.isPublic
-                                  ? 1
-                                  : 0,
+                                : this.clients.db.booleanValue(
+                                      entry.input.isPublic,
+                                  ),
                             entry.input.thumbnail ?? null,
-                            entry.input.immutable ? 1 : 0,
+                            this.clients.db.booleanValue(
+                                Boolean(entry.input.immutable),
+                            ),
                             entry.fileName,
                             entry.targetPath,
                             entry.metadataJson,
@@ -2226,7 +2262,7 @@ export class FSEntryStore extends PuterStore {
         return completedEntries;
     }
 
-    // ── Non-file entry creation (dirs, shortcuts, symlinks, touch) ──────
+    // -- Non-file entry creation (dirs, shortcuts, symlinks, touch) ------
 
     /**
      * Create a single non-file entry: directory, shortcut, or symlink.
@@ -2260,9 +2296,13 @@ export class FSEntryStore extends PuterStore {
                 ? `/${input.name}`
                 : `${parentPath}/${input.name}`;
 
-        const isDir = input.kind === 'directory' ? 1 : 0;
-        const isShortcut = input.kind === 'shortcut' ? 1 : 0;
-        const isSymlink = input.kind === 'symlink' ? 1 : 0;
+        const isDir = this.clients.db.booleanValue(input.kind === 'directory');
+        const isShortcut = this.clients.db.booleanValue(
+            input.kind === 'shortcut',
+        );
+        const isSymlink = this.clients.db.booleanValue(
+            input.kind === 'symlink',
+        );
 
         await this.clients.db.write(
             `INSERT INTO fsentries (
@@ -2302,12 +2342,10 @@ export class FSEntryStore extends PuterStore {
                 input.associatedAppId ?? null,
                 input.metadata ?? null,
                 input.thumbnail ?? null,
-                input.immutable ? 1 : 0,
+                this.clients.db.booleanValue(Boolean(input.immutable)),
                 input.isPublic === undefined || input.isPublic === null
                     ? null
-                    : input.isPublic
-                      ? 1
-                      : 0,
+                    : this.clients.db.booleanValue(input.isPublic),
                 now,
                 now,
                 now,
@@ -2376,7 +2414,7 @@ export class FSEntryStore extends PuterStore {
         return entry;
     }
 
-    // ── Listing / descendants / search ──────────────────────────────────
+    // -- Listing / descendants / search ----------------------------------
 
     // Children of a directory (direct children only). Paginated + sortable.
     async listChildren(
@@ -2491,21 +2529,32 @@ export class FSEntryStore extends PuterStore {
     }
 
     // Simple case-insensitive substring search on name, scoped to one user.
+    // When `pathScope` is set, results are further restricted to that path
+    // and its descendants — used to keep app-under-user actors from peeking
+    // outside their AppData subtree via search.
     async searchByNameForUser(
         userId: number,
         query: string,
         limit = 200,
+        pathScope?: string,
     ): Promise<FSEntry[]> {
         const q = query.trim();
         if (q.length === 0) return [];
         const likePattern = `%${this.#escapeLikePattern(q)}%`;
         const capped = Math.max(1, Math.min(1000, Math.floor(limit)));
+        const params: unknown[] = [userId, likePattern];
+        let scopeClause = '';
+        if (pathScope) {
+            scopeClause = ` AND (path = ? OR path LIKE ? ESCAPE '!')`;
+            params.push(pathScope);
+            params.push(`${this.#escapeLikePattern(pathScope)}/%`);
+        }
         const rows = (await this.clients.db.read(
             `SELECT ${this.#selectFsentriesColumns()} FROM fsentries
-             WHERE user_id = ? AND name LIKE ? ESCAPE '!'
+             WHERE user_id = ? AND name LIKE ? ESCAPE '!'${scopeClause}
              ORDER BY modified DESC
              LIMIT ${capped}`,
-            [userId, likePattern],
+            params,
         )) as unknown as FSEntryRow[];
         const entries = rows.map((row) => this.#mapFSEntryRow(row));
         // Search matches by `name`, so legacy NULL-path rows can land here.
@@ -2514,7 +2563,7 @@ export class FSEntryStore extends PuterStore {
         return entries;
     }
 
-    // ── Mutation ───────────────────────────────────────────────────────
+    // -- Mutation -------------------------------------------------------
 
     // Generic single-entry update. Only a narrow set of columns are patchable
     // through this method; the caller provides the JS-shaped patch and we map.
@@ -2554,10 +2603,12 @@ export class FSEntryStore extends PuterStore {
         if (patch.isPublic !== undefined)
             push(
                 'is_public',
-                patch.isPublic === null ? null : patch.isPublic ? 1 : 0,
+                patch.isPublic === null
+                    ? null
+                    : this.clients.db.booleanValue(patch.isPublic),
             );
         if (patch.immutable !== undefined)
-            push('immutable', patch.immutable ? 1 : 0);
+            push('immutable', this.clients.db.booleanValue(patch.immutable));
         if (patch.associatedAppId !== undefined)
             push('associated_app_id', patch.associatedAppId);
         if (patch.layout !== undefined) push('layout', patch.layout);
@@ -2605,7 +2656,7 @@ export class FSEntryStore extends PuterStore {
     async getRootEntryForUser(userId: number): Promise<FSEntry | null> {
         const rows = (await this.clients.db.read(
             `SELECT ${this.#selectFsentriesColumns()} FROM fsentries
-             WHERE user_id = ? AND parent_uid IS NULL AND is_dir = 1
+             WHERE user_id = ? AND parent_uid IS NULL AND is_dir = ${this.clients.db.booleanLiteral(true)}
              ORDER BY id ASC LIMIT 1`,
             [userId],
         )) as unknown as FSEntryRow[];
@@ -2645,9 +2696,13 @@ export class FSEntryStore extends PuterStore {
         if (oldPath && oldPath !== '/' && oldPath !== newPath) {
             const likePattern = `${this.#escapeLikePattern(oldPath)}/%`;
             const oldLen = oldPath.length;
+            const rewrittenPath = this.clients.db.case({
+                postgres: '? || SUBSTR(path, ?)',
+                otherwise: 'CONCAT(?, SUBSTR(path, ?))',
+            });
             await this.clients.db.write(
                 `UPDATE fsentries
-                 SET path = CONCAT(?, SUBSTR(path, ?)),
+                 SET path = ${rewrittenPath},
                      modified = ?
                  WHERE user_id = ? AND path LIKE ? ESCAPE '!'`,
                 [newPath, oldLen + 1, now, userId, likePattern],
@@ -2696,9 +2751,13 @@ export class FSEntryStore extends PuterStore {
 
         // CONCAT(?, SUBSTR(path, ? + 1)) to rewrite just the prefix portion.
         const oldPrefixLen = normalizedOld.length;
+        const rewrittenPath = this.clients.db.case({
+            postgres: '? || SUBSTR(path, ?)',
+            otherwise: 'CONCAT(?, SUBSTR(path, ?))',
+        });
         const result = await this.clients.db.write(
             `UPDATE fsentries
-             SET path = CONCAT(?, SUBSTR(path, ?)),
+             SET path = ${rewrittenPath},
                  modified = ?
              WHERE user_id = ? AND path LIKE ? ESCAPE '!'`,
             [normalizedNew, oldPrefixLen + 1, now, userId, likePattern],
@@ -2747,11 +2806,11 @@ export class FSEntryStore extends PuterStore {
     ): Promise<{ curr: number; max: number }> {
         const [usageRows, userRows] = await Promise.all([
             this.clients.db.read(
-                'SELECT COALESCE(SUM(size), 0) AS totalUsage FROM fsentries WHERE user_id = ?',
+                `SELECT COALESCE(SUM(size), 0) AS ${this.clients.db.quoteIdentifier('totalUsage')} FROM fsentries WHERE user_id = ?`,
                 [userId],
             ) as Promise<{ totalUsage: number }[]>,
             this.clients.db.read(
-                'SELECT free_storage AS freeStorage FROM user WHERE id = ? LIMIT 1',
+                `SELECT free_storage AS ${this.clients.db.quoteIdentifier('freeStorage')} FROM ${this.clients.db.quoteIdentifier('user')} WHERE id = ? LIMIT 1`,
                 [userId],
             ) as Promise<{ freeStorage: number | null }[]>,
         ]);

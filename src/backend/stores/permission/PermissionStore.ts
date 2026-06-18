@@ -23,8 +23,11 @@ import type { puterStores } from '../index';
 import { PermissionUtil } from '../../services/permission/permissionUtil';
 import {
     PERM_KEY_PREFIX,
+    PERMISSION_CACHE_GENERATION_LOCAL_TTL_SECONDS,
+    PERMISSION_CACHE_GENERATION_TTL_SECONDS,
     PERMISSION_SCAN_CACHE_TTL_SECONDS,
 } from '../../services/permission/consts';
+import { kv } from '../../util/kvSingleton';
 import type { UserRow } from '../user/UserStore';
 
 // Short TTLs: FK CASCADE on user/app delete + PermissionService rewriters
@@ -37,7 +40,7 @@ const TOKEN_CACHE_TTL_SECONDS = 10 * 60;
 // The canonical definition lives in `UserStore`, which owns the user table.
 export type { UserRow };
 
-// ── Types ────────────────────────────────────────────────────────────
+// -- Types ------------------------------------------------------------
 
 export interface FlatPermValue {
     permission?: string;
@@ -94,7 +97,7 @@ export interface AuditEntry {
 export class PermissionStore extends PuterStore {
     declare protected stores: LayerInstances<typeof puterStores>;
 
-    // ── Flat view (KV under system namespace) ────────────────────────
+    // -- Flat view (KV under system namespace) ------------------------
 
     /**
      * Read the flat user-to-user permissions for a holder across a set of
@@ -124,18 +127,26 @@ export class PermissionStore extends PuterStore {
         );
     }
 
-    /** Write a single flat user-to-user permission entry to KV. */
+    /**
+     * Write a single flat user-to-user permission entry to KV.
+     *
+     * `opts.expireAt` (epoch seconds) marks the entry as a derived cache
+     * warm rather than an authoritative grant: warms self-expire so a warm
+     * that raced a concurrent revoke cannot re-materialize the grant
+     * indefinitely. Grant-path writes omit it and are permanent.
+     */
     async setFlatUserPerm(
         holderUserId: number,
         permission: string,
         value: FlatPermValue,
+        opts: { expireAt?: number } = {},
     ): Promise<void> {
         const key = PermissionUtil.join(
             PERM_KEY_PREFIX,
             String(holderUserId),
             permission,
         );
-        await this.stores.kv.set({ key, value });
+        await this.stores.kv.set({ key, value, expireAt: opts.expireAt });
     }
 
     /** Delete a single flat user-to-user permission entry from KV. */
@@ -151,7 +162,7 @@ export class PermissionStore extends PuterStore {
         await this.stores.kv.del({ key });
     }
 
-    // ── SQL: user-to-user permissions ───────────────────────────────
+    // -- SQL: user-to-user permissions -------------------------------
 
     async readLinkedUserUserPerms(
         holderUserId: number,
@@ -169,11 +180,10 @@ export class PermissionStore extends PuterStore {
         permission: string,
         extra: Record<string, unknown>,
     ): Promise<void> {
-        const upsertClause = this.clients.db.case<string>({
-            mysql: 'ON DUPLICATE KEY UPDATE `extra` = ?',
-            otherwise:
-                'ON CONFLICT(`holder_user_id`, `issuer_user_id`, `permission`) DO UPDATE SET `extra` = ?',
-        });
+        const upsertClause = this.clients.db.upsertClause(
+            ['holder_user_id', 'issuer_user_id', 'permission'],
+            ['extra'],
+        );
         await this.clients.db.write(
             'INSERT INTO `user_to_user_permissions` (`holder_user_id`, `issuer_user_id`, `permission`, `extra`) ' +
                 `VALUES (?, ?, ?, ?) ${upsertClause}`,
@@ -234,7 +244,7 @@ export class PermissionStore extends PuterStore {
         return rows.map((r) => Number(r.issuer_user_id));
     }
 
-    // ── SQL: user-to-app permissions ────────────────────────────────
+    // -- SQL: user-to-app permissions --------------------------------
 
     async readUserAppPerms(
         userId: number,
@@ -262,11 +272,10 @@ export class PermissionStore extends PuterStore {
         permission: string,
         extra: Record<string, unknown>,
     ): Promise<void> {
-        const upsertClause = this.clients.db.case<string>({
-            mysql: 'ON DUPLICATE KEY UPDATE `extra` = ?',
-            otherwise:
-                'ON CONFLICT(`user_id`, `app_id`, `permission`) DO UPDATE SET `extra` = ?',
-        });
+        const upsertClause = this.clients.db.upsertClause(
+            ['user_id', 'app_id', 'permission'],
+            ['extra'],
+        );
         await this.clients.db.write(
             'INSERT INTO `user_to_app_permissions` (`user_id`, `app_id`, `permission`, `extra`) ' +
                 `VALUES (?, ?, ?, ?) ${upsertClause}`,
@@ -330,7 +339,7 @@ export class PermissionStore extends PuterStore {
         );
     }
 
-    // ── SQL: dev-to-app permissions ─────────────────────────────────
+    // -- SQL: dev-to-app permissions ---------------------------------
 
     async readDevAppPerms(
         appId: number,
@@ -353,11 +362,10 @@ export class PermissionStore extends PuterStore {
         permission: string,
         extra: Record<string, unknown>,
     ): Promise<void> {
-        const upsertClause = this.clients.db.case<string>({
-            mysql: 'ON DUPLICATE KEY UPDATE `extra` = ?',
-            otherwise:
-                'ON CONFLICT(`user_id`, `app_id`, `permission`) DO UPDATE SET `extra` = ?',
-        });
+        const upsertClause = this.clients.db.upsertClause(
+            ['user_id', 'app_id', 'permission'],
+            ['extra'],
+        );
         await this.clients.db.write(
             'INSERT INTO `dev_to_app_permissions` (`user_id`, `app_id`, `permission`, `extra`) ' +
                 `VALUES (?, ?, ?, ?) ${upsertClause}`,
@@ -412,7 +420,7 @@ export class PermissionStore extends PuterStore {
         );
     }
 
-    // ── SQL: user-to-group permissions ──────────────────────────────
+    // -- SQL: user-to-group permissions ------------------------------
 
     /**
      * Reads group permissions granted to groups the user is a member of, for
@@ -443,11 +451,10 @@ export class PermissionStore extends PuterStore {
         permission: string,
         extra: Record<string, unknown>,
     ): Promise<void> {
-        const upsertClause = this.clients.db.case<string>({
-            mysql: 'ON DUPLICATE KEY UPDATE `extra` = ?',
-            otherwise:
-                'ON CONFLICT(`user_id`, `group_id`, `permission`) DO UPDATE SET `extra` = ?',
-        });
+        const upsertClause = this.clients.db.upsertClause(
+            ['user_id', 'group_id', 'permission'],
+            ['extra'],
+        );
         await this.clients.db.write(
             'INSERT INTO `user_to_group_permissions` (`user_id`, `group_id`, `permission`, `extra`) ' +
                 `VALUES (?, ?, ?, ?) ${upsertClause}`,
@@ -495,7 +502,7 @@ export class PermissionStore extends PuterStore {
         );
     }
 
-    // ── SQL: access token permissions ───────────────────────────────
+    // -- SQL: access token permissions -------------------------------
 
     async hasAccessTokenPerm(
         tokenUid: string,
@@ -512,7 +519,7 @@ export class PermissionStore extends PuterStore {
         });
     }
 
-    // ── SQL: issuer-prefix queries (share discovery, etc.) ──────────
+    // -- SQL: issuer-prefix queries (share discovery, etc.) ----------
 
     async queryIssuerUserPermsByPrefix(
         issuerUserId: number,
@@ -557,12 +564,93 @@ export class PermissionStore extends PuterStore {
         return rows.map((r) => String(r.permission));
     }
 
-    // ── Scan cache (redis) ──────────────────────────────────────────
+    // -- Cache generation (per-actor invalidation) -------------------
+    //
+    // A monotonically increasing counter per actor, folded into the scan
+    // and check cache keys. Bumping it (a single-key INCR — cluster-safe,
+    // no CROSSSLOT pattern scan) instantly orphans every cached reading for
+    // that actor: subsequent lookups compute a new key and miss.
+    //
+    // Derived actors (app-under-user, access-token) fold the generations of
+    // every actor they act through into their cache keys — see
+    // PermissionService's cacheGenerationTag — so a bump of `user:<uuid>`
+    // also orphans that user's app and token actors' readings.
+    //
+    // The authoritative counter lives in shared Redis. Permission checks are
+    // extremely hot, so each node keeps a tiny in-process cache (the kv.js
+    // singleton, ~2s TTL) in front of the Redis read — this collapses the
+    // per-check round-trip and the `checkMany`/recursive-scan fan-out to
+    // in-memory lookups. A bump on any node updates that node's local copy
+    // immediately and propagates to other nodes within the local TTL, which
+    // is therefore the cross-node revocation lag. Old-generation cache keys
+    // expire via their own short TTL.
+    #cacheGenerationKey(actorUid: string): string {
+        return PermissionUtil.join('permission-cachegen', actorUid);
+    }
 
-    buildScanCacheKey(actorUid: string, permissionOptions: string[]): string {
+    #localCacheGenerationKey(actorUid: string): string {
+        return `permgen-local:${actorUid}`;
+    }
+
+    async getCacheGeneration(actorUid: string): Promise<number> {
+        const localKey = this.#localCacheGenerationKey(actorUid);
+        const local = kv.get(localKey);
+        if (typeof local === 'number') return local;
+        try {
+            const raw = await this.clients.redis.get(
+                this.#cacheGenerationKey(actorUid),
+            );
+            const n = raw === null ? 0 : Number.parseInt(raw, 10);
+            const generation = Number.isFinite(n) && n >= 0 ? n : 0;
+            kv.set(localKey, generation, {
+                EX: PERMISSION_CACHE_GENERATION_LOCAL_TTL_SECONDS,
+            });
+            return generation;
+        } catch {
+            // On a cache read failure, fall back to generation 0 — the worst
+            // case is a stale reading bounded by the scan-cache TTL.
+            return 0;
+        }
+    }
+
+    async bumpCacheGeneration(actorUid: string): Promise<void> {
+        const key = this.#cacheGenerationKey(actorUid);
+        try {
+            const next = await this.clients.redis.incr(key);
+            // Keep the counter alive well past the cache TTL so it can't
+            // reset to 0 and revive same-generation stale entries.
+            await this.clients.redis.expire(
+                key,
+                PERMISSION_CACHE_GENERATION_TTL_SECONDS,
+            );
+            // Make this node consistent immediately; other nodes pick up the
+            // new value when their local copy expires (≤ local TTL).
+            if (typeof next === 'number') {
+                kv.set(this.#localCacheGenerationKey(actorUid), next, {
+                    EX: PERMISSION_CACHE_GENERATION_LOCAL_TTL_SECONDS,
+                });
+            } else {
+                kv.del(this.#localCacheGenerationKey(actorUid));
+            }
+        } catch {
+            // Best-effort: if the bump fails, the scan-cache TTL still
+            // bounds how long a revoked grant can linger. Drop the local
+            // copy so we re-read from Redis rather than serve a stale gen.
+            kv.del(this.#localCacheGenerationKey(actorUid));
+        }
+    }
+
+    // -- Scan cache (redis) ------------------------------------------
+
+    buildScanCacheKey(
+        actorUid: string,
+        permissionOptions: string[],
+        generation: number | string = 0,
+    ): string {
         return PermissionUtil.join(
             'permission-scan',
             actorUid,
+            `g${generation}`,
             'options-list',
             ...permissionOptions,
         );
@@ -595,17 +683,22 @@ export class PermissionStore extends PuterStore {
         await this.publishCacheKeys({ keys: [cacheKey] });
     }
 
-    // ── Per-permission check cache (for `checkMany`) ─────────────────
+    // -- Per-permission check cache (for `checkMany`) -----------------
     //
     // Cached as `1`/`0` per (actor, permission) pair so a batch lookup
-    // reduces to a single MGET. Same TTL as the scan cache — the
-    // underlying perm tables already publish invalidations via
-    // `publishCacheKeys` for grant/revoke writes, but those don't reach
-    // these keys, so we keep the TTL short and rely on it for staleness.
-    #checkCacheKey(actorUid: string, permission: string): string {
+    // reduces to a single MGET. Same TTL as the scan cache. The cache
+    // generation (see above) is folded into the key, so a grant/revoke
+    // bump invalidates these entries immediately rather than waiting for
+    // the TTL to lapse.
+    #checkCacheKey(
+        actorUid: string,
+        permission: string,
+        generation: number | string = 0,
+    ): string {
         return PermissionUtil.join(
             'permission-check',
             actorUid,
+            `g${generation}`,
             'p',
             permission,
         );
@@ -614,10 +707,13 @@ export class PermissionStore extends PuterStore {
     async getMultiCheckCache(
         actorUid: string,
         permissions: string[],
+        generation: number | string = 0,
     ): Promise<Map<string, boolean>> {
         const out = new Map<string, boolean>();
         if (permissions.length === 0) return out;
-        const keys = permissions.map((p) => this.#checkCacheKey(actorUid, p));
+        const keys = permissions.map((p) =>
+            this.#checkCacheKey(actorUid, p, generation),
+        );
         let raw: Array<string | null> = [];
         try {
             raw = (await this.clients.redis.mget(...keys)) as Array<
@@ -637,13 +733,14 @@ export class PermissionStore extends PuterStore {
     async setMultiCheckCache(
         actorUid: string,
         entries: Array<{ permission: string; granted: boolean }>,
+        generation: number | string = 0,
         ttlSeconds: number = PERMISSION_SCAN_CACHE_TTL_SECONDS,
     ): Promise<void> {
         if (entries.length === 0) return;
         const pipeline = this.clients.redis.pipeline();
         for (const { permission, granted } of entries) {
             pipeline.set(
-                this.#checkCacheKey(actorUid, permission),
+                this.#checkCacheKey(actorUid, permission, generation),
                 granted ? '1' : '0',
                 'EX',
                 ttlSeconds,
@@ -656,7 +753,7 @@ export class PermissionStore extends PuterStore {
         }
     }
 
-    // ── Internals ───────────────────────────────────────────────────
+    // -- Internals ---------------------------------------------------
 
     #u2uCacheKey(holderUserId: number): string {
         return `perms:u2u:holder:${holderUserId}`;

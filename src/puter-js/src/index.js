@@ -18,6 +18,7 @@ import { PTLSSocket } from './modules/networking/PTLS.js';
 import { pFetch } from './modules/networking/requests.js';
 import OS from './modules/OS.js';
 import Perms from './modules/Perms.js';
+import PuterDialog from './modules/PuterDialog.js';
 import UI from './modules/UI.js';
 import Util from './modules/Util.js';
 import { WorkersHandler } from './modules/Workers.js';
@@ -25,61 +26,61 @@ import Peer from './modules/Peer.js';
 import { registerComponents } from './ui/registerComponents.js';
 
 class SimpleLogger {
-    constructor (fields = {}) {
+    constructor(fields = {}) {
         this.fieldsObj = fields;
         this.enabled = new Set();
     }
 
-    on (category) {
+    on(category) {
         this.enabled.add(category);
     }
 
-    fields (extra = {}) {
+    fields(extra = {}) {
         return new SimpleLogger({ ...this.fieldsObj, ...extra });
     }
 
-    info (...args) {
+    info(...args) {
         console.log(...this._prefix(), ...args);
     }
 
-    warn (...args) {
+    warn(...args) {
         console.warn(...this._prefix(), ...args);
     }
 
-    error (...args) {
+    error(...args) {
         console.error(...this._prefix(), ...args);
     }
 
-    debug (...args) {
+    debug(...args) {
         console.debug(...this._prefix(), ...args);
     }
 
-    _prefix () {
+    _prefix() {
         const entries = Object.entries(this.fieldsObj);
-        if ( ! entries.length ) return [];
-        return [`[${ entries.map(([k, v]) => `${k}=${v}`).join(' ')}]`];
+        if (!entries.length) return [];
+        return [`[${entries.map(([k, v]) => `${k}=${v}`).join(' ')}]`];
     }
 }
 
 class Lock {
-    constructor () {
+    constructor() {
         this.locked = false;
         this.queue = [];
     }
 
-    async acquire () {
-        if ( ! this.locked ) {
+    async acquire() {
+        if (!this.locked) {
             this.locked = true;
             return;
         }
 
-        await new Promise(resolve => this.queue.push(resolve));
+        await new Promise((resolve) => this.queue.push(resolve));
         this.locked = true;
     }
 
-    release () {
+    release() {
         const next = this.queue.shift();
-        if ( next ) {
+        if (next) {
             next();
             return;
         }
@@ -91,7 +92,15 @@ class Lock {
 //       (using defaultGUIOrigin breaks locally-hosted apps)
 const PROD_ORIGIN = 'https://puter.com';
 
-const puterInit = (function () {
+// localStorage keys for the auth token. v1 is the legacy key. v2 is
+// the new key written after the token rotation in the v1→v2 cutover.
+// Reads prefer v2; v1 is only consulted to drive the silent-migration
+// path (access_token / app kinds) or — for kind='web' — to fail over
+// to the interactive reauth flow.
+const STORAGE_KEY_V1 = 'puter.auth.token';
+const STORAGE_KEY_V2 = 'puter.auth.token.v2';
+
+const puterInit = function () {
     'use strict';
 
     class Puter {
@@ -104,17 +113,25 @@ const puterInit = (function () {
         #defaultAPIOrigin = 'https://api.puter.com';
         #defaultGUIOrigin = 'https://puter.com';
 
-        get defaultAPIOrigin () {
-            return globalThis.PUTER_API_ORIGIN || globalThis.PUTER_API_ORIGIN_ENV || this.#defaultAPIOrigin;
+        get defaultAPIOrigin() {
+            return (
+                globalThis.PUTER_API_ORIGIN ||
+                globalThis.PUTER_API_ORIGIN_ENV ||
+                this.#defaultAPIOrigin
+            );
         }
-        set defaultAPIOrigin (v) {
+        set defaultAPIOrigin(v) {
             this.#defaultAPIOrigin = v;
         }
 
-        get defaultGUIOrigin () {
-            return globalThis.PUTER_ORIGIN || globalThis.PUTER_ORIGIN_ENV || this.#defaultGUIOrigin;
+        get defaultGUIOrigin() {
+            return (
+                globalThis.PUTER_ORIGIN ||
+                globalThis.PUTER_ORIGIN_ENV ||
+                this.#defaultGUIOrigin
+            );
         }
-        set defaultGUIOrigin (v) {
+        set defaultGUIOrigin(v) {
             this.#defaultGUIOrigin = v;
         }
 
@@ -142,6 +159,12 @@ const puterInit = (function () {
 
         // Event handling properties
         eventHandlers = {};
+
+        // Reauth coordinator state. When the backend signals
+        // `401 { code: 'reauth_required' }`, in-flight requests await this
+        // promise; the first caller drives the interactive flow, everyone
+        // else replays after it resolves.
+        _reauthInflight = null;
 
         // debug flag
         debugMode = false;
@@ -187,7 +210,7 @@ const puterInit = (function () {
         };
 
         normalizeAuthTokenCandidate = function (tokenCandidate) {
-            if ( typeof tokenCandidate !== 'string' ) return null;
+            if (typeof tokenCandidate !== 'string') return null;
             const trimmedTokenCandidate = tokenCandidate.trim();
             if (
                 !trimmedTokenCandidate ||
@@ -200,30 +223,34 @@ const puterInit = (function () {
         };
 
         decodeJwtPayload = function (tokenCandidate) {
-            if ( typeof tokenCandidate !== 'string' ) return null;
+            if (typeof tokenCandidate !== 'string') return null;
             const tokenParts = tokenCandidate.split('.');
-            if ( tokenParts.length < 2 ) return null;
+            if (tokenParts.length < 2) return null;
 
             let payloadPart = tokenParts[1];
             payloadPart = payloadPart.replace(/-/g, '+').replace(/_/g, '/');
             const missingPaddingLength = payloadPart.length % 4;
-            if ( missingPaddingLength ) {
+            if (missingPaddingLength) {
                 payloadPart += '='.repeat(4 - missingPaddingLength);
             }
 
             try {
                 let decodedPayloadText;
-                if ( typeof globalThis.atob === 'function' ) {
+                if (typeof globalThis.atob === 'function') {
                     decodedPayloadText = decodeURIComponent(
-                        Array.prototype.map.call(
-                            globalThis.atob(payloadPart),
-                            character => `%${`00${character.charCodeAt(0).toString(16)}`.slice(-2)}`,
-                        ).join(''),
+                        Array.prototype.map
+                            .call(
+                                globalThis.atob(payloadPart),
+                                (character) =>
+                                    `%${`00${character.charCodeAt(0).toString(16)}`.slice(-2)}`,
+                            )
+                            .join(''),
                     );
-                } else if ( typeof globalThis.Buffer !== 'undefined' ) {
-                    decodedPayloadText = globalThis.Buffer
-                        .from(payloadPart, 'base64')
-                        .toString('utf8');
+                } else if (typeof globalThis.Buffer !== 'undefined') {
+                    decodedPayloadText = globalThis.Buffer.from(
+                        payloadPart,
+                        'base64',
+                    ).toString('utf8');
                 } else {
                     return null;
                 }
@@ -237,56 +264,59 @@ const puterInit = (function () {
         };
 
         normalizeStringCandidate = function (valueCandidate) {
-            if ( typeof valueCandidate !== 'string' ) return null;
+            if (typeof valueCandidate !== 'string') return null;
             const trimmedValueCandidate = valueCandidate.trim();
             return trimmedValueCandidate || null;
         };
 
         decodeCompressedAppID = function (compressedAppIDCandidate) {
-            const normalizedCompressedAppID = this.normalizeStringCandidate(compressedAppIDCandidate);
-            if ( ! normalizedCompressedAppID ) return null;
+            const normalizedCompressedAppID = this.normalizeStringCandidate(
+                compressedAppIDCandidate,
+            );
+            if (!normalizedCompressedAppID) return null;
 
             // TokenService may already provide an expanded UID value.
-            if ( normalizedCompressedAppID.includes('-') ) {
+            if (normalizedCompressedAppID.includes('-')) {
                 return normalizedCompressedAppID;
             }
 
             try {
                 let decodedBytes;
-                if ( typeof globalThis.Buffer !== 'undefined' ) {
-                    decodedBytes = globalThis.Buffer.from(normalizedCompressedAppID, 'base64');
-                } else if ( typeof globalThis.atob === 'function' ) {
-                    const decodedBinary = globalThis.atob(normalizedCompressedAppID);
-                    decodedBytes = Uint8Array.from(
-                        decodedBinary,
-                        character => character.charCodeAt(0),
+                if (typeof globalThis.Buffer !== 'undefined') {
+                    decodedBytes = globalThis.Buffer.from(
+                        normalizedCompressedAppID,
+                        'base64',
+                    );
+                } else if (typeof globalThis.atob === 'function') {
+                    const decodedBinary = globalThis.atob(
+                        normalizedCompressedAppID,
+                    );
+                    decodedBytes = Uint8Array.from(decodedBinary, (character) =>
+                        character.charCodeAt(0),
                     );
                 } else {
                     return null;
                 }
 
-                if ( !decodedBytes || decodedBytes.length !== 16 ) return null;
+                if (!decodedBytes || decodedBytes.length !== 16) return null;
 
-                const decodedHex = (
+                const decodedHex =
                     typeof globalThis.Buffer !== 'undefined' &&
                     typeof globalThis.Buffer.isBuffer === 'function' &&
                     globalThis.Buffer.isBuffer(decodedBytes)
-                )
-                    ? decodedBytes.toString('hex')
-                    : Array.from(decodedBytes)
-                        .map(byte => byte.toString(16).padStart(2, '0'))
-                        .join('');
-                if ( decodedHex.length !== 32 ) return null;
+                        ? decodedBytes.toString('hex')
+                        : Array.from(decodedBytes)
+                              .map((byte) => byte.toString(16).padStart(2, '0'))
+                              .join('');
+                if (decodedHex.length !== 32) return null;
 
-                return `app-${
-                    [
-                        decodedHex.slice(0, 8),
-                        decodedHex.slice(8, 12),
-                        decodedHex.slice(12, 16),
-                        decodedHex.slice(16, 20),
-                        decodedHex.slice(20),
-                    ].join('-')
-                }`;
+                return `app-${[
+                    decodedHex.slice(0, 8),
+                    decodedHex.slice(8, 12),
+                    decodedHex.slice(12, 16),
+                    decodedHex.slice(16, 20),
+                    decodedHex.slice(20),
+                ].join('-')}`;
             } catch {
                 return null;
             }
@@ -294,10 +324,12 @@ const puterInit = (function () {
 
         getAppIDFromAuthToken = function (tokenCandidate) {
             const payload = this.decodeJwtPayload(tokenCandidate);
-            if ( ! payload ) return null;
+            if (!payload) return null;
 
-            const uncompressedAppUid = this.normalizeStringCandidate(payload.app_uid);
-            if ( uncompressedAppUid ) return uncompressedAppUid;
+            const uncompressedAppUid = this.normalizeStringCandidate(
+                payload.app_uid,
+            );
+            if (uncompressedAppUid) return uncompressedAppUid;
 
             // `auth` JWT scope may compress `app_uid` to `au`.
             return this.decodeCompressedAppID(payload.au);
@@ -306,8 +338,7 @@ const puterInit = (function () {
         // --------------------------------------------
         // Constructor
         // --------------------------------------------
-        constructor () {
-
+        constructor() {
             // Initialize the cache using kv.js
             this._cache = new kvjs({ dbName: 'puter_cache' });
             this._opscache = new kvjs();
@@ -319,42 +350,39 @@ const puterInit = (function () {
             let URLParams = new URLSearchParams(globalThis.location?.search);
 
             // Figure out the environment in which the SDK is running
-            if ( URLParams.has('puter.app_instance_id') ) {
+            if (URLParams.has('puter.app_instance_id')) {
                 this.env = 'app';
-            } else if ( globalThis.puter_gui_enabled === true )
-            {
+            } else if (globalThis.puter_gui_enabled === true) {
                 this.env = 'gui';
-            }
-            else if ( globalThis.WorkerGlobalScope ) {
-                if ( globalThis.ServiceWorkerGlobalScope ) {
+            } else if (globalThis.WorkerGlobalScope) {
+                if (globalThis.ServiceWorkerGlobalScope) {
                     this.env = 'service-worker';
-                    if ( ! globalThis.XMLHttpRequest ) {
+                    if (!globalThis.XMLHttpRequest) {
                         globalThis.XMLHttpRequest = xhrshim;
                     }
-                    if ( ! globalThis.location ) {
+                    if (!globalThis.location) {
                         globalThis.location = new URL('https://puter.site/');
                     }
                     // XHRShimGlobalize here
                 } else {
                     this.env = 'web-worker';
                 }
-                if ( ! globalThis.localStorage ) {
+                if (!globalThis.localStorage) {
                     globalThis.localStorage = localStorageMemory;
                 }
-            } else if ( globalThis.process ) {
+            } else if (globalThis.process) {
                 this.env = 'nodejs';
-                if ( ! globalThis.localStorage ) {
+                if (!globalThis.localStorage) {
                     globalThis.localStorage = localStorageMemory;
                 }
-                if ( ! globalThis.XMLHttpRequest ) {
+                if (!globalThis.XMLHttpRequest) {
                     globalThis.XMLHttpRequest = xhrshim;
                 }
-                if ( ! globalThis.location ) {
+                if (!globalThis.location) {
                     globalThis.location = new URL('https://nodejs.puter.site/');
                 }
-                if ( ! globalThis.addEventListener ) {
-                    globalThis.addEventListener = () => {
-                    }; // API Stub
+                if (!globalThis.addEventListener) {
+                    globalThis.addEventListener = () => {}; // API Stub
                 }
             } else {
                 this.env = 'web';
@@ -363,7 +391,7 @@ const puterInit = (function () {
             // There are some specific situations where puter is definitely loaded in GUI mode
             // we're going to check for those situations here so that we don't break anything unintentionally
             // if navigator URL's hostname is 'puter.com'
-            if ( this.env !== 'gui' ) {
+            if (this.env !== 'gui') {
                 // Retrieve the hostname from the URL: Remove the trailing dot if it exists. This is to handle the case where the URL is, for example, `https://puter.com.` (note the trailing dot).
                 // This is necessary because the trailing dot can cause the hostname to not match the expected value.
                 let hostname = location.hostname.replace(/\.$/, '');
@@ -375,14 +403,16 @@ const puterInit = (function () {
                 const gui_hostname = url.hostname;
 
                 // If the hostname matches the GUI hostname, then the SDK is running in the GUI environment
-                if ( hostname === gui_hostname ) {
+                if (hostname === gui_hostname) {
                     this.env = 'gui';
                 }
             }
 
             // Get the 'args' from the URL. This is used to pass arguments to the app.
-            if ( URLParams.has('puter.args') ) {
-                this.args = JSON.parse(decodeURIComponent(URLParams.get('puter.args')));
+            if (URLParams.has('puter.args')) {
+                this.args = JSON.parse(
+                    decodeURIComponent(URLParams.get('puter.args')),
+                );
             } else {
                 this.args = {};
             }
@@ -390,30 +420,36 @@ const puterInit = (function () {
             // Try to extract appInstanceID from the URL. appInstanceID is included in every messaage
             // sent to the host environment. This is used to help host environment identify the app
             // instance that sent the message and communicate back to it.
-            if ( URLParams.has('puter.app_instance_id') ) {
-                this.appInstanceID = decodeURIComponent(URLParams.get('puter.app_instance_id'));
+            if (URLParams.has('puter.app_instance_id')) {
+                this.appInstanceID = decodeURIComponent(
+                    URLParams.get('puter.app_instance_id'),
+                );
             }
 
             // Try to extract parentInstanceID from the URL. If another app launched this app instance, parentInstanceID
             // holds its instance ID, and is used to communicate with that parent app.
-            if ( URLParams.has('puter.parent_instance_id') ) {
-                this.parentInstanceID = decodeURIComponent(URLParams.get('puter.parent_instance_id'));
+            if (URLParams.has('puter.parent_instance_id')) {
+                this.parentInstanceID = decodeURIComponent(
+                    URLParams.get('puter.parent_instance_id'),
+                );
             }
 
             // Try to extract `puter.app.id` from the URL. `puter.app.id` is the unique ID of the app.
             // App ID is useful for identifying the app when communicating with the Puter API, among other things.
-            if ( URLParams.has('puter.app.id') ) {
+            if (URLParams.has('puter.app.id')) {
                 this.appID = decodeURIComponent(URLParams.get('puter.app.id'));
             }
 
             // Extract app name (added later)
-            if ( URLParams.has('puter.app.name') ) {
-                this.appName = decodeURIComponent(URLParams.get('puter.app.name'));
+            if (URLParams.has('puter.app.name')) {
+                this.appName = decodeURIComponent(
+                    URLParams.get('puter.app.name'),
+                );
             }
 
             // Construct this App's AppData path based on the appID. AppData path is used to store files that are specific to this app.
             // The default AppData path is `~/AppData/<appID>`.
-            if ( this.appID ) {
+            if (this.appID) {
                 this.appDataPath = `~/AppData/${this.appID}`;
             }
 
@@ -423,10 +459,12 @@ const puterInit = (function () {
             // is constructed as `https://api.<puter.domain>`.
             // This should only be done when the SDK is running in 'app' mode.
             this.APIOrigin = this.defaultAPIOrigin;
-            if ( URLParams.has('puter.api_origin') && this.env === 'app' ) {
-                this.APIOrigin = decodeURIComponent(URLParams.get('puter.api_origin'));
-            } else if ( URLParams.has('puter.domain') && this.env === 'app' ) {
-                this.APIOrigin = `https://api.${ URLParams.get('puter.domain')}`;
+            if (URLParams.has('puter.api_origin') && this.env === 'app') {
+                this.APIOrigin = decodeURIComponent(
+                    URLParams.get('puter.api_origin'),
+                );
+            } else if (URLParams.has('puter.domain') && this.env === 'app') {
+                this.APIOrigin = `https://api.${URLParams.get('puter.domain')}`;
             }
 
             // === START :: Logger ===
@@ -443,40 +481,66 @@ const puterInit = (function () {
             // === Start :: Modules === //
 
             // The SDK is running in the Puter GUI (i.e. 'gui')
-            if ( this.env === 'gui' ) {
+            if (this.env === 'gui') {
                 this.authToken = window.auth_token;
                 // initialize submodules
                 this.initSubmodules();
             }
             // Loaded in an iframe in the Puter GUI (i.e. 'app')
             // When SDK is loaded in App mode the initiation process should start when the DOM is ready
-            else if ( this.env === 'app' ) {
+            else if (this.env === 'app') {
                 const bootstrapAuthToken = this.normalizeAuthTokenCandidate(
-                    URLParams.get('puter.auth.token') ?? URLParams.get('auth_token'),
+                    URLParams.get('puter.auth.token') ??
+                        URLParams.get('auth_token'),
                 );
                 try {
                     let selectedAuthToken = bootstrapAuthToken;
-                    if ( bootstrapAuthToken ) {
+                    let needsSilentMigration = false;
+                    if (bootstrapAuthToken) {
+                        // URL-param tokens may still be v1 (host apps that
+                        // haven't rebuilt yet). Set immediately so submodules
+                        // can run, then attempt silent migration in the
+                        // background.
                         this.setAuthToken(bootstrapAuthToken);
+                        needsSilentMigration = true;
                     } else {
-                        const storedAuthToken = this.normalizeAuthTokenCandidate(
-                            localStorage.getItem('puter.auth.token'),
+                        // Prefer the v2 storage key. Fall back to v1
+                        // and queue a silent migrate-token call.
+                        const v2 = this.normalizeAuthTokenCandidate(
+                            localStorage.getItem(STORAGE_KEY_V2),
                         );
-                        // If the authToken is already set in localStorage, then we don't need to show the dialog
-                        if ( storedAuthToken ) {
-                            this.setAuthToken(storedAuthToken);
-                            selectedAuthToken = storedAuthToken;
+                        if (v2) {
+                            this.setAuthToken(v2);
+                            selectedAuthToken = v2;
+                        } else {
+                            const v1 = this.normalizeAuthTokenCandidate(
+                                localStorage.getItem(STORAGE_KEY_V1),
+                            );
+                            if (v1) {
+                                this.setAuthToken(v1);
+                                selectedAuthToken = v1;
+                                needsSilentMigration = true;
+                            }
                         }
                     }
-                    const tokenAppID = this.getAppIDFromAuthToken(selectedAuthToken);
-                    if ( !tokenAppID && !this.appID ) {
+                    if (needsSilentMigration && selectedAuthToken) {
+                        // Fire-and-forget. On success, setAuthToken inside the
+                        // migration helper updates submodules with the v2
+                        // token. On failure the next 401 reauth_required
+                        // triggers the interactive flow.
+                        this._silentMigrateV1Token(selectedAuthToken);
+                    }
+                    const tokenAppID =
+                        this.getAppIDFromAuthToken(selectedAuthToken);
+                    if (!tokenAppID && !this.appID) {
                         // if appID is already set in localStorage, then we don't need to show the dialog
-                        const storedAppID = localStorage.getItem('puter.app.id');
-                        if ( storedAppID ) {
+                        const storedAppID =
+                            localStorage.getItem('puter.app.id');
+                        if (storedAppID) {
                             this.setAppID(storedAppID);
                         }
                     }
-                } catch ( error ) {
+                } catch (error) {
                     // Handle the error here
                     console.error('Error accessing localStorage:', error);
                 }
@@ -485,27 +549,51 @@ const puterInit = (function () {
             // SDK was loaded in a 3rd-party website.
             // When SDK is loaded in GUI the initiation process should start when the DOM is ready. This is because
             // the SDK needs to show a dialog to the user to ask for permission to access their Puter account.
-            else if ( this.env === 'web' ) {
+            else if (this.env === 'web') {
                 // initialize submodules
                 this.initSubmodules();
                 try {
-                    // If the authToken is already set in localStorage, then we don't need to show the dialog
-                    const storedAuthToken = this.normalizeAuthTokenCandidate(localStorage.getItem('puter.auth.token'));
-                    if ( storedAuthToken ) {
-                        this.setAuthToken(storedAuthToken);
+                    // Prefer the v2 storage key. Fall back to v1 and
+                    // run a silent migration in the background.
+                    const v2 = this.normalizeAuthTokenCandidate(
+                        localStorage.getItem(STORAGE_KEY_V2),
+                    );
+                    if (v2) {
+                        this.setAuthToken(v2);
+                    } else {
+                        const v1 = this.normalizeAuthTokenCandidate(
+                            localStorage.getItem(STORAGE_KEY_V1),
+                        );
+                        if (v1) {
+                            this.setAuthToken(v1);
+                            // For kind='access_token' the backend will swap
+                            // this for a v2 token. For kind='web' it'll
+                            // refuse (409) and the next request bounces us
+                            // through the reauth popup.
+                            this._silentMigrateV1Token(v1);
+                        }
                     }
                     // if appID is already set in localStorage, then we don't need to show the dialog
-                    if ( !this.appID && localStorage.getItem('puter.app.id') ) {
+                    if (!this.appID && localStorage.getItem('puter.app.id')) {
                         this.setAppID(localStorage.getItem('puter.app.id'));
                     }
-                } catch ( error ) {
+                } catch (error) {
                     // Handle the error here
                     console.error('Error accessing localStorage:', error);
                 }
 
                 // Print a CTA for developers to publish their app on the Puter App Store
                 this.printDevCTA();
-            } else if ( this.env === 'web-worker' || this.env === 'service-worker' || this.env === 'nodejs' ) {
+
+                // If the page was opened directly from disk (file:// protocol),
+                // Puter.js cannot function. Warn the developer immediately on
+                // load rather than waiting for an action that triggers auth.
+                this.warnUnsupportedProtocol();
+            } else if (
+                this.env === 'web-worker' ||
+                this.env === 'service-worker' ||
+                this.env === 'nodejs'
+            ) {
                 this.initSubmodules();
             }
 
@@ -518,9 +606,12 @@ const puterInit = (function () {
                     }]`;
                     logger = logger.fields({ prefix });
                     this.logger = logger;
-                } catch ( error ) {
-                    if ( this.debugMode ) {
-                        console.error('Failed to initialize prefix logger', error);
+                } catch (error) {
+                    if (this.debugMode) {
+                        console.error(
+                            'Failed to initialize prefix logger',
+                            error,
+                        );
                     }
                 }
             })();
@@ -534,14 +625,19 @@ const puterInit = (function () {
 
             this.net = {
                 generateWispV1URL: async () => {
-                    const { token: wispToken, server: wispServer } = (await (await fetch(`${this.APIOrigin }/wisp/relay-token/create`, {
-                        method: 'POST',
-                        headers: {
-                            Authorization: `Bearer ${this.authToken}`,
-                            'Content-Type': 'application/json',
-                        },
-                        body: JSON.stringify({}),
-                    })).json());
+                    const { token: wispToken, server: wispServer } = await (
+                        await fetch(
+                            `${this.APIOrigin}/wisp/relay-token/create`,
+                            {
+                                method: 'POST',
+                                headers: {
+                                    Authorization: `Bearer ${this.authToken}`,
+                                    'Content-Type': 'application/json',
+                                },
+                                body: JSON.stringify({}),
+                            },
+                        )
+                    ).json();
                     return `${wispServer}/${wispToken}/`;
                 },
                 Socket: PSocket,
@@ -562,24 +658,24 @@ const puterInit = (function () {
          * Makes a request to `/rao`. This method aquires a lock to prevent
          * multiple requests, and is effectively idempotent.
          */
-        async request_rao_ () {
+        async request_rao_() {
             await this.p_can_request_rao_;
 
-            if ( this.env === 'gui' ) {
+            if (this.env === 'gui') {
                 return;
             }
 
             // setAuthToken is called more than once when auth completes, which
             // causes multiple requests to /rao. This lock prevents that.
             await this.lock_rao_.acquire();
-            if ( this.rao_requested_ ) {
+            if (this.rao_requested_) {
                 this.lock_rao_.release();
                 return;
             }
 
             let had_error = false;
             try {
-                const resp = await fetch(`${this.APIOrigin }/rao`, {
+                const resp = await fetch(`${this.APIOrigin}/rao`, {
                     method: 'POST',
                     headers: {
                         Authorization: `Bearer ${this.authToken}`,
@@ -587,29 +683,29 @@ const puterInit = (function () {
                     },
                 });
                 return await resp.json();
-            } catch ( e ) {
+            } catch (e) {
                 had_error = true;
                 console.error(e);
             } finally {
                 this.lock_rao_.release();
             }
-            if ( ! had_error ) {
+            if (!had_error) {
                 this.rao_requested_ = true;
             }
         }
 
-        registerModule (name, cls, parameters = {}) {
+        registerModule(name, cls, parameters = {}) {
             const instance = new cls(this, parameters);
             instance.puter = this;
             this.modules_.push(name);
             this[name] = instance;
-            if ( instance._init ) instance._init({ puter: this });
+            if (instance._init) instance._init({ puter: this });
         }
 
-        updateSubmodules () {
+        updateSubmodules() {
             // Update submodules with new auth token and API origin
-            for ( const name of this.modules_ ) {
-                if ( ! this[name] ) continue;
+            for (const name of this.modules_) {
+                if (!this[name]) continue;
                 this[name]?.setAuthToken?.(this.authToken);
                 this[name]?.setAPIOrigin?.(this.APIOrigin);
             }
@@ -619,7 +715,7 @@ const puterInit = (function () {
             // save to localStorage
             try {
                 localStorage.setItem('puter.app.id', appID);
-            } catch ( error ) {
+            } catch (error) {
                 // Handle the error here
                 console.error('Error accessing localStorage:', error);
             }
@@ -628,30 +724,38 @@ const puterInit = (function () {
         };
 
         setAuthToken = function (authToken) {
-            const normalizedAuthToken = this.normalizeAuthTokenCandidate(authToken);
+            const normalizedAuthToken =
+                this.normalizeAuthTokenCandidate(authToken);
             this.authToken = normalizedAuthToken;
 
             // Keep app identity consistent with token claims whenever available.
             const tokenAppID = this.getAppIDFromAuthToken(normalizedAuthToken);
-            if ( tokenAppID ) {
+            if (tokenAppID) {
                 this.setAppID(tokenAppID);
             }
 
             // If the SDK is running on a 3rd-party site or an app, then save the authToken in localStorage
-            if ( this.env === 'web' || this.env === 'app' ) {
+            if (this.env === 'web' || this.env === 'app') {
                 try {
-                    if ( normalizedAuthToken ) {
-                        localStorage.setItem('puter.auth.token', normalizedAuthToken);
+                    if (normalizedAuthToken) {
+                        localStorage.setItem(
+                            STORAGE_KEY_V2,
+                            normalizedAuthToken,
+                        );
                     } else {
-                        localStorage.removeItem('puter.auth.token');
+                        localStorage.removeItem(STORAGE_KEY_V2);
                     }
-                } catch ( error ) {
+                    // Always clear the legacy v1 key on a write — once we
+                    // have a v2 token, the v1 one must not linger or it
+                    // would be picked up by older code paths.
+                    localStorage.removeItem(STORAGE_KEY_V1);
+                } catch (error) {
                     // Handle the error here
                     console.error('Error accessing localStorage:', error);
                 }
             }
             // initialize loop for updating caches for major directories
-            if ( this.env === 'gui' ) {
+            if (this.env === 'gui') {
                 // check and update gui fs cache regularly
                 setInterval(puter.checkAndUpdateGUIFScache, 10000);
             }
@@ -674,34 +778,40 @@ const puterInit = (function () {
         };
 
         runWhenPuterHappensCallbacks = function () {
-            if ( this.env !== 'gui' ) return;
-            if ( ! globalThis.when_puter_happens ) return;
+            if (this.env !== 'gui') return;
+            if (!globalThis.when_puter_happens) return;
 
             const callbacks = Array.isArray(globalThis.when_puter_happens)
                 ? globalThis.when_puter_happens
                 : [globalThis.when_puter_happens];
 
-            for ( const fn of callbacks ) {
+            for (const fn of callbacks) {
                 try {
                     fn({ puter: this });
-                } catch ( error ) {
-                    if ( this.debugMode ) {
-                        console.error('when_puter_happens callback failed', error);
+                } catch (error) {
+                    if (this.debugMode) {
+                        console.error(
+                            'when_puter_happens callback failed',
+                            error,
+                        );
                     }
                 }
             }
         };
 
         resetAuthToken = function () {
-            if ( this.env === 'worker' || this.env === 'service-worker' ) {
-                throw new Error('Sign out is not permitted from WebWorkers or ServiceWorkers');
+            if (this.env === 'worker' || this.env === 'service-worker') {
+                throw new Error(
+                    'Sign out is not permitted from WebWorkers or ServiceWorkers',
+                );
             }
             this.authToken = null;
             // If the SDK is running on a 3rd-party site or an app, then save the authToken in localStorage
-            if ( this.env === 'web' || this.env === 'app' ) {
+            if (this.env === 'web' || this.env === 'app') {
                 try {
-                    localStorage.removeItem('puter.auth.token');
-                } catch ( error ) {
+                    localStorage.removeItem(STORAGE_KEY_V2);
+                    localStorage.removeItem(STORAGE_KEY_V1);
+                } catch (error) {
                     // Handle the error here
                     console.error('Error accessing localStorage:', error);
                 }
@@ -710,17 +820,239 @@ const puterInit = (function () {
             this.updateSubmodules();
         };
 
+        /**
+         * Reauth coordinator. Called by the network layer (lib/utils.js)
+         * when the backend returns
+         * `401 { code: 'reauth_required', reason, auth_id }`.
+         *
+         * Behavior is environment-specific:
+         *   - `web` / `app`: clear the stored token, emit an event, and
+         *     drive the existing puter.com login popup. Returns a promise
+         *     that resolves when the user signs in (so callers can replay)
+         *     or rejects if reauth fails / is canceled.
+         *   - `gui`: no-op — the GUI environment renders its own modal
+         *     and host code is responsible for the flow.
+         *   - workers / nodejs: there's no UI surface to drive, so reject
+         *     with a structured error and let worker code react.
+         *
+         * Idempotent: parallel callers share a single in-flight promise.
+         * @param {{ reason?: string, auth_id?: string }} signal
+         */
+        triggerReauth = async function (signal = {}) {
+            const { reason, auth_id } = signal;
+            if (this._reauthInflight) return this._reauthInflight;
+
+            // Emit before clearing so listeners can read state if needed.
+            this._emitReauthEvent({ reason, auth_id });
+
+            // Drop the stored token immediately so a failed/canceled reauth
+            // doesn't leave a poisoned value in localStorage. The new token
+            // (if reauth succeeds) is written by setAuthToken downstream.
+            this.authToken = null;
+            if (this.env === 'web' || this.env === 'app') {
+                try {
+                    localStorage.removeItem(STORAGE_KEY_V2);
+                    localStorage.removeItem(STORAGE_KEY_V1);
+                } catch (e) {
+                    console.error('Error accessing localStorage:', e);
+                }
+            }
+            this.updateSubmodules();
+
+            this._reauthInflight = (async () => {
+                if (this.env === 'gui') {
+                    // GUI handles its own modal at the layer above puter-js.
+                    return;
+                }
+                if (
+                    this.env === 'web-worker' ||
+                    this.env === 'service-worker' ||
+                    this.env === 'nodejs'
+                ) {
+                    const err = new Error('reauth_required');
+                    err.code = 'reauth_required';
+                    err.reason = reason;
+                    err.auth_id = auth_id;
+                    throw err;
+                }
+                if (this.env === 'web') {
+                    // Drives the puter.com login popup. On success, the
+                    // postMessage handler at the bottom of this file calls
+                    // setAuthToken() and updates this.authToken.
+                    await this.ui.authenticateWithPuter({ auth_id, reason });
+                    return;
+                }
+                if (this.env === 'app') {
+                    // We're inside an iframe in the GUI. Ask the parent to
+                    // surface the reauth modal; once the user signs in there,
+                    // the existing `puter.token` postMessage delivers the
+                    // fresh token back to us.
+                    //
+                    // targetOrigin is locked to the expected GUI origin —
+                    // postMessage('*') would leak reauth signal + auth_id
+                    // to any embedding parent (including a malicious one),
+                    // and the message body is only meaningful to the GUI.
+                    try {
+                        globalThis.parent?.postMessage?.(
+                            {
+                                msg: 'reauth_required',
+                                appInstanceID: this.appInstanceID,
+                                reason,
+                                auth_id,
+                            },
+                            this.defaultGUIOrigin,
+                        );
+                    } catch (e) {
+                        // Best-effort: if postMessage isn't available
+                        // (sandboxed iframe), fall through to error.
+                    }
+                    // Wait for the parent to deliver a fresh token.
+                    // Validate both event.origin AND event.source — origin
+                    // alone lets any same-origin frame on the GUI domain
+                    // deliver a token; pinning source to globalThis.parent
+                    // ensures the message came from the actual embedder.
+                    await new Promise((resolve, reject) => {
+                        const expectedSource = globalThis.parent;
+                        const onToken = (event) => {
+                            if (event.origin !== this.defaultGUIOrigin) return;
+                            if (
+                                expectedSource &&
+                                event.source !== expectedSource
+                            )
+                                return;
+                            if (event.data?.msg !== 'puter.token') return;
+                            globalThis.removeEventListener('message', onToken);
+                            resolve();
+                        };
+                        globalThis.addEventListener?.('message', onToken);
+                        // Give the user a generous window to re-auth.
+                        setTimeout(
+                            () => {
+                                globalThis.removeEventListener?.(
+                                    'message',
+                                    onToken,
+                                );
+                                reject(new Error('reauth_timeout'));
+                            },
+                            5 * 60 * 1000,
+                        );
+                    });
+                }
+            })();
+
+            try {
+                await this._reauthInflight;
+            } finally {
+                this._reauthInflight = null;
+            }
+        };
+
+        _emitReauthEvent = function ({ reason, auth_id }) {
+            try {
+                const handlers =
+                    this.eventHandlers?.['puter.auth.reauth_required'];
+                if (Array.isArray(handlers)) {
+                    for (const h of handlers) {
+                        try {
+                            h({ reason, auth_id });
+                        } catch (e) {
+                            /* swallow per-handler errors */
+                        }
+                    }
+                }
+            } catch (e) {
+                // Never let event delivery break the reauth flow itself.
+            }
+        };
+
+        /**
+         * Register a listener for SDK events. Used by host apps to react
+         * to `puter.auth.reauth_required`.
+         */
+        on = function (eventName, handler) {
+            if (!this.eventHandlers[eventName])
+                this.eventHandlers[eventName] = [];
+            this.eventHandlers[eventName].push(handler);
+            return () => this.off(eventName, handler);
+        };
+
+        off = function (eventName, handler) {
+            const handlers = this.eventHandlers[eventName];
+            if (!handlers) return;
+            const idx = handlers.indexOf(handler);
+            if (idx >= 0) handlers.splice(idx, 1);
+        };
+
+        /**
+         * Best-effort silent v1→v2 token migration via the backend
+         * `/auth/migrate-token` endpoint. Used at boot
+         * when only a legacy `puter.auth.token` is present; on success the
+         * v2 token is set via setAuthToken (which clears the v1 key).
+         *
+         * Returns true on successful migration, false otherwise.
+         * Failures fall through to the existing 401-reauth path: any
+         * subsequent API call against the v1 token will receive a
+         * `reauth_required` and route through triggerReauth.
+         */
+        _silentMigrateV1Token = async function (v1Token) {
+            if (!v1Token) return false;
+            try {
+                // The `puter_token_v2` companion cookie set by this
+                // endpoint is only consumed by same-origin requests to
+                // the GUI origin, and the main domain doesn't serve
+                // credentialed CORS — `include` from a third-party app
+                // origin fails the preflight outright. Only ask for
+                // credentials when we're actually on the GUI origin;
+                // everywhere else the JSON token response is all we need.
+                const sameOrigin =
+                    globalThis.location?.origin === this.defaultGUIOrigin;
+                const resp = await fetch(
+                    `${this.defaultGUIOrigin}/auth/migrate-token`,
+                    {
+                        method: 'POST',
+                        headers: {
+                            Authorization: `Bearer ${v1Token}`,
+                            'Content-Type': 'application/json',
+                        },
+                        credentials: sameOrigin ? 'include' : 'omit',
+                        body: JSON.stringify({}),
+                    },
+                );
+                if (!resp.ok) {
+                    // 409 = backend refuses silent migration for this kind
+                    // (web sessions). Any caller will then 401 reauth_required
+                    // and the interactive flow takes over.
+                    return false;
+                }
+                const data = await resp.json().catch(() => null);
+                const token = data?.token;
+                if (typeof token === 'string' && token.length > 0) {
+                    this.setAuthToken(token);
+                    return true;
+                }
+                return false;
+            } catch (e) {
+                // Network errors etc. — fall back to reauth on next 401.
+                return false;
+            }
+        };
+
         exit = function (statusCode = 0) {
-            if ( statusCode && (typeof statusCode !== 'number') ) {
-                console.warn('puter.exit() requires status code to be a number. Treating it as 1');
+            if (statusCode && typeof statusCode !== 'number') {
+                console.warn(
+                    'puter.exit() requires status code to be a number. Treating it as 1',
+                );
                 statusCode = 1;
             }
 
-            globalThis.parent.postMessage({
-                msg: 'exit',
-                appInstanceID: this.appInstanceID,
-                statusCode,
-            }, '*');
+            globalThis.parent.postMessage(
+                {
+                    msg: 'exit',
+                    appInstanceID: this.appInstanceID,
+                    statusCode,
+                },
+                '*',
+            );
         };
 
         /**
@@ -733,29 +1065,160 @@ const puterInit = (function () {
          *
          */
         randName = function (separateWith = '-') {
-            const first_adj = ['helpful', 'sensible', 'loyal', 'honest', 'clever', 'capable', 'calm', 'smart', 'genius', 'bright', 'charming', 'creative', 'diligent', 'elegant', 'fancy',
-                'colorful', 'avid', 'active', 'gentle', 'happy', 'intelligent', 'jolly', 'kind', 'lively', 'merry', 'nice', 'optimistic', 'polite',
-                'quiet', 'relaxed', 'silly', 'victorious', 'witty', 'young', 'zealous', 'strong', 'brave', 'agile', 'bold'];
+            const first_adj = [
+                'helpful',
+                'sensible',
+                'loyal',
+                'honest',
+                'clever',
+                'capable',
+                'calm',
+                'smart',
+                'genius',
+                'bright',
+                'charming',
+                'creative',
+                'diligent',
+                'elegant',
+                'fancy',
+                'colorful',
+                'avid',
+                'active',
+                'gentle',
+                'happy',
+                'intelligent',
+                'jolly',
+                'kind',
+                'lively',
+                'merry',
+                'nice',
+                'optimistic',
+                'polite',
+                'quiet',
+                'relaxed',
+                'silly',
+                'victorious',
+                'witty',
+                'young',
+                'zealous',
+                'strong',
+                'brave',
+                'agile',
+                'bold',
+            ];
 
-            const nouns = ['street', 'roof', 'floor', 'tv', 'idea', 'morning', 'game', 'wheel', 'shoe', 'bag', 'clock', 'pencil', 'pen',
-                'magnet', 'chair', 'table', 'house', 'dog', 'room', 'book', 'car', 'cat', 'tree',
-                'flower', 'bird', 'fish', 'sun', 'moon', 'star', 'cloud', 'rain', 'snow', 'wind', 'mountain',
-                'river', 'lake', 'sea', 'ocean', 'island', 'bridge', 'road', 'train', 'plane', 'ship', 'bicycle',
-                'horse', 'elephant', 'lion', 'tiger', 'bear', 'zebra', 'giraffe', 'monkey', 'snake', 'rabbit', 'duck',
-                'goose', 'penguin', 'frog', 'crab', 'shrimp', 'whale', 'octopus', 'spider', 'ant', 'bee', 'butterfly', 'dragonfly',
-                'ladybug', 'snail', 'camel', 'kangaroo', 'koala', 'panda', 'piglet', 'sheep', 'wolf', 'fox', 'deer', 'mouse', 'seal',
-                'chicken', 'cow', 'dinosaur', 'puppy', 'kitten', 'circle', 'square', 'garden', 'otter', 'bunny', 'meerkat', 'harp'];
+            const nouns = [
+                'street',
+                'roof',
+                'floor',
+                'tv',
+                'idea',
+                'morning',
+                'game',
+                'wheel',
+                'shoe',
+                'bag',
+                'clock',
+                'pencil',
+                'pen',
+                'magnet',
+                'chair',
+                'table',
+                'house',
+                'dog',
+                'room',
+                'book',
+                'car',
+                'cat',
+                'tree',
+                'flower',
+                'bird',
+                'fish',
+                'sun',
+                'moon',
+                'star',
+                'cloud',
+                'rain',
+                'snow',
+                'wind',
+                'mountain',
+                'river',
+                'lake',
+                'sea',
+                'ocean',
+                'island',
+                'bridge',
+                'road',
+                'train',
+                'plane',
+                'ship',
+                'bicycle',
+                'horse',
+                'elephant',
+                'lion',
+                'tiger',
+                'bear',
+                'zebra',
+                'giraffe',
+                'monkey',
+                'snake',
+                'rabbit',
+                'duck',
+                'goose',
+                'penguin',
+                'frog',
+                'crab',
+                'shrimp',
+                'whale',
+                'octopus',
+                'spider',
+                'ant',
+                'bee',
+                'butterfly',
+                'dragonfly',
+                'ladybug',
+                'snail',
+                'camel',
+                'kangaroo',
+                'koala',
+                'panda',
+                'piglet',
+                'sheep',
+                'wolf',
+                'fox',
+                'deer',
+                'mouse',
+                'seal',
+                'chicken',
+                'cow',
+                'dinosaur',
+                'puppy',
+                'kitten',
+                'circle',
+                'square',
+                'garden',
+                'otter',
+                'bunny',
+                'meerkat',
+                'harp',
+            ];
 
             // return a random combination of first_adj + noun + number (between 0 and 9999)
             // e.g. clever-idea-123
-            return first_adj[Math.floor(Math.random() * first_adj.length)] + separateWith + nouns[Math.floor(Math.random() * nouns.length)] + separateWith + Math.floor(Math.random() * 10000);
+            return (
+                first_adj[Math.floor(Math.random() * first_adj.length)] +
+                separateWith +
+                nouns[Math.floor(Math.random() * nouns.length)] +
+                separateWith +
+                Math.floor(Math.random() * 10000)
+            );
         };
 
         getUser = function (...args) {
             let options;
 
             // If first argument is an object, it's the options
-            if ( typeof args[0] === 'object' && args[0] !== null ) {
+            if (typeof args[0] === 'object' && args[0] !== null) {
                 options = args[0];
             } else {
                 // Otherwise, we assume separate arguments are provided
@@ -766,9 +1229,20 @@ const puterInit = (function () {
             }
 
             return new Promise((resolve, reject) => {
-                const xhr = utils.initXhr('/whoami', this.APIOrigin, this.authToken, 'get');
+                const xhr = utils.initXhr(
+                    '/whoami',
+                    this.APIOrigin,
+                    this.authToken,
+                    'get',
+                );
                 // set up event handlers for load and error events
-                utils.setupXhrEventHandlers(xhr, options.success, options.error, resolve, reject);
+                utils.setupXhrEventHandlers(
+                    xhr,
+                    options.success,
+                    options.error,
+                    resolve,
+                    reject,
+                );
 
                 xhr.send();
             });
@@ -777,15 +1251,24 @@ const puterInit = (function () {
         print = function (...args) {
             // Check if the last argument is an options object with escapeHTML or code property
             let options = {};
-            if ( args.length > 0 && typeof args[args.length - 1] === 'object' && args[args.length - 1] !== null &&
-                ('escapeHTML' in args[args.length - 1] || 'code' in args[args.length - 1]) ) {
+            if (
+                args.length > 0 &&
+                typeof args[args.length - 1] === 'object' &&
+                args[args.length - 1] !== null &&
+                ('escapeHTML' in args[args.length - 1] ||
+                    'code' in args[args.length - 1])
+            ) {
                 options = args.pop();
             }
 
-            for ( let arg of args ) {
+            for (let arg of args) {
                 // Escape HTML if the option is set to true or if code option is true
-                if ( (options.escapeHTML === true || options.code === true) && typeof arg === 'string' ) {
-                    arg = arg.replace(/&/g, '&amp;')
+                if (
+                    (options.escapeHTML === true || options.code === true) &&
+                    typeof arg === 'string'
+                ) {
+                    arg = arg
+                        .replace(/&/g, '&amp;')
                         .replace(/</g, '&lt;')
                         .replace(/>/g, '&gt;')
                         .replace(/"/g, '&quot;')
@@ -793,7 +1276,7 @@ const puterInit = (function () {
                 }
 
                 // Wrap in code/pre tags if code option is true
-                if ( options.code === true ) {
+                if (options.code === true) {
                     arg = `<code><pre>${arg}</pre></code>`;
                 }
 
@@ -805,10 +1288,10 @@ const puterInit = (function () {
          * Configures API call logging settings
          * @param {Object} config - Configuration options for API call logging
          * @param {boolean} config.enabled - Enable/disable API call logging
-          * @param {boolean} config.enabled - Enable/disable API call logging
+         * @param {boolean} config.enabled - Enable/disable API call logging
          */
         configureAPILogging = function (config = {}) {
-            if ( this.apiCallLogger ) {
+            if (this.apiCallLogger) {
                 this.apiCallLogger.updateConfig(config);
             }
             return this;
@@ -819,7 +1302,7 @@ const puterInit = (function () {
          * @param {Object} config - Optional configuration to apply when enabling
          */
         enableAPILogging = function (config = {}) {
-            if ( this.apiCallLogger ) {
+            if (this.apiCallLogger) {
                 this.apiCallLogger.updateConfig({ ...config, enabled: true });
             }
             return this;
@@ -829,7 +1312,7 @@ const puterInit = (function () {
          * Disables API call logging
          */
         disableAPILogging = function () {
-            if ( this.apiCallLogger ) {
+            if (this.apiCallLogger) {
                 this.apiCallLogger.disable();
             }
             return this;
@@ -841,8 +1324,10 @@ const puterInit = (function () {
          */
         initNetworkMonitoring = function () {
             // Only initialize in environments that support navigator.onLine and window events
-            if ( typeof globalThis.navigator === 'undefined' ||
-                typeof globalThis.addEventListener !== 'function' ) {
+            if (
+                typeof globalThis.navigator === 'undefined' ||
+                typeof globalThis.addEventListener !== 'function'
+            ) {
                 return;
             }
 
@@ -854,12 +1339,12 @@ const puterInit = (function () {
                 const isOnline = navigator.onLine;
 
                 // If we went from online to offline, purge the cache
-                if ( wasOnline && !isOnline ) {
+                if (wasOnline && !isOnline) {
                     console.log('Network connection lost - purging cache');
                     try {
                         this._cache.flushall();
                         console.log('Cache purged successfully');
-                    } catch ( error ) {
+                    } catch (error) {
                         console.error('Error purging cache:', error);
                     }
                 }
@@ -874,7 +1359,7 @@ const puterInit = (function () {
 
             // Also listen for visibility change as an additional indicator
             // (some browsers don't fire offline events reliably)
-            if ( typeof document !== 'undefined' ) {
+            if (typeof document !== 'undefined') {
                 document.addEventListener('visibilitychange', () => {
                     // Small delay to allow network state to update
                     setTimeout(handleNetworkChange, 100);
@@ -888,32 +1373,66 @@ const puterInit = (function () {
          * @private
          */
         printDevCTA = function () {
-            if ( this.quiet || globalThis.PUTER_QUIET ) return;
-            const isDark = globalThis.matchMedia && globalThis.matchMedia('(prefers-color-scheme: dark)').matches;
+            if (this.quiet || globalThis.PUTER_QUIET) return;
+            const isDark =
+                globalThis.matchMedia &&
+                globalThis.matchMedia('(prefers-color-scheme: dark)').matches;
             const asciiColor = isDark ? '#7c8cff' : '#000fd8';
             const headingColor = isDark ? '#cbd5f5' : 'rgb(0, 57, 137)';
             const linkColor = isDark ? '#93c5fd' : '#3b82f6';
             const mutedColor = isDark ? '#64748b' : '#94a3b8';
             console.log(
                 '%c' +
-                ' ____  _   _ _____ _____ ____       _ ____  \n' +
-                '|  _ \\| | | |_   _| ____|  _ \\     | / ___| \n' +
-                '| |_) | | | | | | |  _| | |_) | _  | \\___ \\ \n' +
-                '|  __/| |_| | | | | |___|  _ < | |_| |___) |\n' +
-                '|_|    \\___/  |_| |_____|_| \\_(_)___/|____/ ',
-                `color: ${asciiColor}; font-weight: bold; font-size: 14px; font-family: monospace;`
+                    ' ____  _   _ _____ _____ ____       _ ____  \n' +
+                    '|  _ \\| | | |_   _| ____|  _ \\     | / ___| \n' +
+                    '| |_) | | | | | | |  _| | |_) | _  | \\___ \\ \n' +
+                    '|  __/| |_| | | | | |___|  _ < | |_| |___) |\n' +
+                    '|_|    \\___/  |_| |_____|_| \\_(_)___/|____/ ',
+                `color: ${asciiColor}; font-weight: bold; font-size: 14px; font-family: monospace;`,
             );
             console.log(
                 '%cSubmit this app to the Puter App Store:\n' +
-                '%chttps://apps.puter.com/',
+                    '%chttps://apps.puter.com/',
                 `color: ${headingColor}; font-size: 18px; font-weight: bold;`,
-                `color: ${linkColor}; font-size: 18px; font-weight: bold; text-decoration: underline;`
+                `color: ${linkColor}; font-size: 18px; font-weight: bold; text-decoration: underline;`,
             );
             console.log(
                 '%cTo disable this message: %cputer.quiet = true',
                 `color: ${mutedColor}; font-size: 11px;`,
-                `color: ${mutedColor}; font-size: 11px; font-style: italic;`
+                `color: ${mutedColor}; font-size: 11px; font-style: italic;`,
             );
+        };
+
+        /**
+         * Shows the "Unsupported Protocol" warning dialog when the SDK is
+         * loaded directly from the file:// protocol. Runs once on load (when
+         * the DOM is ready) so the developer is told to use a web server
+         * immediately, instead of only when an action triggers the auth flow.
+         * @private
+         */
+        warnUnsupportedProtocol = function () {
+            if (globalThis.location?.protocol !== 'file:') return;
+            if (this._fileProtocolWarned) return;
+            this._fileProtocolWarned = true;
+
+            const showDialog = () => {
+                // On file:// PuterDialog renders the "Unsupported Protocol"
+                // warning instead of the auth consent content.
+                const dialog = new PuterDialog(
+                    () => {},
+                    () => {},
+                );
+                document.body.appendChild(dialog);
+                dialog.open();
+            };
+
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', showDialog, {
+                    once: true,
+                });
+            } else {
+                showDialog();
+            }
         };
 
         /**
@@ -922,9 +1441,9 @@ const puterInit = (function () {
          */
         checkAndUpdateGUIFScache = function () {
             // only run in gui environment
-            if ( puter.env !== 'gui' ) return;
+            if (puter.env !== 'gui') return;
             // only run if user is authenticated
-            if ( ! puter.whoami ) return;
+            if (!puter.whoami) return;
 
             let username = puter.whoami.username;
 
@@ -935,51 +1454,65 @@ const puterInit = (function () {
             let public_path = `/${username}/Public`;
 
             // item:Home
-            if ( ! puter._cache.get(`item:${ home_path}`) ) {
-                console.log(`/${username} item is not cached, refetching cache`);
+            if (!puter._cache.get(`item:${home_path}`)) {
+                console.log(
+                    `/${username} item is not cached, refetching cache`,
+                );
                 // fetch home
                 puter.fs.stat(home_path);
             }
             // item:Desktop
-            if ( ! puter._cache.get(`item:${ desktop_path}`) ) {
-                console.log(`/${username}/Desktop item is not cached, refetching cache`);
+            if (!puter._cache.get(`item:${desktop_path}`)) {
+                console.log(
+                    `/${username}/Desktop item is not cached, refetching cache`,
+                );
                 // fetch desktop
                 puter.fs.stat(desktop_path);
             }
             // item:Documents
-            if ( ! puter._cache.get(`item:${ documents_path}`) ) {
-                console.log(`/${username}/Documents item is not cached, refetching cache`);
+            if (!puter._cache.get(`item:${documents_path}`)) {
+                console.log(
+                    `/${username}/Documents item is not cached, refetching cache`,
+                );
                 // fetch documents
                 puter.fs.stat(documents_path);
             }
             // item:Public
-            if ( ! puter._cache.get(`item:${ public_path}`) ) {
-                console.log(`/${username}/Public item is not cached, refetching cache`);
+            if (!puter._cache.get(`item:${public_path}`)) {
+                console.log(
+                    `/${username}/Public item is not cached, refetching cache`,
+                );
                 // fetch public
                 puter.fs.stat(public_path);
             }
 
             // readdir:Home
-            if ( ! puter._cache.get(`readdir:${ home_path}`) ) {
+            if (!puter._cache.get(`readdir:${home_path}`)) {
                 console.log(`/${username} is not cached, refetching cache`);
                 // fetch home
                 puter.fs.readdir(home_path);
             }
             // readdir:Desktop
-            if ( ! puter._cache.get(`readdir:${ desktop_path}`) ) {
-                console.log(`/${username}/Desktop is not cached, refetching cache`);
+            if (!puter._cache.get(`readdir:${desktop_path}`)) {
+                console.log(
+                    `/${username}/Desktop is not cached, refetching cache`,
+                );
                 // fetch desktop
                 puter.fs.readdir(desktop_path);
             }
             // readdir:Documents
-            if ( ! puter._cache.get(`readdir:${ documents_path}`) ) {
-                console.log(`/${username}/Documents is not cached, refetching cache`);
+            if (!puter._cache.get(`readdir:${documents_path}`)) {
+                console.log(
+                    `/${username}/Documents is not cached, refetching cache`,
+                );
                 // fetch documents
                 puter.fs.readdir(documents_path);
             }
             // readdir:Public
-            if ( ! puter._cache.get(`readdir:${ public_path}`) ) {
-                console.log(`/${username}/Public is not cached, refetching cache`);
+            if (!puter._cache.get(`readdir:${public_path}`)) {
+                console.log(
+                    `/${username}/Public is not cached, refetching cache`,
+                );
                 // fetch public
                 puter.fs.readdir(public_path);
             }
@@ -991,9 +1524,9 @@ const puterInit = (function () {
 
     // Return the Puter object
     return puterobj;
-});
+};
 
-export const puter =  puterInit();
+export const puter = puterInit();
 export default puter;
 globalThis.puter = puter;
 puter.runWhenPuterHappensCallbacks();
@@ -1004,11 +1537,11 @@ puter.tools = [];
  */
 const puterParent = puter.ui.parentApp();
 globalThis.puterParent = puterParent;
-if ( puterParent ) {
+if (puterParent) {
     console.log('I have a parent, registering tools');
     puterParent.on('message', async (event) => {
         console.log('Got tool req ', event);
-        if ( event.$ === 'requestTools' ) {
+        if (event.$ === 'requestTools') {
             console.log('Responding with tools');
             puterParent.postMessage({
                 $: 'providedTools',
@@ -1016,13 +1549,15 @@ if ( puterParent ) {
             });
         }
 
-        if ( event.$ === 'executeTool' ) {
+        if (event.$ === 'executeTool') {
             console.log('xecuting tools');
             /**
              * Puter tools format
              * @type {[{exec: Function, function: {description: string, name: string, parameters: {properties: any, required: Array<string>}, type: string}}]}
              */
-            const [tool] = puter.tools.filter(e => e.function.name === event.toolName);
+            const [tool] = puter.tools.filter(
+                (e) => e.function.name === event.toolName,
+            );
 
             const response = await tool.exec(event.parameters);
             puterParent.postMessage({
@@ -1035,50 +1570,55 @@ if ( puterParent ) {
     puterParent.postMessage({ $: 'ready' });
 }
 
-globalThis.addEventListener && globalThis.addEventListener('message', async (event) => {
-    // if the message is not from Puter, then ignore it
-    if ( event.origin !== puter.defaultGUIOrigin ) return;
+globalThis.addEventListener &&
+    globalThis.addEventListener('message', async (event) => {
+        // if the message is not from Puter, then ignore it
+        if (event.origin !== puter.defaultGUIOrigin) return;
 
-    if ( event.data.msg && event.data.msg === 'requestOrigin' ) {
-        event.source.postMessage({
-            msg: 'originResponse',
-        }, '*');
-    }
-    else if ( event.data.msg === 'puter.token' ) {
-        // puterDialog.close();
-        // Set the authToken property
-        puter.setAuthToken(event.data.token);
-        // update appID only when token does not include app identity
-        const tokenAppID = puter.getAppIDFromAuthToken(event.data.token);
-        if ( !tokenAppID && !puter.appID ) {
-            const fallbackAppID = puter.normalizeStringCandidate(event.data.app_uid);
-            if ( fallbackAppID ) {
-                puter.setAppID(fallbackAppID);
+        if (event.data.msg && event.data.msg === 'requestOrigin') {
+            event.source.postMessage(
+                {
+                    msg: 'originResponse',
+                },
+                '*',
+            );
+        } else if (event.data.msg === 'puter.token') {
+            // puterDialog.close();
+            // Set the authToken property
+            puter.setAuthToken(event.data.token);
+            // update appID only when token does not include app identity
+            const tokenAppID = puter.getAppIDFromAuthToken(event.data.token);
+            if (!tokenAppID && !puter.appID) {
+                const fallbackAppID = puter.normalizeStringCandidate(
+                    event.data.app_uid,
+                );
+                if (fallbackAppID) {
+                    puter.setAppID(fallbackAppID);
+                }
+            }
+            // Remove the event listener to avoid memory leaks
+            // window.removeEventListener('message', messageListener);
+
+            puter.puterAuthState.authGranted = true;
+            // Resolve the promise
+            // resolve();
+
+            // Call onAuth callback
+            if (puter.onAuth && typeof puter.onAuth === 'function') {
+                puter.getUser().then((user) => {
+                    puter.onAuth(user);
+                });
+            }
+
+            puter.puterAuthState.isPromptOpen = false;
+            // Resolve or reject any waiting promises.
+            if (puter.puterAuthState.resolver) {
+                if (puter.puterAuthState.authGranted) {
+                    puter.puterAuthState.resolver.resolve();
+                } else {
+                    puter.puterAuthState.resolver.reject();
+                }
+                puter.puterAuthState.resolver = null;
             }
         }
-        // Remove the event listener to avoid memory leaks
-        // window.removeEventListener('message', messageListener);
-
-        puter.puterAuthState.authGranted = true;
-        // Resolve the promise
-        // resolve();
-
-        // Call onAuth callback
-        if ( puter.onAuth && typeof puter.onAuth === 'function' ) {
-            puter.getUser().then((user) => {
-                puter.onAuth(user);
-            });
-        }
-
-        puter.puterAuthState.isPromptOpen = false;
-        // Resolve or reject any waiting promises.
-        if ( puter.puterAuthState.resolver ) {
-            if ( puter.puterAuthState.authGranted ) {
-                puter.puterAuthState.resolver.resolve();
-            } else {
-                puter.puterAuthState.resolver.reject();
-            }
-            puter.puterAuthState.resolver = null;
-        };
-    }
-});
+    });

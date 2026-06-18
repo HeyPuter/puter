@@ -26,7 +26,7 @@ const UNACK_CACHE_KEY_PREFIX = 'notifications:unack';
 const UNACK_CACHE_TTL_SECONDS = 5 * 60;
 
 export class NotificationStore extends PuterStore {
-    // ── Reads ────────────────────────────────────────────────────────
+    // -- Reads --------------------------------------------------------
 
     async getByUid(uid, { userId } = {}) {
         const where =
@@ -54,12 +54,14 @@ export class NotificationStore extends PuterStore {
         } else if (filter === 'acknowledged') {
             extraWhere = 'AND `acknowledged` IS NOT NULL';
         }
+        const n = Number(limit);
+        const safeLimit = Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 200;
         const rows = await this.clients.db.read(
             `SELECT * FROM \`notification\`
              WHERE \`user_id\` = ? ${extraWhere}
              ORDER BY \`created_at\` DESC
-             LIMIT ${limit}`,
-            [userId],
+             LIMIT ?`,
+            [userId, safeLimit],
         );
         return rows.map((r) => this.#normalizeRow(r));
     }
@@ -90,7 +92,7 @@ export class NotificationStore extends PuterStore {
         return count;
     }
 
-    // ── Writes ───────────────────────────────────────────────────────
+    // -- Writes -------------------------------------------------------
 
     async create({ userId, value }) {
         if (!userId) throw new Error('create: userId is required');
@@ -135,7 +137,7 @@ export class NotificationStore extends PuterStore {
         return changed;
     }
 
-    // ── Internals ────────────────────────────────────────────────────
+    // -- Internals ----------------------------------------------------
 
     #unackCacheKey(userId) {
         return `${UNACK_CACHE_KEY_PREFIX}:${userId}`;

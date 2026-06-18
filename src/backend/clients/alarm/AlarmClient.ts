@@ -23,7 +23,7 @@ import { createHash } from 'node:crypto';
 import type { IConfig } from '../../types';
 import { PuterClient } from '../types';
 
-// ── Types ────────────────────────────────────────────────────────────
+// -- Types ------------------------------------------------------------
 
 export interface AlarmFields {
     error?: Error;
@@ -49,7 +49,7 @@ interface Alarm {
     noAlert?: boolean;
 }
 
-type PagerSeverity = 'critical' | 'error' | 'warning' | 'info';
+export type PagerSeverity = 'critical' | 'error' | 'warning' | 'info';
 
 export interface AlertPayload {
     id: string;
@@ -73,7 +73,7 @@ interface KnownErrorRule {
     };
 }
 
-// ── Helpers ──────────────────────────────────────────────────────────
+// -- Helpers ----------------------------------------------------------
 
 /**
  * Deterministic short identifier derived from an alarm ID.
@@ -166,7 +166,7 @@ function cleanFields(fields: AlarmFields): Record<string, string> {
     return out;
 }
 
-// ── AlarmClient ──────────────────────────────────────────────────────
+// -- AlarmClient ------------------------------------------------------
 
 /**
  * Manages system alarms and dispatches alerts to external paging
@@ -184,7 +184,7 @@ export class AlarmClient extends PuterClient {
         super(config);
     }
 
-    // ── Lifecycle ────────────────────────────────────────────────────
+    // -- Lifecycle ----------------------------------------------------
 
     override async onServerStart(): Promise<void> {
         const pagerConf = this.config.pager;
@@ -228,13 +228,23 @@ export class AlarmClient extends PuterClient {
         console.log('[alarm] entering drain mode — suppressing new alarms');
     }
 
-    // ── Public API ───────────────────────────────────────────────────
+    // -- Public API ---------------------------------------------------
 
     /**
      * Create or update an alarm. If the alarm ID already exists, the
      * occurrence count is incremented and a repeat alert is dispatched.
+     *
+     * `severity` is the PagerDuty severity for this alarm; omit for the
+     * default 'critical'. Use 'info' / 'warning' for expected-but-worth-
+     * tracking signals (e.g. a user hitting a rate limit) so they record
+     * and de-dupe like any other alarm but don't page on-call.
      */
-    create(id: string, message: string, fields: AlarmFields = {}): void {
+    create(
+        id: string,
+        message: string,
+        fields: AlarmFields = {},
+        severity?: PagerSeverity,
+    ): void {
         if (this.draining) {
             if (!this.drainLogged) {
                 this.drainLogged = true;
@@ -256,6 +266,7 @@ export class AlarmClient extends PuterClient {
             shortId: shortId(id),
             message,
             fields,
+            severity,
             started: Date.now(),
             timestamps: [Date.now()],
             occurrences: [],
@@ -298,7 +309,7 @@ export class AlarmClient extends PuterClient {
         this.knownErrors = rules;
     }
 
-    // ── Internals ────────────────────────────────────────────────────
+    // -- Internals ----------------------------------------------------
 
     private recordOccurrence(
         alarm: Alarm,

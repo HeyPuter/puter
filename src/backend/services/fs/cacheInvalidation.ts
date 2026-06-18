@@ -38,7 +38,7 @@ export class FSEntryCacheInvalidationEventHandler {
     #registerHandlers(): void {
         this.#eventClient.on(
             'outer.gui.item.added',
-            async (event: OuterGuiItemEventPayload) => {
+            async (_key, event: OuterGuiItemEventPayload) => {
                 await this.#runSafely(
                     () => this.#handleOuterGuiItemEvent(event),
                     'outer.gui.item.added',
@@ -47,7 +47,7 @@ export class FSEntryCacheInvalidationEventHandler {
         );
         this.#eventClient.on(
             'outer.gui.item.updated',
-            async (event: OuterGuiItemEventPayload) => {
+            async (_key, event: OuterGuiItemEventPayload) => {
                 await this.#runSafely(
                     () => this.#handleOuterGuiItemEvent(event),
                     'outer.gui.item.updated',
@@ -56,7 +56,7 @@ export class FSEntryCacheInvalidationEventHandler {
         );
         this.#eventClient.on(
             'outer.gui.item.moved',
-            async (event: OuterGuiItemEventPayload) => {
+            async (_key, event: OuterGuiItemEventPayload) => {
                 await this.#runSafely(
                     () => this.#handleOuterGuiItemEvent(event),
                     'outer.gui.item.moved',
@@ -65,7 +65,7 @@ export class FSEntryCacheInvalidationEventHandler {
         );
         this.#eventClient.on(
             'fs.remove.node',
-            async (event: FsRemoveNodeEventPayload) => {
+            async (_key, event: FsRemoveNodeEventPayload) => {
                 await this.#runSafely(
                     () => this.#handleRemoveNodeEvent(event),
                     'fs.remove.node',

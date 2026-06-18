@@ -18,6 +18,7 @@
   },
   "dependencies": {
     "@fontsource/inter": "^5.2.8",
+    "cssstyle": "^4.6.0",
     "esbuild": "0.25.11",
     "fs-extra": "^11.2.0",
     "highlight.js": "^11.11.1",
@@ -26,6 +27,7 @@
     "js-yaml": "^4.1.0",
     "jsdom": "^26.1.0",
     "marked": "^11.1.1",
+    "minisearch": "^7.2.0",
     "nwsapi": "^2.2.23"
   },
   "devDependencies": {

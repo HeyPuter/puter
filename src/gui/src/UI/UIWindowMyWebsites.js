@@ -160,9 +160,9 @@ $(document).on('click', '.mywebsites-site-setting', function (e) {
                             'Authorization': `Bearer ${window.auth_token}`,
                         },
                         statusCode: {
-                            401: function () {
-                                window.logout();
-                            },
+                            401: function (xhr) {
+                        window.handle401(xhr);
+                    },
                         },
                         success: function () {
                             $(`.mywebsites-card[data-uuid="${$(e.target).attr('data-site-uuid')}"]`).fadeOut();

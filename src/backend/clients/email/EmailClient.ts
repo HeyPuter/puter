@@ -24,7 +24,7 @@ import type { IConfig } from '../../types';
 import { PuterClient } from '../types';
 import { EMAIL_TEMPLATES, type EmailTemplateName } from './templates';
 
-// ── Types ────────────────────────────────────────────────────────────
+// -- Types ------------------------------------------------------------
 
 // nodemailer doesn't ship TS types, so declare the subset we use.
 interface NodemailerTransport {
@@ -50,7 +50,7 @@ interface CompiledTemplate {
     html: ReturnType<typeof template>;
 }
 
-// ── Clean-email rules ────────────────────────────────────────────────
+// -- Clean-email rules ------------------------------------------------
 
 type CleanRule = (parts: { local: string; domain: string }) => {
     local: string;
@@ -90,7 +90,7 @@ const DOMAIN_ALIASES: Record<string, string> = {
     'googlemail.com': 'gmail.com',
 };
 
-// ── EmailClient ──────────────────────────────────────────────────────
+// -- EmailClient ------------------------------------------------------
 
 /**
  * Unified email client. Handles:
@@ -112,7 +112,7 @@ export class EmailClient extends PuterClient {
         this.compileTemplates();
     }
 
-    // ── Lifecycle ────────────────────────────────────────────────────
+    // -- Lifecycle ----------------------------------------------------
 
     override onServerStart(): void {
         const emailConf = this.config.email;
@@ -133,7 +133,7 @@ export class EmailClient extends PuterClient {
         this.transport = null;
     }
 
-    // ── Public API: sending ──────────────────────────────────────────
+    // -- Public API: sending ------------------------------------------
 
     /**
      * Render a template and send it to `to`.
@@ -174,7 +174,7 @@ export class EmailClient extends PuterClient {
         });
     }
 
-    // ── Public API: clean / validate ─────────────────────────────────
+    // -- Public API: clean / validate ---------------------------------
 
     /**
      * Normalize an email to its canonical form for dedup comparisons.
@@ -241,7 +241,7 @@ export class EmailClient extends PuterClient {
         this.validators.push(fn);
     }
 
-    // ── Internals ────────────────────────────────────────────────────
+    // -- Internals ----------------------------------------------------
 
     private defaultFrom(): string {
         return this.config.email?.from ?? '"Puter" no-reply@puter.com';

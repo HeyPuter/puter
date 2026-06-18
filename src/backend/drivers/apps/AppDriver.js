@@ -52,6 +52,12 @@ const INDEX_URL_UNIQUENESS_EXEMPTION_CANDIDATES = [
     'https://dev-center.puter.com/coming-soon',
 ];
 
+// Sentinel host for builtin apps. The GUI rewrites index_urls on this
+// host to `<gui origin>/builtin/<name>` (see launch_app.js), so rows
+// carrying it are reserved for migration-seeded builtins — a user app
+// claiming it would load its code same-origin with the desktop.
+const BUILTIN_APPS_HOST = 'builtins.namespaces.puter.com';
+
 // Canonical-uid alias namespace. When a user-created app is merged into
 // an existing origin-bootstrap row, the source uid is mapped to the
 // canonical (kept) uid so any client that still holds the old uid keeps
@@ -118,7 +124,7 @@ export class AppDriver extends PuterDriver {
         return this.services.permission;
     }
 
-    // ── Driver methods ───────────────────────────────────────────────
+    // -- Driver methods -----------------------------------------------
 
     async create({ object, options } = {}) {
         if (!object || typeof object !== 'object') {
@@ -157,13 +163,16 @@ export class AppDriver extends PuterDriver {
         if (await this.appStore.existsByName(fields.name)) {
             if (options?.dedupe_name) {
                 let candidate;
-                let n = 1;
+                let i = 0;
                 do {
-                    candidate = `${fields.name}-${++n}`;
-                    if (n > 50)
+                    const randString = Math.random().toString(36).slice(2, 6);
+                    candidate = `${fields.name}-${randString}`;
+
+                    if (i >= 3)
                         throw new HttpError(400, 'Failed to dedupe app name', {
-                            legacyCode: 'bad_request',
+                            legacyCode: 'app_name_already_in_use',
                         });
+                    i++;
                 } while (await this.appStore.existsByName(candidate));
                 fields.name = candidate;
             } else {
@@ -411,7 +420,7 @@ export class AppDriver extends PuterDriver {
         return { success: true, uid: app.uid };
     }
 
-    // ── Event emission ───────────────────────────────────────────────
+    // -- Event emission -----------------------------------------------
     //
     // Consumers (AppIconService, future cf-file-cache port, billing
     // event handlers) key off `app_uid`; the full `app` / `old_app`
@@ -448,7 +457,7 @@ export class AppDriver extends PuterDriver {
         }
     }
 
-    // ── Public helpers (used by AppController) ──────────────────────
+    // -- Public helpers (used by AppController) ----------------------
 
     /** Check if an app name is available. Mirrors the REST endpoint behaviour. */
     async isNameAvailable(name) {
@@ -460,9 +469,9 @@ export class AppDriver extends PuterDriver {
         return !(await this.appStore.existsByName(name));
     }
 
-    // ── Validation ───────────────────────────────────────────────────
+    // -- Validation ---------------------------------------------------
 
-    async #validateInput(object, { isCreate }) {
+    async #validateInput(object, { isCreate, existing }) {
         const out = {};
 
         if (isCreate || object.name !== undefined) {
@@ -494,6 +503,15 @@ export class AppDriver extends PuterDriver {
                 maxLen: 3000,
                 required: isCreate,
             });
+            // Only enforce on new/changed values so rows that already
+            // carry a reserved host (migration-seeded builtins) can still
+            // have their other fields updated.
+            if (
+                out.index_url !== undefined &&
+                out.index_url !== existing?.index_url
+            ) {
+                this.#assertIndexUrlHostAllowed(out.index_url);
+            }
         }
         if (object.icon !== undefined) {
             validateString(object.icon, {
@@ -578,7 +596,55 @@ export class AppDriver extends PuterDriver {
         return out;
     }
 
-    // ── Permission checks ────────────────────────────────────────────
+    /**
+     * App iframes run with `allow-same-origin allow-scripts`, so an
+     * index_url loading from the GUI host would execute third-party code
+     * same-origin with the desktop — a full sandbox escape. The API host
+     * is reserved for the same reason, and the builtin sentinel host is
+     * rewritten by the GUI to `<gui origin>/builtin/…` (see
+     * BUILTIN_APPS_HOST above). Host comparison (rather than full origin)
+     * deliberately also catches scheme/port variants of these hosts.
+     */
+    #assertIndexUrlHostAllowed(indexUrl) {
+        let hostname;
+        try {
+            hostname = new URL(indexUrl).hostname;
+        } catch {
+            // Unparseable values are rejected by `validateUrl` upstream.
+            return;
+        }
+
+        const config = this.config ?? {};
+        const reserved = new Set([BUILTIN_APPS_HOST]);
+        // `origin`/`api_base_url` are computed at boot from `domain`; the
+        // domain-based fallbacks cover callers (tests, embedders) that
+        // construct a server without that normalization step.
+        const candidates = [config.origin, config.api_base_url];
+        if (config.domain) {
+            candidates.push(
+                `http://${config.domain}`,
+                `http://api.${config.domain}`,
+            );
+        }
+        for (const candidate of candidates) {
+            if (!candidate) continue;
+            try {
+                reserved.add(new URL(candidate).hostname);
+            } catch {
+                // Malformed config value — nothing to reserve from it.
+            }
+        }
+
+        if (reserved.has(hostname)) {
+            throw new HttpError(
+                400,
+                '`index_url` cannot point at a Puter system host',
+                { legacyCode: 'bad_request' },
+            );
+        }
+    }
+
+    // -- Permission checks --------------------------------------------
 
     #requireActor() {
         const actor = Context.get('actor');
@@ -676,7 +742,7 @@ export class AppDriver extends PuterDriver {
         }
     }
 
-    // ── Serialization ────────────────────────────────────────────────
+    // -- Serialization ------------------------------------------------
 
     /**
      * Resolve the canonical app row that backs `app.index_url`.
@@ -840,13 +906,15 @@ export class AppDriver extends PuterDriver {
         return result;
     }
 
-    // ── Puter-hosted index_url merge logic ───────────────────────────
+    // -- Puter-hosted index_url merge logic ---------------------------
     //
     // Ported from v1 AppES (`#maybeJoinOwnedHostedIndexUrlAppOnCreate`,
     // `#ensure_puter_site_subdomain_is_owned`, `#ensureIndexUrlNotAlreadyInUse`,
     // and the `app:canonicalUidAlias:*` kvstore pair). When a user creates
     // or repoints an app at a puter-hosted subdomain (`*.puter.site`,
-    // `*.puter.app`, …) we want exactly one app row to back that URL:
+    // `*.puter.app`, …) — or at a custom host claimed by an
+    // `app_origin_aliases` group — we want exactly one app row to back
+    // that URL:
     //   • If a no-owner row exists (origin-bootstrap stub auto-created
     //     when an unknown origin first hit Puter) → claim it for the
     //     user, merge the new fields into it.
@@ -1075,7 +1143,7 @@ export class AppDriver extends PuterDriver {
         return app.description.startsWith('App created from origin ');
     }
 
-    // ── Canonical-uid alias kvstore pair ─────────────────────────────
+    // -- Canonical-uid alias kvstore pair -----------------------------
     //
     // After a merge, the source app uid → canonical uid mapping is
     // kept in `stores.kv` (system namespace) so any client that still
@@ -1153,7 +1221,8 @@ export class AppDriver extends PuterDriver {
 
     /**
      * Merge an incoming create/update into an existing app row that
-     * already owns the same puter-hosted index_url. Returns the joined
+     * already owns the same puter-hosted or alias-group index_url.
+     * Returns the joined
      * (client-shaped) app on success, or `null` when no merge applied.
      * Throws `app_index_url_already_in_use` when a conflict exists but
      * cannot be merged (different owner, or same-owner non-bootstrap).
@@ -1170,7 +1239,18 @@ export class AppDriver extends PuterDriver {
         excludeAppId,
     } = {}) {
         const indexUrl = object?.index_url;
-        if (!this.#isPuterHostedIndexUrl(indexUrl)) return null;
+        // Alias-group hosts (`app_origin_aliases`) get the same merge
+        // treatment as puter-hosted subdomains. Without this, a bootstrap
+        // stub on a custom domain could never be absorbed — and since
+        // `#findIndexUrlConflictRow` *does* honor alias groups, the
+        // uniqueness check below would hard-reject the owner's own
+        // create/update instead of merging into the stub.
+        if (
+            !this.#isPuterHostedIndexUrl(indexUrl) &&
+            !this.#findOriginAliasGroupForIndexUrl(indexUrl)
+        ) {
+            return null;
+        }
 
         const conflictRow = await this.#findIndexUrlConflictRow({
             indexUrl,

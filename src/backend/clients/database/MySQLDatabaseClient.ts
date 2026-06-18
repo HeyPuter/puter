@@ -23,6 +23,7 @@ import { createPool, type Pool } from 'mysql2';
 import { AbstractDatabaseClient, type WriteResult } from './DatabaseClient';
 import { SQLBatcher } from './SQLBatcher.js';
 import { splitMysqlStatements } from './splitMysqlStatements.js';
+import { compareMigrationFilenames } from './migrationFilenames.js';
 import type { IConfig } from '../../types';
 
 const RETRIABLE_ERROR_CODES = new Set([
@@ -43,6 +44,8 @@ const RETRIABLE_ERROR_MESSAGES = [
     'read ECONNRESET',
     'ETIMEDOUT',
 ];
+
+export { compareMigrationFilenames };
 
 type PoolConfig = Parameters<typeof createPool>[0];
 
@@ -247,7 +250,7 @@ export class MySQLDatabaseClient extends AbstractDatabaseClient {
                         .filter(
                             (f) => f.endsWith('.sql') && f.startsWith('mysql'),
                         )
-                        .sort();
+                        .sort(compareMigrationFilenames);
                 } catch (e) {
                     throw new Error(
                         `[mysql] migration path is unreadable: ${dir}`,

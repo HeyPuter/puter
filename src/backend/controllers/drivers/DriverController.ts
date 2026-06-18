@@ -18,16 +18,15 @@
  */
 
 import type { Request, Response } from 'express';
+import { actorUid } from '../../core/actor.js';
 import { Context } from '../../core/context.js';
 import { Controller } from '../../core/http/decorators.js';
-import { HttpError } from '../../core/http/HttpError.js';
+import { HttpError, isHttpError } from '../../core/http/HttpError.js';
 import {
     acquireDriverConcurrent,
     checkDriverRateLimit,
 } from '../../core/http/middleware/rateLimit.js';
 import type { PuterRouter } from '../../core/http/PuterRouter.js';
-import type { PermissionService } from '../../services/permission/PermissionService.js';
-import type { WithLifecycle } from '../../types';
 import type { DriverMeta } from '../../drivers/meta.js';
 import {
     isDriverStreamResult,
@@ -35,100 +34,83 @@ import {
     resolveDriverMethodConcurrent,
     resolveDriverMethodRateLimit,
 } from '../../drivers/meta.js';
+import type { PermissionService } from '../../services/permission/PermissionService.js';
+import { PermissionUtil } from '../../services/permission/permissionUtil.js';
+import type { WithLifecycle } from '../../types';
 import { PuterController } from '../types.js';
 
 type DriverInstance = WithLifecycle & Record<string, unknown>;
 
-// ── /drivers/xd payload ─────────────────────────────────────────────
-//
-// Self-contained HTML/JS shipped to the iframe consumer. Listens for
-// postMessage events shaped as `{ id, interface, method, params }`,
-// forwards to `/drivers/call`, and posts `{ id, result }` back to the
-// originating window.
-//
-// Wire-shape note: the postMessage uses `params` (puter-js's historical
-// name) but `/drivers/call` expects `args`; this bridge translates.
+const extractUpstreamStatus = (e: {
+    status?: number;
+    statusCode?: number;
+    response?: { status?: number };
+    $metadata?: { httpStatusCode?: number };
+    message?: string;
+}): number | undefined => {
+    const direct = e.status ?? e.statusCode;
+    if (typeof direct === 'number') return direct;
+    const fromResponse = e.response?.status;
+    if (typeof fromResponse === 'number') return fromResponse;
+    const fromAws = e.$metadata?.httpStatusCode;
+    if (typeof fromAws === 'number') return fromAws;
+    // Message sniff (e.g. "... failed with status 422 ...").
+    // Only trust if it's adjacent to a status-indicating word to
+    // avoid matching random 4xx/5xx-looking numbers in payloads.
+    const msg = e.message;
+    if (typeof msg === 'string') {
+        const m = msg.match(/\bstatus(?:\s+code)?\s*[:=]?\s*(4\d\d|5\d\d)\b/i);
+        if (m) return Number(m[1]);
+    }
+    return undefined;
+};
 
-const XD_SCRIPT = /* js */ `
-(function () {
-    const call = async ({ interface_name, method_name, params }) => {
-        const response = await fetch('/drivers/call', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                interface: interface_name,
-                method: method_name,
-                args: params,
-            }),
-        });
-        return await response.json();
+const translateProviderError = (err: unknown): unknown => {
+    if (isHttpError(err)) return err;
+    if (!err || typeof err !== 'object') return err;
+    const e = err as {
+        status?: number;
+        statusCode?: number;
+        response?: { status?: number };
+        $metadata?: { httpStatusCode?: number };
+        message?: string;
+        error?: { code?: string; type?: string; message?: string };
+        code?: string;
     };
+    const status = extractUpstreamStatus(e);
+    if (typeof status !== 'number') return err;
 
-    const fcall = async ({ interface_name, method_name, params }) => {
-        const form = new FormData();
-        form.append('interface', interface_name);
-        form.append('method', method_name);
-        for (const k in params) {
-            form.append(k, params[k]);
-        }
-        const response = await fetch('/drivers/call', {
-            method: 'POST',
-            body: form,
+    const msg = e.error?.message ?? e.message ?? 'Upstream provider error';
+    const upstreamCode = e.error?.code ?? e.code;
+    const fields = { upstreamStatus: status, upstreamCode };
+
+    if (status === 429) {
+        return new HttpError(429, msg, {
+            legacyCode: 'upstream_rate_limited',
+            fields,
         });
-        return await response.json();
-    };
+    }
+    if (status === 401 || status === 403) {
+        return new HttpError(500, msg, {
+            legacyCode: 'upstream_auth_failed',
+            fields,
+        });
+    }
+    if (status >= 500) {
+        return new HttpError(400, 'AI provider unavailable', {
+            legacyCode: 'upstream_provider_unavailable',
+            fields,
+        });
+    }
+    if (status >= 400) {
+        return new HttpError(400, msg, {
+            legacyCode: 'upstream_bad_request',
+            fields,
+        });
+    }
+    return err;
+};
 
-    window.addEventListener('message', async (event) => {
-        const { id, interface: iface, method, params } = event.data || {};
-        let has_file = false;
-        for (const k in params) {
-            if (params[k] instanceof File) {
-                has_file = true;
-                break;
-            }
-        }
-        const result = has_file
-            ? await fcall({ interface_name: iface, method_name: method, params })
-            : await call({ interface_name: iface, method_name: method, params });
-        if (event.source) {
-            event.source.postMessage({ id, result }, event.origin);
-        }
-    });
-})();
-`;
-
-const XD_HTML = `<!DOCTYPE html>
-<html>
-    <head>
-        <title>Puter Driver API</title>
-        <script>
-            document.addEventListener('DOMContentLoaded', function () {
-                ${XD_SCRIPT}
-            });
-        </script>
-    </head>
-    <body></body>
-</html>`;
-
-// ── Controller ──────────────────────────────────────────────────────
-
-/**
- * Routes driver RPC calls through a unified HTTP surface.
- *
- * - `POST /drivers/call` — invoke `<iface>.<method>(args)` on the
- *   registered driver after a per-actor permission + rate-limit check.
- *   Stream-shaped results are piped directly; everything else is
- *   returned as JSON.
- * - `GET /drivers/list-interfaces` — enumerate registered driver
- *   interfaces with their default + alternate implementations.
- * - `GET /drivers/xd` — legacy iframe bridge; serves an HTML page that
- *   proxies `postMessage` RPCs to `/drivers/call` on the same origin.
- *
- * Holds an internal iface → driverName → instance map built at
- * construction time from `this.drivers`. Extensions that register
- * additional drivers end up in that bag before this controller is
- * instantiated, so they show up here automatically.
- */
 @Controller('/drivers')
 export class DriverController extends PuterController {
     /** iface → Map<driverName, driverInstance> */
@@ -146,7 +128,7 @@ export class DriverController extends PuterController {
         this.#buildIfaceMap();
     }
 
-    // ── Lookup API (used by tests / internals) ──────────────────────
+    // -- Lookup API (used by tests / internals) ----------------------
 
     /** Resolve a driver by interface + optional name (default when omitted). */
     resolve(interfaceName: string, driverName?: string): DriverInstance | null {
@@ -170,7 +152,7 @@ export class DriverController extends PuterController {
         return this.#defaults.get(interfaceName);
     }
 
-    // ── Route registration ──────────────────────────────────────────
+    // -- Route registration ------------------------------------------
 
     registerRoutes(router: PuterRouter): void {
         router.post(
@@ -183,14 +165,9 @@ export class DriverController extends PuterController {
             { subdomain: 'api', requireAuth: true },
             this.#handleListInterfaces,
         );
-        router.get(
-            '/xd',
-            { subdomain: 'api', requireAuth: true },
-            this.#handleXd,
-        );
     }
 
-    // ── Handlers ────────────────────────────────────────────────────
+    // -- Handlers ----------------------------------------------------
 
     #handleCall = async (req: Request, res: Response): Promise<void> => {
         const {
@@ -246,7 +223,16 @@ export class DriverController extends PuterController {
                 | PermissionService
                 | undefined;
             if (permService) {
-                const permKey = `service:${resolvedDriverName}:ii:${ifaceName}`;
+                // Build via PermissionUtil.join so any `:` in a driver or
+                // interface name is escaped — raw interpolation would let a
+                // crafted name shift permission-segment boundaries and match
+                // a broader/narrower parent than intended in the scan logic.
+                const permKey = PermissionUtil.join(
+                    'service',
+                    String(resolvedDriverName),
+                    'ii',
+                    ifaceName,
+                );
                 const hasPermission = await permService.check(
                     req.actor,
                     permKey,
@@ -278,6 +264,19 @@ export class DriverController extends PuterController {
         if (
             !(await checkDriverRateLimit(req, ifaceName, method, rateLimitSpec))
         ) {
+            // De-dupe on (iface, method) so a hot loop across many users
+            // aggregates as occurrences on a single low-severity alarm
+            // instead of fanning out one per user.
+            this.clients.alarm.create(
+                `driver_rate_limit_hit:${ifaceName}:${method}`,
+                `Driver rate limit hit on ${ifaceName}:${method}`,
+                {
+                    iface: ifaceName,
+                    method,
+                    userUuid: req.actor?.user?.uuid,
+                },
+                'info',
+            );
             throw new HttpError(429, 'Too many requests.', {
                 legacyCode: 'too_many_requests',
             });
@@ -300,6 +299,16 @@ export class DriverController extends PuterController {
                 concurrentSpec,
             );
             if (!handle.ok) {
+                this.clients.alarm.create(
+                    `driver_concurrent_limit_hit:${ifaceName}:${method}`,
+                    `Driver concurrency limit hit on ${ifaceName}:${method}`,
+                    {
+                        iface: ifaceName,
+                        method,
+                        userUuid: req.actor?.user?.uuid,
+                    },
+                    'info',
+                );
                 throw new HttpError(429, 'Too many concurrent requests.', {
                     legacyCode: 'too_many_requests',
                 });
@@ -326,11 +335,90 @@ export class DriverController extends PuterController {
         // a stale value from a prior call.
         Context.set('driverName', requestedDriver);
 
-        // Drivers read actor/context via the Context API — no drilled args.
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const result = await (fn as (...x: unknown[]) => any).call(
-            driver,
+        // Per-method lifecycle events, scoped to `driver.<iface>.<method>`.
+        // Subscribers can listen on `driver.*`, `driver.<iface>.*`, or the
+        // exact key. `before` is emitted via `emitAndWait` so a listener may
+        // veto the call by setting `allow = false` (emits `reject`, throws
+        // 403); otherwise `after`/`error` carry the result/error + duration.
+        const actor = req.actor ? actorUid(req.actor) : undefined;
+        const resolved = String(resolvedDriverName);
+        const beforeEvent = {
+            phase: 'before' as const,
+            iface: ifaceName,
+            method,
+            driver: resolved,
+            actor: req.actor,
+            actorUid: actor,
             args,
+            allow: true as boolean,
+            rejectReason: undefined as string | undefined,
+        };
+        await this.clients.event?.emitAndWait(
+            `driver.${ifaceName}.${method}.before`,
+            beforeEvent,
+            {},
+        );
+        if (beforeEvent.allow === false) {
+            this.clients.event?.emit(
+                `driver.${ifaceName}.${method}.reject`,
+                {
+                    phase: 'reject',
+                    iface: ifaceName,
+                    method,
+                    driver: resolved,
+                    actor: req.actor,
+                    actorUid: actor,
+                    args,
+                    rejectReason: beforeEvent.rejectReason,
+                },
+                {},
+            );
+            throw new HttpError(
+                403,
+                beforeEvent.rejectReason ??
+                    `Blocked by policy: ${ifaceName}:${method}`,
+                { legacyCode: 'forbidden' },
+            );
+        }
+
+        // Drivers read actor/context via the Context API — no drilled args.
+        const startedAt = Date.now();
+        let result;
+        try {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            result = await (fn as (...x: unknown[]) => any).call(driver, args);
+        } catch (e) {
+            this.clients.event?.emit(
+                `driver.${ifaceName}.${method}.error`,
+                {
+                    phase: 'error',
+                    iface: ifaceName,
+                    method,
+                    driver: resolved,
+                    actor: req.actor,
+                    actorUid: actor,
+                    args,
+                    error: e,
+                    durationMs: Date.now() - startedAt,
+                },
+                {},
+            );
+            throw translateProviderError(e);
+        }
+        this.clients.event?.emit(
+            `driver.${ifaceName}.${method}.after`,
+            {
+                phase: 'after',
+                iface: ifaceName,
+                method,
+                driver: resolved,
+                actor: req.actor,
+                actorUid: actor,
+                args,
+                result,
+                durationMs: Date.now() - startedAt,
+            },
+            {},
         );
 
         if (isDriverStreamResult(result)) {
@@ -374,12 +462,7 @@ export class DriverController extends PuterController {
         res.json(out);
     };
 
-    #handleXd = (_req: Request, res: Response): void => {
-        res.type('text/html');
-        res.send(XD_HTML);
-    };
-
-    // ── Internals ───────────────────────────────────────────────────
+    // -- Internals ---------------------------------------------------
 
     #buildIfaceMap(): void {
         const bag = this.drivers as unknown as Record<string, DriverInstance>;

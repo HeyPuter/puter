@@ -209,7 +209,7 @@ export class OCRDriver extends PuterDriver {
         return null;
     }
 
-    // ── AWS Textract ─────────────────────────────────────────────────
+    // -- AWS Textract -------------------------------------------------
 
     #textractClientFor(region: string): TextractClient {
         const cached = this.#textractClients[region];
@@ -317,7 +317,7 @@ export class OCRDriver extends PuterDriver {
         return { blocks };
     }
 
-    // ── Mistral OCR ──────────────────────────────────────────────────
+    // -- Mistral OCR --------------------------------------------------
 
     async #mistralRecognize(
         loaded: LoadedFile,

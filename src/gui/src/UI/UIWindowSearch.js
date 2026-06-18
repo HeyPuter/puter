@@ -195,9 +195,9 @@ $(document).on('click', '.search-result', async function (e) {
                 'Authorization': `Bearer ${window.auth_token}`,
             },
             statusCode: {
-                401: function () {
-                    window.logout();
-                },
+                401: function (xhr) {
+                        window.handle401(xhr);
+                    },
             },
         });
     } catch ( err ) {

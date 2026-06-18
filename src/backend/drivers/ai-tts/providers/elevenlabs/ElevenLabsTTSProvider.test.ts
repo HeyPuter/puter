@@ -420,7 +420,7 @@ describe('ElevenLabsTTSProvider.synthesize metering', () => {
 // ── Error paths ─────────────────────────────────────────────────────
 
 describe('ElevenLabsTTSProvider.synthesize error paths', () => {
-    it('wraps non-OK upstream responses as HttpError 502', async () => {
+    it('wraps non-OK upstream 4xx responses as HttpError 400 with upstream_bad_request', async () => {
         const provider = makeProvider();
         fetchSpy.mockResolvedValueOnce(
             new Response('{"error":"bad voice"}', {
@@ -431,7 +431,10 @@ describe('ElevenLabsTTSProvider.synthesize error paths', () => {
 
         await expect(
             withTestActor(() => provider.synthesize({ text: 'hi' })),
-        ).rejects.toMatchObject({ statusCode: 502 });
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            legacyCode: 'upstream_bad_request',
+        });
         expect(incrementUsageSpy).not.toHaveBeenCalled();
     });
 

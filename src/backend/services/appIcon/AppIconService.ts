@@ -19,6 +19,7 @@
 
 import { Readable } from 'node:stream';
 import type { LayerInstances } from '../../types';
+import { isUniqueViolation } from '../../util/dbError.js';
 import type { puterServices } from '../index';
 import { PuterService } from '../types.js';
 
@@ -152,7 +153,7 @@ export class AppIconService extends PuterService {
         return `${protocol}://${APP_ICONS_SUBDOMAIN}.${host}${portSuffix}`;
     }
 
-    // ── Bootstrap ───────────────────────────────────────────────────
+    // -- Bootstrap ---------------------------------------------------
 
     /**
      * Public so `DefaultUserService` can call it immediately after it
@@ -198,19 +199,29 @@ export class AppIconService extends PuterService {
         }
 
         // Register the `puter-app-icons` subdomain pointing at that dir.
-        // Idempotent: skip if it already exists.
+        // Idempotent, and must stay so under a concurrent boot: this method
+        // runs twice on first boot — once un-awaited from our own
+        // `onServerStart`, then again (awaited) from `DefaultUserService`
+        // right after it creates the admin — and `existsBySubdomain` reads a
+        // cache that can still hold a stale negative entry. So the existence
+        // check can pass in both calls; let the unique constraint be the real
+        // arbiter and swallow the loser's duplicate. The end state (subdomain
+        // exists) is identical either way.
         const already =
             await this.stores.subdomain.existsBySubdomain(APP_ICONS_SUBDOMAIN);
-        if (!already) {
+        if (already) return;
+        try {
             await this.stores.subdomain.create({
                 userId: adminUser.id,
                 subdomain: APP_ICONS_SUBDOMAIN,
                 rootDirId: dirEntry.id ?? null,
             });
+        } catch (e) {
+            if (!isUniqueViolation(e)) throw e;
         }
     }
 
-    // ── Icon pipeline ───────────────────────────────────────────────
+    // -- Icon pipeline -----------------------------------------------
 
     async #processIcon(data: Record<string, unknown>): Promise<void> {
         if (this.#dirReady) await this.#dirReady;

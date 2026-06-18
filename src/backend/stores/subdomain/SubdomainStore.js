@@ -60,7 +60,7 @@ const NEGATIVE_CACHE_MARKER = '__none__';
 const NEGATIVE_CACHE_TTL_SECONDS = 10;
 
 export class SubdomainStore extends PuterStore {
-    // ── Reads ────────────────────────────────────────────────────────
+    // -- Reads --------------------------------------------------------
 
     async getByUuid(uuid, { userId, primary = false } = {}) {
         const where =
@@ -180,15 +180,16 @@ export class SubdomainStore extends PuterStore {
         return rows;
     }
 
-    // ── Writes ───────────────────────────────────────────────────────
+    // -- Writes -------------------------------------------------------
 
-    /** @param {{ userId: number, subdomain: string, rootDirId?: number|null, associatedAppId?: number|null, appOwner?: number|null }} opts */
+    /** @param {{ userId: number, subdomain: string, rootDirId?: number|null, associatedAppId?: number|null, appOwner?: number|null, preambleVersion?: string|null }} opts */
     async create({
         userId,
         subdomain,
         rootDirId = null,
         associatedAppId = null,
         appOwner = null,
+        preambleVersion = null,
     }) {
         if (!userId || !subdomain) {
             throw new Error('create: userId and subdomain are required');
@@ -196,8 +197,8 @@ export class SubdomainStore extends PuterStore {
         const uuid = uuidv4();
         await this.clients.db.write(
             `INSERT INTO \`subdomains\`
-                (\`uuid\`, \`subdomain\`, \`user_id\`, \`root_dir_id\`, \`associated_app_id\`, \`app_owner\`)
-             VALUES (?, ?, ?, ?, ?, ?)`,
+                (\`uuid\`, \`subdomain\`, \`user_id\`, \`root_dir_id\`, \`associated_app_id\`, \`app_owner\`, \`preamble_version\`)
+             VALUES (?, ?, ?, ?, ?, ?, ?)`,
             [
                 uuid,
                 subdomain,
@@ -205,6 +206,7 @@ export class SubdomainStore extends PuterStore {
                 rootDirId ?? null,
                 associatedAppId,
                 appOwner,
+                preambleVersion,
             ],
         );
 
@@ -215,6 +217,7 @@ export class SubdomainStore extends PuterStore {
             root_dir_id: rootDirId ?? null,
             associated_app_id: associatedAppId,
             app_owner: appOwner,
+            preamble_version: preambleVersion,
         };
         await this.#refreshCache(row);
         await this.#invalidatePrefixListsForUser(userId);
@@ -308,7 +311,7 @@ export class SubdomainStore extends PuterStore {
         }
     }
 
-    // ── Internals ────────────────────────────────────────────────────
+    // -- Internals ----------------------------------------------------
 
     #cacheKey(subdomain) {
         return `${CACHE_KEY_PREFIX}:name:${subdomain}`;

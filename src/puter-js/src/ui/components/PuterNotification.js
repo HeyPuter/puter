@@ -175,6 +175,29 @@ class PuterNotification extends PuterWebComponent {
                     width: auto;
                 }
             }
+            :host(.puter-theme-dark) .notification {
+                background: #2d2d2dcd;
+                border-color: #3a3a3a;
+                box-shadow: 0px 0px 17px -6px #000;
+            }
+            :host(.puter-theme-dark) .close-btn {
+                background: #3a3a3a;
+                color: #ccc;
+                filter: drop-shadow(0px 0px 0.5px rgb(230, 230, 230));
+            }
+            :host(.puter-theme-dark) .close-btn:hover {
+                background: #4a4a4a;
+                color: #fff;
+            }
+            :host(.puter-theme-dark) .icon-area {
+                filter: drop-shadow(0px 0px 0.5px rgb(230, 230, 230));
+            }
+            :host(.puter-theme-dark) .title {
+                color: #e6e6e6;
+            }
+            :host(.puter-theme-dark) .text {
+                color: #b0b0b0;
+            }
         `;
     }
 
@@ -255,6 +278,7 @@ class PuterNotification extends PuterWebComponent {
     }
 
     disconnectedCallback () {
+        super.disconnectedCallback();
         if ( this._dismissTimer ) clearTimeout(this._dismissTimer);
         const idx = activeNotifications.indexOf(this);
         if ( idx !== -1 ) activeNotifications.splice(idx, 1);

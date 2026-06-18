@@ -44,7 +44,6 @@ import UIWindowFeedback from '../UIWindowFeedback.js';
 
 // Import tab modules
 import TabHome from './TabHome.js';
-import TabFiles from './TabFiles.js';
 import TabApps from './TabApps.js';
 import TabUsage from './TabUsage.js';
 import TabAccount from './TabAccount.js';
@@ -54,7 +53,6 @@ import TabSecurity from './TabSecurity.js';
 const builtinTabs = [
     TabHome,
     TabApps,
-    TabFiles,
     '-',
     TabUsage,
     TabAccount,
@@ -156,11 +154,6 @@ async function UIDashboard (options) {
         $el_window.find('.dashboard-sidebar').addClass('collapsed');
     }
 
-    // Set initial file path BEFORE tabs are initialized (so TabFiles.init() can use it)
-    if ( window.dashboard_initial_route?.tab === 'files' && window.dashboard_initial_route?.path ) {
-        window.dashboard_initial_file_path = window.dashboard_initial_route.path;
-    }
-
     // Initialize all tabs
     for ( const tab of tabs ) {
         if ( tab.init ) {
@@ -232,97 +225,6 @@ async function UIDashboard (options) {
         }
     });
 
-    // Trash status updates
-    window.socket.on('trash.is_empty', async (msg) => {
-        // Update sidebar Trash icon
-        const trashIcon = msg.is_empty ? window.icons['trash.svg'] : window.icons['trash-full.svg'];
-        $('.directories [data-folder=\'Trash\'] img').attr('src', trashIcon);
-
-        // If currently viewing trash and it's empty, clear the file list
-        const dashboard = window.dashboard_object;
-        if ( msg.is_empty && dashboard && dashboard.currentPath === window.trash_path ) {
-            $('.files-tab .files').empty();
-        }
-    });
-
-    // =========================================================================
-    // Item event handlers
-    // Incremental DOM updates using UIDashboardFileItem for item creation and
-    // direct jQuery manipulation for removals/updates. Mirrors UIDesktop's
-    // approach but adapted for Dashboard's list-view structure.
-    // =========================================================================
-
-    window.socket.on('item.moved', async (resp) => {
-        if ( resp.original_client_socket_id === window.socket.id ) return;
-
-        // Fade out old item from view
-        $(`.item[data-uid='${resp.uid}']`).fadeOut(150, function () {
-            $(this).remove();
-        });
-
-        // Create new item at destination if user is viewing that directory
-        if ( window.UIDashboardFileItem ) {
-            window.UIDashboardFileItem(resp);
-        }
-    });
-
-    window.socket.on('item.removed', async (item) => {
-        if ( item.original_client_socket_id === window.socket.id ) return;
-        if ( item.descendants_only ) return;
-
-        $(`.item[data-path='${html_encode(item.path)}']`).fadeOut(150, function () {
-            $(this).remove();
-        });
-    });
-
-    window.socket.on('item.renamed', async (item) => {
-        if ( item.original_client_socket_id === window.socket.id ) return;
-
-        const $el = $(`.item[data-uid='${item.uid}']`);
-        if ( $el.length === 0 ) return;
-
-        // Update data attributes
-        $el.attr('data-name', html_encode(item.name));
-        $el.attr('data-path', html_encode(item.path));
-
-        // Update displayed name
-        $el.find('.item-name').text(item.name);
-        $el.find('.item-name-editor').val(item.name);
-    });
-
-    window.socket.on('item.updated', async (item) => {
-        const $el = $(`.item[data-uid='${item.uid}']`);
-        if ( $el.length === 0 ) return;
-
-        // Update data attributes
-        $el.attr('data-name', html_encode(item.name));
-        $el.attr('data-path', html_encode(item.path));
-        $el.attr('data-size', item.size);
-        $el.attr('data-modified', item.modified);
-        $el.attr('data-type', html_encode(item.type));
-
-        // Update displayed name
-        $el.find('.item-name').text(item.name);
-        $el.find('.item-name-editor').val(item.name);
-
-        if (
-            window.dashboard_object?.currentView === 'grid'
-            && typeof item.thumbnail === 'string'
-            && item.thumbnail.length > 0
-        ) {
-            $el.find('.item-icon img').attr('src', item.thumbnail);
-        }
-    });
-
-    window.socket.on('item.added', async (item) => {
-        if ( !item || Object.keys(item).length === 0 ) return;
-        if ( item.original_client_socket_id === window.socket.id ) return;
-
-        if ( window.UIDashboardFileItem ) {
-            window.UIDashboardFileItem(item);
-        }
-    });
-
     // Apply initial route from URL - activate the correct tab
     if ( window.dashboard_initial_route ) {
         const route = window.dashboard_initial_route;
@@ -356,7 +258,6 @@ async function UIDashboard (options) {
     const handleRouteChange = () => {
         const route = window.parseDashboardRoute();
         const tab = route.tab;
-        const filePath = route.path;
 
         // Switch to correct tab
         const $targetTab = $el_window.find(`.dashboard-sidebar-item[data-section="${tab}"]`);
@@ -378,14 +279,6 @@ async function UIDashboard (options) {
 
         // Scroll content area to top
         $el_window.find('.dashboard-content').scrollTop(0);
-
-        // If files tab with path, navigate without adding to history
-        if ( tab === 'files' && filePath ) {
-            const filesTab = tabs.find(t => t.id === 'files');
-            if ( filesTab?.renderDirectory ) {
-                filesTab.renderDirectory(filePath, { skipUrlUpdate: true, skipNavHistory: true });
-            }
-        }
     };
 
     // Listen for both hashchange and popstate to handle all navigation scenarios

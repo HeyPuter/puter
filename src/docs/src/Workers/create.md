@@ -6,11 +6,9 @@ platforms: [websites, apps, nodejs, workers]
 
 Creates and deploys a new worker from a JavaScript file containing [router](../router) code.
 
-<div class="info">To create a worker, you'll need a <a href="https://puter.com/">Puter account</a> with a verified email address.</div>
+A worker is tied to its **name**: you create it **once** and keep that name. To deploy changes, don't call `create()` again with a new name — instead overwrite the worker's source file (see [Updating a worker](#updating-a-worker) below). Recreating under a different name leaves the old worker live at its old URL while your callers end up pointing at an orphaned one.
 
-<div class="info">After a worker is created or updated, full propagation may take between 5 to 30 seconds to fully take effect across all edge servers. </div>
-
-
+<div class="info">To create a worker, you'll need a <a href="https://puter.com/">Puter account</a> with a verified email address. After a worker is created or updated, full propagation may take between 5 and 30 seconds to take effect across all edge servers.</div>
 
 ## Syntax
 
@@ -86,3 +84,20 @@ puter.workers.create('my-api', 'api-server.js')
 </body>
 </html>
 ```
+
+## Updating a worker
+
+A worker keeps the same name and URL for its whole lifetime. You create it once with `create()`; after that, you **update it by overwriting its source file**, not by creating a new worker.
+
+[`puter.workers.get()`](/Workers/get/) returns the worker's [`file_path`](/Objects/workerinfo), so you can write your new code back to it:
+
+```js
+// Look up the deployed worker's source file
+const info = await puter.workers.get('my-api');
+
+// Overwrite it with your new code — this redeploys the worker
+// at the same name and URL
+await puter.fs.write(info.file_path, updatedWorkerCode);
+```
+
+The worker redeploys from that file, so `https://my-api.puter.work` keeps serving — now running your updated code. Anything already calling the worker keeps working without changes.

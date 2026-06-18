@@ -20,7 +20,7 @@
 import type { Readable } from 'node:stream';
 import type { WithLifecycle } from '../types';
 
-// ── Stream result convention ────────────────────────────────────────
+// -- Stream result convention ----------------------------------------
 //
 // Driver methods that return a stream instead of JSON wrap the readable
 // in this shape. The `/drivers/call` handler detects it and pipes to the
@@ -46,7 +46,7 @@ export function isDriverStreamResult(v: unknown): v is DriverStreamResult {
     );
 }
 
-// ── Driver metadata keys ────────────────────────────────────────────
+// -- Driver metadata keys --------------------------------------------
 //
 // Metadata keys stored on driver prototypes by the `@Driver` decorator.
 // Imperative drivers set these as instance properties instead.
@@ -58,7 +58,7 @@ export const DRIVER_ALIASES_KEY = '__driverAliases' as const;
 export const DRIVER_RATE_LIMIT_KEY = '__driverRateLimit' as const;
 export const DRIVER_CONCURRENT_KEY = '__driverConcurrent' as const;
 
-// ── Driver rate-limit config ────────────────────────────────────────
+// -- Driver rate-limit config ----------------------------------------
 //
 // A driver declares its rate-limit policy alongside its other metadata
 // (`@Driver({ rateLimit: ... })` or an imperative `readonly rateLimit`
@@ -194,7 +194,7 @@ export function resolveDriverMethodRateLimit(
     return cfg.methods?.[method] ?? cfg.default;
 }
 
-// ── Driver concurrent-limit config ──────────────────────────────────
+// -- Driver concurrent-limit config ----------------------------------
 //
 // Twin to `DriverRateLimitConfig` but for in-flight concurrency. Same
 // shape minus `window`, plus `bySubscription` to vary the cap by the

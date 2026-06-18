@@ -61,7 +61,7 @@ export class PuterRouter {
         this.prefix = prefix;
     }
 
-    // ── use ─────────────────────────────────────────────────────────
+    // -- use ---------------------------------------------------------
     //
     // `use` is the only method whose path is optional (global-ish
     // middleware) and whose options can appear with or without a path.
@@ -77,7 +77,7 @@ export class PuterRouter {
         return this;
     }
 
-    // ── HTTP verbs + WebDAV ─────────────────────────────────────────
+    // -- HTTP verbs + WebDAV -----------------------------------------
     //
     // All take `(path, handler)` or `(path, options, handler)`.
 
@@ -231,7 +231,7 @@ export class PuterRouter {
         return this.#push('move', args);
     }
 
-    // ── Internals ───────────────────────────────────────────────────
+    // -- Internals ---------------------------------------------------
 
     #push(method: RouteMethod, args: unknown[]): this {
         const normalized = this.#parsePathArgs(args);

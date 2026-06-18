@@ -17,19 +17,19 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import type { Request, Response } from 'express';
 import crypto from 'node:crypto';
 import { Readable } from 'node:stream';
-import type { Request, Response } from 'express';
 import { HttpError } from '../../core/http/HttpError.js';
-import { isAppActor } from '../../core/actor.js';
+import { RouteOptions } from '../../core/http/index.js';
 import type { PuterRouter } from '../../core/http/PuterRouter.js';
-import { PuterController } from '../types.js';
-import { isDriverStreamResult } from '../../drivers/meta.js';
 import type { ChatCompletionDriver } from '../../drivers/ai-chat/ChatCompletionDriver.js';
 import type {
-    ICompleteArguments,
     IChatCompleteResult,
+    ICompleteArguments,
 } from '../../drivers/ai-chat/types.js';
+import { isDriverStreamResult } from '../../drivers/meta.js';
+import { PuterController } from '../types.js';
 
 const GEMINI_DOWNLOAD_BASE =
     'https://generativelanguage.googleapis.com/download/v1beta/files';
@@ -49,7 +49,16 @@ const GEMINI_DOWNLOAD_BASE =
  */
 export class PuterAIController extends PuterController {
     registerRoutes(router: PuterRouter): void {
-        const apiAuthOpts = { subdomain: 'api', requireAuth: true } as const;
+        const apiAuthOpts = {
+            subdomain: 'api',
+            requireUserActor: true,
+            // These are the user's own programmatic AI surface (OpenAI/Anthropic
+            // wire). `requireUserActor` here exists to keep third-party apps
+            // out, not to block the user's own credential — so admit full-access
+            // personal access tokens (CLI/MCP/scripts). Apps and scoped tokens
+            // stay blocked.
+            allowFullAccessToken: true,
+        } as RouteOptions;
         const publicOpts = { subdomain: 'api', requireAuth: false } as const;
 
         // Every route below carries the `/puterai` prefix for wire
@@ -107,7 +116,7 @@ export class PuterAIController extends PuterController {
             this.#modelDetails('aiVideo'),
         );
 
-        // ── Video URL proxy ─────────────────────────────────────────
+        // -- Video URL proxy -----------------------------------------
         // Reverse-proxies AI-generated video URLs that can't be given
         // directly to the client (auth-gated provider downloads). The
         // URL itself is HMAC-signed, so no additional auth gate.
@@ -223,14 +232,12 @@ export class PuterAIController extends PuterController {
         };
     }
 
-    // ── /openai/v1/chat/completions ─────────────────────────────────
+    // -- /openai/v1/chat/completions ---------------------------------
 
     openaiChatCompletions = async (
         req: Request,
         res: Response,
     ): Promise<void> => {
-        this.#rejectAppActor(req);
-
         const body = asRecord(req.body);
         const stream = !!body.stream;
 
@@ -393,11 +400,9 @@ export class PuterAIController extends PuterController {
         });
     };
 
-    // ── /openai/v1/completions ──────────────────────────────────────
+    // -- /openai/v1/completions --------------------------------------
 
     openaiCompletions = async (req: Request, res: Response): Promise<void> => {
-        this.#rejectAppActor(req);
-
         const body = asRecord(req.body);
         const stream = !!body.stream;
 
@@ -523,11 +528,9 @@ export class PuterAIController extends PuterController {
         });
     };
 
-    // ── /openai/v1/responses ────────────────────────────────────────
+    // -- /openai/v1/responses ----------------------------------------
 
     openaiResponses = async (req: Request, res: Response): Promise<void> => {
-        this.#rejectAppActor(req);
-
         const body = asRecord(req.body);
         const stream = !!body.stream;
 
@@ -835,11 +838,9 @@ export class PuterAIController extends PuterController {
         );
     };
 
-    // ── /anthropic/v1/messages ──────────────────────────────────────
+    // -- /anthropic/v1/messages --------------------------------------
 
     anthropicMessages = async (req: Request, res: Response): Promise<void> => {
-        this.#rejectAppActor(req);
-
         const body = asRecord(req.body);
         const stream = !!body.stream;
 
@@ -1042,7 +1043,7 @@ export class PuterAIController extends PuterController {
         });
     };
 
-    // ── Internals ───────────────────────────────────────────────────
+    // -- Internals ---------------------------------------------------
 
     #driver(): ChatCompletionDriver {
         const driver = this.drivers.aiChat;
@@ -1052,20 +1053,9 @@ export class PuterAIController extends PuterController {
             });
         return driver;
     }
-
-    #rejectAppActor(req: Request): void {
-        // Proxy routes are user-only; apps must call puter-chat-completion directly.
-        if (isAppActor(req.actor)) {
-            throw new HttpError(
-                403,
-                'App actors may not proxy to upstream AI APIs',
-                { legacyCode: 'forbidden' },
-            );
-        }
-    }
 }
 
-// ── Shared helpers ──────────────────────────────────────────────────
+// -- Shared helpers --------------------------------------------------
 
 const DEFAULTS = {
     openaiChat: 'openai-completion',
@@ -1151,7 +1141,7 @@ const pipeNdjsonStream = (
     stream.on('error', opts.onError);
 };
 
-// ── OpenAI/Anthropic shape helpers ───────────────────────────────────
+// -- OpenAI/Anthropic shape helpers -----------------------------------
 
 const extractTextContent = (content: unknown): string => {
     if (content === undefined || content === null) return '';
@@ -1270,7 +1260,7 @@ const getPromptText = (prompt: unknown): string => {
     return prompt;
 };
 
-// ── OpenAI /responses input → message list ──────────────────────────
+// -- OpenAI /responses input → message list --------------------------
 
 const parseJsonMaybe = (value: unknown): unknown => {
     if (typeof value !== 'string') return value ?? {};
@@ -1379,7 +1369,7 @@ const responseInputToMessages = (input: unknown): unknown[] => {
     return messages;
 };
 
-// ── OpenAI /responses result → output items ─────────────────────────
+// -- OpenAI /responses result → output items -------------------------
 
 const responseOutputFromResult = (
     result: Extract<IChatCompleteResult, { message?: unknown }>,
@@ -1500,7 +1490,7 @@ const normalizeResponsesTool = (tool: unknown): unknown => {
     return { ...(t.function as Record<string, unknown>), type: 'function' };
 };
 
-// ── Anthropic → internal messages ───────────────────────────────────
+// -- Anthropic → internal messages -----------------------------------
 
 const normalizeAnthropicTools = (tools: unknown): unknown[] | undefined => {
     if (!Array.isArray(tools) || tools.length === 0) return undefined;

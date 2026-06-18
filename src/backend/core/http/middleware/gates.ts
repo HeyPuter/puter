@@ -24,14 +24,22 @@ import { assertVerifiedEmail } from '../verifiedEmail';
 // Make sure the `Express.Request.actor` augmentation is in scope.
 import '../expressAugmentation';
 
-/**
- * Build the 401 a route gate emits when `req.actor` is absent. Splits the
- * legacy code so old clients can tell the two cases apart: `token_missing`
- * means "send a token", `token_auth_failed` means "your token didn't work,
- * re-login". Matches the v1 backend's auth-failure shape so the existing
- * client retry-vs-reauth logic doesn't need to change.
- */
 const rejectAuth = (req: Request): HttpError => {
+    if (req.requiresReauth) {
+        return new HttpError(401, 'Re-authentication required', {
+            legacyCode: 'reauth_required',
+            fields: {
+                code: 'reauth_required',
+                reason: req.requiresReauth.reason,
+                ...(req.requiresReauth.auth_id
+                    ? { auth_id: req.requiresReauth.auth_id }
+                    : {}),
+                ...(req.requiresReauth.reauth_token
+                    ? { reauth_token: req.requiresReauth.reauth_token }
+                    : {}),
+            },
+        });
+    }
     if (req.tokenAuthFailed) {
         return new HttpError(401, 'Authentication failed', {
             legacyCode: 'token_auth_failed',
@@ -91,8 +99,18 @@ export const requireAuthGate = (): RequestHandler => {
  * Reject app-under-user and access-token actors with 403. Use on endpoints
  * that should only be exercised by a human session — settings changes,
  * admin-style actions on the user's own account.
+ *
+ * `allowFullAccess` (set per-route via the `allowFullAccessToken` route option)
+ * relaxes ONLY the access-token half: a full-access ("personal access token")
+ * actor is admitted, because it represents the user's own full API reach.
+ * Third-party apps are ALWAYS rejected, and scoped access tokens are always
+ * rejected. This opt-in is for user-resource / inference endpoints (AI proxy,
+ * etc.) that use this gate purely to keep apps out — NEVER for account or
+ * security management, which must stay closed to every access token.
  */
-export const requireUserActorGate = (): RequestHandler => {
+export const requireUserActorGate = (
+    opts: { allowFullAccess?: boolean } = {},
+): RequestHandler => {
     return (req, _res, next) => {
         const actor = req.actor;
         // requireAuth runs first; this gate just narrows the actor type.
@@ -100,11 +118,45 @@ export const requireUserActorGate = (): RequestHandler => {
             next(rejectAuth(req));
             return;
         }
-        if (actor.app || actor.accessToken) {
+        // Third-party apps are never allowed through this gate.
+        const appBlocked = !!actor.app;
+        // Access tokens are blocked unless the route opted in AND this is a
+        // full-access PAT (the user's own credential). Scoped tokens: blocked.
+        const tokenBlocked =
+            !!actor.accessToken &&
+            !(opts.allowFullAccess && actor.accessToken.fullAccess);
+        if (appBlocked || tokenBlocked) {
             next(
                 new HttpError(
                     403,
                     'This endpoint is only available to user sessions',
+                    { legacyCode: 'forbidden' },
+                ),
+            );
+            return;
+        }
+        next();
+    };
+};
+
+export const requireNonAccessTokenGate = (): RequestHandler => {
+    return (req, _res, next) => {
+        const actor = req.actor;
+        if (!actor) {
+            next(rejectAuth(req));
+            return;
+        }
+        // Full-access ("personal access token") access tokens are admitted here:
+        // they carry the user's full API reach by design. They remain blocked
+        // from account management because those routes also use
+        // `requireUserActorGate`, which rejects ALL access tokens. Normal
+        // (scoped) access tokens stay blocked from non-`allowAccessToken`
+        // routes.
+        if (actor.accessToken && !actor.accessToken.fullAccess) {
+            next(
+                new HttpError(
+                    403,
+                    'Access tokens are not allowed to access this resource',
                     { legacyCode: 'forbidden' },
                 ),
             );
@@ -130,10 +182,16 @@ export const DEFAULT_ADMIN_USERNAMES = ['admin', 'system'] as const;
 export const adminOnlyGate = (
     extras: readonly string[] = [],
 ): RequestHandler => {
-    const allowList = new Set<string>([...DEFAULT_ADMIN_USERNAMES, ...extras]);
+    // Match the case-insensitivity guarantee of the username column
+    // (MySQL: ascii_general_ci; SQLite: idx_user_username_nocase). Comparing
+    // raw-case here would let a stored `Admin` bypass the lowercase allowlist
+    // on any backend that lets case-collision rows exist.
+    const allowList = new Set<string>(
+        [...DEFAULT_ADMIN_USERNAMES, ...extras].map((u) => u.toLowerCase()),
+    );
     return (req, _res, next) => {
         const username = req.actor?.user.username;
-        if (!username || !allowList.has(username)) {
+        if (!username || !allowList.has(username.toLowerCase())) {
             next(
                 new HttpError(403, 'Only admins may request this resource', {
                     legacyCode: 'forbidden',
@@ -166,27 +224,82 @@ export const requireVerifiedGate = (strictFlag: boolean): RequestHandler => {
 };
 
 /**
- * Reject authenticated users whose account is pending email confirmation
- * (`requires_email_confirmation && !email_confirmed`). Runs on every
- * authenticated route by default; routes that set `allowUnconfirmed: true`
- * skip this gate.
+ * Reject authenticated users whose account is still pending any signup-time
+ * verification — email confirmation, SMS phone verification, or credit-card
+ * verification. The abuse harness sets the phone/card flags on low-reputation
+ * signups (in place of a hard block), and this gate is what actually keeps
+ * those accounts out of the product until the flag clears: the flags live on
+ * `req.actor.user`, so every authenticated route enforces them, not just the
+ * GUI modal.
  *
- * Returns 403 with `email_confirmation_required` so clients can show the
- * confirmation prompt instead of a generic error.
+ * Runs on every authenticated route by default; routes that set
+ * `allowUnconfirmed: true` opt out (the verification endpoints themselves,
+ * plus essential flows like whoami / logout / save-account so a pending
+ * account can still reach the screens that clear the gate).
+ *
+ * Returns 403 with a per-gate legacy code (`email_confirmation_required` /
+ * `phone_verification_required` / `card_verification_required`) so clients can
+ * show the right prompt instead of a generic error. There is no state where a
+ * user should be allowed in with one verification pending, so any pending gate
+ * rejects.
  */
-export const requireEmailConfirmedGate = (): RequestHandler => {
+export const requireVerifiedAccount = (): RequestHandler => {
     return (req, _res, next) => {
-        const user = req.actor?.user;
-        if (user?.requires_email_confirmation && !user?.email_confirmed) {
-            next(
-                new HttpError(403, 'Please confirm your email to continue', {
-                    legacyCode: 'email_confirmation_required',
-                }),
-            );
+        try {
+            assertVerifiedAccount(req.actor?.user);
+        } catch (err) {
+            next(err);
             return;
         }
         next();
     };
+};
+
+/**
+ * The pending-verification check, factored out of {@link requireVerifiedAccount}
+ * so auth paths that build their own actor outside the route-option machinery
+ * can enforce the exact same gate. The WebDAV controller is the motivating
+ * case: it dispatches every method off a single `router.use`, so
+ * `requireVerifiedAccount` is never wired into its chain — it has to call this
+ * directly. Keeping one implementation is the point: a verification gate added
+ * here is picked up by every caller, so the paths can't drift (which is how
+ * WebDAV came to bypass the phone/card gate to begin with).
+ *
+ * Throws 403 with a per-gate legacy code (`email_confirmation_required` /
+ * `phone_verification_required` / `card_verification_required`) so clients can
+ * show the right prompt instead of a generic error. There is no state where a
+ * user should be let in with any verification pending, so the first pending
+ * gate rejects.
+ */
+export const assertVerifiedAccount = (
+    user:
+        | {
+              requires_email_confirmation?: unknown;
+              email_confirmed?: unknown;
+              requires_phone_verification?: unknown;
+              requires_card_verification?: unknown;
+          }
+        | undefined,
+): void => {
+    if (user?.requires_email_confirmation && !user?.email_confirmed) {
+        throw new HttpError(403, 'Please confirm your email to continue', {
+            legacyCode: 'email_confirmation_required',
+        });
+    }
+    if (user?.requires_phone_verification) {
+        throw new HttpError(
+            403,
+            'Please verify your phone number to continue',
+            {
+                legacyCode: 'phone_verification_required' as never,
+            },
+        );
+    }
+    if (user?.requires_card_verification) {
+        throw new HttpError(403, 'Please verify your card to continue', {
+            legacyCode: 'card_verification_required' as never,
+        });
+    }
 };
 
 /**

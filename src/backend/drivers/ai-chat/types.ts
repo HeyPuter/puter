@@ -125,4 +125,5 @@ export interface IChatProvider {
     list(): string[] | Promise<string[]>;
     getDefaultModel(): string;
     complete(arg: ICompleteArguments): Promise<IChatCompleteResult>;
+    checkModeration(text: string): { flagged: boolean; categories: string[] };
 }

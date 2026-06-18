@@ -24,10 +24,12 @@ export {
 } from './DatabaseClient';
 export { SqliteDatabaseClient } from './SqliteDatabaseClient';
 export { MySQLDatabaseClient } from './MySQLDatabaseClient';
+export { PostgresDatabaseClient } from './PostgresDatabaseClient';
 
 import type { IConfig } from '../../types';
 import { AbstractDatabaseClient } from './DatabaseClient';
 import { MySQLDatabaseClient } from './MySQLDatabaseClient';
+import { PostgresDatabaseClient } from './PostgresDatabaseClient';
 import { SqliteDatabaseClient } from './SqliteDatabaseClient';
 
 /**
@@ -41,6 +43,8 @@ export const DatabaseClientFactory = class DatabaseClientFactory {
         switch (engine) {
             case 'mysql':
                 return new MySQLDatabaseClient(config);
+            case 'postgres':
+                return new PostgresDatabaseClient(config);
             case 'sqlite':
                 return new SqliteDatabaseClient(config);
             default:

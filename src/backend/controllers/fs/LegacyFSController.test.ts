@@ -206,6 +206,78 @@ describe('LegacyFSController.mkdir', () => {
         expect(fetched?.isDir).toBe(true);
     });
 
+    it('dedupes an existing directory when dedupe_name is true', async () => {
+        const { actor } = await makeUser();
+        const username = actor.user!.username!;
+        const parent = `/${username}/Documents`;
+
+        await withActor(actor, () =>
+            controller.mkdir(
+                makeReq({
+                    body: { parent, path: 'hello' },
+                    actor,
+                }),
+                makeRes().res,
+            ),
+        );
+
+        const { res, captured } = makeRes();
+        await withActor(actor, () =>
+            controller.mkdir(
+                makeReq({
+                    body: { parent, path: 'hello', dedupe_name: true },
+                    actor,
+                }),
+                res,
+            ),
+        );
+
+        const body = captured.body as Record<string, unknown>;
+        expect(body).toMatchObject({
+            path: `${parent}/hello (1)`,
+            name: 'hello (1)',
+            is_dir: true,
+        });
+        expect(
+            await server.stores.fsEntry.getEntryByPath(`${parent}/hello (1)`),
+        ).toMatchObject({ isDir: true });
+    });
+
+    it('requires parent write when deduping an existing directory', async () => {
+        const { actor: userActor } = await makeUser();
+        const username = userActor.user!.username!;
+        const appUid = `app-legacy-mkdir-${uuidv4()}`;
+        const appActor: Actor = { ...userActor, app: { uid: appUid } };
+        const parent = `/${username}/AppData`;
+
+        await withActor(userActor, () =>
+            controller.mkdir(
+                makeReq({
+                    body: { parent, path: appUid },
+                    actor: userActor,
+                }),
+                makeRes().res,
+            ),
+        );
+
+        await expect(
+            withActor(appActor, () =>
+                controller.mkdir(
+                    makeReq({
+                        body: { parent, path: appUid, dedupe_name: true },
+                        actor: appActor,
+                    }),
+                    makeRes().res,
+                ),
+            ),
+        ).rejects.toMatchObject({ statusCode: 404 });
+        expect(
+            await server.stores.fsEntry.getEntryByPath(
+                `${parent}/${appUid} (1)`,
+            ),
+        ).toBeNull();
+    });
+
     it("rejects writing into another user's home with a 4xx", async () => {
         const a = await makeUser();
         const b = await makeUser();
@@ -813,6 +885,57 @@ describe('LegacyFSController.search', () => {
         expect(Array.isArray(results)).toBe(true);
         expect(results.some((r) => r.name === needle)).toBe(true);
     });
+
+    it('scopes app-under-user actors to their AppData root', async () => {
+        const { actor: userActor } = await makeUser();
+        const username = userActor.user!.username!;
+        const appUid = `app-legacy-search-${uuidv4()}`;
+        const appActor: Actor = { ...userActor, app: { uid: appUid } };
+        const needle = `appneedle-${Math.random().toString(36).slice(2, 8)}`;
+
+        await withActor(userActor, () =>
+            controller.mkdir(
+                makeReq({
+                    body: { path: `/${username}/Documents/${needle}` },
+                    actor: userActor,
+                }),
+                makeRes().res,
+            ),
+        );
+        await withActor(userActor, () =>
+            controller.mkdir(
+                makeReq({
+                    body: {
+                        path: `/${username}/AppData/${appUid}/${needle}`,
+                        create_missing_parents: true,
+                    },
+                    actor: userActor,
+                }),
+                makeRes().res,
+            ),
+        );
+
+        const { res, captured } = makeRes();
+        await withActor(appActor, () =>
+            controller.search(
+                makeReq({ body: { query: needle }, actor: appActor }),
+                res,
+            ),
+        );
+        const results = captured.body as Array<{ path: string }>;
+        expect(results.length).toBeGreaterThan(0);
+        for (const r of results) {
+            expect(
+                r.path === `/${username}/AppData/${appUid}` ||
+                    r.path.startsWith(`/${username}/AppData/${appUid}/`),
+            ).toBe(true);
+        }
+        expect(
+            results.some(
+                (r) => r.path === `/${username}/Documents/${needle}`,
+            ),
+        ).toBe(false);
+    });
 });
 
 // ── read (validation paths only) ────────────────────────────────────
@@ -959,6 +1082,76 @@ describe('LegacyFSController.sign', () => {
             ),
         ).rejects.toMatchObject({ statusCode: 404 });
     });
+
+    it('refuses an app actor signing for a different app (403)', async () => {
+        // An app-under-user actor may only mint a token for its own app;
+        // requesting a different app's UID is rejected.
+        const { actor: userActor } = await makeUser();
+        const targetApp = await (
+            server.stores.app.create as unknown as (
+                fields: Record<string, unknown>,
+                opts: { ownerUserId: number },
+            ) => Promise<{ uid: string; id: number }>
+        )(
+            {
+                name: `victim-${uuidv4()}`,
+                title: 'Victim app',
+                index_url: 'https://example.test/victim.html',
+            },
+            { ownerUserId: userActor.user!.id! },
+        );
+        const attackerActor: Actor = {
+            ...userActor,
+            app: { uid: `attacker-${uuidv4()}` },
+        };
+
+        const { res } = makeRes();
+        await expect(
+            withActor(attackerActor, () =>
+                controller.sign(
+                    makeReq({
+                        body: {
+                            items: [{}],
+                            app_uid: targetApp.uid,
+                        },
+                        actor: attackerActor,
+                    }),
+                    res,
+                ),
+            ),
+        ).rejects.toMatchObject({ statusCode: 403, legacyCode: 'forbidden' });
+    });
+
+    it('lets an app actor sign for its own app', async () => {
+        const { actor: userActor } = await makeUser();
+        const ownApp = await (
+            server.stores.app.create as unknown as (
+                fields: Record<string, unknown>,
+                opts: { ownerUserId: number },
+            ) => Promise<{ uid: string; id: number }>
+        )(
+            {
+                name: `self-${uuidv4()}`,
+                title: 'Self app',
+                index_url: 'https://example.test/self.html',
+            },
+            { ownerUserId: userActor.user!.id! },
+        );
+        const appActor: Actor = { ...userActor, app: { uid: ownApp.uid } };
+
+        const { res, captured } = makeRes();
+        await withActor(appActor, () =>
+            controller.sign(
+                makeReq({
+                    body: { items: [{}], app_uid: ownApp.uid },
+                    actor: appActor,
+                }),
+                res,
+            ),
+        );
+        const body = captured.body as { token?: string };
+        expect(typeof body.token).toBe('string');
+    });
 });
 
 // ── writeFile (validation paths) ────────────────────────────────────
@@ -1035,6 +1228,85 @@ describe('LegacyFSController.openItem', () => {
         if (body.suggested_apps.length === 0) {
             expect(body.token).toBeNull();
         }
+    });
+});
+
+// ── openItem: write_url stripping for read-only callers ─────────────
+//
+// Mirrors `/sign` and `/readdir`, which already strip `write_url` when the
+// caller only proved read. Without these gates, /open_item handed out a
+// valid write signature to read-only sharees — `/writeFile`'s own ACL
+// re-check would still reject the write, but the leak shape (a signed
+// write URL escaping the access boundary) is the same one those other
+// endpoints already defend against.
+
+describe('LegacyFSController.openItem (write_url stripping)', () => {
+    beforeAll(() => {
+        (
+            controller as unknown as { config: { api_base_url?: string } }
+        ).config.api_base_url = 'http://api.test.local';
+    });
+
+    it('returns write_url for the owner (who has write)', async () => {
+        const { actor } = await makeUser();
+        const target = `/${actor.user!.username}/Documents/owned.txt`;
+        await withActor(actor, () =>
+            controller.touch(
+                makeReq({ body: { path: target }, actor }),
+                makeRes().res,
+            ),
+        );
+
+        const { res, captured } = makeRes();
+        await withActor(actor, () =>
+            controller.openItem(
+                makeReq({ body: { path: target }, actor }),
+                res,
+            ),
+        );
+        const body = captured.body as {
+            signature: { read_url?: string; write_url?: string };
+        };
+        expect(body.signature.read_url).toBeDefined();
+        expect(body.signature.write_url).toBeDefined();
+        expect(body.signature.write_url).toContain('writeFile');
+    });
+
+    it('strips write_url for a read-only sharee (the fix)', async () => {
+        const victim = await makeUser();
+        const attacker = await makeUser();
+        const target = `/${victim.actor.user!.username}/Documents/shared-ro.txt`;
+        await withActor(victim.actor, () =>
+            controller.touch(
+                makeReq({ body: { path: target }, actor: victim.actor }),
+                makeRes().res,
+            ),
+        );
+        const entry = await server.stores.fsEntry.getEntryByPath(target);
+        await server.services.permission.grantUserUserPermission(
+            victim.actor,
+            attacker.actor.user!.username!,
+            `fs:${entry!.uuid}:read`,
+            {},
+        );
+
+        const { res, captured } = makeRes();
+        await withActor(attacker.actor, () =>
+            controller.openItem(
+                makeReq({
+                    body: { uid: entry!.uuid },
+                    actor: attacker.actor,
+                }),
+                res,
+            ),
+        );
+        const body = captured.body as {
+            signature: { read_url?: string; write_url?: string };
+        };
+        // Sharee still gets read_url (they have read).
+        expect(body.signature.read_url).toBeDefined();
+        // …but write_url is stripped (they don't have write).
+        expect(body.signature.write_url).toBeUndefined();
     });
 });
 
@@ -2030,5 +2302,199 @@ describe('LegacyFSController.readdir extras', () => {
                 ),
             ),
         ).rejects.toMatchObject({ statusCode: 400 });
+    });
+});
+
+// ── suggestApps (ACL-gated) ─────────────────────────────────────────
+
+describe('LegacyFSController.suggestApps', () => {
+    it('refuses to look up entries an app actor cannot see', async () => {
+        const { actor: userActor } = await makeUser();
+        const username = userActor.user!.username!;
+        const appActor: Actor = {
+            ...userActor,
+            app: { uid: `app-suggest-${uuidv4()}` },
+        };
+        const target = `/${username}/Documents/probe.txt`;
+        await withActor(userActor, () =>
+            controller.touch(
+                makeReq({
+                    body: { path: target, set_modified_to_now: true },
+                    actor: userActor,
+                }),
+                makeRes().res,
+            ),
+        );
+
+        const spy = vi.spyOn(
+            server.services.suggestedApps,
+            'getSuggestedApps',
+        );
+        try {
+            const { res } = makeRes();
+            await withActor(appActor, () =>
+                controller.suggestApps(
+                    makeReq({ body: { path: target }, actor: appActor }),
+                    res,
+                ),
+            );
+            expect(spy).toHaveBeenLastCalledWith({
+                name: undefined,
+                path: undefined,
+            });
+        } finally {
+            spy.mockRestore();
+        }
+    });
+
+    it('forwards entry name/path to the suggester for the owning user', async () => {
+        const { actor } = await makeUser();
+        const username = actor.user!.username!;
+        const target = `/${username}/Documents/probe2.txt`;
+        await withActor(actor, () =>
+            controller.touch(
+                makeReq({
+                    body: { path: target, set_modified_to_now: true },
+                    actor,
+                }),
+                makeRes().res,
+            ),
+        );
+
+        const spy = vi.spyOn(
+            server.services.suggestedApps,
+            'getSuggestedApps',
+        );
+        try {
+            const { res } = makeRes();
+            await withActor(actor, () =>
+                controller.suggestApps(
+                    makeReq({ body: { path: target }, actor }),
+                    res,
+                ),
+            );
+            expect(spy).toHaveBeenLastCalledWith({
+                name: 'probe2.txt',
+                path: target,
+            });
+        } finally {
+            spy.mockRestore();
+        }
+    });
+});
+
+// ── readdirSubdomains ───────────────────────────────────────────────
+
+describe('LegacyFSController.readdirSubdomains', () => {
+    it('returns an empty array for app-under-user actors', async () => {
+        const { actor: userActor, userId } = await makeUser();
+        const appActor: Actor = {
+            ...userActor,
+            app: { uid: `app-subd-${uuidv4()}` },
+        };
+        await server.clients.db.write(
+            'INSERT INTO `subdomains` (`uuid`, `subdomain`, `user_id`) VALUES (?, ?, ?)',
+            [uuidv4(), `sd-${uuidv4().slice(0, 8)}`, userId],
+        );
+
+        const { res, captured } = makeRes();
+        await withActor(appActor, () =>
+            controller.readdirSubdomains(
+                makeReq({ body: {}, actor: appActor }),
+                res,
+            ),
+        );
+        expect(captured.body).toEqual([]);
+    });
+
+    it("returns the user actor's own subdomain rows", async () => {
+        const { actor, userId } = await makeUser();
+        const sd = `sd-${uuidv4().slice(0, 8)}`;
+        await server.clients.db.write(
+            'INSERT INTO `subdomains` (`uuid`, `subdomain`, `user_id`) VALUES (?, ?, ?)',
+            [uuidv4(), sd, userId],
+        );
+
+        const { res, captured } = makeRes();
+        await withActor(actor, () =>
+            controller.readdirSubdomains(
+                makeReq({ body: {}, actor }),
+                res,
+            ),
+        );
+        const rows = captured.body as Array<{ subdomain: string }>;
+        expect(rows.some((r) => r.subdomain === sd)).toBe(true);
+    });
+});
+
+// ── updateFsentryThumbnail ──────────────────────────────────────────
+
+describe('LegacyFSController.updateFsentryThumbnail', () => {
+    it('rejects an app actor probing entries outside AppData with 404', async () => {
+        const { actor: userActor } = await makeUser();
+        const username = userActor.user!.username!;
+        const appActor: Actor = {
+            ...userActor,
+            app: { uid: `app-thumb-${uuidv4()}` },
+        };
+        const target = `/${username}/Documents/thumbme.txt`;
+        await withActor(userActor, () =>
+            controller.touch(
+                makeReq({
+                    body: { path: target, set_modified_to_now: true },
+                    actor: userActor,
+                }),
+                makeRes().res,
+            ),
+        );
+        const entry = await server.stores.fsEntry.getEntryByPath(target);
+
+        const { res } = makeRes();
+        await expect(
+            withActor(appActor, () =>
+                controller.updateFsentryThumbnail(
+                    makeReq({
+                        body: {
+                            uid: entry!.uuid,
+                            thumbnail: 'data:image/png;base64,AA==',
+                        },
+                        actor: appActor,
+                    }),
+                    res,
+                ),
+            ),
+        ).rejects.toMatchObject({ statusCode: 404 });
+    });
+
+    it('updates the thumbnail for the owning user actor', async () => {
+        const { actor } = await makeUser();
+        const username = actor.user!.username!;
+        const target = `/${username}/Documents/thumbme2.txt`;
+        await withActor(actor, () =>
+            controller.touch(
+                makeReq({
+                    body: { path: target, set_modified_to_now: true },
+                    actor,
+                }),
+                makeRes().res,
+            ),
+        );
+        const entry = await server.stores.fsEntry.getEntryByPath(target);
+
+        const { res, captured } = makeRes();
+        await withActor(actor, () =>
+            controller.updateFsentryThumbnail(
+                makeReq({
+                    body: {
+                        uid: entry!.uuid,
+                        thumbnail: 'data:image/png;base64,AA==',
+                    },
+                    actor,
+                }),
+                res,
+            ),
+        );
+        const body = captured.body as { thumbnail: string };
+        expect(typeof body.thumbnail).toBe('string');
     });
 });

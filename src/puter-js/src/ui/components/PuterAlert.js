@@ -96,7 +96,6 @@ class PuterAlert extends PuterWebComponent {
                 color: #666666;
                 border: 1px solid #b9b9b9;
                 background: linear-gradient(#f6f6f6, #e1e1e1);
-                box-shadow: inset 0px 1px 0px rgb(255 255 255 / 30%), 0 1px 2px rgb(0 0 0 / 15%);
             }
             button:active {
                 background-color: #eeeeee;
@@ -141,7 +140,6 @@ class PuterAlert extends PuterWebComponent {
                 color: #666666;
                 border: 1px solid #b9b9b9;
                 background: linear-gradient(#f6f6f6, #e1e1e1);
-                box-shadow: inset 0px 1px 0px rgb(255 255 255 / 30%), 0 1px 2px rgb(0 0 0 / 15%);
             }
             @media (max-width: 480px) {
                 .alert-body {

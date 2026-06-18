@@ -112,6 +112,43 @@ export interface IEmailConfig {
     [key: string]: unknown;
 }
 
+/** Prelude (https://prelude.so) Verify v2 — SMS phone verification provider. */
+export interface IPreludeConfig {
+    /** Prelude v2 API key (sent as `Authorization: Bearer <apiKey>`). */
+    apiKey?: string;
+    /** Default region for parsing local-format phone numbers (e.g. 'US'). */
+    defaultCountry?: string;
+    /**
+     * Per-SMS cost ceiling in EUR.
+     */
+    maxSmsCostEur?: number;
+    /**
+     * Verification template id (from the Prelude dashboard) that controls the
+     * SMS wording — e.g. a "Your Puter verification code is {{code}}" template.
+     * The message text itself is authored in Prelude, not here; this just
+     * selects it. Omit to use the dashboard default.
+     */
+    templateId?: string;
+    /**
+     * Alphanumeric Sender ID to brand who the SMS is "from" (e.g. "Puter").
+     * Must be pre-enabled by Prelude and isn't supported by all carriers/regions
+     * (notably US long/short codes). Omit to use Prelude's default sender.
+     */
+    senderId?: string;
+    /**
+     * Channel Prelude prioritizes for delivery. Defaults to 'rcs' (much cheaper
+     * than SMS); Prelude falls back to SMS when RCS isn't reachable. Requires an
+     * RCS agent provisioned in the Prelude account to actually use RCS.
+     */
+    preferredChannel?:
+        | 'sms'
+        | 'rcs'
+        | 'whatsapp'
+        | 'viber'
+        | 'zalo'
+        | 'telegram';
+}
+
 /**
  * S3-compatible bucket the thumbnails extension uses for storing generated
  * thumbnails. When unset, the extension falls back to the main `S3Client`
@@ -140,6 +177,8 @@ export interface IAIProviderConfig {
     apiToken?: string;
     /** Override the provider's HTTP base URL (OpenRouter, Cloudflare, ElevenLabs, Ollama). */
     apiBaseUrl?: string;
+    /** Azure AI Foundry deployment endpoint (azure-openai). Required alongside `apiKey`. */
+    apiURL?: string;
     /** Cloudflare account id. */
     accountId?: string;
     /** ElevenLabs default voice id. */
@@ -306,7 +345,7 @@ export interface IS3Config {
 }
 
 export interface IDatabaseConfig {
-    engine: 'sqlite' | 'mysql';
+    engine: 'sqlite' | 'mysql' | 'postgres';
     // sqlite
     /**
      * SQLite database file path. Defaults to `':memory:'` (the
@@ -317,7 +356,8 @@ export interface IDatabaseConfig {
     /**
      * Force in-memory SQLite (ignores `path`). Equivalent to
      * `path: ':memory:'`. Intended for tests so each suite gets a
-     * pristine in-process database.
+     * pristine in-process database. Test utilities also use
+     * `engine: 'postgres'` with `inMemory: true` to run against pgmock.
      */
     inMemory?: boolean;
     targetVersion?: number;
@@ -327,17 +367,21 @@ export interface IDatabaseConfig {
     user?: string;
     password?: string;
     database?: string;
+    connectionString?: string;
+    url?: string;
     replica?: {
         host?: string;
         port?: number;
         user?: string;
         password?: string;
         database?: string;
+        connectionString?: string;
+        url?: string;
     };
     /**
      * Ordered list of directories whose `.sql` files are run sequentially at
-     * server start (mysql engine only). Files within a directory are sorted
-     * lexically; directories are processed in array order. Files MUST be
+     * server start (mysql/postgres engines). Numbered migration filenames sort
+     * numerically; directories are processed in array order. Files MUST be
      * idempotent — there is no per-file applied-state tracking.
      * Relative paths resolve from `process.cwd()`.
      */
@@ -395,7 +439,7 @@ export interface IDevWatcherConfig {
  * need to migrate.
  */
 interface IConfigOptional {
-    // ── Environment / identity ──────────────────────────────────────
+    // -- Environment / identity --------------------------------------
 
     /** Environment marker. `dev` disables blocked-email checks, opens auto-browser, etc. */
     env: 'dev' | 'prod';
@@ -406,7 +450,7 @@ interface IConfigOptional {
     /** Stable identity for this server node. Enables pager alerts + graceful shutdown delay. */
     serverId: string;
 
-    // ── Networking / URLs ───────────────────────────────────────────
+    // -- Networking / URLs -------------------------------------------
 
     /** Protocol used for the externally-visible origin ('http' or 'https'). Default: 'http'. */
     protocol: string;
@@ -476,10 +520,39 @@ interface IConfigOptional {
     /** Optional dev-time frontend watcher overrides. */
     devwatch: IDevWatcherConfig;
 
-    // ── Auth / session ──────────────────────────────────────────────
+    // -- Auth / session ----------------------------------------------
 
-    /** HMAC secret used to sign auth JWTs. */
+    /**
+     * Legacy HMAC secret for v1 JWTs. New tokens are always signed with
+     * `jwt_secret_v2`; this value is verify-only and accepted as long as
+     * `allow_v1_tokens` is true (flipped off to retire v1).
+     */
     jwt_secret: string;
+    /** HMAC secret used to sign and verify v2 auth JWTs (`kid: 'v2'`). */
+    jwt_secret_v2: string;
+    /**
+     * When false, v1 tokens (no `kid` header) are rejected at verify.
+     * Default true during the v1→v2 migration window.
+     */
+    allow_v1_tokens: boolean;
+    /**
+     * When false, `POST /auth/migrate-token` returns 410 Gone for v1
+     * `app-under-user` tokens. App-token migration is retired ahead
+     * of access-token migration — keeping these on separate flags
+     * lets ops kill apps first and keep API-key migration on
+     * indefinitely. Default true.
+     */
+    allow_v1_app_migration: boolean;
+    /**
+     * Optional explicit allowlist of `Origin` header values that are
+     * trusted by `POST /auth/migrate-token` to receive the
+     * `puter_token_v2` companion cookie. The main `origin` is always
+     * trusted. The token exchange itself is open to any browser origin
+     * (the v1 bearer token is the credential); this list only gates
+     * cookie issuance, so attacker pages can't plant a session cookie
+     * on the GUI origin.
+     */
+    allow_migrate_token_origins?: string[];
     /** HMAC secret for signed file URLs (/file, /writeFile, /sign). */
     url_signature_secret: string;
     /** Name of the session cookie the auth probe reads. */
@@ -490,12 +563,26 @@ interface IConfigOptional {
     allow_system_login: boolean;
     /** Reject auth-gated routes unless the user has confirmed their email. */
     strict_email_verification_required: boolean;
+    /**
+     * Force SMS phone verification on every new signup, regardless of abuse
+     * reputation. Off by default; mainly a test/QA switch so the phone gate can
+     * be exercised on demand (it otherwise only triggers for low-reputation
+     * signups). Requires `prelude.apiKey` to actually deliver codes.
+     */
+    always_require_phone_verification: boolean;
+    /**
+     * Force credit-card verification on every new signup, regardless of abuse
+     * reputation. Off by default; mainly a test/QA switch so the card gate can
+     * be exercised on demand (it otherwise only triggers for low-reputation
+     * signups). Requires a payments extension to actually run the $0 auth.
+     */
+    always_require_card_verification: boolean;
     /** Captcha configuration. */
     captcha: { enabled: boolean; difficulty?: 'easy' | 'medium' | 'hard' };
     /** OIDC / OAuth2 providers (google + custom). */
     oidc: IOIDCConfig;
 
-    // ── Groups / provisioning ───────────────────────────────────────
+    // -- Groups / provisioning ---------------------------------------
 
     /** UID of the persistent group that non-temp users are enrolled in at signup. */
     default_user_group: string;
@@ -504,7 +591,7 @@ interface IConfigOptional {
     /** When true, ACL grants read/list/see on `/<user>/Public` to any actor. */
     enable_public_folders: boolean;
 
-    // ── Storage / S3 ────────────────────────────────────────────────
+    // -- Storage / S3 ------------------------------------------------
 
     /** S3 storage config (local fauxqs or remote). */
     s3: IS3Config;
@@ -523,20 +610,23 @@ interface IConfigOptional {
     /** Optional dedicated S3-compatible bucket used by the thumbnails extension. */
     thumbnailStore: IThumbnailStoreConfig;
 
-    // ── Database ────────────────────────────────────────────────────
+    // -- Database ----------------------------------------------------
 
     database: IDatabaseConfig;
 
-    // ── Clients / infra ─────────────────────────────────────────────
+    // -- Clients / infra ---------------------------------------------
 
     dynamo: IDynamoConfig;
     redis: IRedisConfig;
     pager: IPagerConfig;
     email: IEmailConfig;
-    clickhouse: IClickhouseConfig;
+    /** Optional — only set when SMS phone verification (Prelude) is wired in. */
+    prelude: IPreludeConfig;
+    /** Optional — only set when a ClickHouse analytics client is wired in. */
+    clickhouse?: IClickhouseConfig;
     cf_file_cache: ICfFileCacheConfig;
 
-    // ── Rate limiting ───────────────────────────────────────────────
+    // -- Rate limiting -----------------------------------------------
 
     rate_limit: {
         /**
@@ -548,7 +638,7 @@ interface IConfigOptional {
         backend?: 'memory' | 'redis' | 'kv';
     };
 
-    // ── AI / integration providers ──────────────────────────────────
+    // -- AI / integration providers ----------------------------------
     //
     // All AI providers — chat, image, video, TTS, OCR, speech-to-text,
     // speech-to-speech — are configured under `providers[<provider-id>]`.
@@ -558,7 +648,7 @@ interface IConfigOptional {
     // shortcut.
     providers: Record<string, IAIProviderConfig | undefined>;
 
-    // ── Cross-node / external integrations ──────────────────────────
+    // -- Cross-node / external integrations --------------------------
 
     /** Cross-node event replication config. */
     broadcast: IBroadcastConfig;
@@ -572,7 +662,7 @@ interface IConfigOptional {
     secureCorsProxy: ISecureCorsProxyConfig;
     /** Legacy Stripe billing extension. */
 
-    // ── GUI / static mounts ─────────────────────────────────────────
+    // -- GUI / static mounts -----------------------------------------
 
     /** Absolute path to the GUI assets root. */
     gui_assets_root: string;
@@ -602,7 +692,7 @@ interface IConfigOptional {
     /** Path to the puter-js SDK root (serves `/sdk/*` and `/puter.js/v{1,2}`). */
     puterjs_root: string;
 
-    // ── Extension-specific ──────────────────────────────────────────
+    // -- Extension-specific ------------------------------------------
 
     /**
      * Flat `{ flag_name: boolean }` bag of feature toggles. Non-boolean values

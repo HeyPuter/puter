@@ -19,7 +19,13 @@
 
 import { extensionStore } from '../../extensions';
 import { PuterClient } from '../types';
-import { EventListener, EventMap, ListenKey, MatchingEvents } from './types';
+import {
+    EventListener,
+    EventMap,
+    EventMetadata,
+    ListenKey,
+    MatchingEvents,
+} from './types';
 
 export class EventClient extends PuterClient {
     #eventListeners: Partial<Record<ListenKey, EventListener[]>> = {};
@@ -52,7 +58,11 @@ export class EventClient extends PuterClient {
      * scan of every listener.
      *
      */
-    emit<T extends keyof EventMap>(key: T, data: EventMap[T], meta: unknown) {
+    emit<T extends keyof EventMap>(
+        key: T,
+        data: EventMap[T],
+        meta: EventMetadata,
+    ) {
         const parts = key.split('.');
         for (let i = 0; i < parts.length; i++) {
             const matchKey = (
@@ -87,7 +97,7 @@ export class EventClient extends PuterClient {
     async emitAndWait<T extends keyof EventMap>(
         key: T,
         data: EventMap[T],
-        meta: unknown,
+        meta: EventMetadata,
     ) {
         const parts = key.split('.');
         for (let i = 0; i < parts.length; i++) {
@@ -129,7 +139,7 @@ export class EventClient extends PuterClient {
         callback: (
             key: MatchingEvents<P>,
             data: EventMap[MatchingEvents<P>],
-            meta: unknown,
+            meta: EventMetadata,
         ) => Promise<void> | void,
     ) {
         const listeners: EventListener[] =
@@ -140,7 +150,7 @@ export class EventClient extends PuterClient {
         listener: EventListener,
         key: T,
         data: EventMap[T],
-        meta: unknown,
+        meta: EventMetadata,
     ) {
         try {
             await listener(key, data, meta);

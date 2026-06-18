@@ -17,8 +17,9 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { PassThrough } from 'node:stream';
 import crypto from 'node:crypto';
+import { PassThrough } from 'node:stream';
+import { EventMap } from '../../clients/event/types.js';
 import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import {
@@ -28,12 +29,17 @@ import {
 import type { DriverStreamResult } from '../meta.js';
 import { PuterDriver } from '../types.js';
 import { AI_CONCURRENT, AI_RATE_LIMIT } from '../util/aiLimits.js';
+import { AlibabaProvider } from './providers/alibaba/AlibabaProvider.js';
+import { AzureChatProvider } from './providers/azure/AzureChatProvider.js';
+import { AzureResponsesProvider } from './providers/azure/AzureResponsesProvider.js';
 import { ClaudeProvider } from './providers/claude/ClaudeProvider.js';
 import { DeepSeekProvider } from './providers/deepseek/DeepSeekProvider.js';
 import { FakeChatProvider } from './providers/FakeChatProvider.js';
 import { GeminiChatProvider } from './providers/gemini/GeminiChatProvider.js';
 import { GroqAIProvider } from './providers/groq/GroqAIProvider.js';
+import { MiniMaxProvider } from './providers/minimax/MiniMaxProvider.js';
 import { MistralAIProvider } from './providers/mistral/MistralAiProvider.js';
+import { MoonshotProvider } from './providers/moonshot/MoonshotProvider.js';
 import { OllamaChatProvider } from './providers/ollama/OllamaProvider.js';
 import { OpenAiChatProvider } from './providers/openai/OpenAiChatCompletionsProvider.js';
 import { OpenAiResponsesChatProvider } from './providers/openai/OpenAiChatResponsesProvider.js';
@@ -41,7 +47,6 @@ import { OpenRouterProvider } from './providers/openrouter/OpenRouterProvider.js
 import { TogetherAIProvider } from './providers/together/TogetherAIProvider.js';
 import { XAIProvider } from './providers/xai/XAIProvider.js';
 import { ZAIProvider } from './providers/zai/ZAIProvider.js';
-import { MoonshotProvider } from './providers/moonshot/MoonshotProvider.js';
 import type {
     IChatCompleteResult,
     IChatModel,
@@ -55,9 +60,138 @@ import {
     normalize_single_message,
 } from './utils/Messages.js';
 import { AIChatStream } from './utils/Streaming.js';
-import { EventMap } from '../../clients/event/types.js';
 
 const MAX_FALLBACKS = 4; // includes first attempt
+
+type ProviderAttempt = {
+    model: string;
+    provider: string;
+    status?: number;
+    code?: string;
+    error: string;
+};
+
+/**
+ * Capture what an upstream provider gave us so the classifier downstream
+ * can decide a user-facing status code instead of always returning 500.
+ *
+ * OpenAI-SDK-based providers throw `APIError` with `.status` and a
+ * structured `.error` body — pull both. For arbitrary errors we fall
+ * back to the message and a status sniff so providers that throw plain
+ * `Error("... 503 ...")` strings still classify correctly.
+ */
+const toAttempt = (
+    modelId: string,
+    providerId: string,
+    err: unknown,
+): ProviderAttempt => {
+    const e = err as {
+        status?: number;
+        statusCode?: number;
+        code?: string;
+        error?: { code?: string; type?: string; message?: string };
+        message?: string;
+    };
+    const message = e?.message ?? (typeof err === 'string' ? err : String(err));
+    let status = e?.status ?? e?.statusCode;
+    if (status === undefined) {
+        const m = message.match(/\b(4\d\d|5\d\d)\b/);
+        if (m) status = Number(m[1]);
+    }
+    return {
+        model: modelId,
+        provider: providerId,
+        status,
+        code: e?.error?.code ?? e?.code,
+        error: message,
+    };
+};
+
+const isRateLimit = (a: ProviderAttempt) =>
+    a.status === 429 ||
+    /rate[\s_-]?limit|too many requests|quota/i.test(a.error);
+
+const isAuthFailure = (a: ProviderAttempt) =>
+    a.status === 401 ||
+    a.status === 403 ||
+    /unauthorized|forbidden|invalid api key/i.test(a.error);
+
+const isUpstream5xx = (a: ProviderAttempt) =>
+    (a.status !== undefined && a.status >= 500) ||
+    /provider returned error|internal server error|service unavailable|bad gateway/i.test(
+        a.error,
+    );
+
+/**
+ * Map an exhausted fallback chain to a single user-facing HttpError.
+ *
+ * Per-class rules (see also alarm gate in server.ts):
+ *  - all rate-limited → 429 `upstream_rate_limited` (paged: forced alert)
+ *  - all auth failures → 500 `upstream_auth_failed` (paged: our config)
+ *  - all upstream 5xx → 400 `upstream_provider_unavailable` (no page)
+ *  - all upstream 4xx (other) → 400 `upstream_bad_request` (no page)
+ *  - mixed → 400 `upstream_failed` (no page)
+ */
+const classifyAttempts = (attempts: ProviderAttempt[]): HttpError => {
+    const fields = { attempts };
+    if (attempts.length === 0) {
+        return new HttpError(500, 'No providers attempted', {
+            legacyCode: 'internal_error',
+            fields,
+        });
+    }
+
+    if (attempts.every(isRateLimit)) {
+        return new HttpError(429, 'AI provider rate limit exceeded', {
+            legacyCode: 'upstream_rate_limited',
+            fields,
+        });
+    }
+    if (attempts.every(isAuthFailure)) {
+        return new HttpError(500, 'AI provider authentication failed', {
+            legacyCode: 'upstream_auth_failed',
+            fields,
+        });
+    }
+    if (attempts.every(isUpstream5xx)) {
+        return new HttpError(400, 'AI provider unavailable', {
+            legacyCode: 'upstream_provider_unavailable',
+            fields,
+        });
+    }
+    if (
+        attempts.every(
+            (a) => a.status !== undefined && a.status >= 400 && a.status < 500,
+        )
+    ) {
+        return new HttpError(400, attempts[0].error, {
+            legacyCode: 'upstream_bad_request',
+            fields,
+        });
+    }
+
+    // Mixed failures where at least one attempt is clearly upstream
+    // (had an HTTP status from the SDK) means "AI providers couldn't
+    // satisfy the request" — expose, don't page.
+    const isUpstreamSignal = (a: ProviderAttempt) =>
+        a.status !== undefined ||
+        isRateLimit(a) ||
+        isAuthFailure(a) ||
+        isUpstream5xx(a);
+    if (attempts.some(isUpstreamSignal)) {
+        return new HttpError(400, 'All AI providers failed', {
+            legacyCode: 'upstream_failed',
+            fields,
+        });
+    }
+
+    // Nothing identifiable as an upstream issue — treat as our bug
+    // and let the global alarm fire so we actually find out.
+    return new HttpError(500, 'All providers failed', {
+        legacyCode: 'internal_error',
+        fields,
+    });
+};
 
 /**
  * Driver implementing the `puter-chat-completion` interface.
@@ -86,7 +220,7 @@ export class ChatCompletionDriver extends PuterDriver {
         this.#buildModelMap();
     }
 
-    // ── Interface methods ───────────────────────────────────────────
+    // -- Interface methods -------------------------------------------
 
     async models() {
         const seen = new Set<string>();
@@ -145,7 +279,7 @@ export class ChatCompletionDriver extends PuterDriver {
 
         let intendedProvider = args.provider || '';
         if (!args.model && !intendedProvider) {
-            intendedProvider = 'claude'; // default provider
+            intendedProvider = 'azure-openai'; // default provider
         }
         if (
             !args.model &&
@@ -211,7 +345,7 @@ export class ChatCompletionDriver extends PuterDriver {
             }
         }
 
-        // ── Credit / subscription gates (metering) ────────────────────
+        // -- Credit / subscription gates (metering) --------------------
         // Cheap pre-flight: reject when the user can't afford even the
         // approximate input cost, keep subscriber-only models gated, and
         // cap `max_tokens` so output can't exceed remaining credits.
@@ -266,16 +400,25 @@ export class ChatCompletionDriver extends PuterDriver {
                     remainingCredits - approximateInputCost;
                 const maxAllowedOutputTokens =
                     maxAllowedOutputUcents / outputTokenCost;
-                if (maxAllowedOutputTokens) {
-                    const cap = Math.floor(
-                        Math.min(
-                            args.max_tokens ?? Number.POSITIVE_INFINITY,
-                            maxAllowedOutputTokens,
-                            model.max_tokens - approximateTokenCount,
-                        ),
-                    );
-                    args.max_tokens = cap < 1 ? undefined : cap;
+                const cap = Math.floor(
+                    Math.min(
+                        args.max_tokens ?? Number.POSITIVE_INFINITY,
+                        maxAllowedOutputTokens,
+                        model.max_tokens - approximateTokenCount,
+                    ),
+                );
+                // `cap` is the credit-bounded ceiling on output tokens. When
+                // it drops below 1 the user can't afford even a single output
+                // token, so reject the request. Crucially we must NOT leave
+                // `max_tokens` unset here: an undefined max_tokens lets the
+                // provider run to the model's full output limit (e.g. 128k for
+                // Claude), billing far past the user's remaining balance.
+                if (cap < 1) {
+                    throw new HttpError(402, 'No usage left for request.', {
+                        legacyCode: 'insufficient_funds',
+                    });
                 }
+                args.max_tokens = cap;
             }
         }
 
@@ -289,8 +432,7 @@ export class ChatCompletionDriver extends PuterDriver {
             );
         }
 
-        const attempts: { model: string; provider: string; error: string }[] =
-            [];
+        const attempts: ProviderAttempt[] = [];
         let res: IChatCompleteResult | undefined;
 
         try {
@@ -300,17 +442,12 @@ export class ChatCompletionDriver extends PuterDriver {
                 provider: model.provider,
             });
         } catch (e) {
-            const error = e as Error;
-            attempts.push({
-                model: model.id,
-                provider: model.provider!,
-                error: error?.message ?? String(e),
-            });
+            attempts.push(toAttempt(model.id, model.provider!, e));
 
             // Fallback loop
             const tried = [model.id];
             const triedProviders = [model.provider!];
-            let lastError: Error | null = error;
+            let lastError: Error | null = e as Error;
 
             while (lastError && tried.length < MAX_FALLBACKS) {
                 const fallback = this.#findFallback(
@@ -347,20 +484,15 @@ export class ChatCompletionDriver extends PuterDriver {
                     lastError = null;
                 } catch (fbErr) {
                     lastError = fbErr as Error;
-                    attempts.push({
-                        model: fallback.id,
-                        provider: fallback.provider!,
-                        error: lastError?.message ?? String(fbErr),
-                    });
+                    attempts.push(
+                        toAttempt(fallback.id, fallback.provider!, fbErr),
+                    );
                 }
             }
         }
 
         if (!res) {
-            throw new HttpError(500, 'All providers failed', {
-                legacyCode: 'internal_error',
-                fields: { attempts },
-            });
+            throw classifyAttempts(attempts);
         }
 
         const username = actor.user?.username;
@@ -435,7 +567,7 @@ export class ChatCompletionDriver extends PuterDriver {
             return streamResult as unknown as IChatCompleteResult;
         }
 
-        // ── Post-completion audit event ──────────────────────────────
+        // -- Post-completion audit event ------------------------------
         // Only for non-streaming results (streaming emits from the
         // `chatStream.end` wrapper above). Extensions like prompt_block /
         // prodMeteringAndBilling listen for this to log completions.
@@ -531,8 +663,18 @@ export class ChatCompletionDriver extends PuterDriver {
             // thinking_tokens → output rate fallback
             let rate = costs[key];
             if (typeof rate !== 'number' || !Number.isFinite(rate)) {
-                if (key === 'thinking_tokens' && outputRate !== undefined) {
+                if (isOutputKey(key) && outputRate !== undefined) {
                     rate = outputRate;
+                } else if (!isOutputKey(key)) {
+                    const inputRateRaw = costs[inputKey];
+                    if (
+                        typeof inputRateRaw === 'number' &&
+                        Number.isFinite(inputRateRaw)
+                    ) {
+                        rate = inputRateRaw;
+                    } else {
+                        continue;
+                    }
                 } else {
                     continue;
                 }
@@ -642,7 +784,7 @@ export class ChatCompletionDriver extends PuterDriver {
         );
     }
 
-    // ── Provider registration ───────────────────────────────────────
+    // -- Provider registration ---------------------------------------
 
     #registerProviders() {
         const providers = this.config.providers ?? {};
@@ -663,6 +805,43 @@ export class ChatCompletionDriver extends PuterDriver {
                 this.services.fs,
                 { apiKey: claudeKey },
             );
+        }
+
+        // Azure AI Foundry (OpenAI + xAI Grok). Registered before the regular
+        // OpenAI/xAI providers so that since its costs mirror theirs but
+        // Azure is preferred for us, it takes precedence in the per-model
+        // bucket
+        const azureOpenai = providers['azure-openai'];
+        const azureOpenaiKey = readKey(azureOpenai);
+        const azureOpenaiURL = azureOpenai?.apiURL as string | undefined;
+        if (azureOpenaiKey && azureOpenaiURL) {
+            const azureStores = {
+                fsEntry: this.stores.fsEntry,
+                s3Object: this.stores.s3Object,
+            };
+            const azureConfig = {
+                apiKey: azureOpenaiKey,
+                apiURL: azureOpenaiURL,
+            };
+            const azureCompletions = new AzureChatProvider(
+                metering,
+                azureStores,
+                this.services.fs,
+                azureConfig,
+            );
+            // Codex / Responses-API-only models can't use Chat Completions, so
+            // they route through a sibling Responses provider pointed at the
+            // same Azure endpoint. web_search (also Responses-only) delegates
+            // here too.
+            const azureResponses = new AzureResponsesProvider(
+                metering,
+                azureStores,
+                this.services.fs,
+                azureConfig,
+            );
+            azureCompletions.setResponsesProvider(azureResponses);
+            this.#providers['azure-openai'] = azureCompletions;
+            this.#providers['azure-openai-responses'] = azureResponses;
         }
 
         const openaiKey = readKey(providers['openai-completion']);
@@ -739,6 +918,18 @@ export class ChatCompletionDriver extends PuterDriver {
             );
         }
 
+        const minimax = providers['minimax'];
+        const minimaxKey = readKey(minimax);
+        if (minimaxKey) {
+            this.#providers['minimax'] = new MiniMaxProvider(
+                {
+                    apiKey: minimaxKey,
+                    apiBaseUrl: minimax?.apiBaseUrl as string | undefined,
+                },
+                metering,
+            );
+        }
+
         const zai = providers['zai'];
         const zaiKey = readKey(zai);
         if (zaiKey) {
@@ -751,13 +942,13 @@ export class ChatCompletionDriver extends PuterDriver {
             );
         }
 
-        const openrouter = providers['openrouter'];
-        const openrouterKey = readKey(openrouter);
-        if (openrouterKey) {
-            this.#providers['openrouter'] = new OpenRouterProvider(
+        const alibaba = providers['alibaba'];
+        const alibabaKey = readKey(alibaba);
+        if (alibabaKey) {
+            this.#providers['alibaba'] = new AlibabaProvider(
                 {
-                    apiKey: openrouterKey,
-                    apiBaseUrl: openrouter?.apiBaseUrl as string | undefined,
+                    apiKey: alibabaKey,
+                    apiBaseUrl: alibaba?.apiBaseUrl as string | undefined,
                 },
                 metering,
             );
@@ -782,11 +973,23 @@ export class ChatCompletionDriver extends PuterDriver {
             );
         }
 
+        const openrouter = providers['openrouter'];
+        const openrouterKey = readKey(openrouter);
+        if (openrouterKey) {
+            this.#providers['openrouter'] = new OpenRouterProvider(
+                {
+                    apiKey: openrouterKey,
+                    apiBaseUrl: openrouter?.apiBaseUrl as string | undefined,
+                },
+                metering,
+            );
+        }
+
         // Fake provider — always available for testing
         this.#providers['fake-chat'] = new FakeChatProvider();
     }
 
-    // ── Model map ───────────────────────────────────────────────────
+    // -- Model map ---------------------------------------------------
 
     async #buildModelMap() {
         const AGGREGATORS = new Set(['together-ai', 'openrouter']);

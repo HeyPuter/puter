@@ -26,6 +26,7 @@ import { generate_identifier } from '../../util/identifier.js';
 import { generateDefaultFsentries } from '../../util/userProvisioning.js';
 import { Context } from '../../core';
 import crypto from 'node:crypto';
+import { verifyOidcIdToken, type JwksCacheEntry } from './oidcIdToken';
 
 const GOOGLE_DISCOVERY_URL =
     'https://accounts.google.com/.well-known/openid-configuration';
@@ -36,6 +37,10 @@ const MICROSOFT_DISCOVERY_URL_TEMPLATE =
 const GOOGLE_SCOPES = 'openid email profile';
 const APPLE_SCOPES = 'openid email';
 const MICROSOFT_SCOPES = 'openid email profile';
+// Home tenant of personal Microsoft accounts (outlook.com, hotmail, …).
+// Microsoft verifies those emails itself; work/school (Entra) emails are
+// admin-editable and only attested via the opt-in `xms_edov` claim.
+const MICROSOFT_CONSUMER_TENANT = '9188040d-6c67-4c5b-b112-36a304b66dad';
 const STATE_EXPIRY_SEC = 600; // 10 minutes
 const VALID_OIDC_FLOWS = ['login', 'signup', 'revalidate'] as const;
 const REVALIDATION_EXPIRY_SEC = 300; // 5 minutes
@@ -48,6 +53,11 @@ interface ProviderConfig {
     userinfo_endpoint: string;
     scopes: string;
     response_mode?: string;
+    // From OIDC discovery — used to verify the id_token signature when there
+    // is no userinfo endpoint (e.g. Apple). Absent for custom providers
+    // configured without discovery (those use the userinfo path instead).
+    jwks_uri?: string;
+    issuer?: string;
 }
 
 interface OIDCUserInfo {
@@ -71,6 +81,7 @@ export class OIDCService extends PuterService {
     declare protected services: LayerInstances<typeof puterServices>;
 
     #discoveryCache: Map<string, Record<string, string>> = new Map();
+    #jwksCache: Map<string, JwksCacheEntry> = new Map();
     #providers: Record<string, Record<string, string>> = {};
 
     override onServerStart(): void {
@@ -81,7 +92,7 @@ export class OIDCService extends PuterService {
         >;
     }
 
-    // ── Provider config ─────────────────────────────────────────────
+    // -- Provider config ---------------------------------------------
 
     async getProviderConfig(
         providerId: string,
@@ -109,6 +120,8 @@ export class OIDCService extends PuterService {
                 userinfo_endpoint: '',
                 scopes: raw.scopes ?? APPLE_SCOPES,
                 response_mode: 'form_post',
+                jwks_uri: discovery.jwks_uri,
+                issuer: discovery.issuer,
             };
         }
 
@@ -133,6 +146,8 @@ export class OIDCService extends PuterService {
                 token_endpoint: discovery.token_endpoint,
                 userinfo_endpoint: discovery.userinfo_endpoint,
                 scopes: raw.scopes ?? MICROSOFT_SCOPES,
+                jwks_uri: discovery.jwks_uri,
+                issuer: discovery.issuer,
             };
         }
 
@@ -149,6 +164,8 @@ export class OIDCService extends PuterService {
                 token_endpoint: discovery.token_endpoint,
                 userinfo_endpoint: discovery.userinfo_endpoint,
                 scopes: raw.scopes ?? GOOGLE_SCOPES,
+                jwks_uri: discovery.jwks_uri,
+                issuer: discovery.issuer,
             };
         }
 
@@ -180,7 +197,7 @@ export class OIDCService extends PuterService {
         return ids;
     }
 
-    // ── Auth URL ────────────────────────────────────────────────────
+    // -- Auth URL ----------------------------------------------------
 
     getCallbackUrl(flow: string): string | null {
         if (!(VALID_OIDC_FLOWS as readonly string[]).includes(flow))
@@ -212,7 +229,7 @@ export class OIDCService extends PuterService {
         return `${config.authorization_endpoint}?${params.toString()}`;
     }
 
-    // ── State tokens (CSRF) ─────────────────────────────────────────
+    // -- State tokens (CSRF) -----------------------------------------
 
     signState(payload: Record<string, unknown>): string {
         return this.services.token.sign('oidc-state', payload, {
@@ -231,7 +248,7 @@ export class OIDCService extends PuterService {
         }
     }
 
-    // ── Revalidation tokens ─────────────────────────────────────────
+    // -- Revalidation tokens -----------------------------------------
 
     signRevalidation(userUuid: string): string {
         return this.services.token.sign(
@@ -244,7 +261,7 @@ export class OIDCService extends PuterService {
         );
     }
 
-    // ── Token exchange ──────────────────────────────────────────────
+    // -- Token exchange ----------------------------------------------
 
     async exchangeCodeForTokens(
         providerId: string,
@@ -279,7 +296,7 @@ export class OIDCService extends PuterService {
         return (await res.json()) as { access_token: string };
     }
 
-    // ── User info ───────────────────────────────────────────────────
+    // -- User info ---------------------------------------------------
 
     async getUserInfo(
         providerId: string,
@@ -287,8 +304,29 @@ export class OIDCService extends PuterService {
         idToken?: string,
     ): Promise<OIDCUserInfo | null> {
         const config = await this.getProviderConfig(providerId);
+        if (!config) return null;
 
-        if (config?.userinfo_endpoint) {
+        // Microsoft: Graph's userinfo endpoint omits `email` for many Entra
+        // accounts and never returns `email_verified`, so read claims from
+        // the verified id_token instead. The email only counts as verified
+        // for personal accounts (Microsoft verifies those itself) or when
+        // the `xms_edov` claim attests the email's domain belongs to the
+        // issuing tenant — an Entra admin can put any address in `mail`
+        // (nOAuth), so everything else is unverified.
+        if (providerId === 'microsoft') {
+            if (!idToken) return null;
+            const claims = await this.#verifyIdToken(idToken, config);
+            if (!claims) return null;
+            return {
+                sub: claims.sub,
+                email: claims.email,
+                email_verified:
+                    claims.tid === MICROSOFT_CONSUMER_TENANT ||
+                    claims.xms_edov === true,
+            };
+        }
+
+        if (config.userinfo_endpoint) {
             const res = await fetch(config.userinfo_endpoint, {
                 headers: { Authorization: `Bearer ${accessToken}` },
             });
@@ -296,15 +334,16 @@ export class OIDCService extends PuterService {
             return (await res.json()) as OIDCUserInfo;
         }
 
-        // No userinfo endpoint — decode claims from the id_token (e.g. Apple).
+        // No userinfo endpoint — verify the id_token signature against the
+        // provider's JWKS and read claims from it (e.g. Apple).
         if (idToken) {
-            return this.#decodeIdToken(idToken);
+            return this.#verifyIdToken(idToken, config);
         }
 
         return null;
     }
 
-    // ── User lookup / creation ──────────────────────────────────────
+    // -- User lookup / creation --------------------------------------
 
     async findUserByProviderSub(
         provider: string,
@@ -393,6 +432,17 @@ export class OIDCService extends PuterService {
             };
         }
 
+        // No email, no account. Providers can legitimately omit the claim
+        // (e.g. Entra accounts with an empty `mail` attribute); refuse
+        // rather than mint an account we can never contact or recover.
+        const email = claims.email;
+        if (!email) {
+            return {
+                success: false,
+                error: 'Provider did not supply an email address.',
+            };
+        }
+
         // Generate a unique username
         let username: string;
         let attempts = 0;
@@ -420,7 +470,7 @@ export class OIDCService extends PuterService {
             // IdP already authenticated the user, so captcha listeners
             // (e.g. Turnstile) should skip — abuse/IP/email checks still run.
             source: 'oidc' as const,
-            data: { username, email: claims.email ?? '' },
+            data: { username, email },
             ip:
                 (req?.headers?.['x-forwarded-for'] as string | undefined) ||
                 req?.connection?.remoteAddress ||
@@ -428,10 +478,13 @@ export class OIDCService extends PuterService {
                 req?.socket?.remoteAddress ||
                 null,
             user_agent: req?.headers?.['user-agent'] ?? null,
-            email: claims.email ?? '',
+            email,
             allow: true,
             no_temp_user: false,
             requires_email_confirmation: false,
+            requires_phone_verification: false,
+            requires_card_verification: false,
+            reputation: null as number | null,
             message: null as string | null,
             code: null as string | null,
         };
@@ -452,48 +505,62 @@ export class OIDCService extends PuterService {
             };
         }
 
-        // Email validation — mirrors AuthController#validateEmail. Skipped
-        // when the IdP didn't return an email (createUserFromOIDC is
-        // reachable with `email` undefined).
-        if (claims.email) {
-            if (isBlockedEmail(claims.email, this.config.blockedEmailDomains)) {
-                return {
-                    success: false,
-                    error: 'This email is not allowed.',
-                };
-            }
-            const emailEvent = {
-                email: cleanEmail(claims.email),
-                allow: true,
-                message: null as string | null,
+        // Email validation — mirrors AuthController#validateEmail.
+        if (isBlockedEmail(email, this.config.blockedEmailDomains)) {
+            return {
+                success: false,
+                error: 'This email is not allowed.',
             };
-            try {
-                await this.clients.event?.emitAndWait(
-                    'email.validate',
-                    emailEvent,
-                    {},
-                );
-            } catch (e) {
-                console.warn('[oidc] email validate hook failed:', e);
-            }
-            if (!emailEvent.allow) {
-                return {
-                    success: false,
-                    error:
-                        emailEvent.message ??
-                        'This email cannot be used. Please try a different email address.',
-                };
-            }
         }
+        const emailEvent = {
+            email: cleanEmail(email),
+            allow: true,
+            message: null as string | null,
+        };
+        try {
+            await this.clients.event?.emitAndWait(
+                'email.validate',
+                emailEvent,
+                {},
+            );
+        } catch (e) {
+            console.warn('[oidc] email validate hook failed:', e);
+        }
+        if (!emailEvent.allow) {
+            return {
+                success: false,
+                error:
+                    emailEvent.message ??
+                    'This email cannot be used. Please try a different email address.',
+            };
+        }
+
+        const cfg = this.config as {
+            always_require_phone_verification?: boolean;
+            always_require_card_verification?: boolean;
+        };
+        const force_phone_verification =
+            Boolean(validateEvent.requires_phone_verification) ||
+            Boolean(cfg.always_require_phone_verification);
+        const force_card_verification =
+            Boolean(validateEvent.requires_card_verification) ||
+            Boolean(cfg.always_require_card_verification);
 
         const created = await this.stores.user.create({
             username,
             uuid: uuidv4(),
             password: null,
-            email: claims.email ?? null,
-            clean_email: claims.email ? cleanEmail(claims.email) : null,
+            email,
+            clean_email: cleanEmail(email),
             free_storage: this.config.storage_capacity ?? null,
+            // Email is provider-verified, so the email step is always skipped;
+            // the phone/card gates still apply when the harness flagged them.
             requires_email_confirmation: false,
+            requires_phone_verification: force_phone_verification,
+            requires_card_verification: force_card_verification,
+            ...(validateEvent.reputation != null
+                ? { reputation: validateEvent.reputation }
+                : {}),
             audit_metadata: {
                 ip: clientIp,
                 ip_fwd: proxyIpChain,
@@ -589,7 +656,7 @@ export class OIDCService extends PuterService {
         return { success: true, user: resolved };
     }
 
-    // ── Internals ───────────────────────────────────────────────────
+    // -- Internals ---------------------------------------------------
 
     async #fetchDiscovery(
         url: string,
@@ -642,20 +709,32 @@ export class OIDCService extends PuterService {
         return `${signingInput}.${signature.toString('base64url')}`;
     }
 
-    #decodeIdToken(idToken: string): OIDCUserInfo | null {
-        try {
-            const parts = idToken.split('.');
-            if (parts.length !== 3) return null;
-            const payload = JSON.parse(
-                Buffer.from(parts[1], 'base64url').toString(),
-            );
-            return {
-                sub: payload.sub,
-                email: payload.email,
-                email_verified: payload.email_verified,
-            };
-        } catch {
-            return null;
-        }
+    /**
+     * Verify an id_token against the provider's JWKS and return its claims.
+     * Used for providers without a userinfo endpoint (e.g. Apple). Delegates
+     * to the standalone verifier, passing this service's JWKS cache so keys
+     * are reused across calls. See {@link verifyOidcIdToken} for semantics.
+     */
+    async #verifyIdToken(
+        idToken: string,
+        config: ProviderConfig,
+    ): Promise<OIDCUserInfo | null> {
+        const claims = await verifyOidcIdToken(
+            idToken,
+            {
+                jwksUri: config.jwks_uri,
+                issuer: config.issuer,
+                audience: config.client_id,
+            },
+            { cache: this.#jwksCache },
+        );
+        if (!claims) return null;
+        return {
+            sub: claims.sub,
+            email: claims.email,
+            email_verified: claims.email_verified,
+            tid: claims.tid,
+            xms_edov: claims.xms_edov,
+        };
     }
 }

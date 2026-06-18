@@ -21,8 +21,8 @@ import { Together } from 'together-ai';
 import { Context } from '../../../../core/context.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import { kv } from '../../../../util/kvSingleton.js';
-import * as OpenAIUtil from '../../utils/OpenAIUtil.js';
 import { IChatModel, IChatProvider, ICompleteArguments } from '../../types.js';
+import * as OpenAIUtil from '../../utils/OpenAIUtil.js';
 
 const TOGETHER_AI_CHAT_COST_MAP = {
     prompt_tokens: 'input',
@@ -51,7 +51,9 @@ export class TogetherAIProvider implements IChatProvider {
         let models: IChatModel[] | undefined = kv.get(this.#kvKey);
         if (models) return models;
 
-        const apiModels = await this.#together.models.list();
+        const apiModels = await this.#together.models.list({
+            query: { serverless: 'true' },
+        });
         models = [];
         for (const model of apiModels) {
             if (
@@ -75,7 +77,11 @@ export class TogetherAIProvider implements IChatProvider {
                     output_cost_key: 'output',
                     costs: {
                         tokens: 1_000_000,
-                        ...model.pricing,
+                        ...Object.fromEntries(
+                            Object.entries(model.pricing ?? {}).map(
+                                ([k, v]) => [k, (v as number) * 100],
+                            ),
+                        ),
                     },
                     max_tokens: model.context_length ?? 8000,
                 });
@@ -96,7 +102,7 @@ export class TogetherAIProvider implements IChatProvider {
             },
             max_tokens: 1000,
         });
-        kv.set(this.#kvKey, models, { EX: 5 * 60 });
+        kv.set(this.#kvKey, models, { EX: 15 * 60 });
         return models;
     }
 
@@ -126,9 +132,13 @@ export class TogetherAIProvider implements IChatProvider {
 
         const actor = Context.get('actor');
         const models = await this.models();
+        const modelLower = model.toLowerCase();
         const modelUsed =
-            models.find((m) => [m.id, ...(m.aliases || [])].includes(model)) ||
-            models.find((m) => m.id === this.getDefaultModel())!;
+            models.find((m) =>
+                [m.id, ...(m.aliases || [])].some(
+                    (id) => id.toLowerCase() === modelLower,
+                ),
+            ) || models.find((m) => m.id === this.getDefaultModel())!;
         const modelIdForParams = modelUsed.id.startsWith('togetherai:')
             ? modelUsed.id.slice('togetherai:'.length)
             : modelUsed.id;

@@ -71,6 +71,6 @@ export const handleInstalledApps = async (
 
 extension.get(
     '/installedApps',
-    { subdomain: 'api', requireUserActor: true },
+    { subdomain: 'api', requireUserActor: true, allowFullAccessToken: true },
     handleInstalledApps,
 );

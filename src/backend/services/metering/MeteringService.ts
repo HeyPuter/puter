@@ -36,7 +36,7 @@ import { toMicroCents } from './utils';
 
 import { SUB_POLICIES } from '../../data/subPolicies/index.js';
 
-// ── Types ────────────────────────────────────────────────────────────
+// -- Types ------------------------------------------------------------
 
 type SubscriptionPolicy = (typeof SUB_POLICIES)[number];
 
@@ -50,7 +50,7 @@ interface UsageInput {
     costOverride?: number;
 }
 
-// ── MeteringService ──────────────────────────────────────────────────
+// -- MeteringService --------------------------------------------------
 
 /**
  * Tracks per-actor and global usage, and exposes subscription/addon lookup.
@@ -70,7 +70,7 @@ export class MeteringService extends PuterService {
     private subscriptionResolvers: SubscriptionResolver[] = [];
     private defaultSubscriptionResolvers: SubscriptionResolver[] = [];
 
-    // ── Lifecycle ────────────────────────────────────────────────────
+    // -- Lifecycle ----------------------------------------------------
 
     override onServerStart(): void {
         this.rateCheckTimer = setInterval(
@@ -91,7 +91,7 @@ export class MeteringService extends PuterService {
         }
     }
 
-    // ── Extension hooks ──────────────────────────────────────────────
+    // -- Extension hooks ----------------------------------------------
 
     /** Register a policy that should be available to actors. */
     registerPolicy(policy: SubscriptionPolicy): void {
@@ -114,7 +114,7 @@ export class MeteringService extends PuterService {
         this.defaultSubscriptionResolvers.push(fn);
     }
 
-    // ── Public API: increment usage ──────────────────────────────────
+    // -- Public API: increment usage ----------------------------------
 
     utilRecordUsageObject<T extends Record<string, number>>(
         trackedUsageObject: T,
@@ -184,7 +184,7 @@ export class MeteringService extends PuterService {
                 PERIOD_ESCAPE,
             );
             const appId = actor.app?.uid || GLOBAL_APP_KEY;
-            const userId = actor.user.uuid;
+            const userId = actor.user.uuid!;
             const pathAndAmountMap = {
                 total: totalCost,
                 [`${escapedUsageType}.units`]: usageAmount,
@@ -360,7 +360,7 @@ export class MeteringService extends PuterService {
             }
 
             const appId = actor.app?.uid || GLOBAL_APP_KEY;
-            const userId = actor.user.uuid;
+            const userId = actor.user.uuid!;
 
             const actorUsageKey = `${METRICS_PREFIX}:actor:${userId}:${currentMonth}`;
             const actorUsagesPromise = this.stores.kv
@@ -458,7 +458,7 @@ export class MeteringService extends PuterService {
         }
     }
 
-    // ── Public API: read usage ───────────────────────────────────────
+    // -- Public API: read usage ---------------------------------------
 
     async getActorCurrentMonthUsageDetails(actor: Actor): Promise<{
         usage: UsageByType;
@@ -788,7 +788,7 @@ export class MeteringService extends PuterService {
         });
     }
 
-    // ── Internals ────────────────────────────────────────────────────
+    // -- Internals ----------------------------------------------------
 
     private monthYearString(): string {
         const now = new Date();
@@ -893,20 +893,30 @@ export class MeteringService extends PuterService {
             incrementCost,
         } = ctx;
 
-        const allowedMultiple = Math.floor(
-            actorUsages.total / actorSubscription.monthUsageAllowance,
-        );
-        const previousMultiple = Math.floor(
-            (actorUsages.total - incrementCost) /
-                actorSubscription.monthUsageAllowance,
-        );
-        const isOver2x = allowedMultiple >= 2;
-        const crossedThreshold = previousMultiple < allowedMultiple;
+        const allowance = actorSubscription.monthUsageAllowance;
+        // No metered allowance to exceed (e.g. unlimited policies) — nothing to flag.
+        if (!(allowance > 0)) return;
+
+        const previousUsage = actorUsages.total - incrementCost;
+        const allowedMultiple = Math.floor(actorUsages.total / allowance);
+        const previousMultiple = Math.floor(previousUsage / allowance);
+
+        // Only alarm if the actor was ALREADY at or past their allowance before
+        // this expense arrived. A single large request that jumps past the limit
+        // in one shot (previous usage still under the allowance) is legitimate
+        // and shouldn't page.
+        const wasAlreadyOverLimit = previousUsage >= allowance;
+        // And only when this expense crosses into a new whole multiple of the
+        // allowance (2x, 3x, …) rather than on every expense once over — that
+        // first-over multiple is 2x, since being already over means the previous
+        // multiple was at least 1.
+        const crossedMultiple = previousMultiple < allowedMultiple;
         const hasNoAddonCredit =
             (actorAddons.purchasedCredits || 0) <=
             (actorAddons.consumedPurchaseCredits || 0);
 
-        if (!(isOver2x && crossedThreshold && hasNoAddonCredit)) return;
+        if (!(wasAlreadyOverLimit && crossedMultiple && hasNoAddonCredit))
+            return;
 
         this.clients.alarm.create(
             `metering usage exceeded by user: ${actor.user?.username}`,
@@ -923,6 +933,8 @@ export class MeteringService extends PuterService {
                 totalUsage: actorUsages.total,
                 monthUsageAllowance: actorSubscription.monthUsageAllowance,
             },
+            // Expected-but-worth-tracking signal — record/de-dupe it but don't page on-call.
+            'warning',
         );
     }
 

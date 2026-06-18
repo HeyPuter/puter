@@ -46,7 +46,7 @@ import type { Actor } from './actor';
  * ```
  */
 
-// ── Well-known typed keys ───────────────────────────────────────────
+// -- Well-known typed keys -------------------------------------------
 
 export interface KnownContextFields {
     /** The authenticated actor, if one was resolved by the auth probe. */
@@ -57,7 +57,7 @@ export interface KnownContextFields {
     requestId: string;
 }
 
-// ── Context store ───────────────────────────────────────────────────
+// -- Context store ---------------------------------------------------
 
 interface ContextStore {
     known: Partial<KnownContextFields>;
@@ -66,7 +66,7 @@ interface ContextStore {
 
 const als = new AsyncLocalStorage<ContextStore>();
 
-// ── Public API ──────────────────────────────────────────────────────
+// -- Public API ------------------------------------------------------
 
 /**
  * Static-style context accessor.
@@ -131,7 +131,7 @@ export class Context {
     }
 }
 
-// ── Internal: used by the request-context middleware ─────────────────
+// -- Internal: used by the request-context middleware -----------------
 
 /**
  * Run `fn` inside a new context scope. Used by the request-context

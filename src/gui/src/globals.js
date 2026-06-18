@@ -55,8 +55,13 @@ if ( window.logged_in_users === null )
     window.logged_in_users = [];
 }
 
-// this sessions's user
-window.auth_token = localStorage.getItem('auth_token');
+// this sessions's user — prefer the v2 storage key. The legacy key is
+// still consulted so that users with a stale v1 token get picked up here
+// (and immediately routed through the reauth modal by the first 401
+// from the backend).
+window.auth_token =
+    localStorage.getItem('auth_token_v2')
+    || localStorage.getItem('auth_token');
 try {
     window.user = JSON.parse(localStorage.getItem('user'));
 } catch (e) {

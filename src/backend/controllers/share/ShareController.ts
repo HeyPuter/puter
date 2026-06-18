@@ -51,7 +51,7 @@ export class ShareController extends PuterController {
         // router.post('/share', { ...api, requireAuth: true }, this.#share);
     }
 
-    // // ── POST /sharelink/check ───────────────────────────────────────
+    // // -- POST /sharelink/check ---------------------------------------
     // // Public — verify a share token from an email link.
 
     // #check = async (req: Request, res: Response): Promise<void> => {
@@ -80,7 +80,7 @@ export class ShareController extends PuterController {
     //     });
     // };
 
-    // // ── POST /sharelink/apply ───────────────────────────────────────
+    // // -- POST /sharelink/apply ---------------------------------------
     // // Auth required — apply a pending share's permissions to the caller.
 
     // #apply = async (req: Request, res: Response): Promise<void> => {
@@ -158,7 +158,7 @@ export class ShareController extends PuterController {
     //     res.json({ $: 'api:status-report', status: 'success' });
     // };
 
-    // // ── POST /sharelink/request ─────────────────────────────────────
+    // // -- POST /sharelink/request -------------------------------------
     // // Auth required — notify the issuer that someone is requesting access.
 
     // #request = async (req: Request, res: Response): Promise<void> => {
@@ -207,7 +207,7 @@ export class ShareController extends PuterController {
     //     res.json({ $: 'api:status-report', status: 'success' });
     // };
 
-    // // ── POST /share ─────────────────────────────────────────────────
+    // // -- POST /share -------------------------------------------------
     // // Auth required — create shares for recipients (users or emails).
 
     // #share = async (req: Request, res: Response): Promise<void> => {
@@ -355,7 +355,7 @@ export class ShareController extends PuterController {
     //     });
     // };
 
-    // // ── Helpers ──────────────────────────────────────────────────────
+    // // -- Helpers ------------------------------------------------------
 
     // /**
     //  * Convert share declarations into a flat permission list.

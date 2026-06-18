@@ -73,13 +73,13 @@ export interface FSEntryWriteInput {
     immutable?: boolean;
     isPublic?: boolean | null;
     multipartPartSize?: number;
-    bucket?: string;
-    bucketRegion?: string;
 }
 
 export interface FSEntryCreateInput extends FSEntryWriteInput {
     userId: number;
     uuid: string;
+    bucket: string;
+    bucketRegion: string;
 }
 
 export interface PendingUploadSession {

@@ -140,6 +140,21 @@ export class VoiceChangerDriver extends PuterDriver {
             throw new HttpError(400, '`voice` is required', {
                 legacyCode: 'bad_request',
             });
+        // `voiceId` lands in the request URL path; `modelId` lands in a
+        // multipart field. Both are forwarded to ElevenLabs with our
+        // long-lived API key, so anything other than a strict alphanumeric
+        // shape lets a caller steer the request at a different endpoint or
+        // inject parameters. ElevenLabs voice/model IDs are always
+        // `[A-Za-z0-9_-]+` in practice.
+        const ID_REGEX = /^[A-Za-z0-9_-]+$/;
+        if (!ID_REGEX.test(voiceId))
+            throw new HttpError(400, '`voice` must be alphanumeric', {
+                legacyCode: 'bad_request',
+            });
+        if (!ID_REGEX.test(modelId))
+            throw new HttpError(400, '`model` must be alphanumeric', {
+                legacyCode: 'bad_request',
+            });
 
         // Metering: estimate duration from file size if we don't parse metadata.
         // 16 kbit/s is a safe lower bound for speech audio; pre-check credits
@@ -229,8 +244,32 @@ export class VoiceChangerDriver extends PuterDriver {
                 detail && typeof detail === 'object' && 'detail' in detail
                     ? String((detail as { detail: unknown }).detail)
                     : `ElevenLabs returned ${response.status}`;
-            throw new HttpError(response.status, message, {
-                legacyCode: 'internal_error',
+            // Tag upstream status as `upstream_*` so the alarm gate
+            // skips paging on ElevenLabs 5xx outages (we expose them
+            // as 400 like the TTS provider does — user can't act on
+            // them, but it's not our bug either).
+            const legacyCode =
+                response.status >= 500
+                    ? 'upstream_provider_unavailable'
+                    : response.status === 401 || response.status === 403
+                      ? 'upstream_auth_failed'
+                      : response.status === 429
+                        ? 'upstream_rate_limited'
+                        : 'upstream_bad_request';
+            const exposedStatus =
+                legacyCode === 'upstream_rate_limited'
+                    ? 429
+                    : legacyCode === 'upstream_auth_failed'
+                      ? 500
+                      : legacyCode === 'upstream_provider_unavailable'
+                        ? 400
+                        : response.status;
+            throw new HttpError(exposedStatus, message, {
+                legacyCode,
+                fields: {
+                    provider: 'elevenlabs',
+                    upstreamStatus: response.status,
+                },
             });
         }
 

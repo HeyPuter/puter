@@ -36,6 +36,18 @@ type OpenrouterUsage = OpenAI.Completions.CompletionUsage & {
     cost?: number;
 };
 
+const openRouterReleaseDate = (created: unknown): string | undefined => {
+    const seconds = Number(created);
+    if (!Number.isFinite(seconds) || seconds <= 0) {
+        return undefined;
+    }
+    const date = new Date(seconds * 1000);
+    const year = date.getUTCFullYear();
+    const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(date.getUTCDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+};
+
 export class OpenRouterProvider implements IChatProvider {
     #meteringService: MeteringService;
 
@@ -230,7 +242,7 @@ export class OpenRouterProvider implements IChatProvider {
                 });
 
                 models = resp.data.data;
-                kv.set('openrouterChat:models', models);
+                kv.set('openrouterChat:models', models, { EX: 15 * 60 }); // cache for 15 minutes
             } catch (e) {
                 console.log(e);
             }
@@ -275,6 +287,7 @@ export class OpenRouterProvider implements IChatProvider {
                     tokens: 1_000_000,
                     ...microcentCosts,
                 },
+                release_date: openRouterReleaseDate(model.created),
                 ...overridenModel,
             });
         }

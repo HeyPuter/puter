@@ -1,0 +1,22 @@
+{
+  "name": "puter-mcp-connector",
+  "version": "0.1.0",
+  "description": "Cloudflare Worker MCP server for Puter filesystem and subdomain operations, running the real puter.js port and authenticated per-caller with their own Puter token.",
+  "type": "module",
+  "private": true,
+  "main": "dist/workerPreamble.js",
+  "scripts": {
+    "build": "webpack --config webpack.config.cjs --mode production && node ./scripts/buildPreamble.mjs",
+    "dev": "npm run build && wrangler dev",
+    "deploy": "npm run build && wrangler deploy",
+    "pack:mcpb": "npx -y @anthropic-ai/mcpb@latest pack mcpb puter-mcp-connector.mcpb"
+  },
+  "devDependencies": {
+    "terser-webpack-plugin": "^5.3.14",
+    "webpack": "^5.88.2",
+    "webpack-cli": "^5.1.1",
+    "wrangler": "^3.90.0"
+  },
+  "author": "Puter Technologies Inc.",
+  "license": "AGPL-3.0-only"
+}

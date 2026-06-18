@@ -64,13 +64,13 @@ const meta = (
 describe('KVStoreDriver — rate-limit policy', () => {
     const m = meta(new KVStoreDriver(...fake()));
 
-    it('pins the kv tier values (registered 200 / 10s, temp 100 / 10s)', () => {
+    it('pins the kv tier values (registered 400 / 10s, temp 200 / 10s)', () => {
         expect(m.rateLimit?.default).toEqual({
-            limit: 200,
+            limit: 400,
             window: 10_000,
             bySubscription: {
-                [DEFAULT_FREE_SUBSCRIPTION]: 200,
-                [DEFAULT_TEMP_SUBSCRIPTION]: 100,
+                [DEFAULT_FREE_SUBSCRIPTION]: 400,
+                [DEFAULT_TEMP_SUBSCRIPTION]: 200,
             },
         });
     });
@@ -98,13 +98,13 @@ describe('AppDriver — rate-limit policy', () => {
 describe('SubdomainDriver — rate-limit policy', () => {
     const m = meta(new SubdomainDriver(...fake()));
 
-    it('matches AppDriver tier values (subdomain CRUD is similarly cheap)', () => {
+    it('pins the subdomain tier values (registered 200 / 10s, temp 100 / 10s)', () => {
         expect(m.rateLimit?.default).toEqual({
-            limit: 100,
+            limit: 200,
             window: 10_000,
             bySubscription: {
-                [DEFAULT_FREE_SUBSCRIPTION]: 100,
-                [DEFAULT_TEMP_SUBSCRIPTION]: 50,
+                [DEFAULT_FREE_SUBSCRIPTION]: 200,
+                [DEFAULT_TEMP_SUBSCRIPTION]: 100,
             },
         });
     });

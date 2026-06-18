@@ -340,7 +340,25 @@ All components render inside Shadow DOM and match puter.com's native GUI appeara
 
 ## Dark mode
 
-Components with `@media (prefers-color-scheme: dark)` rules auto-adapt when the OS is in dark mode: `<puter-notification>`, `<puter-context-menu>`, `<puter-menubar>`, `<puter-color-picker>`, `<puter-font-picker>`.
+By default, components that ship dark-mode styles auto-adapt to the OS setting (`prefers-color-scheme: dark`): `<puter-notification>`, `<puter-context-menu>`, `<puter-menubar>`, `<puter-color-picker>`, `<puter-font-picker>`.
+
+To force a specific theme regardless of the OS preference, set the `theme` attribute on the component:
+
+| Value | Behavior |
+|-------|----------|
+| `dark` | Always render in dark theme |
+| `light` | Always render in light theme |
+| _unset_ | Follow the system `prefers-color-scheme` (default) |
+
+```html
+<!-- Force dark, even in an OS configured for light mode -->
+<puter-menubar theme="dark"></puter-menubar>
+
+<!-- Force light, even when the OS is in dark mode -->
+<puter-notification theme="light" title="Hello"></puter-notification>
+```
+
+The attribute is live — changing it at runtime re-paints the component immediately. For `<puter-menubar>` and `<puter-context-menu>`, the `theme` is forwarded to any dropdowns and submenus they spawn, so the whole tree stays in sync.
 
 ## Responsive / mobile
 

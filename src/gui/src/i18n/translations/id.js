@@ -155,7 +155,7 @@ const id = {
         incorrect_password: 'Kata sandi salah',
         invite_link: 'Tautan Undangan',
         item: 'barang',
-        items_in_trash_cannot_be_renamed: 'Barang ini tidak dapat dinamai ulang karena berada di sampah. Untuk mengganti nama barang ini, keluarkan dahulu dari Sampah.',
+        items_in_trash_cannot_be_renamed: 'Barang ini tidak dapat diganti namanya karena berada di sampah. Untuk mengganti nama barang ini, pindahkan dahulu dari Sampah.',
         jpeg_image: 'Gambar JPEG',
         keep_in_taskbar: 'Pertahankan di Bilah Tugas',
         language: 'Bahasa',
@@ -177,7 +177,7 @@ const id = {
         name_cannot_contain_double_period: "Nama tidak boleh mengandung karakter '..'.",
         name_cannot_contain_period: "Nama tidak boleh mengandung karakter '.'.",
         name_cannot_contain_slash: "Nama tidak boleh mengandung karakter '/'",
-        name_must_be_string: 'Nama hanya boleh berupa string.',
+        name_must_be_string: 'Nama hanya boleh berupa teks.',
         name_too_long: 'Nama tidak boleh lebih dari %% karakter.',
         new: 'Baru',
         new_email: 'Email Baru',
@@ -266,7 +266,7 @@ const id = {
         seconds: 'detik',
         security: 'Keamanan',
         select: 'Pilih',
-        selected: 'terpilih',
+        selected: 'dipilih',
         select_color: 'Pilih warna…',
         sessions: 'Sesi',
         send: 'Kirim',
@@ -297,7 +297,7 @@ const id = {
         taskmgr_header_name: 'Nama',
         taskmgr_header_status: 'Status',
         taskmgr_header_type: 'Tipe',
-        terms: 'Syarat',
+        terms: 'Persyaratan',
         text_document: 'Dokumen Teks',
         tos_fineprint: 'Dengan mengklik \'Buat Akun Gratis\', Anda menyetujui {{link=terms}}Syarat Layanan{{/link}} dan {{link=privacy}}Kebijakan Privasi{{/link}} Puter.',
         transparency: 'Transparansi',
@@ -426,7 +426,7 @@ const id = {
         // =============================================================
         // Missing translations
         // =============================================================
-        'choose_publishing_option': 'Pilih cara untuk memublikasikan situs Anda:', // In English: "Choose how you want to publish your website:"
+        'choose_publishing_option': 'Pilih cara untuk memublikasikan situs web Anda:', // In English: "Choose how you want to publish your website:"
         'create_desktop_shortcut': 'Buat Pintasan (Desktop)', // In English: "Create Shortcut (Desktop)"
         'create_desktop_shortcut_s': 'Buat Pintasan (Desktop)', // In English: "Create Shortcuts (Desktop)". TL note, there are no plural form of noun in Indonesia. Yes, we can use repetition, but in this case it's more effective this way
         'create_shortcut_s': 'Buat Pintasan', // In English: "Create Shortcuts"
@@ -434,7 +434,7 @@ const id = {
         'reload_app': 'Muat Ulang Aplikasi', // In English: "Reload App"
         'new_window': 'Jendela Baru', // In English: "New Window"
         'open_trash': 'Buka Tempat Sampah', // In English: "Open Trash"
-        'pick_name_for_worker': 'Tentukan nama untuk worker:', // In English: "Pick a name for your worker:"
+        'pick_name_for_worker': 'Tentukan nama untuk worker Anda:', // In English: "Pick a name for your worker:"
         'publish_as_serverless_worker': 'Publikasikan sebagai Worker', // In English: "Publish as Worker"
         'toolbar.enter_fullscreen': 'Masuk ke Layar Penuh', // In English: "Enter Full Screen"
         'toolbar.github': 'Github', // In English: "GitHub"
@@ -446,7 +446,7 @@ const id = {
         'worker': 'Worker', // In English: "Worker".
         'billing.offering.basic': 'Basic', // In English: "Basic"
         'too_many_attempts': 'Terlalu banyak percobaan. Silakan coba kembali nanti', // In English: "Too many attempts. Please try again later."
-        'server_timeout': 'Peladen terlalu lama merespons. Silakan coba kembali nanti', // In English: "The server took too long to respond. Please try again."
+        'server_timeout': 'Server terlalu lama merespons. Silakan coba kembali nanti', // In English: "The server took too long to respond. Please try again."
         'signup_error': 'Terjadi kegagalan saat proses daftar. Silakan coba kembali nanti', // In English: "An error occurred during signup. Please try again."
         'welcome_title': 'Selamat datang di Komputer Internet Pribadi Anda', // In English: "Welcome to your Personal Internet Computer"
         'welcome_description': 'Simpan berkas, mainkan permainan, temukan aplikasi keren, dan masih banyak lagi! Semua dalam satu tempat, Mudah diakses di mana pun, kapan pun.', // In English: "Store files, play games, find awesome apps, and much more! All in one place, accessible from anywhere at any time."
@@ -454,11 +454,11 @@ const id = {
         'welcome_terms': 'Persyaratan', // In English: "Terms"
         'welcome_privacy': 'Privasi', // In English: "Privacy"
         'welcome_developers': 'Pengembang', // In English: "Developers"
-        'welcome_open_source': 'Open Source', // In English: "Open Source"
+        'welcome_open_source': 'Sumber Terbuka', // In English: "Open Source"
         'welcome_instant_login_title': 'Login Instan', // In English: "Instant Login!"
         'alert_error_title': 'Galat!', // In English: "Error!"
         'alert_warning_title': 'Peringatan!', // In English: "Warning!"
-        'alert_info_title': 'Info', // In English: "Info"
+        'alert_info_title': 'Informasi', // In English: "Info"
         'alert_success_title': 'Sukses!', // In English: "Success!"
         'alert_confirm_title': 'Apakah Anda yakin?', // In English: "Are you sure?"
         'alert_yes': 'Ya', // In English: "Yes"
@@ -474,12 +474,12 @@ const id = {
         'window_title_session_list': 'Daftar Sesi', // In English: "Session List!"
         'window_title_set_new_password': 'Tentukan Kata Sandi Baru', // In English: "Set New Password"
         'window_title_instant_login': 'Login Instan', // In English: "Instant Login!"
-        'window_title_publish_website': 'Publikasikan Situs', // In English: "Publish Website"
+        'window_title_publish_website': 'Publikasikan Situs Web', // In English: "Publish Website"
         'window_title_publish_worker': 'Publikasikan Worker', // In English: "Publish Worker"
         'window_title_authenticating': 'Proses Autentikasi...', // In English: "Authenticating..."
-        'window_title_refer_friend': 'Ajak Teman', // In English: "Refer a friend!"
+        'window_title_refer_friend': 'Ajak Teman!', // In English: "Refer a friend!"
         'desktop_show_desktop': 'Tunjukkan Desktop', // In English: "Show Desktop"
-        'desktop_show_open_windows': 'Tampilkan Jendela Terbuka', // In English: "Show Open Windows"
+        'desktop_show_open_windows': 'Tampilkan Jendela yang Terbuka', // In English: "Show Open Windows"
         'desktop_exit_full_screen': 'Keluar dari Layar Penuh', // In English: "Exit Full Screen"
         'desktop_enter_full_screen': 'Masuk ke Layar Penuh', // In English: "Enter Full Screen"
         'desktop_position': 'Posisi', // In English: "Position"
@@ -489,18 +489,18 @@ const id = {
         'item_shared_with_you': 'Pengguna lain berbagi barang ini dengan Anda', // In English: "A user has shared this item with you."
         'item_shared_by_you': 'Anda telah membagikan barang ini dengan setidaknya satu pengguna lain', // In English: "You have shared this item with at least one other user."
         'item_shortcut': 'Pintasan', // In English: "Shortcut"
-        'item_associated_websites': 'Situs Terkait', // In English: "Associated website"
-        'item_associated_websites_plural': 'Situs Terkait', // In English: "Associated websites"
+        'item_associated_websites': 'Situs Web Terkait', // In English: "Associated website"
+        'item_associated_websites_plural': 'Situs Web Terkait', // In English: "Associated websites"
         'no_suitable_apps_found': 'Tidak ditemukan aplikasi yang cocok', // In English: "No suitable apps found"
         'window_click_to_go_back': 'Klik untuk kembali.', // In English: "Click to go back."
-        'window_click_to_go_forward': 'Klik untuk maju', // In English: "Click to go forward."
+        'window_click_to_go_forward': 'Klik untuk melanjutkan.', // In English: "Click to go forward."
         'window_click_to_go_up': 'Klik untuk naik satu direktori', // In English: "Click to go one directory up."
         'window_title_public': 'Publik', // In English: "Public"
         'window_title_videos': 'Video', // In English: "Videos"
         'window_title_pictures': 'Gambar', // In English: "Pictures"
         'window_title_puter': 'Puter', // In English: "Puter"
         'window_folder_empty': 'Folder ini kosong', // In English: "This folder is empty"
-        'manage_your_subdomains': 'Kelola Subdomain', // In English: "Manage Your Subdomains"
+        'manage_your_subdomains': 'Kelola Subdomain Anda', // In English: "Manage Your Subdomains"
         'open_containing_folder': 'Buka Folder Saat Ini', // In English: "Open Containing Folder"
 
     },

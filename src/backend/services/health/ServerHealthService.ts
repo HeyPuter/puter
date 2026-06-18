@@ -253,11 +253,11 @@ export class ServerHealthService extends PuterService {
                     (f) => f.name === check.name,
                 );
                 if (!alreadyFailing) {
-                    this.clients.alarm?.create(
-                        'health-check-failure',
-                        `Health check ${check.name} failed`,
-                        { error: err as Error },
-                    );
+                    // Intentionally do not page PagerDuty for health-check
+                    // failures — external uptime monitors cover this and the
+                    // internal threshold flaps under normal load. Failures
+                    // are still logged below and still trigger self-heal
+                    // onFail handlers.
                     for (const handler of check.onFailHandlers) {
                         try {
                             await handler(err);

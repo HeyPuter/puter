@@ -73,11 +73,6 @@ const makeUserActor = (): Actor => ({
     user: { id: 7, uuid: 'u-7', username: 'alice' },
 });
 
-const makeAppActor = (): Actor => ({
-    user: { id: 7, uuid: 'u-7', username: 'alice' },
-    app: { id: 1, uid: 'app-uid' },
-});
-
 interface CapturedResponse {
     statusCode: number;
     body: unknown;
@@ -193,13 +188,25 @@ describe('PuterAIController.registerRoutes', () => {
             ]),
         );
 
-        const chatRoute = calls.find(
-            (c) => c.path === '/puterai/openai/v1/chat/completions',
-        );
-        expect(chatRoute?.opts).toEqual({
-            subdomain: 'api',
-            requireAuth: true,
-        });
+        // The four upstream-proxy routes reject third-party apps (they must
+        // call puter-chat-completion directly), but admit the user's own
+        // full-access personal access token: `requireUserActor` keeps apps out
+        // and `allowFullAccessToken` opens the gate to a full-access PAT. Each
+        // proxy route carries both flags.
+        const userOnlyPaths = [
+            '/puterai/openai/v1/chat/completions',
+            '/puterai/openai/v1/completions',
+            '/puterai/openai/v1/responses',
+            '/puterai/anthropic/v1/messages',
+        ];
+        for (const path of userOnlyPaths) {
+            const route = calls.find((c) => c.path === path);
+            expect(route?.opts).toEqual({
+                subdomain: 'api',
+                requireUserActor: true,
+                allowFullAccessToken: true,
+            });
+        }
         const modelsRoute = calls.find(
             (c) => c.path === '/puterai/chat/models',
         );
@@ -213,18 +220,10 @@ describe('PuterAIController.registerRoutes', () => {
 // ── /openai/v1/chat/completions ─────────────────────────────────────
 
 describe('PuterAIController.openaiChatCompletions', () => {
-    it('rejects app actors with HttpError 403', async () => {
-        const { res } = makeRes();
-        await expect(
-            controller.openaiChatCompletions(
-                makeReq({
-                    body: { messages: [], model: 'gpt-test' },
-                    actor: makeAppActor(),
-                }),
-                res,
-            ),
-        ).rejects.toMatchObject({ statusCode: 403 });
-    });
+    // Note: app-actor rejection (403) is enforced by the `requireUserActor`
+    // route gate and is asserted in the registerRoutes test above. The
+    // handler itself no longer does that check, so unit-testing it here
+    // would require invoking the gate stack.
 
     it('rejects bodies missing a messages array with HttpError 400', async () => {
         const { res } = makeRes();
@@ -272,13 +271,13 @@ describe('PuterAIController.openaiChatCompletions', () => {
         const body = captured.body as Record<string, unknown>;
         expect(body.object).toBe('chat.completion');
         expect(body.model).toBe('gpt-test');
-        expect((body.choices as Array<Record<string, unknown>>)[0]).toMatchObject(
-            {
-                index: 0,
-                message: { role: 'assistant', content: 'hi there' },
-                finish_reason: 'stop',
-            },
-        );
+        expect(
+            (body.choices as Array<Record<string, unknown>>)[0],
+        ).toMatchObject({
+            index: 0,
+            message: { role: 'assistant', content: 'hi there' },
+            finish_reason: 'stop',
+        });
         // total_tokens is computed from prompt + completion.
         expect(body.usage).toEqual({
             prompt_tokens: 4,
@@ -392,18 +391,8 @@ describe('PuterAIController.openaiChatCompletions', () => {
 // ── /openai/v1/completions ──────────────────────────────────────────
 
 describe('PuterAIController.openaiCompletions', () => {
-    it('rejects app actors with HttpError 403', async () => {
-        const { res } = makeRes();
-        await expect(
-            controller.openaiCompletions(
-                makeReq({
-                    body: { prompt: 'hi', model: 'gpt-test' },
-                    actor: makeAppActor(),
-                }),
-                res,
-            ),
-        ).rejects.toMatchObject({ statusCode: 403 });
-    });
+    // App-actor rejection lives in the `requireUserActor` gate now;
+    // see the registerRoutes assertion.
 
     it('rejects a non-string prompt with HttpError 400', async () => {
         const { res } = makeRes();
@@ -443,13 +432,13 @@ describe('PuterAIController.openaiCompletions', () => {
 
         const body = captured.body as Record<string, unknown>;
         expect(body.object).toBe('text_completion');
-        expect((body.choices as Array<Record<string, unknown>>)[0]).toMatchObject(
-            {
-                text: 'response',
-                index: 0,
-                finish_reason: 'stop',
-            },
-        );
+        expect(
+            (body.choices as Array<Record<string, unknown>>)[0],
+        ).toMatchObject({
+            text: 'response',
+            index: 0,
+            finish_reason: 'stop',
+        });
         expect((body.id as string).startsWith('cmpl-')).toBe(true);
     });
 });
@@ -457,18 +446,8 @@ describe('PuterAIController.openaiCompletions', () => {
 // ── /openai/v1/responses ────────────────────────────────────────────
 
 describe('PuterAIController.openaiResponses', () => {
-    it('rejects app actors with HttpError 403', async () => {
-        const { res } = makeRes();
-        await expect(
-            controller.openaiResponses(
-                makeReq({
-                    body: { input: 'hi', model: 'gpt-test' },
-                    actor: makeAppActor(),
-                }),
-                res,
-            ),
-        ).rejects.toMatchObject({ statusCode: 403 });
-    });
+    // App-actor rejection lives in the `requireUserActor` gate now;
+    // see the registerRoutes assertion.
 
     it('rejects providers other than openai-responses with HttpError 400', async () => {
         const { res } = makeRes();
@@ -537,18 +516,8 @@ describe('PuterAIController.openaiResponses', () => {
 // ── /anthropic/v1/messages ──────────────────────────────────────────
 
 describe('PuterAIController.anthropicMessages', () => {
-    it('rejects app actors with HttpError 403', async () => {
-        const { res } = makeRes();
-        await expect(
-            controller.anthropicMessages(
-                makeReq({
-                    body: { messages: [], model: 'claude-test' },
-                    actor: makeAppActor(),
-                }),
-                res,
-            ),
-        ).rejects.toMatchObject({ statusCode: 403 });
-    });
+    // App-actor rejection lives in the `requireUserActor` gate now;
+    // see the registerRoutes assertion.
 
     it('rejects bodies missing a messages array with HttpError 400', async () => {
         const { res } = makeRes();
@@ -655,9 +624,8 @@ describe('PuterAIController model listing', () => {
     const captureGetHandler = (
         path: string,
     ): ((req: Request, res: Response) => Promise<void>) => {
-        let handler:
-            | ((req: Request, res: Response) => Promise<void>)
-            | null = null;
+        let handler: ((req: Request, res: Response) => Promise<void>) | null =
+            null;
         const router = {
             post: vi.fn(),
             get: vi.fn((p: string, _opts: unknown, h: never) => {
@@ -719,9 +687,8 @@ describe('PuterAIController videoProxy', () => {
         req: Request,
         res: Response,
     ) => Promise<void>) => {
-        let handler:
-            | ((req: Request, res: Response) => Promise<void>)
-            | null = null;
+        let handler: ((req: Request, res: Response) => Promise<void>) | null =
+            null;
         const router = {
             post: vi.fn(),
             get: vi.fn((path: string, _opts: unknown, h: never) => {
@@ -799,8 +766,9 @@ describe('PuterAIController videoProxy', () => {
     it('500s when url_signature_secret is not configured', async () => {
         // Temporarily blank the secret so the controller hits the
         // 500 branch instead of the constant-time-compare gate.
-        const cfg = (controller as unknown as { config: Record<string, unknown> })
-            .config;
+        const cfg = (
+            controller as unknown as { config: Record<string, unknown> }
+        ).config;
         const orig = cfg.url_signature_secret;
         cfg.url_signature_secret = undefined;
         try {
@@ -826,8 +794,9 @@ describe('PuterAIController videoProxy', () => {
         // Hit the post-signature `provider !== 'gemini'` branch by
         // computing a valid signature for a known fileId/expires combo
         // and then sending a different provider in the query.
-        const cfg = (controller as unknown as { config: Record<string, unknown> })
-            .config;
+        const cfg = (
+            controller as unknown as { config: Record<string, unknown> }
+        ).config;
         const secret = cfg.url_signature_secret as string;
         const fileId = 'abc-123';
         const expires = String(Math.floor(Date.now() / 1000) + 60);
@@ -854,11 +823,16 @@ describe('PuterAIController videoProxy', () => {
     });
 
     it('500s when provider=gemini but no Gemini API key is configured', async () => {
-        const cfg = (controller as unknown as {
-            config: Record<string, unknown> & {
-                providers?: Record<string, Record<string, unknown> | undefined>;
-            };
-        }).config;
+        const cfg = (
+            controller as unknown as {
+                config: Record<string, unknown> & {
+                    providers?: Record<
+                        string,
+                        Record<string, unknown> | undefined
+                    >;
+                };
+            }
+        ).config;
         const secret = cfg.url_signature_secret as string;
         const fileId = 'gemini-no-key';
         const expires = String(Math.floor(Date.now() / 1000) + 60);
@@ -1425,7 +1399,11 @@ describe('PuterAIController.anthropicMessages streaming + helpers', () => {
         );
         const tools = completeSpy.mock.calls[0]![0].tools as Array<{
             type: string;
-            function: { name: string; description: string; parameters: unknown };
+            function: {
+                name: string;
+                description: string;
+                parameters: unknown;
+            };
         }>;
         expect(tools[0]?.type).toBe('function');
         expect(tools[0]?.function.name).toBe('lookup');
@@ -1483,9 +1461,7 @@ describe('PuterAIController.anthropicMessages streaming + helpers', () => {
             res,
         );
         const body = captured.body as { content: Array<{ text: string }> };
-        expect(body.content).toEqual([
-            { type: 'text', text: 'hello world' },
-        ]);
+        expect(body.content).toEqual([{ type: 'text', text: 'hello world' }]);
     });
 
     it('reads tool_use blocks from message.content (not just message.tool_calls)', async () => {
@@ -1536,9 +1512,8 @@ describe('PuterAIController model details', () => {
     const captureGetHandler = (
         path: string,
     ): ((req: Request, res: Response) => Promise<void>) => {
-        let handler:
-            | ((req: Request, res: Response) => Promise<void>)
-            | null = null;
+        let handler: ((req: Request, res: Response) => Promise<void>) | null =
+            null;
         const router = {
             post: vi.fn(),
             get: vi.fn((p: string, _opts: unknown, h: never) => {

@@ -32,8 +32,10 @@ export const DEEPSEEK_MODELS: IChatModel[] = [
         name: 'DeepSeek Chat',
         aliases: [
             'deepseek-v4-flash',
+            'deepseek/deepseek-v4-flash',
             'deepseek-chat',
             'deepseek/deepseek-chat',
+            'deepseek/deepseek-v4-flash',
             'deepseek/deepseek-reasoner',
             'deepseek:deepseek/deepseek-reasoner',
             'deepseek:deepseek/deepseek-chat',

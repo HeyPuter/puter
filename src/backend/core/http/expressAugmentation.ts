@@ -35,40 +35,25 @@ declare global {
     // eslint-disable-next-line @typescript-eslint/no-namespace
     namespace Express {
         interface Request {
-            /**
-             * Populated by the global auth probe when a valid token is
-             * attached to the request (Bearer header, auth_token body/query,
-             * session cookie, or socket handshake). Absent for anonymous
-             * requests — route-level gates decide whether to reject.
-             */
             actor?: Actor;
 
             /** The raw token string, if one was presented and parsed. */
             token?: string;
 
-            /**
-             * Set by the global auth probe when a token was extracted from
-             * the request but failed to resolve to an actor (bad signature,
-             * expired, references a deleted session/user/app, or has a
-             * legacy shape v2 can't authenticate). Lets `requireAuthGate`
-             * distinguish "no token" from "token present but invalid" and
-             * emit the legacy `token_auth_failed` error so old clients
-             * trigger their re-login flow.
-             */
             tokenAuthFailed?: boolean;
 
-            /**
-             * Raw request body bytes, captured by the global JSON parser's
-             * `verify` callback. Available for any JSON request — needed by
-             * webhook handlers that verify an HMAC over the exact bytes the
-             * sender signed (e.g., AppStore prod webhooks, BroadcastService
-             * inter-instance hooks).
-             *
-             * Set only when the global JSON parser actually ran (request had
-             * `Content-Type: application/json` or one of the recognized
-             * JSON-as-text variants). For non-JSON requests it stays
-             * `undefined`.
-             */
+            requiresReauth?: {
+                reason: 'token_v1' | 'session_revoked' | 'session_expired';
+                auth_id?: string;
+                /**
+                 * Short-lived server-signed JWT that proves the bearer was
+                 * identified as `auth_id` by the rejected session. The GUI
+                 * must echo this back (not the raw `auth_id`) on the next
+                 * login/signup so the controller can rebind to the same user.
+                 */
+                reauth_token?: string;
+            };
+
             rawBody?: Buffer;
 
             /** Parsed user-agent, populated by the global UA-parsing middleware. */
@@ -80,6 +65,24 @@ declare global {
 
             /** True when the request's Host is a custom domain (not one of the configured Puter domains). */
             is_custom_domain?: boolean;
+
+            /**
+             * Coarse server-derived request fingerprint (IP + UA + accept
+             * headers), populated by the global fingerprint middleware. Always
+             * present; the same value the rate limiter keys on.
+             */
+            networkFingerprint?: string;
+
+            /**
+             * Client-supplied device fingerprint (ThumbmarkJS hash) from the
+             * body or `x-puter-device-fingerprint` header, populated by the
+             * global fingerprint middleware. Present only when the client sent a
+             * well-shaped value; spoofable but stable per device across IPs.
+             */
+            deviceFingerprint?: string;
+
+            /** Parsed cookies, populated by the global `cookie-parser` middleware. */
+            cookies?: Record<string, string>;
         }
     }
 }

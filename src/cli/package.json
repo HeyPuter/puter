@@ -1,0 +1,31 @@
+{
+  "name": "@heyputer/cli",
+  "version": "0.1.2",
+  "description": "CLI for Puter Platform - manage your sites and workers from the terminal.",
+  "license": "MIT",
+  "author": "Puter Technologies Inc.",
+  "type": "module",
+  "bin": {
+    "puter": "./bin/puter.js"
+  },
+  "main": "bin/puter.js",
+  "files": [
+    "bin",
+    "src",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node ./bin/puter.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "@clack/prompts": "^0.7.0",
+    "@heyputer/puter.js": "^2.5.1",
+    "chalk": "^5.3.0",
+    "commander": "^12.1.0",
+    "conf": "^13.0.0"
+  }
+}

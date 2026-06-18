@@ -25,6 +25,7 @@ import {
     DeleteObjectCommand,
     DeleteObjectsCommand,
     GetObjectCommand,
+    HeadObjectCommand,
     PutObjectCommand,
     type S3Client,
     UploadPartCommand,
@@ -360,6 +361,29 @@ export class S3ObjectStore extends PuterStore {
             region,
             this.#resolveMultipartPartSize(),
         );
+    }
+
+    /**
+     * Return the actual byte size of a stored object via a HEAD request, or
+     * null if S3 doesn't report a content length. Used to reconcile the
+     * authoritative size of a direct-to-S3 (signed-URL) upload against the
+     * client-declared size, which is otherwise untrusted.
+     */
+    async headObjectSize(
+        bucket: string,
+        objectKey: string,
+        region: string,
+    ): Promise<number | null> {
+        const client = this.#getClientForRegion(region);
+        const response = await client.send(
+            new HeadObjectCommand({
+                Bucket: bucket,
+                Key: objectKey,
+            }),
+        );
+        return typeof response.ContentLength === 'number'
+            ? response.ContentLength
+            : null;
     }
 
     async deleteObject(

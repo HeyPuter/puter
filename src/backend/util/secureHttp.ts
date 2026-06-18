@@ -17,7 +17,12 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+// Must be imported before 'undici' — see the module comment in the guard.
+import './nodeFetchDispatcherGuard.js';
+
+import { lookup as dnsLookup, type LookupAddress } from 'node:dns';
 import net, { BlockList } from 'node:net';
+import { Agent as UndiciAgent, fetch as undiciFetch } from 'undici';
 import { HttpError } from '../core/http/HttpError.js';
 import { configContainer } from '../exports.js';
 import type { ISecureCorsProxyConfig } from '../types.js';
@@ -101,6 +106,63 @@ export function isPublicResolvedAddress(address: string): boolean {
     return !BLOCKED_RESOLVED_IPS.check(address, family === 6 ? 'ipv6' : 'ipv4');
 }
 
+// Connect-time DNS guard: every address a hostname resolves to must be
+// public, and the check runs on the resolution the socket actually uses —
+// a validate-then-fetch design re-resolves at connect time, so checking
+// here (rather than before fetch) is what defeats DNS rebinding.
+const guardedLookup: net.LookupFunction = (hostname, options, callback) => {
+    // `net`'s lookup hook can be handed `options` as either an object or a
+    // bare address-family number. Normalize so we can both resolve all
+    // addresses and report errors back in the arity the caller expects:
+    // `(err, addresses[])` when `all` was requested, `(err, address, family)`
+    // otherwise.
+    const opts = typeof options === 'number' ? { family: options } : options;
+    const wantAll = opts.all === true;
+    const fail = (err: Error) => {
+        if (wantAll) {
+            callback(err, []);
+        } else {
+            callback(err, '', 0);
+        }
+    };
+    dnsLookup(hostname, { ...opts, all: true }, (err, addresses) => {
+        if (err) {
+            fail(err);
+            return;
+        }
+        const list = addresses as LookupAddress[];
+        if (
+            list.length === 0 ||
+            list.some((a) => !isPublicResolvedAddress(a.address))
+        ) {
+            fail(
+                Object.assign(
+                    new Error(
+                        `refusing to connect: ${hostname} resolves to a private or reserved address`,
+                    ),
+                    { code: 'ERR_SSRF_BLOCKED' },
+                ),
+            );
+            return;
+        }
+        if (wantAll) {
+            callback(null, list);
+        } else {
+            callback(null, list[0].address, list[0].family);
+        }
+    });
+};
+
+const ssrfGuardDispatcher = new UndiciAgent({
+    connect: { lookup: guardedLookup },
+});
+
+// Proxied requests skip the SSRF lookup guard (the only locally-resolved
+// host is the admin-configured proxy itself) but still get an explicit
+// dispatcher: undici's fetch would otherwise fall back to the global
+// dispatcher slot it shares with Node's built-in fetch.
+const proxyDispatcher = new UndiciAgent();
+
 function proxyConfig(): ISecureCorsProxyConfig | undefined {
     const cfg = configContainer.secureCorsProxy;
     if (cfg?.url && cfg?.secret) return cfg;
@@ -117,8 +179,10 @@ interface SecureFetchInit extends Omit<RequestInit, 'redirect'> {
  *   • Rejects raw-IP / localhost hosts via {@link validateUrlNoIP}.
  *   • Forces `redirect: 'manual'` and rejects any 3xx response so a permissive
  *     target can't bounce us onto an internal endpoint.
- *   • Resolves DNS through Cloudflare's 1.1.1.3 (malware-filtered) resolver
- *     and rejects private/reserved answers before connecting.
+ *   • Re-checks DNS at connect time: every address the socket actually
+ *     connects to must pass {@link isPublicResolvedAddress}, so a hostname
+ *     resolving to a private/reserved address (including via DNS rebinding)
+ *     is rejected.
  *   • If `config.secureCorsProxy` is set AND the URL isn't a `data:` URI,
  *     rewrites the request through the configured signed Cloudflare Worker
  *     proxy (adds `x-cors-proxy-auth-secret`).
@@ -149,12 +213,23 @@ export async function secureFetch(
         }
     }
 
+    // The connect-time DNS guard only applies to direct fetches. When the
+    // request is rewritten through the CORS proxy, the only host resolved
+    // locally is the proxy itself — admin-trusted config that may
+    // legitimately sit on a private address — and the user-supplied host
+    // is resolved by the proxy worker from Cloudflare's network, where
+    // this deployment's private ranges aren't reachable.
+    const proxied = finalUrl !== url;
+
     const { skipProxy: _skip, ...rest } = init;
-    const response = await fetch(finalUrl, {
+    // lib.dom and undici fetch types are structurally equivalent here but
+    // nominally distinct; cast across the boundary.
+    const response = (await undiciFetch(finalUrl, {
         ...rest,
         headers,
         redirect: 'manual',
-    });
+        dispatcher: proxied ? proxyDispatcher : ssrfGuardDispatcher,
+    } as unknown as Parameters<typeof undiciFetch>[1])) as unknown as Response;
 
     if (response.status >= 300 && response.status < 400) {
         throw new HttpError(

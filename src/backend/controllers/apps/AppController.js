@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { isAccessTokenActor, isAppActor } from '../../core/actor.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { driversContainers } from '../../exports.js';
 import {
@@ -55,6 +56,7 @@ export class AppController extends PuterController {
             {
                 subdomain: 'api',
                 requireUserActor: true,
+                allowFullAccessToken: true,
             },
             async (req, res) => {
                 const apps = await this.appDriver.select({
@@ -70,6 +72,7 @@ export class AppController extends PuterController {
             {
                 subdomain: 'api',
                 requireUserActor: true,
+                allowFullAccessToken: true,
             },
             async (req, res) => {
                 const name = req.query?.name;
@@ -89,6 +92,16 @@ export class AppController extends PuterController {
         // actor calls this, the app id is already on the token — clients
         // don't re-send it in the body. Fall back to `actor.app.uid`
         // before 400-ing for a missing body field.
+        //
+        // Authorization: only two callers are trusted to report opens —
+        //   1. a root user actor (plain session, no `.app` and no access
+        //      token), e.g. the GUI launching apps on behalf of the user;
+        //   2. the app-under-user actor for the app being reported, i.e.
+        //      `actor.app.uid === app_uid`.
+        // Everything else — access tokens (regardless of issuer), asset
+        // tokens, app actors reporting for a *different* app — is denied,
+        // otherwise any authenticated party could inflate another app's
+        // open count.
         router.post(
             '/rao',
             {
@@ -96,8 +109,9 @@ export class AppController extends PuterController {
                 requireAuth: true,
             },
             async (req, res) => {
+                const actor = req.actor;
                 const bodyAppUid = req.body?.app_uid;
-                const actorAppUid = req.actor?.app?.uid;
+                const actorAppUid = actor?.app?.uid;
                 const app_uid =
                     typeof bodyAppUid === 'string' && bodyAppUid.length > 0
                         ? bodyAppUid
@@ -106,6 +120,26 @@ export class AppController extends PuterController {
                     throw new HttpError(400, 'Missing or invalid `app_uid`', {
                         legacyCode: 'bad_request',
                     });
+                }
+
+                // Access tokens (and any other non-user/non-app identity,
+                // e.g. asset tokens) are not allowed to report opens —
+                // they're shared / scoped credentials and shouldn't drive
+                // analytics counters.
+                if (isAccessTokenActor(actor)) {
+                    throw new HttpError(
+                        403,
+                        'Access tokens cannot report app opens',
+                        { legacyCode: 'forbidden' },
+                    );
+                }
+
+                if (isAppActor(actor) && app_uid !== actorAppUid) {
+                    throw new HttpError(
+                        403,
+                        'App actors can only report opens for their own app',
+                        { legacyCode: 'forbidden' },
+                    );
                 }
 
                 const app = await this.appStore.getByUid(app_uid);
@@ -153,6 +187,7 @@ export class AppController extends PuterController {
             {
                 subdomain: 'api',
                 requireUserActor: true,
+                allowFullAccessToken: true,
             },
             async (req, res) => {
                 const raw = req.params.name;
@@ -196,7 +231,7 @@ export class AppController extends PuterController {
             },
         );
 
-        // ── POST /query/app ────────────────────────────────────────
+        // -- POST /query/app ----------------------------------------
         // Batch marketplace-style lookup by name or UID.
         //
         // Access rules: only apps the caller has a legitimate reason to
@@ -293,7 +328,7 @@ export class AppController extends PuterController {
             },
         );
 
-        // ── GET /app-icon/:app_uid(/:size) ─────────────────────────
+        // -- GET /app-icon/:app_uid(/:size) -------------------------
         // Serve app icon — data URL decoded inline, HTTP URL redirected.
         //
         // ⚠ FLAG: Missing sharp-based resize pipeline; serves the original.

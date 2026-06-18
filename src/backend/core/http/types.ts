@@ -66,6 +66,22 @@ export type RoutePath = string | RegExp | Array<string | RegExp>;
  * in the chain. Commented-out slots are reserved for the next chunks
  * (body parsing, post-auth gates, timing).
  */
+/** One rate-limit window. See `RouteOptions.rateLimit` for semantics. */
+export interface RouteRateLimit {
+    limit: number;
+    window: number;
+    /**
+     * Per-subscription overrides for `limit` (`SubscriptionPolicy.id`
+     * → cap). Same mechanic as `concurrent.bySubscription`: resolved
+     * via the metering service per request; falls back to the base
+     * `limit` when there's no actor / no metering / no match.
+     */
+    bySubscription?: Record<string, number>;
+    key?: 'fingerprint' | 'ip' | 'user' | ((req: Request) => string);
+    scope?: string;
+    backend?: 'memory' | 'redis' | 'kv';
+}
+
 export interface RouteOptions {
     /** Extra per-route middleware. Applied after built-in gates, before the handler. */
     middleware?: RequestHandler[];
@@ -80,11 +96,25 @@ export interface RouteOptions {
      */
     subdomain?: string | string[];
 
-    /** Reject anonymous + suspended-user requests with 401/403. */
+    /** Reject anonymous + suspended-user requests with 401/403. Only allows user and app actors */
     requireAuth?: boolean;
 
     /** Reject app/access-token actors. Implies `requireAuth`. */
     requireUserActor?: boolean;
+
+    /**
+     * Only meaningful alongside `requireUserActor`. Relaxes the access-token
+     * half of that gate so a FULL-ACCESS personal access token (the user's own
+     * credential) is admitted — third-party apps and scoped tokens stay
+     * blocked. Use ONLY on user-resource / inference endpoints that gate with
+     * `requireUserActor` purely to keep apps out (e.g. the AI proxy). NEVER set
+     * on account/security/credential routes — those must stay closed to every
+     * access token. Default-deny: omitting this keeps PATs blocked.
+     */
+    allowFullAccessToken?: boolean;
+
+    /** Allows access-tokens */
+    allowAccessToken?: boolean;
 
     /**
      * Reject unless the actor's username is `admin`, `system`, or one of the
@@ -195,21 +225,15 @@ export interface RouteOptions {
      * All registered backends stay co-resident at runtime, so different
      * routes can pick whichever fits their access pattern. Omitting
      * `backend` uses the server-wide default (`config.rate_limit.backend`).
+     *
+     * An array applies every limit independently (a request must pass all
+     * of them). Use this to pair a per-client budget with a coarser
+     * backstop on a different key — e.g. per-fingerprint for fairness on
+     * shared IPs, plus per-IP so rotating headers can't mint fresh
+     * fingerprint buckets indefinitely. Give each entry its own `scope`
+     * so the counters don't collide.
      */
-    rateLimit?: {
-        limit: number;
-        window: number;
-        /**
-         * Per-subscription overrides for `limit` (`SubscriptionPolicy.id`
-         * → cap). Same mechanic as `concurrent.bySubscription`: resolved
-         * via the metering service per request; falls back to the base
-         * `limit` when there's no actor / no metering / no match.
-         */
-        bySubscription?: Record<string, number>;
-        key?: 'fingerprint' | 'ip' | 'user' | ((req: Request) => string);
-        scope?: string;
-        backend?: 'memory' | 'redis' | 'kv';
-    };
+    rateLimit?: RouteRateLimit | RouteRateLimit[];
 
     /**
      * Concurrent in-flight limiting. Caps how many requests for this
@@ -271,7 +295,7 @@ export const ROUTES_METADATA_KEY = '__puterRoutes' as const;
 /** Internal: the property name used to stash a controller's path prefix. */
 export const PREFIX_METADATA_KEY = '__puterControllerPrefix' as const;
 
-// ── Type narrowing helpers ──────────────────────────────────────────
+// -- Type narrowing helpers ------------------------------------------
 //
 // When a route declares a gate option (requireAuth, requireUserActor,
 // adminOnly, allowedAppIds), the materializer guarantees the corresponding

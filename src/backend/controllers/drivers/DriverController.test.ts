@@ -21,7 +21,8 @@ import { Readable } from 'node:stream';
 import type { Request, RequestHandler, Response } from 'express';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
-import type { Actor } from '../../core/actor.js';
+import { actorUid, type Actor } from '../../core/actor.js';
+import type { DriverMethodLifecycleEvent } from '../../clients/event/types.js';
 import { runWithContext } from '../../core/context.js';
 import { PuterServer } from '../../server.js';
 import { setupTestServer } from '../../testUtil.js';
@@ -33,7 +34,7 @@ import type { DriverController } from './DriverController.js';
 // The DriverController under test is the same instance the live request
 // pipeline uses, so its iface→driver registry is populated from real
 // drivers (puter-kvstore, puter-apps, puter-subdomains, …). The HTTP
-// handlers (`#handleCall`, `#handleListInterfaces`, `#handleXd`) are
+// handlers (`#handleCall`, `#handleListInterfaces`) are
 // private — we exercise the public lookup API (`resolve` / list / get
 // default) which the handlers themselves delegate to.
 
@@ -116,7 +117,7 @@ describe('DriverController.resolve', () => {
     });
 });
 
-// ── Route handlers (#handleCall, #handleListInterfaces, #handleXd) ─
+// ── Route handlers (#handleCall, #handleListInterfaces) ─────────────
 
 // The handlers are private class fields. We capture references to them by
 // invoking `registerRoutes` with a fake router whose `post`/`get` save the
@@ -189,10 +190,7 @@ const makeRes = (): MockRes => {
     return res;
 };
 
-const makeReq = (
-    body: Record<string, unknown> = {},
-    actor?: Actor,
-): Request =>
+const makeReq = (body: Record<string, unknown> = {}, actor?: Actor): Request =>
     ({
         body,
         actor,
@@ -338,11 +336,7 @@ describe('DriverController.#handleCall (via captured router)', () => {
             actor,
         );
         await runWithContext({ actor }, () =>
-            routes['POST /call'](
-                req,
-                res as unknown as Response,
-                () => {},
-            ),
+            routes['POST /call'](req, res as unknown as Response, () => {}),
         );
         const body = res.body as {
             success: boolean;
@@ -374,11 +368,9 @@ describe('DriverController.#handleCall (via captured router)', () => {
         // Register it through the controller's private map by re-running
         // its #buildIfaceMap path: easier to just stash it into the
         // existing iface map directly via TypeScript-defeating cast.
-        const internalDrivers = (
-            controller as unknown as {
-                ['#drivers']: Map<string, Map<string, unknown>>;
-            }
-        );
+        const internalDrivers = controller as unknown as {
+            ['#drivers']: Map<string, Map<string, unknown>>;
+        };
         // Access the actual private slot via the well-known getter
         // pattern doesn't work for `#`-private fields; instead, re-run
         // registerRoutes after stashing on the bag — but that's already
@@ -413,13 +405,12 @@ describe('DriverController.#handleCall (via captured router)', () => {
         >;
         const original = kv.set;
         kv.set = async function (...args: unknown[]) {
-            const { Context } = await import(
-                '../../core/context.js'
-            );
+            const { Context } = await import('../../core/context.js');
             Context.set('driverMetadata', { providerUsed: 'kv-direct' });
-            return (
-                original as (...x: unknown[]) => Promise<unknown>
-            ).apply(this, args);
+            return (original as (...x: unknown[]) => Promise<unknown>).apply(
+                this,
+                args,
+            );
         };
         try {
             const res = makeRes();
@@ -432,11 +423,7 @@ describe('DriverController.#handleCall (via captured router)', () => {
                 actor,
             );
             await runWithContext({ actor }, () =>
-                routes['POST /call'](
-                    req,
-                    res as unknown as Response,
-                    () => {},
-                ),
+                routes['POST /call'](req, res as unknown as Response, () => {}),
             );
             const body = res.body as {
                 metadata?: Record<string, unknown>;
@@ -474,6 +461,129 @@ describe('DriverController.#handleCall (via captured router)', () => {
     });
 });
 
+describe('DriverController driver-method lifecycle events', () => {
+    let routes: Captured;
+    beforeAll(() => {
+        routes = captureRoutes(controller);
+    });
+
+    const grantKvPerm = async (actor: Actor) => {
+        await server.stores.permission.setFlatUserPerm(
+            actor.user!.id!,
+            'service:puter-kvstore:ii:puter-kvstore',
+            {
+                permission: 'service:puter-kvstore:ii:puter-kvstore',
+                deleted: false,
+                issuer_user_id: actor.user!.id!,
+            } as never,
+        );
+    };
+
+    it('emits before then after around a successful driver method', async () => {
+        const actor = await makeUserActor();
+        await grantKvPerm(actor);
+
+        // Correlate on the actor: each test creates a fresh user, so this
+        // isolates our call from any other traffic on the shared event bus.
+        const who = actorUid(actor);
+        const before: DriverMethodLifecycleEvent[] = [];
+        const after: DriverMethodLifecycleEvent[] = [];
+        server.clients.event.on(
+            'driver.puter-kvstore.set.before',
+            (_k, data) => {
+                if (data.actorUid === who) before.push(data);
+            },
+        );
+        server.clients.event.on(
+            'driver.puter-kvstore.set.after',
+            (_k, data) => {
+                if (data.actorUid === who) after.push(data);
+            },
+        );
+
+        const key = `lc-${uuidv4()}`;
+        const req = makeReq(
+            {
+                interface: 'puter-kvstore',
+                method: 'set',
+                args: { key, value: 'v' },
+            },
+            actor,
+        );
+        await runWithContext({ actor }, () =>
+            routes['POST /call'](
+                req,
+                makeRes() as unknown as Response,
+                () => {},
+            ),
+        );
+
+        expect(before).toHaveLength(1);
+        expect(before[0]).toMatchObject({
+            phase: 'before',
+            iface: 'puter-kvstore',
+            method: 'set',
+            actor,
+            actorUid: who,
+        });
+        expect(after).toHaveLength(1);
+        expect(after[0].phase).toBe('after');
+        expect(after[0].args).toMatchObject({ key, value: 'v' });
+        expect(typeof after[0].durationMs).toBe('number');
+    });
+
+    it('emits reject and answers 403 when a before listener vetoes', async () => {
+        const actor = await makeUserActor();
+        await grantKvPerm(actor);
+
+        // Scope the veto to a sentinel key so it doesn't affect other calls
+        // sharing this server's event bus.
+        const key = `veto-${uuidv4()}`;
+        const reject: DriverMethodLifecycleEvent[] = [];
+        server.clients.event.on(
+            'driver.puter-kvstore.set.before',
+            (_k, data) => {
+                if ((data.args as { key?: string })?.key === key) {
+                    data.allow = false;
+                    data.rejectReason = 'blocked in test';
+                }
+            },
+        );
+        server.clients.event.on(
+            'driver.puter-kvstore.set.reject',
+            (_k, data) => {
+                if (data.rejectReason === 'blocked in test') reject.push(data);
+            },
+        );
+
+        const req = makeReq(
+            {
+                interface: 'puter-kvstore',
+                method: 'set',
+                args: { key, value: 'v' },
+            },
+            actor,
+        );
+        await expect(
+            runWithContext({ actor }, () =>
+                routes['POST /call'](
+                    req,
+                    makeRes() as unknown as Response,
+                    () => {},
+                ),
+            ),
+        ).rejects.toMatchObject({ statusCode: 403 });
+
+        expect(reject).toHaveLength(1);
+        expect(reject[0]).toMatchObject({
+            phase: 'reject',
+            method: 'set',
+            args: { key, value: 'v' },
+            rejectReason: 'blocked in test',
+        });
+    });
+});
+
 describe('DriverController.#handleListInterfaces', () => {
     let routes: Captured;
     beforeAll(() => {
@@ -497,31 +607,11 @@ describe('DriverController.#handleListInterfaces', () => {
     });
 });
 
-describe('DriverController.#handleXd', () => {
-    let routes: Captured;
-    beforeAll(() => {
-        routes = captureRoutes(controller);
-    });
-
-    it('serves the iframe-bridge HTML with text/html content-type', () => {
-        const res = makeRes();
-        routes['GET /xd'](
-            makeReq(),
-            res as unknown as Response,
-            () => {},
-        );
-        expect(res.contentType).toBe('text/html');
-        expect(res.sentBody).toMatch(/<!DOCTYPE html>/);
-        expect(res.sentBody).toMatch(/\/drivers\/call/);
-    });
-});
-
 describe('DriverController.registerRoutes', () => {
-    it('registers POST /call, GET /list-interfaces, and GET /xd', () => {
+    it('registers POST /call and GET /list-interfaces', () => {
         const routes = captureRoutes(controller);
         expect(routes['POST /call']).toBeInstanceOf(Function);
         expect(routes['GET /list-interfaces']).toBeInstanceOf(Function);
-        expect(routes['GET /xd']).toBeInstanceOf(Function);
     });
 });
 

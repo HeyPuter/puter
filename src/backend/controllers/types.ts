@@ -92,7 +92,10 @@ export const PuterController =
         public onServerShutdown() {
             return;
         }
-        public async getReportedCosts() {
+        public getReportedCosts(): // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            | Promise<Record<string, any>[]>
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            | Record<string, any>[] {
             return [];
         }
         public registerRoutes(_router: PuterRouter) {}

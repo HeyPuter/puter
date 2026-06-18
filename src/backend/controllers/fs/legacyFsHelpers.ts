@@ -23,7 +23,7 @@ import type { FSEntry } from '../../stores/fs/FSEntry.js';
 import type { FSEntryStore } from '../../stores/fs/FSEntryStore.js';
 import type { FSService } from '../../services/fs/FSService.js';
 import type { ACLService, AclMode } from '../../services/acl/ACLService.js';
-import type { Actor } from '../../core/actor.js';
+import { isAppActor, type Actor } from '../../core/actor.js';
 import { Context } from '../../core/context.js';
 import type { EventClient } from '../../clients/event/EventClient.js';
 import { HttpError } from '../../core/http/HttpError.js';
@@ -48,7 +48,7 @@ import type { IConfig } from '../../types.js';
  * terse.
  */
 
-// ── Body parsing ─────────────────────────────────────────────────────
+// -- Body parsing -----------------------------------------------------
 
 export function asRecord(value: unknown): Record<string, unknown> {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
@@ -160,7 +160,7 @@ export async function resolveV1Selector(
     return entry;
 }
 
-// ── ACL ──────────────────────────────────────────────────────────────
+// -- ACL --------------------------------------------------------------
 
 export async function assertAccess(
     aclService: ACLService,
@@ -202,8 +202,8 @@ export async function assertAccess(
     // App-under-user actors see denials as 404 "subject_does_not_exist"
     // so existence of a sibling user's / other-app's files isn't leaked
     // through the error code. User-actor denials keep the real 403.
-    const isAppActor = Boolean((actor as { app?: unknown })?.app);
-    if (isAppActor) {
+
+    if (isAppActor(actor)) {
         throw new HttpError(404, `Entry not found: path=${path}`, {
             legacyCode: 'subject_does_not_exist',
         });
@@ -261,7 +261,7 @@ export async function assertCanCreate(
     await assertAccess(aclService, fsService, actor, parentForCheck, 'write');
 }
 
-// ── Response shaping ────────────────────────────────────────────────
+// -- Response shaping ------------------------------------------------
 
 type AppRowLookup = {
     getByIds: (ids: number[]) => Promise<Map<number, Record<string, unknown>>>;
@@ -461,7 +461,7 @@ export async function toLegacyEntry(
 
 export { normalizeAbsolutePath };
 
-// ── Signing ─────────────────────────────────────────────────────────
+// -- Signing ---------------------------------------------------------
 
 /**
  * Pull the signing config off the app config. Throws if either value is

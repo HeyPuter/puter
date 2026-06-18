@@ -31,6 +31,8 @@ export interface BatchEntry {
     values: unknown[];
 }
 
+type SqlJsonPath = readonly [string, ...string[]];
+
 /**
  * Base database client. Subclasses must override every method that throws here.
  *
@@ -101,9 +103,10 @@ export class AbstractDatabaseClient extends PuterClient {
         const cols = Object.keys(data);
         const values = Object.values(data);
         const sql =
-            `INSERT INTO \`${tableName}\` ` +
-            `(${cols.map((c) => `\`${c}\``).join(', ')}) ` +
-            `VALUES (${cols.map(() => '?').join(', ')})`;
+            `INSERT INTO ${this.quoteIdentifier(tableName)} ` +
+            `(${cols.map((c) => this.quoteIdentifier(c)).join(', ')}) ` +
+            `VALUES (${cols.map(() => '?').join(', ')})` +
+            this.returningIdClause();
         return this.write(sql, values);
     }
 
@@ -160,5 +163,89 @@ export class AbstractDatabaseClient extends PuterClient {
             return choices[this.engineName];
         }
         return choices.otherwise as T;
+    }
+
+    quoteIdentifier(identifier: string): string {
+        return identifier
+            .split('.')
+            .map((part) => {
+                if (part === '*') return part;
+                return `\`${part.replaceAll('`', '``')}\``;
+            })
+            .join('.');
+    }
+
+    booleanLiteral(value: boolean): string {
+        return value ? '1' : '0';
+    }
+
+    booleanValue(value: boolean): boolean | 0 | 1 {
+        return value ? 1 : 0;
+    }
+
+    insertIgnoreInto(tableName: string): string {
+        const table = this.quoteIdentifier(tableName);
+        return this.case({
+            sqlite: `INSERT OR IGNORE INTO ${table}`,
+            postgres: `INSERT INTO ${table}`,
+            otherwise: `INSERT IGNORE INTO ${table}`,
+        });
+    }
+
+    insertIgnoreSuffix(): string {
+        return this.case({
+            postgres: ' ON CONFLICT DO NOTHING',
+            otherwise: '',
+        });
+    }
+
+    upsertClause(
+        conflictColumns: readonly string[],
+        updateColumns: readonly string[],
+    ): string {
+        if (updateColumns.length === 0) {
+            throw new Error('upsertClause requires at least one update column');
+        }
+
+        const updateList = updateColumns
+            .map((column) => `${this.quoteIdentifier(column)} = ?`)
+            .join(', ');
+
+        return this.case({
+            mysql: `ON DUPLICATE KEY UPDATE ${updateList}`,
+            otherwise: `ON CONFLICT(${conflictColumns
+                .map((column) => this.quoteIdentifier(column))
+                .join(', ')}) DO UPDATE SET ${updateList}`,
+        });
+    }
+
+    jsonTextExtract(jsonExpression: string, path: SqlJsonPath): string {
+        const sqlitePath = `$${path.map((part) => `.${part}`).join('')}`;
+        return this.case({
+            sqlite: `json_extract(${jsonExpression}, ${this.sqlStringLiteral(sqlitePath)})`,
+            mysql: `JSON_UNQUOTE(JSON_EXTRACT(${jsonExpression}, ${this.sqlStringLiteral(sqlitePath)}))`,
+            postgres: `${jsonExpression} #>> ARRAY[${path
+                .map((part) => this.sqlStringLiteral(part))
+                .join(', ')}]`,
+            otherwise: `JSON_UNQUOTE(JSON_EXTRACT(${jsonExpression}, ${this.sqlStringLiteral(sqlitePath)}))`,
+        });
+    }
+
+    nullCoalesce(...expressions: readonly string[]): string {
+        if (expressions.length === 0) {
+            throw new Error('nullCoalesce requires at least one expression');
+        }
+        return `COALESCE(${expressions.join(', ')})`;
+    }
+
+    returningIdClause(): string {
+        return this.case({
+            postgres: ' RETURNING id',
+            otherwise: '',
+        });
+    }
+
+    protected sqlStringLiteral(value: string): string {
+        return `'${value.replaceAll("'", "''")}'`;
     }
 }

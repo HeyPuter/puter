@@ -140,7 +140,7 @@ export class StaticPagesController extends PuterController {
             page('&#10005;', 'Something went wrong', msg, '#e53e3e');
         const ok = (msg: string) => page('&#10003;', 'Success', msg, '#38a169');
 
-        // ── /robots.txt ─────────────────────────────────────────────
+        // -- /robots.txt ---------------------------------------------
         router.get('/robots.txt', {}, (req, res) => {
             const domain = this.config.domain ?? req.hostname;
             const disallowed = [
@@ -160,12 +160,12 @@ export class StaticPagesController extends PuterController {
             res.type('text/plain').send(body);
         });
 
-        // ── /sitemap.xml ────────────────────────────────────────────
+        // -- /sitemap.xml --------------------------------------------
         router.get('/sitemap.xml', {}, async (req, res) => {
             const domain = this.config.domain ?? req.hostname;
             const origin = `${req.protocol}://${domain}`;
             const apps = (await this.clients.db.read(
-                'SELECT `name` FROM `apps` WHERE `approved_for_listing` = 1',
+                `SELECT \`name\` FROM \`apps\` WHERE \`approved_for_listing\` = ${this.clients.db.booleanLiteral(true)}`,
             )) as Array<{ name: string }>;
             const urls = [
                 `<url><loc>${req.protocol}://docs.${domain}/</loc></url>`,
@@ -181,7 +181,7 @@ export class StaticPagesController extends PuterController {
             res.type('application/xml').send(body);
         });
 
-        // ── /unsubscribe ────────────────────────────────────────────
+        // -- /unsubscribe --------------------------------------------
         router.get('/unsubscribe', {}, async (req, res) => {
             const userUuid =
                 typeof req.query.user_uuid === 'string'
@@ -206,7 +206,7 @@ export class StaticPagesController extends PuterController {
             res.send(ok('You have successfully unsubscribed from all emails.'));
         });
 
-        // ── /confirm-email-by-token ─────────────────────────────────
+        // -- /confirm-email-by-token ---------------------------------
         router.get('/confirm-email-by-token', {}, async (req, res) => {
             const userUuid =
                 typeof req.query.user_uuid === 'string'
@@ -252,7 +252,7 @@ export class StaticPagesController extends PuterController {
             const [dupe] = (await this.clients.db.read(
                 `SELECT EXISTS(
                     SELECT 1 FROM \`user\` WHERE (\`email\` = ? OR \`clean_email\` = ?)
-                    AND \`email_confirmed\` = 1
+                    AND \`email_confirmed\` = ${this.clients.db.booleanLiteral(true)}
                     AND \`password\` IS NOT NULL
                 ) AS email_exists`,
                 [user.email, cleanEmail],

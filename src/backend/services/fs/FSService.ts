@@ -18,6 +18,7 @@
  */
 
 import { posix as pathPosix } from 'node:path';
+import { assertNormalized } from './resolveNode.js';
 import { createHash } from 'node:crypto';
 import { Readable, Transform } from 'node:stream';
 import type { TransformCallback } from 'node:stream';
@@ -69,8 +70,8 @@ import { AclMode } from '../acl/ACLService.js';
 const DEFAULT_CONTENT_TYPE = 'application/octet-stream';
 const DEFAULT_SIGNED_UPLOAD_EXPIRY_SECONDS = 60 * 15;
 
-// AWS SDK v3 surfaces missing-key errors with both `name` and `Code` set to
-// "NoSuchKey". Check both — `Code` is the wire field, `name` is the JS class.
+const RESERVED_METADATA_KEYS: readonly string[] = ['objectKey'];
+
 const isNoSuchKeyError = (err: unknown): boolean => {
     if (!err || typeof err !== 'object') return false;
     const e = err as { name?: unknown; Code?: unknown };
@@ -135,7 +136,7 @@ export class FSService extends PuterService {
         const permissions = this.services.permission;
         const fsEntryStore = this.stores.fsEntry;
 
-        // ── fs:/path:mode → fs:<uuid>:mode ─────────────────────────────
+        // -- fs:/path:mode → fs:<uuid>:mode -----------------------------
         // Clients (puter.perms, requestPermission) emit path-based strings;
         // stored as-is they'd never match anything, so resolve to uuid up
         // front.
@@ -168,7 +169,7 @@ export class FSService extends PuterService {
             },
         });
 
-        // ── is-owner ──────────────────────────────────────────────────
+        // -- is-owner --------------------------------------------------
         // For user actors, `fs:<uuid>:*` resolves iff the actor owns the
         // underlying entry. Without this, `check(user, fs:UUID:*)` can't
         // find a terminal and the `has_terminal` probe that #scanUserApp
@@ -205,7 +206,52 @@ export class FSService extends PuterService {
             },
         });
 
-        // ── fs-access-levels exploder ──────────────────────────────────
+        // -- app-owns-appdata -----------------------------------------
+        // Mirror of the ACLService short-circuit at ACLService.check:
+        // an app-under-user actor implicitly holds fs:<uuid>:* on any
+        // entry inside its own /<username>/AppData/<appUid> subtree.
+        // ACL paths (fs.read etc.) already accept these via that
+        // short-circuit, but permissionService.checkMany — used by
+        // createAccessToken's issuer-subset gate — bypasses ACL, so
+        // without this implicator an app can fs.read its appdata but
+        // can't mint a token for the same fs:<uuid>:read it just read.
+        permissions.registerImplicator({
+            id: 'app-owns-appdata',
+            shortcut: true,
+            matches: (permission: string): boolean => {
+                return (
+                    permission.startsWith('fs:') ||
+                    permission.startsWith(`${MANAGE_PERM_PREFIX}:fs:`) ||
+                    permission.startsWith(
+                        `${MANAGE_PERM_PREFIX}:${MANAGE_PERM_PREFIX}:fs:`,
+                    )
+                );
+            },
+            check: async ({ actor, permission }): Promise<unknown> => {
+                if (!actor.app || actor.accessToken) return undefined;
+                const username = actor.user?.username;
+                const appUid = actor.app.uid;
+                if (!username || !appUid) return undefined;
+
+                const stripped = permission.replaceAll(
+                    `${MANAGE_PERM_PREFIX}:`,
+                    '',
+                );
+                const uid = PermissionUtil.split(stripped)[1];
+                if (!uid) return undefined;
+
+                const entry = await fsEntryStore.getEntryByUuid(uid);
+                if (!entry) return undefined;
+
+                const root = `/${username}/AppData/${appUid}`;
+                if (entry.path === root || entry.path.startsWith(`${root}/`)) {
+                    return {};
+                }
+                return undefined;
+            },
+        });
+
+        // -- fs-access-levels exploder ----------------------------------
         // `fs:UUID:see` implies `[list, read, write, manage:fs:UUID]`.
         // ACLService.check already expands the same-family chain
         // (see→list→read→write) via MODES_ABOVE, but the `manage:fs:UUID`
@@ -268,7 +314,8 @@ export class FSService extends PuterService {
             );
         }
 
-        let normalizedPath = pathPosix.normalize(trimmedPath);
+        assertNormalized(trimmedPath);
+        let normalizedPath = trimmedPath;
         if (!normalizedPath.startsWith('/')) {
             normalizedPath = `/${normalizedPath}`;
         }
@@ -278,9 +325,8 @@ export class FSService extends PuterService {
         return normalizedPath;
     }
 
-    #resolveBucket(metadata: FSEntryWriteInput): string {
-        const bucket =
-            metadata.bucket ?? this.config.s3_bucket ?? 'puter-local';
+    #resolveBucket(): string {
+        const bucket = this.config.s3_bucket ?? 'puter-local';
         if (typeof bucket !== 'string' || bucket.length === 0) {
             throw new HttpError(500, 'Missing S3 bucket configuration', {
                 legacyCode: 'internal_error',
@@ -289,12 +335,9 @@ export class FSService extends PuterService {
         return bucket;
     }
 
-    #resolveBucketRegion(metadata: FSEntryWriteInput): string {
+    #resolveBucketRegion(): string {
         const bucketRegion =
-            metadata.bucketRegion ??
-            this.config.s3_region ??
-            this.config.region ??
-            'us-west-2';
+            this.config.s3_region ?? this.config.region ?? 'us-west-2';
 
         if (typeof bucketRegion !== 'string' || bucketRegion.length === 0) {
             throw new HttpError(500, 'Missing S3 region configuration', {
@@ -334,7 +377,7 @@ export class FSService extends PuterService {
             size,
             contentType: metadata.contentType ?? DEFAULT_CONTENT_TYPE,
             checksumSha256: metadata.checksumSha256,
-            metadata: metadata.metadata,
+            metadata: this.#sanitizeClientMetadata(metadata.metadata),
             thumbnail: metadata.thumbnail,
             associatedAppId: metadata.associatedAppId,
             overwrite: Boolean(metadata.overwrite),
@@ -343,9 +386,53 @@ export class FSService extends PuterService {
             immutable: Boolean(metadata.immutable),
             isPublic: metadata.isPublic,
             multipartPartSize: metadata.multipartPartSize,
-            bucket: this.#resolveBucket(metadata),
-            bucketRegion: this.#resolveBucketRegion(metadata),
+            bucket: this.#resolveBucket(),
+            bucketRegion: this.#resolveBucketRegion(),
         };
+    }
+
+    #sanitizeClientMetadata(
+        metadata: FSEntryWriteInput['metadata'],
+    ): FSEntryWriteInput['metadata'] {
+        if (metadata === null || metadata === undefined) {
+            return metadata;
+        }
+        if (typeof metadata === 'string') {
+            let parsed: unknown;
+            try {
+                parsed = JSON.parse(metadata);
+            } catch {
+                return metadata;
+            }
+            if (
+                !parsed ||
+                typeof parsed !== 'object' ||
+                Array.isArray(parsed)
+            ) {
+                return metadata;
+            }
+            return JSON.stringify(
+                this.#stripReservedMetadataKeys(
+                    parsed as Record<string, unknown>,
+                ),
+            );
+        }
+        if (typeof metadata === 'object' && !Array.isArray(metadata)) {
+            return this.#stripReservedMetadataKeys(
+                metadata as Record<string, unknown>,
+            );
+        }
+        return metadata;
+    }
+
+    #stripReservedMetadataKeys(
+        record: Record<string, unknown>,
+    ): Record<string, unknown> {
+        const cleaned: Record<string, unknown> = { ...record };
+        for (const key of RESERVED_METADATA_KEYS) {
+            delete cleaned[key];
+        }
+        return cleaned;
     }
 
     async #findDedupedPath(
@@ -648,8 +735,14 @@ export class FSService extends PuterService {
             size: session.size,
             contentType: session.contentType,
             checksumSha256: session.checksumSha256 ?? undefined,
-            bucket: session.bucket ?? undefined,
-            bucketRegion: session.bucketRegion ?? undefined,
+            bucket:
+                session.bucket ??
+                parsedMetadata.bucket ??
+                this.#resolveBucket(),
+            bucketRegion:
+                session.bucketRegion ??
+                parsedMetadata.bucketRegion ??
+                this.#resolveBucketRegion(),
             overwrite: Boolean(session.overwriteTargetUid),
         };
     }
@@ -2073,15 +2166,55 @@ export class FSService extends PuterService {
                         bucket:
                             session.bucket ??
                             createInput.bucket ??
-                            this.#resolveBucket(createInput),
+                            this.#resolveBucket(),
                         objectKey: session.objectKey,
                         multipartUploadId: session.multipartUploadId,
                         parts: completeParts,
                     },
                     session.bucketRegion ??
                         createInput.bucketRegion ??
-                        this.#resolveBucketRegion(createInput),
+                        this.#resolveBucketRegion(),
                 );
+            }
+
+            // The size recorded so far is the client-declared value from the
+            // start-write request. On a signed (direct-to-S3) upload the
+            // client could declare `1` and PUT gigabytes — the presigned URL
+            // doesn't bound the body — so reconcile against the object's true
+            // size before persisting. Without this, storage accounting is
+            // understated permanently (quota is SUM(size)) and the free-tier
+            // limit is bypassable. Mirrors the server-proxied /write path.
+            const reconcileBucket =
+                session.bucket ?? createInput.bucket ?? this.#resolveBucket();
+            const reconcileRegion =
+                session.bucketRegion ??
+                createInput.bucketRegion ??
+                this.#resolveBucketRegion();
+            let trueSize: number | null = null;
+            try {
+                trueSize = await this.stores.s3Object.headObjectSize(
+                    reconcileBucket,
+                    session.objectKey,
+                    reconcileRegion,
+                );
+            } catch {
+                // HEAD failed (e.g. object never uploaded) — leave the
+                // declared size; don't block completion on a metadata read.
+                trueSize = null;
+            }
+            if (typeof trueSize === 'number' && trueSize >= 0) {
+                // Record the true size only — do not re-assert the quota here.
+                // The bytes are already in S3, so a completion-time reject
+                // can't reclaim them; it only false-rejects (the start-check
+                // may have used a higher storageAllowanceMax override that
+                // isn't persisted in the session) and deletes within-quota
+                // uploads. Recording real bytes is what closes the bypass:
+                // the user's SUM(size) becomes accurate so their next signed
+                // -write start-check (#assertStorageAllowance via
+                // getUserStorageAllowance) blocks them. The residual is a
+                // single in-flight upload over quota — the same bounded
+                // check-then-act window the start-check already has.
+                createInput.size = trueSize;
             }
 
             const fsEntry = await this.stores.fsEntry.completePendingEntry(
@@ -2217,14 +2350,14 @@ export class FSService extends PuterService {
                         bucket:
                             item.session.bucket ??
                             item.finalData.bucket ??
-                            this.#resolveBucket(item.finalData),
+                            this.#resolveBucket(),
                         objectKey: item.session.objectKey,
                         multipartUploadId: item.session.multipartUploadId,
                         parts: completeParts,
                     },
                     item.session.bucketRegion ??
                         item.finalData.bucketRegion ??
-                        this.#resolveBucketRegion(item.finalData),
+                        this.#resolveBucketRegion(),
                 );
             }),
         );
@@ -2262,6 +2395,49 @@ export class FSService extends PuterService {
                 throw firstReason;
             }
             throw new Error('Failed to complete multipart upload');
+        }
+
+        // Reconcile client-declared sizes against the true uploaded object
+        // sizes before persisting — see completeUrlWrite for the rationale.
+        // Without this the batch endpoint is a parallel bypass of the same
+        // storage-quota check.
+        const reconcileBucketRegion = (
+            item: (typeof completionItems)[number],
+        ) => ({
+            bucket:
+                item.session.bucket ??
+                item.finalData.bucket ??
+                this.#resolveBucket(),
+            region:
+                item.session.bucketRegion ??
+                item.finalData.bucketRegion ??
+                this.#resolveBucketRegion(),
+        });
+        const headSizes = await Promise.all(
+            completionItems.map(async (item) => {
+                const { bucket, region } = reconcileBucketRegion(item);
+                try {
+                    return await this.stores.s3Object.headObjectSize(
+                        bucket,
+                        item.session.objectKey,
+                        region,
+                    );
+                } catch {
+                    return null;
+                }
+            }),
+        );
+        // Record the true sizes only — do not re-assert the quota here. See
+        // completeUrlWrite: the bytes are already in S3 so a completion-time
+        // reject can't reclaim them, and per-item deletes would destroy the
+        // bytes of correctly-declared, within-quota siblings in the batch.
+        // Recording real sizes keeps SUM(size) accurate so the next
+        // signed-write start-check blocks an over-quota user.
+        for (let index = 0; index < completionItems.length; index++) {
+            const item = completionItems[index];
+            const trueSize = headSizes[index];
+            if (typeof trueSize !== 'number' || trueSize < 0) continue;
+            item.finalData.size = trueSize;
         }
 
         const completedEntries =
@@ -2547,7 +2723,7 @@ export class FSService extends PuterService {
         return this.stores.fsEntry.getUserStorageAllowance(numericUserId);
     }
 
-    // ── Reads ───────────────────────────────────────────────────────────
+    // -- Reads -----------------------------------------------------------
 
     /**
      * List direct children of a directory. Caller is responsible for any ACL
@@ -2569,13 +2745,23 @@ export class FSService extends PuterService {
     /**
      * Search by file name for a user. Linear-scan with LIKE — cheap for
      * typical library sizes, revisit if we need full-text.
+     *
+     * `pathScope` restricts results to entries at or under that path.
+     * App-under-user callers pass their AppData root so search can't leak
+     * paths the actor isn't allowed to read.
      */
     async searchByName(
         userId: number,
         query: string,
         limit = 200,
+        pathScope?: string,
     ): Promise<FSEntry[]> {
-        return this.stores.fsEntry.searchByNameForUser(userId, query, limit);
+        return this.stores.fsEntry.searchByNameForUser(
+            userId,
+            query,
+            limit,
+            pathScope,
+        );
     }
 
     /**
@@ -2620,10 +2806,7 @@ export class FSService extends PuterService {
                 { legacyCode: 'shortcut_target_not_found' },
             );
         }
-        // Derive the S3 object key from entry metadata if present, else fall
-        // back to the uuid convention used elsewhere (objectKey defaults to
-        // uuid during write when no metadata override is set).
-        const objectKey = this.#deriveObjectKeyFromEntry(entry);
+        const objectKey = entry.uuid;
         try {
             return await this.stores.s3Object.getObjectStream(
                 {
@@ -2673,28 +2856,7 @@ export class FSService extends PuterService {
         }
     }
 
-    // Objects written by fsv2 use the pending-session's objectKey, which is
-    // persisted in FSEntry.metadata JSON under `objectKey`. Falls back to the
-    // entry uuid for entries that didn't record it (older data).
-    #deriveObjectKeyFromEntry(entry: FSEntry): string {
-        if (entry.metadata) {
-            try {
-                const parsed = JSON.parse(entry.metadata);
-                if (
-                    parsed &&
-                    typeof parsed.objectKey === 'string' &&
-                    parsed.objectKey.length > 0
-                ) {
-                    return parsed.objectKey;
-                }
-            } catch {
-                // Not JSON — fall through.
-            }
-        }
-        return entry.uuid;
-    }
-
-    // ── Mutation: mkdir / touch / rename / mkshortcut ─────────
+    // -- Mutation: mkdir / touch / rename / mkshortcut ---------
 
     /**
      * Resolve a free child name under `parentEntry` by appending ` (N)` when
@@ -2781,10 +2943,13 @@ export class FSService extends PuterService {
         const existing = await this.stores.fsEntry.getEntryByPath(targetPath);
         if (existing) {
             if (existing.isDir) {
-                // A directory already exists at path: idempotent success.
-                return existing;
-            }
-            if (input.overwrite) {
+                if (input.dedupeName) {
+                    name = await this.#findDedupedName(parent, name);
+                } else {
+                    // A directory already exists at path: idempotent success.
+                    return existing;
+                }
+            } else if (input.overwrite) {
                 // Remove the non-directory occupant then create the dir.
                 await this.remove(userId, {
                     entry: existing,
@@ -2974,7 +3139,7 @@ export class FSService extends PuterService {
         return created;
     }
 
-    // ── Mutation: remove / move / copy ─────────────────────────────────
+    // -- Mutation: remove / move / copy ---------------------------------
 
     /**
      * Remove an entry. For directories, descendants are walked and removed
@@ -3019,6 +3184,9 @@ export class FSService extends PuterService {
             await this.#removeDescendantsStorage(descendants);
             if (descendants.length > 0) {
                 await this.stores.fsEntry.deleteEntries(descendants);
+                for (const descendant of descendants) {
+                    this.#emitRemoveEvent(descendant);
+                }
             }
 
             if (!input.descendantsOnly) {
@@ -3038,7 +3206,7 @@ export class FSService extends PuterService {
             try {
                 await this.stores.s3Object.deleteObject(
                     entry.bucket,
-                    this.#deriveObjectKeyFromEntry(entry),
+                    entry.uuid,
                     entry.bucketRegion,
                 );
             } catch {
@@ -3063,11 +3231,12 @@ export class FSService extends PuterService {
      */
     async removeAllForUser(userId: number): Promise<void> {
         const pageSize = 5000;
+        const falseLiteral = this.clients.db.booleanLiteral(false);
         // Files-first loop: delete backing S3 objects in batches, then DB rows.
         for (;;) {
             const files = (await this.clients.db.read(
                 `SELECT uuid, bucket, bucket_region FROM fsentries
-                 WHERE user_id = ? AND is_dir = 0 AND (is_shortcut = 0 OR is_shortcut IS NULL) AND (is_symlink = 0 OR is_symlink IS NULL)
+                 WHERE user_id = ? AND is_dir = ${falseLiteral} AND (is_shortcut = ${falseLiteral} OR is_shortcut IS NULL) AND (is_symlink = ${falseLiteral} OR is_symlink IS NULL)
                  LIMIT ${pageSize}`,
                 [userId],
             )) as Array<{
@@ -3131,7 +3300,7 @@ export class FSService extends PuterService {
                 region: child.bucketRegion,
                 keys: [],
             };
-            group.keys.push(this.#deriveObjectKeyFromEntry(child));
+            group.keys.push(child.uuid);
             grouped.set(groupKey, group);
             // Fire individual removal events so thumbnail extension can clean up.
             this.#emitRemoveEvent(child);
@@ -3271,13 +3440,12 @@ export class FSService extends PuterService {
                 ? `/${name}`
                 : `${destinationParent.path}/${name}`;
 
-        // `metadata` column is a TEXT field; serialize when the caller sends
-        // an object, pass-through a bare string, and `null` clears it.
-        // `undefined` leaves the column untouched.
         let metadataPatch: string | null | undefined;
         if (input.newMetadata === null) metadataPatch = null;
-        else if (typeof input.newMetadata === 'object')
-            metadataPatch = JSON.stringify(input.newMetadata);
+        else if (input.newMetadata && typeof input.newMetadata === 'object')
+            metadataPatch = JSON.stringify(
+                this.#stripReservedMetadataKeys(input.newMetadata),
+            );
 
         const updated = await this.stores.fsEntry.updateEntry(source.uuid, {
             name,
@@ -3478,10 +3646,8 @@ export class FSService extends PuterService {
             });
         }
 
-        // Regular file: duplicate the S3 object under a new key (the new
-        // entry's uuid), then insert the DB row pointing at it.
         const newUuid = uuidv4();
-        const sourceObjectKey = this.#deriveObjectKeyFromEntry(source);
+        const sourceObjectKey = source.uuid;
         const resolvedBucket = this.stores.s3Object.resolveBucket(
             source.bucket,
         );
@@ -3495,14 +3661,8 @@ export class FSService extends PuterService {
             this.stores.s3Object.resolveRegion(source.bucketRegion),
         );
 
-        // Re-serialize metadata, swapping in the new objectKey.
-        const nextMetadata = this.#metadataWithObjectKey(
-            source.metadata,
-            newUuid,
-        );
+        const nextMetadata = this.#sanitizeClientMetadata(source.metadata);
 
-        // Insert as a file row. We reuse the files INSERT path (batchCreateEntries)
-        // since it handles bucket/metadata correctly. A single-row call is fine.
         const [created] = await this.stores.fsEntry.batchCreateEntries(
             [
                 {
@@ -3546,27 +3706,6 @@ export class FSService extends PuterService {
             // ignore — non-critical.
         }
         return created;
-    }
-
-    // Preserves existing metadata JSON fields, overriding only objectKey.
-    #metadataWithObjectKey(metadata: string | null, objectKey: string): string {
-        let parsed: Record<string, unknown> = {};
-        if (metadata) {
-            try {
-                const tentative = JSON.parse(metadata);
-                if (
-                    tentative &&
-                    typeof tentative === 'object' &&
-                    !Array.isArray(tentative)
-                ) {
-                    parsed = tentative as Record<string, unknown>;
-                }
-            } catch {
-                // Non-JSON legacy metadata — drop and replace.
-            }
-        }
-        parsed.objectKey = objectKey;
-        return JSON.stringify(parsed);
     }
 
     /**

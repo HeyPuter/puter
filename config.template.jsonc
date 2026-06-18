@@ -67,7 +67,11 @@
 
     // ── Auth / session ──────────────────────────────────────────────────
     // ALWAYS replace these for any public install — `openssl rand -hex 64`.
+    // `jwt_secret` is legacy verify-only; new tokens sign with `jwt_secret_v2`.
     "jwt_secret": "change-me",
+    "jwt_secret_v2": "change-me",
+    // Set false to retire v1 tokens entirely (ROLLOUT-1).
+    "allow_v1_tokens": true,
     "url_signature_secret": "change-me",
     "cookie_name": "puter_auth_token",
     "min_pass_length": 6,
@@ -155,17 +159,30 @@
 
     // ── Database ────────────────────────────────────────────────────────
     "database": {
-        // `sqlite` for single-node / dev; `mysql` for self-host with MariaDB.
+        // `sqlite` for single-node/dev, `mysql` for MariaDB/MySQL,
+        // or `postgres` for PostgreSQL.
+        //
+        // NOTE: `postgres` support is a community contribution and is not
+        // exercised by Puter.com production. It boots, passes its own
+        // integration tests against pgmock, and runs the common user/app/
+        // fsentry/session/permission/OIDC flows — but less-traveled code
+        // paths may surface MySQL/SQLite-isms that haven't been ported yet.
+        // Expect rough edges and please file issues if you hit one. For
+        // production self-hosting today, `mysql` (MariaDB) and `sqlite` are
+        // the supported defaults.
         "engine": "sqlite",
         // sqlite — file path on disk
         "path": "volatile/runtime/puter-database.sqlite",
         "targetVersion": 0,
-        // mysql — connection details
+        // mysql/postgres — connection details. PostgreSQL defaults to port
+        // 5432 when `engine` is `postgres`; MySQL/MariaDB normally use 3306.
         "host": "",
         "port": 3306,
         "user": "",
         "password": "",
         "database": "",
+        // postgres may also use a URL instead of host/user/password fields:
+        // "connectionString": "postgres://puter:secret@localhost:5432/puter",
         // Optional read-replica pool. Reads route here when populated.
         "replica": {
             "host": "",
@@ -174,9 +191,10 @@
             "password": "",
             "database": ""
         }
-        // mysql self-host bootstrap: set `migrationPaths` to apply the bundled
-        // schema on first boot. Idempotent — safe to leave on.
+        // mysql/postgres self-host bootstrap: set `migrationPaths` to apply the
+        // bundled schema on first boot. Idempotent — safe to leave on.
         // "migrationPaths": ["./src/backend/clients/database/migrations/mysql"]
+        // "migrationPaths": ["./src/backend/clients/database/migrations/postgres"]
     },
 
     // ── DynamoDB (KV store) ─────────────────────────────────────────────
@@ -242,12 +260,20 @@
         // ─ Chat / completion ─
         "claude": { "apiKey": "" },
         "openai-completion": { "apiKey": "" },
+        "azure-openai": {
+            "apiKey": "",
+            "apiURL": ""
+        },
         "gemini": { "apiKey": "" },
         "groq": { "apiKey": "" },
         "deepseek": { "apiKey": "" },
         "mistral": { "apiKey": "" },
         "xai": { "apiKey": "" },
         "moonshot": { "apiKey": "" },
+        "minimax": {
+            "apiKey": "",
+            "apiBaseUrl": "https://api.minimax.io/v1"
+        },
         "openrouter": {
             "apiKey": "",
             "apiBaseUrl": "https://openrouter.ai/api/v1"

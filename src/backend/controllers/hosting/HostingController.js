@@ -37,13 +37,14 @@ export class HostingController extends PuterController {
     }
 
     registerRoutes(router) {
-        // ── Delete site ─────────────────────────────────────────────
+        // -- Delete site ---------------------------------------------
 
         router.post(
             '/delete-site',
             {
                 subdomain: 'api',
                 requireUserActor: true,
+                allowFullAccessToken: true,
                 requireVerified: true,
             },
             async (req, res) => {

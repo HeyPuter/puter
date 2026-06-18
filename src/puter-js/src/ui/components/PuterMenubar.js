@@ -63,12 +63,25 @@ class PuterMenubar extends PuterWebComponent {
                 line-height: 1.2;
                 margin: 0 1px;
             }
-            .menu-button:hover,
+            /* Hover is driven by JS (.hovered) rather than :hover so we can
+               clear stale keyboard focus the moment the mouse takes over and
+               keep the two highlight sources from ever co-existing. */
+            .menu-button.hovered,
             .menu-button.active,
             .menu-button.focused {
                 background-color: #e2e2e2;
             }
-            .menu-button:focus { outline: none; }
+            /* Suppress browser-native focus ring and tap highlight without
+               touching background. CAUTION: setting background-color here
+               would tie specificity with .menu-button.active and win by
+               source order, which would erase the open-menu highlight as
+               soon as the button takes DOM :focus from a click. */
+            .menu-button:focus,
+            .menu-button:focus-visible,
+            .menu-button:active {
+                outline: none;
+                -webkit-tap-highlight-color: transparent;
+            }
             @media (max-width: 480px) {
                 .menubar {
                     height: 40px;
@@ -85,6 +98,21 @@ class PuterMenubar extends PuterWebComponent {
                     padding: 6px 12px;
                     flex-shrink: 0;
                 }
+            }
+            /* Dark theme — applied when system prefers dark and no light
+               override is set, or when theme="dark" is forced. The base
+               class toggles .puter-theme-dark on the host accordingly. */
+            :host(.puter-theme-dark) .menubar {
+                background-color: #2a2a2a;
+                border-bottom-color: #3a3a3a;
+            }
+            :host(.puter-theme-dark) .menu-button {
+                color: #e6e6e6;
+            }
+            :host(.puter-theme-dark) .menu-button.hovered,
+            :host(.puter-theme-dark) .menu-button.active,
+            :host(.puter-theme-dark) .menu-button.focused {
+                background-color: #3a3a3a;
             }
         `;
     }
@@ -107,6 +135,15 @@ class PuterMenubar extends PuterWebComponent {
         }
         if ( this._docPointerDownHandler ) {
             document.removeEventListener('pointerdown', this._docPointerDownHandler, true);
+        }
+        if ( this._docFocusInHandler ) {
+            document.removeEventListener('focusin', this._docFocusInHandler, true);
+        }
+        if ( this._winBlurHandler ) {
+            window.removeEventListener('blur', this._winBlurHandler);
+        }
+        if ( this._mouseMoveHandler ) {
+            document.removeEventListener('mousemove', this._mouseMoveHandler);
         }
 
         const buttons = this.$$('.menu-button');
@@ -135,12 +172,30 @@ class PuterMenubar extends PuterWebComponent {
                 this._openDropdown(btn, item);
             });
 
-            // Hover-switch when a dropdown is already open
+            // JS-managed hover. Adding .hovered while clearing any keyboard
+            // .focused guarantees only one button highlights at a time, no
+            // matter the source.
             btn.addEventListener('mouseenter', () => {
+                btn.classList.add('hovered');
+                // Mouse takes over: clear keyboard focus from everywhere
+                // and drop any lingering DOM :focus on a sibling button.
+                if ( this.#focusedIndex !== null ) {
+                    this.#focusedIndex = null;
+                    this._renderButtonFocus();
+                }
+                const root = this.shadowRoot;
+                const active = root && root.activeElement;
+                if ( active && active !== btn && active.classList.contains('menu-button') ) {
+                    active.blur();
+                }
+                this._setKeyboardNav(false);
+                // Hover-switch when a dropdown is already open
                 if ( this.#activeDropdown && this.#activeButtonEl !== btn ) {
-                    this.#focusedIndex = index;
                     this._openDropdown(btn, item);
                 }
+            });
+            btn.addEventListener('mouseleave', () => {
+                btn.classList.remove('hovered');
             });
         });
 
@@ -157,17 +212,51 @@ class PuterMenubar extends PuterWebComponent {
         // dropdown — is treated as a toggle-close. Uses composedPath because
         // the button lives inside this shadow root.
         this._docPointerDownHandler = (e) => {
-            if ( ! this.#activeButtonEl ) return;
             const path = typeof e.composedPath === 'function' ? e.composedPath() : [];
-            if ( path.includes(this.#activeButtonEl) ) {
+            if ( this.#activeButtonEl && path.includes(this.#activeButtonEl) ) {
                 this._suppressClickFor = this.#activeButtonEl;
                 clearTimeout(this._suppressClickTimer);
                 this._suppressClickTimer = setTimeout(() => {
                     this._suppressClickFor = null;
                 }, 400);
             }
+            // If the click lands fully outside the menubar host, drop any
+            // residual keyboard state. Without this, an Alt-activated menubar
+            // would keep intercepting arrow keys typed into other inputs.
+            // When a dropdown is open, its own close event will deactivate
+            // the menubar — leave that path alone here.
+            if ( this.#menubarActive && ! this.#activeDropdown && ! path.includes(this) ) {
+                this._deactivateMenubar();
+            }
         };
         document.addEventListener('pointerdown', this._docPointerDownHandler, true);
+
+        // Focus moving to an element outside the menubar (e.g. a text input)
+        // should also drop menubar state so global key handling stops.
+        this._docFocusInHandler = (e) => {
+            if ( ! this.#menubarActive ) return;
+            if ( this.#activeDropdown ) return;
+            const path = typeof e.composedPath === 'function' ? e.composedPath() : [];
+            if ( ! path.includes(this) ) {
+                this._deactivateMenubar();
+            }
+        };
+        document.addEventListener('focusin', this._docFocusInHandler, true);
+
+        // Window losing focus (alt-tab, devtools, etc.) — reset state.
+        this._winBlurHandler = () => {
+            if ( this.#menubarActive && ! this.#activeDropdown ) {
+                this._deactivateMenubar();
+            }
+            this.#altDown = false;
+            this.#altConsumed = false;
+        };
+        window.addEventListener('blur', this._winBlurHandler);
+
+        // Once the user actually moves the mouse, exit keyboard-nav mode so
+        // :hover styling on menubar buttons works normally again.
+        this._mouseMoveHandler = () => this._setKeyboardNav(false);
+        document.addEventListener('mousemove', this._mouseMoveHandler);
     }
 
     _onGlobalKeyDown (e) {
@@ -198,10 +287,10 @@ class PuterMenubar extends PuterWebComponent {
 
         switch ( e.key ) {
             case 'ArrowRight':
-                this._moveButtonFocus(+1);
+                this._moveButtonFocus(+1, { openDropdown: true });
                 break;
             case 'ArrowLeft':
-                this._moveButtonFocus(-1);
+                this._moveButtonFocus(-1, { openDropdown: true });
                 break;
             case 'ArrowDown':
             case 'Enter':
@@ -244,12 +333,14 @@ class PuterMenubar extends PuterWebComponent {
         this.#menubarActive = true;
         this.#focusedIndex = 0;
         this._renderButtonFocus();
+        this._setKeyboardNav(true);
     }
 
     _deactivateMenubar () {
         this.#menubarActive = false;
         this.#focusedIndex = null;
         this._renderButtonFocus();
+        this._setKeyboardNav(false);
     }
 
     _renderButtonFocus () {
@@ -259,19 +350,35 @@ class PuterMenubar extends PuterWebComponent {
         });
     }
 
-    _moveButtonFocus (delta, { swapDropdown = true } = {}) {
+    _setKeyboardNav (on) {
+        const menubar = this.$('.menubar');
+        if ( menubar ) menubar.classList.toggle('keyboard-nav', on);
+    }
+
+    _moveButtonFocus (delta, { swapDropdown = true, openDropdown = false } = {}) {
         if ( ! this.#items.length ) return;
         const n = this.#items.length;
         const cur = this.#focusedIndex == null ? (delta > 0 ? -1 : 0) : this.#focusedIndex;
         const next = (cur + delta + n) % n;
         this.#focusedIndex = next;
         this._renderButtonFocus();
+        this._setKeyboardNav(true);
+
+        const btn = this._buttonEl(next);
+        const item = this.#items[next];
+        if ( ! btn || ! item ) return;
 
         // If a dropdown is already open, swap to the new button's dropdown
         if ( swapDropdown && this.#activeDropdown ) {
-            const btn = this._buttonEl(next);
-            const item = this.#items[next];
-            if ( btn && item ) this._openDropdown(btn, item);
+            this._openDropdown(btn, item);
+            return;
+        }
+
+        // Arrow-nav at the menubar level opens the focused button's dropdown
+        // but does NOT pre-focus the first item — let the user press ArrowDown
+        // to enter the menu.
+        if ( openDropdown ) {
+            this._openFocusedButton(false);
         }
     }
 
@@ -291,6 +398,9 @@ class PuterMenubar extends PuterWebComponent {
                 if ( dd && typeof dd._focusableIndices === 'function' ) {
                     const f = dd._focusableIndices();
                     if ( f.length ) dd._setFocusIndex(f[0]);
+                    if ( typeof dd._setKeyboardNav === 'function' ) {
+                        dd._setKeyboardNav(true);
+                    }
                 }
             });
         }
@@ -311,6 +421,9 @@ class PuterMenubar extends PuterWebComponent {
         const rect = buttonEl.getBoundingClientRect();
         const dropdown = document.createElement('puter-context-menu');
         dropdown.setAttribute('data-submenu', ''); // skip mobile sheet behavior
+        // Forward any forced theme so the dropdown paints in the same theme.
+        const themeAttr = this.getAttribute('theme');
+        if ( themeAttr ) dropdown.setAttribute('theme', themeAttr);
         dropdown.items = item.items;
         dropdown.setAttribute('x', String(rect.left));
         dropdown.setAttribute('y', String(rect.bottom));
@@ -331,12 +444,22 @@ class PuterMenubar extends PuterWebComponent {
                 this._deactivateMenubar();
             }
         });
-        // Keyboard navigate request bubbling from the context menu
+        // Keyboard navigate request bubbling from the context menu.
+        // Arrow-left/right closes the current dropdown and opens the adjacent
+        // button's dropdown, mirroring menubar-level arrow nav.
+        // Arrow-up at the dropdown's first item closes it and returns
+        // focus to the same menubar button (which can re-open with ArrowDown).
         dropdown.addEventListener('puter-menu-navigate', (e) => {
             if ( ! e.detail ) return;
+            if ( e.detail.direction === 'up' ) {
+                this._closeDropdown();
+                this._renderButtonFocus();
+                this._setKeyboardNav(true);
+                return;
+            }
             const delta = e.detail.direction === 'right' ? +1 : -1;
-            this._moveButtonFocus(delta, { swapDropdown: false });
-            this._openFocusedButton(true);
+            this._closeDropdown();
+            this._moveButtonFocus(delta, { swapDropdown: false, openDropdown: true });
         });
 
         document.body.appendChild(dropdown);
@@ -358,6 +481,7 @@ class PuterMenubar extends PuterWebComponent {
     }
 
     disconnectedCallback () {
+        super.disconnectedCallback();
         this._closeDropdown();
         clearTimeout(this._suppressClickTimer);
         this._suppressClickFor = null;
@@ -369,6 +493,15 @@ class PuterMenubar extends PuterWebComponent {
         }
         if ( this._docPointerDownHandler ) {
             document.removeEventListener('pointerdown', this._docPointerDownHandler, true);
+        }
+        if ( this._docFocusInHandler ) {
+            document.removeEventListener('focusin', this._docFocusInHandler, true);
+        }
+        if ( this._winBlurHandler ) {
+            window.removeEventListener('blur', this._winBlurHandler);
+        }
+        if ( this._mouseMoveHandler ) {
+            document.removeEventListener('mousemove', this._mouseMoveHandler);
         }
     }
 

@@ -18,6 +18,7 @@
  */
 
 import type { Request, Response } from 'express';
+import type { Readable } from 'node:stream';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 import type { Actor } from '../../core/actor.js';
@@ -123,6 +124,14 @@ const makeRes = () => {
 
 const withActor = async <T>(actor: Actor, fn: () => Promise<T>): Promise<T> =>
     runWithContext({ actor }, fn);
+
+const streamToString = async (stream: Readable): Promise<string> => {
+    const chunks: Buffer[] = [];
+    for await (const chunk of stream) {
+        chunks.push(Buffer.from(chunk as Buffer));
+    }
+    return Buffer.concat(chunks).toString('utf8');
+};
 
 // ── /startBatchWrite ────────────────────────────────────────────────
 
@@ -434,6 +443,176 @@ describe('FSController.completeBatchWrites', () => {
         expect(finalized?.wasOverwrite).toBe(true);
     });
 
+    // Regression: a signed (direct-to-S3) upload could declare a tiny size
+    // and PUT far more — the presigned URL doesn't bound the body. The
+    // completion path must reconcile the recorded size against the object's
+    // true size, or storage accounting is permanently understated and the
+    // quota is bypassable.
+    it('reconciles the recorded size to the real uploaded bytes (ignores under-declared size)', async () => {
+        const { actor, userId } = await makeUser();
+        const username = actor.user!.username!;
+        const target = `/${username}/Documents/under-declared.bin`;
+
+        // Declare 1 byte.
+        const start = makeRes();
+        await withActor(actor, () =>
+            controller.startBatchWrites(
+                makeReq<SignedWriteRequest[]>({
+                    body: [{ fileMetadata: { path: target, size: 1 } }],
+                    actor,
+                }),
+                start.res,
+            ),
+        );
+        const [started] = start.captured.body as SignedWriteResponse[];
+
+        // Actually upload 4096 bytes to the session's object key (simulating
+        // a client that PUTs more than it declared via the signed URL).
+        const realBytes = Buffer.alloc(4096, 0x41);
+        await server.stores.s3Object.uploadFromServer(
+            {
+                bucket: started!.bucket,
+                objectKey: started!.objectKey,
+                contentType: 'application/octet-stream',
+                body: realBytes,
+                contentLength: realBytes.byteLength,
+            },
+            started!.bucketRegion,
+        );
+
+        const complete = makeRes();
+        await withActor(actor, () =>
+            controller.completeBatchWrites(
+                makeReq<CompleteWriteRequest[]>({
+                    body: [{ uploadId: started!.sessionId }],
+                    actor,
+                }),
+                complete.res,
+            ),
+        );
+
+        const entry = await server.stores.fsEntry.getEntryByPath(target);
+        expect(entry).not.toBeNull();
+        // Recorded size is the true 4096 bytes, not the declared 1.
+        expect(entry?.size).toBe(4096);
+
+        // And the user's accounted usage reflects the real bytes.
+        const allowance =
+            await server.stores.fsEntry.getUserStorageAllowance(userId);
+        expect(allowance.curr).toBeGreaterThanOrEqual(4096);
+    });
+
+    it('emits updated events with GUI metadata when overwriting via batch completion', async () => {
+        const { actor, userId } = await makeUser();
+        const username = actor.user!.username!;
+        const target = `/${username}/Documents/overwrite-event.js`;
+
+        const firstStart = makeRes();
+        await withActor(actor, () =>
+            controller.startBatchWrites(
+                makeReq<SignedWriteRequest[]>({
+                    body: [{ fileMetadata: { path: target, size: 1 } }],
+                    actor,
+                }),
+                firstStart.res,
+            ),
+        );
+        const [firstResponse] = firstStart.captured
+            .body as SignedWriteResponse[];
+        await withActor(actor, () =>
+            controller.completeBatchWrites(
+                makeReq<CompleteWriteRequest[]>({
+                    body: [{ uploadId: firstResponse!.sessionId }],
+                    actor,
+                }),
+                makeRes().res,
+            ),
+        );
+        const targetEntry = await server.stores.fsEntry.getEntryByPath(target);
+        expect(targetEntry).not.toBeNull();
+        await server.stores.subdomain.create({
+            userId,
+            subdomain: `workers.puter.${username}-worker`,
+            rootDirId: targetEntry!.id,
+        });
+
+        const secondStart = makeRes();
+        await withActor(actor, () =>
+            controller.startBatchWrites(
+                makeReq<SignedWriteRequest[]>({
+                    body: [
+                        {
+                            fileMetadata: {
+                                path: target,
+                                size: 2,
+                                overwrite: true,
+                            },
+                        },
+                    ],
+                    actor,
+                }),
+                secondStart.res,
+            ),
+        );
+        const [secondResponse] = secondStart.captured
+            .body as SignedWriteResponse[];
+
+        const emitSpy = vi.spyOn(server.clients.event, 'emit');
+        let updatedCall: (typeof emitSpy.mock.calls)[number] | undefined;
+        try {
+            await withActor(actor, () =>
+                controller.completeBatchWrites(
+                    makeReq<CompleteWriteRequest[]>({
+                        body: [
+                            {
+                                uploadId: secondResponse!.sessionId,
+                                guiMetadata: {
+                                    operationId: 'op-123',
+                                    itemUploadId: 'item-456',
+                                    socketId: 'socket-789',
+                                    originalClientSocketId: 'socket-789',
+                                },
+                            },
+                        ],
+                        actor,
+                    }),
+                    makeRes().res,
+                ),
+            );
+            updatedCall = emitSpy.mock.calls.find(
+                ([eventName]) => eventName === 'outer.gui.item.updated',
+            );
+        } finally {
+            emitSpy.mockRestore();
+        }
+        expect(updatedCall).toBeTruthy();
+        const payload = updatedCall?.[1] as {
+            user_id_list?: number[];
+            response?: Record<string, unknown>;
+        };
+        expect(payload.user_id_list).toEqual([userId]);
+        expect(payload.response).toMatchObject({
+            uid: expect.any(String),
+            uuid: expect.any(String),
+            id: expect.any(String),
+            path: target,
+            name: 'overwrite-event.js',
+            is_dir: false,
+            type: expect.stringMatching(/^application\/javascript/),
+            workers: [
+                expect.objectContaining({
+                    subdomain: `workers.puter.${username}-worker`,
+                    address: expect.stringContaining(`${username}-worker`),
+                }),
+            ],
+            from_new_service: true,
+            operation_id: 'op-123',
+            item_upload_id: 'item-456',
+            socket_id: 'socket-789',
+            original_client_socket_id: 'socket-789',
+        });
+    });
+
     it("rejects another user's session ids with a 4xx", async () => {
         const a = await makeUser();
         const b = await makeUser();
@@ -554,9 +733,9 @@ describe('FSController.statEntry', () => {
             ...makeReq({ body: { path: '/x' }, actor }),
             actor: undefined,
         } as unknown as Request;
-        await expect(
-            controller.statEntry(req, res),
-        ).rejects.toMatchObject({ statusCode: 401 });
+        await expect(controller.statEntry(req, res)).rejects.toMatchObject({
+            statusCode: 401,
+        });
     });
 });
 
@@ -678,6 +857,85 @@ describe('FSController.searchEntries', () => {
         expect(Array.isArray(results)).toBe(true);
         expect(results.some((r) => r.name === needle)).toBe(true);
     });
+
+    it('scopes app-under-user actors to their AppData root', async () => {
+        const { actor: userActor } = await makeUser();
+        const username = userActor.user!.username!;
+        const appUid = `app-search-${uuidv4()}`;
+        const appActor: Actor = { ...userActor, app: { uid: appUid } };
+        const needle = `appneedle-${Math.random().toString(36).slice(2, 8)}`;
+
+        // User-owned entry outside AppData — must NOT appear for the app.
+        await withActor(userActor, () =>
+            controller.mkdirEntry(
+                makeReq({
+                    body: { path: `/${username}/Documents/${needle}` },
+                    actor: userActor,
+                }),
+                makeRes().res,
+            ),
+        );
+        // Entry under the app's own AppData — must appear.
+        await withActor(userActor, () =>
+            controller.mkdirEntry(
+                makeReq({
+                    body: {
+                        path: `/${username}/AppData/${appUid}/${needle}`,
+                        create_missing_parents: true,
+                    },
+                    actor: userActor,
+                }),
+                makeRes().res,
+            ),
+        );
+
+        const { res, captured } = makeRes();
+        await withActor(appActor, () =>
+            controller.searchEntries(
+                makeReq({ body: { query: needle }, actor: appActor }),
+                res,
+            ),
+        );
+        const results = captured.body as Array<{ name: string; path: string }>;
+        expect(results.length).toBeGreaterThan(0);
+        for (const r of results) {
+            expect(
+                r.path === `/${username}/AppData/${appUid}` ||
+                    r.path.startsWith(`/${username}/AppData/${appUid}/`),
+            ).toBe(true);
+        }
+        expect(
+            results.some((r) => r.path === `/${username}/Documents/${needle}`),
+        ).toBe(false);
+    });
+
+    it('returns nothing for an app actor when no AppData entries match', async () => {
+        const { actor: userActor } = await makeUser();
+        const username = userActor.user!.username!;
+        const appUid = `app-search-${uuidv4()}`;
+        const appActor: Actor = { ...userActor, app: { uid: appUid } };
+        const needle = `appneedle-${Math.random().toString(36).slice(2, 8)}`;
+
+        // Only seed outside AppData — the app must not be able to find it.
+        await withActor(userActor, () =>
+            controller.mkdirEntry(
+                makeReq({
+                    body: { path: `/${username}/Documents/${needle}` },
+                    actor: userActor,
+                }),
+                makeRes().res,
+            ),
+        );
+
+        const { res, captured } = makeRes();
+        await withActor(appActor, () =>
+            controller.searchEntries(
+                makeReq({ body: { query: needle }, actor: appActor }),
+                res,
+            ),
+        );
+        expect(captured.body).toEqual([]);
+    });
 });
 
 // ── /read (readEntry, validation paths) ─────────────────────────────
@@ -757,6 +1015,82 @@ describe('FSController.mkdirEntry', () => {
         const body = captured.body as { path: string; isDir: boolean };
         expect(body.path).toBe(`/${username}/Documents/created`);
         expect(body.isDir).toBe(true);
+    });
+
+    it('dedupes an existing directory when dedupe_name is true', async () => {
+        const { actor } = await makeUser();
+        const username = actor.user!.username!;
+        const target = `/${username}/Documents/hello`;
+
+        await withActor(actor, () =>
+            controller.mkdirEntry(
+                makeReq({
+                    body: { path: target },
+                    actor,
+                }),
+                makeRes().res,
+            ),
+        );
+
+        const { res, captured } = makeRes();
+        await withActor(actor, () =>
+            controller.mkdirEntry(
+                makeReq({
+                    body: { path: target, dedupe_name: true },
+                    actor,
+                }),
+                res,
+            ),
+        );
+
+        const body = captured.body as {
+            path: string;
+            name: string;
+            isDir: boolean;
+        };
+        expect(body.path).toBe(`/${username}/Documents/hello (1)`);
+        expect(body.name).toBe('hello (1)');
+        expect(body.isDir).toBe(true);
+        expect(
+            await server.stores.fsEntry.getEntryByPath(
+                `/${username}/Documents/hello (1)`,
+            ),
+        ).toMatchObject({ isDir: true });
+    });
+
+    it('requires parent write when deduping an existing directory', async () => {
+        const { actor: userActor } = await makeUser();
+        const username = userActor.user!.username!;
+        const appUid = `app-mkdir-${uuidv4()}`;
+        const appActor: Actor = { ...userActor, app: { uid: appUid } };
+        const target = `/${username}/AppData/${appUid}`;
+
+        await withActor(userActor, () =>
+            controller.mkdirEntry(
+                makeReq({
+                    body: { path: target },
+                    actor: userActor,
+                }),
+                makeRes().res,
+            ),
+        );
+
+        await expect(
+            withActor(appActor, () =>
+                controller.mkdirEntry(
+                    makeReq({
+                        body: { path: target, dedupe_name: true },
+                        actor: appActor,
+                    }),
+                    makeRes().res,
+                ),
+            ),
+        ).rejects.toMatchObject({ statusCode: 404 });
+        expect(
+            await server.stores.fsEntry.getEntryByPath(
+                `/${username}/AppData/${appUid} (1)`,
+            ),
+        ).toBeNull();
     });
 
     it('expands ~/ in the path to the user home', async () => {
@@ -989,10 +1323,6 @@ describe('FSController.copyEntry', () => {
 // ── /read (readEntry, full read) ────────────────────────────────────
 
 describe('FSController.readEntry (file streaming)', () => {
-    // makeRes here adds a real Writable surface so that
-    // `pipeline(download.body, res)` inside the controller can pipe
-    // the in-memory S3 stream into the test's response and capture
-    // bytes for assertions.
     const makeStreamingRes = () => {
         const captured = {
             statusCode: 200,
@@ -1000,7 +1330,8 @@ describe('FSController.readEntry (file streaming)', () => {
             bodyChunks: [] as Buffer[],
         };
         // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const { Writable } = require('node:stream') as typeof import('node:stream');
+        const { Writable } =
+            require('node:stream') as typeof import('node:stream');
         const writable = new Writable({
             write(chunk: Buffer, _enc, cb) {
                 captured.bodyChunks.push(chunk);
@@ -1060,7 +1391,9 @@ describe('FSController.readEntry (file streaming)', () => {
         // Pipeline awaits the stream-end on success.
         expect(captured.statusCode).toBe(200);
         expect(captured.headers['Content-Type']).toMatch(/text\/plain/);
-        expect(captured.headers['Content-Length']).toBe(String(body.byteLength));
+        expect(captured.headers['Content-Length']).toBe(
+            String(body.byteLength),
+        );
         expect(captured.headers['Content-Disposition']).toMatch(
             /inline; filename=/,
         );
@@ -1502,5 +1835,160 @@ describe('FSController.mkshortcutEntry', () => {
         };
         expect(body.name).toBe('my-shortcut');
         expect(body.isShortcut).toBe(true);
+    });
+});
+
+describe('FSController metadata.objectKey injection', () => {
+    const writeFile = async (
+        actor: Actor,
+        path: string,
+        content: string,
+        metadata?: Record<string, unknown>,
+    ) => {
+        await withActor(actor, () =>
+            controller.write(
+                makeReq({
+                    body: {
+                        fileMetadata: {
+                            path,
+                            size: Buffer.byteLength(content),
+                            contentType: 'text/plain',
+                            overwrite: true,
+                            ...(metadata ? { metadata } : {}),
+                        },
+                        fileContent: content,
+                        encoding: 'utf8',
+                    },
+                    actor,
+                }) as unknown as Request<
+                    Record<string, never>,
+                    null,
+                    import('./requestTypes.js').WriteRequest
+                >,
+                makeRes().res,
+            ),
+        );
+        const entry = await server.stores.fsEntry.getEntryByPath(path, {
+            skipCache: true,
+        });
+        if (!entry) throw new Error(`entry not found after write: ${path}`);
+        return entry;
+    };
+
+    it("does not stream another user's file when a client injects metadata.objectKey on write", async () => {
+        const victim = await makeUser();
+        const attacker = await makeUser();
+        const victimSecret = 'VICTIM-TOP-SECRET-PAYLOAD';
+        const attackerDecoy = 'attacker-own-decoy-bytes';
+
+        const victimEntry = await writeFile(
+            victim.actor,
+            `/${victim.actor.user!.username}/Documents/secret.txt`,
+            victimSecret,
+        );
+
+        const victimRead = await server.services.fs.readContent(victimEntry);
+        expect(await streamToString(victimRead.body)).toBe(victimSecret);
+
+        const attackerEntry = await writeFile(
+            attacker.actor,
+            `/${attacker.actor.user!.username}/Documents/loot.txt`,
+            attackerDecoy,
+            { objectKey: victimEntry.uuid },
+        );
+
+        const persisted = attackerEntry.metadata
+            ? (JSON.parse(attackerEntry.metadata) as Record<string, unknown>)
+            : {};
+        expect(persisted.objectKey).toBeUndefined();
+
+        const attackerRead =
+            await server.services.fs.readContent(attackerEntry);
+        const got = await streamToString(attackerRead.body);
+        expect(got).toBe(attackerDecoy);
+        expect(got).not.toBe(victimSecret);
+    });
+
+    it('read path ignores a divergent metadata.objectKey on an already-poisoned row', async () => {
+        const victim = await makeUser();
+        const attacker = await makeUser();
+        const victimSecret = 'VICTIM-SECRET-FOR-POISON-TEST';
+        const attackerDecoy = 'attacker-decoy-for-poison-test';
+
+        const victimEntry = await writeFile(
+            victim.actor,
+            `/${victim.actor.user!.username}/Documents/secret2.txt`,
+            victimSecret,
+        );
+        const attackerEntry = await writeFile(
+            attacker.actor,
+            `/${attacker.actor.user!.username}/Documents/loot2.txt`,
+            attackerDecoy,
+        );
+
+        await server.stores.fsEntry.updateEntry(attackerEntry.uuid, {
+            metadata: JSON.stringify({ objectKey: victimEntry.uuid }),
+        });
+        const poisoned = await server.stores.fsEntry.getEntryByPath(
+            attackerEntry.path,
+            { skipCache: true },
+        );
+        if (!poisoned) throw new Error('poisoned entry not found');
+        expect(
+            (JSON.parse(poisoned.metadata!) as { objectKey: string }).objectKey,
+        ).toBe(victimEntry.uuid);
+
+        const read = await server.services.fs.readContent(poisoned);
+        expect(await streamToString(read.body)).toBe(attackerDecoy);
+    });
+
+    it('scrubs objectKey from move newMetadata while preserving legit trash metadata', async () => {
+        const victim = await makeUser();
+        const attacker = await makeUser();
+        const victimSecret = 'VICTIM-SECRET-FOR-MOVE-TEST';
+        const attackerDecoy = 'attacker-decoy-for-move-test';
+        const username = attacker.actor.user!.username!;
+
+        const victimEntry = await writeFile(
+            victim.actor,
+            `/${victim.actor.user!.username}/Documents/secret3.txt`,
+            victimSecret,
+        );
+        const attackerEntry = await writeFile(
+            attacker.actor,
+            `/${username}/Documents/loot3.txt`,
+            attackerDecoy,
+        );
+        const documents = await server.stores.fsEntry.getEntryByPath(
+            `/${username}/Documents`,
+            { skipCache: true },
+        );
+        if (!documents) throw new Error('Documents dir not found');
+
+        const moved = await withActor(attacker.actor, () =>
+            server.services.fs.move(attacker.userId, {
+                source: attackerEntry,
+                destinationParent: documents,
+                newName: 'loot3-moved.txt',
+                newMetadata: {
+                    original_path: `/${username}/Documents/loot3.txt`,
+                    trashed_ts: 1700000000,
+                    objectKey: victimEntry.uuid,
+                },
+            }),
+        );
+
+        const persisted = JSON.parse(moved.metadata!) as Record<
+            string,
+            unknown
+        >;
+        expect(persisted.objectKey).toBeUndefined();
+        expect(persisted.original_path).toBe(
+            `/${username}/Documents/loot3.txt`,
+        );
+        expect(persisted.trashed_ts).toBe(1700000000);
+
+        const read = await server.services.fs.readContent(moved);
+        expect(await streamToString(read.body)).toBe(attackerDecoy);
     });
 });

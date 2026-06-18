@@ -1,0 +1,27 @@
+name = "puter-mcp"
+# The build inlines puter.js + the bundled router into a single service-worker
+# script (built by `npm run build` before dev/deploy).
+main = "dist/workerPreamble.js"
+compatibility_date = "2025-01-01"
+
+# The preamble is assembled with a C-style #include preprocessor (see
+# scripts/buildPreamble.mjs) specifically so puter.js is concatenated RAW and
+# never touched by a bundler. wrangler bundles `main` by default, and that pass
+# transpiles to strict-mode ESM which forbids the `with` statement used by the
+# init_puter_portable sandbox ("Strict mode code may not include a with
+# statement"). Uploading the script as-is keeps it a sloppy-mode service worker.
+no_bundle = true
+
+# Optional vars (exposed as globals in the service-worker script):
+#   puter_endpoint   - Puter API origin for fs/subdomain calls (default https://api.puter.com)
+#   puter_gui_origin - Puter GUI origin for the OAuth "Sign in with Puter"
+#                      (authme) redirect (default https://puter.com)
+[vars]
+# OVERRIDE_ORIGIN = "https://mcp.puter.com"
+# puter_endpoint = "https://api.puter.com"
+# puter_gui_origin = "https://puter.com"
+
+# OAuth bridge secret — used to seal the stateless authorization-flow / code
+# blobs (AES-GCM). REQUIRED in production; set it as a secret, do NOT commit it:
+#   wrangler secret put OAUTH_SECRET
+# (Local `wrangler dev` falls back to an insecure default if unset.)

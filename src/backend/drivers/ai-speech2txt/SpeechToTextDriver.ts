@@ -213,7 +213,7 @@ export class SpeechToTextDriver extends PuterDriver {
             this.services.fs,
             actor,
             args.file,
-            { maxBytes: MAX_AUDIO_FILE_SIZE },
+            { maxBytes: MAX_AUDIO_FILE_SIZE, acceptWebInput: true },
         );
 
         const selectedModel =

@@ -14,6 +14,13 @@
  *   the SocketService fans out to user-scoped channels.
  */
 
+import type {
+    Request as ExpressRequest,
+    Response as ExpressResponse,
+} from 'express';
+import { Actor } from '../../core';
+import { FSEntry } from '../../stores/fs/FSEntry';
+
 // GUI write events spread an entry plus per-event metadata into `response`.
 // The exact field set varies by emit site (FSController / LegacyFSController /
 // WebDAVController each project a slightly different shape) so the envelope
@@ -96,8 +103,11 @@ export type EventMap = {
     };
     'app.from-origin': { origin: string };
     'app.privateAccess.check': {
-        app: unknown;
-        actor: unknown;
+        appUid: string;
+        userUid: string;
+        requestHost: string;
+        requestPath: string;
+        actor?: Actor;
         result: {
             allowed: boolean;
             reason?: string;
@@ -120,7 +130,20 @@ export type EventMap = {
         req?: unknown;
         data?: unknown;
         abuse?: unknown;
-        custom?: unknown;
+        trail?: Array<string>;
+        /**
+         * Set by the abuse harness for flagged signups — the id under which the
+         * decision trail is persisted to KV (`abuse:trail:<id>`), shared back on
+         * the request for log / support correlation.
+         */
+        trail_id?: string;
+        /** Device signals forwarded verbatim from the signup request body. */
+        fingerprint?: string | null;
+        dfp_telemetry_id?: string | null;
+        /** Set by the abuse harness — require SMS phone verification post-signup. */
+        requires_phone_verification?: boolean;
+        /** Set by the abuse harness — require card verification post-signup. */
+        requires_card_verification?: boolean;
         [key: string]: unknown;
     };
     'puter.signup.success': {
@@ -129,6 +152,9 @@ export type EventMap = {
         email: string;
         username: string;
         ip?: string | null;
+        fingerprint?: string | null;
+        /** True when the created account is a temp user (no email/password). */
+        is_temp?: boolean;
         [key: string]: unknown;
     };
     'email.validate': {
@@ -148,12 +174,93 @@ export type EventMap = {
         user_uid: string;
         email: string;
     };
+    // Phone-reuse cap is pure mechanism here — the abuse extension answers
+    // (emitted via `emitAndWait`) by counting how many OTHER accounts have
+    // already verified this number and flipping `allowed` to false when the
+    // cross-account limit is hit. No extension listening → `allowed` stays
+    // true and the send proceeds.
+    'puter.phone-verification.check': {
+        user_id: number;
+        user_uid: string;
+        phone: string;
+        // Client-supplied device fingerprint for this request, or null. Lets
+        // the abuse extension cap sends per device (across accounts) so a
+        // device farm can't dodge the per-account cap with fresh signups.
+        device_fingerprint: string | null;
+        allowed: boolean;
+        reason: string | null;
+        [key: string]: unknown;
+    };
+    // Fire-and-forget signal that a code was actually sent — the abuse
+    // extension bumps its per-number / per-account / per-device send-velocity
+    // counters off this. No-op with no extension listening.
+    'puter.phone-verification.sent': {
+        user_id: number;
+        user_uid: string;
+        phone: string;
+        device_fingerprint: string | null;
+    };
+    'user.phone-verified': {
+        user_id: number;
+        user_uid: string;
+        phone: string;
+    };
+    // Card verification is pure mechanism here — a payments extension fills
+    // these in (emitted via `emitAndWait`). `enabled` stays null when no
+    // extension is installed; the extension always sets it (true/false) so
+    // the endpoints can distinguish "disabled" from "not installed".
+    'puter.card-verification.setup': {
+        user_id: number;
+        user_uid: string;
+        ip?: string | null;
+        // Client-supplied device fingerprint for this request, or null. Lets
+        // the abuse extension cap card-verification setups per device (across
+        // accounts) before any Stripe SetupIntent is created.
+        device_fingerprint: string | null;
+        enabled: boolean | null;
+        // Set false by the extension to refuse this setup (e.g. the per-device
+        // setup-velocity cap); `reason` carries the opaque code. Stays true
+        // when allowed or with no extension listening.
+        allowed: boolean;
+        reason: string | null;
+        client_secret: string | null;
+        publishable_key: string | null;
+        [key: string]: unknown;
+    };
+    'puter.card-verification.confirm': {
+        user_id: number;
+        user_uid: string;
+        setup_intent_id: string;
+        enabled: boolean | null;
+        verified: boolean;
+        reason: string | null;
+        fingerprint: string | null;
+        funding: string | null;
+        country: string | null;
+        [key: string]: unknown;
+    };
+    'user.card-verified': {
+        user_id: number;
+        user_uid: string;
+        fingerprint: string | null;
+        funding: string | null;
+        country: string | null;
+    };
     'user.username-changed': {
         user_id: number;
         old_username: string;
         new_username: string;
     };
     'user.email-changed': { user_id: number; new_email: string };
+    // Fired after an account is torn down (self-serve, admin, or temp-user
+    // logout cleanup). Listeners purge external state tied to the account —
+    // e.g. the marketplace extension cancels the user's Stripe subscriptions.
+    // The row is already gone by emit time, so identifiers ride the payload.
+    'user.delete': {
+        user_id: number;
+        user_uuid?: string;
+        stripe_customer_id?: string | null;
+    };
 
     // ---- Filesystem ----
     'fs.copy.node': {
@@ -162,8 +269,9 @@ export type EventMap = {
         sourceObjectKey: string;
         copyObjectKey: string;
     };
-    'fs.move.node': { node: unknown; fromPath: string; toPath: string };
-    'fs.remove.node': { node: unknown; entry: unknown; target: unknown };
+    'fs.move.node': { node: FSEntry; fromPath: string; toPath: string };
+    'fs.remove.node': { node: FSEntry; entry: FSEntry; target: FSEntry };
+    'fs.write.file': { node: FSEntry; entry: FSEntry; target: FSEntry };
     'fs.storage.upload-progress': {
         upload_tracker: unknown;
         context: unknown;
@@ -199,6 +307,15 @@ export type EventMap = {
     // ---- Subdomains ----
     'subdomain.delete': { subdomain: string };
     'subdomain.update': { subdomain: string };
+    'site.htmlServed': {
+        subdomain: string;
+        entry: unknown;
+        host: string;
+        requestPath: string;
+        requestUrl?: string;
+        requestHash?: string;
+        mime: string;
+    };
 
     // ---- Thumbnails ----
     'thumbnail.read': {
@@ -243,6 +360,94 @@ export type EventMap = {
     // SocketService re-emits each fanout-eligible event under
     // `sent-to-user.<wireName>` so per-user channels can subscribe by wire name.
     [K in `sent-to-user.${string}`]: { user_id: number; response: unknown };
+} & {
+    // Generic per-driver-method lifecycle, emitted by DriverController for
+    // EVERY driver call under a key scoped to the interface + method:
+    // `driver.<iface>.<method>.before|after|error|reject`. Wildcard
+    // subscribers can listen to `driver.*` for everything, `driver.<iface>.*`
+    // for one interface, or the exact key for one method. The `.before` phase
+    // is emitted via `emitAndWait`, so a listener may set `allow = false`
+    // (with an optional `rejectReason`) to veto the call before it runs — a
+    // vetoed call emits `.reject` instead of running.
+    [K in `driver.${string}`]: DriverMethodLifecycleEvent;
+} & {
+    // Generic per-route-endpoint lifecycle, emitted by the route materializer
+    // for EVERY non-middleware route under a key scoped to the HTTP method +
+    // normalized path: `route.<method>.<path>.before|after|error|reject`. Same
+    // wildcard + veto semantics as the driver lifecycle above.
+    [K in `route.${string}`]: RouteLifecycleEvent;
+};
+
+/**
+ * Phase of a request/method lifecycle. `reject` is emitted when a `before`
+ * listener vetoes the call (sets `allow = false`); the call never runs and no
+ * `after`/`error` follows.
+ */
+export type LifecyclePhase = 'before' | 'after' | 'error' | 'reject';
+
+/**
+ * Payload for `driver.<iface>.<method>.<phase>` events.
+ *
+ * One shape across all phases; read `phase` (or the key suffix) to
+ * branch. `allow`/`rejectReason` are only meaningful on the `before` phase
+ * (emitted via `emitAndWait`).
+ */
+export type DriverMethodLifecycleEvent = {
+    phase: LifecyclePhase;
+    iface: string;
+    method: string;
+    /** Resolved concrete driver name. */
+    driver: string;
+    /** Full actor object, if the request is authenticated. */
+    actor?: Actor;
+    /** Stable actor id (see `actorUid`), if the request is authenticated. */
+    actorUid?: string;
+    /** Call arguments. Present on every phase. */
+    args?: unknown;
+    /** Return value. Present on `after`. */
+    result?: unknown;
+    /** Thrown error. Present on `error`. */
+    error?: unknown;
+    /** Wall-clock duration of the invocation. Present on `after`/`error`. */
+    durationMs?: number;
+    /** Veto channel for `before`: set `false` to block the call. */
+    allow?: boolean;
+    /** Optional human-readable reason surfaced to the caller when vetoed. */
+    rejectReason?: string;
+};
+
+/**
+ * Payload for `route.<method>.<path>.<phase>` events. Mirrors
+ * {@link DriverMethodLifecycleEvent} for HTTP endpoints.
+ */
+export type RouteLifecycleEvent = {
+    phase: LifecyclePhase;
+    /** HTTP method, lowercased (`get`, `post`, ...). */
+    method: string;
+    /** Full route path including the controller prefix. */
+    path: string;
+    /**
+     * The live express request/response for this call. Present on every phase.
+     * On `before` a listener can read the parsed body/headers or write its own
+     * response; on terminal phases they're useful for logging. These are real
+     * in-process objects — never serialize or forward them across nodes.
+     */
+    req: ExpressRequest;
+    res: ExpressResponse;
+    /** Full actor object, if the request is authenticated. */
+    actor?: Actor;
+    /** Stable actor id (see `actorUid`), if the request is authenticated. */
+    actorUid?: string;
+    /** Response status code. Present on `after`/`error`. */
+    statusCode?: number;
+    /** Wall-clock duration from `before` to terminal phase. */
+    durationMs?: number;
+    /** Set when the request did not complete normally (abort / >=500). */
+    error?: unknown;
+    /** Veto channel for `before`: set `false` to block the request. */
+    allow?: boolean;
+    /** Optional human-readable reason surfaced to the caller when vetoed. */
+    rejectReason?: string;
 };
 
 export type EventKey = keyof EventMap & string;
@@ -264,8 +469,9 @@ export type MatchingEvents<P extends ListenKey> = P extends `${infer Prefix}.*`
     ? Extract<EventKey, `${Prefix}.${string}`>
     : P & EventKey;
 
+export type EventMetadata = { from_outside?: boolean };
 export type EventListener<K extends EventKey = EventKey> = (
     key: K,
     data: EventMap[K],
-    meta: unknown,
+    meta: EventMetadata,
 ) => Promise<void> | void;

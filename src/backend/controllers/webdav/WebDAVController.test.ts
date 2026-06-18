@@ -1,10 +1,14 @@
 // This suite tests basic features of puter webdav. it is not a comprehensive webdav test suite unlike litmus 
 // but rather it performs some common sense checks to ensure that WebDAV support isn't irrevocably broken in puter
 import type { Request, Response } from 'express';
+import { Readable } from 'node:stream';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { v4 as uuidv4 } from 'uuid';
+import { hash as bcryptHash } from 'bcrypt';
 import { PuterRouter } from '../../core/http/PuterRouter.js';
 import { PuterServer } from '../../server.js';
 import { setupTestServer } from '../../testUtil.js';
+import { generateDefaultFsentries } from '../../util/userProvisioning.js';
 import type { WebDAVController } from './WebDAVController.js';
 
 let server: PuterServer;
@@ -101,6 +105,35 @@ const basicAuth = (user: string, pass: string) =>
 
 const noop = vi.fn();
 
+const makeUser = async () => {
+    const username = `webdav-${Math.random().toString(36).slice(2, 10)}`;
+    const created = await server.stores.user.create({
+        username,
+        uuid: uuidv4(),
+        password: null,
+        email: `${username}@test.local`,
+        free_storage: 100 * 1024 * 1024,
+        requires_email_confirmation: false,
+    });
+    await generateDefaultFsentries(
+        server.clients.db,
+        server.stores.user,
+        created,
+    );
+    const refreshed = (await server.stores.user.getById(created.id))!;
+    return {
+        userId: refreshed.id,
+        username: refreshed.username,
+        actor: {
+            user: {
+                id: refreshed.id,
+                uuid: refreshed.uuid,
+                username: refreshed.username,
+            },
+        },
+    };
+};
+
 describe('WebDAVController', () => {
     describe('route registration', () => {
         it('registers a single catch-all use() route', () => {
@@ -193,6 +226,112 @@ describe('WebDAVController', () => {
             expect(captured.headers['allow']).toContain('GET');
             expect(captured.headers['allow']).toContain('PUT');
             expect(captured.headers['allow']).toContain('DELETE');
+        });
+    });
+
+    describe('pending-verification gate', () => {
+        // WebDAV must enforce the same gate every other authenticated route
+        // gets from requireVerifiedAccount — it dispatches off a single use()
+        // with no route options, so the middleware is never wired in and it
+        // has to call assertVerifiedAccount itself. Without it, an account
+        // still pending email/phone/card verification could read/write its
+        // whole filesystem over the `dav` subdomain.
+        const gatedActor = (flags: Record<string, unknown>) => ({
+            user: {
+                id: 1,
+                uuid: 'gated-uuid',
+                username: 'gated',
+                ...flags,
+            },
+        });
+
+        it('rejects a session actor pending phone verification with 403', async () => {
+            const { res, captured } = makeRes();
+            await dispatchMiddleware(
+                makeReq({
+                    method: 'PROPFIND',
+                    actor: gatedActor({ requires_phone_verification: true }),
+                }),
+                res,
+                noop,
+            );
+            expect(captured.statusCode).toBe(403);
+        });
+
+        it('rejects a session actor pending card verification with 403', async () => {
+            const { res, captured } = makeRes();
+            await dispatchMiddleware(
+                makeReq({
+                    method: 'GET',
+                    actor: gatedActor({ requires_card_verification: true }),
+                }),
+                res,
+                noop,
+            );
+            expect(captured.statusCode).toBe(403);
+        });
+
+        it('rejects a session actor with an unconfirmed email with 403', async () => {
+            const { res, captured } = makeRes();
+            await dispatchMiddleware(
+                makeReq({
+                    method: 'PROPFIND',
+                    actor: gatedActor({
+                        requires_email_confirmation: true,
+                        email_confirmed: false,
+                    }),
+                }),
+                res,
+                noop,
+            );
+            expect(captured.statusCode).toBe(403);
+        });
+
+        it('enforces the gate on the Basic-auth path (flags carried onto the built actor)', async () => {
+            const username = `webdav-gated-${Math.random()
+                .toString(36)
+                .slice(2, 10)}`;
+            const created = await server.stores.user.create({
+                username,
+                uuid: uuidv4(),
+                password: await bcryptHash('correct-horse', 4),
+                email: `${username}@test.local`,
+                free_storage: 100 * 1024 * 1024,
+                requires_email_confirmation: false,
+            });
+            await server.stores.user.update(created.id, {
+                requires_phone_verification: 1,
+            });
+
+            const { res, captured } = makeRes();
+            await dispatchMiddleware(
+                makeReq({
+                    method: 'PROPFIND',
+                    headers: {
+                        authorization: basicAuth(username, 'correct-horse'),
+                    },
+                }),
+                res,
+                noop,
+            );
+            expect(captured.statusCode).toBe(403);
+        });
+
+        it('lets a fully-verified session actor through the gate', async () => {
+            const { res, captured } = makeRes();
+            await dispatchMiddleware(
+                makeReq({
+                    method: 'OPTIONS',
+                    actor: gatedActor({
+                        requires_phone_verification: false,
+                        requires_card_verification: false,
+                        requires_email_confirmation: false,
+                    }),
+                }),
+                res,
+                noop,
+            );
+            expect(captured.statusCode).toBe(200);
         });
     });
 
@@ -396,6 +535,53 @@ describe('WebDAVController', () => {
             );
             expect(captured.statusCode).toBe(422);
         });
+
+        it('emits GUI-safe item events without leaking numeric fsentry ids', async () => {
+            const { actor, userId, username } = await makeUser();
+            const target = `/${username}/Documents/webdav-event.txt`;
+            const { res, captured } = makeRes();
+            const req = Object.assign(
+                Readable.from(['hello']),
+                makeReq({
+                    method: 'PUT',
+                    path: target,
+                    headers: { 'content-length': '5' },
+                    actor,
+                }),
+            ) as Request;
+
+            const emitSpy = vi.spyOn(server.clients.event, 'emit');
+            let addedCall:
+                | (typeof emitSpy.mock.calls)[number]
+                | undefined;
+            try {
+                await dispatchMiddleware(req, res, noop);
+                await new Promise((resolve) => setTimeout(resolve, 0));
+                addedCall = emitSpy.mock.calls.find(
+                    ([eventName]) => eventName === 'outer.gui.item.added',
+                );
+            } finally {
+                emitSpy.mockRestore();
+            }
+
+            expect(captured.statusCode).toBe(201);
+            expect(addedCall).toBeTruthy();
+            const payload = addedCall?.[1] as {
+                user_id_list?: number[];
+                response?: Record<string, unknown>;
+            };
+            expect(payload.user_id_list).toEqual([userId]);
+            expect(payload.response).toMatchObject({
+                id: expect.any(String),
+                uid: expect.any(String),
+                uuid: expect.any(String),
+                path: target,
+                from_new_service: true,
+            });
+            expect(typeof payload.response?.id).toBe('string');
+            expect(payload.response?.id).toBe(payload.response?.uuid);
+            expect(payload.response).not.toHaveProperty('userId');
+        });
     });
 
     describe('DELETE', () => {
@@ -516,7 +702,7 @@ describe('WebDAVController', () => {
             await dispatchMiddleware(
                 makeReq({
                     method: 'LOCK',
-                    path: '/lockable-file.txt',
+                    path: '/test/lockable-file.txt',
                     actor: {
                         user: {
                             id: 1,
@@ -539,8 +725,28 @@ describe('WebDAVController', () => {
             expect(captured.headers['lock-token']).toContain('urn:uuid:');
         });
 
+        it('rejects locking a path the user has no write access to (e.g. root)', async () => {
+            const { res, captured } = makeRes();
+            await dispatchMiddleware(
+                makeReq({
+                    method: 'LOCK',
+                    path: '/',
+                    actor: {
+                        user: {
+                            id: 1,
+                            uuid: 'test-uuid',
+                            username: 'test',
+                        },
+                    },
+                }),
+                res,
+                noop,
+            );
+            expect(captured.statusCode).toBe(403);
+        });
+
         it('rejects a second exclusive lock on the same path', async () => {
-            const uniquePath = `/double-lock-${Date.now()}.txt`;
+            const uniquePath = `/test/double-lock-${Date.now()}.txt`;
 
             // First lock
             const { res: res1, captured: cap1 } = makeRes();
@@ -582,7 +788,7 @@ describe('WebDAVController', () => {
         });
 
         it('refreshes an existing lock when If header provides the token', async () => {
-            const uniquePath = `/refresh-lock-${Date.now()}.txt`;
+            const uniquePath = `/test/refresh-lock-${Date.now()}.txt`;
             const { res: res1, captured: cap1 } = makeRes();
             await dispatchMiddleware(
                 makeReq({

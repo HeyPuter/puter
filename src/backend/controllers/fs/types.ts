@@ -52,6 +52,7 @@ export interface ThumbnailUploadPrepareItem {
     size?: number;
     uploadUrl?: string;
     thumbnailUrl?: string;
+    item_uid: string;
 }
 
 export interface ThumbnailUploadPreparePayload {

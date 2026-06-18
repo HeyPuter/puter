@@ -24,7 +24,9 @@
 --
 
 --
--- Idempotent column-ensure helper (used by CALLs below; dropped at end of file)
+-- Idempotent column-ensure helper. Used by the CALLs below AND by later
+-- migration files, which CALL it as a one-line idempotent column add. Left
+-- resident (not dropped at end of file) so it outlives this migration.
 --
 
 DROP PROCEDURE IF EXISTS _puter_add_col;
@@ -1333,7 +1335,10 @@ CALL _puter_add_col('user_update_audit', 'new_username', '`new_username` varchar
 CALL _puter_add_col('user_update_audit', 'reason', '`reason` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL');
 
 
-DROP PROCEDURE IF EXISTS _puter_add_col;
+-- _puter_add_col is intentionally NOT dropped here: later migration files CALL
+-- it as a one-line idempotent column add, and migrations replay on every boot
+-- with no applied-state tracking, so the helper must outlive this file. The
+-- DROP-before-CREATE at the top keeps this migration itself replay-safe.
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
 
 /*!40101 SET SQL_MODE=@OLD_SQL_MODE */;

@@ -31,8 +31,16 @@ import UIWindowLogin from './UI/UIWindowLogin.js';
 import UIWindowProgress from './UI/UIWindowProgress.js';
 import UIWindowSaveAccount from './UI/UIWindowSaveAccount.js';
 
+// localStorage keys for the GUI session token. v2 is the new key written
+// after the v1→v2 cutover. Reads prefer v2; v1 is only kept to drive the
+// reauth-modal path when a stale legacy session is found.
+window.AUTH_TOKEN_KEY_V1 = 'auth_token';
+window.AUTH_TOKEN_KEY_V2 = 'auth_token_v2';
+
 window.is_auth = () => {
-    if ( localStorage.getItem('auth_token') === null || window.auth_token === null )
+    const stored = localStorage.getItem(window.AUTH_TOKEN_KEY_V2)
+        || localStorage.getItem(window.AUTH_TOKEN_KEY_V1);
+    if ( stored === null || window.auth_token === null )
     {
         return false;
     }
@@ -40,6 +48,100 @@ window.is_auth = () => {
     {
         return true;
     }
+};
+
+/**
+ * Central handler for `401 { code: 'reauth_required' }`.
+ *
+ * The backend `authProbe` middleware emits this 401 shape whenever a
+ * token is legacy/revoked/expired. The GUI must NOT silently logout:
+ * that loses window/URL state and surprises the user. Instead we:
+ *   1. Snapshot enough state to land back where we were after sign-in.
+ *   2. Clear both the v1 and v2 token keys.
+ *   3. Show a soft modal explaining what happened.
+ *   4. Re-open UIWindowLogin, forwarding `auth_id` so temp users can
+ *      re-attach to the same identity.
+ *
+ * Idempotent: parallel 401s while the modal is already open are dropped.
+ */
+window._reauthInProgress = false;
+window.handleReauthRequired = async (signal = {}) => {
+    if ( window._reauthInProgress ) return;
+    window._reauthInProgress = true;
+    try {
+        // Snapshot the current URL so login can land us back here.
+        try {
+            sessionStorage.setItem('reauth_return_to', window.location.href);
+        } catch ( e ) {
+            // sessionStorage may be unavailable in embedded contexts; non-fatal.
+        }
+        // Drop both keys — once we have a reauth signal the current token
+        // must not be used again, and a stale v1 key would re-trigger the
+        // same modal on the next boot.
+        try {
+            localStorage.removeItem(window.AUTH_TOKEN_KEY_V2);
+            localStorage.removeItem(window.AUTH_TOKEN_KEY_V1);
+        } catch ( e ) { /* ignore */ }
+        window.auth_token = null;
+
+        // Soft modal. UIAlert is the lightest-weight existing surface.
+        try {
+            await UIAlert({
+                message: i18n('reauth_required_message') || 'Your session was updated for security — please sign in again.',
+                buttons: [
+                    {
+                        label: i18n('sign_in') || 'Sign in',
+                        value: 'sign_in',
+                        type: 'primary',
+                    },
+                ],
+            });
+        } catch ( e ) {
+            // If the alert surface isn't available (very early in boot),
+            // fall through to UIWindowLogin directly.
+        }
+
+        // Open the login window, forwarding auth_id.
+        try {
+            const login = await UIWindowLogin({
+                reload_on_success: true,
+                auth_id: signal.auth_id,
+                reauth_reason: signal.reason,
+                redirect_url: sessionStorage.getItem('reauth_return_to') || window.location.href,
+            });
+            if ( login ) {
+                try { sessionStorage.removeItem('reauth_return_to'); } catch ( e ) { /* ignore */ }
+            }
+        } catch ( e ) {
+            console.error('Reauth login flow failed:', e);
+        }
+    } finally {
+        window._reauthInProgress = false;
+    }
+};
+
+/**
+ * Inspect a jQuery / fetch error payload for the v2 `reauth_required` shape
+ * and route to either the reauth modal (soft) or the legacy hard-logout.
+ *
+ * Accepts a jQuery xhr-like object OR a parsed response body.
+ */
+window.handle401 = (xhrOrBody) => {
+    let body = null;
+    if ( xhrOrBody && typeof xhrOrBody === 'object' ) {
+        if ( 'responseJSON' in xhrOrBody && xhrOrBody.responseJSON ) {
+            body = xhrOrBody.responseJSON;
+        } else if ( 'responseText' in xhrOrBody && xhrOrBody.responseText ) {
+            try { body = JSON.parse(xhrOrBody.responseText); } catch ( e ) { body = null; }
+        } else if ( xhrOrBody.code ) {
+            body = xhrOrBody;
+        }
+    }
+    if ( body?.code === 'reauth_required' ) {
+        window.handleReauthRequired({ reason: body.reason, auth_id: body.auth_id });
+        return;
+    }
+    window.logout();
 };
 
 window.suggest_apps_for_fsentry = async (options) => {
@@ -55,8 +157,8 @@ window.suggest_apps_for_fsentry = async (options) => {
             'Authorization': `Bearer ${window.auth_token}`,
         },
         statusCode: {
-            401: function () {
-                window.logout();
+            401: function (xhr) {
+                window.handle401(xhr);
             },
         },
         success: function (res) {
@@ -477,7 +579,10 @@ window.refresh_user_data = async (auth_token) => {
 
 window.update_auth_data = async (auth_token, user, api_origin) => {
     window.auth_token = auth_token;
-    localStorage.setItem('auth_token', auth_token);
+    // Write the v2 key going forward and clear any lingering v1 key so
+    // a single localStorage source-of-truth is used.
+    localStorage.setItem(window.AUTH_TOKEN_KEY_V2, auth_token);
+    localStorage.removeItem(window.AUTH_TOKEN_KEY_V1);
 
     // Set http-only session cookie when user is changing.
     // This ensures user-protected endpoints, which only refer to the http-only cookie,
@@ -635,9 +740,59 @@ window.sendWindowWillCloseMsg = function (iframe_element) {
 window.logout = () => {
     // clear cache
     puter._cache.flushall();
+    // Clear both old and new token keys. Cookie clear is handled by
+    // the backend logout endpoint.
+    try {
+        localStorage.removeItem(window.AUTH_TOKEN_KEY_V2);
+        localStorage.removeItem(window.AUTH_TOKEN_KEY_V1);
+    } catch ( e ) { /* ignore */ }
     $(document).trigger('logout');
     // document.dispatchEvent(new Event("logout", { bubbles: true}));
 };
+
+// Global jQuery ajax error interceptor. Catches any `401 { code:
+// 'reauth_required' }` that wasn't already handled by a more specific
+// `statusCode[401]` callback on the call site, so we don't have to
+// audit every legacy `$.ajax` call when the reauth signal rolls out.
+if ( typeof $ !== 'undefined' && $.fn ) {
+    $(document).ajaxError(function (event, jqxhr, settings, thrownError) {
+        if ( jqxhr?.status !== 401 ) return;
+        if ( window._reauthInProgress ) return;
+        let body = jqxhr.responseJSON;
+        if ( ! body && jqxhr.responseText ) {
+            try { body = JSON.parse(jqxhr.responseText); } catch ( e ) { /* ignore */ }
+        }
+        if ( body?.code === 'reauth_required' ) {
+            window.handleReauthRequired({ reason: body.reason, auth_id: body.auth_id });
+        }
+    });
+}
+
+// Multi-tab propagation. If another tab signs in (sets the v2 token) or
+// signs out (clears it), reflect that here without forcing a full page
+// reload when we can avoid it.
+if ( typeof window !== 'undefined' && window.addEventListener ) {
+    window.addEventListener('storage', (event) => {
+        if ( event.key !== window.AUTH_TOKEN_KEY_V2 ) return;
+        if ( event.newValue ) {
+            // A peer tab just (re)authed. Pick up the fresh token so
+            // subsequent requests stop bouncing on reauth_required.
+            window.auth_token = event.newValue;
+            try { puter?.setAuthToken?.(event.newValue, window.api_origin); } catch ( e ) { /* ignore */ }
+            // If our own reauth modal is up, the new token from a peer
+            // tab is good enough — dismiss and reload to pick up the new
+            // session.
+            if ( window._reauthInProgress ) {
+                window.location.reload();
+            }
+        } else {
+            // A peer tab signed out. Mirror that locally as a soft logout.
+            if ( ! window._reauthInProgress ) {
+                window.logout();
+            }
+        }
+    });
+}
 
 /**
  * Checks if the current document is in fullscreen mode.
@@ -1735,10 +1890,6 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
                     suggested_apps: fsentry.suggested_apps,
                 };
                 UIItem(options);
-                // In dashboard mode, also create item via dashboard's renderer
-                if ( window.is_dashboard_mode && window.UIDashboardFileItem ) {
-                    window.UIDashboardFileItem(fsentry);
-                }
                 moved_items.push({ 'options': options, 'original_path': $(el_item).attr('data-path') });
 
                 // this operation may have created some missing directories,
@@ -1763,10 +1914,6 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
                             has_website: false,
                             suggested_apps: dir.suggested_apps,
                         });
-                    }
-                    // In dashboard mode, also create parent dirs via dashboard's renderer
-                    if ( window.is_dashboard_mode && window.UIDashboardFileItem ) {
-                        window.UIDashboardFileItem(dir);
                     }
                     window.sort_items(item_container);
                 });

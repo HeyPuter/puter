@@ -163,7 +163,7 @@ export const readingHasTerminal = (reading: ReadingNode[]): boolean => {
     return false;
 };
 
-// ── Rules ────────────────────────────────────────────────────────────
+// -- Rules ------------------------------------------------------------
 //
 // Rewriters, Implicators, and Exploders are the extension points other
 // services use to contribute domain semantics. These are plain objects —

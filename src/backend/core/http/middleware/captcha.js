@@ -59,7 +59,7 @@ function readTransactionValue(result) {
     return result[1];
 }
 
-// ── Public API ──────────────────────────────────────────────────────
+// -- Public API ------------------------------------------------------
 
 /** Generate a captcha image + token pair. */
 export async function generateCaptcha(difficulty = 'medium') {
@@ -96,7 +96,7 @@ export async function verifyCaptcha(token, answer) {
     return text === answer.toLowerCase().trim();
 }
 
-// ── Route middleware ────────────────────────────────────────────────
+// -- Route middleware ------------------------------------------------
 
 /**
  * Captcha gate middleware factory.

@@ -31,7 +31,7 @@ import { PuterStore } from '../types';
  * row is deleted.
  */
 export class ShareStore extends PuterStore {
-    // ── Reads ────────────────────────────────────────────────────────
+    // -- Reads --------------------------------------------------------
 
     async getByUid(uid) {
         const rows = await this.clients.db.read(
@@ -57,7 +57,7 @@ export class ShareStore extends PuterStore {
         return rows.map((r) => this.#normalizeRow(r));
     }
 
-    // ── Writes ───────────────────────────────────────────────────────
+    // -- Writes -------------------------------------------------------
 
     async create({ issuerUserId, recipientEmail, data }) {
         if (!issuerUserId || !recipientEmail) {
@@ -91,7 +91,7 @@ export class ShareStore extends PuterStore {
         return (result?.affectedRows ?? result?.changes ?? 0) > 0;
     }
 
-    // ── Internals ────────────────────────────────────────────────────
+    // -- Internals ----------------------------------------------------
 
     #normalizeRow(row) {
         if (!row) return null;

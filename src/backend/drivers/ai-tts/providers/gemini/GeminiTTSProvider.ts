@@ -229,35 +229,29 @@ export class GeminiTTSProvider extends TTSProvider {
             ? `${instructions}\n\nSay the following text aloud:\n${text}`
             : `Say the following text aloud:\n${text}`;
 
+        // Let Google GenAI `ApiError`s bubble — they carry `.status` and
+        // are mapped to `upstream_*` HttpErrors by the driver-boundary
+        // translator. Catching here and wrapping as 502 hid the upstream
+        // status and caused 4xx validation errors to page.
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        let response: any;
-        try {
-            response = await this.#client.models.generateContent({
-                model,
-                contents: [{ parts: [{ text: inputText }] }],
-                config: {
-                    responseModalities: ['AUDIO'],
-                    speechConfig: {
-                        voiceConfig: {
-                            prebuiltVoiceConfig: { voiceName: voice },
-                        },
+        const response: any = await this.#client.models.generateContent({
+            model,
+            contents: [{ parts: [{ text: inputText }] }],
+            config: {
+                responseModalities: ['AUDIO'],
+                speechConfig: {
+                    voiceConfig: {
+                        prebuiltVoiceConfig: { voiceName: voice },
                     },
                 },
-            });
-        } catch (e: unknown) {
-            const msg = (e as Error).message ?? String(e);
-            console.error('[GeminiTTSProvider] API error:', msg);
-            throw new HttpError(502, `Gemini TTS API error: ${msg}`, {
-                legacyCode: 'internal_error',
-                fields: { provider: 'gemini' },
-            });
-        }
+            },
+        });
 
         // Extract audio data from response
         const part = response?.candidates?.[0]?.content?.parts?.[0];
         if (!part?.inlineData?.data) {
-            throw new HttpError(502, 'Gemini TTS did not return audio data', {
-                legacyCode: 'internal_error',
+            throw new HttpError(400, 'Gemini TTS did not return audio data', {
+                legacyCode: 'upstream_bad_request',
                 fields: { provider: 'gemini' },
             });
         }

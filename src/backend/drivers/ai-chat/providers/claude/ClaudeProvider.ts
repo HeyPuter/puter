@@ -229,15 +229,21 @@ export class ClaudeProvider implements IChatProvider {
             reasoningEffort: requestedReasoningEffort,
             maxTokens: max_tokens,
         });
-        // Opus 4.7 errors on non-default sampling params; omit temperature entirely.
+        // Fable 5 and Opus 4.7/4.8 error on non-default sampling params; omit temperature entirely.
         // Other models require temperature=1 when thinking is enabled.
-        const isOpus47 = modelUsed.id === 'claude-opus-4-7';
-        const resolvedTemperature = isOpus47
+        const omitsTemperature = [
+            'claude-fable-5',
+            'claude-opus-4-7',
+            'claude-opus-4-8',
+        ].includes(modelUsed.id);
+        const resolvedTemperature = omitsTemperature
             ? undefined
             : thinkingConfig
               ? 1
               : (temperature ?? 0);
         const supportsEffort = [
+            'claude-fable-5',
+            'claude-opus-4-8',
             'claude-opus-4-7',
             'claude-opus-4-6',
             'claude-sonnet-4-6',
@@ -486,11 +492,16 @@ export class ClaudeProvider implements IChatProvider {
     }) {
         if (!reasoningEffort) return undefined;
 
-        // Opus 4.7, 4.6, and Sonnet 4.6 use adaptive thinking
-        // (`budget_tokens` is deprecated on 4.6/Sonnet 4.6, removed on 4.7).
-        // Opus 4.7 omits thinking content by default; `display: 'summarized'`
-        // restores visible reasoning in the stream.
-        if (modelId === 'claude-opus-4-7') {
+        // Fable 5, Opus 4.7/4.8, 4.6, and Sonnet 4.6 use adaptive thinking
+        // (`budget_tokens` is deprecated on 4.6/Sonnet 4.6, removed on
+        // Fable 5 and 4.7+). Fable 5 and Opus 4.7/4.8 omit thinking content
+        // by default; `display: 'summarized'` restores visible reasoning in
+        // the stream.
+        if (
+            modelId === 'claude-fable-5' ||
+            modelId === 'claude-opus-4-8' ||
+            modelId === 'claude-opus-4-7'
+        ) {
             return {
                 type: 'adaptive' as const,
                 display: 'summarized' as const,

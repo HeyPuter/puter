@@ -327,7 +327,7 @@ describe('XAITTSProvider.synthesize metering', () => {
 // ── Error paths ─────────────────────────────────────────────────────
 
 describe('XAITTSProvider.synthesize error paths', () => {
-    it('wraps non-OK upstream responses as HttpError 502', async () => {
+    it('maps upstream 4xx to HttpError 400 upstream_bad_request', async () => {
         const provider = makeProvider();
         fetchSpy.mockResolvedValueOnce(
             new Response('bad request', { status: 400 }),
@@ -335,17 +335,55 @@ describe('XAITTSProvider.synthesize error paths', () => {
 
         await expect(
             withTestActor(() => provider.synthesize({ text: 'hi' })),
-        ).rejects.toMatchObject({ statusCode: 502 });
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            legacyCode: 'upstream_bad_request',
+        });
         expect(incrementUsageSpy).not.toHaveBeenCalled();
     });
 
-    it('wraps fetch network errors as HttpError 502 (not a thrown ENOTFOUND)', async () => {
+    it('maps upstream 5xx to HttpError 400 upstream_provider_unavailable', async () => {
         const provider = makeProvider();
+        fetchSpy.mockResolvedValueOnce(
+            new Response('oops', { status: 503 }),
+        );
+
+        await expect(
+            withTestActor(() => provider.synthesize({ text: 'hi' })),
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            legacyCode: 'upstream_provider_unavailable',
+        });
+        expect(incrementUsageSpy).not.toHaveBeenCalled();
+    });
+
+    it('maps upstream 429 to HttpError 429 upstream_rate_limited', async () => {
+        const provider = makeProvider();
+        fetchSpy.mockResolvedValueOnce(
+            new Response('slow down', { status: 429 }),
+        );
+
+        await expect(
+            withTestActor(() => provider.synthesize({ text: 'hi' })),
+        ).rejects.toMatchObject({
+            statusCode: 429,
+            legacyCode: 'upstream_rate_limited',
+        });
+        expect(incrementUsageSpy).not.toHaveBeenCalled();
+    });
+
+    it('lets fetch network errors bubble so the driver boundary can decide', async () => {
+        const provider = makeProvider();
+        // Raw network errors don't carry an upstream status — we
+        // intentionally don't wrap them here. The driver-boundary
+        // catch-all will surface them as a generic 500 (which we
+        // *do* want to alert on, since "we can't even reach the
+        // provider" usually means something on our side is wrong).
         fetchSpy.mockRejectedValueOnce(new Error('connection reset'));
 
         await expect(
             withTestActor(() => provider.synthesize({ text: 'hi' })),
-        ).rejects.toMatchObject({ statusCode: 502 });
+        ).rejects.toThrow('connection reset');
         expect(incrementUsageSpy).not.toHaveBeenCalled();
     });
 });

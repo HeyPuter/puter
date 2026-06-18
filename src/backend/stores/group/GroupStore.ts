@@ -21,7 +21,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { PuterStore } from '../types';
 import { HttpError } from '../../core/http/HttpError.js';
 
-// ── Types ────────────────────────────────────────────────────────────
+// -- Types ------------------------------------------------------------
 
 export interface GroupRow {
     id: number;
@@ -32,12 +32,12 @@ export interface GroupRow {
     [k: string]: unknown;
 }
 
-// ── Constants ────────────────────────────────────────────────────────
+// -- Constants --------------------------------------------------------
 
 const CREATE_RATE_LIMIT_PER_HOUR = 20;
 const PUBLIC_GROUPS_CACHE_TTL_SECONDS = 10 * 60;
 
-// ── GroupStore ───────────────────────────────────────────────────────
+// -- GroupStore -------------------------------------------------------
 
 /**
  * Persistence layer for persistent user groups.
@@ -60,7 +60,7 @@ export class GroupStore extends PuterStore {
         this.redisNamespace = uuidv4();
     }
 
-    // ── Reads ────────────────────────────────────────────────────────
+    // -- Reads --------------------------------------------------------
 
     async getByUid(uid: string): Promise<GroupRow | null> {
         const rows = await this.clients.db.read(
@@ -142,7 +142,23 @@ export class GroupStore extends PuterStore {
         return rows.map((r) => String(r.username));
     }
 
-    // ── Writes ───────────────────────────────────────────────────────
+    /**
+     * UUIDs of a group's members — used to bump each member's permission
+     * cache generation when a group grant changes, so the grant/revoke
+     * takes effect for members without waiting for the cache TTL.
+     */
+    async listMemberUserUuids(uid: string): Promise<string[]> {
+        const rows = await this.clients.db.read(
+            'SELECT u.uuid FROM `user` u ' +
+                'JOIN (SELECT user_id FROM `jct_user_group` WHERE group_id = ' +
+                '(SELECT id FROM `group` WHERE uid = ?)) ug ' +
+                'ON u.id = ug.user_id',
+            [uid],
+        );
+        return rows.map((r) => String(r.uuid));
+    }
+
+    // -- Writes -------------------------------------------------------
 
     /**
      * Creates a new group owned by `ownerUserId`. Enforces a 20/hour per-owner
@@ -159,6 +175,7 @@ export class GroupStore extends PuterStore {
     }): Promise<string> {
         const windowClause = this.clients.db.case<string>({
             sqlite: "datetime('now', '-1 hour')",
+            postgres: "NOW() - INTERVAL '1 hour'",
             otherwise: 'NOW() - INTERVAL 1 HOUR',
         });
         const [countRow] = await this.clients.db.read(
@@ -210,7 +227,7 @@ export class GroupStore extends PuterStore {
         );
     }
 
-    // ── Internals ────────────────────────────────────────────────────
+    // -- Internals ----------------------------------------------------
 
     #publicGroupsCacheKey(): string {
         return `${this.redisNamespace}:group:public-groups`;

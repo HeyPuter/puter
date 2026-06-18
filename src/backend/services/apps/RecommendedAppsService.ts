@@ -33,6 +33,7 @@ const RECOMMENDED_APP_NAMES = [
     'jspaint',
     'music-player',
     'recorder',
+    'browser',
     'memos',
     'word-processor',
     'spreadsheet',

@@ -44,13 +44,14 @@ export class DesktopController extends PuterController {
     }
 
     registerRoutes(router) {
-        // ── Desktop background ──────────────────────────────────────
+        // -- Desktop background --------------------------------------
 
         router.post(
             '/set-desktop-bg',
             {
                 subdomain: 'api',
                 requireUserActor: true,
+                allowFullAccessToken: true,
             },
             async (req, res) => {
                 const { url, color, fit } = req.body ?? {};
@@ -98,13 +99,14 @@ export class DesktopController extends PuterController {
             },
         );
 
-        // ── Taskbar items ───────────────────────────────────────────
+        // -- Taskbar items -------------------------------------------
 
         router.post(
             '/update-taskbar-items',
             {
                 subdomain: 'api',
                 requireUserActor: true,
+                allowFullAccessToken: true,
             },
             async (req, res) => {
                 const { items } = req.body ?? {};
@@ -123,13 +125,14 @@ export class DesktopController extends PuterController {
             },
         );
 
-        // ── Folder layout ───────────────────────────────────────────
+        // -- Folder layout -------------------------------------------
 
         router.post(
             '/set_layout',
             {
                 subdomain: 'api',
                 requireUserActor: true,
+                allowFullAccessToken: true,
             },
             async (req, res) => {
                 const { item_uid, item_path, layout } = req.body ?? {};
@@ -149,13 +152,14 @@ export class DesktopController extends PuterController {
             },
         );
 
-        // ── Folder sort ─────────────────────────────────────────────
+        // -- Folder sort ---------------------------------------------
 
         router.post(
             '/set_sort_by',
             {
                 subdomain: 'api',
                 requireUserActor: true,
+                allowFullAccessToken: true,
             },
             async (req, res) => {
                 const { item_uid, item_path, sort_by, sort_order } =
@@ -188,7 +192,7 @@ export class DesktopController extends PuterController {
         );
     }
 
-    // ── Helpers ──────────────────────────────────────────────────────
+    // -- Helpers ------------------------------------------------------
 
     /**
      * Update columns on an actor-owned fsentry. Accepts either `item_uid`

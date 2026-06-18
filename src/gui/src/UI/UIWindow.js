@@ -3727,9 +3727,9 @@ window.set_sort_by = function (item_uid, sort_by, sort_order) {
             'Authorization': `Bearer ${window.auth_token}`,
         },
         statusCode: {
-            401: function () {
-                window.logout();
-            },
+            401: function (xhr) {
+                        window.handle401(xhr);
+                    },
         },
         success: function () {
         },
@@ -4080,9 +4080,9 @@ window.set_layout = function (item_uid, layout) {
             'Authorization': `Bearer ${window.auth_token}`,
         },
         statusCode: {
-            401: function () {
-                window.logout();
-            },
+            401: function (xhr) {
+                        window.handle401(xhr);
+                    },
         },
         success: function () {
             if ( layout === 'details' ) {

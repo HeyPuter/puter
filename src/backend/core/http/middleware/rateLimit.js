@@ -42,11 +42,11 @@ import { HttpError } from '../HttpError.js';
  * one via the `backend` option; omitting it uses the configured default.
  */
 
-// ── Backend names ────────────────────────────────────────────────────
+// -- Backend names ----------------------------------------------------
 
 export const RATE_LIMIT_BACKENDS = ['memory', 'redis', 'kv'];
 
-// ── Memory backend ──────────────────────────────────────────────────
+// -- Memory backend --------------------------------------------------
 
 // Hard cap and retention bound memory in the worst case. Without them,
 // one-shot keys (visited once, never again) leak forever: their single
@@ -87,7 +87,7 @@ async function checkMemory(key, limit, windowMs) {
     return true;
 }
 
-// ── Redis backend ───────────────────────────────────────────────────
+// -- Redis backend ---------------------------------------------------
 
 async function checkRedis(
     /** @type {import('ioredis').Cluster} */
@@ -127,7 +127,7 @@ async function checkRedis(
     return true;
 }
 
-// ── KV backend ──────────────────────────────────────────────────────
+// -- KV backend ------------------------------------------------------
 
 async function checkKv(kv, key, limit, windowMs) {
     const prefix = `rate:${key}:`;
@@ -151,7 +151,7 @@ async function checkKv(kv, key, limit, windowMs) {
     return true;
 }
 
-// ── Concurrent in-flight backends ───────────────────────────────────
+// -- Concurrent in-flight backends -----------------------------------
 //
 // Concurrent limiting is the *other* shape: rather than "no more than X
 // hits in Y window", it's "no more than X requests in flight at once".
@@ -247,7 +247,7 @@ async function acquireKvConcurrent(kv, key, limit) {
     };
 }
 
-// ── Backend registry ────────────────────────────────────────────────
+// -- Backend registry ------------------------------------------------
 //
 // All registered backends stay live simultaneously; selection happens
 // per call via the `backend` option. The `default` slot is what callers
@@ -345,7 +345,7 @@ function resolveBackend(name) {
     return backends[defaultBackendName];
 }
 
-// ── Key strategies ──────────────────────────────────────────────────
+// -- Key strategies --------------------------------------------------
 
 /**
  * Build a rate-limit key from the request.
@@ -392,7 +392,14 @@ function ip(req) {
     return req.ip || req.socket?.remoteAddress || 'unknown';
 }
 
-function fingerprint(req) {
+/**
+ * A coarse network fingerprint for a request: a short hash of the (proxy-aware)
+ * IP plus the headers a client can't trivially vary per-request without also
+ * changing how the request looks. Used as the default rate-limit key here, and
+ * exported so the global fingerprint middleware can stamp the identical value
+ * on `req.networkFingerprint` (one key space shared by both).
+ */
+export function computeNetworkFingerprint(req) {
     const parts = [
         ip(req),
         req.headers?.['user-agent'] || '',
@@ -406,7 +413,11 @@ function fingerprint(req) {
         .slice(0, 16);
 }
 
-// ── Route middleware ────────────────────────────────────────────────
+function fingerprint(req) {
+    return computeNetworkFingerprint(req);
+}
+
+// -- Route middleware ------------------------------------------------
 
 /**
  * Express middleware factory. Reads from the materialised route option:
@@ -455,7 +466,7 @@ export function rateLimitGate(opts) {
     };
 }
 
-// ── Driver-call helper ──────────────────────────────────────────────
+// -- Driver-call helper ----------------------------------------------
 
 /**
  * Check rate limit for a driver call. Called from DriverController's
@@ -492,7 +503,30 @@ export async function checkDriverRateLimit(req, ifaceName, method, opts = {}) {
     }
 }
 
-// ── Subscription-aware limit resolution ─────────────────────────────
+// -- Imperative helper -----------------------------------------------
+
+/**
+ * Imperative rate-limit check (no middleware shape). For handlers that
+ * need a second-axis limit after their route-level limit fires —
+ * e.g. `/auth/migrate-token` limits per IP at the route, then per
+ * `auth_id` once the v1 token is decoded. Returns true if allowed,
+ * false if rate-limited. Fails open on backend error, matching the
+ * rest of this module's policy.
+ */
+export async function checkRateLimit(key, limit, windowMs, backend) {
+    const bk = resolveBackend(backend);
+    try {
+        return await bk.rate(key, limit, windowMs);
+    } catch (err) {
+        console.error(
+            '[rate-limit] imperative check failed, failing open:',
+            err,
+        );
+        return true;
+    }
+}
+
+// -- Subscription-aware limit resolution -----------------------------
 
 /**
  * Per-request limit resolution shared by `rateLimitGate` and
@@ -517,7 +551,7 @@ async function resolveSubscriptionLimit(req, opts) {
     }
 }
 
-// ── Concurrency gate + driver helper ────────────────────────────────
+// -- Concurrency gate + driver helper --------------------------------
 
 /**
  * Express middleware factory for concurrent in-flight limiting:

@@ -1,0 +1,77 @@
+{
+  "manifest_version": "0.3",
+  "name": "puter-mcp-connector",
+  "display_name": "Puter",
+  "version": "0.1.0",
+  "description": "Use your own Puter account's filesystem, website hosting, and serverless workers over MCP.",
+  "long_description": "Connects an MCP client to a deployed Puter MCP Worker. Authenticates with your own Puter token (no shared credentials) and exposes tools to read/write/stat files, make directories, delete entries, host static websites, deploy/run serverless Puter Workers (which are built with puter.js and Puter authentication), and register launchable Puter apps. It also ships puter.js documentation tools so an agent can look up the exact API before writing worker or SDK code. The bundle runs a tiny local stdio<->HTTP proxy that forwards JSON-RPC to your Worker with your token attached.",
+  "author": {
+    "name": "Puter Technologies Inc.",
+    "url": "https://puter.com"
+  },
+  "homepage": "https://puter.com",
+  "documentation": "https://github.com/HeyPuter/puter/tree/main/src/mcp-connector",
+  "license": "AGPL-3.0-only",
+  "keywords": ["puter", "filesystem", "hosting", "subdomains", "workers", "serverless", "puter.js", "fs"],
+  "server": {
+    "type": "node",
+    "entry_point": "server/index.cjs",
+    "mcp_config": {
+      "command": "node",
+      "args": ["${__dirname}/server/index.cjs"],
+      "env": {
+        "PUTER_MCP_URL": "${user_config.server_url}",
+        "PUTER_TOKEN": "${user_config.puter_token}"
+      }
+    }
+  },
+  "tools_generated": false,
+  "tools": [
+    { "name": "whoami", "description": "Get the authenticated user's info (username, uuid, home directory). Use it to build valid paths." },
+    { "name": "fs_read_file", "description": "Read a file (UTF-8 or base64; optional offset/length)." },
+    { "name": "fs_stat", "description": "Stat a file or directory (size, type, timestamps, uid)." },
+    { "name": "fs_write_file", "description": "Create or overwrite a file (UTF-8 or base64 content)." },
+    { "name": "fs_mkdir", "description": "Create a directory (optionally creating missing parents)." },
+    { "name": "fs_delete", "description": "Delete a file or directory (recursive by default)." },
+    { "name": "fs_readdir", "description": "List the entries of a directory." },
+    { "name": "hosting_list", "description": "List the caller's published websites (hosting subdomains, served at <subdomain>.puter.site)." },
+    { "name": "hosting_get", "description": "Get a published website by its subdomain." },
+    { "name": "hosting_create", "description": "Publish a static website on a subdomain (optionally pointing at a root_dir)." },
+    { "name": "hosting_update", "description": "Re-point a website at a different root directory." },
+    { "name": "hosting_delete", "description": "Unpublish a website (deletes the subdomain, not the files)." },
+    { "name": "workers_create", "description": "Deploy a serverless Puter Worker from a JS file (uses the global router + puter.js); returns its public URL. Update by writing to the same file." },
+    { "name": "workers_list", "description": "List the caller's deployed serverless workers." },
+    { "name": "workers_get", "description": "Get a deployed worker (name, URL, source file) by name." },
+    { "name": "workers_exec", "description": "Call a deployed worker over HTTP as the authenticated user." },
+    { "name": "workers_delete", "description": "Undeploy a worker (leaves its source file in place)." },
+    { "name": "apps_list", "description": "List the Puter apps the caller owns / can edit (name, URL, icon, aggregate usage stats)." },
+    { "name": "apps_get", "description": "Get a Puter app by name; pass stats_period for detailed open/user counts over a window." },
+    { "name": "apps_create", "description": "Register a new Puter app (requires name and index_url, the URL the app loads)." },
+    { "name": "apps_update", "description": "Update a Puter app by name (only the fields you pass change; new_name renames)." },
+    { "name": "apps_delete", "description": "Delete a Puter app (leaves the site/worker its index_url points at in place)." },
+    { "name": "apps_check_name", "description": "Check whether a Puter app name is available before creating it." },
+    { "name": "puter_docs_index", "description": "Load the puter.js documentation index (topics + paths) from docs.puter.com/llms.txt." },
+    { "name": "puter_docs_get", "description": "Fetch a specific puter.js documentation page as Markdown by topic path (e.g. Workers/router)." }
+  ],
+  "user_config": {
+    "server_url": {
+      "type": "string",
+      "title": "Server URL",
+      "description": "URL of your deployed Puter MCP Worker, e.g. https://puter-mcp.<your-subdomain>.workers.dev/ (use http://127.0.0.1:8799/ for local `wrangler dev`).",
+      "required": true,
+      "default": "https://puter-mcp.example.workers.dev/"
+    },
+    "puter_token": {
+      "type": "string",
+      "title": "Puter Auth Token",
+      "description": "Your personal Puter token. Get it from a logged-in Puter browser tab: open the devtools console and run `puter.authToken`. Treated as a secret.",
+      "required": true,
+      "sensitive": true
+    }
+  },
+  "compatibility": {
+    "runtimes": {
+      "node": ">=18.0.0"
+    }
+  }
+}

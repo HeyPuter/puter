@@ -25,18 +25,21 @@ import type { Application, RequestHandler } from 'express';
 import helmet from 'helmet';
 import uaParser from 'ua-parser-js';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
 import http from 'node:http';
 import { puterClients } from './clients';
 import { puterControllers } from './controllers';
 import { createAuthProbe } from './core/http/middleware/authProbe';
 import { createRequestContextMiddleware } from './core/http/middleware/requestContext';
+import { createFingerprintMiddleware } from './core/http/middleware/fingerprint';
 import { createErrorHandler } from './core/http/middleware/errorHandler';
 import { isHttpError } from './core/http/HttpError';
 import {
     adminOnlyGate,
     allowedAppIdsGate,
     requireAuthGate,
-    requireEmailConfirmedGate,
+    requireVerifiedAccount,
+    requireNonAccessTokenGate,
     requireUserActorGate,
     requireVerifiedGate,
     subdomainGate,
@@ -59,6 +62,7 @@ import {
 } from './core/http/middleware/hostRedirects';
 import { createPuterSiteMiddleware } from './core/http/middleware/puterSite';
 import { PuterRouter } from './core/http/PuterRouter';
+import { createRouteLifecycleMiddleware } from './core/http/routeLifecycle';
 import { PREFIX_METADATA_KEY, type RouteDescriptor } from './core/http/types';
 import type { AuthService } from './services/auth/AuthService';
 import { puterDrivers } from './drivers';
@@ -377,6 +381,14 @@ export class PuterServer {
         this.#app.use(helmet.ieNoOpen());
         this.#app.use(helmet.permittedCrossDomainPolicies());
         this.#app.use(helmet.xssFilter());
+        // Don't leak full URLs (which can carry signed tokens / file paths)
+        // to cross-origin destinations. Per-user hosted sites tighten this
+        // further to `no-referrer` in the puterSite middleware.
+        this.#app.use(
+            helmet.referrerPolicy({
+                policy: 'strict-origin-when-cross-origin',
+            }),
+        );
         this.#app.disable('x-powered-by');
 
         // Cross-Origin-Resource-Policy: always allow cross-origin reads.
@@ -387,7 +399,7 @@ export class PuterServer {
             next();
         });
 
-        // ── Query param sanitization ────────────────────────────────
+        // -- Query param sanitization --------------------------------
         // Strip non-primitive query values. Express 5's default simple
         // parser mostly avoids these, but when `extended` qs is enabled
         // (or a client tricks the parser) arrays/objects can sneak in.
@@ -404,7 +416,7 @@ export class PuterServer {
             next();
         });
 
-        // ── UA parsing ──────────────────────────────────────────────
+        // -- UA parsing ----------------------------------------------
         this.#app.use((req, _res, next) => {
             const header = req.headers['user-agent'];
             if (header) {
@@ -413,34 +425,34 @@ export class PuterServer {
             next();
         });
 
-        // ── Host header validation ──────────────────────────────────
+        // -- Host header validation ----------------------------------
         this.#installHostValidation();
 
-        // ── Host redirects (www → root, user subdomain → static hosting)
+        // -- Host redirects (www → root, user subdomain → static hosting)
         // Installed after host validation so we know the host is allowed,
         // and before CORS/body-parsing so we short-circuit on redirects
         // without burning work.
         this.#app.use(createWwwRedirect(this.#config));
         this.#app.use(createUserSubdomainRedirect(this.#config));
 
-        // ── Native app static serving (editor.*, docs.*, …) ─────────
+        // -- Native app static serving (editor.*, docs.*, …) ---------
         // No-op when `native_apps_root` is unset.
         this.#app.use(createNativeAppStatic(this.#config));
 
-        // ── CORS headers ────────────────────────────────────────────
+        // -- CORS headers --------------------------------------------
         this.#installCors();
 
-        // ── IP validation ───────────────────────────────────────────
+        // -- IP validation -------------------------------------------
         if (this.#config.enable_ip_validation) {
             this.#installIpValidation();
         }
 
-        // ── OPTIONS preflight ───────────────────────────────────────
+        // -- OPTIONS preflight ---------------------------------------
         this.#app.options('/*splat', (_req, res) => {
             res.sendStatus(200);
         });
 
-        // ── Body parsing (JSON + text-as-json shim) ─────────────────
+        // -- Body parsing (JSON + text-as-json shim) -----------------
         const captureRawBody: NonNullable<
             Parameters<typeof express.json>[0]
         >['verify'] = (req, _res, buf) => {
@@ -462,23 +474,31 @@ export class PuterServer {
         // cover the auth_token / anti_csrf field shape, not file uploads.
         this.#app.use(express.urlencoded({ extended: true, limit: '100kb' }));
 
-        // ── Auth probe ──────────────────────────────────────────────
+        // -- Auth probe ----------------------------------------------
         const authService = this.services.auth as AuthService | undefined;
         if (authService) {
             this.#app.use(
                 createAuthProbe({
                     authService,
                     cookieName: this.#config.cookie_name,
+                    kvStore: this.stores.kv,
                 }),
             );
         }
 
-        // ── Per-request ALS context ─────────────────────────────────
+        // -- Request fingerprints ------------------------------------
+        // Stamp `req.networkFingerprint` (server-derived) and
+        // `req.deviceFingerprint` (client-supplied, from body/header). Runs
+        // AFTER body parsing so the body fingerprint is readable, and before
+        // the ALS context so the snapshot carries them.
+        this.#app.use(createFingerprintMiddleware());
+
+        // -- Per-request ALS context ---------------------------------
         // Runs AFTER auth probe so `req.actor` is already populated when
         // we snapshot it into the context.
         this.#app.use(createRequestContextMiddleware());
 
-        // ── User-hosted sites (*.puter.site, *.puter.app) ───────────
+        // -- User-hosted sites (*.puter.site, *.puter.app) -----------
         // Short-circuits hosting-domain hosts before any API/GUI
         // controller route has a chance to match. Needs DI layers for
         // subdomain lookup, private-app gate, and file streaming.
@@ -495,7 +515,7 @@ export class PuterServer {
         });
     }
 
-    // ── Host header validation ──────────────────────────────────────
+    // -- Host header validation --------------------------------------
 
     #installHostValidation() {
         const config = this.#config;
@@ -586,7 +606,7 @@ export class PuterServer {
         return hostname === domain || hostname.endsWith(`.${domain}`);
     }
 
-    // ── CORS headers ─────────────────────────────────────────────────
+    // -- CORS headers -------------------------------------------------
 
     #installCors() {
         const config = this.#config;
@@ -598,6 +618,8 @@ export class PuterServer {
             'Content-Type',
             'Accept',
             'Authorization',
+            'Cache-Control',
+            'Pragma',
             'sentry-trace',
             'baggage',
             'Depth',
@@ -640,7 +662,7 @@ export class PuterServer {
         });
     }
 
-    // ── IP validation ───────────────────────────────────────────────
+    // -- IP validation -----------------------------------------------
 
     #installIpValidation() {
         this.#app.use(async (req, res, next) => {
@@ -683,9 +705,30 @@ export class PuterServer {
                     // route + error signature so a hot loop of the same
                     // crash lands as a single alarm with N occurrences
                     // instead of N pages.
+                    //
+                    // FORCED_ALERT_CODES override the 5xx-only rule: a
+                    // status < 500 still pages if its legacyCode is in
+                    // the set. Use this for things we want to know about
+                    // even though we expose them as 4xx to users (e.g.
+                    // sustained upstream provider rate limits).
+                    //
+                    // SKIP_ALERT_PREFIXES override the 5xx rule the other
+                    // direction: an error tagged as caused by an upstream
+                    // provider or a misbehaving client gets exposed to
+                    // the user but does not page.
+                    const FORCED_ALERT_CODES = new Set([
+                        'upstream_rate_limited',
+                        'upstream_auth_failed',
+                    ]);
+                    const SKIP_ALERT_PREFIXES = /^(upstream_|client_)/;
                     const isHttp = isHttpError(err);
                     const status = isHttp ? err.statusCode : 500;
-                    if (status < 500) return;
+                    const legacyCode = isHttp ? (err.legacyCode ?? '') : '';
+                    const forced = FORCED_ALERT_CODES.has(legacyCode);
+                    if (!forced) {
+                        if (status < 500) return;
+                        if (SKIP_ALERT_PREFIXES.test(legacyCode)) return;
+                    }
                     const signature = isHttp
                         ? err.legacyCode || err.code || err.message
                         : err instanceof Error
@@ -791,15 +834,25 @@ export class PuterServer {
             opts.allowedAppIds ||
             opts.requireVerified,
         );
-        if (needsAuth) mwChain.push(requireAuthGate());
+        if (needsAuth) {
+            mwChain.push(requireAuthGate());
+        }
 
-        // Default-on email confirmation gate. Every authenticated route
-        // rejects users pending confirmation unless `allowUnconfirmed`
-        // opts out. This prevents unconfirmed accounts from accessing
-        // AI, FS, driver, etc. endpoints while still allowing essential
-        // flows (logout, confirm-email, whoami, save-account, …).
+        // Default-on account-verification gate. Every authenticated route
+        // rejects accounts still pending any signup-time verification —
+        // email confirmation, SMS phone verification, or card verification —
+        // unless `allowUnconfirmed` opts out. This is what keeps low-reputation
+        // signups (which the abuse harness flags instead of hard-blocking) out
+        // of AI, FS, driver, etc. endpoints server-side, not just behind the
+        // GUI modal, while still allowing essential flows (logout,
+        // confirm-email / -phone, card verification, whoami, save-account, …).
         if (needsAuth && !opts.allowUnconfirmed) {
-            mwChain.push(requireEmailConfirmedGate());
+            mwChain.push(requireVerifiedAccount());
+        }
+
+        // block access tokens by default
+        if (needsAuth && !opts.allowAccessToken) {
+            mwChain.push(requireNonAccessTokenGate());
         }
 
         // `requireVerified` intentionally does NOT imply `requireUserActor`:
@@ -813,7 +866,13 @@ export class PuterServer {
         // token, not only from browser sessions. `adminOnlyGate` gates on
         // `actor.user.username`, which is populated for access-token and
         // app-under-user actors alike.
-        if (opts.requireUserActor) mwChain.push(requireUserActorGate());
+        if (opts.requireUserActor) {
+            mwChain.push(
+                requireUserActorGate({
+                    allowFullAccess: opts.allowFullAccessToken,
+                }),
+            );
+        }
 
         if (opts.adminOnly) {
             const extras = Array.isArray(opts.adminOnly) ? opts.adminOnly : [];
@@ -835,11 +894,15 @@ export class PuterServer {
         }
 
         // 2b. Rate limiting. Runs after auth so 'user' key strategy
-        // has access to req.actor.
+        // has access to req.actor. An array applies each limit as its
+        // own gate — a request must pass all of them.
         if (opts.rateLimit) {
-            mwChain.push(
-                rateLimitGate(opts.rateLimit) as unknown as RequestHandler,
-            );
+            const limits = Array.isArray(opts.rateLimit)
+                ? opts.rateLimit
+                : [opts.rateLimit];
+            for (const rl of limits) {
+                mwChain.push(rateLimitGate(rl) as unknown as RequestHandler);
+            }
         }
 
         // 2b'. Concurrent in-flight limiting. Same auth-ordering reason
@@ -920,6 +983,20 @@ export class PuterServer {
                 ? PuterServer.#joinPath(routerPrefix, route.path)
                 : undefined;
 
+        // 5. Per-endpoint lifecycle events. Skipped for `use` middleware
+        // (those aren't endpoints). Pushed last so the `before` hook sees a
+        // fully-authenticated request, and only when the event client is
+        // wired (minimal test harnesses may omit it).
+        if (route.method !== 'use' && this.clients.event) {
+            mwChain.push(
+                createRouteLifecycleMiddleware(
+                    this.clients.event,
+                    route.method,
+                    fullPath,
+                ),
+            );
+        }
+
         if (route.method === 'use') {
             // Subdomain check for `use` middleware lives INSIDE the handler
             // wrapper — `next('route')` from a stand-alone subdomainGate
@@ -938,9 +1015,9 @@ export class PuterServer {
                 };
             }
             if (fullPath !== undefined) {
-                app.use(fullPath as any, ...mwChain, handler);
+                app.use(fullPath as any, ...mwChain.flat(), handler);
             } else {
-                app.use(...mwChain, handler);
+                app.use(...mwChain.flat(), handler);
             }
             return;
         }
@@ -991,7 +1068,7 @@ export class PuterServer {
                 if (entry.isFile()) {
                     if (/\.(js|mjs|cjs)$/.test(entry.name)) {
                         console.log(`Importing extension file ${entryPath}`);
-                        await import(entryPath);
+                        await import(pathToFileURL(entryPath).href);
                     }
                     continue;
                 }
@@ -1028,7 +1105,7 @@ export class PuterServer {
                 if (!mainPath) continue;
 
                 console.log(`Importing extension file ${mainPath}`);
-                await import(mainPath);
+                await import(pathToFileURL(mainPath).href);
             }
         }
     }

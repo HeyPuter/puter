@@ -5,9 +5,11 @@ description: Run and manage serverless JavaScript funcitons in the cloud.
 
 Serverless Workers are serverless functions that run JavaScript code in the cloud.
 
+Workers run server-side, which makes them a good fit for centralized application data and backend logic. See [Integration with Puter.js](/Workers/router/#integration-with-puter-js) for how worker code accesses Puter resources.
+
 ## Router
 
-Workers use a router-based system to handle HTTP requests and can integrate with Puter's cloud services like file storage, key-value databases, and AI APIs. Workers are perfect for building backend services, REST APIs, webhooks, and data processing pipelines.
+Workers use a router-based system to handle HTTP requests and can integrate with Puter's cloud services like file storage, key-value databases, and AI APIs. Workers are perfect for building backend services, REST APIs, webhooks, shared data stores, and data processing pipelines.
 
 ### Examples
 
@@ -139,3 +141,85 @@ You can see various Puter.js workers management features in action from the foll
 - [Get a worker](/playground/workers-get/)
 - [Workers Management](/playground/workers-management/)
 - [Authenticated Worker Requests](/playground/workers-exec/)
+
+## Deployment
+
+Once your worker is ready, you can put it online on a free `*.puter.work` subdomain.
+
+<div class="info">A worker is created once and keeps its name and URL. To ship changes, overwrite its source file rather than creating a new worker — see <a href="/Workers/create/#updating-a-worker">Updating a worker</a>.</div>
+
+### Publish from puter.com
+
+The quickest way to publish a worker is to create it on [puter.com](https://puter.com) and publish it.
+
+<ol>
+    <li>
+        Create a <code>.js</code> file containing your worker code.
+        <figure style="margin: 30px 0;">
+            <img src="https://developer.puter.com/assets/img/workers/code.webp" style="width: 100%; max-width: 600px; margin: 0 auto; display: block; border-radius: 6px;">
+        </figure>
+    </li>
+    <li>
+        Right-click the file and choose <strong>Publish as Worker</strong>.
+        <figure style="margin: 30px 0;">
+            <img src="https://developer.puter.com/assets/img/workers/publish-workers.webp" style="width: 100%; max-width: 600px; margin: 0 auto; display: block; border-radius: 6px;">
+        </figure>
+    </li>
+    <li>
+        Pick a name and click <strong>Publish</strong>. Your worker is live at <code>https://your-worker.puter.work</code>.
+        <figure style="margin: 30px 0;">
+            <img src="https://developer.puter.com/assets/img/workers/published.webp" style="width: 100%; max-width: 600px; margin: 0 auto; display: block; border-radius: 6px;">
+        </figure>
+    </li>
+</ol>
+
+### Deploy with the Puter CLI
+
+You can also deploy straight from the terminal with the [Puter CLI](https://www.npmjs.com/package/@heyputer/cli).
+
+Install it globally:
+
+```
+npm install -g @heyputer/cli
+```
+
+Then deploy your worker's JavaScript file to a `*.puter.work` subdomain:
+
+```
+puter worker deploy [file] [name]
+```
+
+Both arguments are optional — run `puter worker deploy` with no arguments and the CLI prompts you for the file and worker name.
+
+<div class="info">The Puter CLI is currently in beta (0.x), so commands and behavior may change.</div>
+
+### Automate with GitHub Actions
+
+If your worker's code lives on GitHub, you can redeploy it automatically on every push using the [Puter Worker Deploy Action](https://github.com/HeyPuter/puter-worker-deploy-action).
+
+Add a workflow file at `.github/workflows/deploy-worker.yml`:
+
+```yaml
+name: Deploy Worker to Puter
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy worker
+        uses: HeyPuter/puter-worker-deploy-action@v1.0.1
+        with:
+          worker_name: my-api             # publishes to my-api.puter.work
+          puter_path: ~/Workers/my-api/   # where to store the files on Puter
+          source_path: worker             # the folder containing your worker
+          entry_file: index.js            # the worker's entry file
+          puter_token: ${{ secrets.PUTER_TOKEN }}
+```
+
+<div class="info">Create a new repository secret named <code>PUTER_TOKEN</code> and set its value to your Puter auth token (see <a href="https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/use-secrets#creating-secrets-for-a-repository">creating secrets for a repository</a>). To get your auth token, follow the <a href="https://developer.puter.com/tutorials/puter-auth-token/">Puter auth token tutorial</a>.</div>

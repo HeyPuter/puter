@@ -22,6 +22,31 @@ import type { IChatModel } from '../../types.js';
 // Hardcoded from https://models.dev/api.json
 export const GEMINI_MODELS: IChatModel[] = [
     {
+        puterId: 'google:google/gemini-3.5-flash',
+        id: 'gemini-3.5-flash',
+        modalities: {
+            input: ['text', 'image', 'audio', 'video', 'pdf'],
+            output: ['text'],
+        },
+        open_weights: false,
+        tool_call: true,
+        knowledge: '2025-01',
+        release_date: '2026-05-19',
+        name: 'Gemini 3.5 Flash',
+        aliases: ['google/gemini-3.5-flash'],
+        context: 1_048_576,
+        max_tokens: 65_536,
+        costs_currency: 'usd-cents',
+        input_cost_key: 'prompt_tokens',
+        output_cost_key: 'completion_tokens',
+        costs: {
+            tokens: 1_000_000,
+            prompt_tokens: 150,
+            completion_tokens: 900,
+            cached_tokens: 15,
+        },
+    },
+    {
         puterId: 'google:google/gemini-2.0-flash',
         id: 'gemini-2.0-flash',
         modalities: {

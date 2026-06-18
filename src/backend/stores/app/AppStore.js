@@ -20,6 +20,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { PuterStore } from '../types';
 import { HttpError } from '../../core/http/HttpError.js';
+import { validateUrl } from '../../util/validation.js';
 
 /**
  * Persistence + cache for the `apps` table.
@@ -47,11 +48,11 @@ const OLD_APP_NAME_TTL_MONTHS = 3;
 // backends without splitting the cap by driver.
 const BULK_QUERY_CHUNK_SIZE = 200;
 
-// Top-level all-time open/user counts: hot path, slow to compute, refreshed
-// periodically by one instance and read via MGET on every app list/read.
+// Top-level all-time open/user counts: hot path, slow to compute. Cached
+// lazily on read (pipelined MGET on every app list/read; misses query the
+// analytics source once and backfill) and left to autoexpire — these counts
+// tolerate being slightly stale, so there's no background refresh.
 const STATS_CACHE_TTL_SECONDS = 30 * 60;
-const STATS_REFRESH_INTERVAL_MS = 15 * 60 * 1000;
-const STATS_REFRESH_LOCK_KEY = 'appStatsLastRefresh';
 
 // Period helpers for detailed/grouped stats. Ported from v1
 // AppInformationService — queries go straight to ClickHouse/MySQL on demand
@@ -106,10 +107,19 @@ const READ_ONLY_COLUMNS = new Set([
     'protected',
     'is_private',
 ]);
+const APP_BOOLEAN_COLUMNS = new Set([
+    'godmode',
+    'maximize_on_start',
+    'approved_for_listing',
+    'approved_for_opening_items',
+    'approved_for_incentive_program',
+    'background',
+    'protected',
+    'is_private',
+]);
 
 export class AppStore extends PuterStore {
-    #appStatsInterval;
-    // ── Reads ────────────────────────────────────────────────────────
+    // -- Reads --------------------------------------------------------
 
     async getByUid(uid) {
         return this.#getByProperty('uid', uid);
@@ -304,7 +314,7 @@ export class AppStore extends PuterStore {
         return apps;
     }
 
-    // ── Writes ───────────────────────────────────────────────────────
+    // -- Writes -------------------------------------------------------
 
     /**
      * Create a new app row.
@@ -341,7 +351,7 @@ export class AppStore extends PuterStore {
         const colList = columns.map((c) => `\`${c}\``).join(', ');
 
         const result = await this.clients.db.write(
-            `INSERT INTO \`apps\` (${colList}) VALUES (${placeholders})`,
+            `INSERT INTO \`apps\` (${colList}) VALUES (${placeholders})${this.clients.db.returningIdClause()}`,
             values,
         );
         const insertId = result?.insertId;
@@ -365,6 +375,13 @@ export class AppStore extends PuterStore {
      * `#isOriginBootstrapApp` checks.
      */
     async createFromOrigin(uid, origin) {
+        // Bootstrap apps persist `origin` straight into `index_url`, which is
+        // later loaded as `iframe.src`. Enforce the same http(s) scheme
+        // allow-list as the AppDriver create/update path so a caller-supplied
+        // `javascript:`/`data:`/`file:` origin can never become a stored,
+        // launchable code-execution vector.
+        validateUrl(origin, { key: 'origin' });
+
         const fields = {
             name: uid,
             title: uid,
@@ -380,7 +397,7 @@ export class AppStore extends PuterStore {
         const colList = columns.map((c) => `\`${c}\``).join(', ');
 
         const result = await this.clients.db.write(
-            `INSERT INTO \`apps\` (${colList}) VALUES (${placeholders})`,
+            `INSERT INTO \`apps\` (${colList}) VALUES (${placeholders})${this.clients.db.returningIdClause()}`,
             values,
         );
         const insertId = result?.insertId;
@@ -497,7 +514,7 @@ export class AppStore extends PuterStore {
         return true;
     }
 
-    // ── Filetype associations ────────────────────────────────────────
+    // -- Filetype associations ----------------------------------------
 
     async getFiletypeAssociations(appId) {
         const rows = await this.clients.db.read(
@@ -621,7 +638,7 @@ export class AppStore extends PuterStore {
         await this.publishCacheKeys({ keys, broadcast: true });
     }
 
-    // ── Cache invalidation ───────────────────────────────────────────
+    // -- Cache invalidation -------------------------------------------
 
     async invalidate(app) {
         const keys = this.#cacheKeysForApp(app);
@@ -651,7 +668,7 @@ export class AppStore extends PuterStore {
         );
     }
 
-    // ── Internals ────────────────────────────────────────────────────
+    // -- Internals ----------------------------------------------------
 
     async #getByProperty(prop, value) {
         if (value === undefined || value === null) return null;
@@ -698,6 +715,7 @@ export class AppStore extends PuterStore {
     async #resolveByOldName(name) {
         const cutoffClause = this.clients.db.case({
             sqlite: `datetime('now', '-${OLD_APP_NAME_TTL_MONTHS} months')`,
+            postgres: `(NOW() - INTERVAL '${OLD_APP_NAME_TTL_MONTHS} months')`,
             otherwise: `(NOW() - INTERVAL ${OLD_APP_NAME_TTL_MONTHS} MONTH)`,
         });
 
@@ -842,7 +860,10 @@ export class AppStore extends PuterStore {
         const out = {};
         for (const [k, v] of Object.entries(fields)) {
             if (READ_ONLY_COLUMNS.has(k)) continue;
-            out[k] = v;
+            out[k] =
+                APP_BOOLEAN_COLUMNS.has(k) && v !== null && v !== undefined
+                    ? this.clients.db.booleanValue(Boolean(v))
+                    : v;
         }
         return out;
     }
@@ -976,7 +997,7 @@ export class AppStore extends PuterStore {
         const period = options.period ?? 'all';
         const grouping = options.grouping;
         const timeRange = this.#computeTimeRange(period, options.createdAt);
-        const clickhouse = globalThis.clickhouseClient;
+        const clickhouse = this.clients.clickhouse;
 
         if (grouping) {
             if (!MYSQL_DATE_FORMATS[grouping]) {
@@ -997,13 +1018,13 @@ export class AppStore extends PuterStore {
         return this.#querySingleStats(appUid, timeRange, clickhouse);
     }
 
-    // ── Stats internals ──────────────────────────────────────────────
+    // -- Stats internals ----------------------------------------------
 
     async #queryStatsForUids(uids) {
         const out = new Map();
         if (uids.length === 0) return out;
 
-        const clickhouse = globalThis.clickhouseClient;
+        const clickhouse = this.clients.clickhouse;
         if (clickhouse) {
             const res = await clickhouse.query({
                 query: `
@@ -1136,6 +1157,7 @@ export class AppStore extends PuterStore {
         const periodExpr = this.clients.db.case({
             mysql: `DATE_FORMAT(FROM_UNIXTIME(ts), '${timeFormat}')`,
             sqlite: `STRFTIME('${timeFormat}', datetime(ts, 'unixepoch'))`,
+            postgres: `TO_CHAR(TO_TIMESTAMP(ts), '${this.#postgresDateFormat(grouping)}')`,
             otherwise: `DATE_FORMAT(FROM_UNIXTIME(ts), '${timeFormat}')`,
         });
         const rows = await this.clients.db.read(
@@ -1154,6 +1176,23 @@ export class AppStore extends PuterStore {
             user_count: parseInt(r.user_count, 10) || 0,
         }));
         return this.#assembleGroupedResult(processed, allPeriods, grouping);
+    }
+
+    #postgresDateFormat(grouping) {
+        switch (grouping) {
+            case 'hour':
+                return 'YYYY-MM-DD HH24:00:00';
+            case 'day':
+                return 'YYYY-MM-DD';
+            case 'week':
+                return 'YYYY-WW';
+            case 'month':
+                return 'YYYY-MM';
+            case 'year':
+                return 'YYYY';
+            default:
+                return 'YYYY-MM-DD';
+        }
     }
 
     #assembleGroupedResult(rows, allPeriods, grouping) {
@@ -1333,104 +1372,5 @@ export class AppStore extends PuterStore {
             target.setMonth(0, 1 + ((4 - target.getDay() + 7) % 7));
         }
         return 1 + Math.ceil((firstThursday - target) / 604800000);
-    }
-
-    // ── Refresh loop ─────────────────────────────────────────────────
-
-    async #refreshAppStats() {
-        // Cross-instance lock: if another node refreshed within the window,
-        // skip. TTL slightly longer than the interval so the guard survives
-        // jitter in the setInterval drift.
-        try {
-            const last = parseInt(
-                (await this.clients.redis.get(STATS_REFRESH_LOCK_KEY)) || '0',
-                10,
-            );
-            const now = Date.now();
-            if (now - last < STATS_REFRESH_INTERVAL_MS) return;
-            await this.clients.redis.set(
-                STATS_REFRESH_LOCK_KEY,
-                String(now),
-                'EX',
-                Math.floor(STATS_REFRESH_INTERVAL_MS / 1000) + 60,
-            );
-        } catch {
-            // Keep going — better to over-refresh than miss updates entirely.
-        }
-
-        const clickhouse = globalThis.clickhouseClient;
-        let rows;
-        try {
-            if (clickhouse) {
-                const res = await clickhouse.query({
-                    query: `
-                        SELECT app_uid,
-                               count(_id) AS open_count,
-                               count(DISTINCT user_id) AS user_count
-                        FROM app_opens
-                        GROUP BY app_uid
-                    `,
-                    format: 'JSONEachRow',
-                });
-                rows = await res.json();
-            } else {
-                rows = await this.clients.db.read(
-                    `SELECT app_uid,
-                            COUNT(_id) AS open_count,
-                            COUNT(DISTINCT user_id) AS user_count
-                     FROM app_opens
-                     GROUP BY app_uid`,
-                );
-            }
-        } catch (e) {
-            console.warn('[AppStore] refresh app stats failed:', e);
-            return;
-        }
-
-        if (!rows?.length) return;
-
-        try {
-            const pipeline = this.clients.redis.pipeline();
-            for (const row of rows) {
-                if (!row.app_uid) continue;
-                pipeline.set(
-                    this.#openCountCacheKey(row.app_uid),
-                    String(parseInt(row.open_count, 10) || 0),
-                    'EX',
-                    STATS_CACHE_TTL_SECONDS,
-                );
-                pipeline.set(
-                    this.#userCountCacheKey(row.app_uid),
-                    String(parseInt(row.user_count, 10) || 0),
-                    'EX',
-                    STATS_CACHE_TTL_SECONDS,
-                );
-            }
-            await pipeline.exec();
-        } catch (e) {
-            console.warn('[AppStore] refresh app stats cache write failed:', e);
-        }
-    }
-
-    onServerStart() {
-        // Kick off one refresh immediately so the cache is warm before the
-        // first client request (failing silently is fine — getAppsStats
-        // falls back to an on-demand query).
-        this.#refreshAppStats().catch(() => {});
-        // Jitter prevents every node refreshing on the same tick when a
-        // cluster boots together.
-        this.#appStatsInterval = setInterval(
-            () => {
-                this.#refreshAppStats().catch(() => {});
-            },
-            STATS_REFRESH_INTERVAL_MS + Math.floor(Math.random() * 500),
-        );
-    }
-
-    onServerShutdown() {
-        if (this.#appStatsInterval) {
-            clearInterval(this.#appStatsInterval);
-            this.#appStatsInterval = undefined;
-        }
     }
 }

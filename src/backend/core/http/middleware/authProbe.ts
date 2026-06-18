@@ -18,7 +18,11 @@
  */
 
 import type { Request, RequestHandler } from 'express';
-import type { AuthService } from '../../../services/auth/AuthService';
+import type {
+    AuthService,
+    ReauthReason,
+} from '../../../services/auth/AuthService';
+import type { SystemKVStore } from '../../../stores/systemKv/SystemKVStore';
 
 // Ensure the `Request.actor` / `Request.token` augmentation is in scope
 // wherever this middleware is imported.
@@ -28,7 +32,24 @@ interface AuthProbeOptions {
     authService: AuthService;
     /** Name of the session cookie to inspect. Falls back to `config.cookie_name`. */
     cookieName?: string;
+    kvStore?: SystemKVStore;
 }
+
+const authV2MetricsKey = (): string => {
+    const now = new Date();
+    const yyyy = now.getUTCFullYear();
+    const mm = String(now.getUTCMonth() + 1).padStart(2, '0');
+    const dd = String(now.getUTCDate()).padStart(2, '0');
+    return `auth-v2:metrics:${yyyy}-${mm}-${dd}`;
+};
+
+const bumpCounter = (
+    kv: Pick<SystemKVStore, 'incr'> | undefined,
+    pathAndAmountMap: Record<string, number>,
+): void => {
+    if (!kv) return;
+    kv.incr({ key: authV2MetricsKey(), pathAndAmountMap }).catch(() => {});
+};
 
 /**
  * Non-enforcing auth probe. Runs globally (installed by `PuterServer`) on
@@ -49,7 +70,7 @@ interface AuthProbeOptions {
  *   6. Socket handshake query (for ws upgrades that pass through HTTP first)
  */
 export const createAuthProbe = (opts: AuthProbeOptions): RequestHandler => {
-    const { authService, cookieName } = opts;
+    const { authService, cookieName, kvStore } = opts;
     return async (req, _res, next): Promise<void> => {
         // If something upstream already attached an actor, respect it.
         if (req.actor) {
@@ -64,24 +85,45 @@ export const createAuthProbe = (opts: AuthProbeOptions): RequestHandler => {
         }
 
         try {
-            const actor = await authService.authenticateFromToken(token);
-            if (actor) {
-                req.actor = actor;
+            // Thread the request IP and User-Agent into authenticate so
+            // SessionStore.touch can refresh `last_ip` / `last_user_agent`
+            // when a session roams to a new network / browser.
+            const result = await authService.authenticate(token, {
+                ip: req.ip,
+                userAgent: req.headers['user-agent'] ?? undefined,
+            });
+
+            if (result.reauth) {
+                bumpCounter(kvStore, {
+                    v1: 1,
+                    [`reauth.${result.reauth.reason}`]: 1,
+                });
+                // Bind a short-lived JWT proving the rejected session
+                // identified this auth_id. The GUI echoes this back on
+                // /login or /signup; the raw auth_id is informational
+                // only and is not accepted as authoritative on its own.
+                const reauth_token = result.reauth.auth_id
+                    ? authService.signReauthToken(result.reauth.auth_id)
+                    : undefined;
+                req.requiresReauth = {
+                    reason: result.reauth.reason as ReauthReason,
+                    auth_id: result.reauth.auth_id,
+                    ...(reauth_token ? { reauth_token } : {}),
+                };
+                console.info(
+                    `[auth-v2] reauth reason=${result.reauth.reason} auth_id=${result.reauth.auth_id ?? '-'}`,
+                );
+            } else if (result.actor) {
+                bumpCounter(kvStore, { v2: 1 });
+            }
+
+            if (result.actor) {
+                req.actor = result.actor;
                 req.token = token;
-            } else {
-                // Token was present but didn't resolve — covers v1-shape
-                // tokens v2 can't authenticate (e.g. FPE-encrypted session
-                // UUIDs), as well as tokens whose session/user/app rows
-                // have been deleted. `requireAuthGate` reads this flag
-                // to emit `token_auth_failed` (matching v1) so clients
-                // trigger their re-login flow instead of retrying.
+            } else if (result.invalid) {
                 req.tokenAuthFailed = true;
             }
         } catch {
-            // Probe never rejects — invalid tokens just leave `req.actor`
-            // undefined. Same flag as above so the gate's response shape
-            // is identical regardless of whether the failure came from
-            // jwt.verify or a downstream lookup.
             req.tokenAuthFailed = true;
         }
         next();
@@ -130,10 +172,22 @@ const extractToken = (req: Request, cookieName?: string): string | null => {
     // arbitrary browser Origin spend an ambient session cookie against the
     // credentialed API CORS surface; bearer/body/x-api-key tokens remain
     // available for cross-origin SDK requests.
-    if (cookieName && !isCrossOriginBrowserRequest(req)) {
-        const cookieToken = readCookie(req, cookieName);
-        if (cookieToken) {
-            return stripBearer(cookieToken);
+    //
+    // `puter_token_v2` is the cookie companion to v2 app-under-user
+    // tokens set by `POST /auth/migrate-token`. We accept it under the
+    // same same-origin gate as the primary session cookie so a private
+    // app iframe can authenticate subsequent calls without re-attaching
+    // an `Authorization` header on every request.
+    if (!isCrossOriginBrowserRequest(req)) {
+        if (cookieName) {
+            const cookieToken = req.cookies?.[cookieName];
+            if (typeof cookieToken === 'string' && cookieToken.length > 0) {
+                return stripBearer(cookieToken);
+            }
+        }
+        const v2Token = req.cookies?.puter_token_v2;
+        if (typeof v2Token === 'string' && v2Token.length > 0) {
+            return stripBearer(v2Token);
         }
     }
 
@@ -179,29 +233,4 @@ const isCrossOriginBrowserRequest = (req: Request): boolean => {
     } catch {
         return true;
     }
-};
-
-/**
- * Minimal cookie reader. Avoids pulling in `cookie-parser` for the one
- * lookup the probe needs. Handles quoted values and URL-decodes the result.
- */
-const readCookie = (req: Request, name: string): string | null => {
-    const header =
-        typeof req.header === 'function' ? req.header('cookie') : undefined;
-    if (!header || typeof header !== 'string') return null;
-    const target = `${name}=`;
-    for (const rawPair of header.split(';')) {
-        const pair = rawPair.trim();
-        if (!pair.startsWith(target)) continue;
-        let value = pair.slice(target.length);
-        if (value.startsWith('"') && value.endsWith('"')) {
-            value = value.slice(1, -1);
-        }
-        try {
-            return decodeURIComponent(value);
-        } catch {
-            return value;
-        }
-    }
-    return null;
 };

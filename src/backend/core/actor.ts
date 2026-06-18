@@ -33,6 +33,15 @@ export interface ActorAccessToken {
     uid: string;
     issuer: Actor;
     authorized?: Actor | null;
+    /**
+     * Full-API-access ("personal access token") flag, set from the signed
+     * `full_access` JWT claim. Such a token may exercise everything its issuing
+     * user can do via the API and is admitted past `requireNonAccessTokenGate`
+     * — but is still rejected by `requireUserActor` / web-session gates, so it
+     * can never manage the account. Normal (scoped) access tokens leave this
+     * false and remain blocked from non-`allowAccessToken` routes.
+     */
+    fullAccess?: boolean;
 }
 
 export interface Actor {
@@ -64,7 +73,7 @@ export const isSystemActor = (actor: Actor | undefined | null): boolean => {
 };
 
 export const isAppActor = (actor: Actor | undefined | null): boolean => {
-    return !!actor?.app && !actor?.accessToken;
+    return !!actor?.app && !isAccessTokenActor(actor);
 };
 
 export const isAccessTokenActor = (
@@ -96,4 +105,14 @@ export const actorUid = (actor: Actor): string => {
 export const userRelatedActor = (actor: Actor): Actor => {
     if (!actor.app && !actor.accessToken) return actor;
     return { user: actor.user };
+};
+
+/**
+ * Walk the access-token issuer chain and return the first app identity found,
+ * or null if no app appears anywhere in the chain.
+ */
+export const effectiveActorApp = (actor: Actor): ActorApp | null => {
+    if (actor.app) return actor.app;
+    if (actor.accessToken) return effectiveActorApp(actor.accessToken.issuer);
+    return null;
 };

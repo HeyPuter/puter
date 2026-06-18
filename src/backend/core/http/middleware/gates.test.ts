@@ -25,7 +25,8 @@ import {
     adminOnlyGate,
     allowedAppIdsGate,
     requireAuthGate,
-    requireEmailConfirmedGate,
+    requireVerifiedAccount,
+    requireNonAccessTokenGate,
     requireUserActorGate,
     requireVerifiedGate,
     subdomainGate,
@@ -136,6 +137,53 @@ describe('requireAuthGate', () => {
         });
         expectHttpError(got, 403, 'forbidden');
     });
+
+    // ── Reauth signal ───────────────────────────────────────────────
+
+    it('returns 401 reauth_required for a legacy v1 token', () => {
+        const got = runGate(requireAuthGate(), {
+            requiresReauth: { reason: 'token_v1', auth_id: 'u-1' },
+        });
+        expectHttpError(got, 401, 'reauth_required');
+        expect((got as HttpError).fields).toMatchObject({
+            code: 'reauth_required',
+            reason: 'token_v1',
+            auth_id: 'u-1',
+        });
+    });
+
+    it('returns 401 reauth_required with reason=session_revoked', () => {
+        const got = runGate(requireAuthGate(), {
+            requiresReauth: { reason: 'session_revoked', auth_id: 'u-2' },
+        });
+        expectHttpError(got, 401, 'reauth_required');
+        expect((got as HttpError).fields).toMatchObject({
+            reason: 'session_revoked',
+            auth_id: 'u-2',
+        });
+    });
+
+    it('returns 401 reauth_required with reason=session_expired', () => {
+        const got = runGate(requireAuthGate(), {
+            requiresReauth: { reason: 'session_expired' },
+        });
+        expectHttpError(got, 401, 'reauth_required');
+        expect((got as HttpError).fields).toMatchObject({
+            reason: 'session_expired',
+        });
+        // No auth_id field at all when none was supplied (vs. set-to-undefined).
+        expect((got as HttpError).fields?.auth_id).toBeUndefined();
+    });
+
+    it('reauth_required takes priority over tokenAuthFailed', () => {
+        // Both flags set: the structured reauth signal wins. v2 clients
+        // key on `code === 'reauth_required'`; v1 clients still see a 401.
+        const got = runGate(requireAuthGate(), {
+            requiresReauth: { reason: 'token_v1', auth_id: 'u-1' },
+            tokenAuthFailed: true,
+        });
+        expectHttpError(got, 401, 'reauth_required');
+    });
 });
 
 // ── requireUserActorGate ────────────────────────────────────────────
@@ -175,6 +223,110 @@ describe('requireUserActorGate', () => {
         // requireAuth runs first, so this is rare — but the gate handles
         // it anyway rather than dereferencing undefined.
         const got = runGate(requireUserActorGate(), {});
+        expectHttpError(got, 401, 'token_missing');
+    });
+
+    it('rejects a FULL-ACCESS access token too — account routes stay closed', () => {
+        // The account wall is actor-type based: even a full-access PAT (which
+        // the resource wall lets through) is rejected here, so it can never
+        // reach change-password/email/2FA/token-minting/etc.
+        const got = runGate(requireUserActorGate(), {
+            actor: {
+                user: { uuid: 'u-1' },
+                accessToken: {
+                    uid: 'tok-1',
+                    issuer: { user: { uuid: 'u-1' } },
+                    fullAccess: true,
+                },
+            },
+        });
+        expectHttpError(got, 403, 'forbidden');
+    });
+
+    // allowFullAccess opt-in: relaxes ONLY the access-token half, for
+    // user-resource/inference routes (e.g. the AI proxy).
+    it('admits a full-access PAT when allowFullAccess is set', () => {
+        const got = runGate(requireUserActorGate({ allowFullAccess: true }), {
+            actor: {
+                user: { uuid: 'u-1' },
+                accessToken: {
+                    uid: 'tok-1',
+                    issuer: { user: { uuid: 'u-1' } },
+                    fullAccess: true,
+                },
+            },
+        });
+        expect(got).toBeUndefined();
+    });
+
+    it('still rejects a SCOPED access token even when allowFullAccess is set', () => {
+        const got = runGate(requireUserActorGate({ allowFullAccess: true }), {
+            actor: {
+                user: { uuid: 'u-1' },
+                accessToken: {
+                    uid: 'tok-1',
+                    issuer: { user: { uuid: 'u-1' } },
+                    // no fullAccess
+                },
+            },
+        });
+        expectHttpError(got, 403, 'forbidden');
+    });
+
+    it('still rejects a third-party app even when allowFullAccess is set', () => {
+        const got = runGate(requireUserActorGate({ allowFullAccess: true }), {
+            actor: { user: { uuid: 'u-1' }, app: { uid: 'app-1' } },
+        });
+        expectHttpError(got, 403, 'forbidden');
+    });
+});
+
+// -- requireNonAccessTokenGate --
+
+describe('requireNonAccessTokenGate', () => {
+    it('passes through for plain user actors', () => {
+        const got = runGate(requireNonAccessTokenGate(), {
+            actor: { user: { uuid: 'u-1' } },
+        });
+        expect(got).toBeUndefined();
+    });
+
+    it('passes through for app-under-user actors (only access tokens are gated)', () => {
+        const got = runGate(requireNonAccessTokenGate(), {
+            actor: { user: { uuid: 'u-1' }, app: { uid: 'app-1' } },
+        });
+        expect(got).toBeUndefined();
+    });
+
+    it('rejects a normal (scoped) access token with 403', () => {
+        const got = runGate(requireNonAccessTokenGate(), {
+            actor: {
+                user: { uuid: 'u-1' },
+                accessToken: {
+                    uid: 'tok-1',
+                    issuer: { user: { uuid: 'u-1' } },
+                },
+            },
+        });
+        expectHttpError(got, 403, 'forbidden');
+    });
+
+    it('admits a FULL-ACCESS access token (the resource-wall carve-out)', () => {
+        const got = runGate(requireNonAccessTokenGate(), {
+            actor: {
+                user: { uuid: 'u-1' },
+                accessToken: {
+                    uid: 'tok-1',
+                    issuer: { user: { uuid: 'u-1' } },
+                    fullAccess: true,
+                },
+            },
+        });
+        expect(got).toBeUndefined();
+    });
+
+    it("falls back to 401 if there's no actor at all (defensive)", () => {
+        const got = runGate(requireNonAccessTokenGate(), {});
         expectHttpError(got, 401, 'token_missing');
     });
 });
@@ -226,6 +378,35 @@ describe('adminOnlyGate', () => {
             'forbidden',
         );
     });
+
+    it('admits the built-ins regardless of case', () => {
+        // On a SQLite self-host with case-sensitive (BINARY) collation, a
+        // user row could exist with `Admin`/`SYSTEM` capitalization. The
+        // gate must still admit those — case is normalized on both sides.
+        for (const username of ['Admin', 'ADMIN', 'sYsTeM']) {
+            const got = runGate(adminOnlyGate(), {
+                actor: { user: { uuid: 'u-1', username } },
+            });
+            expect(got).toBeUndefined();
+        }
+    });
+
+    it('admits case-mismatched extras (allowlist lowercased on construction)', () => {
+        // Pass an extra in mixed case; the gate must accept the same name
+        // in any case — the on-disk username row may be either, depending
+        // on the DB's column collation.
+        const gate = adminOnlyGate(['Daniel']);
+        expect(
+            runGate(gate, {
+                actor: { user: { uuid: 'u-1', username: 'daniel' } },
+            }),
+        ).toBeUndefined();
+        expect(
+            runGate(gate, {
+                actor: { user: { uuid: 'u-1', username: 'DANIEL' } },
+            }),
+        ).toBeUndefined();
+    });
 });
 
 // ── requireVerifiedGate ─────────────────────────────────────────────
@@ -259,11 +440,11 @@ describe('requireVerifiedGate', () => {
     });
 });
 
-// ── requireEmailConfirmedGate ───────────────────────────────────────
+// ── requireVerifiedAccount ──────────────────────────────────────────
 
-describe('requireEmailConfirmedGate', () => {
+describe('requireVerifiedAccount', () => {
     it('passes through users that do not require confirmation (e.g. legacy/temp)', () => {
-        const got = runGate(requireEmailConfirmedGate(), {
+        const got = runGate(requireVerifiedAccount(), {
             actor: {
                 user: {
                     uuid: 'u-1',
@@ -276,7 +457,7 @@ describe('requireEmailConfirmedGate', () => {
     });
 
     it('passes through confirmed users even when confirmation is required', () => {
-        const got = runGate(requireEmailConfirmedGate(), {
+        const got = runGate(requireVerifiedAccount(), {
             actor: {
                 user: {
                     uuid: 'u-1',
@@ -289,7 +470,7 @@ describe('requireEmailConfirmedGate', () => {
     });
 
     it('returns 403 email_confirmation_required for pending-confirmation users', () => {
-        const got = runGate(requireEmailConfirmedGate(), {
+        const got = runGate(requireVerifiedAccount(), {
             actor: {
                 user: {
                     uuid: 'u-1',
@@ -301,8 +482,51 @@ describe('requireEmailConfirmedGate', () => {
         expectHttpError(got, 403, 'email_confirmation_required');
     });
 
+    it('returns 403 phone_verification_required while the phone gate is set', () => {
+        const got = runGate(requireVerifiedAccount(), {
+            actor: {
+                user: {
+                    uuid: 'u-1',
+                    requires_email_confirmation: false,
+                    email_confirmed: true,
+                    requires_phone_verification: true,
+                },
+            },
+        });
+        expectHttpError(got, 403, 'phone_verification_required');
+    });
+
+    it('returns 403 card_verification_required while the card gate is set', () => {
+        const got = runGate(requireVerifiedAccount(), {
+            actor: {
+                user: {
+                    uuid: 'u-1',
+                    requires_email_confirmation: false,
+                    email_confirmed: true,
+                    requires_card_verification: true,
+                },
+            },
+        });
+        expectHttpError(got, 403, 'card_verification_required');
+    });
+
+    it('passes through once every gate is cleared', () => {
+        const got = runGate(requireVerifiedAccount(), {
+            actor: {
+                user: {
+                    uuid: 'u-1',
+                    requires_email_confirmation: true,
+                    email_confirmed: true,
+                    requires_phone_verification: false,
+                    requires_card_verification: false,
+                },
+            },
+        });
+        expect(got).toBeUndefined();
+    });
+
     it("passes through when there's no actor (auth gate handled it)", () => {
-        const got = runGate(requireEmailConfirmedGate(), {});
+        const got = runGate(requireVerifiedAccount(), {});
         expect(got).toBeUndefined();
     });
 });

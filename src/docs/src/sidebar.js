@@ -29,6 +29,21 @@ let sidebar = [
                 path: '/frameworks',
             },
             {
+                title: 'MCP Server',
+                source: '/mcp.md',
+                path: '/mcp',
+            },
+            {
+                title: 'CLI',
+                source: '/cli.md',
+                path: '/cli',
+            },
+            {
+                title: 'Deployments',
+                source: '/deployments.md',
+                path: '/deployments',
+            },
+            {
                 title: 'Examples',
                 source: '/examples.md',
                 path: '/examples',
@@ -349,6 +364,14 @@ let sidebar = [
                 icon: '/assets/img/object.svg',
                 source: '/Workers/router.md',
                 path: '/Workers/router',
+            },
+            {
+                title: 'TypeScript Types',
+                page_title: 'TypeScript Types for Workers',
+                title_tag: 'TypeScript Types',
+                icon: '/assets/img/object.svg',
+                source: '/Workers/types.md',
+                path: '/Workers/types',
             },
             {
                 title: '<code>create()</code>',

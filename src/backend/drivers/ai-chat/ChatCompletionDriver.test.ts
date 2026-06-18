@@ -547,6 +547,46 @@ describe('ChatCompletionDriver.complete credit gate and max_tokens cap', () => {
         expect(passed.max_tokens!).toBeGreaterThan(0);
     });
 
+    it('throws 402 instead of leaving `max_tokens` unset when credits cannot afford one output token', async () => {
+        // Regression: previously a sub-1 cap set max_tokens to `undefined`,
+        // which let the provider run to the model's full output limit and
+        // overdraw the account. It must reject instead.
+        vi.spyOn(FakeChatProvider.prototype, 'models').mockResolvedValueOnce([
+            {
+                id: 'capme',
+                aliases: [],
+                costs_currency: 'usd-cents',
+                costs: { input_tokens: 1000, output_tokens: 2000 },
+                max_tokens: 8192,
+            },
+        ]);
+        const d = await makeDriver();
+
+        // Pass the cheap pre-flight gate but leave a balance too small to
+        // afford a single 2000-microcent output token.
+        vi.spyOn(server.services.metering, 'hasEnoughCredits').mockResolvedValue(
+            true,
+        );
+        vi.spyOn(server.services.metering, 'getRemainingUsage').mockResolvedValue(
+            100,
+        );
+
+        const completeSpy = vi.spyOn(FakeChatProvider.prototype, 'complete');
+
+        await expect(
+            withTestActor(() =>
+                d.complete({
+                    model: 'capme',
+                    messages: [{ role: 'user', content: 'hi' }],
+                }),
+            ),
+        ).rejects.toMatchObject({
+            statusCode: 402,
+            legacyCode: 'insufficient_funds',
+        });
+        expect(completeSpy).not.toHaveBeenCalled();
+    });
+
     it('rejects subscriber-only models for the default free subscription', async () => {
         vi.spyOn(FakeChatProvider.prototype, 'models').mockResolvedValueOnce([
             {
