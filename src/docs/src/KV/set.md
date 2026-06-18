@@ -13,6 +13,9 @@ When passed a key and a value, will add it to the user's key-value store, or upd
 ```js
 puter.kv.set(key, value)
 puter.kv.set(key, value, expireAt)
+puter.kv.set({ key, value, expireAt })
+puter.kv.set([ { key, value, expireAt }, ... ])
+puter.kv.set({ items: [ { key, value, expireAt }, ... ] })
 ```
 
 ## Parameters
@@ -28,6 +31,12 @@ A string containing the value you want to give the key you are creating/updating
 #### `expireAt` (Number) (optional)
 
 A number containing when the key should expire in timestamp seconds.
+
+#### `items` (Array) (batch only)
+
+An array of `{ key, value, expireAt? }` objects, set in a single request. Each `key` is required and follows the same **1 KB** key / **400 KB** value limits. You can pass the array directly (`set([...])`) or wrapped in an object (`set({ items: [...] })`).
+
+You may also pass a single object instead of positional arguments: `set({ key, value, expireAt })`.
 
 ## Return value
 
@@ -45,6 +54,25 @@ A `Promise` that will resolves to `true` when the key-value pair has been create
         puter.kv.set('name', 'Puter Smith').then((success) => {
             puter.print(`Key-value pair created/updated: ${success}`);
         });
+    </script>
+</body>
+</html>
+```
+
+<strong class="example-title">Set multiple key-value pairs at once</strong>
+
+```html
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        (async () => {
+            await puter.kv.set([
+                { key: 'name', value: 'Puter Smith' },
+                { key: 'age',  value: 21 },
+            ]);
+            puter.print('Batch set complete');
+        })();
     </script>
 </body>
 </html>

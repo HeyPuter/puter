@@ -27,6 +27,8 @@ An array of objects that define the buttons to be displayed in the alert dialog.
 A set of key/value pairs that configure the alert dialog.
 
 * `type` (String): Visual style of the alert dialog. One of `primary`, `success`, `info`, `warning`, or `danger`.
+* `body_icon` (String): Icon URL shown in the dialog body. Takes precedence over `icon`.
+* `icon` (String): Icon URL shown in the dialog body, used when `body_icon` is not set.
 
 
 ## Return value 

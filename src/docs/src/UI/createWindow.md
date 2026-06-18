@@ -27,6 +27,9 @@ A set of key/value pairs that configure the window.
 * `title` (String): title of the window.
 * `width` (Float): width of window in pixels.
 
+## Return value
+A `Promise` that resolves to a window handle object with an `id` (String) property identifying the created window. This `id` can be passed as the `window_id` argument to the `setWindow*` methods.
+
 ## Examples
 ```html
 <html>

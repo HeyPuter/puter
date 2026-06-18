@@ -33,6 +33,16 @@ puter.auth.signIn(options)
 
 A `Promise` that will resolve to a [`SignInResult`](/Objects/signinresult/) object when the user has signed in.
 
+## Rejection
+
+The promise will reject with an object containing an `error` code and a human-readable `msg` in the following cases:
+
+- `popup_blocked`: The sign-in popup was blocked by the browser. This usually happens when `signIn()` is not called from a user action (such as a click event).
+
+- `auth_window_closed`: The user closed the sign-in window (or cancelled the consent dialog) without completing the sign-in process.
+
+The promise may also reject with the failure response returned by the authentication window itself.
+
 ## Example
 
 ```html;auth-sign-in

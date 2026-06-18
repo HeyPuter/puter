@@ -18,3 +18,16 @@ A string containing the detected or specified language of the audio.
 #### `segments` (Array)
 
 An optional array of segment objects containing detailed transcription information.
+
+#### `duration` (Number)
+
+An optional duration of the audio in seconds. Provider-dependent (e.g. returned by xAI).
+
+#### `words` (Array)
+
+An optional array of per-word timestamp objects. Provider-dependent (e.g. returned by xAI). Each word has:
+
+- `text` (String): The transcribed word.
+- `start` (Number): Start time of the word in seconds.
+- `end` (Number): End time of the word in seconds.
+- `speaker` (String): Detected speaker, present when `diarize: true`.

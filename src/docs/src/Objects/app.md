@@ -69,11 +69,12 @@ __Syntax__
 
 ```js
 app.users()
+app.users(pageSize)
 ```
 
 __Parameters__
 
-None.
+- `pageSize` (Number) (optional): The number of users to retrieve per page. Default is 100.
 
 __Return value__
 

@@ -32,14 +32,7 @@ Common aliases are also accepted (e.g. `'eleven'`, `'google'`, `'grok'`).
 
 ## Return value
 
-A `Promise` that resolves to an array of engine objects. Each object contains:
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `id` | `String` | Engine/model identifier |
-| `name` | `String` | Human-readable engine name |
-| `provider` | `String` | Provider this engine belongs to |
-| `pricing_per_million_chars` | `Number` | Cost per million characters (may be absent) |
+A `Promise` that resolves to an array of [`TTSEngine`](/Objects/ttsengine) objects.
 
 Example response:
 

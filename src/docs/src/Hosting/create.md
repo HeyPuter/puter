@@ -4,13 +4,12 @@ description: Create and host a website from a directory on Puter.
 platforms: [websites, apps, nodejs, workers]
 ---
 
-Will create a new subdomain that will be served by the hosting service. Optionally, you can specify a path to a directory that will be served by the subdomain.
+Will create a new subdomain that will be served by the hosting service. You must specify a path to a directory that will be served by the subdomain.
 
 ## Syntax
 
 ```js
 puter.hosting.create(subdomain, dirPath)
-puter.hosting.create(subdomain)
 puter.hosting.create(options)
 ```
 
@@ -20,16 +19,16 @@ puter.hosting.create(options)
 
 A string containing the name of the subdomain you want to create.
 
-#### `dirPath` (String) (optional)
+#### `dirPath` (String) (required)
 
-A string containing the path to the directory you want to serve. If not specified, the subdomain will be created without a directory.
+A string containing the path to the directory you want to serve.
 
 #### `options` (Object) (optional)
 
 Alternative way to create hosting via options.
 
 - `subdomain` (String) - Name of the subdomain you want to create.
-- `root_dir` (String) (optional) - Path to the directory you want to serve, similar to `dirPath`.
+- `root_dir` (String) (required) - Absolute path to the directory you want to serve. Unlike `dirPath`, this value is not resolved against the app's root directory, so it must be an absolute path.
 
 ## Return value
 

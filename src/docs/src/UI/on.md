@@ -45,6 +45,16 @@ Sent on app startup, and whenever the user's desktop theme on Puter is changed. 
 }
 ```
 
+#### `connection`
+Sent when another app requests a connection to your app. The value passed to `handler` is:
+```js
+{
+    conn,    // (AppConnection) Connection to the app that initiated the request
+    accept,  // (Function) Call accept(value) to accept the connection; `value` is sent back to the requester
+    reject,  // (Function) Call reject(value) to reject the connection; `value` is sent back to the requester
+}
+```
+
 ## Examples
 
 ```html

@@ -33,9 +33,9 @@ A `Promise` that will resolve to an array of all [`Subdomain`](/Objects/subdomai
             let site_3 = puter.randName();
 
             // (2) Create 3 empty websites with the subdomains we generated
-            await puter.hosting.create(site_1);
-            await puter.hosting.create(site_2);
-            await puter.hosting.create(site_3);
+            await puter.hosting.create(site_1, '.');
+            await puter.hosting.create(site_2, '.');
+            await puter.hosting.create(site_3, '.');
 
             // (3) Get all subdomains
             let sites = await puter.hosting.list();

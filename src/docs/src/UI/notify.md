@@ -19,6 +19,8 @@ An object that configures the notification.
 - `title` (string): Title shown in the notification.
 - `text` (string): Body text shown under the title.
 - `icon` (string): Icon URL or Puter icon name (for example `bell.svg`).
+- `type` (string): Visual style used to pick a default icon and accent color when no `icon` is provided. One of `info`, `success`, `warning`, `error`, or `default`.
+- `duration` (number): Time in milliseconds before the notification auto-dismisses. Defaults to `5000`; set to `0` to keep it until dismissed.
 - `round_icon` (boolean): If `true`, renders the icon as a circle. `roundIcon` is accepted as an alias.
 - `uid` (string): Optional ID to associate with the notification.
 - `value` (any): Optional value stored on the notification element.

@@ -20,7 +20,7 @@ A string containing the name of the subdomain you want to delete.
 
 ## Return value
 
-A `Promise` that will resolve to `true` when the subdomain has been deleted. If a subdomain with the given name does not exist, the promise will be rejected with an error.
+A `Promise` that will resolve to an object of the form `{ success: true, uid: <subdomain-uid> }` when the subdomain has been deleted. If a subdomain with the given name does not exist, the promise will be rejected with an error.
 
 ## Examples
 
@@ -34,11 +34,11 @@ A `Promise` that will resolve to `true` when the subdomain has been deleted. If 
         (async () => {
             // (1) Create a random website
             let subdomain = puter.randName();
-            const site = await puter.hosting.create(subdomain)
+            const site = await puter.hosting.create(subdomain, '.')
             puter.print(`Website hosted at: ${site.subdomain}.puter.site (This is an empty website with no files)<br>`);
 
             // (2) Delete the website using delete()
-            const site2 = await puter.hosting.delete(site.subdomain);
+            await puter.hosting.delete(site.subdomain);
             puter.print('Website deleted<br>');
 
             // (3) Try to retrieve the website (should fail)

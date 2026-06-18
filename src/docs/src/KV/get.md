@@ -4,7 +4,7 @@ description: Get the value stored in a key from key-value store.
 platforms: [websites, apps, nodejs, workers]
 ---
 
-When passed a key, will return that key's value, or `null` if the key does not exist.
+When passed a key, will return that key's value, or `undefined` if the key does not exist.
 
 ## Syntax
 ```js
@@ -16,7 +16,7 @@ puter.kv.get(key)
 A string containing the name of the key you want to retrieve the value of.
 
 ## Return value 
-A `Promise` that will resolve to the key's value. If the key does not exist, it will resolve to `null`.
+A `Promise` that will resolve to the key's value. If the key does not exist, it will resolve to `undefined`.
 
 ## Examples
 

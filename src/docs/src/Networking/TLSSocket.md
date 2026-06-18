@@ -84,7 +84,7 @@ Fired when the socket encounters an error. The close event is fired shortly afte
 ##### Parameters
 
 - `callback` (Function) The callback to fire when an error occurs.
-  - `reason` (`string`) A user readable error reason.
+  - `error` (`Error`) An `Error` object describing what went wrong. The human-readable reason is available on `error.message`.
 
 The encryption is done by [rustls-wasm](https://github.com/MercuryWorkshop/rustls-wasm/).
 
@@ -105,8 +105,8 @@ The encryption is done by [rustls-wasm](https://github.com/MercuryWorkshop/rustl
     socket.on("tlsdata", (data) => {
         puter.print(decoder.decode(data), { code: true });
     })
-    socket.on("error", (reason) => {
-        puter.print("Socket errored with the following reason: ", reason);
+    socket.on("error", (error) => {
+        puter.print("Socket errored with the following reason: ", error.message);
     })
     socket.on("tlsclose", (hadError)=> {
         puter.print("Socket closed. Was there an error? ", hadError);

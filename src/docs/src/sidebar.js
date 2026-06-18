@@ -1259,6 +1259,20 @@ let sidebar = [
                 path: '/Objects/subdomain',
             },
             {
+                title: '<code>TTSEngine</code>',
+                title_tag: 'TTSEngine',
+                icon: '/assets/img/object.svg',
+                source: '/Objects/ttsengine.md',
+                path: '/Objects/ttsengine',
+            },
+            {
+                title: '<code>TTSVoice</code>',
+                title_tag: 'TTSVoice',
+                icon: '/assets/img/object.svg',
+                source: '/Objects/ttsvoice.md',
+                path: '/Objects/ttsvoice',
+            },
+            {
                 title: '<code>ToolCall</code>',
                 title_tag: 'ToolCall',
                 icon: '/assets/img/object.svg',

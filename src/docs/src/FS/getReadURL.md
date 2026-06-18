@@ -19,9 +19,9 @@ puter.fs.getReadURL(path, expiresIn)
 
 The path to the file to read.
 
-#### `expiresIn` (Number) (Optional)
+#### `expiresIn` (String | Number) (Optional)
 
-The number of milliseconds until the URL expires. If not provided, the URL will expire in 24 hours.
+How long the URL stays valid, in [jsonwebtoken](https://github.com/auth0/node-jsonwebtoken#usage) duration format: a string like `'24h'`, `'30d'`, or `'1h'` (units: `s`, `m`, `h`, `d`, `w`, `y`), or a number of seconds. If not provided, defaults to `'24h'`.
 
 ## Return value
 
