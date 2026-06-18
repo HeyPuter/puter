@@ -253,12 +253,12 @@ function generate_website_card (website) {
     return `
         <tr class="website-card" data-name="${html_encode(website.subdomain)}">
             <td style="width:30px; vertical-align: middle; line-height: 1;">
-                <input type="checkbox" class="website-checkbox" data-website-name="${website.subdomain}">
+                <input type="checkbox" class="website-checkbox" data-website-name="${html_encode(website.subdomain)}">
             </td>
-            <td style="font-family: monospace; font-size: 14px; vertical-align: middle;"><a href="https://${website.subdomain}.puter.site" target="_blank">${website.subdomain}.puter.site</a></td>
-            <td style="font-size: 14px; vertical-align: middle;"> <span class="root-dir-name" data-root-dir-path="${website.root_dir ? html_encode(website.root_dir.path) : ''}">${website.root_dir ? website.root_dir.name : ''}</span></td>
-            <td style="font-size: 14px; vertical-align: middle;">${website.created_at}</td>
-            <td style="vertical-align: middle;"><img class="options-icon options-icon-website" data-website-name="${website.subdomain}" src="./img/options.svg"></td>
+            <td style="font-family: monospace; font-size: 14px; vertical-align: middle;"><a href="https://${html_encode(website.subdomain)}.puter.site" target="_blank">${html_encode(website.subdomain)}.puter.site</a></td>
+            <td style="font-size: 14px; vertical-align: middle;"> <span class="root-dir-name" data-root-dir-path="${website.root_dir ? html_encode(website.root_dir.path) : ''}">${website.root_dir ? html_encode(website.root_dir.name) : ''}</span></td>
+            <td style="font-size: 14px; vertical-align: middle;">${html_encode(website.created_at)}</td>
+            <td style="vertical-align: middle;"><img class="options-icon options-icon-website" data-website-name="${html_encode(website.subdomain)}" src="./img/options.svg"></td>
         </tr>
     `;
 }
