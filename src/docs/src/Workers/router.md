@@ -88,11 +88,9 @@ A common use is a catch-all route for unmatched paths — define it last so it o
 
 ## CORS
 
-Every response from your worker automatically includes `Access-Control-Allow-Origin: *`, so **simple cross-origin requests work out of the box** — a basic `GET` or `POST` from another origin just works, no extra code.
+CORS is automatically handled for you. Every response includes `Access-Control-Allow-Origin: *`, and preflight `OPTIONS` requests are answered automatically. Cross-origin requests work out of the box, including [`puter.workers.exec()`](/Workers/exec/), which sends the user's Puter token in a custom `puter-auth` header (this is what populates `user.puter`) without you writing any CORS code.
 
-Some requests need a **CORS preflight** first: the browser sends an `OPTIONS` request and waits for the allowed methods and headers before sending the real one. This happens when the request uses a method like `PUT` or `DELETE`, or carries custom headers (e.g. `Authorization`).
-
-To handle this, you can add an `OPTIONS` handler that returns the methods and headers you want to allow:
+You only need to think about CORS if you define your own `OPTIONS` handler. Doing so takes over preflight handling, so you become responsible for the headers the browser expects:
 
 ```js
 router.options("/*path", async () => {
@@ -107,11 +105,7 @@ router.options("/*path", async () => {
 });
 ```
 
-This answers the preflight for any path with the CORS headers the browser expects, so your other routes work cross-origin.
-
-<div class="info">The <code>puter-auth</code> header is important: when you call your worker with <a href="/Workers/exec/"><code>puter.workers.exec()</code></a>, it attaches the user's Puter token in a <code>puter-auth</code> header so the worker can act on the calling user's behalf (this is what populates <code>user.puter</code>). Because that's a custom header, the browser runs a preflight first — so <code>puter-auth</code> must be listed in <code>Access-Control-Allow-Headers</code>, otherwise the preflight fails and the request never reaches your worker.</div>
-
-If you need different CORS rules per endpoint — for example, restricting the allowed methods or headers on a specific route — define an `OPTIONS` handler on that individual path instead of using the wildcard.
+<div class="info">If you override preflight and use <code>puter.workers.exec()</code>, list <code>puter-auth</code> in <code>Access-Control-Allow-Headers</code> — otherwise the preflight fails and the request never reaches your worker.</div>
 
 ## Examples
 
