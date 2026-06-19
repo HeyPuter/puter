@@ -201,6 +201,35 @@ const makeUseFn = (): ExtensionUseFn => {
  *     `'store:baz'` / `'controller:qux'` / `'driver:fred'` — returns a lazy
  *     proxy to the registered instance (thrown on use-before-init).
  */
+/**
+ * Wrap a resolved layer instance so that pulling a method off the import
+ * comes out *bound* to the instance. Extensions routinely grab a method as a
+ * bare reference — `const { write } = extension.import('service').fs` or
+ * `const w = svc.fs.write` — then call it detached; without binding, `this`
+ * is `undefined` and the method's private-field access throws on the first
+ * line. Getters keep the real instance as their receiver, so private-field
+ * reads inside accessors still resolve. Only `get` is trapped; writes, `in`,
+ * and descriptor reads fall through to the instance unchanged.
+ *
+ * Trade-off: each method access returns a fresh bound function, so reference
+ * identity is not stable (`svc.fs.write !== svc.fs.write`). That's acceptable
+ * for the import surface, where instances are grabbed once and methods called.
+ */
+const bindLayerMethods = <T>(instance: T): T => {
+    if (instance === null || typeof instance !== 'object') {
+        return instance;
+    }
+    return new Proxy(instance as object, {
+        get(target, prop) {
+            const value = Reflect.get(target, prop, target);
+            return typeof value === 'function'
+                ? // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                  (value as (...a: any[]) => unknown).bind(target)
+                : value;
+        },
+    }) as T;
+};
+
 export const extension = {
     // -- Config access -----------------------------------------------
     //
@@ -324,7 +353,7 @@ export const extension = {
                             };
                             return new Proxy({}, proxyProxyHandler) as object;
                         }
-                        return proxiedObj;
+                        return bindLayerMethods(proxiedObj);
                     },
                 };
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -352,7 +381,7 @@ export const extension = {
                             };
                             return new Proxy({}, proxyProxyHandler) as object;
                         }
-                        return proxiedObj;
+                        return bindLayerMethods(proxiedObj);
                     },
                 };
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -380,7 +409,7 @@ export const extension = {
                             };
                             return new Proxy({}, proxyProxyHandler) as object;
                         }
-                        return proxiedObj;
+                        return bindLayerMethods(proxiedObj);
                     },
                 };
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -408,7 +437,7 @@ export const extension = {
                             };
                             return new Proxy({}, proxyProxyHandler) as object;
                         }
-                        return proxiedObj;
+                        return bindLayerMethods(proxiedObj);
                     },
                 };
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -436,7 +465,7 @@ export const extension = {
                             };
                             return new Proxy({}, proxyProxyHandler) as object;
                         }
-                        return proxiedObj;
+                        return bindLayerMethods(proxiedObj);
                     },
                 };
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any

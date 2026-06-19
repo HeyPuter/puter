@@ -78,6 +78,12 @@ describe('extension.import("client") optional client access', () => {
                 return null;
             }
         };
-        expect(probe()).toBe(fake);
+        // The import proxy method-binds, so the result is a binding proxy over
+        // `fake` rather than the raw reference (identity is intentionally not
+        // preserved). What the probe pattern locks is that a registered client
+        // surfaces a callable method.
+        const result = probe();
+        expect(result).not.toBeNull();
+        expect(typeof (result as { query: unknown }).query).toBe('function');
     });
 });
