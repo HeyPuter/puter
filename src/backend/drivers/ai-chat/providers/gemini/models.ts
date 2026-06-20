@@ -43,7 +43,10 @@ export const GEMINI_MODELS: IChatModel[] = [
             tokens: 1_000_000,
             prompt_tokens: 150,
             completion_tokens: 900,
+            thinking_tokens: 900,
             cached_tokens: 15,
+            // Gemini 3.x grounding is $14 / 1,000 requests
+            grounding_requests: 1_400_000,
         },
     },
     {
@@ -68,6 +71,8 @@ export const GEMINI_MODELS: IChatModel[] = [
             prompt_tokens: 10,
             completion_tokens: 40,
             cached_tokens: 3,
+            // Gemini 2.x grounding is $35 / 1,000 requests
+            grounding_requests: 3_500_000,
         },
         max_tokens: 8192,
     },
@@ -115,8 +120,13 @@ export const GEMINI_MODELS: IChatModel[] = [
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 30,
+            // Output is $2.50/M; thinking tokens bill at the same output rate
             completion_tokens: 250,
+            thinking_tokens: 250,
+            // Cache read is $0.03/M (10% of input)
             cached_tokens: 3,
+            // Gemini 2.x grounding is $35 / 1,000 requests
+            grounding_requests: 3_500_000,
         },
         max_tokens: 65536,
     },
@@ -141,7 +151,10 @@ export const GEMINI_MODELS: IChatModel[] = [
             tokens: 1_000_000,
             prompt_tokens: 10,
             completion_tokens: 40,
+            thinking_tokens: 40,
             cached_tokens: 1,
+            // Gemini 2.x grounding is $35 / 1,000 requests
+            grounding_requests: 3_500_000,
         },
         max_tokens: 65536,
     },
@@ -166,7 +179,10 @@ export const GEMINI_MODELS: IChatModel[] = [
             tokens: 1_000_000,
             prompt_tokens: 125,
             completion_tokens: 1000,
-            cached_tokens: 13,
+            thinking_tokens: 1000,
+            cached_tokens: 31,
+            // Gemini 2.x grounding is $35 / 1,000 requests
+            grounding_requests: 3_500_000,
         },
         max_tokens: 200_000,
     },
@@ -191,7 +207,9 @@ export const GEMINI_MODELS: IChatModel[] = [
             tokens: 1_000_000,
             prompt_tokens: 200,
             completion_tokens: 1200,
+            thinking_tokens: 1200,
             cached_tokens: 20,
+            grounding_requests: 1_400_000,
         },
         max_tokens: 65536,
     },
@@ -216,7 +234,9 @@ export const GEMINI_MODELS: IChatModel[] = [
             tokens: 1_000_000,
             prompt_tokens: 50,
             completion_tokens: 300,
+            thinking_tokens: 300,
             cached_tokens: 5,
+            grounding_requests: 1_400_000,
         },
         max_tokens: 65536,
     },
@@ -245,7 +265,9 @@ export const GEMINI_MODELS: IChatModel[] = [
             tokens: 1_000_000,
             prompt_tokens: 25,
             completion_tokens: 150,
+            thinking_tokens: 150,
             cached_tokens: 2.5,
+            grounding_requests: 1_400_000,
         },
         max_tokens: 65536,
     },

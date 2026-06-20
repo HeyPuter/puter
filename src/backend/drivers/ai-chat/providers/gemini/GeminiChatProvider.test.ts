@@ -355,6 +355,8 @@ describe('GeminiChatProvider.complete non-stream output', () => {
             prompt_tokens: 90,
             completion_tokens: 50,
             cached_tokens: 10,
+            thinking_tokens: 0,
+            grounding_requests: 0,
         });
 
         // gemini-2.5-flash costs: prompt=30, completion=250, cached=3.
@@ -367,11 +369,15 @@ describe('GeminiChatProvider.complete non-stream output', () => {
             prompt_tokens: 90,
             completion_tokens: 50,
             cached_tokens: 10,
+            thinking_tokens: 0,
+            grounding_requests: 0,
         });
         expect(overrides).toEqual({
             prompt_tokens: 90 * Number(flash.costs.prompt_tokens),
             completion_tokens: 50 * Number(flash.costs.completion_tokens),
             cached_tokens: 10 * Number(flash.costs.cached_tokens ?? 0),
+            thinking_tokens: 0,
+            grounding_requests: 0,
         });
     });
 
@@ -446,6 +452,8 @@ describe('GeminiChatProvider.complete streaming', () => {
             prompt_tokens: 3, // 4 - 1 cached
             completion_tokens: 2,
             cached_tokens: 1,
+            thinking_tokens: 0,
+            grounding_requests: 0,
         });
 
         const flash = GEMINI_MODELS.find((m) => m.id === 'gemini-2.5-flash')!;
@@ -456,7 +464,189 @@ describe('GeminiChatProvider.complete streaming', () => {
             prompt_tokens: 3 * Number(flash.costs.prompt_tokens),
             completion_tokens: 2 * Number(flash.costs.completion_tokens),
             cached_tokens: 1 * Number(flash.costs.cached_tokens ?? 0),
+            thinking_tokens: 0,
+            grounding_requests: 0,
         });
+    });
+});
+
+// ── Thinking-token metering ─────────────────────────────────────────
+
+describe('GeminiChatProvider.complete thinking token metering', () => {
+    it('splits thinking tokens out of completion_tokens and bills each at its own rate', async () => {
+        const { provider } = makeProvider();
+        createMock.mockResolvedValueOnce({
+            choices: [
+                {
+                    message: { content: 'result', role: 'assistant' },
+                    finish_reason: 'stop',
+                },
+            ],
+            usage: {
+                prompt_tokens: 100,
+                completion_tokens: 60,
+                completion_tokens_details: { reasoning_tokens: 20 },
+                prompt_tokens_details: { cached_tokens: 10 },
+            },
+        });
+
+        const result = await withTestActor(() =>
+            provider.complete({
+                model: 'gemini-2.5-flash',
+                messages: [{ role: 'user', content: 'think hard' }],
+            }),
+        );
+
+        expect((result as { usage: unknown }).usage).toEqual({
+            prompt_tokens: 90,       // 100 - 10 cached
+            completion_tokens: 40,   // 60 - 20 thinking
+            cached_tokens: 10,
+            thinking_tokens: 20,
+            grounding_requests: 0,
+        });
+
+        const flash = GEMINI_MODELS.find((m) => m.id === 'gemini-2.5-flash')!;
+        expect(recordSpy).toHaveBeenCalledTimes(1);
+        const [usage, , , overrides] = recordSpy.mock.calls[0]!;
+        expect(usage.thinking_tokens).toBe(20);
+        expect(usage.completion_tokens).toBe(40);
+        expect(overrides).toMatchObject({
+            thinking_tokens: 20 * Number(flash.costs.thinking_tokens),
+            completion_tokens: 40 * Number(flash.costs.completion_tokens),
+        });
+    });
+
+    it('sets thinking_tokens to 0 when completion_tokens_details is absent', async () => {
+        const { provider } = makeProvider();
+        createMock.mockResolvedValueOnce({
+            choices: [
+                {
+                    message: { content: 'ok', role: 'assistant' },
+                    finish_reason: 'stop',
+                },
+            ],
+            usage: { prompt_tokens: 5, completion_tokens: 3 },
+        });
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'gemini-2.5-flash',
+                messages: [{ role: 'user', content: 'hi' }],
+            }),
+        );
+
+        const [usage] = recordSpy.mock.calls[0]!;
+        expect(usage.thinking_tokens).toBe(0);
+        expect(usage.completion_tokens).toBe(3);
+    });
+});
+
+// ── Grounding-request metering ───────────────────────────────────────
+
+describe('GeminiChatProvider.complete grounding request metering', () => {
+    it('charges one grounding request when non-stream response contains grounding_metadata', async () => {
+        const { provider } = makeProvider();
+        createMock.mockResolvedValueOnce({
+            choices: [
+                {
+                    message: {
+                        content: 'result',
+                        role: 'assistant',
+                        extra_content: {
+                            grounding_metadata: { web_search_queries: ['foo'] },
+                        },
+                    },
+                    finish_reason: 'stop',
+                },
+            ],
+            usage: { prompt_tokens: 10, completion_tokens: 5 },
+        });
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'gemini-2.5-flash',
+                messages: [{ role: 'user', content: 'search for foo' }],
+            }),
+        );
+
+        const flash = GEMINI_MODELS.find((m) => m.id === 'gemini-2.5-flash')!;
+        const [usage, , , overrides] = recordSpy.mock.calls[0]!;
+        expect(usage.grounding_requests).toBe(1);
+        expect(overrides!.grounding_requests).toBe(
+            1 * Number(flash.costs.grounding_requests),
+        );
+    });
+
+    it('does not charge a grounding request when no grounding_metadata is present', async () => {
+        const { provider } = makeProvider();
+        createMock.mockResolvedValueOnce({
+            choices: [
+                {
+                    message: { content: 'ok', role: 'assistant' },
+                    finish_reason: 'stop',
+                },
+            ],
+            usage: { prompt_tokens: 5, completion_tokens: 3 },
+        });
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'gemini-2.5-flash',
+                messages: [{ role: 'user', content: 'hi' }],
+            }),
+        );
+
+        const [usage] = recordSpy.mock.calls[0]!;
+        expect(usage.grounding_requests).toBe(0);
+    });
+
+    it('charges one grounding request when streaming response contains grounding extra_content', async () => {
+        const { provider } = makeProvider();
+        createMock.mockReturnValueOnce(
+            asAsyncIterable([
+                { choices: [{ delta: { content: 'ans' } }] },
+                {
+                    choices: [
+                        {
+                            delta: {
+                                extra_content: {
+                                    grounding_metadata: {
+                                        web_search_queries: ['bar'],
+                                    },
+                                },
+                            },
+                        },
+                    ],
+                },
+                {
+                    choices: [{ delta: {} }],
+                    usage: { prompt_tokens: 8, completion_tokens: 4 },
+                },
+            ]),
+        );
+
+        const result = await withTestActor(() =>
+            provider.complete({
+                model: 'gemini-2.5-flash',
+                messages: [{ role: 'user', content: 'search bar' }],
+                stream: true,
+            }),
+        );
+
+        const harness = makeCapturingChatStream();
+        await (
+            result as {
+                init_chat_stream: (p: { chatStream: unknown }) => Promise<void>;
+            }
+        ).init_chat_stream({ chatStream: harness.chatStream });
+
+        const flash = GEMINI_MODELS.find((m) => m.id === 'gemini-2.5-flash')!;
+        expect(recordSpy).toHaveBeenCalledTimes(1);
+        const [usage, , , overrides] = recordSpy.mock.calls[0]!;
+        expect(usage.grounding_requests).toBe(1);
+        expect(overrides!.grounding_requests).toBe(
+            1 * Number(flash.costs.grounding_requests),
+        );
     });
 });
 
