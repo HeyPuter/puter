@@ -286,7 +286,14 @@ export const create_chat_stream_handler =
                 // Apps have to choose to handle extra_content themselves, it doesn't seem like theres a way we can do it in a backwards
                 // compatible fashion since most streaming apps will handle chat history by continuously updating content themselves
                 // This doesn't present us a chance to add in an extra object for gemini's chat continuing features
-                last_extra_content = choice.delta.extra_content;
+                // Don't let a later extra_content chunk without grounding clobber an
+                // earlier one that carried grounding_metadata (used for metering).
+                if (
+                    choice.delta.extra_content.grounding_metadata ||
+                    !last_extra_content?.grounding_metadata
+                ) {
+                    last_extra_content = choice.delta.extra_content;
+                }
                 textblock.addExtraContent(choice.delta.extra_content);
             }
 
