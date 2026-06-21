@@ -486,6 +486,52 @@ describe('ClaudeProvider.complete non-stream output', () => {
             10 * Number(haiku.costs.cache_read_input_tokens),
         );
     });
+
+    it('bills the compaction pass by summing usage.iterations', async () => {
+        const { provider } = makeProvider();
+        // Per Anthropic: top-level input/output reflect only the message pass;
+        // the compaction pass lives in `iterations` and must be summed to bill.
+        const msg = {
+            content: [{ type: 'text', text: 'done' }],
+            usage: {
+                input_tokens: 23000, // message pass only (NOT the total)
+                output_tokens: 1000,
+                iterations: [
+                    {
+                        type: 'compaction',
+                        input_tokens: 180000,
+                        output_tokens: 3500,
+                    },
+                    { type: 'message', input_tokens: 23000, output_tokens: 1000 },
+                ],
+            },
+        };
+        messagesCreateMock.mockResolvedValueOnce(msg);
+
+        const result = (await withTestActor(() =>
+            provider.complete({
+                model: 'claude-haiku-4-5-20251001',
+                messages: [{ role: 'user', content: 'hi' }],
+                compaction: true,
+            }),
+        )) as { usage: Record<string, number> };
+
+        // Totals are the SUM across iterations, not the top-level fields.
+        expect(result.usage.input_tokens).toBe(203000); // 180000 + 23000
+        expect(result.usage.output_tokens).toBe(4500); // 3500 + 1000
+
+        const haiku = CLAUDE_MODELS.find(
+            (m) => m.id === 'claude-haiku-4-5-20251001',
+        )!;
+        const [usage, , , overrides] = recordSpy.mock.calls[0]!;
+        expect(usage.input_tokens).toBe(203000);
+        expect(overrides.input_tokens).toBe(
+            203000 * Number(haiku.costs.input_tokens),
+        );
+        expect(overrides.output_tokens).toBe(
+            4500 * Number(haiku.costs.output_tokens),
+        );
+    });
 });
 
 // ── Streaming deltas ────────────────────────────────────────────────

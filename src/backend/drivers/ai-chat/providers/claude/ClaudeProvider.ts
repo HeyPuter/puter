@@ -606,8 +606,31 @@ export class ClaudeProvider implements IChatProvider {
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     #usageFormatterUtil(usage: any) {
+        // Compaction responses report per-pass usage in `usage.iterations` (the
+        // compaction pass + the message pass). Per Anthropic's docs the
+        // top-level `input_tokens`/`output_tokens` reflect ONLY the
+        // non-compaction passes, so to bill the (often large) compaction pass we
+        // must sum across all iterations. Compaction is billed at normal token
+        // rates, and iterations don't break out cache fields — those stay
+        // top-level (the message pass's), which bills the compaction input at
+        // the full input rate.
+        const iterations = Array.isArray(usage?.iterations)
+            ? usage.iterations
+            : null;
+        const inputTokens = iterations
+            ? iterations.reduce(
+                  (sum: number, it: any) => sum + (it?.input_tokens || 0),
+                  0,
+              )
+            : usage?.input_tokens || 0;
+        const outputTokens = iterations
+            ? iterations.reduce(
+                  (sum: number, it: any) => sum + (it?.output_tokens || 0),
+                  0,
+              )
+            : usage?.output_tokens || 0;
         return {
-            input_tokens: usage?.input_tokens || 0,
+            input_tokens: inputTokens,
             ephemeral_5m_input_tokens:
                 usage?.cache_creation?.ephemeral_5m_input_tokens ||
                 usage?.cache_creation_input_tokens ||
@@ -615,7 +638,7 @@ export class ClaudeProvider implements IChatProvider {
             ephemeral_1h_input_tokens:
                 usage?.cache_creation?.ephemeral_1h_input_tokens || 0,
             cache_read_input_tokens: usage?.cache_read_input_tokens || 0,
-            output_tokens: usage?.output_tokens || 0,
+            output_tokens: outputTokens,
             thinking_tokens:
                 usage?.thinking_tokens ||
                 usage?.output_tokens_details?.thinking_tokens ||
