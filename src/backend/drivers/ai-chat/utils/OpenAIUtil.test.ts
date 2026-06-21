@@ -232,6 +232,30 @@ describe('process_input_messages_responses_api', () => {
         expect(out!.output).toBe('part-apart-bpart-c');
     });
 
+    it('rewrites a round-tripped compaction content block into a top-level compaction item', async () => {
+        const messages: Array<Record<string, unknown>> = [
+            {
+                role: 'assistant',
+                content: [
+                    {
+                        type: 'compaction',
+                        id: 'cmpct_1',
+                        encrypted_content: 'ENC',
+                    },
+                ],
+            },
+        ];
+
+        const [out] = (await process_input_messages_responses_api(
+            messages,
+        )) as Array<Record<string, unknown>>;
+        expect(out!.type).toBe('compaction');
+        expect(out!.encrypted_content).toBe('ENC');
+        expect(out!.id).toBe('cmpct_1');
+        expect(out!.role).toBeUndefined();
+        expect(out!.content).toBeUndefined();
+    });
+
     it('upgrades user/system text blocks to input_text', async () => {
         const messages: Array<Record<string, unknown>> = [
             {
@@ -539,6 +563,39 @@ describe('create_chat_stream_handler_responses_api', () => {
         });
     });
 
+    it('emits a compaction event when a compaction output_item completes', async () => {
+        const completion = asAsyncIterable([
+            {
+                type: 'response.output_item.done',
+                item: {
+                    type: 'compaction',
+                    id: 'cmpct_1',
+                    encrypted_content: 'ENC',
+                },
+            },
+            {
+                type: 'response.completed',
+                response: { usage: { input_tokens: 1, output_tokens: 2 } },
+            },
+        ]);
+        const init = create_chat_stream_handler_responses_api({
+            deviations: undefined,
+            completion,
+            usage_calculator: () => ({}),
+        });
+        const harness = makeCapturingChatStream();
+        await init({ chatStream: harness.chatStream });
+
+        const compaction = harness
+            .events()
+            .find((e: { type: string }) => e.type === 'compaction');
+        expect(compaction).toEqual({
+            type: 'compaction',
+            id: 'cmpct_1',
+            encrypted_content: 'ENC',
+        });
+    });
+
     it('emits a tool_use block when a function_call output_item completes', async () => {
         const completion = asAsyncIterable([
             {
@@ -763,6 +820,31 @@ describe('handle_completion_output_responses_api non-stream', () => {
                 completion,
             }),
         ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('attaches a compaction artifact and allows a compaction-only output', async () => {
+        const completion = {
+            output: [
+                {
+                    type: 'compaction',
+                    id: 'cmpct_1',
+                    encrypted_content: 'ENC',
+                },
+            ],
+            output_text: '   ',
+            usage: { input_tokens: 1, output_tokens: 0 },
+        };
+        const result = await handle_completion_output_responses_api({
+            deviations: undefined,
+            stream: false,
+            completion,
+        });
+        // Compaction-only output is not rejected as "empty".
+        expect(result.compaction).toEqual({
+            type: 'compaction',
+            id: 'cmpct_1',
+            encrypted_content: 'ENC',
+        });
     });
 
     it('runs moderation against output_text when a moderate fn is supplied', async () => {

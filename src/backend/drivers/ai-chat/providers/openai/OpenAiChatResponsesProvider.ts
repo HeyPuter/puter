@@ -25,6 +25,7 @@ import type { MeteringService } from '../../../../services/metering/MeteringServ
 import type { FSEntryStore } from '../../../../stores/fs/FSEntryStore.js';
 import type { S3ObjectStore } from '../../../../stores/fs/S3ObjectStore.js';
 import type { IChatProvider, ICompleteArguments } from '../../types.js';
+import { toOpenAiContextManagement } from '../../utils/compaction.js';
 import * as OpenAiUtil from '../../utils/OpenAIUtil.js';
 import { processPuterPathUploads } from './fileUpload.js';
 import { OPEN_AI_MODELS } from './models.js';
@@ -100,6 +101,8 @@ export class OpenAiResponsesChatProvider implements IChatProvider {
         parallel_tool_calls,
         include,
         conversation,
+        compaction,
+        context_management,
         previous_response_id,
         instructions,
         metadata,
@@ -177,6 +180,13 @@ export class OpenAiResponsesChatProvider implements IChatProvider {
         const supportsReasoningControls =
             typeof model === 'string' && model.startsWith('gpt-5');
 
+        // Translate the neutral compaction opt-in (or pass a raw
+        // `context_management` payload through) to OpenAI's Responses shape.
+        const contextManagement = toOpenAiContextManagement({
+            compaction,
+            context_management,
+        });
+
         const completionParams: ResponseCreateParams = {
             user: userIdentifier,
             safety_identifier: userIdentifier,
@@ -188,6 +198,9 @@ export class OpenAiResponsesChatProvider implements IChatProvider {
                 ? { parallel_tool_calls }
                 : {}),
             ...(include !== undefined ? { include } : {}),
+            ...(contextManagement !== undefined
+                ? { context_management: contextManagement }
+                : {}),
             ...(conversation !== undefined ? { conversation } : {}),
             ...(previous_response_id !== undefined
                 ? { previous_response_id }

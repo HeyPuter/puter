@@ -139,6 +139,43 @@ const testChatStreamingCore = async function(model) {
     }
 };
 
+const testChatCompactionCore = async function(model) {
+    // Opting into inline compaction must not break a normal streamed response.
+    // We can't reliably force the model to compact (needs a huge context), so
+    // this asserts the opt-in streams cleanly and that any compaction chunk
+    // that does appear carries a provider-independent encrypted_content.
+    const result = await puter.ai.chat("Count from 1 to 5", {
+        model: model,
+        stream: true,
+        max_tokens: 100,
+        compaction: true,
+    });
+
+    assert(typeof result === 'object' && result !== null, "compaction chat should return an object");
+    assert(typeof result[Symbol.asyncIterator] === 'function', "compaction chat should be streamable");
+
+    let chunkCount = 0;
+    let compaction = null;
+    for await (const chunk of result) {
+        assert(typeof chunk === 'object', "each streaming chunk should be an object");
+        if (chunk.type === 'compaction') compaction = chunk;
+        if (++chunkCount >= 10) break;
+    }
+    assert(chunkCount > 0, "compaction streaming should produce at least one chunk");
+
+    if (compaction) {
+        assert(typeof compaction.encrypted_content === 'string',
+            "a compaction chunk should carry an encrypted_content string");
+
+        // Round-trip: the artifact can be resent as a message item.
+        const next = await puter.ai.chat([
+            { role: 'user', content: 'continue' },
+            compaction,
+        ], { model: model });
+        assert(typeof next === 'object' && next !== null, "resending a compaction item should succeed");
+    }
+};
+
 // Function to generate test functions for a specific model
 const generateTestsForModel = function(model) {
     const modelName = model.replace(/[^a-zA-Z0-9]/g, '_'); // Sanitize model name for function names
@@ -192,6 +229,19 @@ const generateTestsForModel = function(model) {
                     pass(`testChatStreaming_${modelName} passed`);
                 } catch (error) {
                     fail(`testChatStreaming_${modelName} failed:`, error);
+                }
+            }
+        },
+
+        [`testChatCompaction_${modelName}`]: {
+            name: `testChatCompaction_${modelName}`,
+            description: `Test AI chat inline compaction opt-in and round-trip using ${model} model`,
+            test: async function() {
+                try {
+                    await testChatCompactionCore(model);
+                    pass(`testChatCompaction_${modelName} passed`);
+                } catch (error) {
+                    fail(`testChatCompaction_${modelName} failed:`, error);
                 }
             }
         },

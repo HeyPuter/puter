@@ -1,4 +1,3 @@
-import type { Request, Response } from 'express';
 import { Context } from '@heyputer/backend/src/core';
 import { HttpError } from '@heyputer/backend/src/core/http';
 import {
@@ -6,6 +5,7 @@ import {
     driversContainers,
 } from '@heyputer/backend/src/exports';
 import { extension } from '@heyputer/backend/src/extensions';
+import type { Request, Response } from 'express';
 
 const services = extension.import('service');
 const clients = extension.import('client');

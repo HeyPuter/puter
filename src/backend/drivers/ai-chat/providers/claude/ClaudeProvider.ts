@@ -34,6 +34,10 @@ import type {
     ICompleteArguments,
     IChatCompleteResult,
 } from '../../types.js';
+import {
+    messagesHaveCompaction,
+    toAnthropicContextManagement,
+} from '../../utils/compaction.js';
 import { make_claude_tools } from '../../utils/FunctionCalling.js';
 import { extract_and_remove_system_messages } from '../../utils/Messages.js';
 import type {
@@ -43,6 +47,11 @@ import type {
 } from '../../utils/Streaming.js';
 import { FILES_API_BETA, processPuterPathUploads } from './fileUpload.js';
 import { CLAUDE_MODELS } from './models.js';
+
+// Anthropic inline-compaction beta. The vendored SDK (0.68.0) doesn't type the
+// `compact_20260112` edit or the `compaction` content block, so the request
+// params and streamed/returned blocks are handled with `as any` casts.
+const COMPACTION_BETA = 'compact-2026-01-12';
 
 export class ClaudeProvider implements IChatProvider {
     anthropic: Anthropic;
@@ -97,8 +106,17 @@ export class ClaudeProvider implements IChatProvider {
         temperature,
         reasoning,
         reasoning_effort,
+        compaction,
+        context_management,
     }: ICompleteArguments): Promise<IChatCompleteResult> {
         tools = make_claude_tools(tools);
+
+        // Translate the neutral compaction opt-in (or pass a raw
+        // `context_management` payload through) to Anthropic's beta shape.
+        const contextManagement = toAnthropicContextManagement({
+            compaction,
+            context_management,
+        });
 
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         let system_prompts: string | any[];
@@ -218,6 +236,23 @@ export class ClaudeProvider implements IChatProvider {
             return message;
         });
 
+        // Map round-tripped compaction blocks back to Anthropic's native shape.
+        // The internal/unified carrier field is `encrypted_content`; Anthropic's
+        // compaction block uses `content` (a plaintext summary).
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        messages = messages.map((message: any) => {
+            if (!Array.isArray(message.content)) return message;
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            message.content = message.content.map((part: any) => {
+                if (part?.type !== 'compaction') return part;
+                return {
+                    type: 'compaction',
+                    content: part.content ?? part.encrypted_content ?? '',
+                };
+            });
+            return message;
+        });
+
         const modelUsed =
             this.models().find((m) =>
                 [m.id, ...(m.aliases || [])].includes(model),
@@ -262,6 +297,18 @@ export class ClaudeProvider implements IChatProvider {
             actor,
         );
         const usesBetaFiles = uploadedFileIds.length > 0;
+        // The compaction beta is needed both to *request* compaction
+        // (contextManagement) and to *accept a round-tripped* compaction block
+        // back as input (messagesHaveCompaction).
+        const usesCompaction =
+            !!contextManagement || messagesHaveCompaction(messages);
+        // Compaction and Files API both require the beta endpoint; combine their
+        // beta headers and route through `beta.messages.*` if either is active.
+        const betas = [
+            ...(usesBetaFiles ? [FILES_API_BETA] : []),
+            ...(usesCompaction ? [COMPACTION_BETA] : []),
+        ];
+        const usesBeta = betas.length > 0;
 
         const sdkParams: MessageCreateParams & {
             betas?: string[];
@@ -291,7 +338,11 @@ export class ClaudeProvider implements IChatProvider {
             ...(supportsEffort && requestedReasoningEffort
                 ? { output_config: { effort: requestedReasoningEffort } }
                 : {}),
-            ...(usesBetaFiles ? { betas: [FILES_API_BETA] } : {}),
+            // Cast: `context_management` compaction edits aren't typed in SDK 0.68.0.
+            ...(contextManagement
+                ? { context_management: contextManagement as any }
+                : {}),
+            ...(usesBeta ? { betas } : {}),
         } as MessageCreateParams & { betas?: string[] };
 
         const cleanupUploads = async () => {
@@ -315,13 +366,23 @@ export class ClaudeProvider implements IChatProvider {
             }: {
                 chatStream: AIChatStream;
             }) => {
-                const completion = usesBetaFiles
+                const completion = usesBeta
                     ? this.anthropic.beta.messages.stream(sdkParams)
                     : this.anthropic.messages.stream(sdkParams);
                 const usageSum: Record<string, number> = {};
 
                 let message, contentBlock;
                 let currentContentBlockType: string | null = null;
+                // Inline-compaction block is an untyped beta block; capture its
+                // artifact across start/delta and emit on stop. Anthropic carries
+                // the summary in `content` (plaintext) — unlike OpenAI's
+                // `encrypted_content` — so read `content` first.
+                let compactionData: {
+                    id?: string;
+                    payload: string;
+                    buffer: string;
+                } | null = null;
+                let emittedCompaction = false;
                 for await (const event of completion) {
                     if (event.type === 'message_delta') {
                         const meteredData = this.#usageFormatterUtil(
@@ -345,6 +406,24 @@ export class ClaudeProvider implements IChatProvider {
                     }
                     if (event.type === 'content_block_start') {
                         currentContentBlockType = event.content_block.type;
+                        if (
+                            (event.content_block.type as string) ===
+                            'compaction'
+                        ) {
+                            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                            const block = event.content_block as any;
+                            compactionData = {
+                                id: block.id,
+                                // Anthropic uses `content`; fall back to
+                                // `encrypted_content` in case the field varies.
+                                payload:
+                                    block.content ??
+                                    block.encrypted_content ??
+                                    '',
+                                buffer: '',
+                            };
+                            continue;
+                        }
                         if (event.content_block.type === 'tool_use') {
                             contentBlock = message!.contentBlock({
                                 type: event.content_block.type,
@@ -363,12 +442,42 @@ export class ClaudeProvider implements IChatProvider {
                         continue;
                     }
                     if (event.type === 'content_block_stop') {
+                        if (currentContentBlockType === 'compaction') {
+                            const encrypted_content =
+                                compactionData?.payload ||
+                                compactionData?.buffer ||
+                                '';
+                            // Only emit (and mark done) if we actually captured
+                            // the summary; otherwise let the finalMessage
+                            // fallback recover it from the complete block.
+                            if (encrypted_content) {
+                                chatStream.compaction({
+                                    id: compactionData?.id,
+                                    encrypted_content,
+                                });
+                                emittedCompaction = true;
+                            }
+                            compactionData = null;
+                            currentContentBlockType = null;
+                            continue;
+                        }
                         contentBlock!.end();
                         contentBlock = null;
                         currentContentBlockType = null;
                         continue;
                     }
                     if (event.type === 'content_block_delta') {
+                        if (currentContentBlockType === 'compaction') {
+                            // Capture any streamed payload for the artifact.
+                            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                            const d = event.delta as any;
+                            const chunk =
+                                d.partial_json ?? d.text ?? d.data ?? '';
+                            if (typeof chunk === 'string' && compactionData) {
+                                compactionData.buffer += chunk;
+                            }
+                            continue;
+                        }
                         if (event.delta.type === 'input_json_delta') {
                             (contentBlock as AIChatToolUseStream)!.addPartialJSON(
                                 event.delta.partial_json,
@@ -391,17 +500,36 @@ export class ClaudeProvider implements IChatProvider {
                         // signature_delta — ignored
                     }
                 }
-                const finalUsage = await completion
+                const finalMessage = await completion
                     .finalMessage()
-                    .then((msg) =>
-                        this.#usageFormatterUtil(
-                            msg.usage as Usage | BetaUsage,
-                        ),
-                    )
                     .catch(() => null);
-                if (finalUsage) {
+                if (finalMessage) {
+                    const finalUsage = this.#usageFormatterUtil(
+                        finalMessage.usage as Usage | BetaUsage,
+                    );
                     for (const [key, value] of Object.entries(finalUsage)) {
                         usageSum[key] = value;
+                    }
+                    // Fallback: some SDK versions surface the compaction block
+                    // only in the final message, not as a streamed block.
+                    if (!emittedCompaction) {
+                        const block = (
+                            (finalMessage.content as unknown[]) ?? []
+                        ).find(
+                            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                            (c: any) => c?.type === 'compaction',
+                            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                        ) as any;
+                        if (block) {
+                            chatStream.compaction({
+                                id: block.id,
+                                encrypted_content:
+                                    block.content ??
+                                    block.encrypted_content ??
+                                    '',
+                            });
+                            emittedCompaction = true;
+                        }
                     }
                 }
                 chatStream.end(usageSum);
@@ -423,7 +551,7 @@ export class ClaudeProvider implements IChatProvider {
         }
 
         try {
-            const msg = await (usesBetaFiles
+            const msg = await (usesBeta
                 ? this.anthropic.beta.messages.create(sdkParams)
                 : this.anthropic.messages.create(sdkParams));
             const usage = this.#usageFormatterUtil(
@@ -440,7 +568,37 @@ export class ClaudeProvider implements IChatProvider {
                 costsOverrideFromModel,
             );
 
-            return { message: msg, usage, finish_reason: 'stop' };
+            // Surface any inline-compaction artifact for stateless round-trip.
+            const compactionBlock = (
+                ((msg as Message).content as unknown[]) ?? []
+            ).find(
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                (c: any) => c?.type === 'compaction',
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            ) as any;
+
+            return {
+                message: msg,
+                usage,
+                finish_reason: 'stop',
+                ...(compactionBlock
+                    ? {
+                          compaction: {
+                              // `type` makes the artifact a drop-in `messages`
+                              // item for the round-trip (symmetric with the
+                              // streaming compaction chunk).
+                              type: 'compaction' as const,
+                              ...(compactionBlock.id !== undefined
+                                  ? { id: compactionBlock.id }
+                                  : {}),
+                              encrypted_content:
+                                  compactionBlock.content ??
+                                  compactionBlock.encrypted_content ??
+                                  '',
+                          },
+                      }
+                    : {}),
+            };
         } finally {
             await cleanupUploads();
         }

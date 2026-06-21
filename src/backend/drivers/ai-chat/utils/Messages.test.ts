@@ -46,6 +46,22 @@ describe('normalize_single_message', () => {
         expect(result.role).toBe('system');
     });
 
+    it('wraps a bare round-tripped compaction item into a compaction content block', () => {
+        const result = normalize_single_message({
+            type: 'compaction',
+            id: 'cmpct_1',
+            encrypted_content: 'ENC',
+        });
+        expect(result.role).toBe('assistant');
+        expect(result.content).toEqual([
+            {
+                type: 'compaction',
+                id: 'cmpct_1',
+                encrypted_content: 'ENC',
+            },
+        ]);
+    });
+
     it('throws 400 when message is null/undefined/array', () => {
         expect(() => normalize_single_message(null)).toThrow(
             expect.objectContaining({ statusCode: 400 }),
