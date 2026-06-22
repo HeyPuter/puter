@@ -1149,10 +1149,18 @@ export class AuthController extends PuterController {
         }
 
         const ip = req.ip || req.socket?.remoteAddress || undefined;
+        const userAgent =
+            typeof req.headers['user-agent'] === 'string'
+                ? req.headers['user-agent']
+                : undefined;
         try {
             const result = await this.clients.prelude.createVerification(
                 parsed.e164,
-                { ip },
+                {
+                    ip,
+                    device_id: req.deviceFingerprint ?? undefined,
+                    user_agent: userAgent,
+                },
             );
             // Prelude rejected the attempt as abusive — surface as rate-limit.
             if (

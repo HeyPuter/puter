@@ -1901,6 +1901,46 @@ describe('AuthController.handleSendConfirmPhone validation', () => {
             },
         );
     });
+
+    it('forwards ip, device fingerprint, and user-agent to Prelude as signals', async () => {
+        const { actor } = await makeUserAndActor();
+        const createVerification = vi.fn(async () => ({ status: 'success' }));
+        await withPrelude(stubPrelude({ createVerification }), async () => {
+            const req = makeReq(
+                { phone: '+14155550123' },
+                {
+                    actor,
+                    ip: '203.0.113.7',
+                    headers: { 'user-agent': 'Mozilla/5.0' },
+                },
+            );
+            // Stamped by the global fingerprint middleware in production.
+            (req as { deviceFingerprint?: string }).deviceFingerprint =
+                'thumb_abc123';
+            await controller.handleSendConfirmPhone(req, makeRes());
+        });
+        expect(createVerification).toHaveBeenCalledWith('+14155550123', {
+            ip: '203.0.113.7',
+            device_id: 'thumb_abc123',
+            user_agent: 'Mozilla/5.0',
+        });
+    });
+
+    it('omits absent device fingerprint and user-agent from the Prelude signals', async () => {
+        const { actor } = await makeUserAndActor();
+        const createVerification = vi.fn(async () => ({ status: 'success' }));
+        await withPrelude(stubPrelude({ createVerification }), async () => {
+            await controller.handleSendConfirmPhone(
+                makeReq({ phone: '+14155550123' }, { actor, ip: '203.0.113.7' }),
+                makeRes(),
+            );
+        });
+        expect(createVerification).toHaveBeenCalledWith('+14155550123', {
+            ip: '203.0.113.7',
+            device_id: undefined,
+            user_agent: undefined,
+        });
+    });
 });
 
 describe('AuthController phone verification — staging & reuse', () => {
