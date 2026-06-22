@@ -486,6 +486,52 @@ describe('ClaudeProvider.complete non-stream output', () => {
             10 * Number(haiku.costs.cache_read_input_tokens),
         );
     });
+
+    it('bills the compaction pass by summing usage.iterations', async () => {
+        const { provider } = makeProvider();
+        // Per Anthropic: top-level input/output reflect only the message pass;
+        // the compaction pass lives in `iterations` and must be summed to bill.
+        const msg = {
+            content: [{ type: 'text', text: 'done' }],
+            usage: {
+                input_tokens: 23000, // message pass only (NOT the total)
+                output_tokens: 1000,
+                iterations: [
+                    {
+                        type: 'compaction',
+                        input_tokens: 180000,
+                        output_tokens: 3500,
+                    },
+                    { type: 'message', input_tokens: 23000, output_tokens: 1000 },
+                ],
+            },
+        };
+        messagesCreateMock.mockResolvedValueOnce(msg);
+
+        const result = (await withTestActor(() =>
+            provider.complete({
+                model: 'claude-haiku-4-5-20251001',
+                messages: [{ role: 'user', content: 'hi' }],
+                compaction: true,
+            }),
+        )) as { usage: Record<string, number> };
+
+        // Totals are the SUM across iterations, not the top-level fields.
+        expect(result.usage.input_tokens).toBe(203000); // 180000 + 23000
+        expect(result.usage.output_tokens).toBe(4500); // 3500 + 1000
+
+        const haiku = CLAUDE_MODELS.find(
+            (m) => m.id === 'claude-haiku-4-5-20251001',
+        )!;
+        const [usage, , , overrides] = recordSpy.mock.calls[0]!;
+        expect(usage.input_tokens).toBe(203000);
+        expect(overrides.input_tokens).toBe(
+            203000 * Number(haiku.costs.input_tokens),
+        );
+        expect(overrides.output_tokens).toBe(
+            4500 * Number(haiku.costs.output_tokens),
+        );
+    });
 });
 
 // ── Streaming deltas ────────────────────────────────────────────────
@@ -615,6 +661,220 @@ describe('ClaudeProvider.complete streaming', () => {
         expect(toolEvent?.id).toBe('call_1');
         expect(toolEvent?.name).toBe('lookup');
         expect(toolEvent?.input).toEqual({ q: 'puter' });
+    });
+});
+
+// ── Inline compaction ───────────────────────────────────────────────
+
+describe('ClaudeProvider.complete compaction', () => {
+    it('translates the neutral opt-in to context_management + the compaction beta', async () => {
+        const { provider } = makeProvider();
+        messagesCreateMock.mockResolvedValueOnce({
+            content: [{ type: 'text', text: 'hi' }],
+            usage: { input_tokens: 1, output_tokens: 1 },
+        });
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'claude-haiku-4-5-20251001',
+                messages: [{ role: 'user', content: 'hi' }],
+                compaction: { trigger_tokens: 50000 },
+            }),
+        );
+
+        const [args] = messagesCreateMock.mock.calls[0]!;
+        expect(args.context_management).toEqual({
+            edits: [
+                {
+                    type: 'compact_20260112',
+                    trigger: { type: 'input_tokens', value: 50000 },
+                },
+            ],
+        });
+        expect(args.betas).toContain('compact-2026-01-12');
+    });
+
+    it('emits a canonical compaction event from a streamed compaction block', async () => {
+        const { provider } = makeProvider();
+        messagesStreamMock.mockReturnValueOnce(
+            makeStreamLike(
+                [
+                    { type: 'message_start' },
+                    {
+                        type: 'content_block_start',
+                        content_block: {
+                            type: 'compaction',
+                            id: 'cmpct_1',
+                            content: 'ENC', // Anthropic carries the summary here
+                        },
+                    },
+                    { type: 'content_block_stop' },
+                    {
+                        type: 'message_delta',
+                        usage: { input_tokens: 1, output_tokens: 1 },
+                    },
+                    { type: 'message_stop' },
+                ],
+                { input_tokens: 1, output_tokens: 1 },
+            ),
+        );
+
+        const result = await withTestActor(() =>
+            provider.complete({
+                model: 'claude-haiku-4-5-20251001',
+                messages: [{ role: 'user', content: 'hi' }],
+                stream: true,
+                compaction: true,
+            }),
+        );
+        const harness = makeCapturingChatStream();
+        await (
+            result as {
+                init_chat_stream: (p: { chatStream: unknown }) => Promise<void>;
+            }
+        ).init_chat_stream({ chatStream: harness.chatStream });
+
+        const compaction = harness
+            .events()
+            .find((e) => e.type === 'compaction');
+        expect(compaction).toEqual({
+            type: 'compaction',
+            id: 'cmpct_1',
+            encrypted_content: 'ENC',
+        });
+    });
+
+    it('enables the compaction beta when a round-tripped compaction block is resent (no opt-in)', async () => {
+        const { provider } = makeProvider();
+        messagesCreateMock.mockResolvedValueOnce({
+            content: [{ type: 'text', text: 'ok' }],
+            usage: { input_tokens: 1, output_tokens: 1 },
+        });
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'claude-haiku-4-5-20251001',
+                messages: [
+                    { role: 'user', content: 'continue' },
+                    {
+                        role: 'assistant',
+                        content: [
+                            {
+                                type: 'compaction',
+                                id: 'cmpct_1',
+                                encrypted_content: 'ENC',
+                            },
+                        ],
+                    },
+                ],
+                // note: no `compaction`/`context_management` opt-in
+            }),
+        );
+
+        const [args] = messagesCreateMock.mock.calls[0]!;
+        expect(args.betas).toContain('compact-2026-01-12');
+        // No new compaction was requested, so no context_management is sent.
+        expect(args.context_management).toBeUndefined();
+    });
+
+    it('surfaces a compaction block from a non-streaming response as result.compaction', async () => {
+        const { provider } = makeProvider();
+        messagesCreateMock.mockResolvedValueOnce({
+            content: [
+                { type: 'text', text: 'done' },
+                {
+                    type: 'compaction',
+                    id: 'cmpct_2',
+                    content: 'ENC2', // Anthropic carries the summary here
+                },
+            ],
+            usage: { input_tokens: 1, output_tokens: 1 },
+        });
+
+        const result = (await withTestActor(() =>
+            provider.complete({
+                model: 'claude-haiku-4-5-20251001',
+                messages: [{ role: 'user', content: 'hi' }],
+                compaction: true,
+            }),
+        )) as { compaction?: { id?: string; encrypted_content: string } };
+
+        // Anthropic's `content` is surfaced under the unified `encrypted_content`.
+        expect(result.compaction).toEqual({
+            type: 'compaction',
+            id: 'cmpct_2',
+            encrypted_content: 'ENC2',
+        });
+    });
+
+    it('maps a round-tripped compaction block back to Anthropic `content` on input', async () => {
+        const { provider } = makeProvider();
+        messagesCreateMock.mockResolvedValueOnce({
+            content: [{ type: 'text', text: 'ok' }],
+            usage: { input_tokens: 1, output_tokens: 1 },
+        });
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'claude-haiku-4-5-20251001',
+                messages: [
+                    { role: 'user', content: 'continue' },
+                    {
+                        role: 'assistant',
+                        content: [
+                            { type: 'compaction', encrypted_content: 'SUMMARY' },
+                        ],
+                    },
+                ],
+            }),
+        );
+
+        const [args] = messagesCreateMock.mock.calls[0]!;
+        const compactionBlock = args.messages
+            .flatMap((m: { content?: unknown[] }) =>
+                Array.isArray(m.content) ? m.content : [],
+            )
+            .find((c: { type?: string }) => c?.type === 'compaction');
+        // Internal `encrypted_content` carrier → Anthropic native `content`.
+        expect(compactionBlock).toEqual({
+            type: 'compaction',
+            content: 'SUMMARY',
+        });
+    });
+
+    it('preserves the reply text when an assistant turn carries compaction + text', async () => {
+        const { provider } = makeProvider();
+        messagesCreateMock.mockResolvedValueOnce({
+            content: [{ type: 'text', text: 'ok' }],
+            usage: { input_tokens: 1, output_tokens: 1 },
+        });
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'claude-haiku-4-5-20251001',
+                messages: [
+                    {
+                        role: 'assistant',
+                        content: [
+                            { type: 'compaction', encrypted_content: 'SUMMARY' },
+                            { type: 'text', text: 'earlier reply' },
+                        ],
+                    },
+                    { role: 'user', content: 'continue' },
+                ],
+            }),
+        );
+
+        const [args] = messagesCreateMock.mock.calls[0]!;
+        const blocks = args.messages.flatMap((m: { content?: unknown[] }) =>
+            Array.isArray(m.content) ? m.content : [],
+        );
+        // Compaction mapped to Anthropic `content`, AND the reply text kept.
+        expect(blocks).toContainEqual({
+            type: 'compaction',
+            content: 'SUMMARY',
+        });
+        expect(blocks).toContainEqual({ type: 'text', text: 'earlier reply' });
     });
 });
 

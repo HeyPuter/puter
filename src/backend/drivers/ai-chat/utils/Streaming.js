@@ -103,6 +103,25 @@ export class AIChatStream {
         this.stream.end();
     }
 
+    /**
+     * Emit a canonical compaction event into the NDJSON stream. Both the OpenAI
+     * and Anthropic providers normalize their native inline-compaction artifact
+     * to this single shape, so downstream consumers (controllers, puter.js) see
+     * an identical `{ type: 'compaction', id, encrypted_content }` chunk
+     * regardless of which upstream served the request.
+     *
+     * @param {{ id?: string, encrypted_content: string }} compaction
+     */
+    compaction({ id, encrypted_content }) {
+        this.stream.write(
+            `${JSON.stringify({
+                type: 'compaction',
+                ...(id !== undefined ? { id } : {}),
+                encrypted_content,
+            })}\n`,
+        );
+    }
+
     message() {
         return new AIChatMessageStream(this);
     }

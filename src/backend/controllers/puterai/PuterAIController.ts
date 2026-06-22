@@ -587,6 +587,15 @@ export class PuterAIController extends PuterController {
                 ? { metadata: body.metadata as Record<string, string> }
                 : {}),
             ...(body.conversation ? { conversation: body.conversation } : {}),
+            ...(body.context_management !== undefined
+                ? { context_management: body.context_management }
+                : {}),
+            ...(body.compaction !== undefined
+                ? {
+                      compaction:
+                          body.compaction as ICompleteArguments['compaction'],
+                  }
+                : {}),
             ...(body.previous_response_id
                 ? { previous_response_id: String(body.previous_response_id) }
                 : {}),
@@ -750,6 +759,30 @@ export class PuterAIController extends PuterController {
                             output_index: outputIndex,
                             item,
                         });
+                    } else if (ev.type === 'compaction') {
+                        // Native shape in the final `output[]`, plus the
+                        // canonical SSE event shared with the Anthropic surface.
+                        const item = {
+                            type: 'compaction',
+                            ...(ev.id !== undefined ? { id: ev.id } : {}),
+                            encrypted_content: ev.encrypted_content,
+                        };
+                        const outputIndex = output.length;
+                        output.push(item);
+                        sendEvent({
+                            type: 'response.output_item.added',
+                            output_index: outputIndex,
+                            item,
+                        });
+                        sendEvent({
+                            type: 'response.output_item.done',
+                            output_index: outputIndex,
+                            item,
+                        });
+                        writeCompactionEvent(res, {
+                            id: ev.id,
+                            encrypted_content: ev.encrypted_content,
+                        });
                     } else if (ev.type === 'usage') {
                         usage = buildResponsesUsage(
                             ev.usage as Record<string, unknown>,
@@ -869,6 +902,15 @@ export class PuterAIController extends PuterController {
             ...(body.max_tokens !== undefined
                 ? { max_tokens: Number(body.max_tokens) }
                 : {}),
+            ...(body.context_management !== undefined
+                ? { context_management: body.context_management }
+                : {}),
+            ...(body.compaction !== undefined
+                ? {
+                      compaction:
+                          body.compaction as ICompleteArguments['compaction'],
+                  }
+                : {}),
             ...(body.provider
                 ? { provider: toStringOrEmpty(body.provider) }
                 : { provider: DEFAULTS.anthropic }),
@@ -968,6 +1010,14 @@ export class PuterAIController extends PuterController {
                             },
                         });
                         closeBlock();
+                    } else if (ev.type === 'compaction') {
+                        // Close any open content block, then emit the canonical
+                        // compaction SSE event — byte-identical to /responses.
+                        closeBlock();
+                        writeCompactionEvent(res, {
+                            id: ev.id,
+                            encrypted_content: ev.encrypted_content,
+                        });
                     } else if (ev.type === 'usage') {
                         usage = ev.usage as Record<string, unknown>;
                     }
@@ -1026,6 +1076,18 @@ export class PuterAIController extends PuterController {
         if (textContent)
             contentBlocks.push({ type: 'text', text: textContent });
         contentBlocks.push(...toolUseBlocks);
+        // Native Anthropic-shaped compaction block (non-streaming bodies stay
+        // provider-native, unlike the unified streaming event).
+        const compaction = (
+            messageResult as { compaction?: Record<string, unknown> }
+        ).compaction;
+        if (compaction) {
+            contentBlocks.push({
+                type: 'compaction',
+                ...(compaction.id !== undefined ? { id: compaction.id } : {}),
+                encrypted_content: compaction.encrypted_content,
+            });
+        }
         if (contentBlocks.length === 0)
             contentBlocks.push({ type: 'text', text: '' });
 
@@ -1080,6 +1142,25 @@ const setSseHeaders = (res: Response): void => {
     res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
     res.setHeader('Cache-Control', 'no-cache, no-transform');
     res.setHeader('Connection', 'keep-alive');
+};
+
+/**
+ * Inline-compaction is emitted in a single canonical SSE shape that is
+ * byte-identical across the `/responses` and `/anthropic/v1/messages` streaming
+ * surfaces, so a streaming client parses compaction the same way regardless of
+ * which upstream served the request. (Non-streaming bodies stay provider-native.)
+ */
+const writeCompactionEvent = (
+    res: Response,
+    compaction: { id?: unknown; encrypted_content?: unknown },
+): void => {
+    const payload = {
+        type: 'compaction',
+        ...(compaction.id !== undefined ? { id: compaction.id } : {}),
+        encrypted_content: compaction.encrypted_content,
+    };
+    res.write(`event: compaction\n`);
+    res.write(`data: ${JSON.stringify(payload)}\n\n`);
 };
 
 /**
@@ -1325,6 +1406,17 @@ const responseInputToMessages = (input: unknown): unknown[] => {
         if (!item || typeof item !== 'object') continue;
         const it = item as Record<string, unknown>;
 
+        if (it.type === 'compaction') {
+            // Round-tripped compaction artifact: preserve it as a bare item so
+            // `normalize_single_message` wraps it into an internal compaction
+            // content block (providers map it back to their native input shape).
+            messages.push({
+                type: 'compaction',
+                ...(it.id !== undefined ? { id: it.id } : {}),
+                encrypted_content: it.encrypted_content,
+            });
+            continue;
+        }
         if (it.type === 'function_call_output') {
             messages.push({
                 role: 'tool',
@@ -1413,6 +1505,16 @@ const responseOutputFromResult = (
             name: fn.name,
             arguments: fn.arguments ?? '{}',
             status: 'completed',
+        });
+    }
+
+    const compaction = (result as { compaction?: Record<string, unknown> })
+        .compaction;
+    if (compaction) {
+        output.push({
+            id: (compaction.id as string | undefined) || generateId('cmpct'),
+            type: 'compaction',
+            encrypted_content: compaction.encrypted_content,
         });
     }
 

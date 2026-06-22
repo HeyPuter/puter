@@ -34,6 +34,7 @@ An object containing the following properties:
 - `tools` (Array) (Optional) - Function definitions the AI can call. See [Function Calling](#function-calling) for details.
 - `reasoning_effort` / `reasoning.effort` (String) (Optional) - Controls how much effort reasoning models spend thinking. Supported values: `none`, `minimal`, `low`, `medium`, `high`, and `xhigh`. Lower values give faster responses with less reasoning. OpenAI models only.
 - `verbosity` / `text.verbosity` (String) (Optional) - Controls how long or short responses are. Supported values: `low`, `medium`, and `high`. Lower values give shorter responses. OpenAI models only.
+- `compaction` (Boolean | Object) (Optional) - Opt into inline context compaction for long conversations. Pass `true` to enable it with provider defaults, or `{ trigger_tokens: number }` to set the token threshold at which earlier context is summarized. When the model compacts, you receive a `compaction` chunk while streaming (or a `compaction` field on the result when not streaming) containing an opaque `encrypted_content` summary. Resend that item in `messages` on the next turn in place of the summarized history. The compaction chunk shape is identical across providers, so the same code works whether `model` is an OpenAI or Anthropic model. See [Compaction](#compaction).
 
 #### `testMode` (Boolean) (Optional)
 
@@ -182,6 +183,118 @@ Pass in the `cache_control` parameter inside the object in the `messages` array.
 ```
 
 You can find the implementation in our [prompt caching example](/playground/ai-claude-cache-control/). Find more details about cache control in [Anthropic documentation](https://platform.claude.com/docs/en/build-with-claude/prompt-caching).
+
+## Compaction
+
+For long, multi-turn conversations that you keep on the client, enable
+`compaction` so the model can summarize earlier context before it overflows the
+context window. When it fires, the model summarizes the older turns into a single
+**compaction artifact** and answers from that summary instead of the full
+history — so the request stays small.
+
+You get the artifact back as a `compaction` item (a stream chunk when streaming,
+or `result.compaction` when not). On the next turn you carry it forward **as the
+first block of the assistant turn that produced it**, together with that turn's
+reply text — the artifact stands in for the older turns it summarized, and the
+recent exchange is preserved. The item shape is the same across providers, so the
+same code works for OpenAI and Anthropic models.
+
+#### Enabling it
+
+Pass `compaction` in the options object:
+
+- `compaction: true` — enable with provider defaults.
+- `compaction: { trigger_tokens: 60000 }` — set the token threshold at which the
+  model compacts.
+
+The artifact is `{ type: 'compaction', id, encrypted_content }`. `encrypted_content`
+is an opaque payload; treat it as a black box and just carry it forward.
+
+#### Streaming
+
+```js
+const resp = await puter.ai.chat(messages, {
+    model: 'gpt-5.4',                       // or 'claude-opus-4-8' — same code
+    stream: true,
+    compaction: { trigger_tokens: 60000 },
+});
+
+let text = '';
+let compaction = null;
+for await ( const part of resp ) {
+    if ( part.type === 'text' )             text += part.text;
+    else if ( part.type === 'compaction' )  compaction = part;                 // { type, id, encrypted_content }
+    else if ( part.type === 'error' )       console.error('stream error:', part.message);
+}
+
+// Next turn: rebuild the assistant turn from the compaction artifact + the reply
+// text it came with (artifact first), then add the new user message. The artifact
+// replaces the older compacted turns; the recent exchange is kept. Keep
+// compaction enabled so it can compact again later.
+if ( compaction ) {
+    const next = await puter.ai.chat(
+        [
+            { role: 'system', content: 'You are a helpful assistant.' },
+            {
+                role: 'assistant',
+                content: [ compaction, { type: 'text', text } ],
+            },
+            { role: 'user', content: 'now compare the two approaches' },
+        ],
+        { model: 'gpt-5.4', stream: true, compaction: true }
+    );
+    for await ( const part of next ) {
+        if ( part.type === 'text' ) document.write(part.text);
+    }
+}
+```
+
+#### Non-streaming
+
+```js
+const result = await puter.ai.chat(messages, {
+    model: 'gpt-5.4',
+    compaction: { trigger_tokens: 60000 },
+});
+console.log(result.message.content);
+
+if ( result.compaction ) {
+    // result.compaction is { type: 'compaction', id, encrypted_content } — the
+    // same item you get from the stream. Rebuild the assistant turn from it plus
+    // the reply text (artifact first), then add the new user message:
+    const next = await puter.ai.chat(
+        [
+            { role: 'system', content: 'You are a helpful assistant.' },
+            {
+                role: 'assistant',
+                content: [
+                    result.compaction,
+                    { type: 'text', text: result.message.content },
+                ],
+            },
+            { role: 'user', content: 'now compare the two approaches' },
+        ],
+        { model: 'gpt-5.4', compaction: true }
+    );
+    console.log(next.message.content);
+}
+```
+
+#### Notes
+
+- **Keep `compaction` enabled on every turn** of the conversation so it can
+  compact again as the conversation keeps growing.
+- **Carry the artifact as the first block of its assistant turn**, alongside that
+  turn's reply text, then continue with new turns. The artifact replaces the older
+  compacted turns; don't drop the recent exchange.
+- **It only fires once the context is large enough.** Anthropic models require a
+  minimum threshold of **50,000 tokens**, and the conversation must actually
+  exceed your `trigger_tokens`. OpenAI models don't enforce that floor, so they
+  can compact smaller conversations. If nothing compacts, your input was below
+  the threshold.
+- **Handle the `error` chunk** when streaming — provider errors (e.g. a
+  `trigger_tokens` below a provider's minimum) arrive as an `error` chunk, not a
+  thrown exception.
 
 ## Image Generation (Gemini Image Models)
 

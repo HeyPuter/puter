@@ -24,6 +24,8 @@ import { PuterService } from '../types.js';
 import type { UserRow } from '../../stores/user/UserStore.js';
 import { generateDefaultFsentries } from '../../util/userProvisioning.js';
 import type { AppIconService } from '../appIcon/AppIconService.js';
+import { LOCAL_UNLIMITED_USER } from '../../data/subPolicies/localUnlimitedUserPolicy.js';
+import { UNLIMITED_SUBSCRIPTION } from '../metering/consts.js';
 
 const USERNAME = 'admin';
 const ADMIN_GROUP_UID = 'ca342a5e-b13d-4dee-9048-58b11a57cc55';
@@ -43,6 +45,20 @@ const ADMIN_STORAGE_BYTES = 10 * 1024 * 1024 * 1024;
  */
 export class DefaultUserService extends PuterService {
     override async onServerStart(): Promise<void> {
+        // Dev convenience: grant the bootstrap `admin` user unlimited metering.
+        // Gated to env === 'dev' so prod deployments never get a free-usage
+        // actor. Registering the policy makes its `'unlimited'` id resolvable
+        // (extraPolicies is always in the available set); the resolver returns
+        // null for everyone else, so all other users keep their normal tier.
+        if (this.config.env === 'dev') {
+            this.services.metering.registerPolicy(LOCAL_UNLIMITED_USER);
+            this.services.metering.registerSubscriptionResolver((actor) =>
+                actor.user?.username === USERNAME
+                    ? UNLIMITED_SUBSCRIPTION
+                    : null,
+            );
+        }
+
         if (this.config.no_default_user) return;
         let user = await this.stores.user.getByUsername(USERNAME);
         let tmpPassword: string;

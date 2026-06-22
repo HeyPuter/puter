@@ -67,6 +67,19 @@ export interface ICompleteArguments {
     parallel_tool_calls?: boolean;
     include?: unknown[];
     conversation?: unknown;
+    /**
+     * Provider-neutral inline-compaction opt-in. `true` enables compaction with
+     * provider defaults; `{ trigger_tokens }` sets the token threshold at which
+     * the upstream summarizes earlier context. Each provider translates this to
+     * its own SDK shape (OpenAI `context_management:[{type:'compaction',...}]`,
+     * Anthropic `context_management:{edits:[{type:'compact_20260112'}]}`).
+     */
+    compaction?: boolean | { trigger_tokens?: number };
+    /**
+     * Escape hatch: provider-native `context_management` payload, passed through
+     * untouched (used by `/responses` callers sending the OpenAI-native array).
+     */
+    context_management?: unknown;
     previous_response_id?: string;
     instructions?: string | PuterMessage[];
     metadata?: Record<string, string>;
@@ -116,6 +129,13 @@ export interface IChatMessageResult {
     finally_fn?: never;
     normalized?: boolean;
     via_ai_chat_service?: boolean;
+    /**
+     * Inline-compaction artifact, present when the upstream compacted earlier
+     * context during this (non-streaming) response. Carries `type:'compaction'`
+     * so it's a drop-in `messages` item — the caller resends it on the next turn
+     * in place of the summarized history. See [[ICompleteArguments]].
+     */
+    compaction?: { type: 'compaction'; id?: string; encrypted_content: string };
 }
 
 export type IChatCompleteResult = IChatStreamResult | IChatMessageResult;

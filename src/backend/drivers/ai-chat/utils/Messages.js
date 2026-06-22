@@ -49,6 +49,23 @@ export const normalize_single_message = (message, params = {}) => {
             legacyCode: 'bad_request',
         });
     }
+    // A round-tripped inline-compaction artifact may be supplied as a bare
+    // top-level item (the shape the client received from the stream). Wrap it
+    // into an internal compaction content block so it survives normalization;
+    // each provider maps it back to its native input shape (OpenAI top-level
+    // input item, Anthropic content block).
+    if (!message.role && !message.content && message.type === 'compaction') {
+        return {
+            role: 'assistant',
+            content: [
+                {
+                    type: 'compaction',
+                    ...(message.id !== undefined ? { id: message.id } : {}),
+                    encrypted_content: message.encrypted_content,
+                },
+            ],
+        };
+    }
     if (!message.role) {
         message.role = params.role;
     }

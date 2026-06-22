@@ -68,6 +68,20 @@ export interface ChatOptions {
      * - `image_size`: output quality/resolution; must be one of the model's supported quality levels.
      */
     image_config?: { aspect_ratio: string, image_size: string };
+    /**
+     * Provider-neutral inline-compaction opt-in for long stateless
+     * conversations. `true` enables it with provider defaults; an object sets
+     * the token threshold at which earlier context is summarized. When the
+     * upstream compacts, you receive a `"compaction"` chunk (streaming) or a
+     * `compaction` field on the result (non-streaming) — resend it in `messages`
+     * on the next turn in place of the summarized history.
+     */
+    compaction?: boolean | { trigger_tokens?: number };
+    /**
+     * Escape hatch: a provider-native `context_management` payload, passed
+     * through untouched. Prefer `compaction` for provider portability.
+     */
+    context_management?: unknown;
 }
 
 export interface StreamingChatOptions extends ChatOptions {
@@ -77,6 +91,13 @@ export interface StreamingChatOptions extends ChatOptions {
 export interface ChatResponse {
     message?: ChatMessage;
     choices?: unknown;
+    /**
+     * Inline-compaction artifact, present when the upstream compacted earlier
+     * context during this (non-streaming) response. Carries `type:'compaction'`
+     * so you can push it straight into `messages` on the next turn in place of
+     * the summarized history (same shape as the streaming `compaction` chunk).
+     */
+    compaction?: { type: 'compaction'; id?: string; encrypted_content: string };
 }
 
 /**
@@ -84,18 +105,24 @@ export interface ChatResponse {
  * discriminator; which other fields are present depends on that `type`.
  */
 export interface ChatResponseChunk {
-    /** The kind of chunk: `"text"`, `"reasoning"`, `"tool_use"`, `"extra_content"`, or `"usage"`. */
+    /** The kind of chunk: `"text"`, `"reasoning"`, `"tool_use"`, `"compaction"`, `"extra_content"`, or `"usage"`. */
     type: string;
     /** Text delta. Present on `"text"` chunks. */
     text?: string;
     /** Reasoning/thinking delta. Present on `"reasoning"` chunks. */
     reasoning?: string;
-    /** Tool call id. Present on `"tool_use"` chunks. */
+    /** Tool call id (`"tool_use"`) or compaction item id (`"compaction"`). */
     id?: string;
     /** Tool/function name. Present on `"tool_use"` chunks. */
     name?: string;
     /** Parsed tool call arguments. Present on `"tool_use"` chunks. */
     input?: unknown;
+    /**
+     * Opaque/encrypted compaction summary. Present on `"compaction"` chunks —
+     * the same shape regardless of which provider served the request. Resend it
+     * in `messages` on the next turn in place of the summarized history.
+     */
+    encrypted_content?: string;
     /** Provider-specific extra metadata. */
     extra_content?: unknown;
     /** Token usage totals. Present on the final `"usage"` chunk. */

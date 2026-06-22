@@ -813,8 +813,10 @@ class AI {
             requestParams.provider = requestParams.provider || userParams.driver;
         }
 
-        // Additional parameters to pass from userParams to requestParams
-        const PARAMS_TO_PASS = ['tools', 'response', 'reasoning', 'reasoning_effort', 'text', 'verbosity', 'provider', 'image_config'];
+        // Additional parameters to pass from userParams to requestParams.
+        // `compaction` (provider-neutral inline-compaction opt-in) and the raw
+        // `context_management` escape hatch flow straight through to the driver.
+        const PARAMS_TO_PASS = ['tools', 'response', 'reasoning', 'reasoning_effort', 'text', 'verbosity', 'provider', 'image_config', 'compaction', 'context_management'];
         for ( const name of PARAMS_TO_PASS ) {
             if ( userParams[name] ) {
                 requestParams[name] = userParams[name];

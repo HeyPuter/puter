@@ -1506,6 +1506,212 @@ describe('PuterAIController.anthropicMessages streaming + helpers', () => {
     });
 });
 
+// ── Inline compaction ───────────────────────────────────────────────
+
+describe('PuterAIController inline compaction', () => {
+    // Extract the single `event: compaction\ndata: {...}` SSE frame.
+    const compactionFrame = (out: string): string | null => {
+        const m = out.match(/event: compaction\ndata: [^\n]*\n\n/);
+        return m ? m[0] : null;
+    };
+
+    it('forwards the compaction opt-in to the driver (/responses)', async () => {
+        const spy = stubChatComplete({
+            message: { role: 'assistant', content: 'ok' },
+            finish_reason: 'stop',
+        });
+        await controller.openaiResponses(
+            makeReq({
+                body: { model: 'gpt-test', input: 'hi', compaction: true },
+                actor: makeUserActor(),
+            }),
+            makeRes().res,
+        );
+        expect(spy.mock.calls[0]![0].compaction).toBe(true);
+    });
+
+    it('round-trips a compaction `input` item into a messages compaction item', async () => {
+        const spy = stubChatComplete({
+            message: { role: 'assistant', content: 'ack' },
+            finish_reason: 'stop',
+        });
+        await controller.openaiResponses(
+            makeReq({
+                body: {
+                    model: 'gpt-test',
+                    input: [
+                        {
+                            type: 'compaction',
+                            id: 'cmpct_1',
+                            encrypted_content: 'ENC',
+                        },
+                    ],
+                },
+                actor: makeUserActor(),
+            }),
+            makeRes().res,
+        );
+        expect(spy.mock.calls[0]![0].messages).toContainEqual({
+            type: 'compaction',
+            id: 'cmpct_1',
+            encrypted_content: 'ENC',
+        });
+    });
+
+    it('emits a canonical compaction SSE event and output item (/responses stream)', async () => {
+        stubChatComplete({
+            dataType: 'stream',
+            content_type: 'application/x-ndjson',
+            stream: ndjsonStreamFrom([
+                { type: 'text', text: 'hi' },
+                { type: 'compaction', id: 'cmpct_9', encrypted_content: 'ENC9' },
+                { type: 'usage', usage: { prompt_tokens: 1, completion_tokens: 1 } },
+            ]),
+        });
+        const { res, captured } = makeRes();
+        await controller.openaiResponses(
+            makeReq({
+                body: {
+                    model: 'gpt-test',
+                    input: 'hi',
+                    stream: true,
+                    compaction: true,
+                },
+                actor: makeUserActor(),
+            }),
+            res,
+        );
+        await new Promise<void>((resolve) => setImmediate(resolve));
+
+        const out = captured.written.join('');
+        expect(compactionFrame(out)).toBe(
+            'event: compaction\ndata: {"type":"compaction","id":"cmpct_9","encrypted_content":"ENC9"}\n\n',
+        );
+        // Native shape also lands in the final response.completed output[].
+        const completed = out
+            .split('event: response.completed\n')[1]
+            ?.split('\n\n')[0];
+        expect(completed).toContain('"type":"compaction"');
+        expect(completed).toContain('"encrypted_content":"ENC9"');
+    });
+
+    it('emits the compaction item in non-streaming /responses output', async () => {
+        stubChatComplete({
+            message: { role: 'assistant', content: 'done' },
+            finish_reason: 'stop',
+            compaction: { id: 'cmpct_n', encrypted_content: 'ENCN' },
+        });
+        const { res, captured } = makeRes();
+        await controller.openaiResponses(
+            makeReq({
+                body: { model: 'gpt-test', input: 'hi', compaction: true },
+                actor: makeUserActor(),
+            }),
+            res,
+        );
+        const body = captured.body as { output: Array<Record<string, unknown>> };
+        expect(body.output).toContainEqual(
+            expect.objectContaining({
+                type: 'compaction',
+                encrypted_content: 'ENCN',
+            }),
+        );
+    });
+
+    it('emits an identical canonical compaction SSE event on the Anthropic surface', async () => {
+        // /responses frame
+        stubChatComplete({
+            dataType: 'stream',
+            content_type: 'application/x-ndjson',
+            stream: ndjsonStreamFrom([
+                { type: 'compaction', id: 'cmpct_x', encrypted_content: 'ENCX' },
+            ]),
+        });
+        const r1 = makeRes();
+        await controller.openaiResponses(
+            makeReq({
+                body: { model: 'gpt-test', input: 'hi', stream: true },
+                actor: makeUserActor(),
+            }),
+            r1.res,
+        );
+        await new Promise<void>((resolve) => setImmediate(resolve));
+
+        // /anthropic/v1/messages frame
+        stubChatComplete({
+            dataType: 'stream',
+            content_type: 'application/x-ndjson',
+            stream: ndjsonStreamFrom([
+                { type: 'compaction', id: 'cmpct_x', encrypted_content: 'ENCX' },
+            ]),
+        });
+        const r2 = makeRes();
+        await controller.anthropicMessages(
+            makeReq({
+                body: {
+                    model: 'claude-test',
+                    messages: [{ role: 'user', content: 'hi' }],
+                    stream: true,
+                },
+                actor: makeUserActor(),
+            }),
+            r2.res,
+        );
+        await new Promise<void>((resolve) => setImmediate(resolve));
+
+        const a = compactionFrame(r1.captured.written.join(''));
+        const b = compactionFrame(r2.captured.written.join(''));
+        expect(a).not.toBeNull();
+        expect(a).toBe(b); // byte-identical streaming shape across providers
+    });
+
+    it('renders a native compaction content block in non-streaming /messages', async () => {
+        stubChatComplete({
+            message: { role: 'assistant', content: 'done' },
+            finish_reason: 'stop',
+            compaction: { id: 'cmpct_m', encrypted_content: 'ENCM' },
+        });
+        const { res, captured } = makeRes();
+        await controller.anthropicMessages(
+            makeReq({
+                body: {
+                    model: 'claude-test',
+                    messages: [{ role: 'user', content: 'hi' }],
+                },
+                actor: makeUserActor(),
+            }),
+            res,
+        );
+        const body = captured.body as { content: Array<Record<string, unknown>> };
+        expect(body.content).toContainEqual({
+            type: 'compaction',
+            id: 'cmpct_m',
+            encrypted_content: 'ENCM',
+        });
+    });
+
+    it('does not emit compaction frames for a normal stream (regression)', async () => {
+        stubChatComplete({
+            dataType: 'stream',
+            content_type: 'application/x-ndjson',
+            stream: ndjsonStreamFrom([
+                { type: 'text', text: 'hello' },
+                { type: 'usage', usage: { prompt_tokens: 1, completion_tokens: 1 } },
+            ]),
+        });
+        const { res, captured } = makeRes();
+        await controller.openaiResponses(
+            makeReq({
+                body: { model: 'gpt-test', input: 'hi', stream: true },
+                actor: makeUserActor(),
+            }),
+            res,
+        );
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        expect(captured.written.join('')).not.toContain('event: compaction');
+    });
+});
+
 // ── Model details listing ───────────────────────────────────────────
 
 describe('PuterAIController model details', () => {

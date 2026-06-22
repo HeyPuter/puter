@@ -150,21 +150,7 @@ export class TogetherAIProvider implements IChatProvider {
             messages,
             stream,
             ...(tools ? { tools } : {}),
-            // TODO: make this better but togetherai doesn't handle max tokens properly at all
-            ...(max_tokens
-                ? {
-                      max_tokens:
-                          max_tokens -
-                          messages.reduce((acc, curr) => {
-                              return (
-                                  acc +
-                                  (curr.type === 'text'
-                                      ? curr.text.length / 2
-                                      : 200)
-                              );
-                          }, 0),
-                  }
-                : {}),
+            ...(max_tokens ? { max_tokens } : {}),
             ...(temperature ? { temperature } : {}),
             ...(stream ? { stream_options: { include_usage: true } } : {}),
         } as Together.Chat.Completions.CompletionCreateParamsNonStreaming);

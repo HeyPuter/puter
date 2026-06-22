@@ -26,6 +26,10 @@ import type { MeteringService } from '../../../../services/metering/MeteringServ
 import type { FSEntryStore } from '../../../../stores/fs/FSEntryStore.js';
 import type { S3ObjectStore } from '../../../../stores/fs/S3ObjectStore.js';
 import type { IChatProvider, ICompleteArguments } from '../../types.js';
+import {
+    messagesHaveCompaction,
+    wantsCompaction,
+} from '../../utils/compaction.js';
 import * as OpenAiUtil from '../../utils/OpenAIUtil.js';
 import { processPuterPathUploads } from './fileUpload.js';
 import { OPEN_AI_MODELS } from './models.js';
@@ -120,6 +124,20 @@ export class OpenAiChatProvider implements IChatProvider {
                 throw new HttpError(
                     400,
                     'web_search tool requires the OpenAI Responses provider, which is not configured',
+                    { legacyCode: 'bad_request' },
+                );
+            }
+            return await this.#responsesProvider.complete(params);
+        }
+        // Inline compaction is a Responses-API feature; chat.completions can't
+        // express `context_management` or a `compaction` content block.
+        // Delegate to the sibling Responses provider when the caller opted in
+        // OR when the messages carry a round-tripped compaction artifact.
+        if (wantsCompaction(params) || messagesHaveCompaction(messages)) {
+            if (!this.#responsesProvider) {
+                throw new HttpError(
+                    400,
+                    'compaction requires the OpenAI Responses provider, which is not configured',
                     { legacyCode: 'bad_request' },
                 );
             }

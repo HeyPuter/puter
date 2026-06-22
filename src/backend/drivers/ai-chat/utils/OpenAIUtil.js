@@ -84,6 +84,39 @@ export const process_input_messages = async (messages) => {
 };
 
 export const process_input_messages_responses_api = async (messages) => {
+    // Pre-split round-tripped compaction blocks into standalone Responses
+    // compaction input items, preserving any sibling content (e.g. the
+    // assistant's reply text) as its own message. A compaction item represents
+    // prior history, so it precedes the message it was attached to. This avoids
+    // collapsing the whole message into a single compaction item and dropping
+    // the rest of its content.
+    const expanded = [];
+    for (const msg of messages) {
+        if (msg && Array.isArray(msg.content)) {
+            const compactionBlocks = msg.content.filter(
+                (c) => c && c.type === 'compaction',
+            );
+            if (compactionBlocks.length > 0) {
+                for (const block of compactionBlocks) {
+                    expanded.push({
+                        type: 'compaction',
+                        ...(block.id !== undefined ? { id: block.id } : {}),
+                        encrypted_content: block.encrypted_content,
+                    });
+                }
+                const rest = msg.content.filter(
+                    (c) => !(c && c.type === 'compaction'),
+                );
+                if (rest.length > 0) {
+                    expanded.push({ ...msg, content: rest });
+                }
+                continue;
+            }
+        }
+        expanded.push(msg);
+    }
+    messages = expanded;
+
     for (const msg of messages) {
         const content_as_string = (content) => {
             if (content === undefined || content === null) return '';
@@ -369,6 +402,19 @@ export const create_chat_stream_handler_responses_api =
 
             if (
                 chunk.type === 'response.output_item.done' &&
+                chunk.item?.type === 'compaction'
+            ) {
+                // Inline compaction fired mid-response — normalize the artifact
+                // into the canonical internal compaction event.
+                chatStream.compaction({
+                    id: chunk.item.id,
+                    encrypted_content: chunk.item.encrypted_content,
+                });
+                continue;
+            }
+
+            if (
+                chunk.type === 'response.output_item.done' &&
                 chunk.item?.type === 'function_call'
             ) {
                 const tool_call = chunk.item;
@@ -500,10 +546,14 @@ export const handle_completion_output_responses_api = async ({
             ...(item.id ? { canonical_id: item.id } : {}),
         }));
 
+    // Inline-compaction artifact, if the upstream compacted this turn.
+    const compactionItem = output.find((item) => item?.type === 'compaction');
+
     const is_empty = completion.output_text.trim() === '';
-    if (is_empty && responseToolCalls.length < 1) {
+    if (is_empty && responseToolCalls.length < 1 && !compactionItem) {
         // GPT refuses to generate an empty response if you ask it to,
         // so this will probably only happen on an error condition.
+        // A compaction-only output is legitimate, so don't reject it.
         throw new HttpError(400, 'an empty response was generated', {
             legacyCode: 'bad_response',
         });
@@ -534,6 +584,18 @@ export const handle_completion_output_responses_api = async ({
         },
     };
     ret.role = output.find((item) => item?.role)?.role ?? 'assistant';
+
+    if (compactionItem) {
+        // Include `type` so the artifact is a drop-in `messages` item for the
+        // stateless round-trip — symmetric with the streaming compaction chunk.
+        ret.compaction = {
+            type: 'compaction',
+            ...(compactionItem.id !== undefined
+                ? { id: compactionItem.id }
+                : {}),
+            encrypted_content: compactionItem.encrypted_content,
+        };
+    }
 
     delete ret.type;
 
