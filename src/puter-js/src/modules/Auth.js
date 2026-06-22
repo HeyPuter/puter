@@ -71,7 +71,7 @@ class Auth {
 
             if ( window.crossOriginIsolated ) {
                 (async () => {
-                    for ( let i = 0; i < 5; i++ ) {
+                    while (true) {
                         try {
                             const result = await fetch(`${this.APIOrigin}/login/wait`, {
                                 method: 'POST',
@@ -83,6 +83,9 @@ class Auth {
 
                             if ( result.ok ) {
                                 const { auth_token } = await result.json();
+                                if (settled) return;
+                                settled = true;
+                                cleanup();
                                 puter.setAuthToken(auth_token);
                                 resolve({ success: true, token: auth_token });
                                 return '';
@@ -161,7 +164,11 @@ class Auth {
 
             if ( hasUserActivation() ) {
                 // A user gesture is active — open the popup immediately.
-                watchPopup(openAuthPopup(url));
+                const popup = openAuthPopup(url);
+                if ( !window.crossOriginIsolated ) {
+                    // cannot watch in isolated mode
+                    watchPopup();
+                }
             } else {
                 // No user gesture: a popup opened now would be blocked by the
                 // browser. Show a consent dialog first; the popup is then

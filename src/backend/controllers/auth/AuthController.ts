@@ -108,10 +108,11 @@ export class AuthController extends PuterController {
         const { resolve, promise } = Promise.withResolvers<void>();
 
         let token: string | null = null;
-        this.clients.event.on(`pubsub.login.${session}`, (key, value) => {
+        const listener = (_key: string, value: { authtoken: string }) => {
             token = value.authtoken;
             resolve();
-        });
+        };
+        this.clients.event.on(`pubsub.login.${session}`, listener);
 
         const timeout = new Promise<void>((resolve) =>
             setTimeout(resolve, 10000),
@@ -122,6 +123,7 @@ export class AuthController extends PuterController {
                 legacyCode: 'request_timeout',
             });
         }
+        this.clients.event.off(`pubsub.login.${session}`, listener);
 
         res.json({
             auth_token: token,

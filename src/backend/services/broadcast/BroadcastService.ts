@@ -240,7 +240,7 @@ export class BroadcastService extends PuterService {
         if (safeMeta.from_fanout) return;
         this.clients.redis.publish(
             'pubsub',
-            JSON.stringify({ key, data, safeMeta }),
+            JSON.stringify({ key, data, meta: safeMeta }),
         );
     }
 
