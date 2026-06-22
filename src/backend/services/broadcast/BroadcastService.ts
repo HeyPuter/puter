@@ -81,9 +81,6 @@ interface IncomingHeaders {
  *   - Inbound handler ignores POSTs whose `X-Broadcast-Peer-Id` matches
  *     this server's own peerId (catches misconfigured loopbacks).
  *
- * No Redis pub/sub here — webhooks are the only transport. Same-cluster
- * fan-out is handled by sockets via the Redis streams adapter, so an
- * additional Redis channel here would just duplicate work.
  */
 export class BroadcastService extends PuterService {
     /** peerId → resolved peer config, used for incoming-verify lookup. */
@@ -103,12 +100,14 @@ export class BroadcastService extends PuterService {
     #webhookHostHeader: string | null = null;
     /** Self-signed certs are common between Puter nodes — accept them. */
     #webhookHttpsAgent = new HttpsAgent({ rejectUnauthorized: false });
+    #redisSub: ReturnType<typeof this.clients.redis.duplicate> | null = null;
 
     // -- Lifecycle ---------------------------------------------------
 
     override onServerStart(): void {
         this.#loadConfig();
         this.#subscribeOutbound();
+        this.#subscribeRedisOutbound();
     }
 
     override async onServerPrepareShutdown(): Promise<void> {
@@ -122,6 +121,11 @@ export class BroadcastService extends PuterService {
             await this.#flushOutboundEvents();
         } catch (err) {
             console.warn('[broadcast] final flush failed', err);
+        }
+        if (this.#redisSub) {
+            await this.#redisSub.unsubscribe('pubsub');
+            this.#redisSub.quit();
+            this.#redisSub = null;
         }
     }
 
@@ -231,8 +235,49 @@ export class BroadcastService extends PuterService {
         return { ok: true };
     }
 
-    // -- Outbound: subscribe + queue + flush ------------------------
+    #pubsubFanout(key: string, data: unknown, meta: object): void {
+        const safeMeta = this.#normalizeMeta(meta);
+        if (safeMeta.from_fanout) return;
+        this.clients.redis.publish(
+            'pubsub',
+            JSON.stringify({ key, data, safeMeta }),
+        );
+    }
 
+    // outer.pubsub.* events will be broadcast to other clusters through webhooks
+    // pubsub.* will only fan-out to same-cluster nodes.
+    #subscribeRedisOutbound(): void {
+        this.#redisSub = this.clients.redis.duplicate();
+        this.#redisSub.subscribe('pubsub');
+        this.#redisSub.on('message', (channel: string, message: string) => {
+            if (channel !== 'pubsub') return;
+            const parsed = JSON.parse(message);
+            const { key, data, meta } = parsed as {
+                key: string;
+                data: unknown;
+                meta: object;
+            };
+
+            this.clients.event.emit(key, data, { ...meta, from_fanout: true });
+        });
+
+        this.clients.event.on(
+            'outer.pubsub.*',
+            (key: string, data: unknown, meta: object) => {
+                this.#pubsubFanout(key, data, meta);
+            },
+        );
+        this.clients.event.on(
+            'pubsub.*',
+            (key: string, data: unknown, meta: object) => {
+                this.#pubsubFanout(key, data, meta);
+            },
+        );
+    }
+
+    // -- Outbound: subscribe + queue + flush ------------------------
+    // outer.* events will be broadcast to other clusters through webhooks
+    // outer will NOT automatically sync to same-cluster peers.
     #subscribeOutbound(): void {
         // Wildcard: every `outer.*` event gets considered for broadcast.
         // The handler skips events that came in via webhook (meta.from_outside)

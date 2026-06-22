@@ -100,45 +100,29 @@ export class AuthController extends PuterController {
     })
     async loginWait(req: Request, res: Response) {
         const { session } = req.body;
-        const key = `loginsession:${session}`;
-
-        let token = await this.clients.redis.get(key);
-
-        if (!token) {
-            const subscriber = this.clients.redis.duplicate();
-
-            token = await new Promise<string | null>(async (resolve) => {
-                const timeout = setTimeout(() => resolve(null), 10000);
-
-                const cleanup = async () => {
-                    clearTimeout(timeout);
-                    subscriber.off('message', onMessage);
-                    await subscriber.unsubscribe(key).catch(() => undefined);
-                };
-                const onMessage = async (channel: string, message: string) => {
-                    if (channel !== key) return;
-                    await cleanup();
-                    resolve(message);
-                };
-                subscriber.on('message', onMessage);
-                await subscriber.subscribe(key);
-
-                // just in case the token was set between the initial get and the subscribe
-                const tt = await this.clients.redis.get(key);
-                if (tt) {
-                    await cleanup();
-                    resolve(tt);
-                }
+        if (!session) {
+            throw new HttpError(400, 'session is required.', {
+                legacyCode: 'bad_request',
             });
         }
+        const { resolve, promise } = Promise.withResolvers<void>();
 
+        let token: string | null = null;
+        this.clients.event.on(`pubsub.login.${session}`, (key, value) => {
+            token = value.authtoken;
+            resolve();
+        });
+
+        const timeout = new Promise<void>((resolve) =>
+            setTimeout(resolve, 10000),
+        );
+        await Promise.race([promise, timeout]);
         if (!token) {
             throw new HttpError(408, 'Request timeout.', {
                 legacyCode: 'request_timeout',
             });
         }
 
-        await this.clients.redis.del(key);
         res.json({
             auth_token: token,
         });
@@ -154,9 +138,13 @@ export class AuthController extends PuterController {
             });
         }
 
-        const key = `loginsession:${session}`;
-        await this.clients.redis.set(key, auth_token, 'EX', 60);
-        await this.clients.redis.publish(key, auth_token);
+        this.clients.event.emit(
+            `pubsub.login.${session}`,
+            {
+                authtoken: auth_token,
+            },
+            {},
+        );
 
         res.json({ success: true });
     }

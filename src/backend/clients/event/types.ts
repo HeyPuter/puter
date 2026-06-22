@@ -288,6 +288,8 @@ export type EventMap = {
     // normalized path: `route.<method>.<path>.before|after|error|reject`. Same
     // wildcard + veto semantics as the driver lifecycle above.
     [K in `route.${string}`]: RouteLifecycleEvent;
+} & {
+    [K in `pubsub.login.${string}`]: { authtoken: string };
 };
 
 /**
