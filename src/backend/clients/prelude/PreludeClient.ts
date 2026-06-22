@@ -120,11 +120,21 @@ export class PreludeClient extends PuterClient {
     /**
      * Create (or retry) a verification: Prelude sends an OTP to `target`.
      * @param target E.164 phone number, e.g. "+14155550123".
-     * @param signals Optional anti-fraud signals (the signup IP).
+     * @param signals Optional anti-fraud signals. The more we forward, the
+     *   better Prelude's fraud model scores the attempt (per their docs IP +
+     *   device + platform are the highest-value). We pass what the backend
+     *   already has: the request `ip`, the client `device_id` (ThumbmarkJS
+     *   hash), and the `user_agent` (Prelude infers platform/model/OS from it).
+     *   Richer client-collected signals require Prelude's frontend SDK, which
+     *   produces a `dispatch_id` the backend would forward here.
      */
     async createVerification(
         target: string,
-        signals: { ip?: string } = {},
+        signals: {
+            ip?: string;
+            device_id?: string;
+            user_agent?: string;
+        } = {},
     ): Promise<{ id?: string; status: PreludeCreateStatus }> {
         // Match the 6-box code UI (UIWindowPhoneVerificationRequired). Without
         // code_size Prelude uses the dashboard default (4). preferred_channel
@@ -146,7 +156,13 @@ export class PreludeClient extends PuterClient {
             target: { type: 'phone_number', value: target },
             options,
         };
-        if (signals.ip) body.signals = { ip: signals.ip };
+        // Only attach signals we actually have — Prelude treats the object as
+        // optional and an empty one adds nothing.
+        const sig: Record<string, string> = {};
+        if (signals.ip) sig.ip = signals.ip;
+        if (signals.device_id) sig.device_id = signals.device_id;
+        if (signals.user_agent) sig.user_agent = signals.user_agent;
+        if (Object.keys(sig).length > 0) body.signals = sig;
         return this.#post('/verification', body) as Promise<{
             id?: string;
             status: PreludeCreateStatus;

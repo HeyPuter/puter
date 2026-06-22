@@ -85,6 +85,35 @@ describe('PreludeClient', () => {
         });
     });
 
+    it('forwards device_id and user_agent signals when supplied', async () => {
+        fetchMock.mockResolvedValue(okJson({ id: 'v', status: 'success' }));
+        const client = makeClient('sk_test');
+
+        await client.createVerification('+14155550123', {
+            ip: '203.0.113.7',
+            device_id: 'thumb_abc123',
+            user_agent: 'Mozilla/5.0',
+        });
+
+        const [, init] = fetchMock.mock.calls[0];
+        expect(JSON.parse(init.body).signals).toEqual({
+            ip: '203.0.113.7',
+            device_id: 'thumb_abc123',
+            user_agent: 'Mozilla/5.0',
+        });
+    });
+
+    it('omits the signals object entirely when none are supplied', async () => {
+        fetchMock.mockResolvedValue(okJson({ id: 'v', status: 'success' }));
+        const client = makeClient('sk_test');
+
+        await client.createVerification('+14155550123');
+
+        expect(JSON.parse(fetchMock.mock.calls[0][1].body)).not.toHaveProperty(
+            'signals',
+        );
+    });
+
     it('includes a configured template_id + sender_id + preferred channel', async () => {
         fetchMock.mockResolvedValue(okJson({ id: 'v', status: 'success' }));
         const client = new PreludeClient({
