@@ -256,6 +256,42 @@ describe('process_input_messages_responses_api', () => {
         expect(out!.content).toBeUndefined();
     });
 
+    it('splits a compaction block + reply text into a compaction item plus a preserved message', async () => {
+        // Round-tripping an assistant turn that carries BOTH the compaction
+        // artifact and the reply text must keep the reply, not drop it.
+        const messages: Array<Record<string, unknown>> = [
+            {
+                role: 'assistant',
+                content: [
+                    {
+                        type: 'compaction',
+                        id: 'cmpct_1',
+                        encrypted_content: 'ENC',
+                    },
+                    { type: 'text', text: 'earlier reply' },
+                ],
+            },
+        ];
+
+        const out = (await process_input_messages_responses_api(
+            messages,
+        )) as Array<Record<string, unknown>>;
+
+        // Compaction item comes first (it represents prior history)...
+        expect(out).toHaveLength(2);
+        expect(out[0]).toEqual({
+            type: 'compaction',
+            id: 'cmpct_1',
+            encrypted_content: 'ENC',
+        });
+        // ...followed by the assistant message with the reply preserved
+        // (assistant text upgraded to output_text).
+        expect(out[1]!.role).toBe('assistant');
+        expect(out[1]!.content).toEqual([
+            { type: 'output_text', text: 'earlier reply' },
+        ]);
+    });
+
     it('upgrades user/system text blocks to input_text', async () => {
         const messages: Array<Record<string, unknown>> = [
             {

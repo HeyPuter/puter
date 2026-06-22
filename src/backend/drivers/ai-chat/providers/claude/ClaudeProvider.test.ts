@@ -841,6 +841,41 @@ describe('ClaudeProvider.complete compaction', () => {
             content: 'SUMMARY',
         });
     });
+
+    it('preserves the reply text when an assistant turn carries compaction + text', async () => {
+        const { provider } = makeProvider();
+        messagesCreateMock.mockResolvedValueOnce({
+            content: [{ type: 'text', text: 'ok' }],
+            usage: { input_tokens: 1, output_tokens: 1 },
+        });
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'claude-haiku-4-5-20251001',
+                messages: [
+                    {
+                        role: 'assistant',
+                        content: [
+                            { type: 'compaction', encrypted_content: 'SUMMARY' },
+                            { type: 'text', text: 'earlier reply' },
+                        ],
+                    },
+                    { role: 'user', content: 'continue' },
+                ],
+            }),
+        );
+
+        const [args] = messagesCreateMock.mock.calls[0]!;
+        const blocks = args.messages.flatMap((m: { content?: unknown[] }) =>
+            Array.isArray(m.content) ? m.content : [],
+        );
+        // Compaction mapped to Anthropic `content`, AND the reply text kept.
+        expect(blocks).toContainEqual({
+            type: 'compaction',
+            content: 'SUMMARY',
+        });
+        expect(blocks).toContainEqual({ type: 'text', text: 'earlier reply' });
+    });
 });
 
 // ── Moderation ──────────────────────────────────────────────────────

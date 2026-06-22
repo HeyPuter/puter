@@ -193,9 +193,11 @@ context window. When it fires, the model summarizes the older turns into a singl
 history — so the request stays small.
 
 You get the artifact back as a `compaction` item (a stream chunk when streaming,
-or `result.compaction` when not). On the next turn you resend that one item **in
-place of the turns it replaced**, instead of the raw history. The item shape is
-the same across providers, so the same code works for OpenAI and Anthropic models.
+or `result.compaction` when not). On the next turn you carry it forward **as the
+first block of the assistant turn that produced it**, together with that turn's
+reply text — the artifact stands in for the older turns it summarized, and the
+recent exchange is preserved. The item shape is the same across providers, so the
+same code works for OpenAI and Anthropic models.
 
 #### Enabling it
 
@@ -205,9 +207,8 @@ Pass `compaction` in the options object:
 - `compaction: { trigger_tokens: 60000 }` — set the token threshold at which the
   model compacts.
 
-The artifact is `{ type: 'compaction', id, encrypted_content }` — a drop-in
-`messages` item. `encrypted_content` is an opaque payload; treat it as a black
-box and just carry it forward.
+The artifact is `{ type: 'compaction', id, encrypted_content }`. `encrypted_content`
+is an opaque payload; treat it as a black box and just carry it forward.
 
 #### Streaming
 
@@ -226,14 +227,18 @@ for await ( const part of resp ) {
     else if ( part.type === 'error' )       console.error('stream error:', part.message);
 }
 
-// Next turn: the artifact stands in for the compacted history. Place it where
-// that history was (before the new user turn) and keep compaction enabled so it
-// can compact again later.
+// Next turn: rebuild the assistant turn from the compaction artifact + the reply
+// text it came with (artifact first), then add the new user message. The artifact
+// replaces the older compacted turns; the recent exchange is kept. Keep
+// compaction enabled so it can compact again later.
 if ( compaction ) {
     const next = await puter.ai.chat(
         [
             { role: 'system', content: 'You are a helpful assistant.' },
-            compaction,
+            {
+                role: 'assistant',
+                content: [ compaction, { type: 'text', text } ],
+            },
             { role: 'user', content: 'now compare the two approaches' },
         ],
         { model: 'gpt-5.4', stream: true, compaction: true }
@@ -255,11 +260,18 @@ console.log(result.message.content);
 
 if ( result.compaction ) {
     // result.compaction is { type: 'compaction', id, encrypted_content } — the
-    // same drop-in item you get from the stream. Resend it next turn:
+    // same item you get from the stream. Rebuild the assistant turn from it plus
+    // the reply text (artifact first), then add the new user message:
     const next = await puter.ai.chat(
         [
             { role: 'system', content: 'You are a helpful assistant.' },
-            result.compaction,
+            {
+                role: 'assistant',
+                content: [
+                    result.compaction,
+                    { type: 'text', text: result.message.content },
+                ],
+            },
             { role: 'user', content: 'now compare the two approaches' },
         ],
         { model: 'gpt-5.4', compaction: true }
@@ -272,8 +284,9 @@ if ( result.compaction ) {
 
 - **Keep `compaction` enabled on every turn** of the conversation so it can
   compact again as the conversation keeps growing.
-- **Place the artifact where the compacted history was** — after your system
-  prompt, before the new user message.
+- **Carry the artifact as the first block of its assistant turn**, alongside that
+  turn's reply text, then continue with new turns. The artifact replaces the older
+  compacted turns; don't drop the recent exchange.
 - **It only fires once the context is large enough.** Anthropic models require a
   minimum threshold of **50,000 tokens**, and the conversation must actually
   exceed your `trigger_tokens`. OpenAI models don't enforce that floor, so they

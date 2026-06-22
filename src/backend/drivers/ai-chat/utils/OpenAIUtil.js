@@ -84,6 +84,39 @@ export const process_input_messages = async (messages) => {
 };
 
 export const process_input_messages_responses_api = async (messages) => {
+    // Pre-split round-tripped compaction blocks into standalone Responses
+    // compaction input items, preserving any sibling content (e.g. the
+    // assistant's reply text) as its own message. A compaction item represents
+    // prior history, so it precedes the message it was attached to. This avoids
+    // collapsing the whole message into a single compaction item and dropping
+    // the rest of its content.
+    const expanded = [];
+    for (const msg of messages) {
+        if (msg && Array.isArray(msg.content)) {
+            const compactionBlocks = msg.content.filter(
+                (c) => c && c.type === 'compaction',
+            );
+            if (compactionBlocks.length > 0) {
+                for (const block of compactionBlocks) {
+                    expanded.push({
+                        type: 'compaction',
+                        ...(block.id !== undefined ? { id: block.id } : {}),
+                        encrypted_content: block.encrypted_content,
+                    });
+                }
+                const rest = msg.content.filter(
+                    (c) => !(c && c.type === 'compaction'),
+                );
+                if (rest.length > 0) {
+                    expanded.push({ ...msg, content: rest });
+                }
+                continue;
+            }
+        }
+        expanded.push(msg);
+    }
+    messages = expanded;
+
     for (const msg of messages) {
         const content_as_string = (content) => {
             if (content === undefined || content === null) return '';
@@ -117,24 +150,6 @@ export const process_input_messages_responses_api = async (messages) => {
             delete msg.tool_use_id;
             delete msg.tool_calls;
             continue;
-        }
-
-        // Round-tripped inline-compaction artifact → Responses compaction input
-        // item (`{ type:'compaction', encrypted_content, id }` at top level).
-        if (Array.isArray(msg.content)) {
-            const compactionBlock = msg.content.find(
-                (c) => c && c.type === 'compaction',
-            );
-            if (compactionBlock) {
-                msg.type = 'compaction';
-                msg.encrypted_content = compactionBlock.encrypted_content;
-                if (compactionBlock.id !== undefined) {
-                    msg.id = compactionBlock.id;
-                }
-                delete msg.role;
-                delete msg.content;
-                continue;
-            }
         }
 
         if (!msg.content) continue;
