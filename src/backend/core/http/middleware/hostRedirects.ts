@@ -88,6 +88,15 @@ export const createUserSubdomainRedirect = (
     if (!domain || !target) {
         return (_req, _res, next) => next();
     }
+
+    const hostingDomains = [
+        config.static_hosting_domain,
+        config.static_hosting_domain_alt,
+        config.private_app_hosting_domain,
+        config.private_app_hosting_domain_alt,
+    ]
+        .map((d) => (d ?? '').toLowerCase().split(':')[0])
+        .filter((d) => d.length > 0);
     return (req, res, next) => {
         const active = (
             req.subdomains?.[req.subdomains.length - 1] ?? ''
@@ -95,6 +104,14 @@ export const createUserSubdomainRedirect = (
         if (active === '' || RESERVED_SUBDOMAINS.has(active)) return next();
 
         const host = (req.headers.host ?? '').toLowerCase();
+        const hostName = host.split(':')[0];
+        if (
+            hostingDomains.some(
+                (d) => hostName === d || hostName.endsWith(`.${d}`),
+            )
+        ) {
+            return next();
+        }
         if (!host.endsWith(domain)) return next();
 
         // host ends in domain — swap the domain suffix for the hosting one,

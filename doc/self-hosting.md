@@ -199,6 +199,32 @@ Drop the resulting `fullchain.pem` and `privkey.pem` into `./puter/tls/`.
     "s3": { "s3Config": { "publicEndpoint": "https://s3.puter.local", ... } }
     ```
 
+## Running behind your own reverse proxy
+
+The bundled `puter-nginx` mirrors production and is the supported default — it terminates TLS (Step 3) and forwards every Host to Puter. But plenty of self-hosters already run their own edge proxy (Caddy, Traefik, HAProxy, a cloud load balancer, another nginx). You can put Puter behind it instead; Puter doesn't terminate TLS itself in any setup, so "your proxy does TLS" is just a matter of pointing it at the Puter container and getting a handful of details right.
+
+You can keep the bundled nginx as the single hop your proxy talks to, or bypass it and forward straight to the Puter container on port `4100` (uncomment the `4100:4100` mapping under the `puter` service in [docker-compose.yml](../docker-compose.yml), or attach your proxy to the compose network). Either works — what matters is the rules below.
+
+**The rules that actually matter** (getting any of these wrong is what causes the redirect loops and "Invalid Host header" failures people hit):
+
+1. **Don't rewrite the `Host` header.** Puter routes entirely on Host — `api.<domain>`, `site.<domain>`, `app.<domain>` are all distinguished by the incoming host. Forward the original host through unchanged. Do **not** rewrite external hostnames to an internal name like `puter.local`; that forces you to remap every subdomain by hand and still breaks signed-URL and CORS checks. Most proxies preserve Host by default — just don't override it.
+
+2. **The external domain must equal `domain` in your `config.json`.** If users reach the box at `puter.example.com`, then `domain` must be `puter.example.com` and the hosting domains must be its real subdomains (`site.puter.example.com`, `app.puter.example.com`, …) — exactly as the installer/`config.json` lays them out. Puter rejects hosts it doesn't recognize with `Invalid Host header`.
+
+3. **Set `protocol` to match the public scheme.** When your proxy terminates TLS, set `"protocol": "https"` (installer: `PUTER_PROTOCOL=https`). Puter builds its origins, redirects, signed S3 URLs, and OIDC callback URLs from this — leave it `http` behind an HTTPS proxy and you get redirect loops, broken logins, and mixed-content errors.
+
+4. **Forward the standard proxy headers.** Puter needs:
+    - `Host` — the original request host (rule 1).
+    - `X-Forwarded-Proto` — the **external** scheme (`https`), so Puter knows TLS was terminated upstream.
+    - `X-Forwarded-For` — the real client IP (rate limiting + audit logs).
+    - `Upgrade` / `Connection` — passed through for WebSocket / socket.io upgrades, or the realtime connection silently fails.
+
+5. **Set `trust_proxy` to the number of hops in front of Puter.** One external proxy talking directly to Puter → `"trust_proxy": 1` (installer: `PUTER_TRUST_PROXY=1`). A second proxy in front (e.g. Cloudflare → your proxy → Puter) → `2`. This is the count of proxies between the client and Puter, **including** the bundled nginx if you keep it. Too low and `req.ip` becomes a proxy address (breaks rate limiting); never set `true` (it trusts every hop and makes `X-Forwarded-For` forgeable).
+
+6. **Route the wildcard to Puter.** Your proxy must forward `*.<domain>` (covering `api.*`, `app.*`, and `s3.<domain>`) and `*.site.<domain>` (and any other hosting domains) to Puter — same wildcard DNS as Step 2. Puter does the per-subdomain routing internally; the proxy just needs to hand it the traffic with the Host intact.
+
+With those in place the rest of the stack is unchanged — `docker compose up -d` as below.
+
 ## Step 4 — Bring it up
 
 ```bash

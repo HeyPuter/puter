@@ -16,11 +16,20 @@
 # the compose file + brings the stack up. Set PUTER_FORCE=1 to overwrite.
 #
 # Tunable env vars:
-#   PUTER_DIR     install directory                       (default: ./puter-selfhosted)
-#   PUTER_URL     base URL to fetch docker-compose.yml    (default: GitHub raw, main branch)
-#   PUTER_DOMAIN  domain Puter will serve on              (default: puter.localhost)
-#   PUTER_PORT    HTTP port for nginx                     (default: 80)
-#   PUTER_FORCE   set to 1 to overwrite existing .env / config.json
+#   PUTER_DIR         install directory                   (default: ./puter-selfhosted)
+#   PUTER_URL         base URL to fetch docker-compose.yml (default: GitHub raw, main branch)
+#   PUTER_DOMAIN      domain Puter will serve on           (default: puter.localhost)
+#   PUTER_PORT        HTTP port for nginx                  (default: 80)
+#   PUTER_PROTOCOL    public scheme: http | https          (default: http)
+#                     Set https when a TLS-terminating reverse proxy (Caddy,
+#                     Traefik, nginx, a cloud LB) sits in front — Puter then
+#                     builds https:// origins, S3 URLs, and redirects. See
+#                     "Running behind your own reverse proxy" in doc/self-hosting.md.
+#   PUTER_TRUST_PROXY number of reverse-proxy hops in front (default: 1)
+#                     1 = the bundled nginx (or a single external proxy);
+#                     2 = two hops (e.g. Cloudflare → your proxy → Puter).
+#   PUTER_ENV         prod | dev                            (default: prod)
+#   PUTER_FORCE       set to 1 to overwrite existing .env / config.json
 
 set -eu
 
@@ -28,6 +37,9 @@ PUTER_DIR="${PUTER_DIR:-puter-selfhosted}"
 PUTER_URL="${PUTER_URL:-https://raw.githubusercontent.com/HeyPuter/puter/main}"
 PUTER_DOMAIN="${PUTER_DOMAIN:-puter.localhost}"
 PUTER_PORT="${PUTER_PORT:-80}"
+PUTER_PROTOCOL="${PUTER_PROTOCOL:-http}"
+PUTER_TRUST_PROXY="${PUTER_TRUST_PROXY:-1}"
+PUTER_ENV="${PUTER_ENV:-prod}"
 PUTER_FORCE="${PUTER_FORCE:-0}"
 
 log()  { printf '\033[1;36m[puter-install]\033[0m %s\n' "$*"; }
@@ -117,9 +129,9 @@ EOF
     cat > puter/config/config.json <<EOF
 {
     "domain": "$PUTER_DOMAIN",
-    "protocol": "http",
+    "protocol": "$PUTER_PROTOCOL",
     "pub_port": $PUTER_PORT,
-    "env": "prod",
+    "env": "$PUTER_ENV",
 
     "static_hosting_domain": "site.$PUTER_DOMAIN",
     "static_hosting_domain_alt": "host.$PUTER_DOMAIN",
@@ -159,7 +171,7 @@ EOF
     "s3": {
         "s3Config": {
             "endpoint": "http://s3:9000",
-            "publicEndpoint": "http://s3.$PUTER_DOMAIN",
+            "publicEndpoint": "$PUTER_PROTOCOL://s3.$PUTER_DOMAIN",
             "accessKeyId": "puter",
             "secretAccessKey": "$S3_SECRET_KEY",
             "region": "us-east-1",
@@ -173,7 +185,7 @@ EOF
         "ollama": { "enabled": false }
     },
 
-    "trust_proxy": 1
+    "trust_proxy": $PUTER_TRUST_PROXY
 }
 EOF
 fi
@@ -187,6 +199,6 @@ log "stack starting. first boot takes ~30s while MariaDB initialises."
 log "follow puter logs:"
 log "    cd $PUTER_DIR && docker compose logs -f puter"
 log ""
-log "open http://$PUTER_DOMAIN:$PUTER_PORT once the puter container is healthy."
+log "open $PUTER_PROTOCOL://$PUTER_DOMAIN:$PUTER_PORT once the puter container is healthy."
 log "first-boot admin password is logged once — grab it with:"
 log "    cd $PUTER_DIR && docker compose logs puter | grep password"
