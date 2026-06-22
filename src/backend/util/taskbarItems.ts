@@ -54,6 +54,7 @@ interface TaskbarDeps {
 
 const DEFAULT_TASKBAR_ITEMS: TaskbarEntry[] = [
     { name: 'app-center', type: 'app' },
+    { name: 'builder', type: 'app' },
     { name: 'dev-center', type: 'app' },
     { name: 'editor', type: 'app' },
     { name: 'code', type: 'app' },
