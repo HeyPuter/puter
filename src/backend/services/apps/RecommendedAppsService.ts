@@ -26,6 +26,7 @@ import { PuterService } from '../types.js';
  */
 const RECOMMENDED_APP_NAMES = [
     'app-center',
+    'builder',
     'dev-center',
     'butler',
     'editor',
