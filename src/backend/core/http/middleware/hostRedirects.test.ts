@@ -264,6 +264,79 @@ describe('createUserSubdomainRedirect', () => {
         ]);
     });
 
+    const selfHosted = {
+        domain: 'puter.localhost',
+        static_hosting_domain: 'site.puter.localhost',
+        static_hosting_domain_alt: 'host.puter.localhost',
+        private_app_hosting_domain: 'app.puter.localhost',
+        private_app_hosting_domain_alt: 'dev.puter.localhost',
+    } as IConfig;
+
+    it('still redirects a bare subdomain on the main domain to the hosting domain (self-hosted)', () => {
+        const { out, next } = run(
+            createUserSubdomainRedirect(selfHosted),
+            makeReq({
+                subdomains: ['localhost', 'puter', 'foo'],
+                host: 'foo.puter.localhost',
+                originalUrl: '/bar?x=1',
+                protocol: 'http',
+            }),
+        );
+        expect(out.redirectArgs).toEqual([
+            302,
+            'http://foo.site.puter.localhost/bar?x=1',
+        ]);
+        expect(next).not.toHaveBeenCalled();
+    });
+
+    it('passes through hosts already on the static hosting domain (no redirect loop)', () => {
+        const { out, next } = run(
+            createUserSubdomainRedirect(selfHosted),
+            makeReq({
+                subdomains: ['localhost', 'puter', 'site', 'foo'],
+                host: 'foo.site.puter.localhost',
+                originalUrl: '/',
+            }),
+        );
+        expect(out.redirectArgs).toBeUndefined();
+        expect(next).toHaveBeenCalledTimes(1);
+    });
+
+    it('passes through hosts on the alt / private-app hosting domains too', () => {
+        for (const host of [
+            'foo.host.puter.localhost',
+            'foo.app.puter.localhost',
+            'foo.dev.puter.localhost',
+        ]) {
+            const { out, next } = run(
+                createUserSubdomainRedirect(selfHosted),
+                makeReq({
+                    subdomains: [
+                        'localhost',
+                        'puter',
+                        host.split('.')[1],
+                        'foo',
+                    ],
+                    host,
+                }),
+            );
+            expect(out.redirectArgs).toBeUndefined();
+            expect(next).toHaveBeenCalledTimes(1);
+        }
+    });
+
+    it('passes through the hosting-domain root itself (exact match, no loop)', () => {
+        const { out, next } = run(
+            createUserSubdomainRedirect(selfHosted),
+            makeReq({
+                subdomains: ['localhost', 'puter', 'site'],
+                host: 'site.puter.localhost',
+            }),
+        );
+        expect(out.redirectArgs).toBeUndefined();
+        expect(next).toHaveBeenCalledTimes(1);
+    });
+
     it("passes through when the request host has a port the configured domain doesn't", () => {
         // Edge case worth pinning: the suffix check is exact-`endsWith`,
         // so a port mismatch silently bypasses the redirect. Documenting
