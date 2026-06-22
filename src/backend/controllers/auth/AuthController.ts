@@ -20,7 +20,7 @@
 import bcrypt from 'bcrypt';
 import type { Request, RequestHandler, Response } from 'express';
 import crypto from 'node:crypto';
-import { v4 as uuidv4 } from 'uuid';
+import { v4 as uuidv4, validate as validateUuid } from 'uuid';
 import validator from 'validator';
 import { Controller, Get, Post } from '../../core/http/decorators.js';
 import { HttpError } from '../../core/http/HttpError.js';
@@ -100,7 +100,8 @@ export class AuthController extends PuterController {
     })
     async loginWait(req: Request, res: Response) {
         const { session } = req.body;
-        if (!session) {
+        // validate uuid to prevent ultra long key or listening on pubsub.login.*
+        if (!session || !validateUuid(session)) {
             throw new HttpError(400, 'session is required.', {
                 legacyCode: 'bad_request',
             });
@@ -134,7 +135,7 @@ export class AuthController extends PuterController {
     })
     async loginSet(req: Request, res: Response) {
         const { session, auth_token } = req.body;
-        if (!session || !auth_token) {
+        if (!session || !auth_token || !validateUuid(session)) {
             throw new HttpError(400, 'session and auth_token are required.', {
                 legacyCode: 'bad_request',
             });

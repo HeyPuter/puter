@@ -257,8 +257,14 @@ export class BroadcastService extends PuterService {
                 data: unknown;
                 meta: object;
             };
+            const safeMeta = this.#normalizeMeta(meta);
 
-            this.clients.event.emit(key, data, { ...meta, from_fanout: true });
+            this.clients.event.emit(key, data, {
+                ...safeMeta,
+                from_fanout: true,
+                // it's not from outside, but mark it as to prevent sending the webhook twice
+                from_outside: true,
+            });
         });
 
         this.clients.event.on(
