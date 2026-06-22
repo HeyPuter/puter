@@ -15,7 +15,7 @@
     "terser-webpack-plugin": "^5.3.14",
     "webpack": "^5.88.2",
     "webpack-cli": "^5.1.1",
-    "wrangler": "^3.90.0"
+    "wrangler": "^4.103.0"
   },
   "author": "Puter Technologies Inc.",
   "license": "AGPL-3.0-only"
