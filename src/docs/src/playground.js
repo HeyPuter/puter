@@ -84,8 +84,11 @@ const playgroundHtml = `
         crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     <script src="https://js.puter.com/v2/"></script>
 
-    <div style="height: 50px; padding: 10px; background-color: #474e5d; display: flex; flex-direction: row;">
-        <h1 class="logo"><a href="/playground/">Puter.js Playground</a></h1>
+    <div style="height: 70px; padding: 10px; background-color: #474e5d; display: flex; flex-direction: row;">
+        <h1 class="logo">
+            <a href="/playground/">Puter.js Playground</a>
+            <span class="playground-page-title" style="margin: 0; font-size: 16px; color: #ccc;">{{PAGE_TITLE}}</span>
+        </h1>
         <div style="float:right;" class="navbar">
             <a href="/" target="_blank" style="margin-right: 35px;">Docs</a>
             <a style="display: flex; flex-direction: row; align-items: center;"
@@ -167,7 +170,11 @@ const generatePlayground = () => {
             htmlTemplate = htmlTemplate.replaceAll('{{DESCRIPTION}}', pageDescription);
             const canonicalUrl = `https://docs.puter.com/playground/${example.slug ? `${example.slug }/` : ''}`;
             htmlTemplate = htmlTemplate.replaceAll('{{CANONICAL}}', canonicalUrl);
-            const finalHtml = htmlTemplate.replace('{{CODE}}', sourceContent);
+            htmlTemplate = htmlTemplate.replaceAll('{{PAGE_TITLE}}', example.title);
+            const codeWithDescription = example.description
+                ? `<!-- ${example.description} -->\n\n${sourceContent}`
+                : sourceContent;
+            const finalHtml = htmlTemplate.replace('{{CODE}}', codeWithDescription);
 
             // Create output directory
             const outputDir = path.join('dist', 'playground', example.slug);

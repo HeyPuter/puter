@@ -11,6 +11,7 @@ document.addEventListener('DOMContentLoaded', function () {
         editor = monaco.editor.create(editorElement, {
             language: 'html',
             fontFamily: 'monospace',
+            wordWrap: 'on',
             minimap: {
                 enabled: false,
             },
@@ -244,6 +245,13 @@ document.addEventListener('click', function (e) {
         const newTitle = doc.querySelector('title');
         if ( newTitle ) {
             document.title = newTitle.textContent;
+        }
+
+        // Update the playground page title in the header
+        const newPageTitle = doc.querySelector('.playground-page-title');
+        const currentPageTitle = document.querySelector('.playground-page-title');
+        if ( newPageTitle && currentPageTitle ) {
+            currentPageTitle.textContent = newPageTitle.textContent;
         }
 
         // Update meta description
