@@ -765,6 +765,69 @@ describe('LegacyFSController.copy', () => {
             `/${username}/Pictures/renamed-copy`,
         );
     });
+
+    it('copies an empty file (no backing S3 object) without erroring', async () => {
+        // Empty files created via /touch have size 0 and no S3 object —
+        // bucket is null. Copy must clone them as empty-file entries rather
+        // than issuing a CopyObject, which would throw S3 NoSuchKey.
+        const { actor } = await makeUser();
+        const username = actor.user!.username!;
+        const src = `/${username}/Documents/empty.txt`;
+        await withActor(actor, () =>
+            controller.touch(
+                makeReq({ body: { path: src }, actor }),
+                makeRes().res,
+            ),
+        );
+
+        const { res, captured } = makeRes();
+        await withActor(actor, () =>
+            controller.copy(
+                makeReq({
+                    body: { source: src, destination: `/${username}/Pictures` },
+                    actor,
+                }),
+                res,
+            ),
+        );
+
+        const body = captured.body as Array<{ copied: { path: string } }>;
+        expect(body[0].copied.path).toBe(`/${username}/Pictures/empty.txt`);
+        const copied = await server.stores.fsEntry.getEntryByPath(
+            `/${username}/Pictures/empty.txt`,
+        );
+        expect(copied).not.toBeNull();
+        expect(copied!.size).toBe(0);
+        // Original is untouched.
+        expect(await server.stores.fsEntry.getEntryByPath(src)).not.toBeNull();
+    });
+
+    it('reads an empty file as empty content without deleting it', async () => {
+        // Reading an empty file (no S3 object) must not throw NoSuchKey nor
+        // trip the ghost-file cleanup, which would delete the entry.
+        const { actor } = await makeUser();
+        const username = actor.user!.username!;
+        const src = `/${username}/Documents/readme-empty.txt`;
+        await withActor(actor, () =>
+            controller.touch(
+                makeReq({ body: { path: src }, actor }),
+                makeRes().res,
+            ),
+        );
+        const entry = (await server.stores.fsEntry.getEntryByPath(src))!;
+
+        const download = await server.services.fs.readContent(entry);
+        const chunks: Buffer[] = [];
+        for await (const chunk of download.body) {
+            chunks.push(Buffer.from(chunk as Uint8Array));
+        }
+        expect(Buffer.concat(chunks).byteLength).toBe(0);
+        expect(download.contentLength).toBe(0);
+        // The entry must still exist — the ghost handler must NOT have run.
+        expect(
+            await server.stores.fsEntry.getEntryByPath(src),
+        ).not.toBeNull();
+    });
 });
 
 // ── move ────────────────────────────────────────────────────────────

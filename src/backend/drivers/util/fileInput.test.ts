@@ -292,6 +292,22 @@ describe('loadFileInput FS path', () => {
         expect(result.fsEntry?.path).toBe(path);
     });
 
+    it('returns empty bytes for an empty file with no backing S3 object', async () => {
+        // Files created via touch have size 0 and a null bucket — no S3
+        // object exists. loadFileInput must return empty content rather than
+        // throwing NoSuchKey from getObjectStream.
+        const { actor, userId } = await makeUser();
+        const username = actor.user!.username!;
+        const path = `/${username}/Documents/empty.txt`;
+        const entry = await withActor(actor, () =>
+            server.services.fs.touch(userId, { path }),
+        );
+
+        const result = await callLoadFileInput(actor, path);
+        expect(result.buffer.byteLength).toBe(0);
+        expect(result.fsEntry?.uuid).toBe(entry.uuid);
+    });
+
     it('also accepts a `{ uuid }` object reference', async () => {
         const { actor, userId } = await makeUser();
         const username = actor.user!.username!;

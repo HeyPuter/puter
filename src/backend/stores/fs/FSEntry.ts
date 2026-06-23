@@ -53,6 +53,17 @@ export interface FSEntry {
     suggestedApps: unknown[]; // TODO DS: type with app row
 }
 
+/**
+ * True when an entry has no backing S3 object. Empty files (size 0) created
+ * via `touch`/`createNonFileEntry` never upload to S3 and leave `bucket` null;
+ * real files always store a non-null bucket on write, so a null bucket on a
+ * size-0 entry reliably means there is nothing in S3 to read or copy. A real
+ * file whose object went missing keeps its bucket, so this stays false and the
+ * usual missing-object handling still applies.
+ */
+export const hasNoBackingS3Object = (entry: FSEntry): boolean =>
+    (entry.size ?? 0) === 0 && entry.bucket === null;
+
 export interface FSEntrySubdomain {
     uuid: string;
     address: string; // `${config.protocol}://${subdomain}.${'puter.site'|'puter.work'}` depending on wether dir or file

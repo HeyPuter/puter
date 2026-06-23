@@ -22,6 +22,7 @@ import type { Actor } from '../../core/actor.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import type { FSService } from '../../services/fs/FSService.js';
 import { expandTildePath, resolveNode } from '../../services/fs/resolveNode.js';
+import { hasNoBackingS3Object } from '../../stores/fs/FSEntry.js';
 import type { FSEntryStore } from '../../stores/fs/FSEntryStore.js';
 import type { S3ObjectStore } from '../../stores/fs/S3ObjectStore.js';
 import { mimeFromName } from '../../util/fileSigning.js';
@@ -175,6 +176,23 @@ export async function loadFileInput(
     // `path`/`uid`/`uuid` (e.g. AI chat `puter_path` content parts) could
     // exfiltrate any user's file. Must run before the S3 read below.
     await fsService.checkFSAccess(entry, actor, 'read');
+    // Empty files (created via `touch`) have no backing S3 object —
+    // getObjectStream would throw NoSuchKey, so return empty content.
+    if (hasNoBackingS3Object(entry)) {
+        return {
+            buffer: Buffer.alloc(0),
+            filename: entry.name,
+            mimeType: mimeFromName(entry.name) ?? 'application/octet-stream',
+            fsEntry: {
+                uuid: entry.uuid,
+                path: entry.path,
+                bucket: entry.bucket,
+                bucketRegion: entry.bucketRegion,
+                size: entry.size,
+                sqlId: entry.id,
+            },
+        };
+    }
     const objectKey = entry.uuid;
     const { body, contentType, contentLength } =
         await stores.s3Object.getObjectStream(
