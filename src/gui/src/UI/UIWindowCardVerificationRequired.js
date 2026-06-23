@@ -87,7 +87,7 @@ function UIWindowCardVerificationRequired(options) {
             '<p style="text-align:center; padding: 0 20px; font-size:13px;">Verify a card to continue. You will <b><i>not</i></b> be charged.</p>';
         // Offer a friendly human fallback so verification is never a dead end —
         // worded as help, not as an accusation.
-        h += `<p style="text-align:center; font-size:12px; line-height:1.4; color:#8a99a8; margin:6px auto 14px; max-width:320px;">Need help? Email <a href="mailto:hi@puter.com" style="color:#3b82f6; text-decoration:none;">hi@puter.com</a> and we'll assist you creating your account.</p>`;
+        h += `<p style="text-align:center; font-size:12px; line-height:1.4; color:#8a99a8; margin:6px auto 14px; max-width:320px;">Need help? Email <a href="mailto:support@puter.com" style="color:#3b82f6; text-decoration:none;">support@puter.com</a> and we'll assist you creating your account.</p>`;
         h += '<div class="card-payment-element"></div>';
         h += `<button type="submit" class="button button-block button-primary card-verify-btn" style="margin-top:15px;">${verify_btn_txt}</button>`;
         h += '</form>';
@@ -248,7 +248,7 @@ function UIWindowCardVerificationRequired(options) {
                     // outage, so message it specifically.
                     if (xhr.responseJSON?.reason === 'device_unverifiable') {
                         showError(
-                            "We couldn't verify your device. Please email hi@puter.com for help.",
+                            "We couldn't verify your device. Please email support@puter.com for help.",
                         );
                     } else if (xhr.responseJSON?.error) {
                         showError(xhr.responseJSON.error);

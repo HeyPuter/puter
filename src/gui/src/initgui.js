@@ -1460,7 +1460,7 @@ window.initgui = async function (options) {
                             <div class="signup-blocked-content">
                                 <img src="${window.icons['logo.svg'] || window.icons['logo-white.svg'] || ''}" style="width:64px;margin-bottom:24px;" />
                                 <p>${html_encode(blockedMsg)}</p>
-                                <p>If you already have an account, try <a href="/action/login">logging in</a>. Otherwise, contact <a href="mailto:hi@puter.com">hi@puter.com</a> for assistance.</p>
+                                <p>If you already have an account, try <a href="/action/login">logging in</a>. Otherwise, contact <a href="mailto:support@puter.com">support@puter.com</a> for assistance.</p>
                             </div>
                         `;
                         document.body.appendChild(overlay);
