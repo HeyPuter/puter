@@ -56,13 +56,13 @@ You can also deploy straight from the terminal with the [Puter CLI](https://www.
 
 Install it globally:
 
-```
+```sh
 npm install -g @heyputer/cli
 ```
 
 Then deploy your site's directory to a `*.puter.site` subdomain:
 
-```
+```sh
 puter site deploy [dir] [subdomain]
 ```
 

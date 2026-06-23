@@ -179,13 +179,13 @@ You can also deploy straight from the terminal with the [Puter CLI](https://www.
 
 Install it globally:
 
-```
+```sh
 npm install -g @heyputer/cli
 ```
 
 Then deploy your worker's JavaScript file to a `*.puter.work` subdomain:
 
-```
+```sh
 puter worker deploy [file] [name]
 ```
 
