@@ -31,6 +31,7 @@ import {
     FSEntry,
     FSEntryCreateInput,
     FSEntryWriteInput,
+    hasNoBackingS3Object,
     PendingUploadCreateInput,
     PendingUploadSession,
 } from '../../stores/fs/FSEntry.js';
@@ -2806,6 +2807,24 @@ export class FSService extends PuterService {
                 { legacyCode: 'shortcut_target_not_found' },
             );
         }
+        // Empty files (created via `touch`/`createNonFileEntry` with kind
+        // 'empty-file') have no backing S3 object — `bucket` is null. Reading
+        // one would throw NoSuchKey and, worse, trip #handleGhostFile, which
+        // deletes the entry as if it were an orphan. Return an empty stream
+        // instead. (A real file whose object is genuinely missing keeps a
+        // non-null bucket, so it still falls through to the ghost path below.)
+        if (hasNoBackingS3Object(entry)) {
+            return {
+                body: Readable.from([]),
+                contentLength: 0,
+                contentType: null,
+                contentRange: null,
+                etag: null,
+                lastModified: entry.modified
+                    ? new Date(entry.modified * 1000)
+                    : null,
+            };
+        }
         const objectKey = entry.uuid;
         try {
             return await this.stores.s3Object.getObjectStream(
@@ -3643,6 +3662,24 @@ export class FSService extends PuterService {
                 shortcutTo: source.shortcutTo,
                 metadata: source.metadata,
                 associatedAppId: source.associatedAppId,
+            });
+        }
+
+        // Empty files (created via `touch`/`createNonFileEntry` with kind
+        // 'empty-file') have no backing S3 object — `bucket` is null and there
+        // is nothing to CopyObject. Issuing one would throw NoSuchKey, so clone
+        // the source as another empty-file entry instead of touching S3.
+        if (hasNoBackingS3Object(source)) {
+            return this.stores.fsEntry.createNonFileEntry({
+                userId,
+                parent: destinationParent,
+                name: newName,
+                kind: 'empty-file',
+                metadata: source.metadata,
+                thumbnail: source.thumbnail,
+                associatedAppId: source.associatedAppId,
+                isPublic: source.isPublic,
+                immutable: source.immutable,
             });
         }
 

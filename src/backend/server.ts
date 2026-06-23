@@ -729,11 +729,13 @@ export class PuterServer {
                         if (status < 500) return;
                         if (SKIP_ALERT_PREFIXES.test(legacyCode)) return;
                     }
-                    const signature = isHttp
-                        ? err.legacyCode || err.code || err.message
-                        : err instanceof Error
-                          ? err.message
-                          : String(err);
+                    const signature = !isHttp
+                        ? err instanceof Error
+                            ? err.message
+                            : String(err)
+                        : status >= 500
+                          ? `${err.legacyCode || err.code || 'http'}:${err.message}`
+                          : err.legacyCode || err.code || err.message;
                     const routePath =
                         (req as unknown as { route?: { path?: string } }).route
                             ?.path ?? req.path;
