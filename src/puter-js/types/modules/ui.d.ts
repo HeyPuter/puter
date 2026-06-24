@@ -53,6 +53,12 @@ export type WindowIdentifier = string | WindowHandle;
 export interface ContextMenuOptions {
     /** Menu items and separators. Use the string `'-'` to insert a separator. */
     items: (ContextMenuItem | '-')[];
+    /**
+     * Forces the rendered menu's color theme. Only applies when running standalone
+     * (`puter.env === 'web'`); ignored inside the Puter desktop (`puter.env === 'app'`).
+     * When unset, the menu follows the system color-scheme preference.
+     */
+    theme?: 'dark' | 'light';
 }
 
 /** Options that configure a window created by `createWindow()`. */
@@ -113,6 +119,12 @@ export interface ThemeData {
 export interface MenubarOptions {
     /** Menu items and separators. Use the string `'-'` to insert a separator. */
     items: (MenuItem | '-')[];
+    /**
+     * Forces the rendered menubar's color theme. Only applies when running standalone
+     * (`puter.env === 'web'`); ignored inside the Puter desktop (`puter.env === 'app'`).
+     * When unset, the menubar follows the system color-scheme preference.
+     */
+    theme?: 'dark' | 'light';
 }
 
 /** A single item in a menubar menu. The string `'-'` may be used in place of an item to render a separator. */

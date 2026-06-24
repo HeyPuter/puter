@@ -45,15 +45,15 @@ class PuterContextMenu extends PuterWebComponent {
                 overflow: hidden;
                 white-space: nowrap;
                 font-family: sans-serif;
-                background: #FFF;
+                background: #fff;
                 color: #333;
-                border-radius: 4px;
+                border-radius: 8px;
                 padding: 3px 0;
                 min-width: 200px;
-                background-color: rgb(255 255 255 / 92%);
+                background-color: rgb(255 255 255 / 85%);
                 backdrop-filter: blur(3px);
-                border: 1px solid #e6e4e466;
-                box-shadow: 0px 3px 10px #00000044;
+                border: 1px solid #dcdcdc;
+                box-shadow: 0px 3px 20px #00000022;
                 margin-top: 5px;
                 padding-left: 4px;
                 padding-right: 4px;
@@ -67,12 +67,12 @@ class PuterContextMenu extends PuterWebComponent {
             .menu-item {
                 display: flex;
                 align-items: center;
-                padding: 5px;
+                padding: 5px 8px;
                 list-style-type: none;
                 user-select: none;
                 -webkit-user-select: none;
                 font-size: 12px;
-                height: 25px;
+                height: 28px;
                 box-sizing: border-box;
                 position: relative;
                 cursor: default;
@@ -294,6 +294,7 @@ class PuterContextMenu extends PuterWebComponent {
                 padding: 12px 16px;
                 font-size: 16px;
                 border-radius: 0;
+                gap: 10px;
             }
 
             /* Keyboard shortcuts have no meaning on touch / small-screen
