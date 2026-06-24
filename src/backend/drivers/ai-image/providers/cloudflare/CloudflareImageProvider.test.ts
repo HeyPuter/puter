@@ -47,6 +47,16 @@ import { withTestActor } from '../../../integrationTestUtil.js';
 import { CLOUDFLARE_IMAGE_GENERATION_MODELS } from './models.js';
 import { CloudflareImageProvider } from './CloudflareImageProvider.js';
 
+// Stub the URL→base64 fetch so URL inputs stay offline; keep the rest real.
+const { fetchImageAsBase64Mock } = vi.hoisted(() => ({
+    fetchImageAsBase64Mock: vi.fn(),
+}));
+
+vi.mock('../../inputImage.js', async (orig) => ({
+    ...(await orig<typeof import('../../inputImage.js')>()),
+    fetchImageAsBase64: fetchImageAsBase64Mock,
+}));
+
 // ── Test harness ────────────────────────────────────────────────────
 
 let server: PuterServer;
@@ -81,6 +91,7 @@ const makeProvider = (
     );
 
 beforeEach(() => {
+    fetchImageAsBase64Mock.mockReset();
     fetchSpy = vi.spyOn(globalThis, 'fetch') as MockInstance<typeof fetch>;
     hasCreditsSpy = vi.spyOn(server.services.metering, 'hasEnoughCredits');
     batchIncrementUsagesSpy = vi.spyOn(
@@ -468,5 +479,72 @@ describe('CloudflareImageProvider.generate cost components', () => {
                 expect.stringContaining(':input_image_mp'),
             ]),
         );
+    });
+});
+
+// ── input_images (canonical image-to-image field) ──────────────────
+
+describe('CloudflareImageProvider.generate input_images', () => {
+    const klein9bWith = (extra: Record<string, unknown>) => {
+        const provider = makeProvider();
+        fetchSpy.mockResolvedValueOnce(
+            new Response(Buffer.from([1, 2, 3]).buffer, {
+                status: 200,
+                headers: { 'content-type': 'image/png' },
+            }),
+        );
+        return withTestActor(() =>
+            provider.generate({
+                model: '@cf/black-forest-labs/flux-2-klein-9b',
+                prompt: 'edit it',
+                ratio: { w: 2000, h: 1000 },
+                ...extra,
+            } as never),
+        );
+    };
+
+    const hasInputCostLine = () => {
+        const [, entries] = batchIncrementUsagesSpy.mock.calls[0]!;
+        return (entries as Array<{ usageType: string }>).some((e) =>
+            e.usageType.endsWith(':input_image_mp'),
+        );
+    };
+
+    it('maps a base64/data-URI input_images entry to the input image (cost line appears)', async () => {
+        await klein9bWith({ input_images: ['data:image/png;base64,AAAA'] });
+        expect(hasInputCostLine()).toBe(true);
+    });
+
+    it('maps a singular input_image to the input image', async () => {
+        await klein9bWith({ input_image: 'data:image/png;base64,AAAA' });
+        expect(hasInputCostLine()).toBe(true);
+    });
+
+    it('fetches an http(s) URL input via secureFetch and uses it as the input image', async () => {
+        fetchImageAsBase64Mock.mockResolvedValueOnce({
+            base64: 'AAAA',
+            mime: 'image/png',
+        });
+        await klein9bWith({ input_images: ['https://example.com/in.png'] });
+        expect(fetchImageAsBase64Mock).toHaveBeenCalledWith(
+            'https://example.com/in.png',
+        );
+        expect(hasInputCostLine()).toBe(true);
+    });
+
+    it('throws 400 when more than one input image is supplied (before any fetch)', async () => {
+        const provider = makeProvider();
+        await expect(
+            withTestActor(() =>
+                provider.generate({
+                    model: '@cf/black-forest-labs/flux-2-klein-9b',
+                    prompt: 'edit it',
+                    ratio: { w: 1024, h: 1024 },
+                    input_images: ['data:image/png;base64,AAAA', 'data:image/png;base64,BBBB'],
+                } as never),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+        expect(fetchSpy).not.toHaveBeenCalled();
+        expect(fetchImageAsBase64Mock).not.toHaveBeenCalled();
     });
 });

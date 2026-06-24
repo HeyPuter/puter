@@ -35,6 +35,21 @@ Additional settings for the generation request. Available options depend on the 
 | `model` | `String` | Image model to use (provider-specific). Defaults to `'gpt-image-1-mini'` (OpenAI) or `'grok-imagine-image'` when `provider: 'xai'` |
 | `test_mode` | `Boolean` | When `true`, returns a sample image without using credits |
 | `puter_output_path` | `String` | When set, the generated image is automatically saved to this path on the Puter filesystem. Relative paths are resolved against the app's data directory (or `~/` outside an app). The caller must have write permission to the destination |
+| `input_images` | `Array<String>` | Input image(s) for image-to-image — the canonical, cross-provider field (see below). |
+| `input_image` | `String` | Single-image shorthand for `input_images`. |
+
+#### Input images (image-to-image)
+
+`input_images` is the universal way to pass image-to-image inputs across providers; `input_image` is the single-image shorthand. Each entry may be a **public URL**, a **data-URI**, or **raw base64** — providers that need base64 fetch URLs server-side (SSRF-guarded), so a URL works everywhere.
+
+| Provider | Multiple images? | Accepted input forms |
+|----------|------------------|----------------------|
+| OpenAI `gpt-image-*` | Yes | URL, base64 / data-URI |
+| Gemini | Yes | URL, base64 / data-URI |
+| Replicate | Yes (model-dependent) | URL, base64 / data-URI |
+| xAI `grok-imagine-*` | Up to 3 | URL, base64 / data-URI |
+| Together | Single only (400 if more than one) | URL, base64 / data-URI |
+| Cloudflare | Single only (400 if more than one) | URL, base64 / data-URI (only some models use it) |
 
 #### OpenAI Options
 
@@ -45,8 +60,8 @@ Available when `provider: 'openai-image-generation'` or inferred from model (`gp
 | `model` | `String` | Image model to use. Available: `'gpt-image-2'`, `'gpt-image-1.5'`, `'gpt-image-1'`, `'gpt-image-1-mini'` |
 | `quality` | `String` | Image quality: `'high'`, `'medium'`, `'low'` (default: `'low'`); `gpt-image-2` also accepts `'auto'` |
 | `ratio` | `Object` | Aspect ratio with `w` and `h` properties. `gpt-image-2` accepts arbitrary sizes; other GPT models are restricted to fixed sizes |
-| `input_image` | `String` | A base64-encoded (or data-URI) input image for image-to-image editing. |
-| `input_images` | `Array<String>` | Multiple base64-encoded (or data-URI) input images for image-to-image editing. Routes the request through OpenAI's image edit endpoint. |
+| `input_image` | `String` | An input image for image-to-image editing — a URL or base64/data-URI (URLs are fetched server-side). |
+| `input_images` | `Array<String>` | Multiple input images (URL or base64/data-URI) for image-to-image editing. Routes the request through OpenAI's image edit endpoint. |
 
 For more details, see the [OpenAI API reference](https://platform.openai.com/docs/api-reference/images/create).
 
@@ -59,7 +74,7 @@ Available when `provider: 'gemini'` or inferred from model:
 | `model` | `String` | Image model to use. |
 | `ratio` | `Object` | Aspect ratio as `{ w, h }` (e.g., `{ w: 16, h: 9 }`). |
 | `quality` | `String` | Output size tier: `'512'`, `'1K'`, `'2K'`, `'4K'` (availability varies by model) |
-| `input_images` | `Array<String>` | Base64 input images for image-to-image (Gemini models only) |
+| `input_images` | `Array<String>` | Input images for image-to-image — a URL or base64/data-URI (URLs are fetched server-side). |
 
 #### xAI (Grok) Options
 
@@ -87,6 +102,8 @@ Available when `provider: 'together'` or inferred from model:
 | `seed` | `Number` | Seed used for generation. Can be used to reproduce image generations |
 | `negative_prompt` | `String` | The prompt or prompts not to guide the image generation |
 | `n` | `Number` | Number of image results to generate. Default: `1` |
+| `input_images` | `Array<String>` | Image-to-image input — **single image only** (400 if more than one). A URL is routed to `image_url`; base64/data-URI to `image_base64`. |
+| `input_image` | `String` | Single-image shorthand for `input_images`. |
 | `image_url` | `String` | URL of an image to use for image models that support it |
 | `image_base64` | `String` | Base64 encoded input image for image-to-image generation |
 | `mask_image_url` | `String` | URL of mask image for inpainting |
@@ -107,8 +124,8 @@ Available when `provider: 'replicate-image-generation'` or inferred from model:
 |--------|------|-------------|
 | `model` | `String` | Model id (e.g. `'black-forest-labs/flux-schnell'`, `'leonardoai/lucid-origin'`). |
 | `ratio` | `Object` | Aspect ratio as `{ w, h }` (e.g., `{ w: 16, h: 9 }`). |
-| `input_image` | `String` | URL of an input image for image-to-image generation. |
-| `input_images` | `Array<String>` | Array of input image URLs for multi-image generation. |
+| `input_image` | `String` | Input image for image-to-image generation — a URL or base64/data-URI. |
+| `input_images` | `Array<String>` | Input images (URL or base64/data-URI) for multi-image generation. |
 
 ##### Per-model options
 

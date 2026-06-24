@@ -78,6 +78,16 @@ vi.mock('openai', () => {
     };
 });
 
+// Stub the URL→base64 fetch so URL inputs stay offline; keep the rest real.
+const { fetchImageAsBase64Mock } = vi.hoisted(() => ({
+    fetchImageAsBase64Mock: vi.fn(),
+}));
+
+vi.mock('../../inputImage.js', async (orig) => ({
+    ...(await orig<typeof import('../../inputImage.js')>()),
+    fetchImageAsBase64: fetchImageAsBase64Mock,
+}));
+
 // ── Test harness ────────────────────────────────────────────────────
 
 let server: PuterServer;
@@ -100,6 +110,7 @@ const makeProvider = () =>
 beforeEach(() => {
     generateMock.mockReset();
     editMock.mockReset();
+    fetchImageAsBase64Mock.mockReset();
     openAICtor.mockReset();
     hasCreditsSpy = vi.spyOn(server.services.metering, 'hasEnoughCredits');
     batchIncrementUsagesSpy = vi.spyOn(
@@ -324,6 +335,32 @@ describe('OpenAiImageProvider.generate input_images (edit endpoint)', () => {
         const sent = editMock.mock.calls[0]![0];
         // Single image → not wrapped in an array.
         expect(Array.isArray(sent.image)).toBe(false);
+        expect((sent.image as { __file?: boolean }).__file).toBe(true);
+    });
+
+    it('fetches an http(s) URL input and sends the bytes to images.edit', async () => {
+        const provider = makeProvider();
+        editMock.mockResolvedValueOnce(editResponse);
+        fetchImageAsBase64Mock.mockResolvedValueOnce({
+            base64: 'iVBORw0KGgo=',
+            mime: 'image/png',
+        });
+
+        await withTestActor(() =>
+            provider.generate({
+                model: 'gpt-image-1',
+                prompt: 'add a hat',
+                ratio: { w: 1024, h: 1024 },
+                input_images: ['https://example.com/in.png'],
+            }),
+        );
+
+        expect(fetchImageAsBase64Mock).toHaveBeenCalledWith(
+            'https://example.com/in.png',
+        );
+        expect(generateMock).not.toHaveBeenCalled();
+        expect(editMock).toHaveBeenCalledTimes(1);
+        const sent = editMock.mock.calls[0]![0];
         expect((sent.image as { __file?: boolean }).__file).toBe(true);
     });
 });

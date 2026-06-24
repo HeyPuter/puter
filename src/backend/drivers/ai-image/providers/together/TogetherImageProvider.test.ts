@@ -332,6 +332,55 @@ describe('TogetherImageProvider.generate request shape', () => {
         const sent = generateMock.mock.calls[0]![0];
         expect(sent.image_base64).toBe('BASE64DATA');
     });
+
+    it('routes a base64 input_images entry to image_base64', async () => {
+        const provider = makeProvider();
+        generateMock.mockResolvedValueOnce(sampleResponse);
+
+        await withTestActor(() =>
+            provider.generate({
+                model: 'togetherai:black-forest-labs/FLUX.1-schnell',
+                prompt: 'edit it',
+                input_images: ['BASE64DATA'],
+            }),
+        );
+
+        const sent = generateMock.mock.calls[0]![0];
+        expect(sent.image_base64).toBe('BASE64DATA');
+    });
+
+    it('routes a URL input_images entry to the native image_url field (no fetch)', async () => {
+        const provider = makeProvider();
+        generateMock.mockResolvedValueOnce(sampleResponse);
+
+        await withTestActor(() =>
+            provider.generate({
+                model: 'togetherai:black-forest-labs/FLUX.1-schnell',
+                prompt: 'edit it',
+                input_images: ['https://example.com/in.png'],
+            }),
+        );
+
+        const sent = generateMock.mock.calls[0]![0];
+        expect(sent.image_url).toBe('https://example.com/in.png');
+        expect(sent.image_base64).toBeUndefined();
+    });
+
+    it('throws 400 when more than one input image is supplied', async () => {
+        const provider = makeProvider();
+
+        await expect(
+            withTestActor(() =>
+                provider.generate({
+                    model: 'togetherai:black-forest-labs/FLUX.1-schnell',
+                    prompt: 'edit it',
+                    input_images: ['BASE64A', 'BASE64B'],
+                }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+
+        expect(generateMock).not.toHaveBeenCalled();
+    });
 });
 
 // ── Output extraction & error mapping ───────────────────────────────

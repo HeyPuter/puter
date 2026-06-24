@@ -31,6 +31,7 @@ import type {
     IImageProvider,
 } from '../../types.js';
 import { OPEN_AI_IMAGE_GENERATION_MODELS } from './models.js';
+import { fetchImageAsBase64, isHttpUrl } from '../../inputImage.js';
 import { HttpError } from '@heyputer/backend/src/core/http/HttpError.js';
 
 interface OpenAIImageUsage {
@@ -660,17 +661,23 @@ export class OpenAiImageProvider implements IImageProvider {
         } as ImageEditParamsNonStreaming;
     }
 
-    // Accepts a `data:<mime>;base64,...` URI or a raw base64 string (what the
-    // Gemini image provider documents callers to pass) and turns it into an
-    // uploadable file for the OpenAI edit endpoint.
+    // Accepts a public URL, a `data:<mime>;base64,...` URI, or a raw base64
+    // string and turns it into an uploadable file for the OpenAI edit endpoint.
+    // URLs are fetched server-side via the SSRF-guarded secureFetch.
     async #toUploadable(img: string, mimeHint?: string) {
         let mime = mimeHint ?? 'image/png';
         let base64 = img;
 
-        const dataUri = /^data:([^;]+);base64,(.*)$/s.exec(img);
-        if (dataUri) {
-            mime = dataUri[1];
-            base64 = dataUri[2];
+        if (isHttpUrl(img)) {
+            const fetched = await fetchImageAsBase64(img);
+            mime = fetched.mime;
+            base64 = fetched.base64;
+        } else {
+            const dataUri = /^data:([^;]+);base64,(.*)$/s.exec(img);
+            if (dataUri) {
+                mime = dataUri[1];
+                base64 = dataUri[2];
+            }
         }
 
         const buffer = Buffer.from(base64, 'base64');
