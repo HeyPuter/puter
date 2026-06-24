@@ -506,7 +506,11 @@ export class SystemKVStore extends PuterStore {
     }
 
     async incr<T extends Record<string, number>>(
-        { key, pathAndAmountMap }: { key: string; pathAndAmountMap: T },
+        {
+            key,
+            pathAndAmountMap,
+            expireAt,
+        }: { key: string; pathAndAmountMap: T; expireAt?: number },
         opts?: KVOpts,
     ): Promise<
         KVResult<T extends { '': number } ? number : RecursiveRecord<number>>
@@ -528,12 +532,6 @@ export class SystemKVStore extends PuterStore {
 
         const actor = ensureActor(opts);
         const namespace = getNamespace(actor, opts?.appUuid);
-
-        const createPathsUsage = await this.createPaths(
-            namespace,
-            key,
-            Object.keys(pathAndAmountMap),
-        );
 
         const setStatements = Object.entries(pathAndAmountMap).map(
             ([valPath, _amt], idx) => {
@@ -565,13 +563,50 @@ export class SystemKVStore extends PuterStore {
             {} as Record<string, string>,
         );
 
-        const response = await this.clients.dynamo.update(
-            this.tableName,
-            { key, namespace },
-            `SET ${setStatements.join(', ')}`,
-            valueAttributeValues,
-            { ...valueAttributeNames, '#value': 'value' },
-        );
+        // Fold the TTL into the same UpdateItem so a counter bump is a single
+        // write instead of incr + a separate expireAt. if_not_exists keeps the
+        // first stamp for the key (re-stamping the same value was always a
+        // no-op) — but now we don't pay for that extra write on every bump.
+        if (expireAt !== undefined) {
+            const ttlSeconds = Number(expireAt);
+            if (Number.isNaN(ttlSeconds))
+                throw new HttpError(400, 'kv: expireAt must be a number', {
+                    legacyCode: 'bad_request',
+                });
+            setStatements.push('#ttl = if_not_exists(#ttl, :ttl)');
+            valueAttributeValues[':ttl'] = ttlSeconds;
+            valueAttributeNames['#ttl'] = 'ttl';
+        }
+
+        const updateExpression = `SET ${setStatements.join(', ')}`;
+        const expressionNames = { ...valueAttributeNames, '#value': 'value' };
+        const runUpdate = () =>
+            this.clients.dynamo.update(
+                this.tableName,
+                { key, namespace },
+                updateExpression,
+                valueAttributeValues,
+                expressionNames,
+            );
+
+        // Most increments land on an item whose parent maps already exist (a
+        // day's counter is created once, then bumped on every event), so try
+        // the update directly and only pay the per-layer createPaths writes
+        // when a nested parent is genuinely missing — typically the first bump
+        // for a key. Mirrors the lazy ValidationException fallback in remove().
+        let createPathsUsage = 0;
+        let response;
+        try {
+            response = await runUpdate();
+        } catch (e) {
+            if ((e as Error)?.name !== 'ValidationException') throw e;
+            createPathsUsage = await this.createPaths(
+                namespace,
+                key,
+                Object.keys(pathAndAmountMap),
+            );
+            response = await runUpdate();
+        }
 
         const usage = writeUsage(
             Number(response.ConsumedCapacity?.CapacityUnits ?? 0) +
