@@ -1096,6 +1096,10 @@ class UI extends EventListener {
         // Replace any existing menubar
         document.querySelectorAll('puter-menubar').forEach(el => el.remove());
         const el = document.createElement('puter-menubar');
+        // Forward an explicit theme ('dark' | 'light') to the web component;
+        // unset → the component follows the system preference. The component
+        // also forwards this to the dropdowns it spawns. (env=web only.)
+        if ( spec.theme ) el.setAttribute('theme', spec.theme);
         el.items = spec.items || [];
         document.body.appendChild(el);
     };
@@ -1137,6 +1141,10 @@ class UI extends EventListener {
         }
         // Standalone fallback: render web component
         const el = document.createElement('puter-context-menu');
+        // Forward an explicit theme ('dark' | 'light') to the web component;
+        // unset → the component follows the system preference. The component
+        // also forwards this to any submenus it spawns. (env=web only.)
+        if ( spec.theme ) el.setAttribute('theme', spec.theme);
         el.items = spec.items || [];
         // Use mouse position or provided position
         const x = spec.x ?? (globalThis.event?.clientX ?? 0);

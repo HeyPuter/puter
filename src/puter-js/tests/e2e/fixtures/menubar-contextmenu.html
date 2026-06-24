@@ -16,6 +16,8 @@
 
     <button id="set-menubar-btn" disabled>Set Menubar</button>
     <button id="ctx-trigger" disabled>Show Context Menu</button>
+    <button id="set-menubar-dark-btn" disabled>Set Menubar (dark)</button>
+    <button id="ctx-trigger-dark" disabled>Show Context Menu (dark)</button>
 
     <div id="log" data-testid="log"></div>
 
@@ -36,6 +38,8 @@
             statusEl.textContent = `Ready (env=${puter.env})`;
             document.getElementById('set-menubar-btn').disabled = false;
             document.getElementById('ctx-trigger').disabled = false;
+            document.getElementById('set-menubar-dark-btn').disabled = false;
+            document.getElementById('ctx-trigger-dark').disabled = false;
         }
 
         function waitForPuter() {
@@ -67,6 +71,35 @@
                 ],
             });
             log('ctx:opened');
+        });
+
+        // Themed variants — exercise the `theme` option, which is forwarded as
+        // the `theme` attribute onto the standalone (env=web) web components.
+        document.getElementById('set-menubar-dark-btn').addEventListener('click', () => {
+            puter.ui.setMenubar({
+                theme: 'dark',
+                items: [
+                    { label: 'TestFile', action: () => log('menubar:TestFile') },
+                    { label: 'TestEdit', items: [
+                        { label: 'TestUndo', action: () => log('menubar:TestUndo') },
+                        { label: 'TestRedo', action: () => log('menubar:TestRedo') },
+                    ]},
+                ],
+            });
+            log('menubar:set:dark');
+        });
+
+        document.getElementById('ctx-trigger-dark').addEventListener('click', () => {
+            puter.ui.contextMenu({
+                theme: 'dark',
+                items: [
+                    { label: 'CtxAlpha', action: () => log('ctx:CtxAlpha') },
+                    { label: 'CtxBeta', action: () => log('ctx:CtxBeta') },
+                    '-',
+                    { label: 'CtxGamma', action: () => log('ctx:CtxGamma') },
+                ],
+            });
+            log('ctx:opened:dark');
         });
     </script>
 </body>

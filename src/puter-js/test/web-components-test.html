@@ -78,6 +78,7 @@
         <h2>Context Menu</h2>
         <button oncontextmenu="testContextMenu(event); return false;">Right-click me</button>
         <button onclick="testContextMenuClick(event)">Click for Context Menu</button>
+        <button oncontextmenu="testContextMenuDark(event); return false;">Right-click me for dark menu</button>
         <div class="result" id="menu-result">Right-click or click a button to test...</div>
     </div>
 
@@ -89,6 +90,7 @@
     <div class="section">
         <h2>Menubar</h2>
         <button onclick="testMenubar()">Show Menubar</button>
+        <button onclick="testMenubarDark()">Show Dark Menubar</button>
         <button onclick="hideMenubar()">Hide Menubar</button>
         <div class="result" id="menubar-result">Click "Show Menubar" to add an app menubar at top of page...</div>
     </div>
@@ -107,7 +109,7 @@
         <div class="result" id="font-result">Click to test...</div>
     </div>
 
-    <script src="/dist/puter.js"></script>
+    <script src="/dist/puter.dev.js"></script>
     <script>
         async function testAlert() {
             const result = await puter.ui.alert('Hello from standalone Puter!');
@@ -217,6 +219,31 @@
             });
         }
 
+        function testContextMenuDark(e) {
+            puter.ui.contextMenu({
+                x: e.clientX,
+                y: e.clientY,
+                theme: 'dark',
+                items: [
+                    { label: 'Get Info', icon: ICONS.info, action: () => log('menu', 'Get Info') },
+                    '-',
+                    { label: 'Play Next', icon: ICONS.play, action: () => log('menu', 'Play Next') },
+                    { label: 'Add to Queue', icon: ICONS.queue, action: () => log('menu', 'Add to Queue') },
+                    '-',
+                    { label: 'Go to Artist', icon: ICONS.user, action: () => log('menu', 'Go to Artist') },
+                    { label: 'Go to Album', icon: ICONS.disc, action: () => log('menu', 'Go to Album') },
+                    '-',
+                    { label: 'Add to Playlist', icon: ICONS.plus, items: [
+                        { label: 'Favorites', action: () => log('menu', 'Add to Favorites') },
+                        { label: 'Workout Mix', action: () => log('menu', 'Add to Workout Mix') },
+                        { label: 'Chill Vibes', action: () => log('menu', 'Add to Chill Vibes') },
+                    ]},
+                    { label: 'Download', icon: ICONS.download, action: () => log('menu', 'Download') },
+                    { label: 'Delete', icon: ICONS.trash, type: 'danger', action: () => log('menu', 'Delete') },
+                ],
+            });
+        }
+
         function testContextMenuClick(e) {
             puter.ui.contextMenu({
                 x: e.clientX,
@@ -239,6 +266,45 @@
 
         function testMenubar() {
             puter.ui.setMenubar({
+                items: [
+                    { label: 'File', items: [
+                        { label: 'New', icon: ICONS.plus, shortcut: '\u2318N', action: () => log('menubar', 'New') },
+                        { label: 'Open\u2026', shortcut: '\u2318O', action: () => log('menubar', 'Open') },
+                        '-',
+                        { label: 'Save', shortcut: '\u2318S', action: () => log('menubar', 'Save') },
+                        { label: 'Save As\u2026', shortcut: '\u21E7\u2318S', action: () => log('menubar', 'Save As') },
+                        '-',
+                        { label: 'Close Window', shortcut: '\u2318W', action: () => log('menubar', 'Close') },
+                    ]},
+                    { label: 'Edit', items: [
+                        { label: 'Undo', icon: ICONS.cut, shortcut: '\u2318Z', action: () => log('menubar', 'Undo') },
+                        { label: 'Redo', shortcut: '\u21E7\u2318Z', action: () => log('menubar', 'Redo') },
+                        '-',
+                        { label: 'Cut', icon: ICONS.cut, shortcut: '\u2318X', action: () => log('menubar', 'Cut') },
+                        { label: 'Copy', icon: ICONS.copy, shortcut: '\u2318C', action: () => log('menubar', 'Copy') },
+                        { label: 'Paste', icon: ICONS.paste, shortcut: '\u2318V', action: () => log('menubar', 'Paste') },
+                        '-',
+                        { label: 'Delete', icon: ICONS.trash, type: 'danger', action: () => log('menubar', 'Delete') },
+                    ]},
+                    { label: 'View', items: [
+                        { label: 'Show Sidebar', checked: true, action: () => log('menubar', 'Toggle Sidebar') },
+                        { label: 'Show Toolbar', checked: false, action: () => log('menubar', 'Toggle Toolbar') },
+                        '-',
+                        { label: 'Zoom In', shortcut: '\u2318+', action: () => log('menubar', 'Zoom In') },
+                        { label: 'Zoom Out', shortcut: '\u2318-', action: () => log('menubar', 'Zoom Out') },
+                    ]},
+                    { label: 'Help', items: [
+                        { label: 'Documentation', icon: ICONS.info, action: () => log('menubar', 'Docs') },
+                        { label: 'About', action: () => log('menubar', 'About') },
+                    ]},
+                ],
+            });
+            document.getElementById('menubar-result').textContent = 'Menubar shown at top of page';
+        }
+
+        function testMenubarDark() {
+            puter.ui.setMenubar({
+                theme: 'dark',
                 items: [
                     { label: 'File', items: [
                         { label: 'New', icon: ICONS.plus, shortcut: '\u2318N', action: () => log('menubar', 'New') },

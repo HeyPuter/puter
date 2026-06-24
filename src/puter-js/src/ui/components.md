@@ -360,6 +360,15 @@ To force a specific theme regardless of the OS preference, set the `theme` attri
 
 The attribute is live — changing it at runtime re-paints the component immediately. For `<puter-menubar>` and `<puter-context-menu>`, the `theme` is forwarded to any dropdowns and submenus they spawn, so the whole tree stays in sync.
 
+When you use the imperative API instead of the elements directly, pass a `theme` in the options and it is applied as the `theme` attribute on the rendered component:
+
+```js
+puter.ui.setMenubar({ theme: 'dark', items: [ /* … */ ] });
+puter.ui.contextMenu({ theme: 'dark', items: [ /* … */ ] });
+```
+
+This only takes effect when running standalone (`puter.env === 'web'`). Inside the Puter desktop (`puter.env === 'app'`) the spec is handled by the desktop and the `theme` option is ignored.
+
 ## Responsive / mobile
 
 All components have mobile breakpoints at `@media (max-width: 480px)`. Notable behaviors:
