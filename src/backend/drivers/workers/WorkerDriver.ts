@@ -249,6 +249,13 @@ export class WorkerDriver extends PuterDriver {
             });
         }
 
+        if (appId) {
+            await this.services.fs.mkdir(actor.user.id!, {
+                path: `/${actor.user.username}/AppData/${appId}`,
+                createMissingParents: true,
+            });
+        }
+
         // Deploy to Cloudflare
         const cfResult = await this.#cfDeploy(
             workerName,
