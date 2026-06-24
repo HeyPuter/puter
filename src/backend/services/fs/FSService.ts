@@ -3688,15 +3688,35 @@ export class FSService extends PuterService {
         const resolvedBucket = this.stores.s3Object.resolveBucket(
             source.bucket,
         );
-        await this.stores.s3Object.copyObject(
-            {
-                sourceBucket: resolvedBucket,
-                sourceKey: sourceObjectKey,
-                destinationBucket: resolvedBucket,
-                destinationKey: newUuid,
-            },
-            this.stores.s3Object.resolveRegion(source.bucketRegion),
-        );
+        // A ghost file — DB row present with a non-null bucket but its backing
+        // S3 object gone — would make CopyObject throw NoSuchKey and bubble up
+        // as a 500. Mirror `readContent`: clean up the orphan and surface a
+        // 404 instead. (`hasNoBackingS3Object` above only covers legitimately
+        // empty files, which keep a null bucket.)
+        try {
+            await this.stores.s3Object.copyObject(
+                {
+                    sourceBucket: resolvedBucket,
+                    sourceKey: sourceObjectKey,
+                    destinationBucket: resolvedBucket,
+                    destinationKey: newUuid,
+                },
+                this.stores.s3Object.resolveRegion(source.bucketRegion),
+            );
+        } catch (err) {
+            if (isNoSuchKeyError(err)) {
+                await this.#handleGhostFile(source, sourceObjectKey);
+                throw new HttpError(404, 'File contents are missing', {
+                    legacyCode: 'subject_does_not_exist',
+                    cause: err,
+                    fields: {
+                        path: source.path,
+                        uid: source.uuid,
+                    },
+                });
+            }
+            throw err;
+        }
 
         const nextMetadata = this.#sanitizeClientMetadata(source.metadata);
 

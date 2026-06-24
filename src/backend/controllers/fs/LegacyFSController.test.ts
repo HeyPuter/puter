@@ -802,6 +802,58 @@ describe('LegacyFSController.copy', () => {
         expect(await server.stores.fsEntry.getEntryByPath(src)).not.toBeNull();
     });
 
+    it('copying a ghost file (S3 object missing) 404s and cleans up the orphan', async () => {
+        // A real file whose backing S3 object has vanished keeps a non-null
+        // bucket, so it isn't an empty file. CopyObject would throw S3
+        // NoSuchKey; copy must surface a clean 404 and remove the orphan row
+        // rather than bubbling a 500. Mirrors readContent's ghost handling.
+        const { actor, userId } = await makeUser();
+        const username = actor.user!.username!;
+        const src = `/${username}/Documents/ghost.txt`;
+        const content = Buffer.from('i will be deleted from s3');
+        await server.services.fs.write(userId, {
+            fileMetadata: {
+                path: src,
+                size: content.byteLength,
+                contentType: 'text/plain',
+            },
+            fileContent: content,
+        });
+
+        // Delete the backing S3 object directly, leaving the DB row behind.
+        const entry = (await server.stores.fsEntry.getEntryByPath(src))!;
+        await server.stores.s3Object.deleteObject(
+            server.stores.s3Object.resolveBucket(entry.bucket),
+            entry.uuid,
+            server.stores.s3Object.resolveRegion(entry.bucketRegion),
+        );
+
+        const { res } = makeRes();
+        await expect(
+            withActor(actor, () =>
+                controller.copy(
+                    makeReq({
+                        body: {
+                            source: src,
+                            destination: `/${username}/Pictures`,
+                        },
+                        actor,
+                    }),
+                    res,
+                ),
+            ),
+        ).rejects.toMatchObject({ statusCode: 404 });
+
+        // The ghost handler removed the orphaned source row.
+        expect(await server.stores.fsEntry.getEntryByPath(src)).toBeNull();
+        // No partial copy was left behind.
+        expect(
+            await server.stores.fsEntry.getEntryByPath(
+                `/${username}/Pictures/ghost.txt`,
+            ),
+        ).toBeNull();
+    });
+
     it('reads an empty file as empty content without deleting it', async () => {
         // Reading an empty file (no S3 object) must not throw NoSuchKey nor
         // trip the ghost-file cleanup, which would delete the entry.
