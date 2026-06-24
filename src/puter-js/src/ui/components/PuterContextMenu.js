@@ -67,7 +67,7 @@ class PuterContextMenu extends PuterWebComponent {
             .menu-item {
                 display: flex;
                 align-items: center;
-                padding: 5px;
+                padding: 5px 8px;
                 list-style-type: none;
                 user-select: none;
                 -webkit-user-select: none;
