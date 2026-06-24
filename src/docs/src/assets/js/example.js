@@ -79,13 +79,15 @@ $(document).on('pathchange', function (e) {
     // uses on full page load — selecting only `code[class^="language"]` skips
     // fenced blocks written without a language tag, so they stayed unhighlighted
     // after client-side navigation while showing up correctly on a hard reload.
-    $('pre code').each(function () {
+    // Scope to `.docs-content` so we only re-highlight the swapped-in docs body
+    // and leave code blocks elsewhere on the page untouched.
+    hljs.configure({ ignoreUnescapedHTML: true });
+    $('.docs-content pre code').each(function () {
         // Skip blocks hljs has already processed so repeated pathchanges don't
         // log "Element previously highlighted" and re-run on unchanged nodes.
         if ( $(this).attr('data-highlighted') === 'yes' ) return;
 
         try {
-            hljs.configure({ ignoreUnescapedHTML: true });
             hljs.highlightElement(this);
         } catch (e) {
             console.error('Error: Failed to highlight.', e);
