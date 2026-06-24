@@ -79,6 +79,7 @@ export const handleWhoami = async (
         desktop_bg_color: user.desktop_bg_color,
         desktop_bg_fit: user.desktop_bg_fit,
         is_temp: user.password === null && user.email === null,
+        is_user_token: true,
         oidc_only: oidcOnly,
         taskbar_items: isUser
             ? await getTaskbarItems(
@@ -160,6 +161,7 @@ export const handleWhoami = async (
         delete details.desktop_bg_color;
         delete details.desktop_bg_fit;
         delete details.human_readable_age;
+        delete details.is_user_token;
     }
 
     if (actor.app) {
