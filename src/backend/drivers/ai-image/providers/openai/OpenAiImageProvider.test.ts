@@ -24,9 +24,9 @@
  * redis) and constructs OpenAiImageProvider directly against the
  * live wired `MeteringService`. The OpenAI SDK is mocked at the
  * module boundary; that's the real network egress point. Covers the
- * three model families the provider supports differently: dall-e-2/3
- * (per-size pricing), gpt-image-* (token-priced), and gpt-image-2
- * (open-ended size with the runtime-clamping normalizer).
+ * gpt-image-* models (token-priced), gpt-image-2 (open-ended size
+ * with the runtime-clamping normalizer), and image-to-image editing
+ * via `input_images` (the `images.edit` endpoint).
  */
 
 import {
@@ -50,8 +50,15 @@ import { OpenAiImageProvider } from './OpenAiImageProvider.js';
 
 // ── OpenAI SDK mock ─────────────────────────────────────────────────
 
-const { generateMock, openAICtor } = vi.hoisted(() => ({
+const { generateMock, editMock, toFileMock, openAICtor } = vi.hoisted(() => ({
     generateMock: vi.fn(),
+    editMock: vi.fn(),
+    toFileMock: vi.fn(async (data: unknown, name: unknown, opts: unknown) => ({
+        __file: true,
+        name,
+        type: (opts as { type?: string } | undefined)?.type,
+        data,
+    })),
     openAICtor: vi.fn(),
 }));
 
@@ -61,11 +68,25 @@ vi.mock('openai', () => {
         opts: unknown,
     ) {
         openAICtor(opts);
-        this.images = { generate: generateMock };
+        this.images = { generate: generateMock, edit: editMock };
         this.chat = { completions: { create: vi.fn() } };
     });
-    return { OpenAI: OpenAICtor, default: { OpenAI: OpenAICtor } };
+    return {
+        OpenAI: OpenAICtor,
+        default: { OpenAI: OpenAICtor },
+        toFile: toFileMock,
+    };
 });
+
+// Stub the URL→base64 fetch so URL inputs stay offline; keep the rest real.
+const { fetchImageAsBase64Mock } = vi.hoisted(() => ({
+    fetchImageAsBase64Mock: vi.fn(),
+}));
+
+vi.mock('../../inputImage.js', async (orig) => ({
+    ...(await orig<typeof import('../../inputImage.js')>()),
+    fetchImageAsBase64: fetchImageAsBase64Mock,
+}));
 
 // ── Test harness ────────────────────────────────────────────────────
 
@@ -88,6 +109,8 @@ const makeProvider = () =>
 
 beforeEach(() => {
     generateMock.mockReset();
+    editMock.mockReset();
+    fetchImageAsBase64Mock.mockReset();
     openAICtor.mockReset();
     hasCreditsSpy = vi.spyOn(server.services.metering, 'hasEnoughCredits');
     batchIncrementUsagesSpy = vi.spyOn(
@@ -113,9 +136,16 @@ describe('OpenAiImageProvider construction', () => {
 // ── Model catalog ───────────────────────────────────────────────────
 
 describe('OpenAiImageProvider model catalog', () => {
-    it('returns dall-e-2 as the default', () => {
+    it('returns gpt-image-1-mini as the default', () => {
         const provider = makeProvider();
-        expect(provider.getDefaultModel()).toBe('dall-e-2');
+        expect(provider.getDefaultModel()).toBe('gpt-image-1-mini');
+    });
+
+    it('no longer exposes any dall-e models', () => {
+        const provider = makeProvider();
+        expect(
+            provider.models().some((m) => m.id.startsWith('dall-e')),
+        ).toBe(false);
     });
 
     it('exposes the static OPEN_AI_IMAGE_GENERATION_MODELS list verbatim', () => {
@@ -151,25 +181,6 @@ describe('OpenAiImageProvider.generate argument validation', () => {
             ),
         ).rejects.toMatchObject({ statusCode: 400 });
     });
-
-    it('throws 400 when DALL-E model + invalid quality+size combo cannot be priced', async () => {
-        const provider = makeProvider();
-        // dall-e-3 has no `2048x2048` cost entry; allowedRatios will snap to
-        // 1024x1024 first allowed entry though, so to trigger this we use a
-        // model with allowedRatios containing the mismatched ratio. We pass
-        // dall-e-2 with 256x256 but inject a hd quality (no hd:256 cost key).
-        await expect(
-            withTestActor(() =>
-                provider.generate({
-                    model: 'dall-e-2',
-                    prompt: 'hi',
-                    ratio: { w: 256, h: 256 },
-                    quality: 'hd',
-                }),
-            ),
-        ).rejects.toMatchObject({ statusCode: 400 });
-        expect(generateMock).not.toHaveBeenCalled();
-    });
 });
 
 // ── Credit gate ─────────────────────────────────────────────────────
@@ -181,9 +192,9 @@ describe('OpenAiImageProvider.generate credit gate', () => {
         await expect(
             withTestActor(() =>
                 provider.generate({
-                    model: 'dall-e-2',
+                    model: 'gpt-image-1-mini',
                     prompt: 'hi',
-                    ratio: { w: 256, h: 256 },
+                    ratio: { w: 1024, h: 1024 },
                 }),
             ),
         ).rejects.toMatchObject({ statusCode: 402 });
@@ -191,93 +202,166 @@ describe('OpenAiImageProvider.generate credit gate', () => {
     });
 });
 
-// ── DALL-E request shape & metering ────────────────────────────────
+// ── Output extraction ──────────────────────────────────────────────
 
-describe('OpenAiImageProvider.generate DALL-E request shape', () => {
-    const dalleResponse = {
-        data: [{ url: 'https://oai.example/img.png' }],
-        usage: undefined, // DALL-E responses don't include usage details.
-    };
-
-    it('forwards model + size verbatim and snaps invalid ratios to the first allowedRatio', async () => {
-        const provider = makeProvider();
-        generateMock.mockResolvedValueOnce(dalleResponse);
-
-        await withTestActor(() =>
-            provider.generate({
-                model: 'dall-e-2',
-                prompt: 'a tiny red dot',
-                ratio: { w: 999, h: 999 }, // not in allowedRatios; falls back to 256x256
-            }),
-        );
-
-        const sent = generateMock.mock.calls[0]![0];
-        expect(sent.model).toBe('dall-e-2');
-        expect(sent.size).toBe('256x256');
-        // DALL-E 2 doesn't accept `quality` so the provider must omit it
-        // unless it's the literal 'hd' override (DALL-E 3).
-        expect('quality' in sent).toBe(false);
+describe('OpenAiImageProvider.generate output extraction', () => {
+    const gptResponse = (data: unknown) => ({
+        data,
+        usage: {
+            input_tokens: 100,
+            output_tokens: 800,
+            input_tokens_details: {
+                text_tokens: 100,
+                image_tokens: 0,
+                cached_tokens: 0,
+            },
+        },
     });
 
-    it('forwards quality=hd only for DALL-E 3', async () => {
+    it('returns response.data[0].url when the SDK returns a url', async () => {
         const provider = makeProvider();
-        generateMock.mockResolvedValueOnce(dalleResponse);
-
-        await withTestActor(() =>
-            provider.generate({
-                model: 'dall-e-3',
-                prompt: 'hi',
-                ratio: { w: 1024, h: 1024 },
-                quality: 'hd',
-            }),
+        generateMock.mockResolvedValueOnce(
+            gptResponse([{ url: 'https://oai.example/img.png' }]),
         );
-
-        const sent = generateMock.mock.calls[0]![0];
-        expect(sent.model).toBe('dall-e-3');
-        expect(sent.quality).toBe('hd');
-    });
-
-    it('returns response.data[0].url and meters one output line at the size cents rate', async () => {
-        const provider = makeProvider();
-        generateMock.mockResolvedValueOnce(dalleResponse);
 
         const result = await withTestActor(() =>
             provider.generate({
-                model: 'dall-e-2',
+                model: 'gpt-image-1-mini',
                 prompt: 'hi',
-                ratio: { w: 256, h: 256 },
+                ratio: { w: 1024, h: 1024 },
             }),
         );
 
         expect(result).toBe('https://oai.example/img.png');
-
-        // dall-e-2 256x256 cost = 1.6 cents → 1_600_000 microcents.
-        expect(batchIncrementUsagesSpy).toHaveBeenCalledTimes(1);
-        const [, entries] = batchIncrementUsagesSpy.mock.calls[0]!;
-        const outputEntry = (
-            entries as Array<{ usageType: string; costOverride: number }>
-        ).find((e) => e.usageType.endsWith(':output'));
-        expect(outputEntry?.usageType).toBe(
-            'openai:dall-e-2:256x256:output',
-        );
-        expect(outputEntry?.costOverride).toBe(Math.ceil(1.6 * 1_000_000));
     });
 
     it('falls back to a base64 data URL when SDK returns b64_json instead of url', async () => {
         const provider = makeProvider();
-        generateMock.mockResolvedValueOnce({
-            data: [{ b64_json: 'AAAA' }],
-        });
+        generateMock.mockResolvedValueOnce(gptResponse([{ b64_json: 'AAAA' }]));
 
         const result = await withTestActor(() =>
             provider.generate({
-                model: 'dall-e-2',
+                model: 'gpt-image-1-mini',
                 prompt: 'hi',
-                ratio: { w: 256, h: 256 },
+                ratio: { w: 1024, h: 1024 },
             }),
         );
 
         expect(result).toBe('data:image/png;base64,AAAA');
+    });
+});
+
+// ── input_images / edit endpoint ───────────────────────────────────
+
+describe('OpenAiImageProvider.generate input_images (edit endpoint)', () => {
+    const editResponse = {
+        data: [{ b64_json: 'AAAA' }],
+        usage: {
+            input_tokens: 600,
+            output_tokens: 800,
+            input_tokens_details: {
+                text_tokens: 40,
+                image_tokens: 560,
+                cached_tokens: 0,
+            },
+        },
+    };
+
+    const PNG = 'data:image/png;base64,iVBORw0KGgo=';
+
+    it('routes input_images to images.edit (not generate) with image files set', async () => {
+        const provider = makeProvider();
+        editMock.mockResolvedValueOnce(editResponse);
+
+        await withTestActor(() =>
+            provider.generate({
+                model: 'gpt-image-1',
+                prompt: 'add a hat',
+                ratio: { w: 1024, h: 1024 },
+                input_images: [PNG, PNG],
+            }),
+        );
+
+        expect(generateMock).not.toHaveBeenCalled();
+        expect(editMock).toHaveBeenCalledTimes(1);
+        const sent = editMock.mock.calls[0]![0];
+        expect(sent.model).toBe('gpt-image-1');
+        expect(sent.prompt).toBe('add a hat');
+        // Two input images → array of uploadables.
+        expect(Array.isArray(sent.image)).toBe(true);
+        expect(sent.image).toHaveLength(2);
+    });
+
+    it('meters an :input line at the image_input token rate when the edit response reports image tokens', async () => {
+        const provider = makeProvider();
+        editMock.mockResolvedValueOnce(editResponse);
+
+        await withTestActor(() =>
+            provider.generate({
+                model: 'gpt-image-1',
+                prompt: 'add a hat',
+                ratio: { w: 1024, h: 1024 },
+                input_images: [PNG],
+            }),
+        );
+
+        const [, entries] = batchIncrementUsagesSpy.mock.calls[0]!;
+        const inputEntry = (
+            entries as Array<{ usageType: string; costOverride: number }>
+        ).find((e) => e.usageType.endsWith(':input'));
+        expect(inputEntry?.usageType).toBe(
+            'openai:gpt-image-1:low:1024x1024:input',
+        );
+        // gpt-image-1: text_input=500, image_input=1000 (cents/1M tokens).
+        // 40 text + 560 image tokens → (40*500 + 560*1000)/1e6 cents.
+        const expectedCents = (40 * 500 + 560 * 1000) / 1_000_000;
+        expect(inputEntry?.costOverride).toBe(Math.ceil(expectedCents * 1_000_000));
+    });
+
+    it('folds singular input_image into the edit path with a single uploadable', async () => {
+        const provider = makeProvider();
+        editMock.mockResolvedValueOnce(editResponse);
+
+        await withTestActor(() =>
+            provider.generate({
+                model: 'gpt-image-1-mini',
+                prompt: 'add a hat',
+                ratio: { w: 1024, h: 1024 },
+                input_image: PNG,
+            }),
+        );
+
+        expect(editMock).toHaveBeenCalledTimes(1);
+        const sent = editMock.mock.calls[0]![0];
+        // Single image → not wrapped in an array.
+        expect(Array.isArray(sent.image)).toBe(false);
+        expect((sent.image as { __file?: boolean }).__file).toBe(true);
+    });
+
+    it('fetches an http(s) URL input and sends the bytes to images.edit', async () => {
+        const provider = makeProvider();
+        editMock.mockResolvedValueOnce(editResponse);
+        fetchImageAsBase64Mock.mockResolvedValueOnce({
+            base64: 'iVBORw0KGgo=',
+            mime: 'image/png',
+        });
+
+        await withTestActor(() =>
+            provider.generate({
+                model: 'gpt-image-1',
+                prompt: 'add a hat',
+                ratio: { w: 1024, h: 1024 },
+                input_images: ['https://example.com/in.png'],
+            }),
+        );
+
+        expect(fetchImageAsBase64Mock).toHaveBeenCalledWith(
+            'https://example.com/in.png',
+        );
+        expect(generateMock).not.toHaveBeenCalled();
+        expect(editMock).toHaveBeenCalledTimes(1);
+        const sent = editMock.mock.calls[0]![0];
+        expect((sent.image as { __file?: boolean }).__file).toBe(true);
     });
 });
 
@@ -423,7 +507,7 @@ describe('OpenAiImageProvider.generate gpt-image-2 size normalizer', () => {
 
 // ── Output extraction error ────────────────────────────────────────
 
-describe('OpenAiImageProvider.generate output extraction', () => {
+describe('OpenAiImageProvider.generate output extraction error', () => {
     it('throws 400 when SDK returns no usable image data', async () => {
         const provider = makeProvider();
         generateMock.mockResolvedValueOnce({ data: [{}] });
@@ -431,9 +515,9 @@ describe('OpenAiImageProvider.generate output extraction', () => {
         await expect(
             withTestActor(() =>
                 provider.generate({
-                    model: 'dall-e-2',
+                    model: 'gpt-image-1-mini',
                     prompt: 'hi',
-                    ratio: { w: 256, h: 256 },
+                    ratio: { w: 1024, h: 1024 },
                 }),
             ),
         ).rejects.toMatchObject({ statusCode: 400 });

@@ -29,6 +29,11 @@ import {
     CLOUDFLARE_IMAGE_GENERATION_MODELS,
     CloudflareImageModel,
 } from './models.js';
+import {
+    fetchImageAsBase64,
+    isHttpUrl,
+    resolveSingleInputImage,
+} from '../../inputImage.js';
 
 type CloudflareGenerateParams = IGenerateParams & {
     steps?: number;
@@ -99,6 +104,16 @@ export class CloudflareImageProvider implements IImageProvider {
             throw new HttpError(401, 'actor not found in context', {
                 legacyCode: 'unauthorized',
             });
+        }
+
+        // Canonical `input_images`/`input_image` → Cloudflare's `image` field.
+        // Cloudflare accepts a single input image; a URL is fetched to base64
+        // server-side (SSRF-guarded) since the API has no URL field.
+        const singleInput = resolveSingleInputImage(options, 'Cloudflare');
+        if (singleInput) {
+            options.image ??= isHttpUrl(singleInput)
+                ? (await fetchImageAsBase64(singleInput)).base64
+                : singleInput;
         }
 
         const steps = this.#resolveSteps(selectedModel, options);

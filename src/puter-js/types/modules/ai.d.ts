@@ -147,7 +147,7 @@ export interface Txt2ImgOptions {
     prompt?: string;
     /**
      * Image model to use (provider-specific). Defaults to `'gpt-image-1-mini'`
-     * (OpenAI), or `'grok-2-image'` when `provider` is `'xai'`.
+     * (OpenAI), or `'grok-imagine-image'` when `provider` is `'xai'`.
      */
     model?: string;
     /**
@@ -155,19 +155,21 @@ export interface Txt2ImgOptions {
      * model-specific:
      * - OpenAI GPT models: `'high'` | `'medium'` | `'low'` (default `'low'`);
      *   `gpt-image-2` also accepts `'auto'`.
-     * - OpenAI DALL-E 3: `'hd'` | `'standard'` (default `'standard'`).
      * - Gemini: output size tier `'512'` | `'1K'` | `'2K'` | `'4K'`
      *   (availability varies by model).
      */
     quality?: string;
     /**
-     * An input image for image-to-image generation. Replicate expects a URL;
-     * Gemini expects a base64-encoded image.
+     * An input image for image-to-image generation. Replicate and xAI
+     * `grok-imagine-*` accept a URL; Gemini and OpenAI `gpt-image-*` expect a
+     * base64-encoded (or data-URI) image (xAI also accepts base64/data-URI).
      */
     input_image?: string;
     /**
      * Multiple input images for image-to-image / multi-image generation.
-     * Gemini expects base64-encoded images; Replicate expects image URLs.
+     * Gemini and OpenAI `gpt-image-*` expect base64-encoded (or data-URI)
+     * images; Replicate expects image URLs; xAI `grok-imagine-*` accepts either
+     * (up to 3 images).
      */
     input_images?: string[];
     /**

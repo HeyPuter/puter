@@ -31,6 +31,7 @@ import type {
     IImageModel,
     IImageProvider,
 } from '../../types.js';
+import { isHttpUrl, toBase64DataUri } from '../../inputImage.js';
 import { HttpError } from '@heyputer/backend/src/core/http/HttpError.js';
 
 const MIME_SIGNATURES: Record<string, string> = {
@@ -105,6 +106,18 @@ export class GeminiImageProvider implements IImageProvider {
         // Backwards compat: merge singular input_image into input_images
         if (input_image && (!input_images || input_images.length === 0)) {
             input_images = [input_image];
+        }
+
+        // Resolve any http(s) URL inputs to base64 data-URIs server-side
+        // (SSRF-guarded) so the rest of the flow only deals with inline data.
+        if (input_images?.length) {
+            input_images = await Promise.all(
+                input_images.map((img) =>
+                    isHttpUrl(img)
+                        ? toBase64DataUri(img, input_image_mime_type)
+                        : img,
+                ),
+            );
         }
 
         // Validate input images have detectable MIME types

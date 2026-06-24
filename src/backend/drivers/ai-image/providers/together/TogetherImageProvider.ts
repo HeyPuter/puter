@@ -26,6 +26,7 @@ import type {
     IImageProvider,
 } from '../../types.js';
 import { TOGETHER_IMAGE_GENERATION_MODELS } from './models.js';
+import { isHttpUrl, resolveSingleInputImage } from '../../inputImage.js';
 import { HttpError } from '@heyputer/backend/src/core/http/HttpError.js';
 
 const TOGETHER_DEFAULT_RATIO = { w: 1024, h: 1024 };
@@ -85,6 +86,18 @@ export class TogetherImageProvider implements IImageProvider {
             throw new HttpError(400, '`prompt` must be a non-empty string', {
                 legacyCode: 'bad_request',
             });
+        }
+
+        // Canonical `input_images` → Together's native fields. Together accepts
+        // a single input image: a URL goes to `image_url`, base64/data-URI to
+        // `image_base64` (via the existing `input_image` alias).
+        const singleInput = resolveSingleInputImage(params, 'Together AI');
+        if (singleInput) {
+            if (isHttpUrl(singleInput)) {
+                options.image_url ??= singleInput;
+            } else {
+                options.input_image ??= singleInput;
+            }
         }
 
         ratio = ratio || TOGETHER_DEFAULT_RATIO;

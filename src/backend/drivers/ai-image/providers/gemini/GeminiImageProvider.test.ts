@@ -71,6 +71,16 @@ vi.mock('@google/genai', () => {
     return { GoogleGenAI };
 });
 
+// Stub the URL→data-URI normalizer so URL inputs stay offline; keep the rest real.
+const { toBase64DataUriMock } = vi.hoisted(() => ({
+    toBase64DataUriMock: vi.fn(),
+}));
+
+vi.mock('../../inputImage.js', async (orig) => ({
+    ...(await orig<typeof import('../../inputImage.js')>()),
+    toBase64DataUri: toBase64DataUriMock,
+}));
+
 // ── Test harness ────────────────────────────────────────────────────
 
 let server: PuterServer;
@@ -94,6 +104,7 @@ const makeProvider = () =>
 beforeEach(() => {
     generateContentMock.mockReset();
     generateImagesMock.mockReset();
+    toBase64DataUriMock.mockReset();
     googleAICtor.mockReset();
     hasCreditsSpy = vi.spyOn(server.services.metering, 'hasEnoughCredits');
     incrementUsageSpy = vi.spyOn(server.services.metering, 'incrementUsage');
@@ -270,6 +281,31 @@ describe('GeminiImageProvider.generate Flash path (generateContent)', () => {
         );
 
         expect(result).toBe('data:image/png;base64,BASE64IMG');
+    });
+
+    it('fetches an http(s) URL input and sends it as an inlineData part', async () => {
+        const provider = makeProvider();
+        generateContentMock.mockResolvedValueOnce(inlineImageResponse);
+        toBase64DataUriMock.mockResolvedValueOnce(
+            'data:image/png;base64,URLBYTES',
+        );
+
+        await withTestActor(() =>
+            provider.generate({
+                model: 'gemini-2.5-flash-image',
+                prompt: 'add a hat',
+                input_images: ['https://example.com/in.png'],
+            }),
+        );
+
+        expect(toBase64DataUriMock).toHaveBeenCalledWith(
+            'https://example.com/in.png',
+            undefined,
+        );
+        const sent = generateContentMock.mock.calls[0]![0];
+        expect(sent.contents).toContainEqual({
+            inlineData: { mimeType: 'image/png', data: 'URLBYTES' },
+        });
     });
 
     it('throws 400 when the SDK returns no inline image data', async () => {

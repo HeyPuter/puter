@@ -19,17 +19,43 @@
 
 import type { IImageModel } from '../../types.js';
 
+// Costs are in usd-cents (1 = $0.01). xAI's "Grok Imagine" image API bills a
+// per-image output rate by resolution tier (1k/2k) plus, for edits, a
+// per-input-image "media input" rate. Rates per the xAI Imagine pricing table:
+// https://docs.x.ai/developers/pricing
+//   grok-imagine-image          media $0.002  | 1k $0.02 | 2k $0.02
+//   grok-imagine-image-quality  media $0.01   | 1k $0.05 | 2k $0.07
 export const XAI_IMAGE_GENERATION_MODELS: IImageModel[] = [
     {
-        puterId: 'x-ai:x-ai/grok-2-image',
-        id: 'grok-2-image',
-        aliases: ['grok-image', 'x-ai/grok-image', 'x-ai/grok-2-image'],
-        name: 'Grok 2 Image',
+        puterId: 'x-ai:x-ai/grok-imagine-image',
+        id: 'grok-imagine-image',
+        aliases: ['grok-image', 'x-ai/grok-image', 'x-ai/grok-imagine-image'],
+        name: 'Grok Imagine Image',
         version: '1.0',
         costs_currency: 'usd-cents',
-        index_cost_key: 'output',
+        pricing_unit: 'per-image',
+        index_cost_key: 'output:1k',
         costs: {
-            output: 7, // $0.07 per image
+            'output:1k': 2, // $0.02 per image
+            'output:2k': 2, // $0.02 per image
+            media_input: 0.2, // $0.002 per input image (edits)
         },
+        allowedQualityLevels: ['1k', '2k'],
+    },
+    {
+        puterId: 'x-ai:x-ai/grok-imagine-image-quality',
+        id: 'grok-imagine-image-quality',
+        aliases: ['x-ai/grok-imagine-image-quality'],
+        name: 'Grok Imagine Image (Quality)',
+        version: '1.0',
+        costs_currency: 'usd-cents',
+        pricing_unit: 'per-image',
+        index_cost_key: 'output:1k',
+        costs: {
+            'output:1k': 5, // $0.05 per image
+            'output:2k': 7, // $0.07 per image
+            media_input: 1, // $0.01 per input image (edits)
+        },
+        allowedQualityLevels: ['1k', '2k'],
     },
 ];

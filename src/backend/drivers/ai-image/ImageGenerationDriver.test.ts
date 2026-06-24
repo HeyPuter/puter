@@ -55,20 +55,30 @@ import type { ImageGenerationDriver } from './ImageGenerationDriver.js';
 // driver-level tests — what we care about is the driver's routing.
 // Each `generate` mock resolves to a sentinel URL the test inspects.
 
-const { openaiImagesGenerateMock } = vi.hoisted(() => ({
+const { openaiImagesGenerateMock, openaiImagesEditMock } = vi.hoisted(() => ({
     openaiImagesGenerateMock: vi.fn(),
+    openaiImagesEditMock: vi.fn(),
 }));
 
 vi.mock('openai', () => {
     const OpenAICtor = vi.fn().mockImplementation(function (
         this: Record<string, unknown>,
     ) {
-        this.images = { generate: openaiImagesGenerateMock };
+        this.images = {
+            generate: openaiImagesGenerateMock,
+            edit: openaiImagesEditMock,
+        };
+        // xAI provider reaches its JSON edit endpoint through the SDK's post().
+        this.post = vi.fn();
         this.chat = { completions: { create: vi.fn() } };
         this.moderations = { create: vi.fn() };
         this.responses = { create: vi.fn() };
     });
-    return { OpenAI: OpenAICtor, default: { OpenAI: OpenAICtor } };
+    return {
+        OpenAI: OpenAICtor,
+        default: { OpenAI: OpenAICtor },
+        toFile: vi.fn(async () => ({ __file: true })),
+    };
 });
 
 const { googleAIGenerateContentMock, googleAIGenerateImagesMock } = vi.hoisted(
@@ -148,6 +158,7 @@ afterAll(async () => {
 
 beforeEach(() => {
     openaiImagesGenerateMock.mockReset();
+    openaiImagesEditMock.mockReset();
     googleAIGenerateContentMock.mockReset();
     googleAIGenerateImagesMock.mockReset();
     togetherImagesGenerateMock.mockReset();
@@ -176,9 +187,9 @@ describe('ImageGenerationDriver.generate authentication', () => {
     it('throws 401 when no actor is on the request context', async () => {
         await expect(
             driver.generate({
-                model: 'dall-e-2',
+                model: 'gpt-image-1-mini',
                 prompt: 'hi',
-                ratio: { w: 256, h: 256 },
+                ratio: { w: 1024, h: 1024 },
             } as never),
         ).rejects.toMatchObject({ statusCode: 401 });
     });
@@ -206,10 +217,10 @@ describe('ImageGenerationDriver model catalog', () => {
         const all = await driver.models();
         // Every catalog id from at least one provider must be reachable.
         const ids = all.map((m) => m.id);
-        // OpenAI catalog: dall-e-2 should be present (lowercased by buildModelMap).
-        expect(ids).toContain('dall-e-2');
-        // xAI catalog: grok-2-image should be present.
-        expect(ids).toContain('grok-2-image');
+        // OpenAI catalog: gpt-image-1-mini should be present (lowercased by buildModelMap).
+        expect(ids).toContain('gpt-image-1-mini');
+        // xAI catalog: grok-imagine-image should be present.
+        expect(ids).toContain('grok-imagine-image');
     });
 
     it('list() returns ids/puterIds sorted', async () => {
@@ -224,32 +235,35 @@ describe('ImageGenerationDriver model catalog', () => {
             costValue: number;
             source: string;
         }>;
-        // dall-e-2 has a 256x256 cost line — must surface in reportedCosts.
-        const dalle256 = reported.find(
-            (r) => r.usageType === 'openai-image-generation:dall-e-2:256x256',
+        // gpt-image-1-mini has a low:1024x1024 cost line — must surface in reportedCosts.
+        const gptLine = reported.find(
+            (r) =>
+                r.usageType ===
+                'openai-image-generation:gpt-image-1-mini:low:1024x1024',
         );
-        expect(dalle256).toBeDefined();
-        expect(dalle256?.costValue).toBe(
-            OPEN_AI_IMAGE_GENERATION_MODELS.find((m) => m.id === 'dall-e-2')!
-                .costs['256x256'],
+        expect(gptLine).toBeDefined();
+        expect(gptLine?.costValue).toBe(
+            OPEN_AI_IMAGE_GENERATION_MODELS.find(
+                (m) => m.id === 'gpt-image-1-mini',
+            )!.costs['low:1024x1024'],
         );
-        expect(dalle256?.source).toBe('driver:aiImage/openai-image-generation');
+        expect(gptLine?.source).toBe('driver:aiImage/openai-image-generation');
     });
 });
 
 // ── Provider routing ────────────────────────────────────────────────
 
 describe('ImageGenerationDriver.generate provider routing', () => {
-    it('routes a known dall-e-2 model id to the OpenAI image provider', async () => {
+    it('routes a known gpt-image-1-mini model id to the OpenAI image provider', async () => {
         openaiImagesGenerateMock.mockResolvedValueOnce({
             data: [{ url: 'https://oai/img.png' }],
         });
 
         const result = await withActor(() =>
             driver.generate({
-                model: 'dall-e-2',
+                model: 'gpt-image-1-mini',
                 prompt: 'hi',
-                ratio: { w: 256, h: 256 },
+                ratio: { w: 1024, h: 1024 },
             } as never),
         );
 
@@ -260,34 +274,34 @@ describe('ImageGenerationDriver.generate provider routing', () => {
         expect(replicateRunMock).not.toHaveBeenCalled();
     });
 
-    it('routes a known grok-2-image id to the xAI image provider (also OpenAI-SDK shaped)', async () => {
+    it('routes a known grok-imagine-image id to the xAI image provider (also OpenAI-SDK shaped)', async () => {
         openaiImagesGenerateMock.mockResolvedValueOnce({
             data: [{ url: 'https://xai/img.png' }],
         });
 
         await withActor(() =>
             driver.generate({
-                model: 'grok-2-image',
+                model: 'grok-imagine-image',
                 prompt: 'hi',
             } as never),
         );
 
         // xAI's provider also uses the OpenAI mock — assert via the call args.
         const sent = openaiImagesGenerateMock.mock.calls[0]![0];
-        expect(sent.model).toBe('grok-2-image');
+        expect(sent.model).toBe('grok-imagine-image');
         expect(sent.prompt).toBe('hi');
     });
 
-    it('lowercases model lookups so case variants resolve (DALL-E-2 → dall-e-2)', async () => {
+    it('lowercases model lookups so case variants resolve (GPT-Image-1-Mini → gpt-image-1-mini)', async () => {
         openaiImagesGenerateMock.mockResolvedValueOnce({
             data: [{ url: 'https://oai/img.png' }],
         });
 
         await withActor(() =>
             driver.generate({
-                model: 'DALL-E-2',
+                model: 'GPT-Image-1-Mini',
                 prompt: 'hi',
-                ratio: { w: 256, h: 256 },
+                ratio: { w: 1024, h: 1024 },
             } as never),
         );
 
@@ -322,16 +336,16 @@ describe('ImageGenerationDriver.generate ratio normalization', () => {
 
         await withActor(() =>
             driver.generate({
-                model: 'dall-e-2',
+                model: 'gpt-image-1-mini',
                 prompt: 'hi',
-                width: 256,
-                height: 256,
+                width: 1024,
+                height: 1536,
             } as never),
         );
 
         // Provider received a size derived from the ratio normalization.
         const sent = openaiImagesGenerateMock.mock.calls[0]![0];
-        expect(sent.size).toBe('256x256');
+        expect(sent.size).toBe('1024x1536');
     });
 
     it('parses aspect_ratio "w:h" into ratio when width/height are absent', async () => {
@@ -369,9 +383,9 @@ describe('ImageGenerationDriver.generate audit log', () => {
 
         await withActor(() =>
             driver.generate({
-                model: 'dall-e-2',
+                model: 'gpt-image-1-mini',
                 prompt: 'hi',
-                ratio: { w: 256, h: 256 },
+                ratio: { w: 1024, h: 1024 },
             } as never),
         );
 
@@ -381,7 +395,7 @@ describe('ImageGenerationDriver.generate audit log', () => {
         expect(aiLogCall).toBeDefined();
         const [, payload] = aiLogCall!;
         const p = payload as Record<string, unknown>;
-        expect(p.model_used).toBe('dall-e-2');
+        expect(p.model_used).toBe('gpt-image-1-mini');
         expect(p.service_used).toBe('openai-image-generation');
         // completionId is a fresh uuid-style string per call.
         expect(typeof p.completionId).toBe('string');
@@ -395,9 +409,9 @@ describe('ImageGenerationDriver.generate audit log', () => {
         await expect(
             withActor(() =>
                 driver.generate({
-                    model: 'dall-e-2',
+                    model: 'gpt-image-1-mini',
                     prompt: 'hi',
-                    ratio: { w: 256, h: 256 },
+                    ratio: { w: 1024, h: 1024 },
                 } as never),
             ),
         ).rejects.toThrow();
@@ -424,7 +438,7 @@ describe('ImageGenerationDriver.generate puter_output_path', () => {
         await expect(
             withTestUser(() =>
                 driver.generate({
-                    model: 'dall-e-2',
+                    model: 'gpt-image-1-mini',
                     prompt: 'hi',
                     puter_output_path: '/',
                 } as never),
@@ -438,7 +452,7 @@ describe('ImageGenerationDriver.generate puter_output_path', () => {
         await expect(
             withTestUser(() =>
                 driver.generate({
-                    model: 'dall-e-2',
+                    model: 'gpt-image-1-mini',
                     prompt: 'hi',
                     puter_output_path: '/image.png',
                 } as never),
@@ -455,7 +469,7 @@ describe('ImageGenerationDriver.generate puter_output_path', () => {
         await expect(
             withTestUser(() =>
                 driver.generate({
-                    model: 'dall-e-2',
+                    model: 'gpt-image-1-mini',
                     prompt: 'hi',
                     puter_output_path: '/testuser/somedir/image.png',
                 } as never),
@@ -480,7 +494,7 @@ describe('ImageGenerationDriver.generate puter_output_path', () => {
         await expect(
             withTestUser(() =>
                 driver.generate({
-                    model: 'dall-e-2',
+                    model: 'gpt-image-1-mini',
                     prompt: 'hi',
                     puter_output_path: '/testuser/dir/img.png',
                 } as never),
@@ -509,7 +523,7 @@ describe('ImageGenerationDriver.generate puter_output_path', () => {
 
         await withTestUser(() =>
             driver.generate({
-                model: 'dall-e-2',
+                model: 'gpt-image-1-mini',
                 prompt: 'hi',
                 puter_output_path: '~/images/out.png',
             } as never),
@@ -541,7 +555,7 @@ describe('ImageGenerationDriver.generate puter_output_path', () => {
 
         const result = await withTestUser(() =>
             driver.generate({
-                model: 'dall-e-2',
+                model: 'gpt-image-1-mini',
                 prompt: 'hi',
                 puter_output_path: '/testuser/photos/out.png',
             } as never),
@@ -584,7 +598,7 @@ describe('ImageGenerationDriver.generate puter_output_path', () => {
 
         await withTestUser(() =>
             driver.generate({
-                model: 'dall-e-2',
+                model: 'gpt-image-1-mini',
                 prompt: 'hi',
                 puter_output_path: '/testuser/dir/img.png',
             } as never),
@@ -602,7 +616,7 @@ describe('ImageGenerationDriver.generate puter_output_path', () => {
             Promise.resolve(
                 runWithContext({ actor: noIdActor }, () =>
                     driver.generate({
-                        model: 'dall-e-2',
+                        model: 'gpt-image-1-mini',
                         prompt: 'hi',
                         puter_output_path: '/noone/dir/img.png',
                     } as never),
