@@ -165,7 +165,8 @@ export class WorkerDriver extends PuterDriver {
                     { legacyCode: 'forbidden' },
                 );
             }
-            appOwnerId = actor.app?.id;
+            const ownerApp = await this.stores.app.getByUid(appId);
+            appOwnerId = ownerApp?.id ?? actor.app?.id;
             authorization = await this.services.auth.createWorkerAppToken(
                 actor,
                 appId,
