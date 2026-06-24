@@ -20,8 +20,8 @@
 /**
  * Integration test for the OpenAI image generation provider.
  *
- * Uses `dall-e-2` at 256x256 — the cheapest OpenAI image
- * configuration ($0.016/image). Skipped when
+ * Uses `gpt-image-1-mini` at low:1024x1024 — the cheapest OpenAI
+ * image configuration ($0.005/image). Skipped when
  * `PUTER_TEST_AI_OPENAI_API_KEY` is unset.
  */
 
@@ -40,7 +40,7 @@ const ENV_VAR = 'PUTER_TEST_AI_OPENAI_API_KEY';
 describe.skipIf(skipUnlessEnv(ENV_VAR))(
     'OpenAiImageProvider (integration)',
     () => {
-        it('returns an image url/data from dall-e-2 at 256x256', { timeout: INTEGRATION_TEST_TIMEOUT_MS }, async () => {
+        it('returns an image url/data from gpt-image-1-mini at low:1024x1024', { timeout: INTEGRATION_TEST_TIMEOUT_MS }, async () => {
             const provider = new OpenAiImageProvider(
                 { apiKey: optionalEnv(ENV_VAR)! },
                 makeMeteringStub(),
@@ -48,9 +48,9 @@ describe.skipIf(skipUnlessEnv(ENV_VAR))(
 
             const result = await withTestActor(() =>
                 provider.generate({
-                    model: 'dall-e-2',
+                    model: 'gpt-image-1-mini',
                     prompt: 'a tiny red dot on a white background',
-                    ratio: { w: 256, h: 256 },
+                    ratio: { w: 1024, h: 1024 },
                 }),
             );
 

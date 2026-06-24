@@ -155,19 +155,19 @@ export interface Txt2ImgOptions {
      * model-specific:
      * - OpenAI GPT models: `'high'` | `'medium'` | `'low'` (default `'low'`);
      *   `gpt-image-2` also accepts `'auto'`.
-     * - OpenAI DALL-E 3: `'hd'` | `'standard'` (default `'standard'`).
      * - Gemini: output size tier `'512'` | `'1K'` | `'2K'` | `'4K'`
      *   (availability varies by model).
      */
     quality?: string;
     /**
      * An input image for image-to-image generation. Replicate expects a URL;
-     * Gemini expects a base64-encoded image.
+     * Gemini and OpenAI `gpt-image-*` expect a base64-encoded (or data-URI) image.
      */
     input_image?: string;
     /**
      * Multiple input images for image-to-image / multi-image generation.
-     * Gemini expects base64-encoded images; Replicate expects image URLs.
+     * Gemini and OpenAI `gpt-image-*` expect base64-encoded (or data-URI)
+     * images; Replicate expects image URLs.
      */
     input_images?: string[];
     /**

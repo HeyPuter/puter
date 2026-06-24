@@ -17,8 +17,9 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import openai, { OpenAI } from 'openai';
+import openai, { OpenAI, toFile } from 'openai';
 import {
+    ImageEditParamsNonStreaming,
     ImageGenerateParamsNonStreaming,
     ImagesResponse,
 } from 'openai/resources/images.js';
@@ -44,7 +45,8 @@ interface OpenAIImageUsage {
 
 /**
  * OpenAI image generation provider for v2.
- * Supports DALL-E 2/3 and GPT Image models.
+ * Supports the GPT Image models (gpt-image-1, -1-mini, -1.5, -2), including
+ * image-to-image editing via `input_images` (the `images.edit` endpoint).
  */
 export class OpenAiImageProvider implements IImageProvider {
     #meteringService: MeteringService;
@@ -59,6 +61,11 @@ export class OpenAiImageProvider implements IImageProvider {
         'image_output',
     ];
 
+    // Rough per-image input token estimate for the up-front credit gate only.
+    // Actual billing uses the real `image_tokens` reported in the response.
+    // Mirrors the constant the Gemini image provider uses.
+    static #ESTIMATED_IMAGE_INPUT_TOKENS = 560;
+
     constructor(config: { apiKey: string }, meteringService: MeteringService) {
         this.#meteringService = meteringService;
         this.#openai = new openai.OpenAI({
@@ -71,7 +78,7 @@ export class OpenAiImageProvider implements IImageProvider {
     }
 
     getDefaultModel(): string {
-        return 'dall-e-2';
+        return 'gpt-image-1-mini';
     }
 
     async generate({
@@ -80,6 +87,9 @@ export class OpenAiImageProvider implements IImageProvider {
         test_mode,
         model,
         ratio,
+        input_image,
+        input_images,
+        input_image_mime_type,
     }: IGenerateParams) {
         const selectedModel =
             this.models().find((m) => m.id === model) ||
@@ -88,6 +98,12 @@ export class OpenAiImageProvider implements IImageProvider {
         if (test_mode) {
             return 'https://puter-sample-data.puter.site/image_example.png';
         }
+
+        // Backwards compat: fold singular `input_image` into `input_images`.
+        if (input_image && (!input_images || input_images.length === 0)) {
+            input_images = [input_image];
+        }
+        const hasInputImages = (input_images?.length ?? 0) > 0;
 
         if (typeof prompt !== 'string') {
             throw new HttpError(400, '`prompt` must be a string', {
@@ -146,12 +162,17 @@ export class OpenAiImageProvider implements IImageProvider {
 
         const estimatedPromptTokenCount =
             this.#estimatePromptTokenCount(prompt);
+        const estimatedImageInputTokens = hasInputImages
+            ? (input_images?.length ?? 0) *
+              OpenAiImageProvider.#ESTIMATED_IMAGE_INPUT_TOKENS
+            : 0;
         const estimatedInputCostInCents = this.#calculateInputCostInCents(
             selectedModel,
             {
-                inputTokens: estimatedPromptTokenCount,
+                inputTokens:
+                    estimatedPromptTokenCount + estimatedImageInputTokens,
                 inputTextTokens: estimatedPromptTokenCount,
-                inputImageTokens: 0,
+                inputImageTokens: estimatedImageInputTokens,
                 cachedInputTokens: 0,
                 cachedInputTextTokens: 0,
                 cachedInputImageTokens: 0,
@@ -174,15 +195,25 @@ export class OpenAiImageProvider implements IImageProvider {
             );
         }
 
-        // Build API parameters based on model
-        const apiParams = this.#buildApiParams(selectedModel.id, {
-            user: userIdentifier,
-            prompt,
-            size,
-            quality,
-        } as Partial<ImageGenerateParamsNonStreaming>);
-
-        const result = await this.#openai.images.generate(apiParams);
+        // With input images we use the edit endpoint (gpt-image only);
+        // otherwise the standard generate endpoint.
+        const result = hasInputImages
+            ? await this.#openai.images.edit(
+                  await this.#buildEditParams(
+                      selectedModel.id,
+                      { user: userIdentifier, prompt, size, quality },
+                      input_images!,
+                      input_image_mime_type,
+                  ),
+              )
+            : await this.#openai.images.generate(
+                  this.#buildApiParams(selectedModel.id, {
+                      user: userIdentifier,
+                      prompt,
+                      size,
+                      quality,
+                  } as Partial<ImageGenerateParamsNonStreaming>),
+              );
 
         const usage = this.#extractUsage(result);
         const hasInputTokenUsage =
@@ -585,39 +616,75 @@ export class OpenAiImageProvider implements IImageProvider {
     }
 
     #buildPriceKey(model: string, quality: string, size: string) {
-        if (this.#isGptImageModel(model)) {
-            // GPT image models use format: "quality:size" - default to low if not specified
-            const qualityLevel = quality || 'low';
-            return `${qualityLevel}:${size}`;
-        }
-
-        // DALL-E models use format: "hd:size" or just "size"
-        return (quality === 'hd' ? 'hd:' : '') + size;
+        // All supported models are gpt-image-*, which price by "quality:size".
+        const qualityLevel = quality || 'low';
+        return `${qualityLevel}:${size}`;
     }
 
     #buildApiParams(
         model: string,
         baseParams: Partial<ImageGenerateParamsNonStreaming>,
     ): ImageGenerateParamsNonStreaming {
-        const apiParams = {
+        return {
+            model,
             user: baseParams.user,
             prompt: baseParams.prompt,
             size: baseParams.size,
+            // Default to low quality if not specified, consistent with #buildPriceKey.
+            quality: baseParams.quality || 'low',
         } as ImageGenerateParamsNonStreaming;
+    }
 
-        if (this.#isGptImageModel(model)) {
-            // GPT image models require the model parameter and use quality mapping
-            apiParams.model = model;
-            // Default to low quality if not specified, consistent with _buildPriceKey
-            apiParams.quality = baseParams.quality || 'low';
-        } else {
-            // dall-e models
-            apiParams.model = model;
-            if (baseParams.quality === 'hd') {
-                apiParams.quality = 'hd';
-            }
+    async #buildEditParams(
+        model: string,
+        baseParams: {
+            user?: string;
+            prompt?: string;
+            size?: string;
+            quality?: string;
+        },
+        input_images: string[],
+        mimeHint?: string,
+    ): Promise<ImageEditParamsNonStreaming> {
+        const files = await Promise.all(
+            input_images.map((img) => this.#toUploadable(img, mimeHint)),
+        );
+        return {
+            model,
+            user: baseParams.user,
+            prompt: baseParams.prompt,
+            size: baseParams.size,
+            quality: baseParams.quality || 'low',
+            // gpt-image accepts one image or an array of images.
+            image: files.length === 1 ? files[0] : files,
+        } as ImageEditParamsNonStreaming;
+    }
+
+    // Accepts a `data:<mime>;base64,...` URI or a raw base64 string (what the
+    // Gemini image provider documents callers to pass) and turns it into an
+    // uploadable file for the OpenAI edit endpoint.
+    async #toUploadable(img: string, mimeHint?: string) {
+        let mime = mimeHint ?? 'image/png';
+        let base64 = img;
+
+        const dataUri = /^data:([^;]+);base64,(.*)$/s.exec(img);
+        if (dataUri) {
+            mime = dataUri[1];
+            base64 = dataUri[2];
         }
 
-        return apiParams;
+        const buffer = Buffer.from(base64, 'base64');
+        if (buffer.length === 0) {
+            throw new HttpError(
+                400,
+                'Invalid input image (empty or not base64)',
+                {
+                    legacyCode: 'bad_request',
+                },
+            );
+        }
+
+        const ext = mime.split('/')[1]?.split('+')[0] || 'png';
+        return toFile(buffer, `image.${ext}`, { type: mime });
     }
 }

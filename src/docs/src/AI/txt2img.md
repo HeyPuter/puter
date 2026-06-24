@@ -1,6 +1,6 @@
 ---
 title: puter.ai.txt2img()
-description: Generate images from text prompts using AI models like GPT Image, Nano Banana, DALL-E 3, Grok Image, or FLUX.
+description: Generate images from text prompts using AI models like GPT Image, Nano Banana, Grok Image, or FLUX.
 platforms: [websites, apps, nodejs, workers]
 ---
 
@@ -38,13 +38,15 @@ Additional settings for the generation request. Available options depend on the 
 
 #### OpenAI Options
 
-Available when `provider: 'openai-image-generation'` or inferred from model (`gpt-image-2`, `gpt-image-1.5`, `gpt-image-1`, `gpt-image-1-mini`, `dall-e-3`):
+Available when `provider: 'openai-image-generation'` or inferred from model (`gpt-image-2`, `gpt-image-1.5`, `gpt-image-1`, `gpt-image-1-mini`):
 
 | Option | Type | Description |
 |--------|------|-------------|
-| `model` | `String` | Image model to use. Available: `'gpt-image-2'`, `'gpt-image-1.5'`, `'gpt-image-1'`, `'gpt-image-1-mini'`, `'dall-e-3'` |
-| `quality` | `String` | Image quality. For GPT models: `'high'`, `'medium'`, `'low'` (default: `'low'`); `gpt-image-2` also accepts `'auto'`. For DALL-E 3: `'hd'`, `'standard'` (default: `'standard'`) |
-| `ratio` | `Object` | Aspect ratio with `w` and `h` properties. `gpt-image-2` accepts arbitrary sizes; other GPT models and DALL-E are restricted to fixed sizes |
+| `model` | `String` | Image model to use. Available: `'gpt-image-2'`, `'gpt-image-1.5'`, `'gpt-image-1'`, `'gpt-image-1-mini'` |
+| `quality` | `String` | Image quality: `'high'`, `'medium'`, `'low'` (default: `'low'`); `gpt-image-2` also accepts `'auto'` |
+| `ratio` | `Object` | Aspect ratio with `w` and `h` properties. `gpt-image-2` accepts arbitrary sizes; other GPT models are restricted to fixed sizes |
+| `input_image` | `String` | A base64-encoded (or data-URI) input image for image-to-image editing. |
+| `input_images` | `Array<String>` | Multiple base64-encoded (or data-URI) input images for image-to-image editing. Routes the request through OpenAI's image edit endpoint. |
 
 For more details, see the [OpenAI API reference](https://platform.openai.com/docs/api-reference/images/create).
 
