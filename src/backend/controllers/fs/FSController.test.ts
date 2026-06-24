@@ -1992,3 +1992,111 @@ describe('FSController metadata.objectKey injection', () => {
         expect(await streamToString(read.body)).toBe(attackerDecoy);
     });
 });
+
+// ── associatedAppId entitlement gate ────────────────────────────────
+//
+// `associatedAppId` is client-supplied write metadata that's echoed back in
+// legacy FS responses. Binding a file to another tenant's private app would
+// turn `/stat` into an app-row enumeration oracle, so the write path drops
+// any association the actor isn't entitled to make.
+
+describe('FSController associatedAppId entitlement gate', () => {
+    // Seed an app row with a direct insert. `create` treats is_private as a
+    // read-only column, and going through the store would prime the cache —
+    // a raw insert leaves nothing cached so the gate's getById reads the DB.
+    const makeApp = async (
+        ownerUserId: number,
+        opts: { is_private?: boolean } = {},
+    ): Promise<{ id: number }> => {
+        const uid = `app-${uuidv4()}`;
+        await server.clients.db.write(
+            `INSERT INTO \`apps\` (\`uid\`, \`name\`, \`title\`, \`index_url\`, \`owner_user_id\`, \`is_private\`)
+             VALUES (?, ?, ?, ?, ?, ?)`,
+            [
+                uid,
+                uid,
+                'Gate App',
+                'https://gate-app.puter.site/',
+                ownerUserId,
+                opts.is_private ? 1 : 0,
+            ],
+        );
+        const row = (
+            await server.clients.db.read(
+                'SELECT id FROM apps WHERE uid = ?',
+                [uid],
+            )
+        )[0] as { id: number };
+        return { id: row.id };
+    };
+
+    // Write a file via the signed-write flow with the given associatedAppId
+    // and return the committed entry's stored associatedAppId.
+    const writeWithAssociation = async (
+        actor: Actor,
+        path: string,
+        associatedAppId: number,
+    ): Promise<number | null> => {
+        const startRes = makeRes();
+        await withActor(actor, () =>
+            controller.startBatchWrites(
+                makeReq<SignedWriteRequest[]>({
+                    body: [{ fileMetadata: { path, size: 3, associatedAppId } }],
+                    actor,
+                }),
+                startRes.res,
+            ),
+        );
+        const [started] = startRes.captured.body as SignedWriteResponse[];
+        const completeRes = makeRes();
+        await withActor(actor, () =>
+            controller.completeBatchWrites(
+                makeReq<CompleteWriteRequest[]>({
+                    body: [{ uploadId: started.sessionId }],
+                    actor,
+                }),
+                completeRes.res,
+            ),
+        );
+        const entry = await server.stores.fsEntry.getEntryByPath(path);
+        return entry?.associatedAppId ?? null;
+    };
+
+    it("drops an association to another tenant's private app", async () => {
+        const victim = await makeUser();
+        const attacker = await makeUser();
+        const victimApp = await makeApp(victim.userId, { is_private: true });
+
+        const stored = await writeWithAssociation(
+            attacker.actor,
+            `/${attacker.actor.user!.username}/Documents/probe.txt`,
+            victimApp.id,
+        );
+        expect(stored).toBeNull();
+    });
+
+    it('keeps an association to a public app the actor does not own', async () => {
+        const owner = await makeUser();
+        const other = await makeUser();
+        const publicApp = await makeApp(owner.userId, { is_private: false });
+
+        const stored = await writeWithAssociation(
+            other.actor,
+            `/${other.actor.user!.username}/Documents/public-assoc.txt`,
+            publicApp.id,
+        );
+        expect(stored).toBe(publicApp.id);
+    });
+
+    it('keeps an association to the actor’s own private app', async () => {
+        const owner = await makeUser();
+        const ownApp = await makeApp(owner.userId, { is_private: true });
+
+        const stored = await writeWithAssociation(
+            owner.actor,
+            `/${owner.actor.user!.username}/Documents/own-assoc.txt`,
+            ownApp.id,
+        );
+        expect(stored).toBe(ownApp.id);
+    });
+});
