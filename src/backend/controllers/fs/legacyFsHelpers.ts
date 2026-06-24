@@ -274,21 +274,33 @@ const toIntBool = (v: unknown): number => (v ? 1 : 0);
  * embedded in legacy FS entries. Booleans round-trip back to integers (0/1)
  * because the v1 wire contract emits them that way and existing clients key
  * off it. Other columns pass through as-is — `metadata` is already parsed.
+ *
+ * Two redactions, because `associatedAppId` can name an app the actor does
+ * not own (the column is client-writable display metadata, never trusted for
+ * authz — see FSController) and may point cross-tenant:
+ *   - Owner identifiers (`owner_user_id`, `app_owner`) are never emitted —
+ *     they're internal user references with no client-side display use.
+ *   - For private or protected apps, the direct hosting URL and launch
+ *     capability flags (`index_url`, `godmode`, `maximize_on_start`,
+ *     `background`, `metadata`) are dropped. This mirrors AppDriver, which
+ *     withholds `index_url` from callers without read entitlement. Display
+ *     fields (name, icon, title) still pass through so the GUI can label the
+ *     file's associated app.
  */
 function mapAppForLegacyAssociatedApp(
     app: Record<string, unknown>,
 ): Record<string, unknown> {
+    const gated = Boolean(app.is_private) || Boolean(app.protected);
     return {
         id: app.id,
         uid: app.uid,
-        owner_user_id: app.owner_user_id,
         icon: app.icon,
         name: app.name,
         title: app.title,
         description: app.description,
-        godmode: toIntBool(app.godmode),
-        maximize_on_start: toIntBool(app.maximize_on_start),
-        index_url: app.index_url,
+        godmode: gated ? 0 : toIntBool(app.godmode),
+        maximize_on_start: gated ? 0 : toIntBool(app.maximize_on_start),
+        index_url: gated ? null : app.index_url,
         approved_for_listing: toIntBool(app.approved_for_listing),
         approved_for_opening_items: toIntBool(app.approved_for_opening_items),
         approved_for_incentive_program: toIntBool(
@@ -297,9 +309,8 @@ function mapAppForLegacyAssociatedApp(
         timestamp: app.timestamp ?? null,
         last_review: app.last_review ?? null,
         tags: app.tags ?? null,
-        app_owner: app.app_owner ?? null,
-        background: toIntBool(app.background),
-        metadata: app.metadata ?? null,
+        background: gated ? 0 : toIntBool(app.background),
+        metadata: gated ? null : (app.metadata ?? null),
         protected: toIntBool(app.protected),
         is_private: toIntBool(app.is_private),
     };
