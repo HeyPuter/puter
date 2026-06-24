@@ -29,6 +29,8 @@ globalThis.init_puter_portable = (auth, apiOrigin, type) => {
         goodContext.ServiceWorkerGlobalScope = ServiceWorkerGlobalScope;
         goodContext.location = new URL('https://puter.work');
         goodContext.addEventListener = () => {};
+        goodContext.atob = globalThis.atob?.bind(globalThis);
+        goodContext.btoa = globalThis.btoa?.bind(globalThis);
         // @ts-ignore
         with (goodContext) {
             #include "../../puter-js/dist/puter.js"
