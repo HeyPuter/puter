@@ -28,8 +28,13 @@ import type {
 import { XAI_IMAGE_GENERATION_MODELS } from './models.js';
 import { HttpError } from '../../../../core/http/HttpError.js';
 
-const DEFAULT_MODEL = 'grok-2-image';
-const PRICE_KEY = 'output';
+const DEFAULT_MODEL = 'grok-imagine-image';
+// xAI's Grok Imagine edit endpoint accepts up to 3 source images per request.
+const MAX_INPUT_IMAGES = 3;
+
+interface XaiImageResponse {
+    data?: Array<{ url?: string; b64_json?: string }>;
+}
 
 export class XAIImageProvider implements IImageProvider {
     #client: OpenAI;
@@ -56,8 +61,9 @@ export class XAIImageProvider implements IImageProvider {
     }
 
     async generate(params: IGenerateParams): Promise<string> {
-        const { prompt, test_mode } = params;
-        const { model } = params;
+        const { prompt, test_mode, model, ratio, quality } = params;
+        let { input_images } = params;
+        const { input_image, input_image_mime_type } = params;
 
         const selectedModel = this.#getModel(model);
 
@@ -71,15 +77,33 @@ export class XAIImageProvider implements IImageProvider {
             });
         }
 
+        // Backwards compat: fold singular `input_image` into `input_images`.
+        if (input_image && (!input_images || input_images.length === 0)) {
+            input_images = [input_image];
+        }
+        // xAI caps edits at 3 source images.
+        if (input_images && input_images.length > MAX_INPUT_IMAGES) {
+            input_images = input_images.slice(0, MAX_INPUT_IMAGES);
+        }
+        const inputImageCount = input_images?.length ?? 0;
+        const hasInputImages = inputImageCount > 0;
+
+        // xAI uses a `resolution` tier ('1k'/'2k') rather than a pixel size.
+        const resolution = this.#normalizeResolution(quality);
+        const aspectRatio = this.#aspectRatio(ratio);
+
         const actor = Context.get('actor');
         const userIdentifier =
             actor?.user.id + actor?.app?.uid ? `:${actor?.app?.uid}` : '';
 
-        const priceInCents = selectedModel.costs[PRICE_KEY];
-        const costInMicroCents = priceInCents * 1_000_000;
+        const outputPriceInCents = selectedModel.costs[`output:${resolution}`];
+        const mediaInputPriceInCents = selectedModel.costs.media_input ?? 0;
+        const estimatedCostInCents =
+            outputPriceInCents +
+            (hasInputImages ? mediaInputPriceInCents * inputImageCount : 0);
         const usageAllowed = await this.#meteringService.hasEnoughCredits(
             actor,
-            costInMicroCents,
+            estimatedCostInCents * 1_000_000,
         );
 
         if (!usageAllowed) {
@@ -90,15 +114,27 @@ export class XAIImageProvider implements IImageProvider {
             );
         }
 
-        const response = await this.#client.images.generate({
-            model: selectedModel.id,
-            prompt,
-            user: userIdentifier,
-        });
+        const response = hasInputImages
+            ? await this.#edit(
+                  selectedModel.id,
+                  prompt,
+                  input_images!,
+                  input_image_mime_type,
+                  resolution,
+                  aspectRatio,
+              )
+            : ((await this.#client.images.generate({
+                  model: selectedModel.id,
+                  prompt,
+                  user: userIdentifier,
+                  // xAI-specific params not in the OpenAI type; passed through.
+                  ...(aspectRatio ? { aspect_ratio: aspectRatio } : {}),
+                  resolution,
+              } as Parameters<
+                  OpenAI['images']['generate']
+              >[0])) as XaiImageResponse);
 
-        const first = response.data?.[0] as
-            | { url?: string; b64_json?: string }
-            | undefined;
+        const first = response.data?.[0];
         const url =
             first?.url ||
             (first?.b64_json
@@ -109,14 +145,73 @@ export class XAIImageProvider implements IImageProvider {
             throw new Error('Failed to extract image URL from xAI response');
         }
 
-        this.#meteringService.incrementUsage(
-            actor,
-            `xai:${selectedModel.id}:${PRICE_KEY}`,
-            1,
-            costInMicroCents,
-        );
+        const usageEntries = [
+            {
+                usageType: `xai:${selectedModel.id}:output:${resolution}`,
+                usageAmount: 1,
+                costOverride: outputPriceInCents * 1_000_000,
+            },
+        ];
+        if (hasInputImages && mediaInputPriceInCents > 0) {
+            usageEntries.push({
+                usageType: `xai:${selectedModel.id}:media_input`,
+                usageAmount: inputImageCount,
+                costOverride:
+                    mediaInputPriceInCents * inputImageCount * 1_000_000,
+            });
+        }
+        this.#meteringService.batchIncrementUsages(actor, usageEntries);
 
         return url;
+    }
+
+    // Edits go to POST /v1/images/edits as application/json (the OpenAI SDK's
+    // images.edit() can't be used — it sends multipart/form-data, which xAI
+    // rejects). We reuse the SDK client's auth + baseURL via its low-level
+    // post(). Input images are passed as `{ type: 'image_url', url }` objects;
+    // a single object for one image, an array for multiple.
+    async #edit(
+        modelId: string,
+        prompt: string,
+        inputImages: string[],
+        mimeHint: string | undefined,
+        resolution: string,
+        aspectRatio: string | undefined,
+    ): Promise<XaiImageResponse> {
+        const refs = inputImages.map((img) => this.#toImageRef(img, mimeHint));
+        const body: Record<string, unknown> = {
+            model: modelId,
+            prompt,
+            image: refs.length === 1 ? refs[0] : refs,
+            resolution,
+        };
+        if (aspectRatio) body.aspect_ratio = aspectRatio;
+        return (await this.#client.post('/images/edits', {
+            body,
+        })) as XaiImageResponse;
+    }
+
+    // xAI accepts a public URL or a base64 data URI for input images.
+    #toImageRef(img: string, mimeHint?: string) {
+        const url =
+            img.startsWith('http://') ||
+            img.startsWith('https://') ||
+            img.startsWith('data:')
+                ? img
+                : `data:${mimeHint ?? 'image/png'};base64,${img}`;
+        return { type: 'image_url', url };
+    }
+
+    #normalizeResolution(quality?: string): '1k' | '2k' {
+        return (quality ?? '').toLowerCase() === '2k' ? '2k' : '1k';
+    }
+
+    #aspectRatio(ratio?: { w: number; h: number }): string | undefined {
+        if (!ratio || !ratio.w || !ratio.h) return undefined;
+        const gcd = (a: number, b: number): number =>
+            b === 0 ? a : gcd(b, a % b);
+        const d = gcd(ratio.w, ratio.h) || 1;
+        return `${ratio.w / d}:${ratio.h / d}`;
     }
 
     #getModel(model?: string) {

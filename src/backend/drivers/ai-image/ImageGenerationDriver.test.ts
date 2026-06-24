@@ -68,6 +68,8 @@ vi.mock('openai', () => {
             generate: openaiImagesGenerateMock,
             edit: openaiImagesEditMock,
         };
+        // xAI provider reaches its JSON edit endpoint through the SDK's post().
+        this.post = vi.fn();
         this.chat = { completions: { create: vi.fn() } };
         this.moderations = { create: vi.fn() };
         this.responses = { create: vi.fn() };
@@ -217,8 +219,8 @@ describe('ImageGenerationDriver model catalog', () => {
         const ids = all.map((m) => m.id);
         // OpenAI catalog: gpt-image-1-mini should be present (lowercased by buildModelMap).
         expect(ids).toContain('gpt-image-1-mini');
-        // xAI catalog: grok-2-image should be present.
-        expect(ids).toContain('grok-2-image');
+        // xAI catalog: grok-imagine-image should be present.
+        expect(ids).toContain('grok-imagine-image');
     });
 
     it('list() returns ids/puterIds sorted', async () => {
@@ -272,21 +274,21 @@ describe('ImageGenerationDriver.generate provider routing', () => {
         expect(replicateRunMock).not.toHaveBeenCalled();
     });
 
-    it('routes a known grok-2-image id to the xAI image provider (also OpenAI-SDK shaped)', async () => {
+    it('routes a known grok-imagine-image id to the xAI image provider (also OpenAI-SDK shaped)', async () => {
         openaiImagesGenerateMock.mockResolvedValueOnce({
             data: [{ url: 'https://xai/img.png' }],
         });
 
         await withActor(() =>
             driver.generate({
-                model: 'grok-2-image',
+                model: 'grok-imagine-image',
                 prompt: 'hi',
             } as never),
         );
 
         // xAI's provider also uses the OpenAI mock — assert via the call args.
         const sent = openaiImagesGenerateMock.mock.calls[0]![0];
-        expect(sent.model).toBe('grok-2-image');
+        expect(sent.model).toBe('grok-imagine-image');
         expect(sent.prompt).toBe('hi');
     });
 

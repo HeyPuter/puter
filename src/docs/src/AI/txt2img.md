@@ -32,7 +32,7 @@ Additional settings for the generation request. Available options depend on the 
 |--------|------|-------------|
 | `prompt` | `String` | Text description for the image generation |
 | `provider` | `String` | The AI provider to use. `'openai-image-generation' (default) \| 'gemini' \| 'together' \| 'xai' \| 'replicate-image-generation'` |
-| `model` | `String` | Image model to use (provider-specific). Defaults to `'gpt-image-1-mini'` (OpenAI) or `'grok-2-image'` when `provider: 'xai'` |
+| `model` | `String` | Image model to use (provider-specific). Defaults to `'gpt-image-1-mini'` (OpenAI) or `'grok-imagine-image'` when `provider: 'xai'` |
 | `test_mode` | `Boolean` | When `true`, returns a sample image without using credits |
 | `puter_output_path` | `String` | When set, the generated image is automatically saved to this path on the Puter filesystem. Relative paths are resolved against the app's data directory (or `~/` outside an app). The caller must have write permission to the destination |
 
@@ -63,12 +63,15 @@ Available when `provider: 'gemini'` or inferred from model:
 
 #### xAI (Grok) Options
 
-Available when `provider: 'xai'` or inferred from model (`grok-2-image`, alias `grok-image`):
+Available when `provider: 'xai'` or inferred from model (`grok-imagine-image`, alias `grok-image`):
 
 | Option | Type | Description |
 |--------|------|-------------|
-| `model` | `String` | Image model to use. Available: `'grok-2-image'` (default) |
-| `prompt` | `String` | Text prompt for the image. Grok Image does not support quality/size overrides; pricing is $0.07 per generated image. |
+| `model` | `String` | Image model to use. Available: `'grok-imagine-image'` (default), `'grok-imagine-image-quality'` |
+| `prompt` | `String` | Text prompt for the image (or the edit instruction when input images are supplied). |
+| `quality` | `String` | Output resolution tier: `'1k'` (default) or `'2k'`. |
+| `input_image` | `String` | A public URL or base64-encoded (data-URI) input image for image-to-image editing. |
+| `input_images` | `Array<String>` | Up to 3 input images (URLs or base64/data-URI) for multi-image editing — combine subjects, transfer styles, compose scenes. Routes through xAI's image edit endpoint. |
 
 #### Together Options
 
