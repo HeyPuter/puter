@@ -107,6 +107,8 @@ describe('whoami extension — handleWhoami', () => {
         expect(body.email).toBe(user.email);
         expect(body.is_temp).toBe(false);
         expect(body.oidc_only).toBe(false);
+        // is_user_token is present (true) for user actors.
+        expect(body.is_user_token).toBe(true);
         // `directories` is only sent to user actors — confirm it’s present.
         expect(body.directories).toBeDefined();
         // taskbar_items is only sent to user actors.
@@ -146,6 +148,8 @@ describe('whoami extension — handleWhoami', () => {
 
         const body = captured.body as Record<string, unknown>;
         expect(body.app_name).toBe('app-test-actor');
+        // is_user_token is stripped for app actors.
+        expect(body.is_user_token).toBeUndefined();
         expect(body.desktop_bg_url).toBeUndefined();
         expect(body.desktop_bg_color).toBeUndefined();
         expect(body.desktop_bg_fit).toBeUndefined();
