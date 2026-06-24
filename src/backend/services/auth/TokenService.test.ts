@@ -188,6 +188,28 @@ describe('TokenService.sign', () => {
         expect(payload.exp).toBeUndefined();
     });
 
+    it('signs from config even before onServerStart runs (boot-window race)', () => {
+        // The http socket starts accepting connections before onServerStart
+        // finishes, so a login can arrive while the service is still booting.
+        // Secrets are read straight from config (not copied in onServerStart),
+        // so signing must work without onServerStart having run — otherwise
+        // jwt.sign would get an empty secret and throw `secretOrPrivateKey
+        // must have a value`, surfacing as a 500.
+        const config = {
+            jwt_secret: V1_SECRET,
+            jwt_secret_v2: V2_SECRET,
+        } as ConstructorParameters<typeof TokenService>[0];
+        const [clients, stores, services] = [{}, {}, {}] as [
+            ConstructorParameters<typeof TokenService>[1],
+            ConstructorParameters<typeof TokenService>[2],
+            ConstructorParameters<typeof TokenService>[3],
+        ];
+        const svc = new TokenService(config, clients, stores, services);
+        // Note: onServerStart() intentionally NOT called.
+        const token = svc.sign('auth', { type: 'session' });
+        expect(() => jwt.verify(token, V2_SECRET)).not.toThrow();
+    });
+
     it('caller cannot override the `kid` routing discriminant', () => {
         const svc = createTokenService();
         const token = svc.sign(

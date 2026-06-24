@@ -190,9 +190,22 @@ const SHIPPED_PLACEHOLDER_SECRETS = new Set([
 ]);
 
 export class TokenService extends PuterService {
-    #secretV2: string = '';
-    #secretLegacy: string = '';
-    #allowV1Tokens = true;
+    // Secrets are read straight from `this.config`, which is populated at
+    // construction (before any onServerStart runs). They are deliberately NOT
+    // copied into fields during onServerStart: the http socket starts
+    // accepting connections before onServerStart finishes, so a copied field
+    // would still be empty for any request that lands in the boot window —
+    // producing a cryptic `secretOrPrivateKey must have a value` 500 on login.
+    // Reading config directly closes that window entirely.
+    get #secretV2(): string {
+        return this.config.jwt_secret_v2 ?? '';
+    }
+    get #secretLegacy(): string {
+        return this.config.jwt_secret ?? '';
+    }
+    get #allowV1Tokens(): boolean {
+        return this.config.allow_v1_tokens !== false;
+    }
 
     override onServerStart(): void {
         const secretV2 = this.config.jwt_secret_v2;
@@ -227,12 +240,11 @@ export class TokenService extends PuterService {
                 }
             }
         }
-        this.#secretV2 = secretV2;
-        // Legacy secret is optional in fresh installs (no v1 tokens to verify),
-        // but every existing deployment carries one. Don't fail boot if it's
-        // missing — instead, refuse to verify v1 tokens later.
-        this.#secretLegacy = this.config.jwt_secret ?? '';
-        this.#allowV1Tokens = this.config.allow_v1_tokens !== false;
+        // Note: secrets are exposed via getters over `this.config` (see above),
+        // not copied into fields here. onServerStart only validates them at
+        // boot — fail fast on a missing v2 secret or a shipped placeholder.
+        // The legacy `jwt_secret` stays optional (fresh installs have no v1
+        // tokens to verify); a missing one is handled at verify time.
     }
 
     /**
