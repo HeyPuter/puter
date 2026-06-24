@@ -294,6 +294,7 @@ class PuterContextMenu extends PuterWebComponent {
                 padding: 12px 16px;
                 font-size: 16px;
                 border-radius: 0;
+                gap: 10px;
             }
 
             /* Keyboard shortcuts have no meaning on touch / small-screen
