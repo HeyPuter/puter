@@ -366,6 +366,50 @@ describe('SystemKVStore', () => {
             expect(result.res).toMatchObject({ page: { views: 4 } });
         });
 
+        it('folds expireAt into the incr and stamps it once', async () => {
+            const past = Math.floor(Date.now() / 1000) - 10;
+            // First bump creates the counter and stamps the (already-elapsed)
+            // ttl in the same write — no separate expireAt call.
+            await target.incr(
+                { key: 'ttlCounter', pathAndAmountMap: { hits: 1 }, expireAt: past },
+                opts,
+            );
+            const result = await target.get({ key: 'ttlCounter' }, opts);
+            expect(result.res).toBeNull();
+        });
+
+        it('keeps the first expireAt stamp across later bumps (if_not_exists)', async () => {
+            const future = Math.floor(Date.now() / 1000) + 3600;
+            await target.incr(
+                { key: 'ttlKeep', pathAndAmountMap: { hits: 1 }, expireAt: future },
+                opts,
+            );
+            // A later bump passing an already-elapsed ttl must NOT override the
+            // first stamp, so the counter stays visible.
+            const past = Math.floor(Date.now() / 1000) - 10;
+            await target.incr(
+                { key: 'ttlKeep', pathAndAmountMap: { hits: 1 }, expireAt: past },
+                opts,
+            );
+            const result = await target.get({ key: 'ttlKeep' }, opts);
+            expect(result.res).toMatchObject({ hits: 2 });
+        });
+
+        it('creates nested intermediate maps lazily on the first bump, then accumulates', async () => {
+            // First bump into a missing nested parent must still build the map
+            // (optimistic path: the direct update fails, createPaths runs, retry
+            // succeeds), and subsequent bumps keep accumulating.
+            await target.incr(
+                { key: 'lazyNest', pathAndAmountMap: { 'a.b.c': 2 } },
+                opts,
+            );
+            const after = await target.incr(
+                { key: 'lazyNest', pathAndAmountMap: { 'a.b.c': 3 } },
+                opts,
+            );
+            expect(after.res).toMatchObject({ a: { b: { c: 5 } } });
+        });
+
         it('decr subtracts via the same machinery', async () => {
             await target.incr(
                 { key: 'counter3', pathAndAmountMap: { hits: 10 } },
