@@ -59,7 +59,7 @@ import { PuterController } from '../types.js';
 const USERNAME_REGEX = /^\w{1,}$/;
 const USERNAME_MAX_LENGTH = 45;
 const FINGERPRINT_MAX_LENGTH = 128;
-const DFP_TELEMETRY_ID_MAX_LENGTH = 64;
+const DISPATCH_ID_MAX_LENGTH = 128;
 const RESERVED_USERNAMES = new Set([
     'admin',
     'administrator',
@@ -378,11 +378,10 @@ export class AuthController extends PuterController {
             return;
         }
 
-        // Optional device signals (browser fingerprint hash, DFP telemetry
-        // id). Core only enforces shape and forwards the values verbatim —
-        // signup-abuse policy built on them lives in extensions. Checked
-        // before the reauth short-circuit so a malformed value is rejected
-        // on every /signup path.
+        // Optional device signal (browser fingerprint hash). Core only enforces
+        // shape and forwards the value verbatim — signup-abuse policy built on it
+        // lives in extensions. Checked before the reauth short-circuit so a
+        // malformed value is rejected on every /signup path.
         if (body.fingerprint !== undefined && body.fingerprint !== null) {
             if (typeof body.fingerprint !== 'string')
                 throw new HttpError(400, 'fingerprint must be a string.', {
@@ -395,25 +394,9 @@ export class AuthController extends PuterController {
                     { legacyCode: 'bad_request' },
                 );
         }
-        if (
-            body.dfp_telemetry_id !== undefined &&
-            body.dfp_telemetry_id !== null
-        ) {
-            if (typeof body.dfp_telemetry_id !== 'string')
-                throw new HttpError(400, 'dfp_telemetry_id must be a string.', {
-                    legacyCode: 'bad_request',
-                });
-            if (body.dfp_telemetry_id.length > DFP_TELEMETRY_ID_MAX_LENGTH)
-                throw new HttpError(
-                    400,
-                    `dfp_telemetry_id cannot be longer than ${DFP_TELEMETRY_ID_MAX_LENGTH} characters.`,
-                    { legacyCode: 'bad_request' },
-                );
-        }
         // Empty strings are treated as absent — a signal that wasn't
         // collected, not a malformed request.
         const fingerprint: string | null = body.fingerprint || null;
-        const dfp_telemetry_id: string | null = body.dfp_telemetry_id || null;
 
         // Temp-user reauth short-circuit: when an existing temp user is
         // forced through the reauth flow, the GUI re-submits /signup with
@@ -605,7 +588,6 @@ export class AuthController extends PuterController {
             code: null,
             user_agent: req?.headers?.['user-agent'] ?? null,
             fingerprint,
-            dfp_telemetry_id,
             // Populated by the abuse extension's v2 harness; persisted to the
             // user row below so the signup-time reputation is referable later.
             reputation: null as number | null,
@@ -746,7 +728,6 @@ export class AuthController extends PuterController {
                     user_agent: req.headers?.['user-agent'],
                     origin: req.headers?.origin,
                     fingerprint,
-                    dfp_telemetry_id,
                 },
                 signup_ip: clientIp,
                 signup_ip_forwarded: proxyIpChain,
@@ -1076,6 +1057,18 @@ export class AuthController extends PuterController {
                 legacyCode: 'bad_request',
             });
 
+        // Optional Prelude dispatch id (browser signals gathered by the JS
+        // Signals SDK on the number-entry page). Shape-checked and forwarded
+        // verbatim to Prelude; an empty / oversized / non-string value is just
+        // dropped so a bad client signal never blocks a real verification.
+        const rawDispatchId = req.body?.dispatch_id;
+        const dispatchId =
+            typeof rawDispatchId === 'string' &&
+            rawDispatchId.length > 0 &&
+            rawDispatchId.length <= DISPATCH_ID_MAX_LENGTH
+                ? rawDispatchId
+                : undefined;
+
         // Cost cap: skip countries with no SMS channel or rates above the cap
         // (see PreludeClient / countries.ts). Avoids paying exorbitant per-SMS
         // rates in low-revenue, high-fraud geographies.
@@ -1160,6 +1153,7 @@ export class AuthController extends PuterController {
                     ip,
                     device_id: req.deviceFingerprint ?? undefined,
                     user_agent: userAgent,
+                    dispatch_id: dispatchId,
                 },
             );
             // Prelude rejected the attempt as abusive — surface as rate-limit.

@@ -125,8 +125,9 @@ export class PreludeClient extends PuterClient {
      *   device + platform are the highest-value). We pass what the backend
      *   already has: the request `ip`, the client `device_id` (ThumbmarkJS
      *   hash), and the `user_agent` (Prelude infers platform/model/OS from it).
-     *   Richer client-collected signals require Prelude's frontend SDK, which
-     *   produces a `dispatch_id` the backend would forward here.
+     *   `dispatch_id` carries the richer browser signals gathered by Prelude's
+     *   frontend JS Signals SDK; it's a top-level field in the request, not part
+     *   of the `signals` object, so it's pulled out below.
      */
     async createVerification(
         target: string,
@@ -134,6 +135,7 @@ export class PreludeClient extends PuterClient {
             ip?: string;
             device_id?: string;
             user_agent?: string;
+            dispatch_id?: string;
         } = {},
     ): Promise<{ id?: string; status: PreludeCreateStatus }> {
         // Match the 6-box code UI (UIWindowPhoneVerificationRequired). Without
@@ -164,6 +166,8 @@ export class PreludeClient extends PuterClient {
         if (signals.device_id) sig.device_id = signals.device_id;
         if (signals.user_agent) sig.user_agent = signals.user_agent;
         if (Object.keys(sig).length > 0) body.signals = sig;
+        // dispatch_id is a top-level field, not a member of `signals`.
+        if (signals.dispatch_id) body.dispatch_id = signals.dispatch_id;
         return this.#post('/verification', body) as Promise<{
             id?: string;
             status: PreludeCreateStatus;

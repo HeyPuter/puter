@@ -397,6 +397,13 @@ export interface IGuiParams {
     title?: string;
     short_description?: string;
     social_media_image?: string;
+    /**
+     * Public SDK key for Prelude's JS Signals SDK. When set, the phone-
+     * verification window collects a `dispatch_id` (browser signals) and
+     * forwards it to /send-confirm-phone, which passes it to Prelude's Verify
+     * API so its abuse model can weigh the device. Omit to disable collection.
+     */
+    preludeSdkKey?: string;
     [key: string]: unknown;
 }
 

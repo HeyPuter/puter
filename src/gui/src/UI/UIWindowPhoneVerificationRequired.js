@@ -717,20 +717,28 @@ function UIWindowPhoneVerificationRequired(options) {
                 .prop('disabled', true)
                 .html(spinner);
 
-            // Same device fingerprint signal signup sends, so the abuse
-            // extension can cap SMS sends per device across accounts. Best
-            // effort — a failure/timeout just omits it (the cap fails open).
+            // Two best-effort device signals, both gathered on this number-entry
+            // page. The fingerprint lets the abuse extension cap SMS sends per
+            // device across accounts; the Prelude dispatch id forwards browser
+            // signals into Prelude's own Verify abuse model. A failure/timeout
+            // on either just omits it (everything downstream fails open).
             let fingerprint = null;
+            let dispatchId = null;
             try {
-                fingerprint = await window.getDeviceFingerprint?.();
+                [fingerprint, dispatchId] = await Promise.all([
+                    window.getDeviceFingerprint?.(),
+                    window.getPreludeDispatchId?.(),
+                ]);
             } catch (_) {}
+
+            const sendData = { phone };
+            if ( fingerprint ) sendData.fingerprint = fingerprint;
+            if ( dispatchId ) sendData.dispatch_id = dispatchId;
 
             $.ajax({
                 url: `${window.api_origin}/send-confirm-phone`,
                 type: 'POST',
-                data: JSON.stringify(
-                    fingerprint ? { phone, fingerprint } : { phone },
-                ),
+                data: JSON.stringify(sendData),
                 async: true,
                 contentType: 'application/json',
                 headers: { Authorization: `Bearer ${window.auth_token}` },

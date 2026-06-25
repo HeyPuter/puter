@@ -353,14 +353,10 @@ function UIWindowSignup (options) {
                 headers = window.custom_headers;
             }
 
-            // Device signals for abuse prevention; omitted when unavailable
+            // Device signal for abuse prevention; omitted when unavailable
             let fingerprint = null;
-            let dfpTelemetryId = null;
             try {
-                [fingerprint, dfpTelemetryId] = await Promise.all([
-                    window.getDeviceFingerprint?.(),
-                    window.getDfpTelemetryId?.(),
-                ]);
+                fingerprint = await window.getDeviceFingerprint?.();
             } catch (_) {
                 // signup must never block or fail because of device signals
             }
@@ -377,9 +373,6 @@ function UIWindowSignup (options) {
             };
             if ( fingerprint ) {
                 requestData.fingerprint = fingerprint;
-            }
-            if ( dfpTelemetryId ) {
-                requestData.dfp_telemetry_id = dfpTelemetryId;
             }
 
             $.ajax({
