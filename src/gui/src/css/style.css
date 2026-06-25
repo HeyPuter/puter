@@ -1710,13 +1710,17 @@ span.header-sort-icon img {
 }
 
 .submenu-arrow {
-    width: 15px;
-    height: 15px;
+    width: 10px;
+    height: 10px;
     float: right;
 }
 
 .submenu-arrow-active {
     display: none;
+}
+
+.context-menu-item .contextmenu-label {
+    height: 12px;
 }
 
 .context-menu-item-active .submenu-arrow {
