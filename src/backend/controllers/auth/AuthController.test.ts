@@ -2240,6 +2240,47 @@ describe('AuthController.handleConfirmPhone', () => {
         );
     });
 
+    it('awaits the user.phone-verified listeners (emitAndWait, not fire-and-forget)', async () => {
+        // The carrier-based card-verification waiver (abuse extension) listens
+        // on user.phone-verified and must clear the card gate BEFORE confirm
+        // responds — so the event has to be awaited, not fire-and-forget.
+        const { actor } = await makeUserAndActor({
+            requires_phone_verification: 1,
+            phone: '+14155550123',
+        });
+        const emit = vi.fn();
+        const emitAndWait = vi.fn(async () => {});
+        const ctrl = controller as { clients: { event: unknown } };
+        const realEvent = ctrl.clients.event;
+        ctrl.clients.event = { emit, emitAndWait };
+        try {
+            await withPrelude(
+                stubPrelude({
+                    checkVerification: vi.fn(async () => ({
+                        status: 'success',
+                    })),
+                }),
+                async () => {
+                    await controller.handleConfirmPhone(
+                        makeReq({ code: '123456' }, { actor }),
+                        makeRes(),
+                    );
+                },
+            );
+        } finally {
+            ctrl.clients.event = realEvent;
+        }
+        expect(emitAndWait).toHaveBeenCalledWith(
+            'user.phone-verified',
+            expect.objectContaining({ phone: '+14155550123' }),
+            expect.anything(),
+        );
+        const fireAndForget = emit.mock.calls.filter(
+            (c) => c[0] === 'user.phone-verified',
+        );
+        expect(fireAndForget).toHaveLength(0);
+    });
+
     it('throws 502 when the upstream check fails', async () => {
         const { actor } = await makeUserAndActor({
             requires_phone_verification: 1,
