@@ -47,8 +47,8 @@ import {
 } from '../../services/auth/OTPUtil.js';
 import { sessionCookieFlags } from '../../util/cookieFlags.js';
 import { cleanEmail, isBlockedEmail } from '../../util/email.js';
-import { parsePhone } from '../../util/phone.js';
 import { generate_identifier } from '../../util/identifier.js';
+import { parsePhone } from '../../util/phone.js';
 import { getTaskbarItems } from '../../util/taskbarItems.js';
 import {
     generateDefaultFsentries,
@@ -1281,8 +1281,14 @@ export class AuthController extends PuterController {
             phone: pendingPhone,
         });
 
+        // Run the verified-event listeners synchronously (emitAndWait, not
+        // fire-and-forget emit) so a carrier-based card-verification waiver in
+        // the abuse extension lands BEFORE we broadcast "refresh" and respond —
+        // otherwise the client re-fetches and still sees the card gate. Load-
+        // bearing now; emitAndWait swallows listener errors, so this stays
+        // best-effort and never blocks confirm on a listener.
         try {
-            this.clients.event?.emit(
+            await this.clients.event?.emitAndWait(
                 'user.phone-verified' as never,
                 {
                     user_id: user.id,
@@ -1292,7 +1298,7 @@ export class AuthController extends PuterController {
                 {},
             );
         } catch {
-            // ignore — event is a side-channel signal, not load-bearing
+            // ignore — listeners are best-effort
         }
         // Notify other tabs/devices for this user so they refresh + drop the gate.
         try {
