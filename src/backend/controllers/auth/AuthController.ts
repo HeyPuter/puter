@@ -2038,6 +2038,8 @@ export class AuthController extends PuterController {
             requires_email_confirmation: 0,
         });
 
+        await this.stores.oidc.unlinkAllByUserId(user.id);
+
         try {
             this.clients.event?.emit(
                 'user.email-changed' as never,
