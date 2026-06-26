@@ -481,7 +481,6 @@ export class PuterServer {
                 createAuthProbe({
                     authService,
                     cookieName: this.#config.cookie_name,
-                    kvStore: this.stores.kv,
                 }),
             );
         }
