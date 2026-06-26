@@ -835,18 +835,6 @@ describe('MeteringService', () => {
             const { res } = await server.stores.kv.get({ key });
             expect(res).toMatchObject({ purchasedCredits: 250 });
         });
-
-        it('persists lastUpdated after an increment', async () => {
-            const userId = actor.user.uuid;
-            await target.incrementUsage(actor, 'kv:read', 1, 50);
-            await waitFor(async () => {
-                const { res } = await server.stores.kv.get({
-                    key: `${METRICS_PREFIX}:actor:${userId}:lastUpdated`,
-                });
-                expect(typeof res).toBe('number');
-                expect(res).toBeGreaterThan(0);
-            });
-        });
     });
 
     // ── Resolver registration ────────────────────────────────────────

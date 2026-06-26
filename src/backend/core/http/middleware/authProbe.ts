@@ -22,7 +22,6 @@ import type {
     AuthService,
     ReauthReason,
 } from '../../../services/auth/AuthService';
-import type { SystemKVStore } from '../../../stores/systemKv/SystemKVStore';
 
 // Ensure the `Request.actor` / `Request.token` augmentation is in scope
 // wherever this middleware is imported.
@@ -32,24 +31,7 @@ interface AuthProbeOptions {
     authService: AuthService;
     /** Name of the session cookie to inspect. Falls back to `config.cookie_name`. */
     cookieName?: string;
-    kvStore?: SystemKVStore;
 }
-
-const authV2MetricsKey = (): string => {
-    const now = new Date();
-    const yyyy = now.getUTCFullYear();
-    const mm = String(now.getUTCMonth() + 1).padStart(2, '0');
-    const dd = String(now.getUTCDate()).padStart(2, '0');
-    return `auth-v2:metrics:${yyyy}-${mm}-${dd}`;
-};
-
-const bumpCounter = (
-    kv: Pick<SystemKVStore, 'incr'> | undefined,
-    pathAndAmountMap: Record<string, number>,
-): void => {
-    if (!kv) return;
-    kv.incr({ key: authV2MetricsKey(), pathAndAmountMap }).catch(() => {});
-};
 
 /**
  * Non-enforcing auth probe. Runs globally (installed by `PuterServer`) on
@@ -70,7 +52,7 @@ const bumpCounter = (
  *   6. Socket handshake query (for ws upgrades that pass through HTTP first)
  */
 export const createAuthProbe = (opts: AuthProbeOptions): RequestHandler => {
-    const { authService, cookieName, kvStore } = opts;
+    const { authService, cookieName } = opts;
     return async (req, _res, next): Promise<void> => {
         // If something upstream already attached an actor, respect it.
         if (req.actor) {
@@ -94,10 +76,6 @@ export const createAuthProbe = (opts: AuthProbeOptions): RequestHandler => {
             });
 
             if (result.reauth) {
-                bumpCounter(kvStore, {
-                    v1: 1,
-                    [`reauth.${result.reauth.reason}`]: 1,
-                });
                 // Bind a short-lived JWT proving the rejected session
                 // identified this auth_id. The GUI echoes this back on
                 // /login or /signup; the raw auth_id is informational
@@ -113,8 +91,6 @@ export const createAuthProbe = (opts: AuthProbeOptions): RequestHandler => {
                 console.info(
                     `[auth-v2] reauth reason=${result.reauth.reason} auth_id=${result.reauth.auth_id ?? '-'}`,
                 );
-            } else if (result.actor) {
-                bumpCounter(kvStore, { v2: 1 });
             }
 
             if (result.actor) {

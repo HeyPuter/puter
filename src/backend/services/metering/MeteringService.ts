@@ -238,14 +238,6 @@ export class MeteringService extends PuterService {
                 }),
             );
 
-            this.handleAuxPromise(
-                'lastUpdated',
-                this.stores.kv.set({
-                    key: `${METRICS_PREFIX}:actor:${userId}:lastUpdated`,
-                    value: Date.now(),
-                }),
-            );
-
             const [actorUsages, actorSubscription, actorAddons] =
                 await Promise.all([
                     actorUsagesPromise,
@@ -399,13 +391,6 @@ export class MeteringService extends PuterService {
                         [`${appId}.total`]: totalBatchCost,
                         [`${appId}.count`]: usages.length,
                     },
-                }),
-            );
-            this.handleAuxPromise(
-                'lastUpdated',
-                this.stores.kv.set({
-                    key: `${METRICS_PREFIX}:actor:${userId}:lastUpdated`,
-                    value: Date.now(),
                 }),
             );
 
@@ -584,13 +569,6 @@ export class MeteringService extends PuterService {
                     [`${appId}.total`]: delta,
                     [`${appId}.count`]: 1,
                 },
-            }),
-        );
-        this.handleAuxPromise(
-            'lastUpdated',
-            this.stores.kv.set({
-                key: `${METRICS_PREFIX}:actor:${userId}:lastUpdated`,
-                value: Date.now(),
             }),
         );
 

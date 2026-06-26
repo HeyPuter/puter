@@ -545,30 +545,10 @@ describe('createAuthProbe — actor attachment + failure tracking', () => {
     });
 });
 
-// ── Reauth signal + KV counters ─────────────────────────────────────
+// ── Reauth signal ───────────────────────────────────────────────────
 
 describe('createAuthProbe — reauth signal', () => {
-    /** Capture KV increments without a real store. */
-    const makeKvStub = () => {
-        const calls: Array<{
-            key: string;
-            pathAndAmountMap: Record<string, number>;
-        }> = [];
-        return {
-            calls,
-            store: {
-                incr: async (args: {
-                    key: string;
-                    pathAndAmountMap: Record<string, number>;
-                }) => {
-                    calls.push(args);
-                    return { res: {} as Record<string, number>, usage: 0 };
-                },
-            },
-        };
-    };
-
-    it('sets requiresReauth and counts v1 + reauth.token_v1 for a legacy v1 token', async () => {
+    it('sets requiresReauth with a signed token for a legacy v1 token', async () => {
         const stub = makeStubAuth();
         stub.setNextResult({
             reauth: { reason: 'token_v1', auth_id: 'u-legacy' },
@@ -576,11 +556,7 @@ describe('createAuthProbe — reauth signal', () => {
             // The probe must still set requiresReauth; gate emits 401.
             actor: { user: { uuid: 'u-legacy' } },
         } as never);
-        const kv = makeKvStub();
-        const probe = createAuthProbe({
-            authService: stub.service,
-            kvStore: kv.store,
-        });
+        const probe = createAuthProbe({ authService: stub.service });
         const { req } = await runProbe(
             probe,
             makeReq({ headers: { authorization: 'Bearer v1-tok' } }),
@@ -590,109 +566,36 @@ describe('createAuthProbe — reauth signal', () => {
             auth_id: 'u-legacy',
             reauth_token: 'reauth-jwt:u-legacy',
         });
-        // Both increments fire under the same day-bucketed key.
-        expect(kv.calls).toHaveLength(1);
-        expect(kv.calls[0].key).toMatch(/^auth-v2:metrics:\d{4}-\d{2}-\d{2}$/);
-        expect(kv.calls[0].pathAndAmountMap).toEqual({
-            v1: 1,
-            'reauth.token_v1': 1,
-        });
     });
 
-    it('sets requiresReauth and counts reauth.session_revoked', async () => {
+    it('sets requiresReauth for a revoked session', async () => {
         const stub = makeStubAuth();
         stub.setNextResult({
             reauth: { reason: 'session_revoked', auth_id: 'u-1' },
         });
-        const kv = makeKvStub();
-        const probe = createAuthProbe({
-            authService: stub.service,
-            kvStore: kv.store,
-        });
+        const probe = createAuthProbe({ authService: stub.service });
         const { req } = await runProbe(
             probe,
             makeReq({ headers: { authorization: 'Bearer tok' } }),
         );
         expect(req.requiresReauth?.reason).toBe('session_revoked');
-        expect(kv.calls[0].pathAndAmountMap).toEqual({
-            v1: 1,
-            'reauth.session_revoked': 1,
-        });
     });
 
-    it('sets requiresReauth and counts reauth.session_expired', async () => {
+    it('sets requiresReauth for an expired session', async () => {
         const stub = makeStubAuth();
         stub.setNextResult({
             reauth: { reason: 'session_expired', auth_id: 'u-1' },
         });
-        const kv = makeKvStub();
-        const probe = createAuthProbe({
-            authService: stub.service,
-            kvStore: kv.store,
-        });
+        const probe = createAuthProbe({ authService: stub.service });
         const { req } = await runProbe(
             probe,
             makeReq({ headers: { authorization: 'Bearer tok' } }),
         );
         expect(req.requiresReauth?.reason).toBe('session_expired');
-        expect(kv.calls[0].pathAndAmountMap).toEqual({
-            v1: 1,
-            'reauth.session_expired': 1,
-        });
     });
 
-    it('counts v2 verify (no reauth) for a healthy token', async () => {
+    it('attaches an actor and no reauth for a healthy v2 token', async () => {
         const stub = makeStubAuth({ user: { uuid: 'u-1' } });
-        const kv = makeKvStub();
-        const probe = createAuthProbe({
-            authService: stub.service,
-            kvStore: kv.store,
-        });
-        const { req } = await runProbe(
-            probe,
-            makeReq({ headers: { authorization: 'Bearer good-tok' } }),
-        );
-        expect(req.actor).toBeTruthy();
-        expect(req.requiresReauth).toBeUndefined();
-        expect(kv.calls[0].pathAndAmountMap).toEqual({ v2: 1 });
-    });
-
-    it('does not increment counters when no token is presented', async () => {
-        const stub = makeStubAuth();
-        const kv = makeKvStub();
-        const probe = createAuthProbe({
-            authService: stub.service,
-            kvStore: kv.store,
-        });
-        await runProbe(probe, makeReq({}));
-        // Anonymous-OK routes pay no metrics cost.
-        expect(kv.calls).toHaveLength(0);
-    });
-
-    it('absorbs KV failures — never rejects on the hot path', async () => {
-        const stub = makeStubAuth({ user: { uuid: 'u-1' } });
-        // Failing KV: increments throw. Probe must still succeed.
-        const failingKv = {
-            incr: async () => {
-                throw new Error('kv unavailable');
-            },
-        };
-        const probe = createAuthProbe({
-            authService: stub.service,
-            kvStore: failingKv,
-        });
-        const { req, next } = await runProbe(
-            probe,
-            makeReq({ headers: { authorization: 'Bearer good-tok' } }),
-        );
-        expect(next).toHaveBeenCalledWith();
-        expect(req.actor).toBeTruthy();
-    });
-
-    it('works without a kvStore (counters become no-ops)', async () => {
-        const stub = makeStubAuth({ user: { uuid: 'u-1' } });
-        // Production may not always pass a KV — fresh installs without
-        // dynamo wired still need a functioning probe.
         const probe = createAuthProbe({ authService: stub.service });
         const { req } = await runProbe(
             probe,
@@ -700,6 +603,17 @@ describe('createAuthProbe — reauth signal', () => {
         );
         expect(req.actor).toBeTruthy();
         expect(req.requiresReauth).toBeUndefined();
+    });
+
+    it('never rejects on the hot path', async () => {
+        const stub = makeStubAuth({ user: { uuid: 'u-1' } });
+        const probe = createAuthProbe({ authService: stub.service });
+        const { req, next } = await runProbe(
+            probe,
+            makeReq({ headers: { authorization: 'Bearer good-tok' } }),
+        );
+        expect(next).toHaveBeenCalledWith();
+        expect(req.actor).toBeTruthy();
     });
 
     it('logs `[auth-v2] reauth reason=<r> auth_id=<id>` per event', async () => {
