@@ -144,6 +144,7 @@ export class PreludeClient extends PuterClient {
             preferred_channel:
                 this.config.prelude?.preferredChannel ??
                 DEFAULT_PREFERRED_CHANNEL,
+            locale: 'en-US',
         };
         // Branding lives in the Prelude dashboard (the message text is a
         // template); these just select a Puter-branded template / sender when
