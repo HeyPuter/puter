@@ -31,6 +31,7 @@ A string invite code created by `puter.peer.serve()`.
 `options` is an object with the following properties:
 
 - `iceServers` (`RTCIceServer[]`) Custom ICE servers (STUN/TURN) to use instead of the Puter-managed relays.
+- `forceRelay` (`boolean`) Whether to force connections to route through a relay instead of attempting peer-to-peer (default). Metering charges will increase.
 
 ## Return value
 
