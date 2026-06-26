@@ -18,7 +18,7 @@
  */
 
 import axios from 'axios';
-import { createHmac, timingSafeEqual } from 'node:crypto';
+import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import { Agent as HttpsAgent } from 'node:https';
 import { IBroadcastPeerConfig } from '../../types.js';
 import { PuterService } from '../types.js';
@@ -87,6 +87,8 @@ export class BroadcastService extends PuterService {
     #peersByKey: Record<string, IBroadcastPeerConfig> = {};
     /** Subset of peers with `webhook: true`, used for outbound fan-out. */
     #webhookPeers: IBroadcastPeerConfig[] = [];
+    /** Identifier used to tell what server a redis fan-out is coming from. */
+    #redisSourceId: string = `${this.config.serverId}:${randomUUID()}`;
 
     /** Coalesced outbound events, keyed by serialized shape. */
     #outboundEventsByDedupKey = new Map<string, BroadcastEvent>();
@@ -240,7 +242,12 @@ export class BroadcastService extends PuterService {
         if (safeMeta.from_fanout) return;
         this.clients.redis.publish(
             'pubsub',
-            JSON.stringify({ key, data, meta: safeMeta }),
+            JSON.stringify({
+                key,
+                data,
+                meta: safeMeta,
+                source: this.#redisSourceId,
+            }),
         );
     }
 
@@ -252,11 +259,13 @@ export class BroadcastService extends PuterService {
         this.#redisSub.on('message', (channel: string, message: string) => {
             if (channel !== 'pubsub') return;
             const parsed = JSON.parse(message);
-            const { key, data, meta } = parsed as {
+            const { key, data, meta, source } = parsed as {
                 key: string;
                 data: unknown;
                 meta: object;
+                source: string;
             };
+            if (source === this.#redisSourceId) return;
             const safeMeta = this.#normalizeMeta(meta);
 
             this.clients.event.emit(key, data, {
