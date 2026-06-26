@@ -854,16 +854,21 @@ class UI extends EventListener {
     };
 
     showFontPicker (options) {
+        const opts = typeof options === 'string' ? { defaultValue: options } : (options ?? {});
+        const defaultFont = opts.defaultValue || opts.defaultFont || opts.default || 'System UI';
+        const normalizedOptions = {
+            ...opts,
+            defaultValue: defaultFont,
+        };
+
         if ( this.messageTarget ) {
             return new Promise((resolve) => {
-                this.#postMessageWithCallback('showFontPicker', resolve, { options: options ?? {} });
+                this.#postMessageWithCallback('showFontPicker', resolve, { options: normalizedOptions });
             });
         }
         // Standalone fallback: render web component
         return new Promise((resolve) => {
-            const opts = typeof options === 'string' ? { defaultFont: options } : (options ?? {});
             const el = document.createElement('puter-font-picker');
-            const defaultFont = opts.defaultFont || opts.default || 'System UI';
             el.setAttribute('default-font', defaultFont);
             el.addEventListener('response', (e) => resolve(e.detail));
             document.body.appendChild(el);
