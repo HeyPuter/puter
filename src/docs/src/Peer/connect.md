@@ -31,7 +31,7 @@ A string invite code created by `puter.peer.serve()`.
 `options` is an object with the following properties:
 
 - `iceServers` (`RTCIceServer[]`) Custom ICE servers (STUN/TURN) to use instead of the Puter-managed relays.
-- `forceRelay` (`boolean`) Whether to force connections to route through a relay instead of attempting peer-to-peer (default). Metering charges will increase.
+- `forceRelay` (`boolean`) Whether to force connections to route through a relay instead of attempting peer-to-peer (default). Metering charges may apply.
 
 ## Return value
 
@@ -42,6 +42,7 @@ A `Promise` that resolves to a `PuterPeerConnection` instance.
 - `send(data)` - Send a message to the peer. Supports strings, `Blob`, `ArrayBuffer`, or `ArrayBufferView`.
 - `close(reason)` - Close the connection.
 - `owner` (`object`) - Information about the user who created the server.
+- `peerconnection` (`RTCPeerConnection`) - the raw underlying RTC handle for this connection.
 - `open` event: Fired when the data channel is ready.
 - `message` event: Fired when a message is received (`event.data`).
 - `close` event: Fired when the connection closes (`event.reason`).
