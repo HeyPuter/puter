@@ -189,6 +189,7 @@ class PuterPeerConnection extends EventTarget {
         super();
         this.#peerConfig = peerConfig;
         this.peerconnection = new RTCPeerConnection({
+            iceTransportPolicy: peerConfig.forceRelay ? "relay" : "all",
             iceServers: peerConfig.iceServers,
         });
         this.#datachannel = this.peerconnection.createDataChannel('channel-1', { negotiated: true, id: 2 });
@@ -446,6 +447,7 @@ class Peer {
             authToken: this.authToken,
             iceServers,
             signallerUrl: this.#signallerUrl,
+            forceRelay: options?.forceRelay
         };
     }
     async serve (options) {

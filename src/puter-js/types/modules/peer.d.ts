@@ -2,6 +2,7 @@
 export interface PuterPeerOptions {
     /** Custom ICE servers (STUN/TURN) to use instead of the Puter-managed relays. */
     iceServers?: RTCIceServer[];
+    forceRelay?: boolean;
 }
 
 /** Metadata about a peer user. */
