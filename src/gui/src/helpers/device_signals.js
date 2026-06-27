@@ -18,13 +18,16 @@
  */
 
 import { Thumbmark } from '@thumbmarkjs/thumbmarkjs';
+import { dispatchSignals } from '@prelude.so/js-sdk/signals';
 
 const FINGERPRINT_TIMEOUT = 1500;
-const DFP_TELEMETRY_TIMEOUT = 2500;
-// Server-side caps for the matching /signup fields; values that would be
-// rejected there are dropped client-side so signup can never 400 over them.
+const PRELUDE_DISPATCH_TIMEOUT = 2500;
+// Server-side cap for the matching /signup field; a value that would be
+// rejected there is dropped client-side so signup can never 400 over it.
 const FINGERPRINT_MAX_LENGTH = 128;
-const DFP_TELEMETRY_ID_MAX_LENGTH = 64;
+// Prelude dispatch ids are UUIDs; cap generously so a malformed value never
+// inflates the verification request body.
+const PRELUDE_DISPATCH_ID_MAX_LENGTH = 128;
 
 // Resolves null on rejection or timeout so signup flows can await these
 // signals unconditionally without ever blocking or failing on them.
@@ -61,41 +64,20 @@ const computeFingerprint = () => {
     return fingerprint_promise;
 };
 
-let stytch_script_promise = null;
-const loadStytchScript = () => {
-    if ( ! stytch_script_promise ) {
-        stytch_script_promise = window.loadScript('https://elements.stytch.com/telemetry.js');
-        stytch_script_promise.catch(error => {
-            // Don't cache the failure — a transient load error would
-            // otherwise disable DFP for the rest of the session.
-            stytch_script_promise = null;
-            console.debug('Stytch telemetry script unavailable:', error);
-        });
-    }
-    return stytch_script_promise;
-};
-
-// Telemetry ids are short-lived, so unlike the fingerprint this is fetched
-// fresh on every call; only the script load itself is reused.
-const fetchDfpTelemetryId = async () => {
-    await loadStytchScript();
-    if ( typeof window.GetTelemetryID !== 'function' ) {
-        return null;
-    }
-    const telemetry_id = await window.GetTelemetryID({
-        publicToken: window.gui_params.stytchPublicToken,
-    });
-    return telemetry_id || null;
+// Dispatch ids are tied to a single verification attempt, so unlike the
+// fingerprint this is fetched fresh on every call rather than cached.
+const fetchPreludeDispatchId = async () => {
+    return dispatchSignals(window.gui_params.preludeSdkKey);
 };
 
 /**
- * Installs window.getDeviceFingerprint() and window.getDfpTelemetryId(). Both
- * getters resolve to string|null and never reject. Collection is lazy: no
- * probing happens and no third-party script is loaded until a signup flow
- * actually asks. The fingerprint needs no credentials so it's on by default
- * (gui_params.thumbmarkEnabled = false is the kill switch); the Stytch
- * telemetry id requires a public token and is collected only when one is
- * configured.
+ * Installs window.getDeviceFingerprint() and window.getPreludeDispatchId().
+ * Both getters resolve to string|null and never reject. Collection is lazy: no
+ * probing or third-party request happens until a flow actually asks. The
+ * fingerprint needs no credentials so it's on by default (gui_params.
+ * thumbmarkEnabled = false is the kill switch); the Prelude dispatch id (browser
+ * signals forwarded to Prelude's Verify abuse model) is collected only when an
+ * SDK key is configured (gui_params.preludeSdkKey).
  */
 const init_device_signals = () => {
     window.getDeviceFingerprint = () => {
@@ -110,13 +92,13 @@ const init_device_signals = () => {
         }
     };
 
-    window.getDfpTelemetryId = () => {
+    window.getPreludeDispatchId = () => {
         try {
-            if ( ! window.gui_params?.stytchPublicToken ) {
+            if ( ! window.gui_params?.preludeSdkKey ) {
                 return Promise.resolve(null);
             }
-            return settleWithin(fetchDfpTelemetryId(), DFP_TELEMETRY_TIMEOUT)
-                .then(value => asPlausible(value, DFP_TELEMETRY_ID_MAX_LENGTH));
+            return settleWithin(fetchPreludeDispatchId(), PRELUDE_DISPATCH_TIMEOUT)
+                .then(value => asPlausible(value, PRELUDE_DISPATCH_ID_MAX_LENGTH));
         } catch (e) {
             return Promise.resolve(null);
         }

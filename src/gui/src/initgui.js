@@ -306,8 +306,8 @@ window.initgui = async function (options) {
     window.url_paths = url_paths;
 
     // Install device signal helpers; collection is lazy. The fingerprint is
-    // on by default (gui_params.thumbmarkEnabled = false kills it); the Stytch
-    // telemetry id needs gui_params.stytchPublicToken.
+    // on by default (gui_params.thumbmarkEnabled = false kills it); the Prelude
+    // dispatch id needs gui_params.preludeSdkKey.
     init_device_signals();
 
     let picked_a_user_for_sdk_login = false;
@@ -1325,17 +1325,11 @@ window.initgui = async function (options) {
                 requestData['cf-turnstile-response'] = turnstileToken;
             }
 
-            // Device signals for abuse prevention; omitted when unavailable
+            // Device signal for abuse prevention; omitted when unavailable
             try {
-                const [fingerprint, dfpTelemetryId] = await Promise.all([
-                    window.getDeviceFingerprint?.(),
-                    window.getDfpTelemetryId?.(),
-                ]);
+                const fingerprint = await window.getDeviceFingerprint?.();
                 if ( fingerprint ) {
                     requestData.fingerprint = fingerprint;
-                }
-                if ( dfpTelemetryId ) {
-                    requestData.dfp_telemetry_id = dfpTelemetryId;
                 }
             } catch (e) {
                 // signup must never block or fail because of device signals

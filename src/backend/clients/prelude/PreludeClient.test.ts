@@ -115,6 +115,32 @@ describe('PreludeClient', () => {
         );
     });
 
+    it('forwards dispatch_id as a top-level field, not inside signals', async () => {
+        fetchMock.mockResolvedValue(okJson({ id: 'v', status: 'success' }));
+        const client = makeClient('sk_test');
+
+        await client.createVerification('+14155550123', {
+            ip: '203.0.113.7',
+            dispatch_id: 'd1f5e9a0-0000-4000-8000-000000000000',
+        });
+
+        const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+        expect(body.dispatch_id).toBe('d1f5e9a0-0000-4000-8000-000000000000');
+        expect(body.signals).toEqual({ ip: '203.0.113.7' });
+        expect(body.signals).not.toHaveProperty('dispatch_id');
+    });
+
+    it('omits dispatch_id when not supplied', async () => {
+        fetchMock.mockResolvedValue(okJson({ id: 'v', status: 'success' }));
+        const client = makeClient('sk_test');
+
+        await client.createVerification('+14155550123', { ip: '203.0.113.7' });
+
+        expect(JSON.parse(fetchMock.mock.calls[0][1].body)).not.toHaveProperty(
+            'dispatch_id',
+        );
+    });
+
     it('includes a configured template_id + sender_id + preferred channel', async () => {
         fetchMock.mockResolvedValue(okJson({ id: 'v', status: 'success' }));
         const client = new PreludeClient({

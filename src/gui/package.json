@@ -47,6 +47,7 @@
   "dependencies": {
     "@opentelemetry/auto-instrumentations-node": "0.77.0",
     "@opentelemetry/sdk-node": "0.219.0",
+    "@prelude.so/js-sdk": "0.12.0",
     "@thumbmarkjs/thumbmarkjs": "1.9.1",
     "file-type": "21.3.3",
     "json-colorizer": "^3.0.1",

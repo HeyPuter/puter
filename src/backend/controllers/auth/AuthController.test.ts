@@ -609,7 +609,7 @@ describe('AuthController.handleSignup', () => {
     });
 });
 
-// -- Signup device signals (fingerprint + dfp_telemetry_id) --
+// -- Signup device signal (fingerprint) --
 
 describe('AuthController.handleSignup device signals', () => {
     const uniq = () => Math.random().toString(36).slice(2, 10);
@@ -631,11 +631,10 @@ describe('AuthController.handleSignup device signals', () => {
                 (evt) => (evt as { username?: string }).username === username,
             );
 
-    it('forwards fingerprint and dfp_telemetry_id verbatim to validate and success events', async () => {
+    it('forwards fingerprint verbatim to validate and success events', async () => {
         const username = `fp_${uniq()}`;
         const baseline = heardSignupSuccess.length;
         const fingerprint = 'Fp_abc.123-XYZ';
-        const dfpTelemetryId = 'tel_id-456';
 
         const seen = await captureValidateEvents(async () => {
             const res = makeRes();
@@ -645,7 +644,6 @@ describe('AuthController.handleSignup device signals', () => {
                     email: `${username}@test.local`,
                     password: 'correct-horse-battery',
                     fingerprint,
-                    dfp_telemetry_id: dfpTelemetryId,
                 }),
                 res,
             );
@@ -654,7 +652,6 @@ describe('AuthController.handleSignup device signals', () => {
 
         expect(seen).toHaveLength(1);
         expect(seen[0].fingerprint).toBe(fingerprint);
-        expect(seen[0].dfp_telemetry_id).toBe(dfpTelemetryId);
 
         const successes = successEventsFor(baseline, username);
         expect(successes).toHaveLength(1);
@@ -662,7 +659,7 @@ describe('AuthController.handleSignup device signals', () => {
         expect(successes[0].is_temp).toBe(false);
     });
 
-    it('accepts boundary-length values (128-char fingerprint, 64-char dfp_telemetry_id)', async () => {
+    it('accepts a boundary-length 128-char fingerprint', async () => {
         const username = `fp_${uniq()}`;
         const res = makeRes();
         await controller.handleSignup(
@@ -671,14 +668,13 @@ describe('AuthController.handleSignup device signals', () => {
                 email: `${username}@test.local`,
                 password: 'correct-horse-battery',
                 fingerprint: 'f'.repeat(128),
-                dfp_telemetry_id: 'd'.repeat(64),
             }),
             res,
         );
         expect(isCompleteLoginResponse(res.body)).toBe(true);
     });
 
-    it('defaults both fields to null on the validate event when absent', async () => {
+    it('defaults the fingerprint to null on the validate event when absent', async () => {
         const username = `fp_${uniq()}`;
         const baseline = heardSignupSuccess.length;
 
@@ -699,7 +695,6 @@ describe('AuthController.handleSignup device signals', () => {
 
         expect(seen).toHaveLength(1);
         expect(seen[0].fingerprint).toBeNull();
-        expect(seen[0].dfp_telemetry_id).toBeNull();
 
         const successes = successEventsFor(baseline, username);
         expect(successes).toHaveLength(1);
@@ -707,7 +702,7 @@ describe('AuthController.handleSignup device signals', () => {
         expect(successes[0].is_temp).toBe(false);
     });
 
-    it('treats empty-string fingerprint and dfp_telemetry_id as absent', async () => {
+    it('treats an empty-string fingerprint as absent', async () => {
         const username = `fp_${uniq()}`;
 
         const seen = await captureValidateEvents(async () => {
@@ -718,7 +713,6 @@ describe('AuthController.handleSignup device signals', () => {
                     email: `${username}@test.local`,
                     password: 'correct-horse-battery',
                     fingerprint: '',
-                    dfp_telemetry_id: '',
                 }),
                 res,
             );
@@ -728,7 +722,6 @@ describe('AuthController.handleSignup device signals', () => {
 
         expect(seen).toHaveLength(1);
         expect(seen[0].fingerprint).toBeNull();
-        expect(seen[0].dfp_telemetry_id).toBeNull();
     });
 
     it('rejects a non-string fingerprint with 400 and fires no success event', async () => {
@@ -768,37 +761,6 @@ describe('AuthController.handleSignup device signals', () => {
             ),
         ).rejects.toMatchObject({ statusCode: 400 });
         expect(heardSignupSuccess.length).toBe(baseline);
-    });
-
-    it('rejects a dfp_telemetry_id longer than 64 characters with 400 and fires no success event', async () => {
-        const username = `fp_${uniq()}`;
-        const baseline = heardSignupSuccess.length;
-        await expect(
-            controller.handleSignup(
-                makeReq({
-                    username,
-                    email: `${username}@test.local`,
-                    password: 'correct-horse-battery',
-                    dfp_telemetry_id: 'd'.repeat(65),
-                }),
-                makeRes(),
-            ),
-        ).rejects.toMatchObject({ statusCode: 400 });
-        expect(heardSignupSuccess.length).toBe(baseline);
-    });
-
-    it('rejects a non-string dfp_telemetry_id with 400', async () => {
-        await expect(
-            controller.handleSignup(
-                makeReq({
-                    username: `fp_${uniq()}`,
-                    email: `${uniq()}@test.local`,
-                    password: 'correct-horse-battery',
-                    dfp_telemetry_id: { nested: true },
-                }),
-                makeRes(),
-            ),
-        ).rejects.toMatchObject({ statusCode: 400 });
     });
 
     it('temp-user signup reports is_temp true and carries the fingerprint on the success event', async () => {

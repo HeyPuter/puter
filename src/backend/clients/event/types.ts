@@ -137,9 +137,8 @@ export type EventMap = {
          * the request for log / support correlation.
          */
         trail_id?: string;
-        /** Device signals forwarded verbatim from the signup request body. */
+        /** Device signal forwarded verbatim from the signup request body. */
         fingerprint?: string | null;
-        dfp_telemetry_id?: string | null;
         /** Set by the abuse harness — require SMS phone verification post-signup. */
         requires_phone_verification?: boolean;
         /** Set by the abuse harness — require card verification post-signup. */
