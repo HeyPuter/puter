@@ -233,6 +233,7 @@ describe('SystemController GET /whoarewe', () => {
         expect(captured.body).toMatchObject({
             name: 'Puter',
             environment: 'dev',
+            disable_user_signup: false,
         });
     });
 });

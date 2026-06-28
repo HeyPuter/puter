@@ -443,6 +443,13 @@ export class OIDCService extends PuterService {
             };
         }
 
+        if (this.config.disable_user_signup) {
+            return {
+                success: false,
+                error: 'User registration is disabled.',
+            };
+        }
+
         // Generate a unique username
         let username: string;
         let attempts = 0;

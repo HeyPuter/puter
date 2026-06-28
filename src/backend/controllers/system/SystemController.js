@@ -137,6 +137,7 @@ export class SystemController extends PuterController {
                 name: 'Puter',
                 version: this.config.version ?? null,
                 environment: this.config.env ?? 'prod',
+                disable_user_signup: Boolean(this.config.disable_user_signup),
             });
         });
 

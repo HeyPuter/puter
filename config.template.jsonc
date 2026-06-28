@@ -75,6 +75,9 @@
     "url_signature_secret": "change-me",
     "cookie_name": "puter_auth_token",
     "min_pass_length": 6,
+    // When true, anonymous users must log in instead of creating temp or
+    // permanent accounts.
+    "disable_user_signup": false,
     "allow_system_login": false,
     "strict_email_verification_required": false,
     "captcha": {
