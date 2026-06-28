@@ -489,6 +489,16 @@ export const TOGETHER_IMAGE_GENERATION_MODELS: IImageModel[] = [
         costs: { '1MP': 6 },
     },
     {
+        id: 'togetherai:ideogram/ideogram-4.0',
+        aliases: ['ideogram/ideogram-4.0', 'ideogram-4.0'],
+        costs_currency: 'usd-cents',
+        index_cost_key: '1MP',
+        name: 'ideogram/ideogram-4.0',
+        allowedQualityLevels: [''],
+        pricing_unit: 'per-MP',
+        costs: { '1MP': 6 },
+    },
+    {
         id: 'togetherai:openai/gpt-image-1.5',
         aliases: ['openai/gpt-image-1.5', 'gpt-image-1.5'],
         costs_currency: 'usd-cents',
