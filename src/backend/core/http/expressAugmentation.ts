@@ -42,6 +42,13 @@ declare global {
 
             tokenAuthFailed?: boolean;
 
+            /**
+             * Set when a token authenticated but its app is on the origin
+             * blocklist. The auth probe leaves `actor` unset; gates translate
+             * this into a 403 `app_blocked`.
+             */
+            appBlocked?: { reason?: string };
+
             requiresReauth?: {
                 reason: 'token_v1' | 'session_revoked' | 'session_expired';
                 auth_id?: string;

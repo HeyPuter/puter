@@ -18,6 +18,7 @@
  */
 
 import { ACLService } from './acl/ACLService';
+import { AppOriginBlocklistService } from './abuse/AppOriginBlocklistService';
 import { AppPermissionService } from './apps/AppPermissionService';
 import { RecommendedAppsService } from './apps/RecommendedAppsService';
 import { SuggestedAppsService } from './apps/SuggestedAppsService';
@@ -47,6 +48,7 @@ import type { IPuterServiceRegistry } from './types';
 declare module './types' {
     interface IPuterServiceInstances {
         metering: MeteringService;
+        appOriginBlocklist: AppOriginBlocklistService;
         permission: PermissionService;
         acl: ACLService;
         token: TokenService;
@@ -77,6 +79,10 @@ declare module './types' {
 // BroadcastService is independent — only needs the event client.
 export const puterServices = {
     metering: MeteringService,
+    // Declared before `auth` so AuthService sees it as a prior peer — it
+    // queries the blocklist on app-token acquisition and per-request app
+    // token validation.
+    appOriginBlocklist: AppOriginBlocklistService,
     permission: PermissionService,
     acl: ACLService,
     token: TokenService,

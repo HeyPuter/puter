@@ -1348,6 +1348,85 @@ describe('AuthService (integration)', () => {
         });
     });
 
+    describe('app origin blocklist enforcement', () => {
+        // The blocklist service caches with a TTL, so seed the row then
+        // invalidate the in-memory snapshot to force a reload for the test.
+        const blockOrigin = async (
+            domain: string,
+            includeSubdomains = false,
+        ) => {
+            await server.clients.db.write(
+                'INSERT INTO `blocked_app_origins` (`domain`, `include_subdomains`) VALUES (?, ?)',
+                [domain, includeSubdomains ? 1 : 0],
+            );
+            (
+                server.services.appOriginBlocklist as {
+                    invalidate: () => void;
+                }
+            ).invalidate();
+        };
+
+        it('appUidFromOrigin throws 403 app_blocked for a blocked exact host', async () => {
+            const host = `blocked-${uuidv4()}.example.com`;
+            await blockOrigin(host);
+            await expect(
+                authService.appUidFromOrigin(`https://${host}/`),
+            ).rejects.toMatchObject({
+                statusCode: 403,
+                legacyCode: 'app_blocked',
+            });
+        });
+
+        it('appUidFromOrigin throws for a subdomain of an include_subdomains entry', async () => {
+            const apex = `evil-${uuidv4()}.example.com`;
+            await blockOrigin(apex, true);
+            await expect(
+                authService.appUidFromOrigin(`https://app.${apex}/`),
+            ).rejects.toMatchObject({
+                statusCode: 403,
+                legacyCode: 'app_blocked',
+            });
+        });
+
+        it('appUidFromOrigin still resolves an unrelated origin', async () => {
+            const uid = await authService.appUidFromOrigin(
+                `https://fine-${uuidv4()}.example.com/`,
+            );
+            expect(uid).toMatch(/^app-/);
+        });
+
+        it('rejects an already-issued app token once its origin is blocked', async () => {
+            const user = await makeUser();
+            const host = `late-block-${uuidv4()}.example.com`;
+            const appUid = `app-${uuidv4()}`;
+            // App row carries the to-be-blocked host as its index_url.
+            await server.clients.db.write(
+                'INSERT INTO `apps` (`uid`, `name`, `title`, `index_url`, `owner_user_id`) VALUES (?, ?, ?, ?, ?)',
+                [appUid, `n-${appUid}`, `t-${appUid}`, `https://${host}/`, 1],
+            );
+            const appToken = await authService.getUserAppToken(
+                {
+                    user: {
+                        id: user.id,
+                        uuid: user.uuid,
+                        username: user.username,
+                    },
+                } as Actor,
+                appUid,
+            );
+
+            // Before blocking the token authenticates normally.
+            const ok = await authService.authenticate(appToken);
+            expect(ok.actor?.app?.uid).toBe(appUid);
+
+            // After blocking the same token is rejected with the blocked signal.
+            await blockOrigin(host);
+            const blocked = await authService.authenticate(appToken);
+            expect(blocked.actor).toBeUndefined();
+            expect(blocked.blocked).toBeTruthy();
+        });
+    });
+
     describe('getUserAppToken', () => {
         it('throws 403 when actor has no user', async () => {
             await expect(
