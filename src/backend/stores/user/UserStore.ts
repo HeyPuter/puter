@@ -37,6 +37,8 @@ export interface UserRow {
     email?: string | null;
     /** True when an admin has suspended the account. */
     suspended?: boolean;
+    /** When the account was suspended, as unix seconds; null while not suspended. */
+    suspended_at?: number | null;
     /** True when the user has confirmed the email currently on file. */
     email_confirmed?: boolean;
     /** True for accounts that must confirm email before taking most actions. */

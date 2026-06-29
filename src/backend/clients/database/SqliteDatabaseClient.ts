@@ -88,6 +88,8 @@ const AVAILABLE_MIGRATIONS: [number, string[]][] = [
     [52, ['0057_add_user_reputation.sql']],
     [53, ['0058_add_phone_verification.sql']],
     [54, ['0059_add_card_verification.sql']],
+    [55, ['0060_add_card_fingerprint.sql']],
+    [56, ['0061_add_suspended_at.sql']],
 ];
 
 export class SqliteDatabaseClient extends AbstractDatabaseClient {
