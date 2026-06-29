@@ -93,6 +93,13 @@ export const createAuthProbe = (opts: AuthProbeOptions): RequestHandler => {
                 );
             }
 
+            if (result.blocked) {
+                // App is on the origin blocklist: leave `actor` unset so gates
+                // reject. `appBlocked` lets the gate emit a clear 403 instead
+                // of the generic "token failed" 401.
+                req.appBlocked = { reason: result.blocked.reason };
+            }
+
             if (result.actor) {
                 req.actor = result.actor;
                 req.token = token;

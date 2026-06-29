@@ -79,6 +79,16 @@ export const subdomainGate = (allowed: string | string[]): RequestHandler => {
  */
 export const requireAuthGate = (): RequestHandler => {
     return (req, _res, next) => {
+        if (req.appBlocked) {
+            next(
+                new HttpError(
+                    403,
+                    'This app is not allowed to access Puter resources',
+                    { legacyCode: 'app_blocked' },
+                ),
+            );
+            return;
+        }
         if (!req.actor) {
             next(rejectAuth(req));
             return;

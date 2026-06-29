@@ -50,6 +50,13 @@ export interface AuthResult {
     actor?: Actor;
     reauth?: { reason: ReauthReason; auth_id?: string };
     invalid?: true;
+    /**
+     * The token authenticated, but its app is on the origin blocklist. The
+     * auth probe surfaces this as `req.appBlocked`; gates translate it to a
+     * 403 `app_blocked`. Distinct from `invalid` so the client sees a clear
+     * "app blocked" error rather than a generic auth failure.
+     */
+    blocked?: { reason?: string };
 }
 
 /**
@@ -890,6 +897,19 @@ export class AuthService extends PuterService {
         const aliased = this.#canonicalizeAliasedOrigin(parsed) ?? parsed;
         const event = { origin: aliased };
         await this.clients.event?.emitAndWait('app.from-origin', event, {});
+
+        // Blocked origins can't acquire an app token (or have one minted /
+        // checked / granted), so the app loses every path to Puter resources.
+        const block = await this.services.appOriginBlocklist.isOriginBlocked(
+            event.origin,
+        );
+        if (block.blocked) {
+            throw new HttpError(
+                403,
+                'This app is not allowed to access Puter resources',
+                { legacyCode: 'app_blocked' },
+            );
+        }
 
         const canonicalUid = await this.#findCanonicalAppUidForOrigin(
             event.origin,
@@ -1783,6 +1803,21 @@ export class AuthService extends PuterService {
 
         const app = await this.stores.app.getByUid(decoded.app_uid);
         if (!app) return { invalid: true };
+
+        // Reject already-issued app tokens whose app origin is now blocked, so
+        // a block takes effect immediately rather than waiting for token
+        // expiry. The app's `index_url` host is the same origin checked at
+        // token acquisition.
+        const indexUrl = (app as { index_url?: unknown }).index_url;
+        if (typeof indexUrl === 'string' && indexUrl) {
+            const block =
+                await this.services.appOriginBlocklist.isOriginBlocked(
+                    indexUrl,
+                );
+            if (block.blocked) {
+                return { blocked: { reason: block.reason } };
+            }
+        }
 
         let rawRow: SessionRow | null = null;
         if (decoded.session_uid) {
