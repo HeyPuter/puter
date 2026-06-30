@@ -27,10 +27,10 @@ Example model entry:
 ```json
 [
   {
-    "id": "claude-opus-4-5",
+    "id": "claude-opus-4-8",
     "provider": "claude",
-    "name": "Claude Opus 4.5",
-    "aliases": ["claude-opus-4-5-latest"],
+    "name": "Claude Opus 4.8",
+    "aliases": ["claude-opus-4-8-latest"],
     "context": 200000,
     "max_tokens": 64000,
     "cost": {

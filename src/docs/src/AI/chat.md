@@ -153,7 +153,7 @@ Pass in the `tools` parameter with the type of `web_search`.
 
 ```js
 {
-  model: 'openai/gpt-5.2-chat',
+  model: 'openai/gpt-5.3-chat',
   tools: [{type: "web_search"}]
 }
 ```
@@ -214,7 +214,7 @@ is an opaque payload; treat it as a black box and just carry it forward.
 
 ```js
 const resp = await puter.ai.chat(messages, {
-    model: 'gpt-5.4',                       // or 'claude-opus-4-8' — same code
+    model: 'gpt-5.5',                       // or 'claude-opus-4-8' — same code
     stream: true,
     compaction: { trigger_tokens: 60000 },
 });
@@ -241,7 +241,7 @@ if ( compaction ) {
             },
             { role: 'user', content: 'now compare the two approaches' },
         ],
-        { model: 'gpt-5.4', stream: true, compaction: true }
+        { model: 'gpt-5.5', stream: true, compaction: true }
     );
     for await ( const part of next ) {
         if ( part.type === 'text' ) document.write(part.text);
@@ -253,7 +253,7 @@ if ( compaction ) {
 
 ```js
 const result = await puter.ai.chat(messages, {
-    model: 'gpt-5.4',
+    model: 'gpt-5.5',
     compaction: { trigger_tokens: 60000 },
 });
 console.log(result.message.content);
@@ -274,7 +274,7 @@ if ( result.compaction ) {
             },
             { role: 'user', content: 'now compare the two approaches' },
         ],
-        { model: 'gpt-5.4', compaction: true }
+        { model: 'gpt-5.5', compaction: true }
     );
     console.log(next.message.content);
 }
@@ -369,7 +369,7 @@ Image generation works with `stream: true`. Image chunks arrive as `image` event
 
 ```js
 const resp = await puter.ai.chat("Draw a cat", {
-    model: "gemini-2.5-flash-image",
+    model: "gemini-3.1-flash-image-preview",
     stream: true,
 });
 
@@ -442,7 +442,7 @@ for await (const part of resp) {
     <script src="https://js.puter.com/v2/"></script>
     <script>
     (async () => {
-        const resp = await puter.ai.chat('Tell me in detail what Rick and Morty is all about.', {model: 'gemini-2.5-flash-lite', stream: true });
+        const resp = await puter.ai.chat('Tell me in detail what Rick and Morty is all about.', {model: 'gemini-3.1-flash-lite', stream: true });
         for await ( const part of resp ) document.write(part?.text.replaceAll('\n', '<br>'));
     })();
     </script>
@@ -602,7 +602,7 @@ for await (const part of resp) {
         puter.print(`Loading...`);
         puter.ai
             .chat("Summarize what the User-Pays Model is: https://docs.puter.com/user-pays-model/", {
-                model: "openai/gpt-5.2-chat",
+                model: "openai/gpt-5.3-chat",
                 tools: [{ type: "web_search" }],
             })
             .then(puter.print);
@@ -643,7 +643,7 @@ Policy 8 - Account Management: Each Enterprise and Ultimate customer is assigned
                     },
                     { role: "user", content: question },
                 ],
-                { model: "claude-sonnet-4-5" }
+                { model: "claude-sonnet-4-6" }
             );
             return response.message.content[0].text;
         }
@@ -676,7 +676,7 @@ Policy 8 - Account Management: Each Enterprise and Ultimate customer is assigned
     (async () => {
         puter.print("Generating image...<br>");
         const result = await puter.ai.chat("Draw a cute cat wearing a top hat", {
-            model: "gemini-2.5-flash-image",
+            model: "gemini-3.1-flash-image-preview",
         });
         puter.print(result.message.content + "<br>");
         if (result.message.images?.length > 0) {
@@ -859,7 +859,7 @@ Policy 8 - Account Management: Each Enterprise and Ultimate customer is assigned
                             }
                         ]
                     }
-                ], { model: 'claude-sonnet-4', stream: true });
+                ], { model: 'claude-sonnet-4-6', stream: true });
 
                 let text = '';
 

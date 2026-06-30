@@ -5,7 +5,7 @@
         puter.print(`Loading...`);
         puter.ai
             .chat("Summarize what the User-Pays Model is: https://docs.puter.com/user-pays-model/", {
-                model: "openai/gpt-5.2-chat",
+                model: "openai/gpt-5.3-chat",
                 tools: [{ type: "web_search" }],
             })
             .then(puter.print);
