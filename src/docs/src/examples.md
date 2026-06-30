@@ -50,7 +50,7 @@ description: Find examples of serverless applications built with Puter.js
     </a>
     <div class="example-card-desc">
         <h2 id="image-desc"><a href="/playground/app-camera/?autorun=1" target="_blank">Image Describer</a></h2>
-        <p>Allows you take a picture and describe it using the Puter AI module. This app is powered by Puter.js AI.</p>
+        <p>Allows you to take a picture and describe it using the Puter.js AI module. This app is powered by Puter.js AI.</p>
     </div>
 </div>
 
