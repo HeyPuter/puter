@@ -20,7 +20,7 @@
 import bcrypt from 'bcrypt';
 import type { Request, RequestHandler, Response } from 'express';
 import crypto from 'node:crypto';
-import { v4 as uuidv4 } from 'uuid';
+import { v4 as uuidv4, validate as validateUuid } from 'uuid';
 import validator from 'validator';
 import { Controller, Get, Post } from '../../core/http/decorators.js';
 import { HttpError } from '../../core/http/HttpError.js';
@@ -99,6 +99,63 @@ const RESERVED_USERNAMES = new Set([
  */
 @Controller('')
 export class AuthController extends PuterController {
+    @Post('/login/wait', {
+        subdomain: ['api'],
+    })
+    async loginWait(req: Request, res: Response) {
+        const { session } = req.body;
+        // validate uuid to prevent ultra long key or listening on pubsub.login.*
+        if (!session || !validateUuid(session)) {
+            throw new HttpError(400, 'session is required.', {
+                legacyCode: 'bad_request',
+            });
+        }
+        const { resolve, promise } = Promise.withResolvers<void>();
+
+        let token: string | null = null;
+        const listener = (_key: string, value: { authtoken: string }) => {
+            token = value.authtoken;
+            resolve();
+        };
+        this.clients.event.on(`pubsub.login.${session}`, listener);
+
+        const timeout = new Promise<void>((resolve) =>
+            setTimeout(resolve, 10000),
+        );
+        await Promise.race([promise, timeout]);
+        if (!token) {
+            throw new HttpError(408, 'Request timeout.', {
+                legacyCode: 'request_timeout',
+            });
+        }
+        this.clients.event.off(`pubsub.login.${session}`, listener);
+
+        res.json({
+            auth_token: token,
+        });
+    }
+    @Post('/login/set', {
+        subdomain: ['api'],
+    })
+    async loginSet(req: Request, res: Response) {
+        const { session, auth_token } = req.body;
+        if (!session || !auth_token || !validateUuid(session)) {
+            throw new HttpError(400, 'session and auth_token are required.', {
+                legacyCode: 'bad_request',
+            });
+        }
+
+        this.clients.event.emit(
+            `pubsub.login.${session}`,
+            {
+                authtoken: auth_token,
+            },
+            {},
+        );
+
+        res.json({ success: true });
+    }
+
     // -- Login -------------------------------------------------------
 
     @Post('/login', {
