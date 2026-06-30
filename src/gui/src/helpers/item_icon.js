@@ -19,6 +19,7 @@
 
 import mime from '../lib/mime.js';
 import content_type_to_icon from './content_type_to_icon.js';
+import { getWeblinkIcon } from './weblink.js';
 
 /**
  * Assigns an icon to a filesystem entry based on its properties such as name, type,
@@ -240,7 +241,7 @@ const item_icon = async (fsentry) => {
     }
     // *.weblink
     else if ( fsentry.name.toLowerCase().endsWith('.weblink') ) {
-        return { image: window.icons['link.svg'], type: 'icon' };
+        return { image: await getWeblinkIcon(fsentry), type: 'icon' };
     }
     // *.tar
     else if ( fsentry.name.toLowerCase().endsWith('.tar') ) {
