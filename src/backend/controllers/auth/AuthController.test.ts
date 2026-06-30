@@ -2534,6 +2534,240 @@ describe('AuthController.handleCardVerificationConfirm', () => {
     });
 });
 
+describe('AuthController SMS → card fallback', () => {
+    const stubPrelude = (over: Record<string, unknown> = {}) => ({
+        isConfigured: () => true,
+        isCountrySupported: () => true,
+        defaultCountry: 'US',
+        createVerification: vi.fn(async () => ({ status: 'success' })),
+        ...over,
+    });
+    const withPrelude = async (
+        prelude: unknown,
+        fn: () => Promise<void>,
+    ): Promise<void> => {
+        const ctrl = controller as { clients: { prelude: unknown } };
+        const real = ctrl.clients.prelude;
+        ctrl.clients.prelude = prelude;
+        try {
+            await fn();
+        } finally {
+            ctrl.clients.prelude = real;
+        }
+    };
+    const withFallbackConfig = async (
+        value: unknown,
+        fn: () => Promise<void>,
+    ): Promise<void> => {
+        const cfg = (controller as { config: Record<string, unknown> }).config;
+        const prev = cfg.phone_verification_card_fallback;
+        cfg.phone_verification_card_fallback = value;
+        try {
+            await fn();
+        } finally {
+            cfg.phone_verification_card_fallback = prev;
+        }
+    };
+    // Drive the attempt counter directly so the threshold is deterministic
+    // (the handler keys it the same way: `phone-verify-attempts:<id>`).
+    const seedAttempts = (userId: number, attempts: number) =>
+        server.stores.kv.incr({
+            key: `phone-verify-attempts:${userId}`,
+            pathAndAmountMap: { attempts },
+        });
+
+    it('offers the fallback on send once the attempt threshold is reached', async () => {
+        const { actor } = await makeUserAndActor({
+            requires_phone_verification: 1,
+        });
+        // No after_attempts → exercises the default threshold of 2.
+        await withFallbackConfig({ enabled: true }, async () => {
+            await withPrelude(stubPrelude(), async () => {
+                const first = makeRes();
+                await controller.handleSendConfirmPhone(
+                    makeReq({ phone: '+14155550123' }, { actor }),
+                    first,
+                );
+                // First attempt is below the threshold — no offer yet.
+                expect(first.body).toEqual({});
+
+                const second = makeRes();
+                await controller.handleSendConfirmPhone(
+                    makeReq({ phone: '+14155550123' }, { actor }),
+                    second,
+                );
+                expect(second.body).toEqual({
+                    card_fallback_available: true,
+                });
+            });
+        });
+    });
+
+    it('never offers the fallback on send when disabled', async () => {
+        const { actor } = await makeUserAndActor({
+            requires_phone_verification: 1,
+        });
+        await withFallbackConfig(
+            { enabled: false, after_attempts: 1 },
+            async () => {
+                await withPrelude(stubPrelude(), async () => {
+                    const res = makeRes();
+                    await controller.handleSendConfirmPhone(
+                        makeReq({ phone: '+14155550123' }, { actor }),
+                        res,
+                    );
+                    expect(res.body).toEqual({});
+                });
+            },
+        );
+    });
+
+    it('flags the fallback on a Prelude block once eligible', async () => {
+        const { actor } = await makeUserAndActor({
+            requires_phone_verification: 1,
+        });
+        await withFallbackConfig(
+            { enabled: true, after_attempts: 1 },
+            async () => {
+                await withPrelude(
+                    stubPrelude({
+                        createVerification: vi.fn(async () => ({
+                            status: 'blocked',
+                        })),
+                    }),
+                    async () => {
+                        await expect(
+                            controller.handleSendConfirmPhone(
+                                makeReq({ phone: '+14155550123' }, { actor }),
+                                makeRes(),
+                            ),
+                        ).rejects.toMatchObject({
+                            statusCode: 429,
+                            fields: { card_fallback_available: true },
+                        });
+                    },
+                );
+            },
+        );
+    });
+
+    it('lets card setup proceed past the phone gate once eligible', async () => {
+        const { user, actor } = await makeUserAndActor({
+            requires_card_verification: 1,
+            requires_phone_verification: 1,
+            phone: '+14155550123',
+        });
+        await seedAttempts(user.id, 3);
+        await withFallbackConfig(
+            { enabled: true, after_attempts: 3 },
+            async () => {
+                const res = makeRes();
+                await withCardSetupOverride(
+                    (data) => {
+                        data.enabled = true;
+                        data.client_secret = 'seti_secret';
+                        data.publishable_key = 'pk_test';
+                    },
+                    () =>
+                        controller.handleCardVerificationSetup(
+                            makeReq({}, { actor }),
+                            res,
+                        ),
+                );
+                expect(res.body).toEqual({
+                    client_secret: 'seti_secret',
+                    publishable_key: 'pk_test',
+                });
+            },
+        );
+    });
+
+    it('still 409s card setup under the attempt threshold', async () => {
+        const { user, actor } = await makeUserAndActor({
+            requires_card_verification: 1,
+            requires_phone_verification: 1,
+            phone: '+14155550123',
+        });
+        await seedAttempts(user.id, 1);
+        await withFallbackConfig(
+            { enabled: true, after_attempts: 3 },
+            async () => {
+                await expect(
+                    controller.handleCardVerificationSetup(
+                        makeReq({}, { actor }),
+                        makeRes(),
+                    ),
+                ).rejects.toMatchObject({ statusCode: 409 });
+            },
+        );
+    });
+
+    it('clears BOTH gates when the fallback card verifies', async () => {
+        const { user, actor } = await makeUserAndActor({
+            requires_card_verification: 1,
+            requires_phone_verification: 1,
+            phone: '+14155550123',
+        });
+        await seedAttempts(user.id, 3);
+        await withFallbackConfig(
+            { enabled: true, after_attempts: 3 },
+            async () => {
+                const res = makeRes();
+                await withCardConfirmOverride(
+                    (data) => {
+                        data.enabled = true;
+                        data.verified = true;
+                    },
+                    () =>
+                        controller.handleCardVerificationConfirm(
+                            makeReq({ setup_intent_id: 'seti_1' }, { actor }),
+                            res,
+                        ),
+                );
+                expect(res.body).toMatchObject({
+                    card_verified: true,
+                    phone_verified: true,
+                });
+            },
+        );
+        const after = await server.stores.user.getById(user.id, {
+            force: true,
+        });
+        expect(after!.requires_card_verification).toBe(false);
+        expect(after!.requires_phone_verification).toBe(false);
+    });
+
+    it('clears the phone gate via card even when card was not required', async () => {
+        const { user, actor } = await makeUserAndActor({
+            requires_phone_verification: 1,
+            phone: '+14155550123',
+        });
+        await seedAttempts(user.id, 3);
+        await withFallbackConfig(
+            { enabled: true, after_attempts: 3 },
+            async () => {
+                const res = makeRes();
+                await withCardConfirmOverride(
+                    (data) => {
+                        data.enabled = true;
+                        data.verified = true;
+                    },
+                    () =>
+                        controller.handleCardVerificationConfirm(
+                            makeReq({ setup_intent_id: 'seti_1' }, { actor }),
+                            res,
+                        ),
+                );
+                expect(res.body).toMatchObject({ phone_verified: true });
+            },
+        );
+        const after = await server.stores.user.getById(user.id, {
+            force: true,
+        });
+        expect(after!.requires_phone_verification).toBe(false);
+    });
+});
+
 describe('AuthController.handleConfirmEmail', () => {
     it('throws 400 when code is missing', async () => {
         const { actor } = await makeUserAndActor();

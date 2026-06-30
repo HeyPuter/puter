@@ -584,6 +584,23 @@ interface IConfigOptional {
      * signups). Requires a payments extension to actually run the $0 auth.
      */
     always_require_card_verification: boolean;
+    /**
+     * Let a user who keeps getting blocked on SMS phone verification fall
+     * back to credit-card verification, which clears the phone gate (and the
+     * card gate too, when one is set). Off by default. The fallback only
+     * opens after the user has made `after_attempts` SMS send attempts inside
+     * the send rate-limit window — i.e. they've genuinely tried SMS and it
+     * isn't working — so it can't be used to skip phone verification outright.
+     * Requires a payments extension to run the actual card check.
+     */
+    phone_verification_card_fallback: {
+        enabled: boolean;
+        /**
+         * SMS send attempts (within the send rate-limit window) before the
+         * card fallback opens. Defaults to 2 when omitted.
+         */
+        after_attempts?: number;
+    };
     /** Captcha configuration. */
     captcha: { enabled: boolean; difficulty?: 'easy' | 'medium' | 'hard' };
     /** OIDC / OAuth2 providers (google + custom). */

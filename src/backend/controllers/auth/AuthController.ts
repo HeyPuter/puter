@@ -61,6 +61,8 @@ const USERNAME_REGEX = /^\w{1,}$/;
 const USERNAME_MAX_LENGTH = 45;
 const FINGERPRINT_MAX_LENGTH = 128;
 const DISPATCH_ID_MAX_LENGTH = 128;
+// Default SMS send attempts before the card fallback opens.
+const DEFAULT_CARD_FALLBACK_ATTEMPTS = 2;
 const RESERVED_USERNAMES = new Set([
     'admin',
     'administrator',
@@ -1056,6 +1058,63 @@ export class AuthController extends PuterController {
         });
     }
 
+    // -- SMS-to-card fallback -----------------------------------------
+    //
+    // Once a user has made enough SMS send attempts in the rate-limit window
+    // without getting through, they can verify a card instead to clear the
+    // phone gate. Off unless config enables it.
+
+    private cardFallbackConfig(): { enabled: boolean; afterAttempts: number } {
+        const cfg = this.config.phone_verification_card_fallback;
+        const afterAttempts =
+            typeof cfg?.after_attempts === 'number' && cfg.after_attempts > 0
+                ? cfg.after_attempts
+                : DEFAULT_CARD_FALLBACK_ATTEMPTS;
+        return { enabled: Boolean(cfg?.enabled), afterAttempts };
+    }
+
+    private phoneAttemptsKey(userId: number): string {
+        return `phone-verify-attempts:${userId}`;
+    }
+
+    // TTL ties the counter to the send rate-limit window, so it resets with it.
+    private async bumpPhoneAttempts(userId: number): Promise<number> {
+        try {
+            const { res } = await this.stores.kv.incr({
+                key: this.phoneAttemptsKey(userId),
+                pathAndAmountMap: { attempts: 1 },
+                expireAt: Math.floor(Date.now() / 1000) + 60 * 60,
+            });
+            const count = (res as { attempts?: number } | null)?.attempts;
+            return typeof count === 'number' ? count : 0;
+        } catch (e) {
+            console.warn('[send-confirm-phone] attempt-count bump failed:', e);
+            return 0;
+        }
+    }
+
+    private async readPhoneAttempts(userId: number): Promise<number> {
+        try {
+            const { res } = await this.stores.kv.get({
+                key: this.phoneAttemptsKey(userId),
+            });
+            const count = (res as { attempts?: number } | null)?.attempts;
+            return typeof count === 'number' ? count : 0;
+        } catch (e) {
+            console.warn('[card-verification] attempt-count read failed:', e);
+            return 0;
+        }
+    }
+
+    private async isCardFallbackEligible(user: {
+        id: number;
+        requires_phone_verification?: boolean | number | null;
+    }): Promise<boolean> {
+        const { enabled, afterAttempts } = this.cardFallbackConfig();
+        if (!enabled || !user.requires_phone_verification) return false;
+        return (await this.readPhoneAttempts(user.id)) >= afterAttempts;
+    }
+
     @Post('/send-confirm-phone', {
         subdomain: ['api', ''],
         requireUserActor: true,
@@ -1127,6 +1186,19 @@ export class AuthController extends PuterController {
                 { legacyCode: 'phone_country_not_supported' as never },
             );
 
+        // Counted before the abuse / Prelude checks so a blocked attempt still
+        // counts toward the fallback threshold.
+        const attempts = await this.bumpPhoneAttempts(user.id);
+        const { enabled: fallbackEnabled, afterAttempts } =
+            this.cardFallbackConfig();
+        const fallbackAvailable =
+            fallbackEnabled &&
+            Boolean(user.requires_phone_verification) &&
+            attempts >= afterAttempts;
+        const fallbackFields = fallbackAvailable
+            ? { card_fallback_available: true }
+            : {};
+
         // Abuse caps live ENTIRELY in a listening abuse extension, consulted
         // via `puter.phone-verification.check`. The backend ships no thresholds
         // or detection of its own (so none of it is readable in the open-source
@@ -1169,9 +1241,12 @@ export class AuthController extends PuterController {
                 },
                 {
                     legacyCode: 'phone_verification_unavailable' as never,
-                    fields: abuseCheck.reason
-                        ? { reason: abuseCheck.reason }
-                        : {},
+                    fields: {
+                        ...fallbackFields,
+                        ...(abuseCheck.reason
+                            ? { reason: abuseCheck.reason }
+                            : {}),
+                    },
                 },
             );
 
@@ -1232,7 +1307,10 @@ export class AuthController extends PuterController {
                         userUid: user.uuid,
                         country: parsed.country,
                     },
-                    { legacyCode: 'too_many_requests' as never },
+                    {
+                        legacyCode: 'too_many_requests' as never,
+                        fields: fallbackFields,
+                    },
                 );
             }
         } catch (e) {
@@ -1269,7 +1347,7 @@ export class AuthController extends PuterController {
         } catch {
             // ignore — best-effort velocity signal
         }
-        res.json({});
+        res.json(fallbackAvailable ? { card_fallback_available: true } : {});
     }
 
     @Post('/confirm-phone', {
@@ -1420,11 +1498,14 @@ export class AuthController extends PuterController {
             throw new HttpError(403, 'Account suspended.', {
                 legacyCode: 'account_suspended',
             });
-        if (!user.requires_card_verification) {
+        // Phone normally comes first, but the fallback lets a phone-gated user
+        // in once they've exhausted SMS attempts.
+        const fallbackEligible = await this.isCardFallbackEligible(user);
+        if (!user.requires_card_verification && !fallbackEligible) {
             res.json({ card_verified: true });
             return;
         }
-        if (user.requires_phone_verification)
+        if (user.requires_phone_verification && !fallbackEligible)
             throw new HttpError(
                 409,
                 'Phone verification must be completed first.',
@@ -1528,11 +1609,13 @@ export class AuthController extends PuterController {
             throw new HttpError(404, 'User not found.', {
                 legacyCode: 'not_found',
             });
-        if (!user.requires_card_verification) {
+        // Same fallback exception as setup: card may come before phone.
+        const fallbackEligible = await this.isCardFallbackEligible(user);
+        if (!user.requires_card_verification && !fallbackEligible) {
             res.json({ card_verified: true });
             return;
         }
-        if (user.requires_phone_verification)
+        if (user.requires_phone_verification && !fallbackEligible)
             throw new HttpError(
                 409,
                 'Phone verification must be completed first.',
@@ -1579,8 +1662,11 @@ export class AuthController extends PuterController {
             return;
         }
 
+        // A fallback card clears the phone gate too — the point of the fallback.
+        const clearedPhoneGate = Boolean(user.requires_phone_verification);
         await this.stores.user.update(user.id, {
             requires_card_verification: 0,
+            ...(clearedPhoneGate ? { requires_phone_verification: 0 } : {}),
         });
 
         try {
@@ -1605,11 +1691,21 @@ export class AuthController extends PuterController {
                 'user.card_verified',
                 { original_client_socket_id },
             );
+            // The fallback cleared the phone gate too — tell phone-gate UIs.
+            if (clearedPhoneGate)
+                await this.services.socket?.send(
+                    { room: user.id },
+                    'user.phone_verified',
+                    { original_client_socket_id },
+                );
         } catch {
             // ignore — best-effort
         }
 
-        res.json({ card_verified: true });
+        res.json({
+            card_verified: true,
+            ...(clearedPhoneGate ? { phone_verified: true } : {}),
+        });
     }
 
     // -- Password recovery -------------------------------------------
