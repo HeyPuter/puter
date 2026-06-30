@@ -5,7 +5,7 @@
     (async () => {
         puter.print("Generating image...<br>");
         const result = await puter.ai.chat("Draw a cute cat wearing a top hat", {
-            model: "gemini-2.5-flash-image",
+            model: "gemini-3.1-flash-image-preview",
         });
         puter.print(result.message.content + "<br>");
         if (result.message.images?.length > 0) {
