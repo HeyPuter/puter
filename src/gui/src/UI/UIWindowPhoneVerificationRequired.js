@@ -763,11 +763,17 @@ function UIWindowPhoneVerificationRequired(options) {
                 },
                 error: function (xhr) {
                     const reason = xhr.responseJSON?.reason;
-                    showError(
+                    let msg =
                         SEND_REASON_MESSAGES[reason] ??
-                            xhr.responseJSON?.error ??
-                            T.could_not_send,
-                    );
+                        xhr.responseJSON?.error ??
+                        T.could_not_send;
+                    // Append the support reference id the backend minted for
+                    // this failure (it logged the real reason against it), so
+                    // the user can quote it when they email support.
+                    const errorId = xhr.responseJSON?.error_id;
+                    if (errorId)
+                        msg += ' ' + i18n('phone_error_reference', { id: errorId });
+                    showError(msg);
                 },
                 complete: function () {
                     is_sending = false;

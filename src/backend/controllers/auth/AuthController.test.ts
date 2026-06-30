@@ -1864,6 +1864,48 @@ describe('AuthController.handleSendConfirmPhone validation', () => {
         );
     });
 
+    it('attaches a support error_id to a Prelude block', async () => {
+        const { actor } = await makeUserAndActor();
+        await withPrelude(
+            stubPrelude({
+                createVerification: vi.fn(async () => ({ status: 'blocked' })),
+            }),
+            async () => {
+                await expect(
+                    controller.handleSendConfirmPhone(
+                        makeReq({ phone: '+14155550123' }, { actor }),
+                        makeRes(),
+                    ),
+                ).rejects.toMatchObject({
+                    statusCode: 429,
+                    fields: { error_id: expect.any(String) },
+                });
+            },
+        );
+    });
+
+    it('attaches a support error_id when the Prelude request throws', async () => {
+        const { actor } = await makeUserAndActor();
+        await withPrelude(
+            stubPrelude({
+                createVerification: vi.fn(async () => {
+                    throw new Error('network down');
+                }),
+            }),
+            async () => {
+                await expect(
+                    controller.handleSendConfirmPhone(
+                        makeReq({ phone: '+14155550123' }, { actor }),
+                        makeRes(),
+                    ),
+                ).rejects.toMatchObject({
+                    statusCode: 502,
+                    fields: { error_id: expect.any(String) },
+                });
+            },
+        );
+    });
+
     it('forwards ip, device fingerprint, and user-agent to Prelude as signals', async () => {
         const { actor } = await makeUserAndActor();
         const createVerification = vi.fn(async () => ({ status: 'success' }));

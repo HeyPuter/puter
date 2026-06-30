@@ -24,6 +24,7 @@ import { v4 as uuidv4 } from 'uuid';
 import validator from 'validator';
 import { Controller, Get, Post } from '../../core/http/decorators.js';
 import { HttpError } from '../../core/http/HttpError.js';
+import type { HttpErrorOptions } from '../../core/http/HttpError.js';
 import { antiCsrf } from '../../core/http/middleware/antiCsrf.js';
 import { generateCaptcha } from '../../core/http/middleware/captcha.js';
 import { checkRateLimit } from '../../core/http/middleware/rateLimit.js';
@@ -1018,6 +1019,43 @@ export class AuthController extends PuterController {
 
     // -- Phone verification (SMS via Prelude) ------------------------
 
+    /**
+     * Build the error thrown when a verification SMS can't be sent (a delivery
+     * failure, or a refused/blocked send). Mints a short `error_id`, writes a
+     * single greppable line tying that id to the real reason (so support can
+     * look it up in CloudWatch with the id the user quotes), and returns the
+     * `HttpError` with the id attached as `error_id` for the GUI to surface.
+     * The phone number is deliberately omitted from the log line (PII); the
+     * user + country are enough to correlate.
+     */
+    private smsSendError(
+        statusCode: number,
+        clientMessage: string,
+        reason: string,
+        ctx: {
+            userId?: number;
+            userUid?: string;
+            country?: string;
+            detail?: unknown;
+        },
+        options: HttpErrorOptions = {},
+    ): HttpError {
+        const errorId = uuidv4();
+        const detail =
+            ctx.detail instanceof Error ? ctx.detail.message : ctx.detail;
+        console.warn(
+            `[send-confirm-phone] send_failed error_id=${errorId} ` +
+                `reason=${reason} status=${statusCode} ` +
+                `user_id=${ctx.userId ?? ''} user_uid=${ctx.userUid ?? ''} ` +
+                `country=${ctx.country ?? ''}` +
+                (detail ? ` detail=${JSON.stringify(String(detail))}` : ''),
+        );
+        return new HttpError(statusCode, clientMessage, {
+            ...options,
+            fields: { ...options.fields, error_id: errorId },
+        });
+    }
+
     @Post('/send-confirm-phone', {
         subdomain: ['api', ''],
         requireUserActor: true,
@@ -1042,9 +1080,13 @@ export class AuthController extends PuterController {
                 legacyCode: 'account_suspended',
             });
         if (!this.clients.prelude?.isConfigured())
-            throw new HttpError(503, 'Phone verification is unavailable.', {
-                legacyCode: 'service_unavailable' as never,
-            });
+            throw this.smsSendError(
+                503,
+                'Phone verification is unavailable.',
+                'prelude_not_configured',
+                { userId: user.id, userUid: user.uuid },
+                { legacyCode: 'service_unavailable' as never },
+            );
 
         // Parse to E.164 (Prelude's required form + the stored form) and the
         // country, so we can apply the per-country cost cap.
@@ -1073,9 +1115,15 @@ export class AuthController extends PuterController {
         // (see PreludeClient / countries.ts). Avoids paying exorbitant per-SMS
         // rates in low-revenue, high-fraud geographies.
         if (!this.clients.prelude.isCountrySupported(parsed.country))
-            throw new HttpError(
+            throw this.smsSendError(
                 400,
                 'Phone verification is not available for this country.',
+                'country_not_supported',
+                {
+                    userId: user.id,
+                    userUid: user.uuid,
+                    country: parsed.country,
+                },
                 { legacyCode: 'phone_country_not_supported' as never },
             );
 
@@ -1110,9 +1158,15 @@ export class AuthController extends PuterController {
         // its meaning lives in the extension (which sets it) and the GUI (which
         // displays it), so no abuse semantics leak into the OSS repo.
         if (abuseCheck.allowed === false)
-            throw new HttpError(
+            throw this.smsSendError(
                 429,
                 'Phone verification is unavailable for this number right now.',
+                `not_allowed:${abuseCheck.reason ?? 'unspecified'}`,
+                {
+                    userId: user.id,
+                    userUid: user.uuid,
+                    country: parsed.country,
+                },
                 {
                     legacyCode: 'phone_verification_unavailable' as never,
                     fields: abuseCheck.reason
@@ -1135,10 +1189,18 @@ export class AuthController extends PuterController {
                 expireAt: Math.floor(Date.now() / 1000) + 60 * 60,
             });
         } catch (e) {
-            console.warn('[send-confirm-phone] pending-store failed:', e);
-            throw new HttpError(503, 'Could not start phone verification.', {
-                legacyCode: 'service_unavailable' as never,
-            });
+            throw this.smsSendError(
+                503,
+                'Could not start phone verification.',
+                'pending_store_failed',
+                {
+                    userId: user.id,
+                    userUid: user.uuid,
+                    country: parsed.country,
+                    detail: e,
+                },
+                { legacyCode: 'service_unavailable' as never },
+            );
         }
 
         const ip = req.ip || req.socket?.remoteAddress || undefined;
@@ -1161,18 +1223,32 @@ export class AuthController extends PuterController {
                 result.status === 'blocked' ||
                 result.status === 'shadow_blocked'
             ) {
-                throw new HttpError(
+                throw this.smsSendError(
                     429,
                     'Phone verification is temporarily unavailable for this number.',
+                    `prelude_${result.status}`,
+                    {
+                        userId: user.id,
+                        userUid: user.uuid,
+                        country: parsed.country,
+                    },
                     { legacyCode: 'too_many_requests' as never },
                 );
             }
         } catch (e) {
             if (e instanceof HttpError) throw e;
-            console.warn('[send-confirm-phone] createVerification failed:', e);
-            throw new HttpError(502, 'Could not send verification code.', {
-                legacyCode: 'upstream_error' as never,
-            });
+            throw this.smsSendError(
+                502,
+                'Could not send verification code.',
+                'prelude_request_failed',
+                {
+                    userId: user.id,
+                    userUid: user.uuid,
+                    country: parsed.country,
+                    detail: e,
+                },
+                { legacyCode: 'upstream_error' as never },
+            );
         }
 
         // Tell the abuse extension a code was actually sent, so it can bump its

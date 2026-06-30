@@ -240,6 +240,7 @@ const en = {
         phone_enter_valid: 'Please enter a valid phone number.',
         phone_invalid_code: 'Invalid verification code.',
         phone_could_not_send: 'Could not send a code to that number.',
+        phone_error_reference: 'If this keeps happening, email support@puter.com and include this code: {{id}}',
         phone_could_not_verify: 'Could not verify code.',
         phone_search_countries: 'Search countries',
         phone_no_matches: 'No matches',
