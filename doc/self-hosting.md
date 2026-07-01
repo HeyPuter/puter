@@ -379,6 +379,15 @@ Built-in proof-of-work captcha — no external service needed.
 
 `difficulty` is one of `easy` / `medium` / `hard`.
 
+### Disable new signups
+
+Force visitors to log in with an existing account instead of creating a
+temporary or permanent one.
+
+```json
+"disable_user_signup": true
+```
+
 ### Block disposable email TLDs
 
 Only enforced when `env: "prod"`.

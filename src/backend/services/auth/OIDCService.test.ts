@@ -211,4 +211,25 @@ describe('OIDCService.createUserFromOIDC', () => {
         expect(result.success).toBe(false);
         expect(result.error).toMatch(/verify/i);
     });
+
+    it('refuses to create a fresh account when registration is disabled', async () => {
+        const oidcConfig = server.services.oidc.config as {
+            disable_user_signup?: boolean;
+        };
+        const prev = oidcConfig.disable_user_signup;
+        oidcConfig.disable_user_signup = true;
+        try {
+            const result = await runWithContext({ req }, () =>
+                oidc().createUserFromOIDC('microsoft', {
+                    sub: 'disabled-sub',
+                    email: 'disabled@example.com',
+                    email_verified: true,
+                }),
+            );
+            expect(result.success).toBe(false);
+            expect(result.error).toMatch(/disabled/i);
+        } finally {
+            oidcConfig.disable_user_signup = prev;
+        }
+    });
 });

@@ -614,6 +614,11 @@ export class AuthController extends PuterController {
                 pseudo_user = existing;
             }
         }
+        if (this.config.disable_user_signup && !pseudo_user) {
+            throw new HttpError(403, 'User registration is disabled.', {
+                legacyCode: 'signup_disabled',
+            });
+        }
 
         // Extension-level validation gate. Abuse-prevention extensions
         // inspect the incoming signup and can:
