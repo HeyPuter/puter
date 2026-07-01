@@ -19,6 +19,7 @@
 
 import UIPrompt from '../UI/UIPrompt.js';
 import UIAlert from '../UI/UIAlert.js';
+import { createWeblinkData, defaultWeblinkIcon } from './weblink.js';
 
 /**
  * Returns a context menu item to create a new folder and a variety of file types.
@@ -93,20 +94,14 @@ const new_context_menu_item = function (dirname, append_to_element) {
                         let linkName = siteName;
                         let fileName = `${linkName }.weblink`;
 
-                        // Store the URL in a simple JSON object
-                        const weblink_content = JSON.stringify({
+                        const icon = defaultWeblinkIcon();
+                        const weblink_content = JSON.stringify(createWeblinkData({
                             url: url,
-                            type: 'weblink',
                             domain: domain,
-                            created: Date.now(),
-                            modified: Date.now(),
-                            version: '2.0',
-                            metadata: {
-                                originalUrl: url,
-                                linkName: linkName,
-                                simpleName: siteName,
-                            },
-                        });
+                            linkName: linkName,
+                            simpleName: siteName,
+                            icon: icon,
+                        }));
 
                         // Create the file with standard link icon
                         const item = await window.create_file({
@@ -114,17 +109,18 @@ const new_context_menu_item = function (dirname, append_to_element) {
                             append_to_element: append_to_element,
                             name: fileName,
                             content: weblink_content,
-                            icon: window.icons['link.svg'],
+                            icon: icon,
                             type: 'weblink',
                             metadata: JSON.stringify({
                                 url: url,
                                 domain: domain,
+                                icon: icon,
                                 timestamp: Date.now(),
-                                version: '2.0',
+                                version: '2.1',
                             }),
                             html_attributes: {
                                 'data-weblink': 'true',
-                                'data-icon': window.icons['link.svg'],
+                                'data-icon': icon,
                                 'data-url': url,
                                 'data-domain': domain,
                                 'data-display-name': linkName,

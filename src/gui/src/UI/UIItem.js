@@ -30,6 +30,7 @@ import truncate_filename from '../helpers/truncate_filename.js';
 import launch_app from '../helpers/launch_app.js';
 import open_item from '../helpers/open_item.js';
 import mime from '../lib/mime.js';
+import { changeWeblinkIcon } from '../helpers/weblink.js';
 
 const AI_APP_NAME = 'ai';
 
@@ -1143,6 +1144,7 @@ async function UIItem (options) {
         // -------------------------------------------------------
         else {
             const is_trash = $(el_item).attr('data-path') === window.trash_path || $(el_item).attr('data-shortcut_to_path') === window.trash_path;
+            const is_weblink = $(el_item).attr('data-name')?.toLowerCase().endsWith('.weblink');
             menu_items = [];
             // -------------------------------------------
             // Open
@@ -1566,6 +1568,21 @@ async function UIItem (options) {
                             options.shortcut_to === '' ? options.uid : options.shortcut_to,
                             options.shortcut_to_path === '' ? options.path : options.shortcut_to_path,
                         );
+                    },
+                });
+            }
+            // -------------------------------------------
+            // Change Web Link Icon
+            // -------------------------------------------
+            if ( !is_trashed && !is_trash && is_weblink ) {
+                menu_items.push({
+                    html: 'Change Icon',
+                    onClick: async function () {
+                        try {
+                            await changeWeblinkIcon(el_item);
+                        } catch (error) {
+                            UIAlert(error.message ?? 'Could not change the web link icon.');
+                        }
                     },
                 });
             }
