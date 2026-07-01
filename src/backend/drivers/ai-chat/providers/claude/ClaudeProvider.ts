@@ -268,6 +268,7 @@ export class ClaudeProvider implements IChatProvider {
         // Other models require temperature=1 when thinking is enabled.
         const omitsTemperature = [
             'claude-fable-5',
+            'claude-sonnet-5',
             'claude-opus-4-7',
             'claude-opus-4-8',
         ].includes(modelUsed.id);
@@ -278,6 +279,7 @@ export class ClaudeProvider implements IChatProvider {
               : (temperature ?? 0);
         const supportsEffort = [
             'claude-fable-5',
+            'claude-sonnet-5',
             'claude-opus-4-8',
             'claude-opus-4-7',
             'claude-opus-4-6',
