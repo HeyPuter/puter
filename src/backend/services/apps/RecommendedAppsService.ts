@@ -34,6 +34,7 @@ const RECOMMENDED_APP_NAMES = [
     'butler',
     'code',
     'music-player',
+    'contacts',
     'browser',
     'memos',
     'word-processor',
