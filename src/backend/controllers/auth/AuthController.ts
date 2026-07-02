@@ -23,8 +23,8 @@ import crypto from 'node:crypto';
 import { v4 as uuidv4 } from 'uuid';
 import validator from 'validator';
 import { Controller, Get, Post } from '../../core/http/decorators.js';
-import { HttpError } from '../../core/http/HttpError.js';
 import type { HttpErrorOptions } from '../../core/http/HttpError.js';
+import { HttpError } from '../../core/http/HttpError.js';
 import { antiCsrf } from '../../core/http/middleware/antiCsrf.js';
 import { generateCaptcha } from '../../core/http/middleware/captcha.js';
 import { checkRateLimit } from '../../core/http/middleware/rateLimit.js';
@@ -2795,6 +2795,33 @@ export class AuthController extends PuterController {
         })();
 
         await Promise.all([userPermGrantPromise, missingFSPathPromise]);
+
+        try {
+            const a = app as {
+                id?: number;
+                uid?: string;
+                index_url?: string | null;
+                owner_user_id?: number | null;
+                name?: string | null;
+            };
+            this.clients.event?.emit(
+                'puter.app.authenticated' as never,
+                {
+                    app_uid,
+                    app: {
+                        id: a.id,
+                        uid: a.uid,
+                        index_url: a.index_url ?? null,
+                        owner_user_id: a.owner_user_id ?? null,
+                        name: a.name ?? null,
+                    },
+                    user_id: req.actor!.user?.id ?? null,
+                } as never,
+                {},
+            );
+        } catch {
+            // Fine if failed
+        }
 
         res.json({ token, app_uid });
     }
