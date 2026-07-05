@@ -82,6 +82,9 @@ export class HomepageController extends PuterController {
         router.get('/dashboard', {}, (req, res) => sendShell(req, res));
         router.get('/dashboard/', {}, (req, res) => sendShell(req, res));
 
+        router.get('/desktop', {}, (req, res) => sendShell(req, res));
+        router.get('/desktop/', {}, (req, res) => sendShell(req, res));
+
         router.get('/action/*splat', {}, (req, res) => sendShell(req, res));
 
         router.get('/@:username', {}, (req, res) => sendShell(req, res));

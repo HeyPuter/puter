@@ -206,6 +206,7 @@ const en = {
         or: 'or',
         open: 'Open',
         new_window: 'New Window',
+        open_desktop: 'Open Desktop',
         open_in_ai: 'Open in AI',
         open_in_new_tab: 'Open in New Tab',
         open_in_new_window: 'Open in New Window',

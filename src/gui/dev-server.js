@@ -52,7 +52,7 @@ startServer(1);
 // build the GUI
 build();
 
-app.get(['/', '/app/*', '/action/*'], (req, res) => {
+app.get(['/', '/app/*', '/action/*', '/desktop', '/dashboard'], (req, res) => {
     res.send(generateDevHtml({
         env: env,
         api_origin: 'https://api.puter.com',

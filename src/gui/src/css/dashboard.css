@@ -404,6 +404,17 @@ body {
     font-weight: 500;
 }
 
+/* Open Desktop button pinned above user options */
+.dashboard-desktop-btn {
+    border: 1px solid var(--dashboard-border);
+    margin-bottom: 0;
+    justify-content: center;
+}
+
+.dashboard-sidebar.collapsed .dashboard-desktop-btn {
+    border: none;
+}
+
 /* User options button at bottom of sidebar */
 .dashboard-user-options {
     border-top: 1px solid var(--dashboard-border);

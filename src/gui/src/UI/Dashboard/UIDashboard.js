@@ -106,6 +106,12 @@ async function UIDashboard (options) {
             }
             h += '</div>';
 
+            // Open Desktop button, pinned above user options
+            h += `<a class="dashboard-sidebar-item dashboard-desktop-btn allow-native-ctxmenu" href="/desktop" data-tooltip="${html_encode(i18n('open_desktop'))}">`;
+                h += '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>';
+                h += i18n('open_desktop');
+            h += '</a>';
+
             // User options button at bottom
             h += '<div class="dashboard-user-options">';
                 h += '<div class="dashboard-user-btn">';
@@ -148,6 +154,11 @@ async function UIDashboard (options) {
     });
 
     const $el_window = $(el_window);
+
+    // Remove `?ref=...` from the URL, keeping the path and tab hash (mirrors UIDesktop)
+    if ( window.url_query_params?.has('ref') ) {
+        window.history.pushState(null, document.title, window.location.pathname + window.location.hash);
+    }
 
     // Restore sidebar collapsed state
     if ( localStorage.getItem('dashboard-sidebar-collapsed') === '1' ) {
@@ -285,8 +296,9 @@ async function UIDashboard (options) {
     window.addEventListener('hashchange', handleRouteChange);
     window.addEventListener('popstate', handleRouteChange);
 
-    // Sidebar item click handler
-    $el_window.on('click', '.dashboard-sidebar-item', function (e) {
+    // Sidebar item click handler — only tab items ([data-section]); plain links
+    // like the "Open Desktop" button navigate natively
+    $el_window.on('click', '.dashboard-sidebar-item[data-section]', function (e) {
         e.preventDefault();
         const $this = $(this);
         const section = $this.attr('data-section');

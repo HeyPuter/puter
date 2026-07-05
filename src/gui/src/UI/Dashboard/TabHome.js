@@ -273,7 +273,7 @@ const TabHome = {
 
         // Handle desktop switch button
         $el_window.on('click', '.bento-desktop-switch-btn', function () {
-            window.location.href = '/';
+            window.location.href = '/desktop';
         });
 
         // Handle "Save Account" warning click

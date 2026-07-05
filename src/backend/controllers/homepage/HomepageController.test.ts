@@ -173,12 +173,14 @@ describe('HomepageController shell routes', () => {
         expect(String(captured.body)).toMatch(/<!DOCTYPE html>/i);
     });
 
-    it('serves the shell on /settings, /dashboard, /action, /@:username', async () => {
+    it('serves the shell on /settings, /dashboard, /desktop, /action, /@:username', async () => {
         for (const path of [
             '/settings',
             '/settings/*splat',
             '/dashboard',
             '/dashboard/',
+            '/desktop',
+            '/desktop/',
             '/action/*splat',
             '/@:username',
         ]) {
