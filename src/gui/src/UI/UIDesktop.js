@@ -709,9 +709,9 @@ async function UIDesktop (options) {
         window.sidebar_items = val;
     });
 
-    // Remove `?ref=...` from navbar URL
+    // Remove `?ref=...` from navbar URL, keeping the current path
     if ( window.url_query_params.has('ref') ) {
-        window.history.pushState(null, document.title, '/');
+        window.history.pushState(null, document.title, window.location.pathname);
     }
 
     //show_hidden_files
@@ -1732,7 +1732,7 @@ async function UIDesktop (options) {
         try {
             stat = await puter.fs.stat({ path: item_path, consistency: 'eventual' });
         } catch ( e ) {
-            window.history.replaceState(null, document.title, '/');
+            window.history.replaceState(null, document.title, '/desktop');
             UIAlert({
                 message: i18n('error_user_or_path_not_found'),
                 type: 'error',
@@ -1816,9 +1816,11 @@ async function UIDesktop (options) {
 
     //--------------------------------------------------------------------------------------
     // Direct download link
-    // i.e. https://puter.com/?download=<file_url>
+    // i.e. https://puter.com/?download=<file_url> or https://puter.com/desktop?download=<file_url>
     //--------------------------------------------------------------------------------------
-    if ( window.url_paths.length === 0 && window.url_query_params.has('download') ) {
+    const is_bare_desktop_path = window.url_paths.length === 0
+        || (window.url_paths.length === 1 && window.url_paths[0]?.toLocaleLowerCase() === 'desktop');
+    if ( is_bare_desktop_path && window.url_query_params.has('download') ) {
         const url = window.url_query_params.get('download');
         let file_name = url.split('/').pop().split('?')[0];
 
@@ -2051,7 +2053,7 @@ $(document).on('contextmenu taphold', '.toolbar', function (event) {
 $(document).on('click', '.qr-btn', async function (e) {
     UIWindowQR({
         message_i18n_key: 'scan_qr_c2a',
-        text: `${window.gui_origin }?auth_token=${ window.auth_token}`,
+        text: `${window.gui_origin }/desktop?auth_token=${ window.auth_token}`,
     });
 });
 

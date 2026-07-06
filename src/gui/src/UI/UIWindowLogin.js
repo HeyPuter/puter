@@ -381,7 +381,8 @@ async function UIWindowLogin (options) {
 
         if ( logo_clickable ) {
             $(el_window).find('.auth-logo').on('click', function () {
-                window.location.href = '/';
+                // keep desktop users on the desktop; everyone else goes to the root dashboard
+                window.location.href = window.location.pathname === '/desktop' ? '/desktop' : '/';
             });
         }
 
@@ -406,6 +407,12 @@ async function UIWindowLogin (options) {
                     $(el_window).find(btnClass).css('display', 'flex');
                     $(el_window).find(btnClass).on('click', function () {
                         let url = `${window.gui_origin}/auth/oidc/${provider}/start?flow=login`;
+
+                        // return to the interface the login started from (backend whitelists the path)
+                        const return_to = window.location.pathname;
+                        if ( return_to === '/desktop' || return_to === '/dashboard' ) {
+                            url += `&return_to=${encodeURIComponent(return_to)}`;
+                        }
 
                         const referrer = options.referrer ?? window.referrerStr ?? window.openerOrigin;
                         if ( referrer ) {

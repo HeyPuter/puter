@@ -157,9 +157,29 @@ if ( jQuery ) {
 }
 
 // are we in dashboard mode?
-if ( window.location.pathname === '/dashboard' || window.location.pathname === '/dashboard/' ) {
-    window.is_dashboard_mode = true;
-    window.dashboard_initial_route = parseDashboardRoute();
+// The dashboard is the default interface at the root path; `/dashboard` is kept as an
+// alias, and `/desktop` loads the desktop instead. Root URLs that carry a desktop-only
+// flow keep booting the desktop: auth popups (`?embedded_in_popup=`), app deep links
+// (`?app=`), direct downloads (`?download=`), fullpage mode (`?puter.fullpage=`), and
+// iframe embeds.
+{
+    const pathname = window.location.pathname;
+    const search_params = new URLSearchParams(window.location.search);
+    if ( ['true', '1'].includes(search_params.get('embedded_in_popup')) ) {
+        window.embedded_in_popup = true;
+    }
+    // note: iframe detection is inlined because globals.js (window.is_embedded) loads after this module
+    const in_iframe = window.location !== window.parent.location;
+    const needs_desktop_at_root = window.embedded_in_popup
+        || in_iframe
+        || search_params.has('puter.fullpage')
+        || search_params.has('app')
+        || search_params.has('download');
+    const is_dashboard_alias = pathname === '/dashboard' || pathname === '/dashboard/';
+    if ( is_dashboard_alias || (pathname === '/' && !needs_desktop_at_root) ) {
+        window.is_dashboard_mode = true;
+        window.dashboard_initial_route = parseDashboardRoute();
+    }
 }
 
 /**
@@ -431,9 +451,9 @@ window.initgui = async function (options) {
     //--------------------------------------------------------------------------------------
     // Is GUI embedded in a popup?
     // i.e. https://puter.com/?embedded_in_popup=true
+    // (the flag itself is parsed once at module level, alongside the dashboard-mode check)
     //--------------------------------------------------------------------------------------
-    if ( window.url_query_params.has('embedded_in_popup') && (window.url_query_params.get('embedded_in_popup') === 'true' || window.url_query_params.get('embedded_in_popup') === '1') ) {
-        window.embedded_in_popup = true;
+    if ( window.embedded_in_popup ) {
         $('body').addClass('embedded-in-popup');
 
         // determine the origin of the opener (preserved across OIDC redirect via URL param, else referrer or messaging)
@@ -720,8 +740,9 @@ window.initgui = async function (options) {
             // update auth data
             await window.update_auth_data(query_param_auth_token, whoami, api_origin);
         }
-        // remove auth_token from URL
-        window.history.pushState(null, document.title, '/');
+        // remove auth_token from URL, keeping the current path (e.g. `/` or `/desktop`)
+        // and hash (dashboard tab links like /#usage)
+        window.history.pushState(null, document.title, window.location.pathname + window.location.hash);
     }
 
     /**
@@ -845,8 +866,9 @@ window.initgui = async function (options) {
         $('.taskbar').remove();
         // disable native browser exit confirmation
         window.onbeforeunload = null;
-        // go to home page
-        window.location.replace('/');
+        // go back to the interface the user was in: dashboard users to the root
+        // dashboard, desktop users to /desktop
+        window.location.replace(window.is_dashboard_mode ? '/' : '/desktop');
     });
 
     // -------------------------------------------------------------------------------------
@@ -1251,6 +1273,11 @@ window.initgui = async function (options) {
         const needs_action = action === 'authme' || action === 'copyauth';
         const reload_on_success = needs_action;
         if ( window.logged_in_users.length > 0 ) {
+            // dashboard mode skips the wallpaper (fullpage), but the session list
+            // has no cover page — restore the wallpaper so it isn't on a blank page
+            if ( window.is_dashboard_mode ) {
+                window.refresh_desktop_background();
+            }
             await UIWindowSessionList({
                 redirect_url: needs_action ? window.location.href : undefined,
             });

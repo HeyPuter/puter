@@ -149,6 +149,11 @@ async function UIDashboard (options) {
 
     const $el_window = $(el_window);
 
+    // Remove `?ref=...` from the URL, keeping the path and tab hash (mirrors UIDesktop)
+    if ( window.url_query_params?.has('ref') ) {
+        window.history.pushState(null, document.title, window.location.pathname + window.location.hash);
+    }
+
     // Restore sidebar collapsed state
     if ( localStorage.getItem('dashboard-sidebar-collapsed') === '1' ) {
         $el_window.find('.dashboard-sidebar').addClass('collapsed');
@@ -285,8 +290,9 @@ async function UIDashboard (options) {
     window.addEventListener('hashchange', handleRouteChange);
     window.addEventListener('popstate', handleRouteChange);
 
-    // Sidebar item click handler
-    $el_window.on('click', '.dashboard-sidebar-item', function (e) {
+    // Sidebar item click handler — only tab items ([data-section]); plain links
+    // like the "Open Desktop" button navigate natively
+    $el_window.on('click', '.dashboard-sidebar-item[data-section]', function (e) {
         e.preventDefault();
         const $this = $(this);
         const section = $this.attr('data-section');

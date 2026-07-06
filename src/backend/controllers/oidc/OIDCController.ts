@@ -139,6 +139,19 @@ export class OIDCController extends PuterController {
 
                 let appRedirectUri = flowRedirects[flow] ?? (origin || '/');
 
+                // Optional GUI return path so login started from /desktop or
+                // /dashboard lands back there. Strict whitelist — never a
+                // client-supplied URL (no open redirect).
+                const rawReturnTo = Array.isArray(req.query.return_to)
+                    ? req.query.return_to[0]
+                    : req.query.return_to;
+                if (
+                    (flow === 'login' || flow === 'signup') &&
+                    (rawReturnTo === '/desktop' || rawReturnTo === '/dashboard')
+                ) {
+                    appRedirectUri = `${origin}${rawReturnTo}`;
+                }
+
                 // Popup support
                 const rawPopup = Array.isArray(req.query.embedded_in_popup)
                     ? req.query.embedded_in_popup[0]
