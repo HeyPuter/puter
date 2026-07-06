@@ -132,6 +132,9 @@ describe('installedApps extension — handleInstalledApps', () => {
         expect(list[0].uid).toBe(app!.uid);
         expect(list[0].name).toBe(app!.name);
         expect(list[0].title).toBe(app!.title);
+        // index_url is required so the dashboard can derive a hostname title
+        // for anonymous (app-…) apps.
+        expect(list[0].index_url).toBe(app!.index_url);
         expect(Object.prototype.hasOwnProperty.call(list[0], 'iconUrl')).toBe(
             true,
         );

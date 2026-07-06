@@ -49,6 +49,7 @@ export const handleInstalledApps = async (
             apps.title,
             apps.description,
             apps.icon,
+            apps.index_url,
             MIN(perm.dt) AS installed_at
         FROM apps
         LEFT JOIN user_to_app_permissions AS perm ON apps.id = perm.app_id
