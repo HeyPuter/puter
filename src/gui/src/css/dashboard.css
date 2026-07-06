@@ -1083,9 +1083,6 @@ input.myapps-search::placeholder {
     border-radius: 20px;
     overflow: hidden;
     border: 1px solid var(--dashboard-shadow-light);
-    box-shadow:
-        0 1px 2px var(--dashboard-shadow-subtle),
-        0 4px 16px var(--dashboard-shadow-light);
 }
 
 /* Welcome Card — uses same surface as .bento-card (no separate welcome tint) */
