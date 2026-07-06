@@ -84,9 +84,13 @@
     "node": ">=24.0.0"
   },
   "allowScripts": {
-    "protobufjs@7.6.4": true,
-    "workerd@1.20260617.1": true,
     "@google/genai": false,
-    "esbuild@0.28.1": true
+    "bcrypt@5.1.1": true,
+    "better-sqlite3@12.11.1": true,
+    "browser-tabs-lock@1.3.0": true,
+    "classic-level@3.0.0": true,
+    "protobufjs@7.6.5": true,
+    "sharp@0.34.5": true,
+    "workerd@1.20260701.1": true
   }
 }
