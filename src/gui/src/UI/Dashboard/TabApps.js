@@ -45,7 +45,21 @@ function buildAppsGrid (apps) {
 
     let h = '<div class="myapps-grid myapps-grid-loading">';
     for ( const app of apps ) {
-        const title = (app.title || app.name || '').trim();
+        let title = (app.title || app.name || '').trim();
+
+        // Anonymous apps report an opaque id (uuid === name === title, all
+        // starting with 'app-'); show the hostname of index_url instead,
+        // matching the Home tab.
+        const appUid = app.uid || app.uuid;
+        if (
+            app.name === app.title &&
+            app.name === appUid &&
+            app.name?.startsWith('app-') &&
+            app.index_url
+        ) {
+            title = new URL(app.index_url).hostname;
+        }
+
         const iconUrl = app.iconUrl || window.icons['app.svg'];
 
         h += `<div class="myapps-tile" data-app-name="${html_encode(app.name)}" data-app-title="${html_encode(title)}" data-app-uid="${html_encode(app.uid || '')}" title="${html_encode(title)}">`;
@@ -292,6 +306,7 @@ const TabApps = {
                 name: app.name,
                 title: app.title,
                 uid: app.uuid || app.uid || null,
+                index_url: app.index_url || null,
                 iconUrl: app.iconUrl || app.icon || null,
             }));
 
