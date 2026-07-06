@@ -652,7 +652,7 @@ body {
 
 @supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
     .myapps-search-wrap {
-        background: rgba(255, 255, 255, 0.52);
+        background: rgba(255, 255, 255, 0);
         backdrop-filter: blur(20px) saturate(1.5);
         -webkit-backdrop-filter: blur(20px) saturate(1.5);
     }
