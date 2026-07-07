@@ -43,6 +43,12 @@ export type PreludeChannel =
     | 'zalo'
     | 'telegram';
 /**
+ * Channels Prelude reports in a verification's `channels` array — the ordered
+ * delivery sequence, first entry first. Superset of `PreludeChannel`: 'silent'
+ * and 'voice' can appear as delivery methods but can't be preferred.
+ */
+export type PreludeDeliveryChannel = PreludeChannel | 'silent' | 'voice';
+/**
  * Default per-SMS cost ceiling (EUR). Countries whose Prelude SMS rate exceeds
  * this — or that have no SMS channel — are not offered phone verification. The
  * cap covers every realistic revenue market (priciest are Germany €0.0598 and
@@ -117,18 +123,6 @@ export class PreludeClient extends PuterClient {
         return price.sms <= this.maxSmsCostEur;
     }
 
-    /**
-     * Create (or retry) a verification: Prelude sends an OTP to `target`.
-     * @param target E.164 phone number, e.g. "+14155550123".
-     * @param signals Optional anti-fraud signals. The more we forward, the
-     *   better Prelude's fraud model scores the attempt (per their docs IP +
-     *   device + platform are the highest-value). We pass what the backend
-     *   already has: the request `ip`, the client `device_id` (ThumbmarkJS
-     *   hash), and the `user_agent` (Prelude infers platform/model/OS from it).
-     *   `dispatch_id` carries the richer browser signals gathered by Prelude's
-     *   frontend JS Signals SDK; it's a top-level field in the request, not part
-     *   of the `signals` object, so it's pulled out below.
-     */
     async createVerification(
         target: string,
         signals: {
@@ -137,7 +131,11 @@ export class PreludeClient extends PuterClient {
             user_agent?: string;
             dispatch_id?: string;
         } = {},
-    ): Promise<{ id?: string; status: PreludeCreateStatus }> {
+    ): Promise<{
+        id?: string;
+        status: PreludeCreateStatus;
+        channels?: PreludeDeliveryChannel[];
+    }> {
         // Match the 6-box code UI (UIWindowPhoneVerificationRequired). Without
         // code_size Prelude uses the dashboard default (4). preferred_channel
         // prioritizes RCS (cheaper); Prelude falls back to SMS when unavailable.
@@ -171,6 +169,7 @@ export class PreludeClient extends PuterClient {
         return this.#post('/verification', body) as Promise<{
             id?: string;
             status: PreludeCreateStatus;
+            channels?: PreludeDeliveryChannel[];
         }>;
     }
 

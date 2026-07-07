@@ -2047,6 +2047,38 @@ describe('AuthController.handleSendConfirmPhone validation', () => {
             user_agent: undefined,
         });
     });
+
+    it('returns the delivery channel Prelude picked so the client can point at the right app', async () => {
+        const { actor } = await makeUserAndActor();
+        await withPrelude(
+            stubPrelude({
+                createVerification: vi.fn(async () => ({
+                    status: 'success',
+                    channels: ['whatsapp', 'sms'],
+                })),
+            }),
+            async () => {
+                const res = makeRes();
+                await controller.handleSendConfirmPhone(
+                    makeReq({ phone: '+14155550123' }, { actor }),
+                    res,
+                );
+                expect(res.body).toMatchObject({ channel: 'whatsapp' });
+            },
+        );
+    });
+
+    it('omits `channel` when Prelude reports no delivery sequence', async () => {
+        const { actor } = await makeUserAndActor();
+        await withPrelude(stubPrelude(), async () => {
+            const res = makeRes();
+            await controller.handleSendConfirmPhone(
+                makeReq({ phone: '+14155550123' }, { actor }),
+                res,
+            );
+            expect(res.body).not.toHaveProperty('channel');
+        });
+    });
 });
 
 describe('AuthController phone verification — staging & reuse', () => {
