@@ -46,10 +46,12 @@ function buildAppsGrid (apps) {
     let h = '<div class="myapps-grid myapps-grid-loading">';
     for ( const app of apps ) {
         let title = (app.title || app.name || '').trim();
+        let targetLink = '';
 
         // External apps (not owned by a Puter user) can report an opaque app-… id
         // as their title (uid === name === title); in that case show the hostname
-        // of index_url instead, matching the Home tab.
+        // of index_url instead, and open the app's website (index_url) on click —
+        // matching the Home tab.
         const appUid = app.uid || app.uuid;
         if (
             app.external &&
@@ -58,11 +60,12 @@ function buildAppsGrid (apps) {
             app.index_url
         ) {
             title = new URL(app.index_url).hostname;
+            targetLink = app.index_url;
         }
 
         const iconUrl = app.iconUrl || window.icons['app.svg'];
 
-        h += `<div class="myapps-tile" data-app-name="${html_encode(app.name)}" data-app-title="${html_encode(title)}" data-app-uid="${html_encode(app.uid || '')}" title="${html_encode(title)}">`;
+        h += `<div class="myapps-tile" data-app-name="${html_encode(app.name)}" data-app-title="${html_encode(title)}" data-app-uid="${html_encode(app.uid || '')}" data-target-link="${html_encode(targetLink)}" title="${html_encode(title)}">`;
         h += '<div class="myapps-tile-icon">';
         h += `<img src="${html_encode(iconUrl)}" alt="" draggable="false">`;
         h += '</div>';
@@ -225,12 +228,17 @@ const TabApps = {
             updateSearch($input);
         });
 
-        // Handle app tile clicks
+        // Handle app tile clicks. External apps carry a target link (their
+        // index_url) and open the app's website directly; everything else
+        // opens the Puter app page — matching the Home tab.
         $el_window.on('click', '.myapps-tile', function (e) {
             e.preventDefault();
             e.stopPropagation();
             const appName = $(this).attr('data-app-name');
-            if ( appName ) {
+            const targetLink = $(this).attr('data-target-link');
+            if ( targetLink && targetLink !== '' ) {
+                window.open(targetLink, '_blank');
+            } else if ( appName ) {
                 window.open(`/app/${appName}`, '_blank');
             }
         });
