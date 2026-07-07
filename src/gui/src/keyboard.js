@@ -27,9 +27,10 @@ $(document).bind('keydown', async function (e) {
     const focused_el = document.activeElement;
     //-----------------------------------------------------------------------------
     // Search
-    // ctrl/command + f, will open UIWindowSearch
+    // ctrl/command + f, will open UIWindowSearch — but not while the dashboard
+    // is open, where ctrl/cmd + f should fall through to the browser's find.
     //-----------------------------------------------------------------------------
-    if ( (e.ctrlKey || e.metaKey) && e.which === 70 && !$(focused_el).is('input') && !$(focused_el).is('textarea') ) {
+    if ( (e.ctrlKey || e.metaKey) && e.which === 70 && !$(focused_el).is('input') && !$(focused_el).is('textarea') && $('.window-dashboard').length === 0 ) {
         e.preventDefault();
         e.stopPropagation();
         UIWindowSearch();
