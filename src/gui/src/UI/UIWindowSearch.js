@@ -138,7 +138,7 @@ async function UIWindowSearch (options) {
                         data-is_dir="${html_encode(result.is_dir)}"
                     >`;
                 // icon
-                h += `<img src="${(await item_icon(result)).image}" style="width: 20px; height: 20px; margin-right: 6px;">`;
+                h += `<img src="${html_encode((await item_icon(result)).image)}" style="width: 20px; height: 20px; margin-right: 6px;">`;
                 h += html_encode(result.name);
                 h += '</div>';
             }
