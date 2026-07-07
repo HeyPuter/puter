@@ -1,4 +1,5 @@
 import UIContextMenu from '../UIContextMenu.js';
+import { isTouchPrimaryDevice } from './ContextMenu/ContextMenu.js';
 
 /** Lowercase app names that must not offer Uninstall in the My Apps tile context menu. */
 const APP_NAMES_NO_UNINSTALL = new Set([
@@ -349,6 +350,22 @@ const TabApps = {
 
     onActivate ($el_window) {
         this.loadApps($el_window);
+        this.focusSearch($el_window);
+    },
+
+    // Focus the search box on desktop so users can type right away. Skips
+    // touch-primary devices to avoid popping up the on-screen keyboard. On a
+    // direct load (e.g. #apps in the URL) the dashboard window is briefly
+    // hidden while it enters full-page mode, so .focus() would be a no-op;
+    // retry on a short interval until the input is actually visible.
+    focusSearch ($el_window, attempts = 12) {
+        if ( isTouchPrimaryDevice() ) return;
+        const $input = $el_window.find('.myapps-search');
+        if ( $input.length && $input.is(':visible') ) {
+            $input.focus();
+        } else if ( attempts > 0 ) {
+            setTimeout(() => this.focusSearch($el_window, attempts - 1), 30);
+        }
     },
 };
 
