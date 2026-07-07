@@ -39,6 +39,8 @@ export const GEMINI_ESTIMATED_IMAGE_TOKENS: Record<string, number> = {
     'gemini-3.1-flash-image-preview:1K': 1120,
     'gemini-3.1-flash-image-preview:2K': 1680,
     'gemini-3.1-flash-image-preview:4K': 2520,
+
+    'gemini-3.1-flash-lite-image:1K': 1120,
 };
 
 export const GEMINI_IMAGE_GENERATION_MODELS: IGeminiImageModel[] = [
@@ -150,6 +152,43 @@ export const GEMINI_IMAGE_GENERATION_MODELS: IGeminiImageModel[] = [
             output: 150, // $1.50 per 1M output tokens (text and thinking)
             output_image: 6000, // $60.00 per 1M output image tokens
             '1K:1x1': 6.7,
+        },
+    },
+    {
+        puterId: 'google:google/gemini-3.1-flash-lite-image',
+        id: 'gemini-3.1-flash-lite-image',
+        name: 'Gemini 3.1 Flash Lite Image',
+        version: '1.0',
+        costs_currency: 'usd-cents',
+        index_cost_key: '1K:1x1',
+        index_input_cost_key: 'input',
+        aliases: [
+            'gemini-3.1-flash-lite-image',
+            'google/gemini-3.1-flash-lite-image',
+            'google:google/gemini-3.1-flash-lite-image',
+        ],
+        allowedQualityLevels: ['1K'], // 2K and 4K are unsupported
+        allowedRatios: [
+            { w: 1, h: 1 },
+            { w: 1, h: 4 },
+            { w: 1, h: 8 },
+            { w: 2, h: 3 },
+            { w: 3, h: 2 },
+            { w: 3, h: 4 },
+            { w: 4, h: 1 },
+            { w: 4, h: 3 },
+            { w: 4, h: 5 },
+            { w: 5, h: 4 },
+            { w: 8, h: 1 },
+            { w: 9, h: 16 },
+            { w: 16, h: 9 },
+            { w: 21, h: 9 },
+        ],
+        costs: {
+            input: 25, // $0.25 per 1M input tokens (text/image)
+            output: 150, // $1.50 per 1M output tokens (text and thinking)
+            output_image: 3000, // $30.00 per 1M output image tokens
+            '1K:1x1': 3.36, // 1120 tokens @ $30/1M = $0.0336 per 1K image
         },
     },
 
