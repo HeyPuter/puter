@@ -696,7 +696,15 @@ body {
 }
 
 input.myapps-search {
+    /* type="search" pulls in native search-field chrome (inset bevel on
+       webkit) and skips the global input[type=text] styling; strip the native
+       chrome and set padding/box-sizing here so the box looks the same as it
+       did as a text input. */
+    -webkit-appearance: none;
+    appearance: none;
+    box-sizing: border-box;
     width: 100%;
+    padding: 8px;
     padding-right: 33px !important;
     font-size: 13px;
     border: 1px solid var(--dashboard-border);
@@ -713,6 +721,13 @@ input.myapps-search:focus {
 
 input.myapps-search::placeholder {
     color: var(--dashboard-text-muted);
+}
+
+/* Hide the native search clear button — a custom .myapps-icon-clear is used. */
+input.myapps-search::-webkit-search-cancel-button,
+input.myapps-search::-webkit-search-decoration {
+    -webkit-appearance: none;
+    appearance: none;
 }
 
 .myapps-container {
