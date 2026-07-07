@@ -25,7 +25,9 @@ import type { Application, RequestHandler } from 'express';
 import helmet from 'helmet';
 import uaParser from 'ua-parser-js';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { parseArgs } from 'node:util';
 import http from 'node:http';
 import { puterClients } from './clients';
 import { puterControllers } from './controllers';
@@ -1145,9 +1147,46 @@ export class PuterServer {
 
                 await this.#fireOnServerStart();
                 console.log('PuterServer has fully booted.');
-                // Auto-launch the browser on dev boot (matches v1 WebServerService).
-                // Opt out via `no_browser_launch: true` in config.
-                if (this.#config.env === 'dev' && !cfg.no_browser_launch) {
+
+                // CLI: `--server` (optionally `--puter-backend=<gui-origin>`)
+                // runs the AuthMe flow against a remote Puter (default
+                // puter.com), then opens the local GUI already logged in and
+                // pointed at that backend. Restores the v1 WebServerService
+                // `--server` behavior; works in any env. When set, it takes
+                // over browser launch so we don't also open a plain tab.
+                const { values: cliArgs } = parseArgs({
+                    args: process.argv.slice(2),
+                    options: {
+                        server: { type: 'boolean' },
+                        'puter-backend': { type: 'string' },
+                    },
+                    strict: false,
+                });
+
+                if (cliArgs.server) {
+                    try {
+                        // tools/auth_gui.js is not compiled into dist/, so
+                        // resolve it from the package root (cwd, per the
+                        // `start` script) rather than relative to this module.
+                        const authGuiUrl = pathToFileURL(
+                            path.resolve(process.cwd(), 'tools/auth_gui.js'),
+                        ).href;
+                        const authGui = (await import(authGuiUrl)).default;
+                        await authGui(
+                            cliArgs['puter-backend'] as string | undefined,
+                        );
+                    } catch (e) {
+                        console.log(
+                            '[server] could not start AuthMe browser flow:',
+                            (e as Error).message,
+                        );
+                    }
+                } else if (
+                    this.#config.env === 'dev' &&
+                    !cfg.no_browser_launch
+                ) {
+                    // Auto-launch the browser on dev boot (matches v1
+                    // WebServerService). Opt out via `no_browser_launch: true`.
                     try {
                         const openModule = await import('open');
                         await openModule.default(liveUrl);
