@@ -50,6 +50,7 @@ export const handleInstalledApps = async (
             apps.description,
             apps.icon,
             apps.index_url,
+            apps.owner_user_id,
             MIN(perm.dt) AS installed_at
         FROM apps
         LEFT JOIN user_to_app_permissions AS perm ON apps.id = perm.app_id
@@ -63,10 +64,18 @@ export const handleInstalledApps = async (
 
     const apiBaseUrl = extension.config.api_base_url as string | undefined;
     res.json(
-        installedApps.map((app) => ({
-            ...app,
-            iconUrl: getAppIconUrl(app, { apiBaseUrl }),
-        })),
+        installedApps.map((app) => {
+            // An app with no owner_user_id (null/empty) isn't owned by a Puter
+            // user — it's an "external" app. Derive a flag and don't leak the
+            // raw owner id to the client.
+            const { owner_user_id, ...rest } = app;
+            const external = owner_user_id == null || owner_user_id === '';
+            return {
+                ...rest,
+                iconUrl: getAppIconUrl(app, { apiBaseUrl }),
+                external,
+            };
+        }),
     );
 };
 
