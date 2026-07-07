@@ -662,6 +662,53 @@ describe('AuthController.handleSignup', () => {
             authConfig.disable_user_signup = prev;
         }
     });
+
+    it('does not reveal existing usernames or emails when registration is disabled', async () => {
+        const username = `taken_${uniq()}`;
+        const email = `${username}@test.local`;
+        await controller.handleSignup(
+            makeReq({ username, email, password: 'correct-horse-battery' }),
+            makeRes(),
+        );
+
+        const authConfig = server.controllers.auth.config as {
+            disable_user_signup?: boolean;
+        };
+        const prev = authConfig.disable_user_signup;
+        authConfig.disable_user_signup = true;
+        try {
+            // Taken username → the generic 403, not the duplicate error.
+            await expect(
+                controller.handleSignup(
+                    makeReq({
+                        username,
+                        email: `fresh_${uniq()}@test.local`,
+                        password: 'correct-horse-battery',
+                    }),
+                    makeRes(),
+                ),
+            ).rejects.toMatchObject({
+                statusCode: 403,
+                legacyCode: 'signup_disabled',
+            });
+            // Taken (non-claimable) email → same generic 403.
+            await expect(
+                controller.handleSignup(
+                    makeReq({
+                        username: `fresh_${uniq()}`,
+                        email,
+                        password: 'correct-horse-battery',
+                    }),
+                    makeRes(),
+                ),
+            ).rejects.toMatchObject({
+                statusCode: 403,
+                legacyCode: 'signup_disabled',
+            });
+        } finally {
+            authConfig.disable_user_signup = prev;
+        }
+    });
 });
 
 // -- Signup device signal (fingerprint) --

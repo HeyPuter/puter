@@ -171,7 +171,12 @@ export class PuterHomepageService extends PuterService {
         const guiParams: Record<string, unknown> = {
             ...this.#guiParams,
             ...(this.config.gui_params ?? {}),
-            disable_temp_users: Boolean(this.config.disable_user_signup),
+            // The config flag wins, but an operator-set
+            // `gui_params.disable_temp_users` must survive the override.
+            disable_temp_users: Boolean(
+                this.config.disable_user_signup ||
+                this.config.gui_params?.disable_temp_users,
+            ),
             domain: this.config.domain,
             env,
             api_base_url: this.config.api_base_url,

@@ -155,6 +155,17 @@ const callRoute = async (
 
 describe('HomepageController shell routes', () => {
     it('renders the live shell HTML on the root path', async () => {
+        const { res, captured } = makeRes();
+        await callRoute('get', '/', makeReq({ path: '/' }), res);
+        // PuterHomepageService.send writes the rendered HTML via res.send.
+        expect(typeof captured.body).toBe('string');
+        const html = String(captured.body);
+        expect(html).toMatch(/<!DOCTYPE html>/i);
+        // The configured page title flows through the meta block.
+        expect(html).toContain('Puter');
+    });
+
+    it('exposes disable_temp_users to the GUI when signups are disabled', async () => {
         const homepageConfig = server.controllers.homepage.config as {
             disable_user_signup?: boolean;
         };
@@ -166,13 +177,29 @@ describe('HomepageController shell routes', () => {
         } finally {
             homepageConfig.disable_user_signup = prev;
         }
-        // PuterHomepageService.send writes the rendered HTML via res.send.
-        expect(typeof captured.body).toBe('string');
-        const html = String(captured.body);
-        expect(html).toMatch(/<!DOCTYPE html>/i);
-        // The configured page title flows through the meta block.
-        expect(html).toContain('Puter');
-        expect(html).toContain('"disable_temp_users":true');
+        expect(String(captured.body)).toContain('"disable_temp_users":true');
+    });
+
+    it('keeps an operator-set gui_params.disable_temp_users when the flag is off', async () => {
+        const homepageConfig = server.controllers.homepage.config as {
+            disable_user_signup?: boolean;
+            gui_params?: Record<string, unknown>;
+        };
+        const prevFlag = homepageConfig.disable_user_signup;
+        const prevGuiParams = homepageConfig.gui_params;
+        homepageConfig.disable_user_signup = false;
+        homepageConfig.gui_params = {
+            ...prevGuiParams,
+            disable_temp_users: true,
+        };
+        const { res, captured } = makeRes();
+        try {
+            await callRoute('get', '/', makeReq({ path: '/' }), res);
+        } finally {
+            homepageConfig.disable_user_signup = prevFlag;
+            homepageConfig.gui_params = prevGuiParams;
+        }
+        expect(String(captured.body)).toContain('"disable_temp_users":true');
     });
 
     it('still serves the shell when an authenticated actor is present', async () => {

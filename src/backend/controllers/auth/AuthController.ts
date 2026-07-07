@@ -510,6 +510,31 @@ export class AuthController extends PuterController {
             }
         }
 
+        // Signup-disabled gate. Runs before the duplicate checks so a
+        // disabled endpoint doesn't reveal which usernames or emails
+        // exist. Claiming a pre-existing placeholder row is still
+        // allowed, so permanent signups look the email up first.
+        if (this.config.disable_user_signup) {
+            let claimable = false;
+            if (!is_temp) {
+                const existing =
+                    (await this.stores.user.getByEmail(body.email)) ??
+                    (await this.stores.user.getByCleanEmail(
+                        cleanEmail(body.email),
+                    ));
+                claimable = Boolean(
+                    existing &&
+                    !existing.email_confirmed &&
+                    existing.password === null,
+                );
+            }
+            if (!claimable) {
+                throw new HttpError(403, 'User registration is disabled.', {
+                    legacyCode: 'signup_disabled',
+                });
+            }
+        }
+
         // Duplicate username check
         if (await this.stores.user.getByUsername(body.username)) {
             throw new HttpError(
@@ -555,11 +580,6 @@ export class AuthController extends PuterController {
                 // Password-null AND unconfirmed → treat as pseudo.
                 pseudo_user = existing;
             }
-        }
-        if (this.config.disable_user_signup && !pseudo_user) {
-            throw new HttpError(403, 'User registration is disabled.', {
-                legacyCode: 'signup_disabled',
-            });
         }
 
         // Extension-level validation gate. Abuse-prevention extensions
