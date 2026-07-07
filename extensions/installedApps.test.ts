@@ -138,6 +138,35 @@ describe('installedApps extension — handleInstalledApps', () => {
         expect(Object.prototype.hasOwnProperty.call(list[0], 'iconUrl')).toBe(
             true,
         );
+        // An owned app is not external, and the raw owner id must not leak.
+        expect(list[0].external).toBe(false);
+        expect(
+            Object.prototype.hasOwnProperty.call(list[0], 'owner_user_id'),
+        ).toBe(false);
+    });
+
+    it('flags apps with no owner_user_id as external', async () => {
+        const user = await seedUser();
+        const slug = Math.random().toString(36).slice(2, 8);
+        // createFromOrigin bootstraps an app with owner_user_id = null.
+        const app = await server.stores.app.createFromOrigin(
+            `app-${slug}`,
+            `https://external-${slug}.example.com`,
+        );
+        await grantInstalled(app!.id as number, user.id as number);
+
+        const { res, captured } = makeRes();
+        await runWithContext(
+            { actor: { user: { uuid: user.uuid, id: user.id as number } } },
+            () => handleInstalledApps(makeReq({}), res),
+        );
+
+        const list = captured.body as Array<Record<string, unknown>>;
+        expect(list).toHaveLength(1);
+        expect(list[0].external).toBe(true);
+        expect(
+            Object.prototype.hasOwnProperty.call(list[0], 'owner_user_id'),
+        ).toBe(false);
     });
 
     it('clamps page/limit to safe ranges (page>=1, 1<=limit<=100)', async () => {

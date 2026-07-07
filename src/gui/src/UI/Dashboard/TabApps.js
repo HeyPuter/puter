@@ -47,14 +47,14 @@ function buildAppsGrid (apps) {
     for ( const app of apps ) {
         let title = (app.title || app.name || '').trim();
 
-        // Anonymous apps report an opaque id (uuid === name === title, all
-        // starting with 'app-'); show the hostname of index_url instead,
-        // matching the Home tab.
+        // External apps (not owned by a Puter user) can report an opaque app-… id
+        // as their title (uid === name === title); in that case show the hostname
+        // of index_url instead, matching the Home tab.
         const appUid = app.uid || app.uuid;
         if (
+            app.external &&
             app.name === app.title &&
             app.name === appUid &&
-            app.name?.startsWith('app-') &&
             app.index_url
         ) {
             title = new URL(app.index_url).hostname;
@@ -307,6 +307,7 @@ const TabApps = {
                 title: app.title,
                 uid: app.uuid || app.uid || null,
                 index_url: app.index_url || null,
+                external: app.external ?? false,
                 iconUrl: app.iconUrl || app.icon || null,
             }));
 

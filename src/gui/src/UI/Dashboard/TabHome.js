@@ -28,12 +28,13 @@ function buildRecentAppsHTML() {
         // Show up to 6 recent apps (2 columns x 3 rows)
         const recentApps = window.launch_apps.recent.slice(0, 6);
         for (const app_info of recentApps) {
-            // if title, name and uuid are the same and start with 'app-' and index_url
-            // is set, then show the hostname of index_url instead of the opaque app id
+            // External apps (not owned by a Puter user) can report an opaque
+            // app-… id as their title (uid === name === title); in that case show
+            // the hostname of index_url instead of the opaque app id.
             if (
+                app_info.external &&
                 app_info.name === app_info.title &&
                 app_info.name === app_info.uuid &&
-                app_info.name?.startsWith('app-') &&
                 app_info.index_url
             ) {
                 app_info.title = new URL(app_info.index_url).hostname;
