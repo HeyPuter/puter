@@ -74,5 +74,8 @@ function toAppSummary(
         godmode: Boolean(app.godmode),
         maximize_on_start: Boolean(app.maximize_on_start),
         index_url: app.index_url,
+        // An app with no owner isn't owned by a Puter user — it's an
+        // "external" (origin-bootstrapped) app.
+        external: app.owner_user_id == null || app.owner_user_id === '',
     };
 }
