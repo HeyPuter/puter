@@ -47,10 +47,16 @@ function buildAppsGrid (apps) {
     for ( const app of apps ) {
         let title = (app.title || app.name || '').trim();
 
-        // External apps (not owned by a Puter user) report an opaque app-… id
-        // as their title; show the hostname of index_url instead, matching the
-        // Home tab.
-        if (app.external && app.index_url) {
+        // External apps (not owned by a Puter user) can report an opaque app-… id
+        // as their title (uid === name === title); in that case show the hostname
+        // of index_url instead, matching the Home tab.
+        const appUid = app.uid || app.uuid;
+        if (
+            app.external &&
+            app.name === app.title &&
+            app.name === appUid &&
+            app.index_url
+        ) {
             title = new URL(app.index_url).hostname;
         }
 
