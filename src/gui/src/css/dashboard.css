@@ -766,8 +766,8 @@ input.myapps-search::placeholder {
 }
 
 .myapps-tile-icon {
-    width: 52px;
-    height: 52px;
+    width: 60px;
+    height: 60px;
     overflow: hidden;
     background: var(--dashboard-card-background);
     transition: transform 0.15s ease, box-shadow 0.15s ease;
