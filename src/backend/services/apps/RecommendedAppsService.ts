@@ -37,6 +37,8 @@ const RECOMMENDED_APP_NAMES = [
     'contacts',
     'browser',
     'memos',
+    'audio-editor',
+    'ai-image-project',
     'word-processor',
     'spreadsheet',
     'presentation',
