@@ -781,8 +781,8 @@ input.myapps-search::-webkit-search-decoration {
 }
 
 .myapps-tile-icon {
-    width: 60px;
-    height: 60px;
+    width: 56px;
+    height: 56px;
     overflow: hidden;
     background: var(--dashboard-card-background);
     transition: transform 0.15s ease, box-shadow 0.15s ease;
