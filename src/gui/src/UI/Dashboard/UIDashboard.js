@@ -104,8 +104,7 @@ async function UIDashboard (options) {
                     continue;
                 }
                 const isActive = tab.id === initialTabId ? ' active' : '';
-                const tabHash = tab.id === 'apps' ? '' : `#${tab.id}`;
-                const tabHref = tabHash || window.location.pathname;
+                const tabHref = `#${tab.id}`;
                 h += `<a class="dashboard-sidebar-item allow-native-ctxmenu${isActive}" href="${tabHref}" data-section="${tab.id}" data-tooltip="${html_encode(tab.label)}">`;
                     h += tab.icon;
                     h += tab.label;
@@ -321,10 +320,9 @@ async function UIDashboard (options) {
         document.querySelector('.dashboard-content').setAttribute('class', 'dashboard-content');
         document.querySelector('.dashboard-content').classList.add(section);
 
-        // Update hash to reflect current tab. Apps is the default tab, so it
-        // uses the clean root URL; every other tab (including home) uses #tab.
-        const newHash = section === 'apps' ? '' : section;
-        history.pushState(null, '', newHash ? `#${newHash}` : window.location.pathname);
+        // Reflect the current tab in the hash. Root (no hash) defaults to Apps,
+        // but selecting any tab — including Apps — shows its #tab.
+        history.pushState(null, '', `#${section}`);
 
         // Scroll content area to top
         $el_window.find('.dashboard-content').scrollTop(0);
