@@ -69,6 +69,13 @@ async function UIDashboard (options) {
     // Dispatch 'dashboard-will-open' event to allow extensions to add tabs
     window.dispatchEvent(new CustomEvent('dashboard-will-open', { detail: { tabs } }));
 
+    // Tab to render active on open. Apps is the default (root URL / no hash);
+    // Home is reached via #home. Fall back to Apps for an unknown/absent route.
+    const routeTab = window.dashboard_initial_route?.tab;
+    const initialTabId = tabs.some(t => t !== '-' && t.id === routeTab)
+        ? routeTab
+        : 'apps';
+
     let h = '';
 
     h += '<div class="dashboard">';
@@ -96,8 +103,8 @@ async function UIDashboard (options) {
                     h += '<hr class="dashboard-sidebar-separator">';
                     continue;
                 }
-                const isActive = i === 0 ? ' active' : '';
-                const tabHash = tab.id === 'home' ? '' : `#${tab.id}`;
+                const isActive = tab.id === initialTabId ? ' active' : '';
+                const tabHash = tab.id === 'apps' ? '' : `#${tab.id}`;
                 const tabHref = tabHash || window.location.pathname;
                 h += `<a class="dashboard-sidebar-item allow-native-ctxmenu${isActive}" href="${tabHref}" data-section="${tab.id}" data-tooltip="${html_encode(tab.label)}">`;
                     h += tab.icon;
@@ -121,7 +128,7 @@ async function UIDashboard (options) {
         for ( let i = 0; i < tabs.length; i++ ) {
             const tab = tabs[i];
             if ( tab === '-' ) continue;
-            const isActive = i === 0 ? ' active' : '';
+            const isActive = tab.id === initialTabId ? ' active' : '';
             h += `<div class="dashboard-section dashboard-section-${tab.id}${isActive}" data-section="${tab.id}">`;
             h += tab.html();
             h += '</div>';
@@ -314,8 +321,9 @@ async function UIDashboard (options) {
         document.querySelector('.dashboard-content').setAttribute('class', 'dashboard-content');
         document.querySelector('.dashboard-content').classList.add(section);
 
-        // Update hash to reflect current tab
-        const newHash = section === 'home' ? '' : section;
+        // Update hash to reflect current tab. Apps is the default tab, so it
+        // uses the clean root URL; every other tab (including home) uses #tab.
+        const newHash = section === 'apps' ? '' : section;
         history.pushState(null, '', newHash ? `#${newHash}` : window.location.pathname);
 
         // Scroll content area to top

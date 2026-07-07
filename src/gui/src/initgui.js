@@ -184,15 +184,16 @@ if ( jQuery ) {
 
 /**
  * Parses the dashboard URL hash into a route object.
- * Hash format: #usage or #account etc.
+ * Apps is the default tab (root URL / no hash); Home is reached via #home.
+ * Hash format: #home or #usage or #account etc.
  * @returns {{ tab: string }} Route object with tab name
  */
 function parseDashboardRoute () {
     const hash = decodeURIComponent(window.location.hash.slice(1));
-    if ( ! hash ) return { tab: 'home' };
+    if ( ! hash ) return { tab: 'apps' };
 
     const tab = hash.split('/').filter(Boolean)[0];
-    return { tab: tab || 'home' };
+    return { tab: tab || 'apps' };
 }
 
 // Make parseDashboardRoute available globally for hashchange handler
