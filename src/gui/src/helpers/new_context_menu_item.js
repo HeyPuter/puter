@@ -114,7 +114,6 @@ const new_context_menu_item = function (dirname, append_to_element) {
                             metadata: JSON.stringify({
                                 url: url,
                                 domain: domain,
-                                icon: icon,
                                 timestamp: Date.now(),
                                 version: '2.1',
                             }),

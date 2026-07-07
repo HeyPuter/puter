@@ -28,7 +28,7 @@ import open_item from './open_item.js';
 import launch_app from './launch_app.js';
 import path from '../lib/path.js';
 import mime from '../lib/mime.js';
-import { changeWeblinkIcon } from './weblink.js';
+import { isWeblinkName, weblinkChangeIconMenuItem } from './weblink.js';
 
 const AI_APP_NAME = 'ai';
 
@@ -145,8 +145,8 @@ const generate_file_context_menu = async function (options) {
     const is_trashed = options.is_trashed ?? false;
     const is_worker = options.is_worker ?? false;
     const onOpen = options.onOpen;
-    const is_weblink = fsentry.name?.toLowerCase().endsWith('.weblink') ||
-        $(el_item).attr('data-name')?.toLowerCase().endsWith('.weblink');
+    const is_weblink = isWeblinkName(fsentry.name ?? $(el_item).attr('data-name'));
+    const is_shortcut = fsentry.is_shortcut || !! $(el_item).attr('data-shortcut_to_path');
 
     let menu_items = [];
 
@@ -528,17 +528,8 @@ const generate_file_context_menu = async function (options) {
     // -------------------------------------------
     // Change Web Link Icon
     // -------------------------------------------
-    if ( !is_trashed && !is_trash && is_weblink ) {
-        menu_items.push({
-            html: 'Change Icon',
-            onClick: async function () {
-                try {
-                    await changeWeblinkIcon(el_item);
-                } catch (error) {
-                    UIAlert(error.message ?? 'Could not change the web link icon.');
-                }
-            },
-        });
+    if ( !is_trashed && !is_trash && !is_shortcut && is_weblink ) {
+        menu_items.push(weblinkChangeIconMenuItem(el_item));
     }
 
     // -------------------------------------------

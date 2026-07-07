@@ -1,23 +1,51 @@
-import UIWindow from '../UI/UIWindow.js';
-import mime from '../lib/mime.js';
+/**
+ * Copyright (C) 2024-present Puter Technologies Inc.
+ *
+ * This file is part of Puter.
+ *
+ * Puter is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published
+ * by the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
 
+import UIWindow from '../UI/UIWindow.js';
+import UIAlert from '../UI/UIAlert.js';
+
+// Icons are stored inline in the .weblink JSON as base64 data URLs. Because a
+// .weblink file can be shared or downloaded, its icon field is untrusted input
+// and is re-validated with isValidWeblinkIcon() every time it is read.
 const WEBLINK_ICON_ALLOWLIST = [
     'data:image/png;base64,',
     'data:image/jpeg;base64,',
-    'data:image/jpg;base64,',
     'data:image/gif;base64,',
     'data:image/webp;base64,',
     'data:image/svg+xml;base64,',
 ];
-const WEBLINK_ICON_MIME_ALLOWLIST = [
-    'image/png',
-    'image/jpeg',
-    'image/gif',
-    'image/webp',
-    'image/svg+xml',
-];
+
+// Picked images are rasterized to a small PNG before storing so the icon stays
+// a few KB rather than embedding a full-resolution photo into the file/DOM.
+const WEBLINK_ICON_MAX_DIMENSION = 256;
+
+const WEBLINK_VERSION = '2.1';
+
+// Cache the resolved icon per file so a folder full of weblinks doesn't fetch
+// every file's contents on each render/refresh. Keyed by path; entries are
+// refreshed when changeWeblinkIcon writes a new icon.
+const weblinkIconCache = new Map();
 
 export const defaultWeblinkIcon = () => window.icons['link.svg'];
+
+export const isWeblinkName = (name) =>
+    typeof name === 'string' && name.toLowerCase().endsWith('.weblink');
 
 export const isValidWeblinkIcon = (icon) => {
     if ( typeof icon !== 'string' || icon.length === 0 ) {
@@ -28,7 +56,17 @@ export const isValidWeblinkIcon = (icon) => {
         return true;
     }
 
-    return WEBLINK_ICON_ALLOWLIST.some(prefix => icon.toLowerCase().startsWith(prefix));
+    const lower = icon.toLowerCase();
+    const prefix = WEBLINK_ICON_ALLOWLIST.find(p => lower.startsWith(p));
+    if ( !prefix ) {
+        return false;
+    }
+
+    // The body must be pure base64. This rejects anything containing a quote,
+    // space or angle bracket, which is what stops a crafted icon value from
+    // breaking out of an `<img src="...">` attribute (DOM XSS).
+    const body = icon.slice(prefix.length);
+    return body.length > 0 && /^[a-z0-9+/]+={0,2}$/i.test(body);
 };
 
 export const createWeblinkData = ({ url, domain, linkName, simpleName, icon = defaultWeblinkIcon() }) => ({
@@ -38,7 +76,7 @@ export const createWeblinkData = ({ url, domain, linkName, simpleName, icon = de
     icon: isValidWeblinkIcon(icon) ? icon : defaultWeblinkIcon(),
     created: Date.now(),
     modified: Date.now(),
-    version: '2.1',
+    version: WEBLINK_VERSION,
     metadata: {
         originalUrl: url,
         linkName: linkName,
@@ -82,87 +120,36 @@ const readFileAsDataUrl = async (file) => await new Promise((resolve, reject) =>
     reader.readAsDataURL(file);
 });
 
-const inferImageMimeFromBlob = async (file) => {
-    if ( !file?.slice || !file?.arrayBuffer ) {
-        return null;
-    }
+// Rasterize any browser-decodable image (PNG/JPEG/GIF/WebP/SVG) down to a small
+// PNG data URL. This both bounds the stored size and normalizes the output to a
+// single known-safe type, so no MIME sniffing of the source bytes is needed.
+const rasterizeToPngDataUrl = async (dataUrl) => await new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+        try {
+            const srcW = img.naturalWidth || img.width || WEBLINK_ICON_MAX_DIMENSION;
+            const srcH = img.naturalHeight || img.height || WEBLINK_ICON_MAX_DIMENSION;
+            const scale = Math.min(1, WEBLINK_ICON_MAX_DIMENSION / Math.max(srcW, srcH));
+            const w = Math.max(1, Math.round(srcW * scale));
+            const h = Math.max(1, Math.round(srcH * scale));
 
-    const bytes = new Uint8Array(await file.slice(0, 512).arrayBuffer());
+            const canvas = document.createElement('canvas');
+            canvas.width = w;
+            canvas.height = h;
+            canvas.getContext('2d').drawImage(img, 0, 0, w, h);
 
-    if (
-        bytes[0] === 0x89 &&
-        bytes[1] === 0x50 &&
-        bytes[2] === 0x4E &&
-        bytes[3] === 0x47
-    ) {
-        return 'image/png';
-    }
-
-    if ( bytes[0] === 0xFF && bytes[1] === 0xD8 && bytes[2] === 0xFF ) {
-        return 'image/jpeg';
-    }
-
-    if (
-        bytes[0] === 0x47 &&
-        bytes[1] === 0x49 &&
-        bytes[2] === 0x46
-    ) {
-        return 'image/gif';
-    }
-
-    if (
-        bytes[0] === 0x52 &&
-        bytes[1] === 0x49 &&
-        bytes[2] === 0x46 &&
-        bytes[3] === 0x46 &&
-        bytes[8] === 0x57 &&
-        bytes[9] === 0x45 &&
-        bytes[10] === 0x42 &&
-        bytes[11] === 0x50
-    ) {
-        return 'image/webp';
-    }
-
-    const text = new TextDecoder('utf-8', { fatal: false }).decode(bytes).trimStart();
-    if ( text.startsWith('<svg') || text.startsWith('<?xml') && text.includes('<svg') ) {
-        return 'image/svg+xml';
-    }
-
-    return null;
-};
-
-const normalizeImageDataUrl = async (dataUrl, fsentry, file) => {
-    if ( typeof dataUrl !== 'string' ) {
-        return dataUrl;
-    }
-
-    if ( isValidWeblinkIcon(dataUrl) ) {
-        return dataUrl;
-    }
-
-    const inferredMime = [
-        fsentry.type,
-        file?.type,
-        mime.getType(fsentry.name ?? fsentry.path ?? ''),
-    ]
-        .map(type => type?.toLowerCase())
-        .find(type => WEBLINK_ICON_MIME_ALLOWLIST.includes(type)) ??
-        await inferImageMimeFromBlob(file);
-
-    if ( !WEBLINK_ICON_MIME_ALLOWLIST.includes(inferredMime) ) {
-        return dataUrl;
-    }
-
-    return dataUrl.replace(/^data:[^,]*,/i, `data:${inferredMime};base64,`);
-};
+            resolve(canvas.toDataURL('image/png'));
+        } catch (e) {
+            reject(e);
+        }
+    };
+    img.onerror = () => reject(new Error('Please choose a PNG, JPG, GIF, WebP, or SVG image.'));
+    img.src = dataUrl;
+});
 
 const readIconFromFsEntry = async (fsentry) => {
     const file = await puter.fs.read(fsentry.path);
-    const icon = await normalizeImageDataUrl(
-        await readFileAsDataUrl(file),
-        fsentry,
-        file,
-    );
+    const icon = await rasterizeToPngDataUrl(await readFileAsDataUrl(file));
 
     if ( !isValidWeblinkIcon(icon) ) {
         throw new Error('Please choose a PNG, JPG, GIF, WebP, or SVG image.');
@@ -171,58 +158,70 @@ const readIconFromFsEntry = async (fsentry) => {
     return icon;
 };
 
-const centerDialog = (elDialog, elItem) => {
-    const $dialog = $(elDialog);
-    const $parentWindow = $(elItem).closest('.window');
-    const parentOffset = $parentWindow.length ? $parentWindow.offset() : null;
-    const parentWidth = $parentWindow.length ? $parentWindow.outerWidth() : window.innerWidth;
-    const parentHeight = $parentWindow.length ? $parentWindow.outerHeight() : window.innerHeight;
-    const parentLeft = parentOffset?.left ?? 0;
-    const parentTop = parentOffset?.top ?? 0;
-    const left = parentLeft + parentWidth / 2 - $dialog.outerWidth() / 2;
-    const top = parentTop + parentHeight / 2 - $dialog.outerHeight() / 2;
-
-    $dialog.css({
-        left: `${Math.max(0, left) }px`,
-        top: `${Math.max(window.toolbar_height ?? 0, top) }px`,
-    });
-};
-
+// Opens Puter's built-in file picker and resolves with a validated icon data
+// URL, or null if the user dismisses the dialog. The picker is parented to the
+// item's own window (or a lightweight receiver on the Desktop) and always tears
+// down via on_close, so no promise or DOM node is ever leaked on cancel.
 export const chooseWeblinkIcon = async (elItem) => await new Promise((resolve, reject) => {
-    const receiverUuid = `weblink-icon-picker-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    const $receiver = $('<div>')
-        .addClass('window')
-        .attr('data-element_uuid', receiverUuid)
-        .css('display', 'none')
-        .appendTo('body');
+    const $parentWindow = $(elItem).closest('.window');
+    const hasParentWindow = $parentWindow.length > 0;
+
+    let $receiver;
+    let parentUuid;
+    if ( hasParentWindow ) {
+        $receiver = $parentWindow;
+        parentUuid = $parentWindow.attr('data-element_uuid');
+    } else {
+        parentUuid = `weblink-icon-picker-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        $receiver = $('<div>')
+            .addClass('window')
+            .attr('data-element_uuid', parentUuid)
+            .css('display', 'none')
+            .appendTo('body');
+    }
+
+    let settled = false;
+    let filePicked = false;
 
     const cleanup = () => {
-        $receiver.off('file_opened');
-        $receiver.remove();
+        $receiver.off('file_opened', onFileOpened);
+        if ( !hasParentWindow ) {
+            $receiver.remove();
+        }
     };
 
-    $receiver.on('file_opened', async function (e) {
+    const finish = (fn, value) => {
+        if ( settled ) return;
+        settled = true;
+        cleanup();
+        fn(value);
+    };
+
+    async function onFileOpened (e) {
+        // Set synchronously (before the first await) so on_close, which fires
+        // right after selection, does not resolve null and discard the result.
+        filePicked = true;
         try {
             const selectedFile = Array.isArray(e.detail) ? e.detail[0] : e.detail;
 
             if ( !selectedFile?.path ) {
-                cleanup();
-                resolve(null);
+                finish(resolve, null);
                 return;
             }
 
-            const icon = await readIconFromFsEntry(selectedFile);
-            cleanup();
-            resolve(icon);
+            finish(resolve, await readIconFromFsEntry(selectedFile));
         } catch (error) {
-            cleanup();
-            reject(error);
+            finish(reject, error);
         }
-    });
+    }
+
+    $receiver.on('file_opened', onFileOpened);
 
     UIWindow({
         path: `/${window.user.username}/Desktop`,
-        parent_uuid: receiverUuid,
+        parent_uuid: parentUuid,
+        parent_center: hasParentWindow,
+        center: !hasParentWindow,
         allowed_file_types: 'image/*',
         show_maximize_button: false,
         show_minimize_button: false,
@@ -233,22 +232,18 @@ export const chooseWeblinkIcon = async (elItem) => await new Promise((resolve, r
         backdrop: true,
         close_on_backdrop_click: true,
         stay_on_top: true,
-    }).then((elDialog) => {
-        centerDialog(elDialog, elItem);
-    }).catch((error) => {
-        cleanup();
-        reject(error);
-    });
+        // Fires on any dismissal (cancel button, X, backdrop, Escape).
+        on_close: () => {
+            if ( !filePicked ) finish(resolve, null);
+        },
+    }).catch((error) => finish(reject, error));
 });
 
 export const updateWeblinkIcon = async ({ path, icon }) => {
     const data = await readWeblinkData(path);
-    const now = Date.now();
     data.icon = icon;
-    data.modified = now;
-    data.version = data.version ?? '2.1';
-    data.metadata = data.metadata ?? {};
-    data.metadata.icon = icon;
+    data.modified = Date.now();
+    data.version = WEBLINK_VERSION;
 
     await puter.fs.write(path, JSON.stringify(data), { overwrite: true });
     return data;
@@ -262,23 +257,40 @@ export const changeWeblinkIcon = async (elItem) => {
         return null;
     }
 
-    await updateWeblinkIcon({
-        path: $item.attr('data-path'),
-        icon: icon,
-    });
+    const path = $item.attr('data-path');
+    await updateWeblinkIcon({ path, icon });
 
-    $item.find('.item-icon > img').attr('src', icon);
-    $item.attr('data-icon', icon);
+    // Update every live view of this item (Desktop + any open folder windows),
+    // not just the clicked one, so the icon doesn't look stale elsewhere.
+    const uid = $item.attr('data-uid');
+    const $views = uid ? $(`.item[data-uid="${uid}"]`) : $item;
+    $views.find('.item-icon > img').attr('src', icon);
+    $views.attr('data-icon', icon);
+
+    weblinkIconCache.set(path, icon);
 
     return icon;
 };
 
 export const getWeblinkIcon = async (fsentry) => {
+    const path = fsentry.path;
+
+    if ( !path ) {
+        // Avoid a doomed puter.fs.read({ path: undefined }) for listing entries
+        // that don't carry a path.
+        return defaultWeblinkIcon();
+    }
+
+    if ( weblinkIconCache.has(path) ) {
+        return weblinkIconCache.get(path);
+    }
+
     try {
-        const data = await readWeblinkData(fsentry.path);
+        const data = await readWeblinkData(path);
         const icon = data.icon ?? data.metadata?.icon;
 
         if ( isValidWeblinkIcon(icon) ) {
+            weblinkIconCache.set(path, icon);
             return icon;
         }
     } catch (e) {
@@ -287,3 +299,16 @@ export const getWeblinkIcon = async (fsentry) => {
 
     return defaultWeblinkIcon();
 };
+
+// Shared "Change Icon" context-menu entry so UIItem and generate_file_context_menu
+// stay in sync instead of duplicating the block.
+export const weblinkChangeIconMenuItem = (elItem) => ({
+    html: i18n('change_icon'),
+    onClick: async function () {
+        try {
+            await changeWeblinkIcon(elItem);
+        } catch (error) {
+            UIAlert(error.message ?? 'Could not change the web link icon.');
+        }
+    },
+});
