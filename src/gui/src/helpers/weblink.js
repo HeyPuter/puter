@@ -31,9 +31,14 @@ const WEBLINK_ICON_ALLOWLIST = [
     'data:image/svg+xml;base64,',
 ];
 
-// Picked images are rasterized to a small PNG before storing so the icon stays
+// Raster icons are downscaled to a small PNG before storing so the icon stays
 // a few KB rather than embedding a full-resolution photo into the file/DOM.
 const WEBLINK_ICON_MAX_DIMENSION = 256;
+
+// SVG icons are kept as vectors, but capped so a pathological SVG (e.g. one
+// with an embedded base64 raster) can't bloat the file; oversized ones fall
+// back to rasterization.
+const WEBLINK_ICON_MAX_SVG_BYTES = 512 * 1024;
 
 const WEBLINK_VERSION = '2.1';
 
@@ -120,9 +125,22 @@ const readFileAsDataUrl = async (file) => await new Promise((resolve, reject) =>
     reader.readAsDataURL(file);
 });
 
-// Rasterize any browser-decodable image (PNG/JPEG/GIF/WebP/SVG) down to a small
-// PNG data URL. This both bounds the stored size and normalizes the output to a
-// single known-safe type, so no MIME sniffing of the source bytes is needed.
+// Read the first bytes of a blob as text so we can sniff SVG source. Returns ''
+// if the blob doesn't support slicing (nothing is treated as SVG in that case).
+const readHead = async (file) => {
+    if ( !file?.slice || !file?.arrayBuffer ) {
+        return '';
+    }
+    try {
+        return new TextDecoder('utf-8', { fatal: false }).decode(await file.slice(0, 512).arrayBuffer());
+    } catch (e) {
+        return '';
+    }
+};
+
+// Rasterize any browser-decodable image down to a small PNG data URL. Used for
+// raster formats (and as a size-capping fallback for oversized SVGs); it bounds
+// the stored size and yields a single known-safe type.
 const rasterizeToPngDataUrl = async (dataUrl) => await new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () => {
@@ -149,6 +167,21 @@ const rasterizeToPngDataUrl = async (dataUrl) => await new Promise((resolve, rej
 
 const readIconFromFsEntry = async (fsentry) => {
     const file = await puter.fs.read(fsentry.path);
+    const head = await readHead(file);
+
+    // Keep SVGs as vectors — they stay crisp at any size/DPI and render
+    // script-free in <img>. Rasterize everything else (and oversized SVGs) to a
+    // small PNG so the stored icon stays a few KB.
+    if ( head.toLowerCase().includes('<svg') && file.size <= WEBLINK_ICON_MAX_SVG_BYTES ) {
+        const dataUrl = await readFileAsDataUrl(file);
+        const base64 = dataUrl.slice(dataUrl.indexOf(',') + 1);
+        const svgIcon = `data:image/svg+xml;base64,${base64}`;
+
+        if ( isValidWeblinkIcon(svgIcon) ) {
+            return svgIcon;
+        }
+    }
+
     const icon = await rasterizeToPngDataUrl(await readFileAsDataUrl(file));
 
     if ( !isValidWeblinkIcon(icon) ) {
