@@ -86,6 +86,21 @@ describe('PreludeClient', () => {
         });
     });
 
+    it('returns the delivery channel sequence Prelude reports', async () => {
+        fetchMock.mockResolvedValue(
+            okJson({
+                id: 'vrf_1',
+                status: 'success',
+                channels: ['whatsapp', 'sms'],
+            }),
+        );
+        const client = makeClient('sk_test');
+
+        const res = await client.createVerification('+14155550123');
+
+        expect(res.channels).toEqual(['whatsapp', 'sms']);
+    });
+
     it('forwards device_id and user_agent signals when supplied', async () => {
         fetchMock.mockResolvedValue(okJson({ id: 'v', status: 'success' }));
         const client = makeClient('sk_test');

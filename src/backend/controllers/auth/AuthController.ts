@@ -1358,6 +1358,10 @@ export class AuthController extends PuterController {
             typeof req.headers['user-agent'] === 'string'
                 ? req.headers['user-agent']
                 : undefined;
+        // First entry of Prelude's delivery sequence — where the code actually
+        // went. Returned to the client so it can point the user at the right
+        // app (e.g. "check WhatsApp" instead of "check your texts").
+        let deliveryChannel: string | undefined;
         try {
             const result = await this.clients.prelude.createVerification(
                 parsed.e164,
@@ -1368,6 +1372,7 @@ export class AuthController extends PuterController {
                     dispatch_id: dispatchId,
                 },
             );
+            deliveryChannel = result.channels?.[0];
             // Prelude rejected the attempt as abusive — surface as rate-limit.
             if (
                 result.status === 'blocked' ||
@@ -1422,7 +1427,10 @@ export class AuthController extends PuterController {
         } catch {
             // ignore — best-effort velocity signal
         }
-        res.json(fallbackAvailable ? { card_fallback_available: true } : {});
+        res.json({
+            ...fallbackFields,
+            ...(deliveryChannel ? { channel: deliveryChannel } : {}),
+        });
     }
 
     @Post('/confirm-phone', {

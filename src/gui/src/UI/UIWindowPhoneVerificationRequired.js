@@ -110,6 +110,7 @@ function UIWindowPhoneVerificationRequired(options) {
             no_matches: i18n('phone_no_matches'),
             select_country: i18n('phone_select_country'),
             code_sent_to: i18n('phone_code_sent_to'),
+            code_sent_whatsapp: i18n('phone_code_sent_whatsapp'),
             suggested: i18n('phone_suggested'),
             all_countries: i18n('phone_all_countries'),
         };
@@ -382,7 +383,9 @@ function UIWindowPhoneVerificationRequired(options) {
 
         // -- Step 2: 6-digit code (hidden until a code is sent) --
         h += '<form class="phone-step phone-step-2" style="display:none;">';
-        h += `<p class="phone-subtitle">${T.code_sent_to} <strong style="font-weight: 600; color:#3e5362;" class="phone-target"></strong></p>`;
+        // The prefix is swapped per send: WhatsApp wording when the backend
+        // reports the code went out over WhatsApp, SMS wording otherwise.
+        h += `<p class="phone-subtitle"><span class="phone-code-sent-msg">${T.code_sent_to}</span> <strong style="font-weight: 600; color:#3e5362;" class="phone-target"></strong></p>`;
         h += '<div class="error" role="alert" aria-live="assertive"></div>';
         h += `  <fieldset name="number-code" style="border: none; padding:0;" data-number-code-form>
                 <input class="digit-input" type="number" min='0' max='9' inputmode="numeric" autocomplete="one-time-code" name='number-code-0' data-number-code-input='0' required />
@@ -743,9 +746,18 @@ function UIWindowPhoneVerificationRequired(options) {
                 contentType: 'application/json',
                 headers: { Authorization: `Bearer ${window.auth_token}` },
                 statusCode: { 401: (xhr) => window.handle401(xhr) },
-                success: function () {
+                success: function (res) {
                     // Advance to the code-entry step with a clean slate.
                     $(el_window).find('.phone-target').text(phone);
+                    // `channel` is where Prelude actually delivered the code;
+                    // point the user at WhatsApp when it wasn't a plain text.
+                    $(el_window)
+                        .find('.phone-code-sent-msg')
+                        .text(
+                            res?.channel === 'whatsapp'
+                                ? T.code_sent_whatsapp
+                                : T.code_sent_to,
+                        );
                     numberCodeInputs.forEach((i) => {
                         i.value = '';
                         i.disabled = false;

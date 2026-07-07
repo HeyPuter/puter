@@ -250,6 +250,7 @@ const en = {
         phone_all_countries: 'All countries',
         phone_select_country: 'Select country',
         phone_code_sent_to: 'Enter the 6-digit code sent to',
+        phone_code_sent_whatsapp: 'Enter the 6-digit code sent via WhatsApp to',
         pick_name_for_website: 'Pick a name for your website:',
         pick_name_for_worker: 'Pick a name for your worker:',
         picture: 'Picture',
