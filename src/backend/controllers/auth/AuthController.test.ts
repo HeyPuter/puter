@@ -586,6 +586,24 @@ describe('AuthController.handleSignup', () => {
         );
     });
 
+    it('rejects brand-new temp signups when registration is disabled', async () => {
+        const authConfig = server.controllers.auth.config as {
+            disable_user_signup?: boolean;
+        };
+        const prev = authConfig.disable_user_signup;
+        authConfig.disable_user_signup = true;
+        try {
+            await expect(
+                controller.handleSignup(makeReq({ is_temp: true }), makeRes()),
+            ).rejects.toMatchObject({
+                statusCode: 403,
+                legacyCode: 'signup_disabled',
+            });
+        } finally {
+            authConfig.disable_user_signup = prev;
+        }
+    });
+
     it('emits puter.signup.success on successful signup', async () => {
         const baseline = heardSignupSuccess.length;
         const username = `s_${uniq()}`;
@@ -606,6 +624,90 @@ describe('AuthController.handleSignup', () => {
                 (evt) => (evt as { username?: string }).username === username,
             ),
         ).toBe(true);
+    });
+
+    it('still allows claiming a pseudo-user row when registration is disabled', async () => {
+        const authConfig = server.controllers.auth.config as {
+            disable_user_signup?: boolean;
+        };
+        const prev = authConfig.disable_user_signup;
+        authConfig.disable_user_signup = true;
+        try {
+            const targetEmail = `disabled_claim_${uniq()}@test.local`;
+            const placeholder = await server.stores.user.create({
+                username: `placeholder_${uniq()}`,
+                uuid: uuidv4(),
+                password: null,
+                email: targetEmail,
+                clean_email: targetEmail,
+                email_confirmed: 0,
+            } as never);
+
+            const res = makeRes();
+            await controller.handleSignup(
+                makeReq({
+                    username: `claim_${uniq()}`,
+                    email: targetEmail,
+                    password: 'correct-horse-battery',
+                }),
+                res,
+            );
+
+            expect(isCompleteLoginResponse(res.body)).toBe(true);
+            const claimed = await server.stores.user.getById(placeholder.id, {
+                force: true,
+            });
+            expect(claimed!.username).not.toBe(placeholder.username);
+        } finally {
+            authConfig.disable_user_signup = prev;
+        }
+    });
+
+    it('does not reveal existing usernames or emails when registration is disabled', async () => {
+        const username = `taken_${uniq()}`;
+        const email = `${username}@test.local`;
+        await controller.handleSignup(
+            makeReq({ username, email, password: 'correct-horse-battery' }),
+            makeRes(),
+        );
+
+        const authConfig = server.controllers.auth.config as {
+            disable_user_signup?: boolean;
+        };
+        const prev = authConfig.disable_user_signup;
+        authConfig.disable_user_signup = true;
+        try {
+            // Taken username → the generic 403, not the duplicate error.
+            await expect(
+                controller.handleSignup(
+                    makeReq({
+                        username,
+                        email: `fresh_${uniq()}@test.local`,
+                        password: 'correct-horse-battery',
+                    }),
+                    makeRes(),
+                ),
+            ).rejects.toMatchObject({
+                statusCode: 403,
+                legacyCode: 'signup_disabled',
+            });
+            // Taken (non-claimable) email → same generic 403.
+            await expect(
+                controller.handleSignup(
+                    makeReq({
+                        username: `fresh_${uniq()}`,
+                        email,
+                        password: 'correct-horse-battery',
+                    }),
+                    makeRes(),
+                ),
+            ).rejects.toMatchObject({
+                statusCode: 403,
+                legacyCode: 'signup_disabled',
+            });
+        } finally {
+            authConfig.disable_user_signup = prev;
+        }
     });
 });
 

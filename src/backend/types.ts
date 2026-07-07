@@ -568,6 +568,12 @@ interface IConfigOptional {
     min_pass_length: number;
     /** When true, allow the 'system' user to log in. */
     allow_system_login: boolean;
+    /**
+     * When true, anonymous users cannot create new accounts or temporary
+     * sessions. Existing accounts can still log in, and pre-existing
+     * placeholder rows may still be claimed.
+     */
+    disable_user_signup: boolean;
     /** Reject auth-gated routes unless the user has confirmed their email. */
     strict_email_verification_required: boolean;
     /**

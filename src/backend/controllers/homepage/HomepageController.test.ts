@@ -165,6 +165,43 @@ describe('HomepageController shell routes', () => {
         expect(html).toContain('Puter');
     });
 
+    it('exposes disable_temp_users to the GUI when signups are disabled', async () => {
+        const homepageConfig = server.controllers.homepage.config as {
+            disable_user_signup?: boolean;
+        };
+        const prev = homepageConfig.disable_user_signup;
+        homepageConfig.disable_user_signup = true;
+        const { res, captured } = makeRes();
+        try {
+            await callRoute('get', '/', makeReq({ path: '/' }), res);
+        } finally {
+            homepageConfig.disable_user_signup = prev;
+        }
+        expect(String(captured.body)).toContain('"disable_temp_users":true');
+    });
+
+    it('keeps an operator-set gui_params.disable_temp_users when the flag is off', async () => {
+        const homepageConfig = server.controllers.homepage.config as {
+            disable_user_signup?: boolean;
+            gui_params?: Record<string, unknown>;
+        };
+        const prevFlag = homepageConfig.disable_user_signup;
+        const prevGuiParams = homepageConfig.gui_params;
+        homepageConfig.disable_user_signup = false;
+        homepageConfig.gui_params = {
+            ...prevGuiParams,
+            disable_temp_users: true,
+        };
+        const { res, captured } = makeRes();
+        try {
+            await callRoute('get', '/', makeReq({ path: '/' }), res);
+        } finally {
+            homepageConfig.disable_user_signup = prevFlag;
+            homepageConfig.gui_params = prevGuiParams;
+        }
+        expect(String(captured.body)).toContain('"disable_temp_users":true');
+    });
+
     it('still serves the shell when an authenticated actor is present', async () => {
         const { actor } = await makeUser();
         const { res, captured } = makeRes();
