@@ -258,6 +258,29 @@ export class UserStore extends PuterStore {
     }
 
     /**
+     * Count accounts other than `excludeUserId` whose confirmed `phone`
+     * equals this number. Backs the cap on live accounts per phone number
+     * (the row is deleted with the account, so this only counts accounts
+     * that still exist — recycling velocity is rate-limited separately by
+     * the abuse policy's KV log).
+     *
+     * Not cached — like `getByCleanEmail`, callers use this for duplicate
+     * detection at write time, which needs fresh reads.
+     */
+    async countOthersByPhone(
+        phone: string,
+        excludeUserId: number,
+    ): Promise<number> {
+        if (!phone) return 0;
+        if (!isStorableAsLatin1(phone)) return 0;
+        const rows = (await this.clients.db.tryHardRead(
+            'SELECT COUNT(*) AS n FROM `user` WHERE `phone` = ? AND `id` != ?',
+            [phone, excludeUserId],
+        )) as Array<{ n: number | string }>;
+        return Number(rows[0]?.n) || 0;
+    }
+
+    /**
      * Generic property lookup. Fast-path reads redis first (cache is
      * multi-key — every identifying property points at the same serialized
      * row). On miss, falls back to DB and backfills the cache.
