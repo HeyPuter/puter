@@ -44,6 +44,8 @@ import {
 const SEND_REASON_MESSAGES = {
     phone_already_used:
         'This phone number has already been used to verify the maximum number of accounts. Please use a different number, or email support@puter.com for help.',
+    phone_verify_limit:
+        'This phone number cannot be used to verify this account. Please use a different number, or email support@puter.com for help.',
     phone_send_limit:
         'This phone number has received too many verification codes recently. Please try again later, or use a different number.',
     phone_verify_attempts_exhausted:

@@ -54,4 +54,38 @@ describe('UserStore', () => {
         expect(typeof cachedUser?.email_confirmed).toBe('boolean');
         expect(typeof cachedUser?.requires_email_confirmation).toBe('boolean');
     });
+
+    it('counts other accounts holding the same phone number', async () => {
+        const phone = `+1415555${Math.floor(1000 + Math.random() * 9000)}`;
+        const makeUser = async () => {
+            const username = `up-${Math.random().toString(36).slice(2, 10)}`;
+            const user = await server.stores.user.create({
+                username,
+                uuid: uuidv4(),
+                password: null,
+                email: `${username}@test.local`,
+            });
+            await server.stores.user.update(user.id, { phone });
+            return user;
+        };
+
+        const first = await makeUser();
+        expect(
+            await server.stores.user.countOthersByPhone(phone, first.id),
+        ).toBe(0);
+
+        const second = await makeUser();
+        expect(
+            await server.stores.user.countOthersByPhone(phone, first.id),
+        ).toBe(1);
+        expect(
+            await server.stores.user.countOthersByPhone(phone, second.id),
+        ).toBe(1);
+        // A caller that isn't among the holders sees both.
+        expect(await server.stores.user.countOthersByPhone(phone, -1)).toBe(2);
+        // Unknown number counts zero.
+        expect(
+            await server.stores.user.countOthersByPhone('+19995550000', -1),
+        ).toBe(0);
+    });
 });
