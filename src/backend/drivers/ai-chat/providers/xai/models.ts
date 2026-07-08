@@ -22,6 +22,27 @@ import type { IChatModel } from '../../types.js';
 // Hardcoded from https://models.dev/api.json
 export const XAI_MODELS: IChatModel[] = [
     {
+        puterId: 'x-ai:x-ai/grok-4.5',
+        id: 'grok-4.5',
+        modalities: { input: ['text', 'image'], output: ['text'] },
+        open_weights: false,
+        tool_call: true,
+        release_date: '2026-07-01',
+        name: 'Grok 4.5',
+        aliases: ['x-ai/grok-4.5', 'grok-4.5-latest'],
+        context: 500_000,
+        costs_currency: 'usd-cents',
+        input_cost_key: 'prompt_tokens',
+        output_cost_key: 'completion_tokens',
+        costs: {
+            tokens: 1_000_000,
+            prompt_tokens: 200,
+            completion_tokens: 600,
+            cached_tokens: 50,
+        },
+        max_tokens: 30_000,
+    },
+    {
         puterId: 'x-ai:x-ai/grok-beta',
         id: 'grok-beta',
         modalities: { input: ['text'], output: ['text'] },
