@@ -627,13 +627,21 @@ export class MeteringService extends PuterService {
             ],
         );
 
-        const remaining = Math.max(
+        // Overage past the allowance is already charged to purchased credits
+        // via consumedPurchaseCredits, so the allowance and the credit pool
+        // must be netted separately — subtracting month usage AND consumed
+        // credits from one combined pool would charge the overage twice.
+        const remainingAllowance = Math.max(
             0,
-            (userSubscription.monthUsageAllowance || 0) +
-                (addons?.purchasedCredits || 0) -
-                (currentMonthUsage.usage.total || 0) -
+            (userSubscription.monthUsageAllowance || 0) -
+                (currentMonthUsage.usage.total || 0),
+        );
+        const remainingPurchasedCredits = Math.max(
+            0,
+            (addons?.purchasedCredits || 0) -
                 (addons?.consumedPurchaseCredits || 0),
         );
+        const remaining = remainingAllowance + remainingPurchasedCredits;
 
         return {
             remaining,

@@ -787,6 +787,45 @@ describe('MeteringService', () => {
             expect(await target.hasAnyUsage(actor)).toBe(false);
         });
 
+        it('does not double-charge same-month overage against remaining (usage total + consumed credits)', async () => {
+            const sub = await target.getActorSubscription(actor);
+            await target.updateAddonCredit(actor.user.uuid, 5_000_000);
+
+            // Exhaust the allowance, then overspend by 1_000_000 — the overage
+            // is consumed from purchased credits.
+            await target.incrementUsage(
+                actor,
+                'kv:read',
+                1,
+                sub.monthUsageAllowance,
+            );
+            await target.incrementUsage(actor, 'kv:read', 1, 1_000_000);
+            await waitFor(async () => {
+                const addons = await target.getActorAddons(actor);
+                expect(addons.consumedPurchaseCredits).toBe(1_000_000);
+            });
+
+            // The overage already lives in both this month's usage total and
+            // consumedPurchaseCredits; remaining must only be reduced once.
+            const allowed = await target.getAllowedUsage(actor);
+            expect(allowed.remaining).toBe(4_000_000);
+        });
+
+        it('counts consumed credits from prior months against the credit pool only', async () => {
+            // Simulate a prior-month overage: consumed credits exist but the
+            // current month has no usage (monthly usage keys roll over).
+            await target.updateAddonCredit(actor.user.uuid, 5_000_000);
+            await server.stores.kv.incr({
+                key: `${POLICY_PREFIX}:actor:${actor.user.uuid}:addons`,
+                pathAndAmountMap: { consumedPurchaseCredits: 2_000_000 },
+            });
+
+            const allowed = await target.getAllowedUsage(actor);
+            expect(allowed.remaining).toBe(
+                allowed.monthUsageAllowance + 3_000_000,
+            );
+        });
+
         it('hasEnoughCredits compares remaining against the requested amount', async () => {
             await target.updateAddonCredit(actor.user.uuid, 1_000);
             expect(await target.hasEnoughCredits(actor, 100)).toBe(true);
