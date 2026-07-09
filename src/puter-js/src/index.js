@@ -1,5 +1,6 @@
 import kvjs from '@heyputer/kv.js';
 import APICallLogger from './lib/APICallLogger.js';
+import { isStoredTokenUsableForOrigin } from './lib/authTokenOrigin.js';
 import path from './lib/path.js';
 import localStorageMemory from './lib/polyfills/localStorage.js';
 import xhrshim from './lib/polyfills/xhrshim.js';
@@ -99,6 +100,10 @@ const PROD_ORIGIN = 'https://puter.com';
 // to the interactive reauth flow.
 const STORAGE_KEY_V1 = 'puter.auth.token';
 const STORAGE_KEY_V2 = 'puter.auth.token.v2';
+// Records the API origin a stored v2 token was minted against. A stored token
+// is only ever replayed to this origin, so a URL-controlled `puter.api_origin`
+// can't harvest a previously-stored token and forward it to a foreign origin.
+const STORAGE_KEY_ORIGIN_V2 = 'puter.auth.token.origin.v2';
 
 const puterInit = function () {
     'use strict';
@@ -504,23 +509,44 @@ const puterInit = function () {
                         this.setAuthToken(bootstrapAuthToken);
                         needsSilentMigration = true;
                     } else {
-                        // Prefer the v2 storage key. Fall back to v1
-                        // and queue a silent migrate-token call.
+                        // No token in the URL — fall back to a stored token,
+                        // but ONLY if it is allowed for the current API origin.
+                        // In app mode `puter.api_origin` is URL-controlled, so a
+                        // stored token must be bound to (and matched against) the
+                        // origin it was minted for. A custom (non-default) origin
+                        // additionally requires an explicit binding; an unbound
+                        // legacy token is only honored against the default origin.
+                        const boundOrigin = this.normalizeStringCandidate(
+                            localStorage.getItem(STORAGE_KEY_ORIGIN_V2),
+                        );
                         const v2 = this.normalizeAuthTokenCandidate(
                             localStorage.getItem(STORAGE_KEY_V2),
                         );
-                        if (v2) {
-                            this.setAuthToken(v2);
-                            selectedAuthToken = v2;
-                        } else {
-                            const v1 = this.normalizeAuthTokenCandidate(
-                                localStorage.getItem(STORAGE_KEY_V1),
-                            );
-                            if (v1) {
-                                this.setAuthToken(v1);
-                                selectedAuthToken = v1;
-                                needsSilentMigration = true;
-                            }
+                        // v1 (legacy) tokens never carry an origin binding.
+                        const v1 = v2
+                            ? null
+                            : this.normalizeAuthTokenCandidate(
+                                  localStorage.getItem(STORAGE_KEY_V1),
+                              );
+                        const storedToken = v2 ?? v1;
+                        if (
+                            storedToken &&
+                            this._storedTokenUsableForCurrentOrigin(
+                                v2 ? boundOrigin : null,
+                            )
+                        ) {
+                            this.setAuthToken(storedToken);
+                            selectedAuthToken = storedToken;
+                            if (v1) needsSilentMigration = true;
+                        } else if (storedToken) {
+                            // A token exists but is not valid for this API
+                            // origin (a URL-supplied custom/attacker origin, or
+                            // an unbound legacy token against a custom origin).
+                            // Treat as unauthenticated and force a reauth for
+                            // this origin instead of replaying the token.
+                            this._needsOriginReauth = {
+                                reason: 'api_origin_mismatch',
+                            };
                         }
                     }
                     if (needsSilentMigration && selectedAuthToken) {
@@ -545,6 +571,18 @@ const puterInit = function () {
                     console.error('Error accessing localStorage:', error);
                 }
                 this.initSubmodules();
+                if (this._needsOriginReauth) {
+                    const reauthSignal = this._needsOriginReauth;
+                    this._needsOriginReauth = null;
+                    // The URL-supplied API origin was rejected as untrusted, so
+                    // snap the API origin back to the trusted default before
+                    // reauthing. This guarantees the fresh token is bound to —
+                    // and only ever sent to — the trusted default origin, never
+                    // the URL-supplied one. Reauth itself is pinned to the
+                    // configured GUI origin (see triggerReauth).
+                    this.setAPIOrigin(this.defaultAPIOrigin);
+                    this.triggerReauth(reauthSignal);
+                }
             }
             // SDK was loaded in a 3rd-party website.
             // When SDK is loaded in GUI the initiation process should start when the DOM is ready. This is because
@@ -742,8 +780,15 @@ const puterInit = function () {
                             STORAGE_KEY_V2,
                             normalizedAuthToken,
                         );
+                        // Persist the origin this token is bound to alongside
+                        // it, so a later boot only reuses it for that origin.
+                        localStorage.setItem(
+                            STORAGE_KEY_ORIGIN_V2,
+                            this.APIOrigin,
+                        );
                     } else {
                         localStorage.removeItem(STORAGE_KEY_V2);
+                        localStorage.removeItem(STORAGE_KEY_ORIGIN_V2);
                     }
                     // Always clear the legacy v1 key on a write — once we
                     // have a v2 token, the v1 one must not linger or it
@@ -768,6 +813,22 @@ const puterInit = function () {
             // perform whoami and cache results
             this.getUser().then((user) => {
                 this.whoami = user;
+            });
+        };
+
+        /**
+         * Decides whether a stored token may be attached to requests for the
+         * current API origin.
+         *   - A bound token may only ever be replayed to the exact origin it
+         *     was minted against.
+         *   - An unbound (legacy) token is only honored against the default API
+         *     origin — never against a URL-supplied custom `puter.api_origin`.
+         */
+        _storedTokenUsableForCurrentOrigin = function (boundOrigin) {
+            return isStoredTokenUsableForOrigin({
+                boundOrigin,
+                currentOrigin: this.APIOrigin,
+                defaultAPIOrigin: this.defaultAPIOrigin,
             });
         };
 
@@ -810,6 +871,7 @@ const puterInit = function () {
             if (this.env === 'web' || this.env === 'app') {
                 try {
                     localStorage.removeItem(STORAGE_KEY_V2);
+                    localStorage.removeItem(STORAGE_KEY_ORIGIN_V2);
                     localStorage.removeItem(STORAGE_KEY_V1);
                 } catch (error) {
                     // Handle the error here
@@ -852,6 +914,7 @@ const puterInit = function () {
             if (this.env === 'web' || this.env === 'app') {
                 try {
                     localStorage.removeItem(STORAGE_KEY_V2);
+                    localStorage.removeItem(STORAGE_KEY_ORIGIN_V2);
                     localStorage.removeItem(STORAGE_KEY_V1);
                 } catch (e) {
                     console.error('Error accessing localStorage:', e);
@@ -888,10 +951,13 @@ const puterInit = function () {
                     // the existing `puter.token` postMessage delivers the
                     // fresh token back to us.
                     //
-                    // targetOrigin is locked to the expected GUI origin —
-                    // postMessage('*') would leak reauth signal + auth_id
-                    // to any embedding parent (including a malicious one),
-                    // and the message body is only meaningful to the GUI.
+                    // targetOrigin is locked to the configured GUI origin, by
+                    // exact match. We deliberately do NOT trust a URL-supplied
+                    // origin here: postMessage('*') — or an attacker-chosen
+                    // origin — would leak the reauth signal + auth_id to a
+                    // malicious parent and could let it inject a token. The
+                    // configured GUI origin is the only origin allowed to drive
+                    // reauth.
                     try {
                         globalThis.parent?.postMessage?.(
                             {
