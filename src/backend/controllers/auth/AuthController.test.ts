@@ -2008,6 +2008,62 @@ describe('AuthController.handleSendConfirmPhone validation', () => {
         );
     });
 
+    it('persists the send failure to KV under the error_id with a 7-day expiry', async () => {
+        const { user, actor } = await makeUserAndActor();
+        const kvSet = vi.spyOn(server.stores.kv, 'set');
+        try {
+            await withPrelude(
+                stubPrelude({
+                    createVerification: vi.fn(async () => {
+                        throw new Error('network down');
+                    }),
+                }),
+                async () => {
+                    let thrown: HttpError | undefined;
+                    try {
+                        await controller.handleSendConfirmPhone(
+                            makeReq({ phone: '+14155550123' }, { actor }),
+                            makeRes(),
+                        );
+                    } catch (e) {
+                        thrown = e as HttpError;
+                    }
+                    const errorId = thrown!.fields!.error_id as string;
+
+                    const { res: record } = await server.stores.kv.get({
+                        key: `sms-send-error:${errorId}`,
+                    });
+                    expect(record).toMatchObject({
+                        reason: 'prelude_request_failed',
+                        status: 502,
+                        user_id: user.id,
+                        user_uid: user.uuid,
+                        detail: 'network down',
+                        t: expect.any(Number),
+                    });
+
+                    const errorSet = kvSet.mock.calls.find(([arg]) =>
+                        (arg as { key?: string }).key?.startsWith(
+                            'sms-send-error:',
+                        ),
+                    );
+                    const { expireAt } = errorSet![0] as {
+                        expireAt: number;
+                    };
+                    const nowSec = Math.floor(Date.now() / 1000);
+                    expect(expireAt).toBeGreaterThan(
+                        nowSec + 7 * 24 * 60 * 60 - 60,
+                    );
+                    expect(expireAt).toBeLessThanOrEqual(
+                        nowSec + 7 * 24 * 60 * 60,
+                    );
+                },
+            );
+        } finally {
+            kvSet.mockRestore();
+        }
+    });
+
     it('forwards ip, device fingerprint, and user-agent to Prelude as signals', async () => {
         const { actor } = await makeUserAndActor();
         const createVerification = vi.fn(async () => ({ status: 'success' }));

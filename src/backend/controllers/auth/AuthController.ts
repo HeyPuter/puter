@@ -72,6 +72,9 @@ const SEND_PHONE_RATE_WINDOW_MS = 60 * 60_000;
 // Once the threshold is crossed the fallback stays open this long, so the
 // user can finish the card flow without racing the attempt counter's expiry.
 const CARD_FALLBACK_OPEN_TTL_SECONDS = 24 * 60 * 60;
+// How long a failed-SMS-send record stays readable by its error_id — long
+// enough to cover the typical support round-trip.
+const SMS_SEND_ERROR_TTL_SECONDS = 7 * 24 * 60 * 60;
 const RESERVED_USERNAMES = new Set([
     'admin',
     'administrator',
@@ -1059,12 +1062,14 @@ export class AuthController extends PuterController {
      * Build the error thrown when a verification SMS can't be sent (a delivery
      * failure, or a refused/blocked send). Mints a short `error_id`, writes a
      * single greppable line tying that id to the real reason (so support can
-     * look it up in CloudWatch with the id the user quotes), and returns the
-     * `HttpError` with the id attached as `error_id` for the GUI to surface.
-     * The phone number is deliberately omitted from the log line (PII); the
-     * user + country are enough to correlate.
+     * look it up in CloudWatch with the id the user quotes), stores the same
+     * record in KV under `sms-send-error:<error_id>` for a week (the admin
+     * abuse page looks it up there without needing log access), and returns
+     * the `HttpError` with the id attached as `error_id` for the GUI to
+     * surface. The phone number is deliberately omitted from the log line and
+     * the KV record (PII); the user + country are enough to correlate.
      */
-    private smsSendError(
+    private async smsSendError(
         statusCode: number,
         clientMessage: string,
         reason: string,
@@ -1075,7 +1080,7 @@ export class AuthController extends PuterController {
             detail?: unknown;
         },
         options: HttpErrorOptions = {},
-    ): HttpError {
+    ): Promise<HttpError> {
         const errorId = uuidv4();
         const detail =
             ctx.detail instanceof Error ? ctx.detail.message : ctx.detail;
@@ -1086,6 +1091,26 @@ export class AuthController extends PuterController {
                 `country=${ctx.country ?? ''}` +
                 (detail ? ` detail=${JSON.stringify(String(detail))}` : ''),
         );
+        // Best-effort: the record backs a support lookup, so a KV failure
+        // must never mask the error actually being reported.
+        try {
+            const now = Math.floor(Date.now() / 1000);
+            await this.stores.kv.set({
+                key: `sms-send-error:${errorId}`,
+                value: {
+                    reason,
+                    status: statusCode,
+                    user_id: ctx.userId ?? null,
+                    user_uid: ctx.userUid ?? null,
+                    country: ctx.country ?? null,
+                    detail: detail != null ? String(detail) : null,
+                    t: now,
+                },
+                expireAt: now + SMS_SEND_ERROR_TTL_SECONDS,
+            });
+        } catch (e) {
+            console.warn('[send-confirm-phone] error-record store failed:', e);
+        }
         return new HttpError(statusCode, clientMessage, {
             ...options,
             fields: { ...options.fields, error_id: errorId },
@@ -1219,7 +1244,7 @@ export class AuthController extends PuterController {
                 legacyCode: 'account_suspended',
             });
         if (!this.clients.prelude?.isConfigured())
-            throw this.smsSendError(
+            throw await this.smsSendError(
                 503,
                 'Phone verification is unavailable.',
                 'prelude_not_configured',
@@ -1254,7 +1279,7 @@ export class AuthController extends PuterController {
         // (see PreludeClient / countries.ts). Avoids paying exorbitant per-SMS
         // rates in low-revenue, high-fraud geographies.
         if (!this.clients.prelude.isCountrySupported(parsed.country))
-            throw this.smsSendError(
+            throw await this.smsSendError(
                 400,
                 'Phone verification is not available for this country.',
                 'country_not_supported',
@@ -1305,7 +1330,7 @@ export class AuthController extends PuterController {
         // its meaning lives in the extension (which sets it) and the GUI (which
         // displays it), so no abuse semantics leak into the OSS repo.
         if (abuseCheck.allowed === false)
-            throw this.smsSendError(
+            throw await this.smsSendError(
                 429,
                 'Phone verification is unavailable for this number right now.',
                 `not_allowed:${abuseCheck.reason ?? 'unspecified'}`,
@@ -1339,7 +1364,7 @@ export class AuthController extends PuterController {
                 expireAt: Math.floor(Date.now() / 1000) + 60 * 60,
             });
         } catch (e) {
-            throw this.smsSendError(
+            throw await this.smsSendError(
                 503,
                 'Could not start phone verification.',
                 'pending_store_failed',
@@ -1378,7 +1403,7 @@ export class AuthController extends PuterController {
                 result.status === 'blocked' ||
                 result.status === 'shadow_blocked'
             ) {
-                throw this.smsSendError(
+                throw await this.smsSendError(
                     429,
                     'Phone verification is temporarily unavailable for this number.',
                     `prelude_${result.status}`,
@@ -1395,7 +1420,7 @@ export class AuthController extends PuterController {
             }
         } catch (e) {
             if (e instanceof HttpError) throw e;
-            throw this.smsSendError(
+            throw await this.smsSendError(
                 502,
                 'Could not send verification code.',
                 'prelude_request_failed',
