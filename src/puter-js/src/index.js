@@ -946,18 +946,6 @@ const puterInit = function () {
                     return;
                 }
                 if (this.env === 'app') {
-                    // We're inside an iframe in the GUI. Ask the parent to
-                    // surface the reauth modal; once the user signs in there,
-                    // the existing `puter.token` postMessage delivers the
-                    // fresh token back to us.
-                    //
-                    // targetOrigin is locked to the configured GUI origin, by
-                    // exact match. We deliberately do NOT trust a URL-supplied
-                    // origin here: postMessage('*') — or an attacker-chosen
-                    // origin — would leak the reauth signal + auth_id to a
-                    // malicious parent and could let it inject a token. The
-                    // configured GUI origin is the only origin allowed to drive
-                    // reauth.
                     try {
                         globalThis.parent?.postMessage?.(
                             {

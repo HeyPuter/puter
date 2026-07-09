@@ -64,6 +64,8 @@ Keep comments light. Prefer self-documenting code — clear names, small functio
 - The _why_ is non-obvious (a hidden constraint, a workaround, a subtle invariant).
 - A non-trivial usage detail would otherwise trip the next reader.
 
+If comments need to be more than a line, its probably too long, and when it does need multiline comments, use multiline `/** ... */` JSDoc style for consistency. Use `//` for single-line comments.
+
 Don't restate what the code already says. Don't write comments that reference the current task or PR or version of something — those rot.
 
 **No ticket references in code or test comments.** Don't write `PUT-1234`, `AUTH-3`, `GUI-2`, `// fix for FOO-99`, `// per ROLLOUT-1`, or section headers like `// -- PUT-1020: ... --`. The ticket exists in git history and the issue tracker; the code should describe the _why_ in domain terms ("logout cascade transparently invalidates...") not project-management terms ("the cascade from AUTH-3..."). Same rule for test-block names and section dividers — describe what's being tested, not which ticket asked for it.
