@@ -335,6 +335,63 @@ describe('WebDAVController', () => {
         });
     });
 
+    describe('suspension gate', () => {
+        // WebDAV must also enforce the suspension gate every other authenticated
+        // route gets from requireAuthGate. Same single-use() dispatch means that
+        // middleware is never wired in, so #dispatch calls assertNotSuspended
+        // itself. Without it, a suspended account could read/write/delete its
+        // whole filesystem over the `dav` subdomain.
+        it('rejects a suspended session actor with 403', async () => {
+            const { res, captured } = makeRes();
+            await dispatchMiddleware(
+                makeReq({
+                    method: 'PROPFIND',
+                    actor: {
+                        user: {
+                            id: 1,
+                            uuid: 'suspended-uuid',
+                            username: 'suspended',
+                            suspended: true,
+                        },
+                    },
+                }),
+                res,
+                noop,
+            );
+            expect(captured.statusCode).toBe(403);
+        });
+
+        it('rejects a suspended user on the Basic-auth path with 403', async () => {
+            const username = `webdav-suspended-${Math.random()
+                .toString(36)
+                .slice(2, 10)}`;
+            const created = await server.stores.user.create({
+                username,
+                uuid: uuidv4(),
+                password: await bcryptHash('correct-horse', 4),
+                email: `${username}@test.local`,
+                free_storage: 100 * 1024 * 1024,
+                requires_email_confirmation: false,
+            });
+            await server.stores.user.update(created.id, {
+                suspended: 1,
+            });
+
+            const { res, captured } = makeRes();
+            await dispatchMiddleware(
+                makeReq({
+                    method: 'PROPFIND',
+                    headers: {
+                        authorization: basicAuth(username, 'correct-horse'),
+                    },
+                }),
+                res,
+                noop,
+            );
+            expect(captured.statusCode).toBe(403);
+        });
+    });
+
     describe('unsupported methods', () => {
         it('returns 405 for unknown HTTP methods', async () => {
             const { res, captured } = makeRes();

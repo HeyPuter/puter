@@ -23,7 +23,10 @@ import { posix as pathPosix } from 'node:path';
 import { EventMap } from '../../clients/event/types.js';
 import type { Actor } from '../../core/actor.js';
 import { HttpError } from '../../core/http/HttpError.js';
-import { assertVerifiedAccount } from '../../core/http/middleware/gates.js';
+import {
+    assertNotSuspended,
+    assertVerifiedAccount,
+} from '../../core/http/middleware/gates.js';
 import type { PuterRouter } from '../../core/http/PuterRouter.js';
 import { verify as verifyOtp } from '../../services/auth/OTPUtil.js';
 import { expandTildePath } from '../../services/fs/resolveNode.js';
@@ -90,14 +93,15 @@ export class WebDAVController extends PuterController {
         const actor = await this.#resolveActor(req, res);
         if (!actor) return; // 401 already sent
 
-        // Apply the same pending-verification gate every other authenticated
-        // route gets from `requireVerifiedAccount`. WebDAV dispatches every
-        // method off a single `router.use` with no route options, so that
-        // middleware is never inserted into its chain — without this call an
-        // account still pending email / phone / card verification could read,
-        // write, and delete its entire filesystem over the `dav` subdomain,
-        // bypassing the gate. Throws a 403 HttpError, surfaced by the catch in
-        // registerRoutes.
+        // Apply the same suspension + pending-verification gates every other
+        // authenticated route gets from `requireAuthGate` / `requireVerifiedAccount`.
+        // WebDAV dispatches every method off a single `router.use` with no route
+        // options, so that middleware is never inserted into its chain — without
+        // these calls a suspended account (or one still pending email / phone /
+        // card verification) could read, write, and delete its entire filesystem
+        // over the `dav` subdomain, bypassing the gates. Both throw a 403
+        // HttpError, surfaced by the catch in registerRoutes.
+        assertNotSuspended(actor.user);
         assertVerifiedAccount(actor.user);
 
         // Expand `~`/`~/...` against the authenticated actor's username.
