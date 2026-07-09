@@ -27,7 +27,7 @@ export const XAI_MODELS: IChatModel[] = [
         modalities: { input: ['text', 'image'], output: ['text'] },
         open_weights: false,
         tool_call: true,
-        release_date: '2026-07-01',
+        release_date: '2026-07-08',
         name: 'Grok 4.5',
         aliases: ['x-ai/grok-4.5', 'grok-4.5-latest'],
         context: 500_000,
