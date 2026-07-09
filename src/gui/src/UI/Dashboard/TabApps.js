@@ -32,14 +32,14 @@ const APP_NAMES_NO_UNINSTALL = new Set([
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-function buildTileHtml (app) {
+// External apps (not owned by a Puter user) can report an opaque app-… id
+// as their title (uid === name === title); in that case show the hostname
+// of index_url instead, and open the app's website (index_url) on click —
+// matching the Home tab.
+function resolveTileDisplay (app) {
     let title = (app.title || app.name || '').trim();
     let targetLink = '';
 
-    // External apps (not owned by a Puter user) can report an opaque app-… id
-    // as their title (uid === name === title); in that case show the hostname
-    // of index_url instead, and open the app's website (index_url) on click —
-    // matching the Home tab.
     const appUid = app.uid || app.uuid;
     if (
         app.external &&
@@ -51,6 +51,11 @@ function buildTileHtml (app) {
         targetLink = app.index_url;
     }
 
+    return { title, targetLink };
+}
+
+function buildTileHtml (app) {
+    const { title, targetLink } = resolveTileDisplay(app);
     const iconUrl = app.iconUrl || window.icons['app.svg'];
 
     let h = `<div class="myapps-tile" data-app-name="${html_encode(app.name)}" data-app-title="${html_encode(title)}" data-app-uid="${html_encode(app.uid || '')}" data-target-link="${html_encode(targetLink)}" title="${html_encode(title)}">`;
@@ -389,10 +394,16 @@ const TabApps = {
 
         let list = this._apps;
         if ( query ) {
+            // Match the same values the tiles expose as data-app-name,
+            // data-app-title (the displayed title, e.g. the hostname for
+            // website shortcuts), and data-app-uid.
             list = list.filter(app => {
-                const title = (app.title || '').toLowerCase();
+                const title = resolveTileDisplay(app).title.toLowerCase();
+                const rawTitle = (app.title || '').toLowerCase();
                 const name = (app.name || '').toLowerCase();
-                return title.includes(query) || name.includes(query);
+                const uid = String(app.uid || app.uuid || '').toLowerCase();
+                return title.includes(query) || rawTitle.includes(query)
+                    || name.includes(query) || uid.includes(query);
             });
         }
 
