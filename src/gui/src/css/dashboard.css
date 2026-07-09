@@ -630,40 +630,22 @@ body {
 
 /* My Apps tab */
 
-.myapps-tab {
-    max-width: 900px;
-    padding: 32px 40px;
-    width: 100%;
+/* The Apps tab fills the content area and paginates horizontally
+   (iOS-home-screen style) instead of scrolling vertically. */
+.dashboard-section-apps {
+    height: 100%;
+}
+
+.dashboard-tab-content.myapps-tab {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
 }
 
 .myapps-search-wrap {
-    position: sticky;
-    top: 0;
-    z-index: 10;
     padding-top: 30px;
     padding-bottom: 30px;
     margin-bottom: 20px;
-    margin-left: -40px;
-    margin-right: -40px;
-    padding-left: 40px;
-    padding-right: 40px;
-    background: var(--dashboard-background);
-}
-
-@supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
-    .myapps-search-wrap {
-        background: rgba(255, 255, 255, 0);
-        backdrop-filter: blur(20px) saturate(1.5);
-        -webkit-backdrop-filter: blur(20px) saturate(1.5);
-    }
-}
-
-@media (prefers-color-scheme: dark) {
-    @supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
-        .myapps-search-wrap {
-            background: rgba(30, 30, 30, 0.55);
-        }
-    }
 }
 
 .myapps-search-inner {
@@ -731,11 +713,20 @@ input.myapps-search::-webkit-search-decoration {
 }
 
 .myapps-container {
-    min-height: 200px;
-    padding-bottom: 50px;
+    /* Pager geometry; TabApps.js reads these to size pages. */
+    --myapps-tile-w: 100px;
+    --myapps-tile-h: 78px;
+    --myapps-gap-x: 32px;
+    --myapps-gap-y: 32px;
+    --myapps-dots-h: 28px;
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
 }
 
 .myapps-empty {
+    flex: 1;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -756,17 +747,144 @@ input.myapps-search::-webkit-search-decoration {
     margin: 0;
 }
 
-.myapps-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, 100px);
-    gap: 32px 32px;
-    justify-content: center;
+/* iOS-style pager: pages snap horizontally, dots below, hover arrows */
+
+.myapps-pager {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
     opacity: 1;
     transition: opacity 0.2s ease;
 }
 
-.myapps-grid-loading {
+.myapps-pager-loading {
     opacity: 0;
+}
+
+.myapps-pager-scroller {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scroll-snap-type: x mandatory;
+    overscroll-behavior-x: contain;
+    touch-action: pan-x;
+    scrollbar-width: none;
+}
+
+.myapps-pager-scroller::-webkit-scrollbar {
+    display: none;
+}
+
+.myapps-page {
+    flex: 0 0 100%;
+    min-width: 0;
+    scroll-snap-align: start;
+    scroll-snap-stop: always;
+    display: grid;
+    grid-template-columns: repeat(var(--myapps-cols, 1), var(--myapps-tile-w));
+    grid-auto-rows: var(--myapps-tile-h);
+    column-gap: var(--myapps-gap-x);
+    row-gap: var(--myapps-gap-y);
+    justify-content: center;
+    align-content: start;
+}
+
+.myapps-pager-dots {
+    flex: none;
+    height: var(--myapps-dots-h);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+}
+
+.myapps-pager-dots-hidden {
+    visibility: hidden;
+}
+
+.myapps-pager-dot {
+    -webkit-appearance: none;
+    appearance: none;
+    flex: none;
+    width: 17px;
+    height: 17px;
+    padding: 5px;
+    margin: 0;
+    border: none;
+    border-radius: 50%;
+    background-color: var(--dashboard-text-primary);
+    background-clip: content-box;
+    opacity: 0.22;
+    cursor: pointer;
+    transition: opacity 0.2s ease;
+}
+
+.myapps-pager-dot.active {
+    opacity: 0.85;
+}
+
+@media (hover: hover) {
+    .myapps-pager-dot:not(.active):hover {
+        opacity: 0.5;
+    }
+}
+
+.myapps-pager-dot:focus-visible {
+    outline: 2px solid var(--select-color);
+    outline-offset: -1px;
+}
+
+.myapps-pager-arrow {
+    position: absolute;
+    top: calc(50% - var(--myapps-dots-h) / 2);
+    transform: translateY(-50%);
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--dashboard-border);
+    border-radius: 50%;
+    background: var(--dashboard-card-background);
+    color: var(--dashboard-text-secondary);
+    box-shadow: 0 2px 8px var(--dashboard-shadow-light);
+    cursor: pointer;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.15s ease, background 0.15s ease;
+    z-index: 2;
+}
+
+.myapps-pager-arrow svg {
+    width: 16px;
+    height: 16px;
+}
+
+.myapps-pager-arrow-prev {
+    left: 0;
+}
+
+.myapps-pager-arrow-next {
+    right: 0;
+}
+
+/* Arrows are a hover-only affordance for mouse users; touch swipes instead. */
+@media (hover: hover) and (pointer: fine) {
+    .myapps-pager:hover .myapps-pager-arrow:not(.myapps-pager-arrow-hidden),
+    .myapps-pager-arrow:focus-visible:not(.myapps-pager-arrow-hidden) {
+        opacity: 1;
+        pointer-events: auto;
+    }
+
+    .myapps-pager-arrow:hover {
+        background: var(--dashboard-hover);
+        color: var(--dashboard-text-primary);
+    }
 }
 
 .myapps-tile {
@@ -1025,19 +1143,22 @@ input.myapps-search::-webkit-search-decoration {
         height: 40px;
     }
 
+    .dashboard-tab-content.myapps-tab {
+        padding-bottom: max(6px, env(safe-area-inset-bottom));
+    }
+
     .myapps-container {
-        padding: 20px 10px;
+        --myapps-tile-w: 72px;
+        --myapps-tile-h: 74px;
+        --myapps-gap-x: 12px;
+        --myapps-gap-y: 30px;
     }
 
-    .myapps-tab h2 {
-        font-size: 22px;
-        margin-bottom: 16px;
-    }
-
-    .myapps-grid {
-        grid-template-columns: repeat(4, 72px);
-        column-gap: max(0px, calc((100% - 4 * 72px) / 3));
-        row-gap: 30px;
+    /* Spread the fixed column count across the page width, iOS-style;
+       --myapps-gap-x stays the minimum gap the column count is computed for. */
+    .myapps-page {
+        justify-content: space-between;
+        column-gap: 0;
     }
 
     .myapps-tile {
@@ -1048,15 +1169,6 @@ input.myapps-search::-webkit-search-decoration {
         width: 52px;
         height: 52px;
         border-radius: 12px;
-    }
-
-    /* Too narrow for 4×72px in one row: wrap like before */
-    @media (max-width: 400px) {
-        .myapps-grid {
-            grid-template-columns: repeat(auto-fill, 72px);
-            column-gap: 12px;
-            row-gap: 20px;
-        }
     }
 }
 
