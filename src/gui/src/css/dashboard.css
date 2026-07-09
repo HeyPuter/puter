@@ -769,6 +769,11 @@ input.myapps-search::-webkit-search-decoration {
     display: flex;
     overflow-x: auto;
     overflow-y: hidden;
+    /* overflow-x above forces vertical clipping too, which would shave the
+       top of first-row icons when they scale up on hover; bleed the clip
+       edge upward so the scaled icons stay visible. */
+    margin-top: -8px;
+    padding-top: 8px;
     scroll-snap-type: x mandatory;
     overscroll-behavior-x: contain;
     touch-action: pan-x;
