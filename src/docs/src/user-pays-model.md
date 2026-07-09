@@ -9,7 +9,7 @@ The User-Pays Model means your users cover their own cloud and AI usage, instead
 
 - Users sign in to your app with their Puter account, and that account covers the AI, storage, and other resources they use. Their usage never touches your bill.
 - Every user starts with a free monthly allowance, enough to test out the platform and use apps built with Puter.js. They can track their usage in the [usage dashboard](https://puter.com/dashboard#usage).
-- If a user runs out, Puter prompts them to upgrade for more, or they can do it themselves in their [billing settings](https://puter.com/dashboard#billing).
+- If a user runs out of their allowance, Puter prompts them to upgrade for more, or they can do it themselves in their [billing settings](https://puter.com/dashboard#billing).
 
 <div class="info">When you, as a developer, use your own app, you are also subject to the User-Pays Model: you cover your own usage like any other user.</div>
 
