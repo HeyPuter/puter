@@ -391,13 +391,18 @@ function UIWindowSignup (options) {
                 success: async function (data) {
                     await window.update_auth_data(data.token, data.user);
 
-                    //send out the login event
-                    if ( options.reload_on_success ) {
-                        window.onbeforeunload = null;
-                        // either options.redirect_url or the current page
-                        const redirectUrl = options.redirect_url || '/';
-                        window.location.replace(redirectUrl);
-                    } else if ( data.user?.requires_phone_verification || data.user?.requires_card_verification || options.send_confirmation_code || data.user?.requires_email_confirmation ) {
+                    // The phone (SMS) and card gates run before any reload:
+                    // reloading first would tear down the signup flow mid-way
+                    // and leave the dialogs to the boot-time whoami check,
+                    // which not every entry point reliably reaches. The email
+                    // dialog is closable (no retry loop), so in reload flows
+                    // it keeps its old post-reload timing — the boot check
+                    // shows the uncloseable variant — rather than risk a
+                    // dismissed dialog stranding the page before the reload.
+                    let email_verified = true;
+                    const show_email_dialog = !options.reload_on_success &&
+                        (options.send_confirmation_code || data.user?.requires_email_confirmation);
+                    if ( data.user?.requires_phone_verification || data.user?.requires_card_verification || show_email_dialog ) {
                         $(el_window).close();
                         // Low-reputation signups must clear every flagged gate.
                         // Phone (SMS) and email come first; the card gate only
@@ -414,8 +419,7 @@ function UIWindowSignup (options) {
                             }
                             while ( !phone_ok );
                         }
-                        let email_verified = true;
-                        if ( options.send_confirmation_code || data.user?.requires_email_confirmation ) {
+                        if ( show_email_dialog ) {
                             email_verified = await UIWindowEmailConfirmationRequired({
                                 stay_on_top: true,
                                 has_head: true,
@@ -436,9 +440,15 @@ function UIWindowSignup (options) {
                             }
                             while ( !card_ok );
                         }
-                        resolve(email_verified);
+                    }
+
+                    if ( options.reload_on_success ) {
+                        window.onbeforeunload = null;
+                        // either options.redirect_url or the current page
+                        const redirectUrl = options.redirect_url || '/';
+                        window.location.replace(redirectUrl);
                     } else {
-                        resolve(true);
+                        resolve(email_verified);
                     }
                 },
                 error: function (err) {
